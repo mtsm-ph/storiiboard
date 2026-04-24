@@ -1,5 +1,6 @@
 
-// storiiboard-sidebar.jsx (v2) — expandable scene dropdowns, Moodboard nav, Lighting Setup
+// storiiboard-sidebar.jsx (v3) — Calendar nav, Team in project nav, compact project list,
+// dynamic project name, functional Add Scene inline form, Producer mode toggle
 
 const { useState: useSbState } = React;
 
@@ -10,56 +11,57 @@ const Ic = ({ d, size = 16, vb }) => (
 
 const SbIcons = {
   Projects:   () => <Ic d={<><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></>} />,
-  Gigs:       () => <Ic d={<><circle cx="8" cy="5.5" r="2.8"/><path d="M1.5 14.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/></>} />,
+  Calendar:   () => <Ic d={<><rect x="1.5" y="3" width="13" height="12" rx="1.5"/><path d="M5 1.5v3M11 1.5v3M1.5 7h13"/><rect x="4" y="9.5" width="2" height="2" rx="0.4"/><rect x="7" y="9.5" width="2" height="2" rx="0.4"/><rect x="10" y="9.5" width="2" height="2" rx="0.4"/></>} />,
   Archive:    () => <Ic d={<><rect x="1.5" y="4.5" width="13" height="10" rx="1"/><path d="M1.5 4.5 3 2h10l1.5 2.5"/><path d="M5.5 9h5"/></>} />,
-  Team:       () => <Ic d={<><circle cx="5.5" cy="5.5" r="2.4"/><circle cx="10.5" cy="5.5" r="2.4"/><path d="M1 14c0-2.5 2-4.5 4.5-4.5"/><path d="M15 14c0-2.5-2-4.5-4.5-4.5"/><path d="M5 9c.4-2.5 2.2-4.5 5.5-4.5"/></>} />,
   Bell:       () => <Ic d={<><path d="M8 2.5a4 4 0 0 1 4 4v3L13.5 12H2.5L4 9.5V6.5a4 4 0 0 1 4-4z"/><path d="M6.5 12a1.5 1.5 0 0 0 3 0"/></>} />,
   Storyboard: () => <Ic d={<><rect x="1.5" y="2.5" width="6" height="4.5" rx="0.7"/><rect x="8.5" y="2.5" width="6" height="4.5" rx="0.7"/><rect x="1.5" y="9" width="6" height="4.5" rx="0.7"/><rect x="8.5" y="9" width="6" height="4.5" rx="0.7"/></>} />,
   Assets:     () => <Ic d={<><rect x="2" y="2" width="5" height="5" rx="0.7"/><rect x="9" y="2" width="5" height="5" rx="0.7"/><rect x="2" y="9" width="5" height="5" rx="0.7"/><path d="M11.5 9v6M8.5 12h6"/></>} />,
-  Crew:       () => <Ic d={<><circle cx="8" cy="5" r="2.8"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></>} />,
+  Team:       () => <Ic d={<><circle cx="5.5" cy="5.5" r="2.4"/><circle cx="10.5" cy="5.5" r="2.4"/><path d="M1 14c0-2.5 2-4.5 4.5-4.5"/><path d="M15 14c0-2.5-2-4.5-4.5-4.5"/><path d="M5 9c.4-2.5 2.2-4.5 5.5-4.5"/></>} />,
   Lightning:  () => <Ic d={<><rect x="1.5" y="3" width="13" height="10" rx="1"/><circle cx="8" cy="8" r="2.5"/><path d="M3.5 5.5h1M3.5 8h1M3.5 10.5h1M11.5 5.5h1M11.5 8h1M11.5 10.5h1"/></>} />,
   Moodboard:  () => <Ic d={<><rect x="1.5" y="1.5" width="6" height="8" rx="0.7"/><rect x="9" y="1.5" width="5.5" height="5" rx="0.7"/><rect x="9" y="8" width="5.5" height="6.5" rx="0.7"/><rect x="1.5" y="11" width="6" height="3" rx="0.7"/></>} />,
   Gear:       () => <Ic d={<><circle cx="8" cy="8" r="2.3"/><path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/></>} />,
+  Producer:   () => <Ic d={<><circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.8 2.2-5 5-5s5 2.2 5 5"/><path d="M11 7l1.5 1.5L15 6"/></>} />,
   ChevDown:   () => <Ic d={<path d="M4 6l4 4 4-4"/>} />,
   Plus:       () => <Ic d={<><path d="M8 3v10M3 8h10"/></>} />,
   Scene:      () => <Ic size={12} d={<><circle cx="6" cy="6" r="4"/><path d="M4.5 4.5l3 3M4.5 7.5l1.5-1.5"/></>} />,
+  Check:      () => <Ic d={<path d="M3 8l3.5 3.5L13 5"/>} />,
 };
 
 const GLOBAL_NAV = [
-  { id: 'projects',       label: 'Projects',      icon: 'Projects' },
-  { id: 'gigs',           label: 'Gigs',           icon: 'Gigs'     },
-  { id: 'archive',        label: 'Archive',        icon: 'Archive'  },
-  { id: 'team',           label: 'Team Directory', icon: 'Team'     },
-  { id: 'notif',          label: 'Notifications',  icon: 'Bell', badge: 4 },
+  { id: 'projects',  label: 'Projects',  icon: 'Projects' },
+  { id: 'calendar',  label: 'Calendar',  icon: 'Calendar' },
+  { id: 'archive',   label: 'Archive',   icon: 'Archive'  },
+  { id: 'notif',     label: 'Notifications', icon: 'Bell', badge: 4 },
 ];
 
-// Scenes data shared with views — exported on window
-const SB_SCENES = [
-  { id: 'sc04', label: 'SC 04', title: 'Mirror Scene',     location: 'Paris Apt.',     frameIds: ['f01'] },
-  { id: 'sc07', label: 'SC 07', title: 'Airplane Reverie', location: 'Business Class', frameIds: ['f02'] },
-  { id: 'sc12', label: 'SC 12', title: 'The Ceremony',     location: 'Desert Plain',   frameIds: ['f03'] },
-  { id: 'sc15', label: 'SC 15', title: 'Control Room',     location: 'Server Room',    frameIds: ['f04'] },
-  { id: 'sc18', label: 'SC 18', title: 'Empty Frame',      location: 'TBD',            frameIds: ['f05'] },
-  { id: 'sc21', label: 'SC 21', title: 'Departure Board',  location: 'Airport',        frameIds: ['f06'] },
-];
-
-// expandable: which project nav items have scene dropdowns
 const PROJECT_NAV = [
-  { id: 'storyboard', label: 'Storyboard',    icon: 'Storyboard', expandable: true  },
-  { id: 'assets',     label: 'Assets',         icon: 'Assets',     expandable: false },
-  { id: 'crew',       label: 'Crew',           icon: 'Crew',       expandable: false },
-  { id: 'lighting',   label: 'Setup',          icon: 'Lightning',  expandable: true  },
-  { id: 'moodboard',  label: 'Moodboard',      icon: 'Moodboard',  expandable: true  },
-  { id: 'settings',   label: 'Settings',       icon: 'Gear',       expandable: false },
+  { id: 'storyboard', label: 'Storyboard', icon: 'Storyboard', expandable: true  },
+  { id: 'assets',     label: 'Assets',     icon: 'Assets',     expandable: false },
+  { id: 'team',       label: 'Team',       icon: 'Team',       expandable: false },
+  { id: 'lighting',   label: 'Setup',      icon: 'Lightning',  expandable: true  },
+  { id: 'moodboard',  label: 'Moodboard',  icon: 'Moodboard',  expandable: true  },
+  { id: 'settings',   label: 'Settings',   icon: 'Gear',       expandable: false },
 ];
 
 const PROJECT_VIEW_IDS = new Set(PROJECT_NAV.map(n => n.id));
 
-function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen }) {
+function Sidebar({
+  theme, view, setView, setActiveScene, notifOpen, setNotifOpen,
+  activeProject, activeProjectData, projects, onOpenProject,
+  scenes, onAddScene,
+  producerMode, setProducerMode, producerOpen, setProducerOpen,
+}) {
   const dark = theme === 'dark';
   const [projectExpanded, setProjectExpanded] = useSbState(true);
-  // track which expandable nav items are open
   const [openDropdowns, setOpenDropdowns] = useSbState({ storyboard: true, lighting: false, moodboard: false });
+  const [recentExpanded, setRecentExpanded] = useSbState(true);
+
+  // Add Scene inline form state
+  const [addingScene, setAddingScene] = useSbState(false);
+  const [newSceneTitle, setNewSceneTitle] = useSbState('');
+  const [newSceneLocation, setNewSceneLocation] = useSbState('');
+
+  const inProject = PROJECT_VIEW_IDS.has(view);
 
   const c = {
     bg:          dark ? '#0F1118' : '#EFECE6',
@@ -70,13 +72,13 @@ function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen
     activeText:  dark ? '#EDE8E2' : '#1A1714',
     hover:       dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
     sceneHover:  dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-    sceneActive: dark ? 'rgba(195,177,225,0.1)' : 'rgba(195,177,225,0.18)',
     sectionLbl:  dark ? '#363C54' : '#C0BAB0',
     badge:       '#E8B4B8',
     badgeText:   '#3A1518',
     divider:     dark ? '#1A1D28' : '#DDD9D1',
-    subIndent:   dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)',
     accent:      { storyboard: '#C3B1E1', lighting: '#E8D5B7', moodboard: '#E8B4B8' },
+    input:       dark ? '#141820' : '#F5F2EE',
+    inputBorder: dark ? '#2A2E3E' : '#D5D1CA',
   };
 
   const toggleDropdown = (id) =>
@@ -85,6 +87,24 @@ function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen
   const handleSceneClick = (navId, sceneId) => {
     setView(navId);
     setActiveScene(sceneId);
+  };
+
+  const handleAddSceneSubmit = () => {
+    if (!newSceneTitle.trim()) return;
+    const nextNum = String(scenes.length + 1).padStart(2, '0');
+    onAddScene({
+      id: 'sc_' + Date.now(),
+      label: 'SC ' + (scenes.length + 1),
+      title: newSceneTitle.trim(),
+      location: newSceneLocation.trim() || 'TBD',
+      frameIds: [],
+      shootDate: null,
+      venue: null,
+      staffChecklist: [],
+    });
+    setNewSceneTitle('');
+    setNewSceneLocation('');
+    setAddingScene(false);
   };
 
   const navItemStyle = (active) => ({
@@ -131,46 +151,69 @@ function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen
         {/* Scene dropdown */}
         {item.expandable && dropOpen && (
           <div style={{ marginBottom: 4 }}>
-            {/* Left accent line */}
             <div style={{ marginLeft: 22, paddingLeft: 12, borderLeft: `1.5px solid ${accentColor}22` }}>
-              {SB_SCENES.map(sc => {
-                const scActive = view === item.id; // highlight when parent is active
-                return (
-                  <div
-                    key={sc.id}
-                    onClick={() => handleSceneClick(item.id, sc.id)}
-                    style={{
-                      display: 'flex', alignItems: 'baseline', gap: 7,
-                      padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
-                      marginBottom: 1, transition: 'background 0.1s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = c.sceneHover; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <span style={{
-                      fontFamily: "'DM Mono','Fira Mono',monospace",
-                      fontSize: 9, letterSpacing: '0.06em', color: accentColor,
-                      flexShrink: 0,
-                    }}>{sc.label}</span>
-                    <span style={{ fontSize: 11.5, color: c.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {item.id === 'lighting' ? sc.location : sc.title}
-                    </span>
+              {scenes.map(sc => (
+                <div
+                  key={sc.id}
+                  onClick={() => handleSceneClick(item.id, sc.id)}
+                  style={{
+                    display: 'flex', alignItems: 'baseline', gap: 7,
+                    padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
+                    marginBottom: 1, transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = c.sceneHover; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span style={{
+                    fontFamily: "'DM Mono','Fira Mono',monospace",
+                    fontSize: 9, letterSpacing: '0.06em', color: accentColor, flexShrink: 0,
+                  }}>{sc.label}</span>
+                  <span style={{ fontSize: 11.5, color: c.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.id === 'lighting' ? sc.location : sc.title}
+                  </span>
+                </div>
+              ))}
+
+              {/* Inline Add Scene form */}
+              {item.id === 'storyboard' && addingScene ? (
+                <div style={{ padding: '6px 8px', marginTop: 4 }}>
+                  <input
+                    autoFocus
+                    value={newSceneTitle}
+                    onChange={e => setNewSceneTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddSceneSubmit(); if (e.key === 'Escape') setAddingScene(false); }}
+                    placeholder="Scene title…"
+                    style={{ width: '100%', padding: '5px 8px', borderRadius: 5, fontSize: 11.5, background: c.input, border: `1px solid ${c.inputBorder}`, color: c.text, fontFamily: "'DM Sans',sans-serif", outline: 'none', marginBottom: 4 }}
+                  />
+                  <input
+                    value={newSceneLocation}
+                    onChange={e => setNewSceneLocation(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddSceneSubmit(); if (e.key === 'Escape') setAddingScene(false); }}
+                    placeholder="Location (optional)…"
+                    style={{ width: '100%', padding: '5px 8px', borderRadius: 5, fontSize: 11.5, background: c.input, border: `1px solid ${c.inputBorder}`, color: c.text, fontFamily: "'DM Sans',sans-serif", outline: 'none', marginBottom: 6 }}
+                  />
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <div onClick={handleAddSceneSubmit} style={{ flex: 1, padding: '4px', borderRadius: 5, cursor: 'pointer', fontSize: 11, textAlign: 'center', background: 'rgba(195,177,225,0.15)', border: '1px solid rgba(195,177,225,0.3)', color: accentColor }}>Add</div>
+                    <div onClick={() => setAddingScene(false)} style={{ padding: '4px 8px', borderRadius: 5, cursor: 'pointer', fontSize: 11, color: c.muted }}>Cancel</div>
                   </div>
-                );
-              })}
-              {/* Add scene / add setup */}
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
-                  color: c.muted, fontSize: 11, marginTop: 2,
-                }}
-                onMouseEnter={e => { e.currentTarget.style.color = accentColor; }}
-                onMouseLeave={e => { e.currentTarget.style.color = c.muted; }}
-              >
-                <SbIcons.Plus />
-                <span>{item.id === 'storyboard' ? 'Add Scene' : item.id === 'lighting' ? 'New Setup Diagram' : 'New Board'}</span>
-              </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '5px 8px', borderRadius: 5, cursor: 'pointer',
+                    color: c.muted, fontSize: 11, marginTop: 2,
+                  }}
+                  onClick={() => {
+                    if (item.id === 'storyboard') setAddingScene(true);
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.color = accentColor; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = c.muted; }}
+                >
+                  <SbIcons.Plus />
+                  <span>{item.id === 'storyboard' ? 'Add Scene' : item.id === 'lighting' ? 'New Setup Diagram' : 'New Board'}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -224,23 +267,91 @@ function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen
         })}
       </div>
 
-      {/* Project Nav */}
-      {PROJECT_VIEW_IDS.has(view) && (
+      {/* Compact recent projects — shown when NOT inside a project */}
+      {!inProject && projects.length > 0 && (
+        <div style={{ borderTop: `1px solid ${c.divider}`, padding: '10px 10px 6px', flexShrink: 0 }}>
+          <div
+            onClick={() => setRecentExpanded(e => !e)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 9px', cursor: 'pointer', marginBottom: 4 }}
+          >
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: c.sectionLbl, flex: 1 }}>
+              Recent Projects
+            </div>
+            <span style={{ color: c.sectionLbl, display: 'flex', transform: recentExpanded ? 'rotate(0)' : 'rotate(-90deg)', transition: 'transform 0.18s' }}>
+              <SbIcons.ChevDown />
+            </span>
+          </div>
+          {recentExpanded && projects.slice(0, 5).map(p => (
+            <div
+              key={p.id}
+              onClick={() => onOpenProject(p.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 9px', borderRadius: 6, cursor: 'pointer', marginBottom: 1 }}
+              onMouseEnter={e => { e.currentTarget.style.background = c.hover; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.gradient, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: c.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
+              </div>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', color: p.status === 'active' ? '#A8C5A0' : c.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{p.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Project Nav — shown when inside a project */}
+      {inProject && (
         <div style={{ flex: 1, overflowY: 'auto', borderTop: `1px solid ${c.divider}` }}>
           <div style={{ padding: '10px 10px 4px' }}>
+            {/* Project header */}
             <div
               onClick={() => setProjectExpanded(e => !e)}
               style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 9px', cursor: 'pointer', marginBottom: 6 }}
             >
               <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#A8C5A0', flexShrink: 0 }} />
-              <span style={{ fontSize: 11, fontWeight: 500, color: c.muted, flex: 1, letterSpacing: '0.02em' }}>
-                Parfum No. 7 — TVC
+              <span style={{ fontSize: 11, fontWeight: 500, color: c.muted, flex: 1, letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {activeProjectData ? `${activeProjectData.title} — ${activeProjectData.type}` : 'Untitled Project'}
               </span>
               <span style={{ color: c.muted, display: 'flex', transform: projectExpanded ? 'rotate(0)' : 'rotate(-90deg)', transition: 'transform 0.18s' }}>
                 <SbIcons.ChevDown />
               </span>
             </div>
+
             {projectExpanded && PROJECT_NAV.map(renderNavItem)}
+
+            {/* Producer mode toggle */}
+            {projectExpanded && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${c.divider}` }}>
+                <div
+                  onClick={() => {
+                    setProducerMode(m => !m);
+                    setProducerOpen(o => !o);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px',
+                    borderRadius: 6, cursor: 'pointer',
+                    background: producerMode ? (dark ? 'rgba(232,180,184,0.1)' : 'rgba(232,180,184,0.15)') : 'transparent',
+                    border: `1px solid ${producerMode ? 'rgba(232,180,184,0.35)' : 'transparent'}`,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!producerMode) e.currentTarget.style.background = c.hover; }}
+                  onMouseLeave={e => { if (!producerMode) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span style={{ color: producerMode ? '#E8B4B8' : c.muted, display: 'flex' }}><SbIcons.Producer /></span>
+                  <span style={{ flex: 1, fontSize: 12.5, color: producerMode ? '#E8B4B8' : c.text }}>Producer Mode</span>
+                  <div style={{
+                    width: 28, height: 16, borderRadius: 8, background: producerMode ? 'rgba(232,180,184,0.5)' : (dark ? '#2A2E3E' : '#D5D1CA'),
+                    position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                  }}>
+                    <div style={{
+                      position: 'absolute', top: 2, left: producerMode ? 12 : 2,
+                      width: 12, height: 12, borderRadius: '50%', background: '#fff',
+                      transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                    }} />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -272,4 +383,4 @@ function Sidebar({ theme, view, setView, setActiveScene, notifOpen, setNotifOpen
   );
 }
 
-Object.assign(window, { Sidebar, SbIcons, SB_SCENES });
+Object.assign(window, { Sidebar, SbIcons });

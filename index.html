@@ -17,6 +17,8 @@
   <script type="text/babel" src="storiiboard-views.jsx"></script>
   <script type="text/babel" src="storiiboard-notifications.jsx"></script>
   <script type="text/babel" src="storiiboard-history.jsx"></script>
+  <script type="text/babel" src="storiiboard-calendar.jsx"></script>
+  <script type="text/babel" src="storiiboard-producer.jsx"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,6 +58,31 @@ const LIVE_USERS = [
   { initials:'SR', name:'Sofia Reyes',  role:'Director', gradient:'linear-gradient(135deg,#C3B1E1,#E8B4B8)', status:'online' },
   { initials:'JL', name:'James Lau',    role:'DP',        gradient:'linear-gradient(135deg,#A8C5A0,#C3B1E1)', status:'online' },
   { initials:'TH', name:'Tom Hirsch',   role:'1st AD',    gradient:'linear-gradient(135deg,#E8B4B8,#E8D5B7)', status:'idle'   },
+];
+
+const INITIAL_PROJECTS = [
+  { id:'p1', title:'Parfum No. 7', client:'Maison Duvall', type:'TVC · 60s',        frames:6,  status:'active',   gradient:'linear-gradient(135deg,#E8B4B8,#C3B1E1)', month:'APR 2026' },
+  { id:'p2', title:'Open Water',   client:'independent',   type:'Short Film',        frames:42, status:'draft',    gradient:'linear-gradient(135deg,#A8C5A0,#C3B1E1)', month:'MAY 2026' },
+  { id:'p3', title:'Momentum',     client:'Atlas Sports',  type:'Brand Film · 2min', frames:18, status:'archived', gradient:'linear-gradient(135deg,#E8D5B7,#A8C5A0)', month:'FEB 2026' },
+];
+
+const INITIAL_SCENES = [
+  { id:'sc04', label:'SC 04', title:'Mirror Scene',     location:'Paris Apt.',     frameIds:['f01'], shootDate:'2026-05-14', venue:null, staffChecklist:[] },
+  { id:'sc07', label:'SC 07', title:'Airplane Reverie', location:'Business Class', frameIds:['f02'], shootDate:'2026-05-16', venue:null, staffChecklist:[] },
+  { id:'sc12', label:'SC 12', title:'The Ceremony',     location:'Desert Plain',   frameIds:['f03'], shootDate:'2026-05-20', venue:null, staffChecklist:[] },
+  { id:'sc15', label:'SC 15', title:'Control Room',     location:'Server Room',    frameIds:['f04'], shootDate:'2026-05-21', venue:null, staffChecklist:[] },
+  { id:'sc18', label:'SC 18', title:'Empty Frame',      location:'TBD',            frameIds:['f05'], shootDate:null,         venue:null, staffChecklist:[] },
+  { id:'sc21', label:'SC 21', title:'Departure Board',  location:'Airport',        frameIds:['f06'], shootDate:'2026-05-23', venue:null, staffChecklist:[] },
+];
+
+const INITIAL_ASSETS = [
+  { id:'a1', title:'Paris Apartment Refs',   category:'References',   tags:['warm','interior','Paris'], scenes:3, type:'JPG Collection', thumb:'uploads/small_NVTE6ECR.jpg' },
+  { id:'a2', title:'Desert Location Scout',  category:'Locations',    tags:['EXT','desert','day'],      scenes:1, type:'JPEG × 24',      thumb:'uploads/small_KDGP7IMR.jpg' },
+  { id:'a3', title:'Blue Hour Lookbook',     category:'Lookbooks',    tags:['cool','blue','travel'],    scenes:2, type:'PDF',            thumb:'uploads/small_LF7JADRW.jpg' },
+  { id:'a4', title:'Industrial Color Ref',   category:'LUTs / Color', tags:['teal','dark','server'],    scenes:1, type:'PNG + CUBE',     thumb:'uploads/small_EE2UMJ1P.jpg' },
+  { id:'a5', title:'Fragrance Wardrobe Deck',category:'Wardrobe',     tags:['white','black','costume'], scenes:5, type:'PDF',            thumb:null },
+  { id:'a6', title:'Scene 04 Script Pages',  category:'Scripts',      tags:['SC 04','final'],           scenes:1, type:'PDF',            thumb:null },
+  { id:'a7', title:'Opening Score Draft',    category:'Music / Sound',tags:['orchestral','draft'],      scenes:0, type:'WAV',            thumb:null },
 ];
 
 // ── Lighting Setup (2D floor plan) ───────────────────────────────────────────
@@ -131,27 +158,87 @@ function LightingView({ theme, activeScene }) {
   );
 }
 
+// ── New Project modal ─────────────────────────────────────────────────────────
+
+function NewProjectModal({ theme, onClose, onAdd }) {
+  const dark = theme === 'dark';
+  const [title, setTitle] = useState('');
+  const [client, setClient] = useState('');
+  const [type, setType] = useState('TVC');
+  const c = {
+    bg: dark?'#1C1F2A':'#FFFFFF', border: dark?'#2A2E3E':'#DDD9D1',
+    text: dark?'#C8C0B4':'#2A2520', muted: dark?'#4A5270':'#9A9589',
+    input: dark?'#141820':'#F5F2EE', inputBorder: dark?'#2A2E3E':'#D5D1CA',
+  };
+  const GRADIENTS = [
+    'linear-gradient(135deg,#E8B4B8,#C3B1E1)',
+    'linear-gradient(135deg,#A8C5A0,#C3B1E1)',
+    'linear-gradient(135deg,#E8D5B7,#A8C5A0)',
+    'linear-gradient(135deg,#C3B1E1,#A8C5A0)',
+  ];
+  const handleSubmit = () => {
+    if (!title.trim()) return;
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const now = new Date();
+    onAdd({
+      id: 'p' + Date.now(),
+      title: title.trim(),
+      client: client.trim() || 'Independent',
+      type,
+      frames: 0, status: 'draft',
+      gradient: GRADIENTS[Math.floor(Math.random() * GRADIENTS.length)],
+      month: months[now.getMonth()] + ' ' + now.getFullYear(),
+    });
+  };
+  const inputStyle = { width:'100%', padding:'9px 12px', borderRadius:7, fontSize:13, background:c.input, border:`1px solid ${c.inputBorder}`, color:c.text, fontFamily:"'DM Sans',sans-serif", outline:'none' };
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:900, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', animation:'scrimIn 0.15s' }} />
+      <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', zIndex:901, width:420, background:c.bg, border:`1px solid ${c.border}`, borderRadius:14, padding:'24px 26px', boxShadow:'0 20px 60px rgba(0,0,0,0.4)', fontFamily:"'DM Sans',sans-serif", animation:'slideInUp 0.18s ease' }}>
+        <div style={{ display:'flex', alignItems:'center', marginBottom:20 }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:c.text, letterSpacing:'-0.02em' }}>New Project</div>
+          <div onClick={onClose} style={{ marginLeft:'auto', cursor:'pointer', fontSize:20, color:c.muted, lineHeight:1 }}>×</div>
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10.5, fontWeight:600, color:c.muted, marginBottom:6, textTransform:'uppercase', letterSpacing:'0.09em' }}>Title</div>
+          <input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="Project title…" style={inputStyle} onKeyDown={e=>e.key==='Enter'&&handleSubmit()} />
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10.5, fontWeight:600, color:c.muted, marginBottom:6, textTransform:'uppercase', letterSpacing:'0.09em' }}>Client</div>
+          <input value={client} onChange={e=>setClient(e.target.value)} placeholder="Client name…" style={inputStyle} onKeyDown={e=>e.key==='Enter'&&handleSubmit()} />
+        </div>
+        <div style={{ marginBottom:22 }}>
+          <div style={{ fontSize:10.5, fontWeight:600, color:c.muted, marginBottom:8, textTransform:'uppercase', letterSpacing:'0.09em' }}>Type</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {['TVC','Short Film','Brand Film','Documentary','Music Video','Other'].map(t=>(
+              <div key={t} onClick={()=>setType(t)} style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', fontSize:11.5, background:type===t?(dark?'rgba(168,197,160,0.15)':'rgba(168,197,160,0.2)'):(dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.04)'), border:`1px solid ${type===t?'rgba(168,197,160,0.4)':c.border}`, color:type===t?'#A8C5A0':c.muted, transition:'all 0.12s' }}>{t}</div>
+            ))}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <div onClick={onClose} style={{ flex:1, padding:'9px', borderRadius:8, cursor:'pointer', fontSize:13, textAlign:'center', border:`1px solid ${c.border}`, color:c.muted }}>Cancel</div>
+          <div onClick={handleSubmit} style={{ flex:2, padding:'9px', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:500, textAlign:'center', background:title.trim()?'rgba(168,197,160,0.18)':'rgba(168,197,160,0.05)', border:`1px solid ${title.trim()?'rgba(168,197,160,0.4)':c.border}`, color:title.trim()?'#A8C5A0':c.muted, transition:'all 0.15s' }}>Create Project</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Projects landing ──────────────────────────────────────────────────────────
 
-const PROJECTS_DATA = [
-  { id:'p1', title:'Parfum No. 7', client:'Maison Duvall', type:'TVC · 60s',        frames:6,  status:'active',   gradient:'linear-gradient(135deg,#E8B4B8,#C3B1E1)', month:'APR 2026' },
-  { id:'p2', title:'Open Water',   client:'independent',   type:'Short Film',        frames:42, status:'draft',    gradient:'linear-gradient(135deg,#A8C5A0,#C3B1E1)', month:'MAY 2026' },
-  { id:'p3', title:'Momentum',     client:'Atlas Sports',  type:'Brand Film · 2min', frames:18, status:'archived', gradient:'linear-gradient(135deg,#E8D5B7,#A8C5A0)', month:'FEB 2026' },
-];
-
-function ProjectsView({ theme, setView }) {
+function ProjectsView({ theme, projects, onOpenProject, onNewProject }) {
   const dark = theme === 'dark';
   const c = { bg:dark?'#111318':'#F8F6F2', card:dark?'#1C1F2A':'#FFFFFF', border:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.08)', text:dark?'#C8C0B4':'#2A2520', muted:dark?'#4A5270':'#9A9589' };
   return (
     <div style={{ flex:1, background:c.bg, padding:'32px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif" }}>
       <div style={{ display:'flex', alignItems:'baseline', gap:12, marginBottom:28 }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:c.text, letterSpacing:'-0.02em' }}>Projects</div>
-        <div style={{ fontSize:11, color:c.muted }}>{PROJECTS_DATA.length} projects</div>
-        <div style={{ marginLeft:'auto', padding:'7px 16px', borderRadius:8, cursor:'pointer', background:dark?'rgba(168,197,160,0.1)':'rgba(168,197,160,0.2)', border:'1px solid rgba(168,197,160,0.3)', fontSize:12, color:'#A8C5A0', fontWeight:500 }}>+ New Project</div>
+        <div style={{ fontSize:11, color:c.muted }}>{projects.length} project{projects.length !== 1 ? 's' : ''}</div>
+        <div onClick={onNewProject} style={{ marginLeft:'auto', padding:'7px 16px', borderRadius:8, cursor:'pointer', background:dark?'rgba(168,197,160,0.1)':'rgba(168,197,160,0.2)', border:'1px solid rgba(168,197,160,0.3)', fontSize:12, color:'#A8C5A0', fontWeight:500 }}>+ New Project</div>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:16 }}>
-        {PROJECTS_DATA.map(p=>(
-          <div key={p.id} onClick={()=>setView('storyboard')} style={{ background:c.card, border:`1px solid ${c.border}`, borderRadius:12, overflow:'hidden', cursor:'pointer', boxShadow:dark?'0 2px 14px rgba(0,0,0,0.35)':'0 2px 12px rgba(0,0,0,0.07)', transition:'transform 0.15s,box-shadow 0.15s' }}
+        {projects.map(p=>(
+          <div key={p.id} onClick={()=>onOpenProject(p.id)} style={{ background:c.card, border:`1px solid ${c.border}`, borderRadius:12, overflow:'hidden', cursor:'pointer', boxShadow:dark?'0 2px 14px rgba(0,0,0,0.35)':'0 2px 12px rgba(0,0,0,0.07)', transition:'transform 0.15s,box-shadow 0.15s' }}
             onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=dark?'0 8px 28px rgba(0,0,0,0.45)':'0 8px 24px rgba(0,0,0,0.12)';}}
             onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow=dark?'0 2px 14px rgba(0,0,0,0.35)':'0 2px 12px rgba(0,0,0,0.07)';}}>
             <div style={{ height:100, background:p.gradient, position:'relative' }}>
@@ -201,7 +288,7 @@ function TopBar({ theme, view, mode, setMode, notifOpen, setNotifOpen, historyOp
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings']);
+  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings','team']);
   const inProject = PROJECT_VIEWS.has(view);
 
   const c = {
@@ -217,7 +304,7 @@ function TopBar({ theme, view, mode, setMode, notifOpen, setNotifOpen, historyOp
     menuBorder: dark ? '#2A2E3E' : '#DDD9D1',
   };
 
-  const viewLabel = { storyboard:'Storyboard', assets:'Assets', crew:'Crew', lighting:'Setup', moodboard:'Moodboard', settings:'Settings', projects:'Projects', gigs:'Gigs', archive:'Archive', team:'Team Directory' }[view] || view;
+  const viewLabel = { storyboard:'Storyboard', assets:'Assets', crew:'Crew', lighting:'Setup', moodboard:'Moodboard', settings:'Settings', projects:'Projects', calendar:'Calendar', archive:'Archive', team:'Team' }[view] || view;
 
   return (
     <div style={{ height:52, display:'flex', alignItems:'center', gap:10, padding:'0 16px 0 24px', borderBottom:`1px solid ${c.border}`, background:c.bg, flexShrink:0, position:'relative' }}>
@@ -471,7 +558,7 @@ function TweaksPanel({ show, tweaks, setTweaks, onClose }) {
 
 function App() {
   const [tweaks, setTweaks]               = useState(TWEAK_DEFAULTS);
-  const [view, setView]                   = useState('storyboard');
+  const [view, setView]                   = useState('projects');
   const [mode, setMode]                   = useState('storyboard');
   const [notifOpen, setNotifOpen]         = useState(false);
   const [tweaksOpen, setTweaksOpen]       = useState(false);
@@ -483,8 +570,41 @@ function App() {
   const [activeScene, setActiveScene]     = useState(null);
   const [liveNotif, setLiveNotif]         = useState(false);
 
+  // lifted state
+  const [projects, setProjects]           = useState(INITIAL_PROJECTS);
+  const [activeProject, setActiveProject] = useState(null);
+  const [scenes, setScenes]               = useState(INITIAL_SCENES);
+  const [assets, setAssets]               = useState(INITIAL_ASSETS);
+  const [producerMode, setProducerMode]   = useState(false);
+  const [producerOpen, setProducerOpen]   = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+
   const theme = tweaks.theme;
   const dark = theme === 'dark';
+
+  const handleOpenProject = (projectId) => {
+    setActiveProject(projectId);
+    setView('storyboard');
+    setActiveScene(null);
+  };
+
+  const handleAddProject = (data) => {
+    setProjects(prev => [data, ...prev]);
+    setNewProjectOpen(false);
+    handleOpenProject(data.id);
+  };
+
+  const handleAddScene = (sceneData) => {
+    setScenes(prev => [...prev, sceneData]);
+  };
+
+  const handleAddAssets = (newAssets) => {
+    setAssets(prev => [...newAssets, ...prev]);
+  };
+
+  const handleUpdateScene = (sceneId, updates) => {
+    setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, ...updates } : s));
+  };
 
   // Tweaks protocol
   useEffect(() => {
@@ -511,18 +631,20 @@ function App() {
     setMoodboardSideOpen(true);
   };
 
-  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings']);
+  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings','team']);
   const inProject = PROJECT_VIEWS.has(view);
 
   const renderMain = () => {
     switch (view) {
-      case 'storyboard': return <StoryboardView theme={theme} mode={mode} onOpenHistory={handleOpenHistory} claudeEnabled={claudeEnabled} activeScene={activeScene} />;
-      case 'assets':     return <AssetsView theme={theme} />;
-      case 'crew':       return <CrewView theme={theme} />;
+      case 'storyboard': return <StoryboardView theme={theme} mode={mode} onOpenHistory={handleOpenHistory} claudeEnabled={claudeEnabled} activeScene={activeScene} scenes={scenes} />;
+      case 'assets':     return <AssetsView theme={theme} assets={assets} onAddAssets={handleAddAssets} />;
+      case 'crew':
+      case 'team':       return <CrewView theme={theme} />;
       case 'lighting':   return <LightingView theme={theme} activeScene={activeScene} />;
       case 'moodboard':  return <MoodboardView theme={theme} moodboardItems={moodboardItems} onAddItem={handlePullToMoodboard} />;
       case 'settings':   return <SettingsView theme={theme} onClaudeToggle={setClaudeEnabled} claudeEnabled={claudeEnabled} />;
-      case 'projects':   return <ProjectsView theme={theme} setView={setView} />;
+      case 'projects':   return <ProjectsView theme={theme} projects={projects} onOpenProject={handleOpenProject} onNewProject={()=>setNewProjectOpen(true)} />;
+      case 'calendar':   return <CalendarView theme={theme} projects={projects} scenes={scenes} producerMode={producerMode} />;
       default: return (
         <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:dark?'#111318':'#F8F6F2', color:dark?'#4A5270':'#B0A8A0', fontFamily:"'DM Sans',sans-serif", flexDirection:'column', gap:10 }}>
           <div style={{ fontSize:32, opacity:0.3 }}>◱</div>
@@ -532,9 +654,19 @@ function App() {
     }
   };
 
+  const activeProjectData = projects.find(p => p.id === activeProject) || null;
+
   return (
     <div style={{ display:'flex', width:'100vw', height:'100vh', overflow:'hidden', background:dark?'#111318':'#F8F6F2' }}>
-      <Sidebar theme={theme} view={view} setView={setView} setActiveScene={setActiveScene} notifOpen={notifOpen} setNotifOpen={setNotifOpen} />
+      <Sidebar
+        theme={theme} view={view} setView={setView} setActiveScene={setActiveScene}
+        notifOpen={notifOpen} setNotifOpen={setNotifOpen}
+        activeProject={activeProject} activeProjectData={activeProjectData}
+        projects={projects} onOpenProject={handleOpenProject}
+        scenes={scenes} onAddScene={handleAddScene}
+        producerMode={producerMode} setProducerMode={setProducerMode}
+        producerOpen={producerOpen} setProducerOpen={setProducerOpen}
+      />
 
       <div style={{ marginLeft:240, flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <TopBar
@@ -549,11 +681,21 @@ function App() {
           {moodboardSideOpen && (
             <MoodboardSidePanel theme={theme} items={moodboardItems} onClose={()=>setMoodboardSideOpen(false)} />
           )}
+          {producerOpen && inProject && (
+            <ProducerPanel
+              theme={theme}
+              scene={scenes.find(s => s.id === activeScene) || null}
+              scenes={scenes}
+              onUpdateScene={handleUpdateScene}
+              onClose={()=>setProducerOpen(false)}
+            />
+          )}
         </div>
       </div>
 
       {notifOpen && <NotificationsPanel theme={theme} onClose={()=>setNotifOpen(false)} liveNotif={liveNotif} activeScene={activeScene} />}
       {historyOpen && <HistoryPanel theme={theme} frameId={historyFrameId} onClose={()=>setHistoryOpen(false)} onPullToMoodboard={handlePullToMoodboard} />}
+      {newProjectOpen && <NewProjectModal theme={theme} onClose={()=>setNewProjectOpen(false)} onAdd={handleAddProject} />}
 
       {/* Add Scene FAB */}
       {inProject && <AddSceneFAB theme={theme} onClick={()=>{}} />}
@@ -568,7 +710,12 @@ function App() {
 
       <TweaksPanel show={tweaksOpen} tweaks={tweaks} setTweaks={setTweaks} onClose={()=>{ setTweaksOpen(false); window.parent.postMessage({type:'__edit_mode_dismissed'},'*'); }} />
 
-      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }`}</style>
+      <style>{`
+        @keyframes fadeIn  { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes slideInUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes scrimIn { from { opacity:0; } to { opacity:1; } }
+        @keyframes slideInRight { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:translateX(0); } }
+      `}</style>
     </div>
   );
 }

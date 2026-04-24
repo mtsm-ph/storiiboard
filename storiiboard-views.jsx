@@ -393,10 +393,13 @@ function StoryboardView({ theme, mode, onOpenHistory, claudeEnabled, activeScene
 
 // ── Assets View ───────────────────────────────────────────────────────────────
 
-function AssetsView({ theme }) {
+function AssetsView({ theme, assets, onAddAssets }) {
   const dark = theme === 'dark';
   const [activeCategory, setActiveCategory] = useViewState('All Assets');
   const [selectedAsset, setSelectedAsset] = useViewState(null);
+  const [dragOver, setDragOver] = useViewState(false);
+  const fileInputRef = useViewRef(null);
+
   const c = {
     rail:dark?'#141720':'#EEEAE4', railBorder:dark?'#1C1F2A':'#DDD9D1',
     content:dark?'#111318':'#F8F6F2', card:dark?'#1C1F2A':'#FFFFFF',
@@ -405,32 +408,82 @@ function AssetsView({ theme }) {
     activeNav:dark?'rgba(168,197,160,0.12)':'rgba(168,197,160,0.2)',
     activeNavTx:dark?'#A8C5A0':'#4A7A44',
   };
-  const filtered = activeCategory==='All Assets' ? ASSETS_DATA : ASSETS_DATA.filter(a=>a.category===activeCategory);
-  const selAsset = ASSETS_DATA.find(a=>a.id===selectedAsset);
+
+  const detectCategory = (file) => {
+    if (file.type.startsWith('image/')) return 'References';
+    if (file.type === 'application/pdf') return 'Scripts';
+    if (file.type.startsWith('video/')) return 'References';
+    if (file.type.startsWith('audio/')) return 'Music / Sound';
+    return 'References';
+  };
+
+  const processFiles = (fileList) => {
+    const newAssets = Array.from(fileList).map(f => ({
+      id: 'u' + Date.now() + Math.random().toString(36).slice(2),
+      title: f.name.replace(/\.[^.]+$/, ''),
+      category: detectCategory(f),
+      tags: [],
+      scenes: 0,
+      type: f.name.split('.').pop().toUpperCase(),
+      thumb: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+    }));
+    if (newAssets.length > 0) onAddAssets(newAssets);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    processFiles(e.dataTransfer.files);
+  };
+
+  const filtered = activeCategory === 'All Assets' ? assets : assets.filter(a => a.category === activeCategory);
+  const selAsset = assets.find(a => a.id === selectedAsset);
+
   return (
     <div style={{ display:'flex', height:'100%', overflow:'hidden' }}>
       <div style={{ width:180, flexShrink:0, background:c.rail, borderRight:`1px solid ${c.railBorder}`, padding:'20px 10px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif" }}>
         <div style={{ fontSize:9, fontWeight:600, letterSpacing:'0.12em', textTransform:'uppercase', color:c.muted, padding:'0 8px', marginBottom:8 }}>Category</div>
-        {ASSET_CATEGORIES.map(cat=>{
-          const active=activeCategory===cat;
-          return <div key={cat} onClick={()=>setActiveCategory(cat)} style={{ padding:'6px 9px', borderRadius:6, cursor:'pointer', fontSize:12.5, marginBottom:1, background:active?c.activeNav:'transparent', color:active?c.activeNavTx:c.muted, fontWeight:active?500:400, transition:'all 0.12s', userSelect:'none' }}>{cat}</div>;
+        {ASSET_CATEGORIES.map(cat => {
+          const active = activeCategory === cat;
+          return <div key={cat} onClick={() => setActiveCategory(cat)} style={{ padding:'6px 9px', borderRadius:6, cursor:'pointer', fontSize:12.5, marginBottom:1, background:active?c.activeNav:'transparent', color:active?c.activeNavTx:c.muted, fontWeight:active?500:400, transition:'all 0.12s', userSelect:'none' }}>{cat}</div>;
         })}
       </div>
       <div style={{ flex:1, background:c.content, overflowY:'auto', padding:'24px', display:'flex', flexDirection:'column' }}>
-        <div style={{ border:`1.5px dashed ${dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.12)'}`, borderRadius:10, padding:'18px', textAlign:'center', marginBottom:24, cursor:'pointer', color:c.muted, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>
-          <div style={{ marginBottom:4, fontSize:18 }}>↑</div>Drop files here or <span style={{ color:'#A8C5A0', textDecoration:'underline' }}>browse to upload</span>
+        {/* Drop zone */}
+        <div
+          onDragEnter={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={e => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          style={{
+            border: `1.5px dashed ${dragOver ? '#A8C5A0' : (dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.12)')}`,
+            borderRadius: 10, padding: '20px 18px', textAlign: 'center', marginBottom: 24,
+            cursor: 'pointer', color: dragOver ? '#A8C5A0' : c.muted, fontSize: 12,
+            fontFamily: "'DM Sans',sans-serif", transition: 'all 0.15s',
+            background: dragOver ? (dark?'rgba(168,197,160,0.07)':'rgba(168,197,160,0.1)') : 'transparent',
+          }}
+        >
+          <div style={{ marginBottom: 4, fontSize: 20 }}>{dragOver ? '↓' : '↑'}</div>
+          {dragOver ? 'Drop to upload' : (<>Drop files here or <span style={{ color:'#A8C5A0', textDecoration:'underline' }}>browse to upload</span></>)}
         </div>
+        <input
+          ref={fileInputRef} type="file" multiple accept="image/*,video/*,audio/*,.pdf,.cube"
+          style={{ display:'none' }}
+          onChange={e => { processFiles(e.target.files); e.target.value = ''; }}
+        />
+
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14 }}>
-          {filtered.map(asset=>(
-            <div key={asset.id} onClick={()=>setSelectedAsset(asset.id===selectedAsset?null:asset.id)} style={{ background:c.card, border:`1px solid ${selectedAsset===asset.id?'#A8C5A0':c.border}`, borderRadius:9, overflow:'hidden', cursor:'pointer', boxShadow:dark?'0 2px 10px rgba(0,0,0,0.3)':'0 2px 8px rgba(0,0,0,0.06)', fontFamily:"'DM Sans',sans-serif" }}>
+          {filtered.map(asset => (
+            <div key={asset.id} onClick={() => setSelectedAsset(asset.id === selectedAsset ? null : asset.id)} style={{ background:c.card, border:`1px solid ${selectedAsset===asset.id?'#A8C5A0':c.border}`, borderRadius:9, overflow:'hidden', cursor:'pointer', boxShadow:dark?'0 2px 10px rgba(0,0,0,0.3)':'0 2px 8px rgba(0,0,0,0.06)', fontFamily:"'DM Sans',sans-serif" }}>
               <div style={{ height:120, background:dark?'#0F111A':'#E8E4DC', overflow:'hidden', position:'relative' }}>
-                {asset.thumb?<img src={asset.thumb} alt={asset.title} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>:<div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', backgroundImage:`repeating-linear-gradient(45deg,${dark?'#141820':'#DDD9D1'} 0,${dark?'#141820':'#DDD9D1'} 1px,transparent 1px,transparent 9px)` }}><span style={{ fontSize:9, color:c.muted, fontFamily:'monospace', opacity:0.6 }}>{asset.type}</span></div>}
+                {asset.thumb ? <img src={asset.thumb} alt={asset.title} style={{ width:'100%', height:'100%', objectFit:'cover' }}/> : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', backgroundImage:`repeating-linear-gradient(45deg,${dark?'#141820':'#DDD9D1'} 0,${dark?'#141820':'#DDD9D1'} 1px,transparent 1px,transparent 9px)` }}><span style={{ fontSize:9, color:c.muted, fontFamily:'monospace', opacity:0.6 }}>{asset.type}</span></div>}
                 <div style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.55)', color:'#A8C5A0', fontSize:8, fontFamily:'monospace', padding:'2px 6px', borderRadius:3 }}>{asset.scenes} scene{asset.scenes!==1?'s':''}</div>
               </div>
               <div style={{ padding:'10px 11px 11px' }}>
                 <div style={{ fontSize:12.5, fontWeight:500, color:c.text, marginBottom:4, lineHeight:1.3 }}>{asset.title}</div>
                 <div style={{ fontSize:10, color:c.muted, marginBottom:6 }}>{asset.type}</div>
-                <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>{asset.tags.slice(0,3).map(t=><span key={t} style={{ fontSize:9, padding:'2px 6px', borderRadius:4, background:dark?'rgba(195,177,225,0.1)':'rgba(195,177,225,0.2)', color:dark?'#C3B1E1':'#7A6AAE', fontFamily:'monospace' }}>{t}</span>)}</div>
+                <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>{asset.tags.slice(0,3).map(t => <span key={t} style={{ fontSize:9, padding:'2px 6px', borderRadius:4, background:dark?'rgba(195,177,225,0.1)':'rgba(195,177,225,0.2)', color:dark?'#C3B1E1':'#7A6AAE', fontFamily:'monospace' }}>{t}</span>)}</div>
               </div>
             </div>
           ))}
@@ -440,10 +493,10 @@ function AssetsView({ theme }) {
         <div style={{ width:280, flexShrink:0, background:dark?'#1C1F2A':'#FFFFFF', borderLeft:`1px solid ${c.railBorder}`, padding:'20px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif", display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between' }}>
             <div style={{ fontSize:14, fontWeight:600, color:c.text, lineHeight:1.3, flex:1 }}>{selAsset.title}</div>
-            <div onClick={()=>setSelectedAsset(null)} style={{ cursor:'pointer', color:c.muted, fontSize:16, marginLeft:8 }}>×</div>
+            <div onClick={() => setSelectedAsset(null)} style={{ cursor:'pointer', color:c.muted, fontSize:16, marginLeft:8 }}>×</div>
           </div>
           {selAsset.thumb && <img src={selAsset.thumb} alt="" style={{ width:'100%', borderRadius:8, objectFit:'cover', aspectRatio:'16/9' }}/>}
-          {[['Category',selAsset.category],['Type',selAsset.type],['Linked',`${selAsset.scenes} scenes`],['Uploader','Sofia Reyes'],['Date','Apr 20, 2026']].map(([k,v])=>(
+          {[['Category',selAsset.category],['Type',selAsset.type],['Linked',`${selAsset.scenes} scenes`],['Uploader','Sofia Reyes'],['Date',new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})]].map(([k,v]) => (
             <div key={k}><div style={{ fontSize:9, color:c.muted, textTransform:'uppercase', letterSpacing:'0.1em', fontFamily:'monospace', marginBottom:3 }}>{k}</div><div style={{ fontSize:12.5, color:c.text }}>{v}</div></div>
           ))}
           <div style={{ padding:'10px 12px', borderRadius:8, background:dark?'rgba(168,197,160,0.08)':'rgba(168,197,160,0.15)', border:`1px solid ${dark?'rgba(168,197,160,0.2)':'rgba(168,197,160,0.3)'}`, fontSize:12, color:'#A8C5A0', cursor:'pointer', textAlign:'center' }}>Link to scene or shot →</div>
