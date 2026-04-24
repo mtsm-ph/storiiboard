@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Storiiboard — Production Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet" />
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="storiiboard-sidebar.jsx"></script>
+  <script type="text/babel" src="storiiboard-frames.jsx"></script>
+  <script type="text/babel" src="storiiboard-views.jsx"></script>
+  <script type="text/babel" src="storiiboard-notifications.jsx"></script>
+  <script type="text/babel" src="storiiboard-history.jsx"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: 'DM Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.18); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.3); }
+    textarea { resize: none; } select { appearance: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  </style>
+</head>
+<body>
+
+<!-- Grain overlay -->
+<svg style="position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9000;opacity:1" xmlns="http://www.w3.org/2000/svg">
+  <filter id="grain-f">
+    <feTurbulence type="fractalNoise" baseFrequency="0.72 0.68" numOctaves="4" seed="9" stitchTiles="stitch" result="noise"/>
+    <feColorMatrix type="saturate" values="0" in="noise" result="gray"/>
+    <feBlend in="SourceGraphic" in2="gray" mode="overlay"/>
+  </filter>
+  <rect width="100%" height="100%" filter="url(#grain-f)" opacity="0.036"/>
+</svg>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "dark",
+  "density": "compact"
+}/*EDITMODE-END*/;
+
+const LIVE_USERS = [
+  { initials:'SR', name:'Sofia Reyes',  role:'Director', gradient:'linear-gradient(135deg,#C3B1E1,#E8B4B8)', status:'online' },
+  { initials:'JL', name:'James Lau',    role:'DP',        gradient:'linear-gradient(135deg,#A8C5A0,#C3B1E1)', status:'online' },
+  { initials:'TH', name:'Tom Hirsch',   role:'1st AD',    gradient:'linear-gradient(135deg,#E8B4B8,#E8D5B7)', status:'idle'   },
+];
+
+// ── Lighting Setup (2D floor plan) ───────────────────────────────────────────
+
+function LightingView({ theme, activeScene }) {
+  const dark = theme === 'dark';
+  const c = {
+    bg:dark?'#111318':'#F8F6F2', canvas:dark?'#1C1F2A':'#FFFFFF',
+    border:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.08)',
+    grid:dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.05)',
+    text:dark?'#C8C0B4':'#2A2520', muted:dark?'#4A5270':'#9A9589',
+  };
+  const LIGHTS = [
+    {x:30,y:35,type:'Key',   color:'#E8D5B7',label:'12K HMI'},
+    {x:68,y:28,type:'Fill',  color:'#C3B1E1',label:'4K LED'},
+    {x:15,y:60,type:'Prac.', color:'#A8C5A0',label:'Gooseneck'},
+  ];
+  const sceneLabels = { sc04:'SC 04 — Paris Apartment', sc07:'SC 07 — Business Class', sc12:'SC 12 — Desert Plain', sc15:'SC 15 — Server Room', sc18:'SC 18 — TBD', sc21:'SC 21 — Airport' };
+  const sceneLabel = sceneLabels[activeScene] || 'SC 04 — Paris Apartment';
+
+  return (
+    <div style={{ flex:1, background:c.bg, padding:28, fontFamily:"'DM Sans',sans-serif", overflowY:'auto' }}>
+      <div style={{ marginBottom:18, display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ fontSize:9, letterSpacing:'0.1em', textTransform:'uppercase', color:c.muted, fontFamily:'monospace' }}>
+          Setup · {sceneLabel}
+        </div>
+        <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+          {['+ Fixture','+ Camera','+ Actor'].map(l=>(
+            <div key={l} style={{ padding:'5px 12px', borderRadius:7, fontSize:11, cursor:'pointer', border:`1px solid ${c.border}`, color:c.muted }}>{l}</div>
+          ))}
+          <div style={{ padding:'5px 12px', borderRadius:7, fontSize:11, cursor:'pointer', background:dark?'rgba(232,213,183,0.1)':'rgba(232,213,183,0.2)', border:'1px solid rgba(232,213,183,0.3)', color:'#E8D5B7' }}>↓ Export PDF</div>
+        </div>
+      </div>
+      {/* Scene selector */}
+      <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
+        {Object.entries(sceneLabels).map(([id,lbl])=>(
+          <div key={id} style={{ padding:'4px 10px', borderRadius:5, fontSize:10.5, cursor:'pointer', fontFamily:'monospace', background:activeScene===id?(dark?'rgba(232,213,183,0.12)':'rgba(232,213,183,0.2)'):(dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.04)'), color:activeScene===id?'#E8D5B7':c.muted, border:`1px solid ${activeScene===id?'rgba(232,213,183,0.3)':c.border}` }}>{lbl.split('—')[0].trim()}</div>
+        ))}
+      </div>
+      <div style={{ width:'100%', aspectRatio:'16/8', background:c.canvas, borderRadius:12, border:`1px solid ${c.border}`, position:'relative', overflow:'hidden', backgroundImage:`linear-gradient(${c.grid} 1px,transparent 1px),linear-gradient(90deg,${c.grid} 1px,transparent 1px)`, backgroundSize:'40px 40px' }}>
+        <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%' }}>
+          <rect x="10%" y="10%" width="80%" height="80%" fill="none" stroke={dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'} strokeWidth="2" strokeDasharray="8 4" rx="4"/>
+        </svg>
+        {LIGHTS.map(l=>(
+          <div key={l.type} style={{ position:'absolute', left:`${l.x}%`, top:`${l.y}%`, transform:'translate(-50%,-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, cursor:'pointer' }}>
+            <div style={{ width:28, height:28, borderRadius:6, background:`${l.color}22`, border:`2px solid ${l.color}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>☀</div>
+            <div style={{ background:dark?'rgba(0,0,0,0.65)':'rgba(255,255,255,0.9)', backdropFilter:'blur(4px)', padding:'2px 6px', borderRadius:4, fontSize:8.5, color:l.color, fontFamily:'monospace', whiteSpace:'nowrap' }}>{l.type} · {l.label}</div>
+          </div>
+        ))}
+        {/* Camera */}
+        <div style={{ position:'absolute', left:'50%', top:'70%', transform:'translate(-50%,-50%)' }}>
+          <div style={{ width:32, height:32, borderRadius:'50%', background:dark?'rgba(195,177,225,0.15)':'rgba(195,177,225,0.25)', border:'2px solid #C3B1E1', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>⊙</div>
+          <svg style={{ position:'absolute', top:-60, left:'50%', transform:'translateX(-50%)', overflow:'visible' }}>
+            <polygon points="-35,-55 35,-55 10,0 -10,0" fill={dark?'rgba(195,177,225,0.06)':'rgba(195,177,225,0.1)'} stroke="#C3B1E1" strokeWidth="0.8" strokeDasharray="4 3"/>
+          </svg>
+          <div style={{ position:'absolute', top:36, left:'50%', transform:'translateX(-50%)', background:dark?'rgba(0,0,0,0.65)':'rgba(255,255,255,0.9)', backdropFilter:'blur(4px)', padding:'2px 6px', borderRadius:4, fontSize:8.5, color:'#C3B1E1', fontFamily:'monospace', whiteSpace:'nowrap' }}>CAM A · 35mm</div>
+        </div>
+        {[{x:48,y:40,lbl:'A'},{x:54,y:38,lbl:'B'}].map(m=>(
+          <div key={m.lbl} style={{ position:'absolute', left:`${m.x}%`, top:`${m.y}%`, transform:'translate(-50%,-50%)' }}>
+            <div style={{ width:20, height:20, borderRadius:'50%', background:dark?'rgba(232,180,184,0.2)':'rgba(232,180,184,0.35)', border:'1.5px solid #E8B4B8', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, color:'#E8B4B8', fontWeight:700 }}>{m.lbl}</div>
+          </div>
+        ))}
+        <div style={{ position:'absolute', bottom:14, right:14, background:dark?'rgba(0,0,0,0.65)':'rgba(255,255,255,0.9)', backdropFilter:'blur(6px)', padding:'8px 12px', borderRadius:8, display:'flex', flexDirection:'column', gap:5 }}>
+          {[['#E8D5B7','Key Light'],['#C3B1E1','Fill Light'],['#A8C5A0','Practical'],['#E8B4B8','Actor']].map(([col,lbl])=>(
+            <div key={lbl} style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <div style={{ width:8, height:8, borderRadius:2, background:col }} />
+              <span style={{ fontSize:9.5, color:c.muted, fontFamily:'monospace' }}>{lbl}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Projects landing ──────────────────────────────────────────────────────────
+
+const PROJECTS_DATA = [
+  { id:'p1', title:'Parfum No. 7', client:'Maison Duvall', type:'TVC · 60s',        frames:6,  status:'active',   gradient:'linear-gradient(135deg,#E8B4B8,#C3B1E1)', month:'APR 2026' },
+  { id:'p2', title:'Open Water',   client:'independent',   type:'Short Film',        frames:42, status:'draft',    gradient:'linear-gradient(135deg,#A8C5A0,#C3B1E1)', month:'MAY 2026' },
+  { id:'p3', title:'Momentum',     client:'Atlas Sports',  type:'Brand Film · 2min', frames:18, status:'archived', gradient:'linear-gradient(135deg,#E8D5B7,#A8C5A0)', month:'FEB 2026' },
+];
+
+function ProjectsView({ theme, setView }) {
+  const dark = theme === 'dark';
+  const c = { bg:dark?'#111318':'#F8F6F2', card:dark?'#1C1F2A':'#FFFFFF', border:dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.08)', text:dark?'#C8C0B4':'#2A2520', muted:dark?'#4A5270':'#9A9589' };
+  return (
+    <div style={{ flex:1, background:c.bg, padding:'32px', overflowY:'auto', fontFamily:"'DM Sans',sans-serif" }}>
+      <div style={{ display:'flex', alignItems:'baseline', gap:12, marginBottom:28 }}>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:c.text, letterSpacing:'-0.02em' }}>Projects</div>
+        <div style={{ fontSize:11, color:c.muted }}>{PROJECTS_DATA.length} projects</div>
+        <div style={{ marginLeft:'auto', padding:'7px 16px', borderRadius:8, cursor:'pointer', background:dark?'rgba(168,197,160,0.1)':'rgba(168,197,160,0.2)', border:'1px solid rgba(168,197,160,0.3)', fontSize:12, color:'#A8C5A0', fontWeight:500 }}>+ New Project</div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:16 }}>
+        {PROJECTS_DATA.map(p=>(
+          <div key={p.id} onClick={()=>setView('storyboard')} style={{ background:c.card, border:`1px solid ${c.border}`, borderRadius:12, overflow:'hidden', cursor:'pointer', boxShadow:dark?'0 2px 14px rgba(0,0,0,0.35)':'0 2px 12px rgba(0,0,0,0.07)', transition:'transform 0.15s,box-shadow 0.15s' }}
+            onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=dark?'0 8px 28px rgba(0,0,0,0.45)':'0 8px 24px rgba(0,0,0,0.12)';}}
+            onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow=dark?'0 2px 14px rgba(0,0,0,0.35)':'0 2px 12px rgba(0,0,0,0.07)';}}>
+            <div style={{ height:100, background:p.gradient, position:'relative' }}>
+              <div style={{ position:'absolute', top:10, right:10, fontSize:9, fontFamily:'monospace', letterSpacing:'0.08em', color:'rgba(255,255,255,0.8)', background:'rgba(0,0,0,0.25)', padding:'2px 7px', borderRadius:4 }}>{p.month}</div>
+            </div>
+            <div style={{ padding:'14px 16px 16px' }}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:c.text, marginBottom:3, letterSpacing:'-0.01em' }}>{p.title}</div>
+              <div style={{ fontSize:12, color:c.muted, marginBottom:10 }}>{p.client} · {p.type}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:9, fontFamily:'monospace', padding:'2px 7px', borderRadius:4, background:p.status==='active'?(dark?'rgba(168,197,160,0.12)':'rgba(168,197,160,0.2)'):(dark?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.05)'), color:p.status==='active'?'#A8C5A0':c.muted, textTransform:'uppercase', letterSpacing:'0.08em' }}>{p.status}</span>
+                <span style={{ fontSize:11, color:c.muted, marginLeft:'auto' }}>{p.frames} frames</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Top Bar ───────────────────────────────────────────────────────────────────
+
+function TopBar({ theme, view, mode, setMode, notifOpen, setNotifOpen, historyOpen, setHistoryOpen, moodboardSideOpen, setMoodboardSideOpen, liveNotif, setLiveNotif }) {
+  const dark = theme === 'dark';
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [title, setTitle] = useState('Parfum No. 7 — TVC');
+  const [extraMenuOpen, setExtraMenuOpen] = useState(false);
+  const [hasActivity, setHasActivity] = useState(true); // simulates live editing activity
+  const menuRef = useRef(null);
+  const showLiveNotif = view === 'storyboard' || view === 'lighting';
+
+  // Simulate activity bursts — button pulses when edits are coming in
+  useEffect(() => {
+    const cycle = () => {
+      setHasActivity(true);
+      const off = setTimeout(() => setHasActivity(false), 4000 + Math.random() * 3000);
+      return off;
+    };
+    let offTimer = cycle();
+    const interval = setInterval(() => { clearTimeout(offTimer); offTimer = cycle(); }, 9000 + Math.random() * 6000);
+    return () => { clearInterval(interval); clearTimeout(offTimer); };
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setExtraMenuOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings']);
+  const inProject = PROJECT_VIEWS.has(view);
+
+  const c = {
+    bg:     dark ? '#111318' : '#F8F6F2',
+    border: dark ? '#1C1F2A' : '#DDD9D1',
+    text:   dark ? '#EDE8E2' : '#1A1714',
+    muted:  dark ? '#4A5270' : '#9A9589',
+    input:  dark ? '#1C1F2A' : '#EDEBE5',
+    toggleBg: dark ? '#1C1F2A' : '#EDEBE5',
+    toggleActive: dark ? '#111318' : '#FFFFFF',
+    toggleShadow: dark ? '0 1px 4px rgba(0,0,0,0.5)' : '0 1px 6px rgba(0,0,0,0.12)',
+    menuBg: dark ? '#1C1F2A' : '#FFFFFF',
+    menuBorder: dark ? '#2A2E3E' : '#DDD9D1',
+  };
+
+  const viewLabel = { storyboard:'Storyboard', assets:'Assets', crew:'Crew', lighting:'Setup', moodboard:'Moodboard', settings:'Settings', projects:'Projects', gigs:'Gigs', archive:'Archive', team:'Team Directory' }[view] || view;
+
+  return (
+    <div style={{ height:52, display:'flex', alignItems:'center', gap:10, padding:'0 16px 0 24px', borderBottom:`1px solid ${c.border}`, background:c.bg, flexShrink:0, position:'relative' }}>
+
+      {/* Live users */}
+      {inProject && (
+        <div style={{ display:'flex', alignItems:'center', gap:4, marginRight:8 }}>
+          {LIVE_USERS.map((u,i)=>(
+            <div key={u.initials} title={`${u.name} · ${u.role} (${u.status})`} style={{ position:'relative', marginLeft: i===0?0:-8, zIndex:LIVE_USERS.length-i }}>
+              <div style={{ width:26, height:26, borderRadius:'50%', background:u.gradient, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#fff', border:`2px solid ${c.bg}`, cursor:'default' }}>{u.initials}</div>
+              <div style={{ position:'absolute', bottom:0, right:0, width:7, height:7, borderRadius:'50%', background:u.status==='online'?'#A8C5A0':'#E8D5B7', border:`1.5px solid ${c.bg}`, animation:u.status==='online'?'pulse 2s ease-in-out infinite':undefined }} />
+            </div>
+          ))}
+          <div style={{ fontSize:10, color:c.muted, marginLeft:10 }}>{LIVE_USERS.filter(u=>u.status==='online').length} online</div>
+        </div>
+      )}
+
+      {/* Breadcrumb / title */}
+      {inProject ? (
+        <div style={{ display:'flex', alignItems:'center', gap:8, flex:1, minWidth:0 }}>
+          {editingTitle ? (
+            <input autoFocus value={title} onChange={e=>setTitle(e.target.value)} onBlur={()=>setEditingTitle(false)} onKeyDown={e=>{if(e.key==='Enter')setEditingTitle(false);}}
+              style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:c.text, background:c.input, border:'none', outline:'none', borderRadius:5, padding:'3px 8px', letterSpacing:'-0.02em', minWidth:200 }} />
+          ) : (
+            <div onClick={()=>setEditingTitle(true)} style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700, color:c.text, cursor:'text', letterSpacing:'-0.02em', lineHeight:1, borderRadius:4, padding:'3px 4px' }} title="Click to rename">{title}</div>
+          )}
+          <span style={{ color:c.muted, fontSize:13 }}>/</span>
+          <span style={{ fontSize:13, color:c.muted }}>{viewLabel}</span>
+        </div>
+      ) : (
+        <div style={{ flex:1, fontSize:15, fontWeight:600, color:c.text }}>{viewLabel}</div>
+      )}
+
+      {/* Storyboard ↔ Pitch Deck toggle */}
+      {view === 'storyboard' && (
+        <div style={{ display:'flex', alignItems:'center', background:c.toggleBg, borderRadius:8, padding:3, gap:2, flexShrink:0 }}>
+          {[['storyboard','Storyboard'],['pitchdeck','Pitch Deck']].map(([m,label])=>(
+            <div key={m} onClick={()=>setMode(m)} style={{ padding:'5px 12px', borderRadius:6, cursor:'pointer', fontSize:11.5, fontWeight:mode===m?600:400, userSelect:'none', background:mode===m?c.toggleActive:'transparent', color:mode===m?c.text:c.muted, boxShadow:mode===m?c.toggleShadow:'none', transition:'all 0.15s' }}>{label}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Pitch deck export actions */}
+      {view === 'storyboard' && mode === 'pitchdeck' && (
+        <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+          <div style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:11.5, border:`1px solid ${dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}`, color:c.muted }}>⛶ Present</div>
+          <div style={{ padding:'6px 12px', borderRadius:7, cursor:'pointer', fontSize:11.5, border:`1px solid ${dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}`, color:c.muted }}>↓ PDF</div>
+        </div>
+      )}
+
+      {/* Live Notifications toggle */}
+      {showLiveNotif && (
+        <div
+          onClick={() => setLiveNotif(o => !o)}
+          title={liveNotif ? 'Live filter ON' : 'Follow live activity'}
+          style={{
+            display:'flex', alignItems:'center', gap:6, padding:'5px 11px', borderRadius:8,
+            cursor:'pointer', flexShrink:0, fontSize:11.5, fontWeight: liveNotif ? 600 : 400,
+            background: liveNotif
+              ? (dark?'rgba(168,197,160,0.12)':'rgba(168,197,160,0.18)')
+              : (dark?'rgba(255,255,255,0.03)':'rgba(0,0,0,0.03)'),
+            border: `1px solid ${liveNotif ? 'rgba(168,197,160,0.4)' : (dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.07)')}`,
+            color: liveNotif ? '#A8C5A0' : c.muted,
+            transition:'all 0.2s',
+          }}
+        >
+          <div style={{
+            width:7, height:7, borderRadius:'50%', flexShrink:0,
+            background: hasActivity ? '#A8C5A0' : (dark?'#3A3E54':'#C8C0B4'),
+            boxShadow: hasActivity ? '0 0 0 2px rgba(168,197,160,0.25)' : 'none',
+            animation: hasActivity ? 'pulse 1.4s ease-in-out infinite' : 'none',
+            transition: 'background 0.4s, box-shadow 0.4s',
+          }} />
+          Live
+        </div>
+      )}
+
+      {/* Notification bell */}
+      <div onClick={()=>setNotifOpen(o=>!o)} style={{ width:32, height:32, borderRadius:8, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background:notifOpen?(dark?'#1C1F2A':'#E2DED8'):'transparent', color:notifOpen?c.text:c.muted, position:'relative', transition:'background 0.14s', flexShrink:0 }}>
+        <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5a4 4 0 0 1 4 4v3L13.5 12H2.5L4 9.5V6.5a4 4 0 0 1 4-4z"/><path d="M6.5 12a1.5 1.5 0 0 0 3 0"/></svg>
+        <div style={{ position:'absolute', top:5, right:6, width:6, height:6, borderRadius:'50%', background:'#E8B4B8', border:`1.5px solid ${c.bg}` }} />
+      </div>
+
+      {/* Invite */}
+      {inProject && (
+        <div style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 14px', borderRadius:8, cursor:'pointer', border:`1px solid ${dark?'rgba(168,197,160,0.35)':'rgba(168,197,160,0.5)'}`, fontSize:12, color:dark?'#A8C5A0':'#4A7A44', fontWeight:500, flexShrink:0 }}>
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M7 2v10M2 7h10"/></svg>
+          Invite
+        </div>
+      )}
+
+      {/* Extra options bubble */}
+      <div ref={menuRef} style={{ position:'relative', flexShrink:0 }}>
+        <div
+          onClick={()=>setExtraMenuOpen(o=>!o)}
+          style={{
+            width:32, height:32, borderRadius:8, cursor:'pointer',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            background:extraMenuOpen?(dark?'#1C1F2A':'#E2DED8'):'transparent',
+            color:c.muted, transition:'background 0.14s',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <circle cx="8" cy="4" r="1" fill="currentColor" stroke="none"/>
+            <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none"/>
+            <circle cx="8" cy="12" r="1" fill="currentColor" stroke="none"/>
+          </svg>
+        </div>
+        {extraMenuOpen && (
+          <div style={{
+            position:'absolute', top:'calc(100% + 6px)', right:0, zIndex:600,
+            background:c.menuBg, border:`1px solid ${c.menuBorder}`, borderRadius:10,
+            padding:'6px', minWidth:180, boxShadow:'0 8px 32px rgba(0,0,0,0.3)',
+            animation:'fadeIn 0.12s ease',
+          }}>
+            {[
+              { label:'History', desc:'Browse frame changes', icon:'◷', active:historyOpen, action:()=>{ setHistoryOpen(o=>!o); setMoodboardSideOpen(false); setExtraMenuOpen(false); }, color:'#C3B1E1' },
+              { label:'Moodboard', desc:'Side reference panel', icon:'◧', active:moodboardSideOpen, action:()=>{ setMoodboardSideOpen(o=>!o); setHistoryOpen(false); setExtraMenuOpen(false); }, color:'#E8B4B8' },
+            ].map(item=>(
+              <div key={item.label} onClick={item.action} style={{
+                display:'flex', alignItems:'center', gap:10, padding:'9px 11px', borderRadius:7, cursor:'pointer',
+                background:item.active?(dark?`${item.color}15`:`${item.color}20`):'transparent',
+                transition:'background 0.12s',
+              }}
+              onMouseEnter={e=>{ if(!item.active) e.currentTarget.style.background=dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.04)'; }}
+              onMouseLeave={e=>{ if(!item.active) e.currentTarget.style.background='transparent'; }}
+              >
+                <span style={{ fontSize:16, color:item.color }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontSize:12.5, fontWeight:500, color:dark?'#C8C0B4':'#2A2520' }}>{item.label}</div>
+                  <div style={{ fontSize:10.5, color:dark?'#4A5270':'#9A9589' }}>{item.desc}</div>
+                </div>
+                {item.active && <div style={{ marginLeft:'auto', width:6, height:6, borderRadius:'50%', background:item.color }} />}
+              </div>
+            ))}
+            <div style={{ height:1, background:c.menuBorder, margin:'4px 0' }} />
+            {[
+              { label:'Watermark Settings', icon:'◎' },
+              { label:'Export Project', icon:'↓' },
+              { label:'Archive Project', icon:'▦' },
+            ].map(item=>(
+              <div key={item.label} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 11px', borderRadius:7, cursor:'pointer', color:dark?'#6B7399':'#9A9589', fontSize:12 }}
+                onMouseEnter={e=>{ e.currentTarget.style.background=dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.04)'; e.currentTarget.style.color=dark?'#C8C0B4':'#2A2520'; }}
+                onMouseLeave={e=>{ e.currentTarget.style.background='transparent'; e.currentTarget.style.color=dark?'#6B7399':'#9A9589'; }}>
+                <span style={{ fontSize:13 }}>{item.icon}</span> {item.label}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Moodboard side panel ──────────────────────────────────────────────────────
+
+function MoodboardSidePanel({ theme, items, onClose }) {
+  const dark = theme === 'dark';
+  const c = { bg:dark?'#141820':'#F0EDE7', border:dark?'#1E2232':'#DDD9D1', text:dark?'#C8C0B4':'#2A2520', muted:dark?'#4A5270':'#9A9589', card:dark?'#1C1F2A':'#FFFFFF' };
+  const allItems = [...items, { id:'ref1', type:'image', content:'uploads/small_NVTE6ECR.jpg', source:'SC 04 ref' }, { id:'ref2', type:'image', content:'uploads/small_LF7JADRW.jpg', source:'SC 07 ref' }];
+  return (
+    <div style={{ width:280, flexShrink:0, background:c.bg, borderLeft:`1px solid ${c.border}`, display:'flex', flexDirection:'column', fontFamily:"'DM Sans',sans-serif", overflow:'hidden' }}>
+      <div style={{ padding:'16px 16px 12px', borderBottom:`1px solid ${c.border}`, display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+        <span style={{ fontSize:14, color:'#E8B4B8' }}>◧</span>
+        <div style={{ fontSize:13, fontWeight:600, color:c.text, flex:1 }}>Moodboard</div>
+        <div onClick={onClose} style={{ cursor:'pointer', fontSize:16, color:c.muted }}>×</div>
+      </div>
+      <div style={{ flex:1, overflowY:'auto', padding:'12px' }}>
+        {items.length === 0 && (
+          <div style={{ fontSize:12, color:c.muted, textAlign:'center', padding:'20px 0', lineHeight:1.6 }}>
+            Open History and click any entry to pull it here.
+          </div>
+        )}
+        {allItems.map((item,i)=>(
+          <div key={item.id||i} style={{ marginBottom:10, borderRadius:8, overflow:'hidden', border:`1px solid ${c.border}`, background:c.card }}>
+            {item.content?.includes('.')
+              ? <img src={item.content} alt="" style={{ width:'100%', display:'block', objectFit:'cover', maxHeight:140 }} />
+              : <div style={{ padding:'10px 12px', fontSize:11.5, color:c.text, lineHeight:1.6, whiteSpace:'pre-wrap' }}>{item.content}</div>
+            }
+            <div style={{ padding:'4px 9px', fontSize:8.5, color:c.muted, fontFamily:'monospace', borderTop:`1px solid ${c.border}` }}>{item.source}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding:'10px 12px', borderTop:`1px solid ${c.border}`, flexShrink:0 }}>
+        <div style={{ padding:'8px 12px', borderRadius:7, border:`1px dashed ${dark?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.12)'}`, textAlign:'center', fontSize:11, color:c.muted, cursor:'pointer' }}>
+          + Add reference manually
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Add Scene FAB ─────────────────────────────────────────────────────────────
+
+function AddSceneFAB({ theme, onClick }) {
+  const dark = theme === 'dark';
+  return (
+    <div onClick={onClick} title="Add new scene" style={{
+      position:'fixed', bottom:68, right:20, zIndex:7000,
+      display:'flex', alignItems:'center', gap:7,
+      padding:'8px 14px 8px 10px', borderRadius:20,
+      background:dark?'#1C1F2A':'#EDEBE5',
+      border:`1px solid ${dark?'rgba(168,197,160,0.35)':'rgba(168,197,160,0.5)'}`,
+      cursor:'pointer', color:'#A8C5A0', fontSize:12, fontWeight:500,
+      boxShadow:'0 2px 14px rgba(0,0,0,0.25)', transition:'all 0.15s',
+      fontFamily:"'DM Sans',sans-serif",
+    }}
+    onMouseEnter={e=>{ e.currentTarget.style.background=dark?'rgba(168,197,160,0.12)':'rgba(168,197,160,0.18)'; e.currentTarget.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; }}
+    onMouseLeave={e=>{ e.currentTarget.style.background=dark?'#1C1F2A':'#EDEBE5'; e.currentTarget.style.boxShadow='0 2px 14px rgba(0,0,0,0.25)'; }}>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M7 2v10M2 7h10"/></svg>
+      Add Scene
+    </div>
+  );
+}
+
+// ── Tweaks panel ──────────────────────────────────────────────────────────────
+
+function TweaksPanel({ show, tweaks, setTweaks, onClose }) {
+  if (!show) return null;
+  const dark = tweaks.theme === 'dark';
+  const c = { bg:dark?'#1C1F2A':'#FFFFFF', border:dark?'#2A2E3E':'#DDD9D1', text:dark?'#C8C0B4':'#2A2520', muted:dark?'#4A5270':'#9A9589', trackOn:'#A8C5A0', trackOff:dark?'#2A2E3E':'#DDD9D1' };
+  const row = (label, children) => <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}><div style={{ fontSize:12, color:c.text }}>{label}</div>{children}</div>;
+  const toggle = () => {
+    const updated = { ...tweaks, theme: dark ? 'light' : 'dark' };
+    setTweaks(updated);
+    window.parent.postMessage({ type:'__edit_mode_set_keys', edits:updated }, '*');
+  };
+  return (
+    <div style={{ position:'fixed', bottom:80, right:20, zIndex:8000, width:240, background:c.bg, border:`1px solid ${c.border}`, borderRadius:12, padding:'16px 18px', boxShadow:'0 8px 32px rgba(0,0,0,0.35)', fontFamily:"'DM Sans',sans-serif" }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:c.text }}>Tweaks</div>
+        <div onClick={onClose} style={{ cursor:'pointer', fontSize:16, color:c.muted }}>×</div>
+      </div>
+      {row('Dark Mode',
+        <div onClick={toggle} style={{ width:38, height:22, borderRadius:11, cursor:'pointer', background:dark?c.trackOn:c.trackOff, position:'relative', transition:'background 0.2s' }}>
+          <div style={{ position:'absolute', top:3, left:dark?19:3, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+        </div>
+      )}
+      {row('Density',
+        <div style={{ display:'flex', gap:4 }}>
+          {['Compact','Comfortable'].map(d=>(
+            <div key={d} onClick={()=>{ const u={...tweaks,density:d.toLowerCase()}; setTweaks(u); window.parent.postMessage({type:'__edit_mode_set_keys',edits:u},'*'); }} style={{ padding:'3px 8px', borderRadius:5, cursor:'pointer', fontSize:10.5, background:tweaks.density===d.toLowerCase()?(dark?'rgba(168,197,160,0.15)':'rgba(168,197,160,0.25)'):(dark?'#1A1E2A':'#F0ECE8'), color:tweaks.density===d.toLowerCase()?'#A8C5A0':c.muted }}>{d}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Root App ──────────────────────────────────────────────────────────────────
+
+function App() {
+  const [tweaks, setTweaks]               = useState(TWEAK_DEFAULTS);
+  const [view, setView]                   = useState('storyboard');
+  const [mode, setMode]                   = useState('storyboard');
+  const [notifOpen, setNotifOpen]         = useState(false);
+  const [tweaksOpen, setTweaksOpen]       = useState(false);
+  const [historyOpen, setHistoryOpen]     = useState(false);
+  const [historyFrameId, setHistoryFrameId] = useState(null);
+  const [moodboardSideOpen, setMoodboardSideOpen] = useState(false);
+  const [moodboardItems, setMoodboardItems] = useState([]);
+  const [claudeEnabled, setClaudeEnabled] = useState(false);
+  const [activeScene, setActiveScene]     = useState(null);
+  const [liveNotif, setLiveNotif]         = useState(false);
+
+  const theme = tweaks.theme;
+  const dark = theme === 'dark';
+
+  // Tweaks protocol
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode')   setTweaksOpen(true);
+      if (e.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type:'__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const handleOpenHistory = (frameId) => {
+    setHistoryFrameId(frameId);
+    setHistoryOpen(true);
+    setMoodboardSideOpen(false);
+  };
+
+  const handlePullToMoodboard = (item) => {
+    setMoodboardItems(prev => {
+      if (prev.some(i => i.id === item.id)) return prev;
+      return [item, ...prev];
+    });
+    setMoodboardSideOpen(true);
+  };
+
+  const PROJECT_VIEWS = new Set(['storyboard','assets','crew','lighting','moodboard','settings']);
+  const inProject = PROJECT_VIEWS.has(view);
+
+  const renderMain = () => {
+    switch (view) {
+      case 'storyboard': return <StoryboardView theme={theme} mode={mode} onOpenHistory={handleOpenHistory} claudeEnabled={claudeEnabled} activeScene={activeScene} />;
+      case 'assets':     return <AssetsView theme={theme} />;
+      case 'crew':       return <CrewView theme={theme} />;
+      case 'lighting':   return <LightingView theme={theme} activeScene={activeScene} />;
+      case 'moodboard':  return <MoodboardView theme={theme} moodboardItems={moodboardItems} onAddItem={handlePullToMoodboard} />;
+      case 'settings':   return <SettingsView theme={theme} onClaudeToggle={setClaudeEnabled} claudeEnabled={claudeEnabled} />;
+      case 'projects':   return <ProjectsView theme={theme} setView={setView} />;
+      default: return (
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:dark?'#111318':'#F8F6F2', color:dark?'#4A5270':'#B0A8A0', fontFamily:"'DM Sans',sans-serif", flexDirection:'column', gap:10 }}>
+          <div style={{ fontSize:32, opacity:0.3 }}>◱</div>
+          <div style={{ fontSize:13 }}>{view}</div>
+        </div>
+      );
+    }
+  };
+
+  return (
+    <div style={{ display:'flex', width:'100vw', height:'100vh', overflow:'hidden', background:dark?'#111318':'#F8F6F2' }}>
+      <Sidebar theme={theme} view={view} setView={setView} setActiveScene={setActiveScene} notifOpen={notifOpen} setNotifOpen={setNotifOpen} />
+
+      <div style={{ marginLeft:240, flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <TopBar
+          theme={theme} view={view} mode={mode} setMode={setMode}
+          notifOpen={notifOpen} setNotifOpen={setNotifOpen}
+          historyOpen={historyOpen} setHistoryOpen={setHistoryOpen}
+          moodboardSideOpen={moodboardSideOpen} setMoodboardSideOpen={setMoodboardSideOpen}
+          liveNotif={liveNotif} setLiveNotif={setLiveNotif}
+        />
+        <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+          {renderMain()}
+          {moodboardSideOpen && (
+            <MoodboardSidePanel theme={theme} items={moodboardItems} onClose={()=>setMoodboardSideOpen(false)} />
+          )}
+        </div>
+      </div>
+
+      {notifOpen && <NotificationsPanel theme={theme} onClose={()=>setNotifOpen(false)} liveNotif={liveNotif} activeScene={activeScene} />}
+      {historyOpen && <HistoryPanel theme={theme} frameId={historyFrameId} onClose={()=>setHistoryOpen(false)} onPullToMoodboard={handlePullToMoodboard} />}
+
+      {/* Add Scene FAB */}
+      {inProject && <AddSceneFAB theme={theme} onClick={()=>{}} />}
+
+      {/* Tweaks gear */}
+      <div onClick={()=>setTweaksOpen(o=>!o)} title="Tweaks" style={{ position:'fixed', bottom:20, right:20, zIndex:7000, width:38, height:38, borderRadius:'50%', cursor:'pointer', background:dark?'#1C1F2A':'#EDEBE5', border:`1px solid ${dark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)'}`, display:'flex', alignItems:'center', justifyContent:'center', color:dark?'#6B7399':'#9A9589', boxShadow:'0 2px 12px rgba(0,0,0,0.2)' }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+          <circle cx="8" cy="8" r="2.3"/>
+          <path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1"/>
+        </svg>
+      </div>
+
+      <TweaksPanel show={tweaksOpen} tweaks={tweaks} setTweaks={setTweaks} onClose={()=>{ setTweaksOpen(false); window.parent.postMessage({type:'__edit_mode_dismissed'},'*'); }} />
+
+      <style>{`@keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }`}</style>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
