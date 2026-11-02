@@ -14,7 +14,8 @@
 ## Read first
 - docs/PLAN.md: current phase, scope and exit criteria.
 - Build only the current phase. Ask before starting anything outside it.
-- design/DESIGN.md and design/tokens set the look. /prototype is only an inventory of screens and flows; never import from it.
+- design/DESIGN.md and design/tokens set the look. /prototype is only an inventory of screens and flows: keep its
+  features, never its look, and never import from it.
 
 ## Film vocabulary (use it correctly)
 - Shot sizes: EWS, WS, MS, MCU, CU, ECU, insert.
@@ -58,6 +59,14 @@
 - Every table has id (UUID v4), created_at, updated_at.
 - The meta table holds schema_version. Migrations live in src/core/storage/migrations.
 - Copy the file to a backup before running any migration.
+- Backups: every 5 minutes, only if the project changed, write a full copy to `Backups/<Project> YYYY-MM-DD HH-mm.sbd`
+  next to the .sbd (<Project> is its file name).
+  - Copy with SQLite's backup API or VACUUM INTO, so the copy is consistent while the project is open; never a raw
+    file copy.
+  - Keep the last 12 copies plus one per day for 14 days, and delete older ones. Both numbers are in Settings.
+    Pruning touches only this project's own backups.
+  - "Open backup" opens a copy as a separate project; it never overwrites the original without asking.
+  - Per-edit saving stays as it is; backups are an extra safety net.
 - .sbdpack = zip of the .sbd plus all linked media ("Collect project").
 - Document every schema change in docs/SBD_FORMAT.md.
 - JSON and CSV export must always round-trip without data loss.
@@ -69,6 +78,9 @@
 - A shot links to: one scene, at most one location, shoot_day and setup, and many people, gear items and media.
 - Views (storyboard, shot list, schedule, call sheet, deck) read records. They never copy data.
 - Rollups (day totals, a location's shot list) are computed, never stored.
+- Deleting a frame, shot, scene, note or media item archives it: archived_at and archived_by are set on the record
+  through an op, so undo brings it back. Restore is an op too.
+- Views, rollups, call sheets, checks and MCP reads skip archived records unless the caller asks for them.
 - Users can add custom props to shots, locations and people.
 
 ## Edits, undo and autosave
@@ -101,6 +113,15 @@
   - Export glTF (.glb) with cameras and KHR_lights_punctual lights.
   - Open in Blender: run the user's installed Blender in the background with a bundled Python script.
   - Never bundle Blender. Ship a Storiiboard application template with a simplified layout.
+- Archive (Phase 1): archived frames, shots, scenes, notes and media, filtered by scene and type; restore with one
+  click; "Empty archive" asks to confirm, then deletes for good.
+- Notifications (Phase 3): one feed built from the op log, suggestions and comments: what changed, who, when, with a
+  link to the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op.
+  - Unread count; filters for all, unread and the current scene; Mark all read. Filtered to one item, it is that
+    item's history.
+- Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. Picking a day
+  narrows the list; each day shows its scenes, its location's status and how many crew have confirmed.
+- Calendar, Notifications and Archive are tiles any workspace can open; they are not in the default layouts.
 
 ## Network rules
 - Weather: Open-Meteo, no key, non-commercial use only; credit it on call sheets (CC BY 4.0).
@@ -115,6 +136,9 @@
 ## Web companion
 - Read-only views: call sheets, compressed storyboard (images only, no video, no tools), latest bird's-eye plans.
 - Interactive: comments, suggestions, availability (whole dates only, no hours).
+- Main navigation includes Calendar, Notifications and Archive.
+  - Cast and crew see only their own days and updates.
+  - Producers and directors see the full Archive. A restore from the web is a suggestion for the desktop to approve.
 - The desktop app publishes a snapshot. The web never edits the .sbd directly.
 - Suggestions and comments sync back to the desktop approval queue.
 - Access by per-person invite link (magic link). No public projects.
@@ -126,6 +150,7 @@
 ## MCP server
 - Transports: stdio for Claude Desktop and Claude Code; local HTTP bound to 127.0.0.1 with an Origin check and a token.
 - Read tools: project summary, scenes, shots, schedule, call sheets, people, gear, locations, plans, suggestions.
+- Read tools leave out archived records unless the call asks for them.
 - Write tools only create suggestions. A person approves them in the app.
 - The check tool runs src/core/checks and returns findings.
 - The script tool reads an imported script and proposes scenes and a breakdown as suggestions.

@@ -37,13 +37,13 @@ One PR per milestone, each into `v2`.
 | 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
 | D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | `phase0/d1-design` | In review |
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | | Not started |
-| 0.4 .sbd storage: Rust commands, schema v1, migrations, docs/SBD_FORMAT.md | | Not started |
-| 0.5 Operations, undo and redo, autosave | | Not started |
-| D2 Dockable tiles: drag, split, tab, snap, maximize, reflow, saved workspaces (needs 0.5; library choice first) | | Not started |
+| 0.4 .sbd storage: Rust commands, schema v1 (records carry archived_at and archived_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | | Not started |
+| 0.5 Operations, undo and redo, autosave; deleting archives a record, and restoring is an op | | Not started |
+| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
-| 0.7 Projects screen: New, Open, Recent | | Not started |
+| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings | | Not started |
 
-Phase 0 calls made Nov 1, 2026:
+Phase 0 calls, Nov 1 and 2, 2026:
 
 - The .sbd is accessed through custom Rust commands (rusqlite), not tauri-plugin-sql. One command runs a batch of
   statements in a single transaction, and image bytes travel raw instead of as JSON.
@@ -52,6 +52,12 @@ Phase 0 calls made Nov 1, 2026:
 - Vercel skips `v2`; the prototype site on `main` stays live.
 - Design system: Kevin's design kit arrived Nov 2, 2026 and lives in `design/` (DESIGN.md, tokens, logo). D1 builds it
   into the app. At Kevin's request the shell comes before CI (0.3); docking (D2) waits for operations (0.5).
+- Docking (D2) is built in-house on pointer events, with no library, so Tauri's own file drop keeps working on Windows.
+  No floating windows. Saved workspaces live per user in settings, with built-in defaults, so the .sbd doesn't change.
+  D2 is one milestone; if it runs longer, Claude Code stops and shows Kevin where it stands (Nov 2).
+- @axe-core/playwright is added as a dev dependency for automated accessibility checks (Nov 2).
+- Backups join 0.4 and 0.7, and the archive columns join schema v1. The Archive tile comes in Phase 1, the Calendar and
+  Notifications tiles in Phase 3, and all three on the web in Phase 9 (Nov 2). Open questions are under Decisions.
 
 ---
 
@@ -115,12 +121,18 @@ snapshot and sends feedback back for approval.
 | Cast and crew | People, departments, roles, characters, contacts | Producer, AD | Yes |
 | Gear lists | Camera, lighting, grip and sound packages per day, linked to the shots that need them | DP, gaffer, sound | Yes |
 | Schedule | Shots grouped into shoot days by location and setup | AD, producer | Yes |
+| Calendar | Month and week views of shoot days and availability, plus the shoot schedule as a list. Kept from the prototype: Today, picking a day narrows the list, and each day shows its scenes, its location's status (TBD, confirmed, cancelled) and how many crew have confirmed | Producer, AD | Yes |
 | Call sheets | Document built per day that links cast, scenes, locations, gear, crew by department, sound, weather, sun times, map and nearest hospital; PDF and web | AD, producer | Yes |
 | Moodboards by department | Boards for creative direction, set design, makeup and wardrobe, linked to scenes and characters | Creative director, production designer, HMU, wardrobe | Yes |
 | Pitch decks | Decks and treatments built from frames, with film templates | Director, producer | Yes |
 | Cloud links | Paste a Dropbox or Google Drive shared link per project; the app lists the files, downloads them and relinks media | Everyone | Yes for public links; private folders need sign-in later |
 | Find missing files | Search the computer for media that moved or was never linked, matched by name, size and length | Everyone | Yes, later phase |
+| Backups | Every 5 minutes, if anything changed, a full copy of the project goes to a Backups folder next to it. The last 12 copies and one a day for 14 days are kept; Open backup opens one as a separate project | Everyone | Yes |
+| Archive | Deleted frames, shots, scenes, notes and media wait in the Archive: filter by scene and type, restore with one click, empty it after a confirm | Everyone | Yes |
+| Notifications | One feed of what changed, who changed it and when, from edits, suggestions and comments, each linking to its item; read and unread per person. Kept from the prototype: an unread count, filters for All, Unread and the current scene, and Mark all read. Filtered to one frame, the feed is that frame's history (field, before and after, who, when) | Everyone | Yes |
 | AI assistant | Reads the whole project, checks for mistakes, drafts changes for approval | Producer, AD, director | Yes, through MCP |
+
+Calendar, Notifications and Archive are tiles you can open in any workspace; they aren't in the default layouts.
 
 ### Script and 3D tools
 
@@ -146,6 +158,11 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 | Availability | The producer proposes dates for a scene; each person marks the dates they can make. Whole days only, no hours |
 | Comments and suggestions | Leave feedback on any frame, plan or call sheet, or suggest a change; it lands in the desktop app for approval |
 | Company workspace | A brand groups its people: CEO and marketing approve, creators plan and shoot |
+| Calendar | Month and week views of their shoot days and availability, plus the schedule as a list |
+| Notifications | Updates on their days, scenes and call sheets, read and unread |
+| Archive | Producers and directors see everything archived; a restore request goes to the desktop for approval |
+
+Calendar, Notifications and Archive are main navigation items. Cast and crew see only their own days and updates.
 
 The web companion is the only part that needs a server, so it has a running cost and holds private data such as phone
 numbers and addresses. Each person gets a private invite link, contact details show only to people on that call sheet,
@@ -246,6 +263,11 @@ Every Storiiboard project is one .sbd file. Double-clicking it opens the app, li
 - **Collect Project** packs the .sbd and every linked file into one .sbdpack zip for handoff.
 - The format stays open: the schema is documented in the repo (docs/SBD_FORMAT.md), and every project exports to JSON and CSV.
 - Each file records its schema version; older projects are backed up, then upgraded when opened.
+- Every 5 minutes, if anything changed, a full copy goes to a Backups folder next to the .sbd. It's made with SQLite's
+  backup API, so it's consistent while the project is open. The last 12 copies and one a day for 14 days are kept, and
+  both numbers are in Settings. Saving each edit the moment it happens stays as it is.
+- Deleting archives instead of erasing: archived items keep their data, can be restored, and stay out of every view
+  until the archive is emptied.
 
 This replaces the earlier folder-of-JSON plan. The trade-off is that a project is no longer easy to compare line by line
 in git; the JSON export covers that.
@@ -283,16 +305,16 @@ demo data.**
 
 | Phase | Delivers | Gate |
 |---|---|---|
-| **0 · Foundation and .sbd** (current) | Desktop shell, .sbd file with autosave and history, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
-| 1 · Storyboard | Script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields | A real scene is boarded in one sitting |
+| **0 · Foundation and .sbd** (current) | Desktop shell, .sbd file with autosave, history and backups every 5 minutes, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
+| 1 · Storyboard | Script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields, Archive tile | A real scene is boarded in one sitting |
 | 2 · Video and images | Playback copies, frame stepping, in and out, crop, still and clip capture, attachments | A still from a reference clip lands in a frame in a few clicks |
-| 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days | A real shoot's people, places and gear are entered |
+| 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days, Calendar and Notifications tiles | A real shoot's people, places and gear are entered |
 | 4 · Call sheets | Call sheet per day with weather, sun times, map and hospital; PDF | Used on a real shoot day |
 | 5 · Bird's-eye view | Top-down plans with walls, cast, cameras with true field of view, lights, department layers | A gaffer plans a real setup with it |
 | 6 · Moodboards and decks | Department moodboards, pitch decks from frames | A deck built in under an hour |
 | 7 · AI assistant | MCP server, mistake checks, approval queue | The checks catch a real scheduling or gear mistake |
 | 8 · Cloud links and release | Dropbox and Google Drive links, Collect Project, signed installers, public repo, Patreon | A stranger installs it and opens a shared project |
-| 9 · Web companion | Call sheets, compressed storyboard, bird's-eye viewer, availability, comments and suggestions, company workspaces | Cast and crew get their call sheet from the site and send a suggestion |
+| 9 · Web companion | Call sheets, compressed storyboard, bird's-eye viewer, availability, comments and suggestions, company workspaces, Calendar, Notifications and Archive | Cast and crew get their call sheet from the site and send a suggestion |
 | 10 · 3D set and Blender (July to September 2027) | 3D set preview, glTF export, Open in Blender, the simple Blender layout | A DP checks a real setup through the 3D camera before the shoot |
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
@@ -317,6 +339,7 @@ Kickoff steps (from the hand-off):
 - [ ] A project survives force-quitting mid-edit.
 - [ ] Double-clicking a .sbd opens it.
 - [ ] Undo works across an app restart.
+- [ ] Edits produce a backup within 5 minutes, and Open backup opens it as a separate project.
 - [ ] Gate passes on Kevin's own material, not demo data.
 
 ## Claude Code hand-off
@@ -361,6 +384,18 @@ companion for everyone on set. Three calls unblock Phase 0; the rest can wait un
 | Patreon model | Donations only, or paid tiers that unlock features | Donations only: perks like early builds, templates and a Discord, never locked features. Paid features would break Open-Meteo's free terms | Phase 8 | Open |
 | Code signing | Pay for Apple and Windows signing, or ship unsigned | Sign the Mac build at least; unsigned apps show scary warnings | Phase 8 | Open |
 | Web companion hosting | Kevin hosts one site for everyone, or each production hosts its own | Host it for Kevin's productions first with a self-host guide; decide on an open hosted service once costs are known | Phase 9 | Open |
+
+### Open questions (Nov 2 features)
+
+| Question | Recommendation | Needed by |
+|---|---|---|
+| Archiving a scene: do its shots go to the Archive with it? | Yes, in the same op group, so one restore brings the whole scene back | Phase 1 |
+| Empty archive: is it final? | Yes, after the confirm: it removes the records, their media and their data in older ops, and can't be undone. Backups keep them until they're pruned | Phase 1 |
+| Frames and notes aren't record types yet | Phase 1 planning decides whether a frame is its own record or a shot's image, and adds a note type | Phase 1 |
+| Who counts as producers and directors for the full Archive on the web? | The project owner plus the production and direction departments; nobody else sees the Archive | Phase 9 |
+| Backup size: up to 26 full copies sit next to the project, and they sync if it's in Dropbox | Keep the defaults, and show the Backups folder's size next to the two numbers in Settings | 0.7 |
+| CLAUDE.md also has "automatic snapshots are pruned after 30 days". Are backups those snapshots? | Yes: backups are the automatic restore points, so the 30-day rule goes and named versions stay a later feature | 0.4 |
+| The prototype's Archive was for whole projects (active, draft, archived), not deleted items | Keep it with the project status fields on the Projects screen, which Phase 0 leaves out | After Phase 0 |
 
 ## Risks
 
