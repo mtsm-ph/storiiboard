@@ -10,6 +10,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     watch: { ignored: ['**/src-tauri/**'] },
+    // Compile the app and the lazy-loaded catalogue as the server starts, so the first page a test opens doesn't
+    // wait for them. On a busy machine that wait alone was enough to time a test out.
+    warmup: { clientFiles: ['./src/main.tsx', './src/app/catalogue/Catalogue.tsx'] },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
