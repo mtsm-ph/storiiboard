@@ -8,10 +8,10 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Plan approved Nov 1, 2026; building milestone 0.1 |
+| Phase 0 state | Building: 0.1 merged into v2, 0.2 in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 1, 2026 |
+| Last updated | Nov 2, 2026 |
 
 | Phase | State |
 |---|---|
@@ -33,8 +33,8 @@ One PR per milestone, each into `v2`.
 
 | Milestone | PR | State |
 |---|---|---|
-| 0.1 Archive the prototype (password gate removed), add CLAUDE.md, PLAN.md and the PDF | | In review |
-| 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | | Not started |
+| 0.1 Archive the prototype (password gate removed), add CLAUDE.md, PLAN.md and the PDF | pushed to v2 | Done |
+| 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | | Not started |
 | 0.4 .sbd storage: Rust commands, schema v1, migrations, docs/SBD_FORMAT.md | | Not started |
 | 0.5 Operations, undo and redo, autosave | | Not started |

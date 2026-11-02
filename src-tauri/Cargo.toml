@@ -1,0 +1,20 @@
+[package]
+name = "storiiboard"
+version = "0.1.0"
+description = "Open-source pre-production for filmmakers"
+authors = ["Kevin Matos"]
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+# The _lib suffix avoids a Windows name clash between the lib and the bin.
+name = "storiiboard_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
