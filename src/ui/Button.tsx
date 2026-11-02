@@ -56,7 +56,7 @@ export function Button({
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label' | 'children'> {
   /** Icon buttons have no visible text, so the label is required: it names the button and shows as its tooltip. */
   label: string;
-  /** md: 34px bordered control. sm: 22px, borderless, for tile title bars. */
+  /** md: 34px bordered control. sm: 24px, borderless, for tile title bars. */
   size?: 'md' | 'sm';
   children: ReactNode;
 }
@@ -69,8 +69,10 @@ export function IconButton({ label, size = 'md', className, children, type = 'bu
       title={label}
       className={cx(
         'inline-flex shrink-0 items-center justify-center text-ink',
-        // The 22px title-bar buttons sit against the tile's clipped top edge, so their ring is drawn inside.
-        size === 'md' ? 'size-[34px] border border-ink' : 'size-[22px] focus-visible:-outline-offset-2',
+        // Title-bar buttons are 24px, WCAG 2.2's smallest target, where the kit draws 22px: side by side, 22px ones
+        // are too small to hit reliably, and on a borderless button the extra 2px doesn't show. They sit against the
+        // tile's clipped top edge, so their ring is drawn inside.
+        size === 'md' ? 'size-[34px] border border-ink' : 'size-[24px] focus-visible:-outline-offset-2',
         DISABLED,
         className,
       )}

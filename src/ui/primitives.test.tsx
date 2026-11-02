@@ -31,6 +31,10 @@ describe('Button', () => {
     expect(renderToString(<IconButton label="Close" size="sm">×</IconButton>)).toContain('focus-visible:-outline-offset-2');
   });
 
+  it('keeps the small title-bar buttons at 24px, the smallest target WCAG 2.2 allows', () => {
+    expect(renderToString(<IconButton label="Close" size="sm">×</IconButton>)).toContain('size-[24px]');
+  });
+
   it('pads mono buttons tighter, with a single padding class', () => {
     const html = renderToString(<Button mono>[ IN</Button>);
     expect(html).toContain('px-2.5');
