@@ -379,7 +379,7 @@ companion for everyone on set. Three calls unblock Phase 0; the rest can wait un
 
 - [x] Kevin confirms Tauri and the v2 branch
 - [x] Remove the client-side password from the v2 prototype
-- [ ] Kevin changes that password anywhere it is reused (it stays in main, in git history and on the live site)
+- [x] Kevin keeps the old password as is (Nov 1, 2026); it stays readable in main, git history and the live site
 - [x] Create the v2 branch
 - [ ] Add CLAUDE.md and docs/PLAN.md to the v2 branch (first PR)
 - [x] Run the Phase 0 kickoff in Claude Code (plan mode)
