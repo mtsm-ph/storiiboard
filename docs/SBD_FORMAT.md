@@ -1,13 +1,17 @@
 # The .sbd file format
 
-**Status: draft.** Schema v1 is built in milestone 0.4; until then this file is the plan for it. Every schema change is
-recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
+**Status:** schema v1, backups and migrations are built (milestone 0.4); sections marked planned aren't yet. Every
+schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
 
 - One project is one .sbd file, which is one SQLite 3 database.
 - Journal mode is `DELETE` with `synchronous = FULL`, not WAL. WAL keeps -wal and -shm files next to the project, and
   Dropbox or email can split them from it; the rollback journal keeps a project to one file at rest.
+- `fullfsync = ON` as well: on a Mac, plain fsync leaves a commit in the drive's cache, so a power cut could still lose
+  it. `foreign_keys = ON`.
+- The desktop app opens files through Rust (src-tauri/src/sbd.rs); tests and the MCP server use Node's built-in SQLite
+  with the same settings (src/core/storage/nodeDriver.ts).
 - Video stays outside the file as a linked path or cloud link, plus a cached thumbnail. Media paths are stored relative
   to the .sbd when possible, absolute otherwise.
 
@@ -20,6 +24,9 @@ recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## Schema v1 (milestone 0.4)
 
+All three tables are `STRICT`, so SQLite enforces the column types. JSON columns are checked with `json_valid`. Kinds
+and states aren't checked by SQLite: changing a CHECK means rebuilding the table, and later phases add op kinds.
+
 ### meta
 
 | Column | Type | Notes |
@@ -27,18 +34,21 @@ recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 | key | text, unique | |
 | value | text | |
 
-Keys: `schema_version` (1), `app_version` and `undo_cursor`.
+Keys: `schema_version` (1); `app_version`, the app that last opened the file; and `undo_cursor`, written from 0.5 (a
+missing cursor reads as 0).
 
 ### records
 
 | Column | Type | Notes |
 |---|---|---|
 | type | text | One of the record types in CLAUDE.md, such as `scene`, `shot` or `media` |
-| parent_id | text, null for the project | The parent record |
+| parent_id | text, null for the project | The parent record. A foreign key checked at commit, so one op group can create a parent and its children in any order |
 | sort_key | text | Fractional key that orders siblings, so a reorder rewrites one row instead of the parent |
 | props | JSON | The record's properties, custom ones included. Changing `type` keeps every prop |
 | trashed_at | text, null while live | When the record went to the Trash (see Trash) |
 | trashed_by | text, null while live | Who sent it there: the op author, `local` until people sign in |
+
+Indexes: `records_by_parent (parent_id, sort_key)` for ordered children, and `records_by_type (type)`.
 
 ### ops
 
@@ -52,6 +62,8 @@ Keys: `schema_version` (1), `app_version` and `undo_cursor`.
 | author | text | `local` for now |
 | timestamp | text | When the edit happened |
 | state | text | `applied`, `undone`, or `discarded` (a redo tail dropped by a new edit) |
+
+Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
 
 The ops table is the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
@@ -106,6 +118,17 @@ Changing any of them is an op, so it undoes and shows in History.
 - A project with no `theme` uses the default theme. The schema 2 migration writes the default theme into older files,
   so every file states its theme.
 
+## Migrations (milestone 0.4)
+
+- Migrations live in src/core/storage/migrations, numbered from 1; a file's schema version is the number it has run.
+- Before upgrading an existing file, a full copy is written beside it as
+  `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` (local time). Migration backups are never pruned.
+- Each migration runs in its own transaction together with its `schema_version` bump, so a failure leaves the file at
+  the last version that completed.
+- A file from a newer schema is refused, unchanged, with "Update Storiiboard to open it".
+- A file without a `meta` table is refused as "not a Storiiboard project", unless the app has just created it empty.
+  Nothing is added to a file that isn't a project.
+
 ## Backups (milestone 0.4)
 
 - Every 5 minutes while a project is open, and only if it changed since the last backup, a full copy is written to
@@ -113,10 +136,15 @@ Changing any of them is an op, so it undoes and shows in History.
   the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`.
 - Copies are made with SQLite's online backup API or `VACUUM INTO`, so they're consistent while the project is open.
   The file is never copied with a raw file copy. Each backup is a complete .sbd that opens on its own.
-- Pruning keeps the newest 12 backups plus the newest one from each of the last 14 days, and deletes the rest. Both
-  numbers are in Settings. Pruning touches only this project's own backups, never other files in the folder.
+- "Changed" means a row was written through the open connection since the last backup. Opening a project (its
+  migration, its `app_version`) doesn't count, so opening alone never makes a backup.
+- Pruning runs after each backup. It keeps the newest 12 backups, plus the newest one from each of the last 14 calendar
+  days (today included), and deletes the rest. Both numbers become settings in 0.7.
+- Pruning touches only this project's own backups, never other files in the folder: names are made and parsed in
+  src/core/storage/backups.ts, and the Rust side refuses to write or delete any name that isn't this project's.
 - "Open backup" opens a copy of the backup as a separate project. The original is never overwritten without asking.
-- Migration backups (`<name>.sbd.bak-v<from>-<date>`, made before any migration) are separate and are never pruned.
+- Migration backups (`<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm`, made before any migration) are separate and are never
+  pruned.
 
 ## Change files (.sbdchanges)
 
@@ -196,7 +224,7 @@ Importing:
 |---|---|---|---|
 | `<Project>.sbd` | The project | 0.4 | |
 | `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies | 0.4 | 12 plus one a day for 14 days |
-| `<name>.sbd.bak-v<from>-<date>` | Copy made before a migration | 0.4 | Never pruned |
+| `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` | Copy made before a migration | 0.4 | Never pruned |
 | `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
@@ -255,7 +283,7 @@ is each person's read state, in two tables.
 
 | Schema | Milestone | Change |
 |---|---|---|
-| 1 | 0.4 (planned) | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
+| 1 | 0.4 | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
 | 2 | Phase 1 (planned) | Media and thumbnails, for the project's logo; default theme written into older projects |
 | 3 | Phase 1 (planned) | Named versions: `versions` |
 | 4 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |

@@ -1,6 +1,7 @@
 // App settings that belong to the person, not the project: they never go into a .sbd file.
-// Backed by the webview's localStorage for now; milestone 0.4 moves them to a settings file in the app's data
-// folder, behind these same two functions.
+// They stay in the webview's localStorage, which the app keeps in its own data folder: public/theme-boot.js has to
+// read the theme synchronously before first paint, which a file behind a Rust command can't offer. Lists that other
+// tools may read, like the recent projects, go in app data files instead (appData.ts).
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
