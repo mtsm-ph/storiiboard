@@ -1,3 +1,96 @@
 @import 'tailwindcss';
+@import './fonts/fonts-app.css';
+@import '../../design/tokens/tokens.css' layer(base);
 
-/* Design tokens and fonts arrive with the design foundation milestone (D1). */
+/* dark: variants follow the theme setting (data-theme on <html>), not the OS directly. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * The kit's Tailwind names. design/tokens/tailwind.preset.js is a Tailwind v3 preset and the app runs v4, so it is
+ * restated here; src/ui/tokens.test.ts fails if a preset key goes missing. "inline" makes utilities read the
+ * --sb-* variables directly, so every class follows data-theme.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-paper: var(--sb-paper);
+  --color-oatmeal: var(--sb-oatmeal);
+  --color-panel: var(--sb-panel);
+  --color-ink: var(--sb-ink);
+  --color-ink-inverse: var(--sb-ink-inverse);
+  --color-muted: var(--sb-muted);
+  --color-rule: var(--sb-rule);
+  --color-rule-top: var(--sb-rule-top);
+  --color-accent: var(--sb-accent);
+  --color-on-accent: var(--sb-on-accent);
+  --color-warning: var(--sb-warning);
+  --color-highlight: var(--sb-highlight);
+  --color-dept-camera: var(--sb-dept-camera);
+  --color-dept-lighting: var(--sb-dept-lighting);
+  --color-dept-art: var(--sb-dept-art);
+  --color-dept-wardrobe: var(--sb-dept-wardrobe);
+  --color-dept-sound: var(--sb-dept-sound);
+  /* Not in the kit's preset: text that keeps its colour in both themes, on department tags and chips. */
+  --color-paper-fixed: #eee9df;
+  --color-ink-fixed: var(--sb-on-accent);
+
+  --font-sans: var(--sb-font-ui);
+  --font-ui: var(--sb-font-ui);
+  --font-mono: var(--sb-font-mono);
+  --font-display: var(--sb-font-display);
+  --font-futura: var(--sb-font-futura);
+  --font-rounded: var(--sb-font-rounded);
+  --font-serif: var(--sb-font-serif);
+
+  --spacing-gap: var(--sb-gap);
+  --spacing-titlebar: var(--sb-titlebar);
+  --spacing-topbar: var(--sb-topbar);
+  --spacing-statusbar: var(--sb-statusbar);
+
+  --text-label: 10px;
+  --text-label--letter-spacing: 0.08em;
+  --text-label--line-height: 1.2;
+
+  /* Every border is the kit's 1.5px rule unless a class says otherwise. */
+  --default-border-width: var(--sb-rule-width);
+}
+
+/* Nothing rounded and no shadows inside the app (DESIGN.md). rounded-full stays for avatars. */
+@theme {
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--sb-paper);
+    color: var(--sb-ink);
+    font-family: var(--sb-font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Native parts the browser draws (scrollbars, select menus) follow the theme too. */
+  :root {
+    color-scheme: light;
+  }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  /* Ink, never orange (orange is reserved). Controls filled with ink or orange recolour the ring so it shows. */
+  :focus-visible {
+    outline: 2px solid var(--sb-ink);
+    outline-offset: 2px;
+  }
+}

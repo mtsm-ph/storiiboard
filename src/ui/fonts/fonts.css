@@ -1,0 +1,17 @@
+/* Self-hosted fonts for Storiiboard. All SIL Open Font License 1.1 (see each folder's OFL.txt).
+   Bundle these with the desktop app so it works offline. Paths are relative to this file. */
+
+/* ---- App ---- */
+@font-face { font-family: 'Inter Tight'; src: url('intertight/InterTight[wght].ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Inter Tight'; src: url('intertight/InterTight-Italic[wght].ttf') format('truetype'); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('jetbrainsmono/JetBrainsMono[wght].ttf') format('truetype'); font-weight: 100 800; font-style: normal; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('jetbrainsmono/JetBrainsMono-Italic[wght].ttf') format('truetype'); font-weight: 100 800; font-style: italic; font-display: swap; }
+
+/* ---- Website only ---- */
+@font-face { font-family: 'Archivo'; src: url('archivo/Archivo[wdth,wght].ttf') format('truetype'); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Archivo'; src: url('archivo/Archivo-Italic[wdth,wght].ttf') format('truetype'); font-weight: 100 900; font-stretch: 62% 125%; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Jost'; src: url('jost/Jost[wght].ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Jost'; src: url('jost/Jost-Italic[wght].ttf') format('truetype'); font-weight: 100 900; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Outfit'; src: url('outfit/Outfit[wght].ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Bodoni Moda'; src: url('bodonimoda/BodoniModa[opsz,wght].ttf') format('truetype'); font-weight: 400 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Bodoni Moda'; src: url('bodonimoda/BodoniModa-Italic[opsz,wght].ttf') format('truetype'); font-weight: 400 900; font-style: italic; font-display: swap; }

@@ -13,6 +13,8 @@ export default defineConfig(
       'src-tauri/gen',
       'prototype',
       'Storiiboard Design Kit',
+      // Copied from the design kit as-is (the Tailwind preset is the kit's CommonJS file).
+      'design',
       'playwright-report',
       'test-results',
     ],
@@ -36,6 +38,8 @@ export default defineConfig(
     files: ['src/**/*.tsx'],
     extends: [reactHooks.configs.flat.recommended, jsxA11y.flatConfigs.strict],
   },
-  // This file is plain JS and jsx-a11y ships no types, so type-aware rules only add noise here.
-  { files: ['eslint.config.js'], extends: [tseslint.configs.disableTypeChecked] },
+  // Plain JS outside the TypeScript project (and jsx-a11y ships no types), so type-aware rules only add noise.
+  { files: ['eslint.config.js', 'public/**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
+  // public/ is served as-is to the webview, not bundled: browser globals only, classic script.
+  { files: ['public/**/*.js'], languageOptions: { globals: globals.browser, sourceType: 'script' } },
 );
