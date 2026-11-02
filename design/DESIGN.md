@@ -32,14 +32,18 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Paper #EEE9DF for text
   - Muted #A9B2BC for secondary text
   - Darker abyssal #0E151C for tile outlines. The top bar and website nav keep the paper outline so the active tab reads clearly.
-- **Accent: Signal Orange #E0612B.** Use it only for:
-  - the active workspace
+- **Accent: #DF5E27** in the default theme. It is Signal Orange darkened a touch so marks on paper reach AA's 3:1
+  (3.01:1; ink on it is 5.0:1). Use it only for:
+  - the active workspace (the active sidebar section)
   - the selected frame
   - the playhead
   - primary buttons
   - the active scene marker
 
-  Text on orange is always ink. Never use orange as a large fill inside the app.
+  Text on the accent is always ink. Never use it as a large fill inside the app, and always pair it with a second cue.
+- **Brand: Signal Orange #E0612B**, a fixed token for the logo's dots and bars only. It never follows a project theme.
+- **Project themes:** a project can take its colours from its logo or key image. The accent and the surfaces change;
+  type, rules, grain, layout, the logo, warning, golden hour and the department colours don't.
 - **Supporting colours:**
   - Truffle #A35139 for warnings and conflicts, with paper text.
   - Burning Flame #FFB162 for golden hour and highlights, with ink text.
@@ -49,7 +53,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Art: sage #8FA38E
   - Wardrobe, HMU and cast: blush #E9B8A6
   - Sound and production: rust #A8482F
-- **Selection:** toggles and segmented controls show their selected option as an ink fill, not orange.
+- **Selection:** toggles and segmented controls show their selected option as an ink fill, not the accent.
 - **Shot status uses shape, not colour:**
   - Have: filled square
   - Need to shoot: empty square
@@ -67,23 +71,38 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Bodoni Moda italic for editorial lines
   - Mono overlays of timecodes and coordinates
 
+## Navigation
+- **Top bar (44px):** the S mark, the project name, and the project menu at the right (History, Watermark Settings,
+  Export Project, Archive Project). Like the sidebar, it keeps the paper outline in dark.
+- **Sidebar (248px, left, between the top bar and the status bar):**
+  - The project switcher at the top: a dot in the project's accent, then its name. It opens recent projects, All
+    projects… and New project….
+  - Then one section per workspace, in this order: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings.
+  - Storyboard expands to its scenes, "SC 04  Scene Name" with the number in JetBrains Mono, ending with "+ Add Scene".
+    Setup expands to its setups by scene.
+  - Production holds the schedule, calendar, call sheets, locations, gear, and cast and crew.
+- **States:** the active section is an accent fill with bold ink text. The active scene has an accent marker and a
+  bold name. Sections not built yet are muted and show their phase.
+- **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 7 jump to a section.
+
 ## Tiles (the docking system)
 - **Anatomy:**
   - 1.5px ink border, no radius, no shadow.
   - 26px title bar: grip, "NN / Title" mono label, tabs (the open tab on Oatmeal), maximize, close.
   - 8px gap between tiles, 44px top bar, 24px status bar.
-- **Drag:** the tile lifts as a dashed ghost with a hard ink offset. The tile under the cursor shows five zones: four edges split, the centre adds a tab. The live zone turns orange and previews the split line. Escape cancels. Alt floats the tile.
+- **Drag:** the tile lifts as a dashed ghost with a hard ink offset. The tile under the cursor shows five zones: four edges split, the centre adds a tab. The live zone turns to the accent and previews the split line. Escape cancels. Alt floats the tile.
 - **Snap:** tiles snap within 8px and a dashed guide line shows. Hold Cmd to place freely.
 - **Splitter:** dragging it resizes both neighbours, with live widths in mono. Double-click evens them out.
 - **Maximize:** backtick (`) fills the app; the other tiles fold into chips along the bottom. Restore returns every tile to its exact size and position.
 - **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Cmd+Z undoes.
-- **Workspaces:** Storyboard, Production, Bird's-eye, Call sheet (Alt+1 to 4). A dot marks unsaved layout changes.
+- **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings (Alt+1 to
+  7). A dot marks unsaved layout changes.
 
 ## Bird's-eye plan
 - **Icons:** 68 top-down icons on a 32px grid with a 1.5px ink stroke, filled with the department colour (see `05_Plan_Icons/INDEX.md`).
-- **Selected camera:** orange outline, and its field-of-view cone in orange at 10% fill. Field of view = 2 x atan(sensor width / (2 x focal length)).
+- **Selected camera:** accent outline, and its field-of-view cone in the accent at 10% fill. Field of view = 2 x atan(sensor width / (2 x focal length)).
 - **Lights:** mustard beam cones.
-- **States:** default, hover (dashed box), selected (orange box with handles), rotate, locked layer (45% opacity), ghost from another setup (dashed).
+- **States:** default, hover (dashed box), selected (accent box with handles), rotate, locked layer (45% opacity), ghost from another setup (dashed).
 
 ## Website
 - **Layout:** a page that resizes, max width 1440px, with 16 to 48px side gutters. Grids collapse to one column on phones. Light and dark modes, with a toggle in the nav.

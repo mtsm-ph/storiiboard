@@ -131,9 +131,11 @@
     item's history.
 - Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. Picking a day
   narrows the list; each day shows its scenes, its location's status and how many crew have confirmed.
-- Calendar, Notifications and Trash are tiles any workspace can open; they are not in the default layouts.
+- Calendar, Notifications and Trash are tiles any workspace can open. Calendar is in the Production workspace's default
+  layout; Notifications and Trash are in none.
 - Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
-  and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Moodboard, Settings. Each section opens a workspace.
+  and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Production (schedule, calendar, call sheets,
+  locations, gear, cast and crew), Moodboard, Settings. Each section is a workspace.
   - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
   - Switching projects opens the other .sbd in place, without reloading the window.
 - Project themes (Phase 1): colours come from the project's logo or key image, worked out on the device.
@@ -166,7 +168,9 @@
 - The desktop app publishes a review copy: compressed, read-only, in the project's theme. The web never edits the .sbd.
 - Team members with reviewer access can suggest deleting a shot or scene; it shows grayed out until decided.
 - Suggestions and comments come back to the desktop as a change file the producer downloads and imports.
-- Access by per-person invite link (magic link). No public projects.
+- Access by per-person invite link (magic link). The one exception is an optional view-only link per project: off by
+  default; storyboard and bird's-eye plans only; never call sheets or contact details; no suggestions or comments; it
+  expires with the review copy.
 - Contact details are visible only to people on that call sheet.
 - Supabase row-level security on every table, with tests for each policy.
 - Company workspaces: roles owner, approver (CEO, marketing), creator, crew, editor, cast, client.
@@ -207,12 +211,13 @@
 - Feel: a technical film poster printed on paper. Boxed tiles, 1.5px rules, 10px uppercase mono labels, gauges, bold type.
 - Light: paper #EEE9DF with grain, oatmeal #C9C1B1 for wells and selected rows, ink #16150F, muted #5E5A52.
 - Dark (data-theme="dark" on <html>): abyssal #1B2632, panels #2C3B4D, paper text, muted #A9B2BC; tile outlines #0E151C; the top bar keeps paper outlines.
-- Orange #E0612B only for: active workspace, selected frame, playhead, primary buttons, active scene marker. Never a large fill. Text on orange is ink.
-- Project themes (Phase 1) swap colour tokens only: the accent takes over orange's five uses, and backgrounds tint. The logo keeps Signal Orange; warning, golden hour and department colours never change.
+- The accent (#DF5E27 in the default theme) only for: active workspace (the active sidebar section), selected frame, playhead, primary buttons, active scene marker. Never a large fill. Text on the accent is ink.
+- The logo uses Signal Orange #E0612B, a fixed brand token, never the accent.
+- Project themes (Phase 1) swap colour tokens only: the accent changes and backgrounds tint. The logo, warning, golden hour and department colours never change.
 - Truffle #A35139 for warnings (paper text); Burning Flame #FFB162 for golden hour (ink text).
 - Department colours are tags, never state. Selection is an ink fill. Shot status is a shape: Have ■, Need to shoot □, Source ◩.
 - Inter Tight for UI; JetBrains Mono for every technical value (lens mm, T-stop, shot and scene numbers, times, timecode).
-- No radius and no shadow inside the app. Tiles: 26px title bar, 8px gaps; 44px top bar, 24px status bar.
+- No radius and no shadow inside the app. Tiles: 26px title bar, 8px gaps; 44px top bar, 248px sidebar, 24px status bar.
 - The S mark stands alone, never with the wordmark; solid S at 32px and below; never recolour the dots.
 - AA: muted text never sits on oatmeal; focus rings are ink, never orange (on an ink fill use ink-inverse, on orange use on-accent); orange marks always pair with a second cue.
 - Fonts are bundled in src/ui/fonts; never load fonts from Google or any CDN.

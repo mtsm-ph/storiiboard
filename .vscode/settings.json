@@ -1,0 +1,16 @@
+{
+  // Cargo, Vite and Playwright rewrite thousands of files here during a build or test run. Watching or searching them
+  // sets off VS Code file scans that slowed builds on this repo to a crawl.
+  "files.watcherExclude": {
+    "**/src-tauri/target/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/test-results/**": true
+  },
+  "search.exclude": {
+    "**/src-tauri/target": true,
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/test-results": true
+  }
+}

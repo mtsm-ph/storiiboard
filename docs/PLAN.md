@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: 0.2, D1, the Nov 2 plan update and 0.3 in review |
+| Phase 0 state | Building: 0.2, D1, the Nov 2 plans and 0.3 merged; 0.4 next |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -34,13 +34,13 @@ One PR per milestone, each into `v2`.
 | Milestone | PR | State |
 |---|---|---|
 | 0.1 Archive the prototype (password gate removed), add CLAUDE.md, PLAN.md and the PDF | pushed to v2 | Done |
-| 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
-| D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | `phase0/d1-design` | In review |
-| 0.3 CI: checks on every push; Mac and Windows installers on PRs | `phase0/0.3-ci` | In review |
+| 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | #2 | Done |
+| D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | #3 | Done |
+| 0.3 CI: checks on every push; Mac and Windows installers on PRs | #5 | Done |
 | 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | | Not started |
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | | Not started |
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | | Not started |
-| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Moodboard, Settings), each section opening a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
+| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
 | 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
 
@@ -64,6 +64,10 @@ Phase 0 calls, Nov 1 and 2, 2026:
 - Second round (Nov 2): navigation (D3) and Archive Project (0.7) join Phase 0. Project themes, onboarding, History,
   named versions and export go to Phase 1; the review screen for change files to Phase 7; the web side to Phase 9.
   The item archive is renamed the Trash, and one model replaces snapshots. Details under Nov 2 features, round two.
+- Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
+  calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
+  default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is
+  allowed. The Trash and the history model stand.
 
 ---
 
@@ -166,6 +170,7 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 | Call sheet | See the latest call sheet for their days, with their call time and scenes |
 | Storyboard viewer | Browse compressed frames and shot info, in the project's theme; no video, no editing tools |
 | Bird's-eye viewer | See the latest plan for each scene, read-only |
+| View-only link | Optional, off by default: anyone with the link sees the storyboard and bird's-eye plans, nothing else, until the review copy expires |
 | Availability | The producer proposes dates for a scene; each person marks the dates they can make. Whole days only, no hours |
 | Comments and suggestions | Leave feedback on any frame, plan or call sheet. Team members with reviewer access suggest deleting a shot or scene, which shows grayed out. Suggestions download as a change file that the desktop app imports for approval |
 | Company workspace | A brand groups its people: CEO and marketing approve, creators plan and shoot |
@@ -176,7 +181,7 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 Calendar, Notifications and Trash are main navigation items. Cast and crew see only their own days and updates.
 
 The web companion is the only part that needs a server, so it has a running cost and holds private data such as phone
-numbers and addresses. Each person gets a private invite link, contact details show only to people on that call sheet,
+numbers and addresses. Each person gets a private invite link (the optional view-only link never shows private data), contact details show only to people on that call sheet,
 and review copies expire after the shoot. Supabase's free tier covers testing; client work needs paid plans (about $45
 a month, see Hosting the review copy). Open-source users can host their own.
 
@@ -397,8 +402,10 @@ Phase 1 planning numbers its milestones; the order above is the recommendation.
 | `--accent` | `--sb-accent` | Orange's five uses in DESIGN.md |
 | `--accent-contrast` | `--sb-on-accent` | Text on the accent |
 
-- design/tokens stays an exact copy of the kit and becomes the default theme. The Tailwind classes move to the new
-  names in the same PR, as a mechanical rename.
+- design/tokens stays an exact copy of the kit and becomes the default theme, except that the default accent is
+  #DF5E27 (decided Nov 2). The Tailwind classes move to the new names in the same PR, as a mechanical rename.
+- The app keeps rendering #E0612B until that milestone, which changes the accent, adds the brand token and
+  regenerates the visual baselines in one go.
 - Some colours are not themed, so they mean the same thing in every project:
   - Signal Orange on the logo.
   - Warning (Truffle) and golden hour (Burning Flame).
@@ -410,7 +417,7 @@ Phase 1 planning numbers its milestones; the order above is the recommendation.
 
 | Where | What | Fix |
 |---|---|---|
-| src/ui/logo/SMark.tsx, Wordmark.tsx | The orange dots use the accent class, so a project theme would recolour them, which DESIGN.md forbids | A fixed brand-orange token |
+| src/ui/logo/SMark.tsx, Wordmark.tsx | The orange dots use the accent class, so a project theme would recolour them, which DESIGN.md forbids | A fixed brand token, Signal Orange #E0612B (decided Nov 2) |
 | src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes. The ink strokes already disappear on a dark plan | Phase 5 recolours them as they render: ink, oatmeal, white and orange become tokens, and department fills stay fixed |
 | src/ui/theme.css | `--color-paper-fixed: #eee9df` | Move it into the fixed token set |
 | src-tauri/tauri.conf.json | Window `backgroundColor` #EEE9DF | Set it from the project theme at runtime, so resizing a dark project never shows paper at the edges |
@@ -476,18 +483,18 @@ Left sidebar, top to bottom:
   place and runs the theme change.
 - **Storyboard:** expands to its scenes inline, as "SC 04  Scene Name" with the number in JetBrains Mono, then
   "+ Add Scene". The active scene's marker is orange, and its bold name is the second cue.
-- **Assets** (Phase 2), **Team** (Phase 3: cast list, crew and departments; per-member web permissions are used from
-  Phase 9), **Setup** (Phase 5: home of the bird's-eye view, setups listed by scene), **Moodboard** (Phase 6) and
-  **Settings**.
+- **Assets** (Phase 2), **Team** (Phase 3: who's on the project and, from Phase 9, what each person can see on the
+  web), **Setup** (Phase 5: home of the bird's-eye view, setups listed by scene).
+- **Production** (Phases 3 and 4): schedule, calendar, call sheets, locations, gear, and cast and crew. Its cast and
+  crew tile and the Team section read the same person records.
+- **Moodboard** (Phase 6) and **Settings**.
 
 Top-right project menu: History, Watermark Settings, Export Project, Archive Project. There is no Moodboard entry.
 
-- Each section opens a workspace, which is a saved D2 layout; Alt+1 to Alt+6 follow the sidebar's order. This
-  replaces the workspace tabs DESIGN.md puts in the top bar. The top bar keeps the S mark, the project name and the
-  menu.
-- Schedule, call sheets, locations and gear have no section yet (open question below).
-- Calendar, Notifications and Trash stay tiles that open in any workspace. The status bar shows the unread count, and
-  clicking it opens Notifications.
+- Each section is a workspace, which is a saved D2 layout; Alt+1 to Alt+7 follow the sidebar's order. This replaces
+  the top bar's workspace tabs (DESIGN.md updated Nov 2). The top bar keeps the S mark, the project name and the menu.
+- Calendar, Notifications and Trash stay tiles that open in any workspace; Calendar is also in the Production
+  layout. The status bar shows the unread count, and clicking it opens Notifications.
 - The sidebar is a labelled navigation landmark, arrow keys move through it, and every item has a visible label.
 - Sections and menu items whose phase hasn't come show that phase and are disabled, as the D1 placeholder tiles are.
 
@@ -519,7 +526,9 @@ src/features/export holds a registry of formats, so adding one is a new file plu
   read-only, and in the project's theme.
 - **Reviewers.** Team members with reviewer access sign in by magic link and can suggest a shot or scene for deletion.
   For everyone signed in, it then shows grayed out with the suggester's name, and the suggester can withdraw it.
-  View-only visitors can't suggest.
+- **View-only link** (decided Nov 2): one optional link per project, off by default. It shows the storyboard and
+  bird's-eye plans only, never call sheets or contact details, allows no suggestions or comments, and expires with
+  the review copy.
 - **Change file.** The producer downloads the pending suggestions as one change file (.sbdchanges, JSON, defined in
   docs/SBD_FORMAT.md). Each suggestion has a kind. Version 1 defines deletion only. Comments, reorders, edits, new
   shots and restore requests are reserved kinds: adding them later won't break older files, and an older app keeps
@@ -635,7 +644,7 @@ companion for everyone on set. Three calls unblock Phase 0; the rest can wait un
 
 ### Open questions
 
-Settled Nov 2, second round:
+Settled Nov 2, second round (the last three by Kevin):
 
 | Question | Decision |
 |---|---|
@@ -646,15 +655,15 @@ Settled Nov 2, second round:
 | CLAUDE.md's 30-day automatic snapshots | Dropped. See History, versions and backups |
 | The prototype's Archive was for whole projects | Kept as Archive Project, a project's state, in 0.7. The item archive becomes the Trash |
 | Light and dark: per project or per person? | Both. The project sets its mode, and each person can override it; "Follow project" is the new default |
+| Sidebar and workspaces | Each section is a workspace. A Production section (schedule, calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard |
+| The kit's orange on paper is 2.93:1 | The default theme's accent is #DF5E27 (3.01:1); the logo keeps #E0612B as a fixed brand token |
+| View-only links | Allowed: one optional link per project, off by default, storyboard and bird's-eye only, no call sheets or contacts, no suggestions, expires with the review copy |
 
 Still open:
 
 | Question | Recommendation | Needed by |
 |---|---|---|
 | Frames and notes aren't record types yet | Phase 1 planning decides whether a frame is its own record or a shot's image, and adds a note type | Phase 1 |
-| The sidebar replaces the top bar's workspace tabs in DESIGN.md, and schedule, call sheets, locations and gear have no section in it | Each section is a workspace. Add a Production section between Setup and Moodboard for those four tools | D2 |
-| The kit's orange on paper is 2.93:1, just under AA's 3:1 for UI marks (4.32:1 on dark). Generated accents are held to 3:1 | The default theme uses #DF5E27 (3.01:1, with ink on it at 5.0:1); the logo keeps #E0612B | First Phase 1 milestone |
-| View-only links: CLAUDE.md allows only per-person invites, but the review spec mentions anonymous link viewers | One optional view-only link per project: off by default, storyboard and bird's-eye only, never call sheets or contact details, no suggestions, and it expires with the review copy | Phase 9 |
 
 ## Risks
 
