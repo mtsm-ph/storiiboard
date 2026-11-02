@@ -1,0 +1,14 @@
+.vercel
+.DS_Store
+
+# Build output
+node_modules
+dist
+src-tauri/target
+
+# Test output
+test-results
+playwright-report
+*.sbd
+*.sbd-journal
+*.sbd.bak-*
