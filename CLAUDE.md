@@ -38,7 +38,7 @@
 
 ## Repo layout
 - src/app: screens and routing.
-- src/features/<tool>: storyboard, video, birdseye, locations, people, gear, schedule, callsheets, moodboards, decks, cloud, availability, suggestions.
+- src/features/<tool>: storyboard, video, birdseye, locations, people, gear, schedule, callsheets, moodboards, decks, cloud, availability, suggestions (the review screen), history, trash, export.
 - src/core/model: record types and schema.
 - src/core/ops: operations, undo, history.
 - src/core/storage: .sbd read and write. The only code that touches the disk.
@@ -68,6 +68,7 @@
   - "Open backup" opens a copy as a separate project; it never overwrites the original without asking.
   - Per-edit saving stays as it is; backups are an extra safety net.
 - .sbdpack = zip of the .sbd plus all linked media ("Collect project").
+- .sbdchanges = a change file of suggestions from the web review copy (see Review below).
 - Document every schema change in docs/SBD_FORMAT.md.
 - JSON and CSV export must always round-trip without data loss.
 
@@ -78,9 +79,11 @@
 - A shot links to: one scene, at most one location, shoot_day and setup, and many people, gear items and media.
 - Views (storyboard, shot list, schedule, call sheet, deck) read records. They never copy data.
 - Rollups (day totals, a location's shot list) are computed, never stored.
-- Deleting a frame, shot, scene, note or media item archives it: archived_at and archived_by are set on the record
-  through an op, so undo brings it back. Restore is an op too.
-- Views, rollups, call sheets, checks and MCP reads skip archived records unless the caller asks for them.
+- Deleting a frame, shot, scene, note or media item moves it to the Trash: trashed_at and trashed_by are set on the
+  record through an op, so undo brings it back. Restore is an op too.
+- Views, rollups, call sheets, checks and MCP reads skip trashed records unless the caller asks for them.
+- Two different things, never mixed in UI, code or file: the Trash (deleted items) and an archived project (the
+  project record's state prop: draft, active, archived; "Archive Project" in the project menu).
 - Users can add custom props to shots, locations and people.
 
 ## Edits, undo and autosave
@@ -88,7 +91,12 @@
 - The UI, MCP, imports and web suggestions all apply edits through src/core/ops.
 - Undo and redo walk the op log. Every canvas action is undoable.
 - Each op commits to SQLite in a transaction right away. There is no Save button.
-- Users can name versions; automatic snapshots are pruned after 30 days.
+- Going back in time, one model ("snapshot" is not a term here):
+  - History is the op log, inside the .sbd, kept for the life of the project. Undo, the History panel and
+    notifications read it. Only Empty Trash removes data from it.
+  - Named versions are named points in History, inside the .sbd, kept until deleted. Open version copies the project,
+    undoes every later op in the copy and opens it as a separate project.
+  - Backups are full copies outside the .sbd (see above), for a lost or damaged file.
 
 ## Tool rules
 - Storyboard: keyboard-first; "/" menu inserts frame, scene, note, location; drag to reorder; auto shot numbers.
@@ -113,15 +121,31 @@
   - Export glTF (.glb) with cameras and KHR_lights_punctual lights.
   - Open in Blender: run the user's installed Blender in the background with a bundled Python script.
   - Never bundle Blender. Ship a Storiiboard application template with a simplified layout.
-- Archive (Phase 1): archived frames, shots, scenes, notes and media, filtered by scene and type; restore with one
-  click; "Empty archive" asks to confirm, then deletes for good.
-- Notifications (Phase 3): one feed built from the op log, suggestions and comments: what changed, who, when, with a
-  link to the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op.
+- Trash (Phase 1): trashed frames, shots, scenes, notes and media, filtered by scene and type; restore with one
+  click; "Empty Trash" asks to confirm, then deletes for good.
+- History (Phase 1, project menu): every change to an item (field, before and after, who, when); restoring an old
+  value is a new op. Name a version from here.
+- Notifications (Phase 3): the History feed plus suggestions and comments: what changed, who, when, with a link to
+  the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op.
   - Unread count; filters for all, unread and the current scene; Mark all read. Filtered to one item, it is that
     item's history.
 - Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. Picking a day
   narrows the list; each day shows its scenes, its location's status and how many crew have confirmed.
-- Calendar, Notifications and Archive are tiles any workspace can open; they are not in the default layouts.
+- Calendar, Notifications and Trash are tiles any workspace can open; they are not in the default layouts.
+- Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
+  and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Moodboard, Settings. Each section opens a workspace.
+  - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
+  - Switching projects opens the other .sbd in place, without reloading the window.
+- Project themes (Phase 1): colours come from the project's logo or key image, worked out on the device.
+  - The accent is the most saturated usable colour, adjusted only as far as AA needs. Backgrounds come from 12
+    curated hue families, light and dark, so no theme can be unreadable.
+  - The theme's tokens are stored in the project record; a project without an image uses the default theme.
+  - Run every generated theme through the axe checks, light and dark.
+- Export (Phase 1): src/features/export is a registry; a format is one file plus one line. Per scene or whole
+  project. Exports skip the Trash, and files go to disk through src/core/storage.
+- Review (Phase 7 desktop, Phase 9 web): web suggestions come back as a change file (.sbdchanges, in
+  docs/SBD_FORMAT.md). Importing one opens the review screen; nothing applies without a person approving it, one by
+  one. An approved deletion is a trash op, never a hard delete.
 
 ## Network rules
 - Weather: Open-Meteo, no key, non-commercial use only; credit it on call sheets (CC BY 4.0).
@@ -136,21 +160,22 @@
 ## Web companion
 - Read-only views: call sheets, compressed storyboard (images only, no video, no tools), latest bird's-eye plans.
 - Interactive: comments, suggestions, availability (whole dates only, no hours).
-- Main navigation includes Calendar, Notifications and Archive.
+- Main navigation includes Calendar, Notifications and Trash.
   - Cast and crew see only their own days and updates.
-  - Producers and directors see the full Archive. A restore from the web is a suggestion for the desktop to approve.
-- The desktop app publishes a snapshot. The web never edits the .sbd directly.
-- Suggestions and comments sync back to the desktop approval queue.
+  - Team members with Trash access see the full Trash. A restore from the web is a suggestion for the desktop.
+- The desktop app publishes a review copy: compressed, read-only, in the project's theme. The web never edits the .sbd.
+- Team members with reviewer access can suggest deleting a shot or scene; it shows grayed out until decided.
+- Suggestions and comments come back to the desktop as a change file the producer downloads and imports.
 - Access by per-person invite link (magic link). No public projects.
 - Contact details are visible only to people on that call sheet.
 - Supabase row-level security on every table, with tests for each policy.
 - Company workspaces: roles owner, approver (CEO, marketing), creator, crew, editor, cast, client.
-- Published snapshots expire 30 days after the last shoot day by default.
+- Published review copies expire 30 days after the last shoot day by default.
 
 ## MCP server
 - Transports: stdio for Claude Desktop and Claude Code; local HTTP bound to 127.0.0.1 with an Origin check and a token.
 - Read tools: project summary, scenes, shots, schedule, call sheets, people, gear, locations, plans, suggestions.
-- Read tools leave out archived records unless the call asks for them.
+- Read tools leave out trashed records unless the call asks for them.
 - Write tools only create suggestions. A person approves them in the app.
 - The check tool runs src/core/checks and returns findings.
 - The script tool reads an imported script and proposes scenes and a breakdown as suggestions.
@@ -183,6 +208,7 @@
 - Light: paper #EEE9DF with grain, oatmeal #C9C1B1 for wells and selected rows, ink #16150F, muted #5E5A52.
 - Dark (data-theme="dark" on <html>): abyssal #1B2632, panels #2C3B4D, paper text, muted #A9B2BC; tile outlines #0E151C; the top bar keeps paper outlines.
 - Orange #E0612B only for: active workspace, selected frame, playhead, primary buttons, active scene marker. Never a large fill. Text on orange is ink.
+- Project themes (Phase 1) swap colour tokens only: the accent takes over orange's five uses, and backgrounds tint. The logo keeps Signal Orange; warning, golden hour and department colours never change.
 - Truffle #A35139 for warnings (paper text); Burning Flame #FFB162 for golden hour (ink text).
 - Department colours are tags, never state. Selection is an ink fill. Shot status is a shape: Have ■, Need to shoot □, Source ◩.
 - Inter Tight for UI; JetBrains Mono for every technical value (lens mm, T-stop, shot and scene numbers, times, timecode).
