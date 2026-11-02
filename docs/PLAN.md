@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: 0.2 and D1 in review |
+| Phase 0 state | Building: 0.2, D1, the Nov 2 plan update and 0.3 in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -36,7 +36,7 @@ One PR per milestone, each into `v2`.
 | 0.1 Archive the prototype (password gate removed), add CLAUDE.md, PLAN.md and the PDF | pushed to v2 | Done |
 | 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
 | D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | `phase0/d1-design` | In review |
-| 0.3 CI: checks on every push; Mac and Windows installers on PRs | | Not started |
+| 0.3 CI: checks on every push; Mac and Windows installers on PRs | `phase0/0.3-ci` | In review |
 | 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | | Not started |
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | | Not started |
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | | Not started |

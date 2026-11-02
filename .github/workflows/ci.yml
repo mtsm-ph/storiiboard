@@ -1,0 +1,118 @@
+name: CI
+
+# Linux checks run on every push. The Mac and Windows installers build on pull requests and on pushes to v2 only,
+# because macOS minutes cost ten times Linux ones on a private repo. Changes to docs alone skip CI.
+on:
+  push:
+    paths-ignore: ['docs/**', '*.md', '*.pdf']
+  pull_request:
+    paths-ignore: ['docs/**', '*.md', '*.pdf']
+  workflow_dispatch:
+    inputs:
+      update_visual_baselines:
+        description: Regenerate the Linux visual baselines and upload them as an artifact to commit
+        type: boolean
+        default: false
+
+concurrency:
+  # A newer push replaces the run still in progress for the same branch or pull request.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks (Linux)
+    # A pull request from this repo already ran these on its push; forks get them on the pull request.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install the system libraries the tauri crate links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci
+      - name: Install Playwright's browsers
+        run: npx playwright install --with-deps chromium webkit
+      - run: npm run lint
+      - run: npm test
+      - name: npm run e2e
+        if: ${{ !inputs.update_visual_baselines }}
+        run: npm run e2e
+      - name: Regenerate the Linux visual baselines
+        if: ${{ inputs.update_visual_baselines }}
+        run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
+      # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
+      # workflow's own token starts no CI run, so the new baselines would go unchecked.
+      - name: Look for new or changed Linux baselines
+        id: baselines
+        if: ${{ !cancelled() }}
+        run: echo "count=$(git status --porcelain --untracked-files=all -- 'e2e/*-snapshots/*-linux.png' | wc -l)" >> "$GITHUB_OUTPUT"
+      - name: Upload the Linux baselines to commit
+        if: ${{ !cancelled() && steps.baselines.outputs.count != '0' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines-linux
+          path: e2e/*-snapshots/*-linux.png
+          retention-days: 7
+      - name: Upload the Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7
+
+  installers:
+    name: Installer (${{ matrix.name }})
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/v2')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            bundles: src-tauri/target/release/bundle/dmg/*.dmg
+          - name: Windows
+            os: windows-latest
+            bundles: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
+      # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
+      - uses: tauri-apps/tauri-action@v1
+      # Kept a week: a private repo on the free plan has 500 MB of artifact storage.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: storiiboard-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 7

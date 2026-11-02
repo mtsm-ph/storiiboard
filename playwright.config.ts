@@ -6,7 +6,15 @@ export default defineConfig({
   testDir: 'e2e',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? 'github' : 'list',
+  // Shared CI runners are several times slower than a laptop, WebKit on Linux most of all.
+  timeout: process.env.CI ? 60_000 : 30_000,
+  expect: { timeout: process.env.CI ? 10_000 : 5_000 },
+  // On CI a missing screenshot baseline fails instead of being written: written on the first attempt, it would let
+  // the retry compare the screenshot with itself and pass. Linux baselines come from the CI workflow's
+  // update_visual_baselines option.
+  updateSnapshots: process.env.CI ? 'none' : 'missing',
+  // On CI, list prints each test to the log and github annotates the failing lines.
+  reporter: process.env.CI ? [['list'], ['github']] : 'list',
   use: {
     baseURL: 'http://localhost:1420',
     trace: 'retain-on-failure',
@@ -19,5 +27,7 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:1420',
     reuseExistingServer: !process.env.CI,
+    // A cold start on a runner includes Vite pre-bundling the dependencies.
+    timeout: 120_000,
   },
 });
