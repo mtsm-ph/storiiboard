@@ -37,21 +37,33 @@ One PR per milestone, each into `v2`.
 | 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
 | D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | `phase0/d1-design` | In review |
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | | Not started |
-| 0.4 .sbd storage: Rust commands, schema v1, migrations, docs/SBD_FORMAT.md | | Not started |
-| 0.5 Operations, undo and redo, autosave | | Not started |
-| D2 Dockable tiles: drag, split, tab, snap, maximize, reflow, saved workspaces (needs 0.5; library choice first) | | Not started |
+| 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | | Not started |
+| 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | | Not started |
+| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | | Not started |
+| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Moodboard, Settings), each section opening a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
-| 0.7 Projects screen: New, Open, Recent | | Not started |
+| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
 
-Phase 0 calls made Nov 1, 2026:
+Phase 0 calls, Nov 1 and 2, 2026:
 
 - The .sbd is accessed through custom Rust commands (rusqlite), not tauri-plugin-sql. One command runs a batch of
   statements in a single transaction, and image bytes travel raw instead of as JSON.
 - CI runs lint and tests on Linux for every push. The Mac and Windows installers build on PRs and on pushes to `v2`,
   which saves private-repo macOS minutes.
-- Vercel skips `v2`; the prototype site on `main` stays live.
+- Vercel skips `v2` and every branch made from it: their vercel.json turns deployments off, and `main` has none, so
+  the prototype site stays live (Nov 2).
 - Design system: Kevin's design kit arrived Nov 2, 2026 and lives in `design/` (DESIGN.md, tokens, logo). D1 builds it
   into the app. At Kevin's request the shell comes before CI (0.3); docking (D2) waits for operations (0.5).
+- Docking (D2) is built in-house on pointer events, with no library, so Tauri's own file drop keeps working on Windows.
+  No floating windows. Saved workspaces live per user in settings, with built-in defaults, so the .sbd doesn't change.
+  D2 is one milestone; if it runs longer, Claude Code stops and shows Kevin where it stands (Nov 2).
+- @axe-core/playwright is added as a dev dependency for automated accessibility checks (Nov 2).
+- Backups join 0.4 and 0.7, and the archive columns (now the Trash's) join schema v1. The Archive tile (now the Trash
+  tile) comes in Phase 1, the Calendar and Notifications tiles in Phase 3, and all three on the web in Phase 9
+  (Nov 2). Open questions are under Decisions.
+- Second round (Nov 2): navigation (D3) and Archive Project (0.7) join Phase 0. Project themes, onboarding, History,
+  named versions and export go to Phase 1; the review screen for change files to Phase 7; the web side to Phase 9.
+  The item archive is renamed the Trash, and one model replaces snapshots. Details under Nov 2 features, round two.
 
 ---
 
@@ -115,12 +127,23 @@ snapshot and sends feedback back for approval.
 | Cast and crew | People, departments, roles, characters, contacts | Producer, AD | Yes |
 | Gear lists | Camera, lighting, grip and sound packages per day, linked to the shots that need them | DP, gaffer, sound | Yes |
 | Schedule | Shots grouped into shoot days by location and setup | AD, producer | Yes |
+| Calendar | Month and week views of shoot days and availability, plus the shoot schedule as a list. Kept from the prototype: Today, picking a day narrows the list, and each day shows its scenes, its location's status (TBD, confirmed, cancelled) and how many crew have confirmed | Producer, AD | Yes |
 | Call sheets | Document built per day that links cast, scenes, locations, gear, crew by department, sound, weather, sun times, map and nearest hospital; PDF and web | AD, producer | Yes |
 | Moodboards by department | Boards for creative direction, set design, makeup and wardrobe, linked to scenes and characters | Creative director, production designer, HMU, wardrobe | Yes |
 | Pitch decks | Decks and treatments built from frames, with film templates | Director, producer | Yes |
 | Cloud links | Paste a Dropbox or Google Drive shared link per project; the app lists the files, downloads them and relinks media | Everyone | Yes for public links; private folders need sign-in later |
 | Find missing files | Search the computer for media that moved or was never linked, matched by name, size and length | Everyone | Yes, later phase |
+| Backups | Every 5 minutes, if anything changed, a full copy of the project goes to a Backups folder next to it. The last 12 copies and one a day for 14 days are kept; Open backup opens one as a separate project | Everyone | Yes |
+| Trash | Deleted frames, shots, scenes, notes and media, and deletions approved in review, wait in the Trash: filter by scene and type, restore with one click, empty it after a confirm | Everyone | Yes |
+| History and versions | Every change to a frame (field, before and after, who, when), with restore; name a version and open it later as its own project | Everyone | Yes |
+| Project themes | The app takes its colours from the project's logo or key image, worked out on the computer, readable in light and dark | Everyone | Yes |
+| Export | Per scene or whole project: PDF storyboard, PNG image sequence, shot list CSV, with a watermark | Director, DP, producer, editor | Yes |
+| Review | Suggestions from the web (a change file) and from the AI assistant, approved or rejected one at a time | Director, producer | Yes |
+| Notifications | One feed of what changed, who changed it and when, from edits, suggestions and comments, each linking to its item; read and unread per person. Kept from the prototype: an unread count, filters for All, Unread and the current scene, and Mark all read. Filtered to one frame, the feed is that frame's history (field, before and after, who, when) | Everyone | Yes |
 | AI assistant | Reads the whole project, checks for mistakes, drafts changes for approval | Producer, AD, director | Yes, through MCP |
+
+Calendar, Notifications and Trash are tiles you can open in any workspace; they aren't in the default layouts. An
+archived project is a different thing: a project's state, set with Archive Project.
 
 ### Script and 3D tools
 
@@ -141,16 +164,21 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 | Feature | What people can do |
 |---|---|
 | Call sheet | See the latest call sheet for their days, with their call time and scenes |
-| Storyboard viewer | Browse compressed frames and shot info; no video, no editing tools |
+| Storyboard viewer | Browse compressed frames and shot info, in the project's theme; no video, no editing tools |
 | Bird's-eye viewer | See the latest plan for each scene, read-only |
 | Availability | The producer proposes dates for a scene; each person marks the dates they can make. Whole days only, no hours |
-| Comments and suggestions | Leave feedback on any frame, plan or call sheet, or suggest a change; it lands in the desktop app for approval |
+| Comments and suggestions | Leave feedback on any frame, plan or call sheet. Team members with reviewer access suggest deleting a shot or scene, which shows grayed out. Suggestions download as a change file that the desktop app imports for approval |
 | Company workspace | A brand groups its people: CEO and marketing approve, creators plan and shoot |
+| Calendar | Month and week views of their shoot days and availability, plus the schedule as a list |
+| Notifications | Updates on their days, scenes and call sheets, read and unread |
+| Trash | Team members with Trash access see everything in it; a restore request is a suggestion for the desktop |
+
+Calendar, Notifications and Trash are main navigation items. Cast and crew see only their own days and updates.
 
 The web companion is the only part that needs a server, so it has a running cost and holds private data such as phone
 numbers and addresses. Each person gets a private invite link, contact details show only to people on that call sheet,
-and snapshots expire after the shoot. Supabase's free tier covers a small production, and open-source users can host
-their own.
+and review copies expire after the shoot. Supabase's free tier covers testing; client work needs paid plans (about $45
+a month, see Hosting the review copy). Open-source users can host their own.
 
 ### Who uses what
 
@@ -230,7 +258,8 @@ and works offline; only the web companion needs a server.
 | Maps and addresses | OpenStreetMap tiles, plus Nominatim to look up an address the user types | Free; one search per user action, results cached, no autocomplete, app named in every request |
 | Maps, optional | User pastes their own Google Maps key in Settings | Google needs a billing account; each user stays inside its monthly free usage |
 | Cloud links | Dropbox public folder links download as one zip; Google Drive folders shared with "anyone with the link" are listed and downloaded through the Drive API | No sign-in for public links; private folders need sign-in in a later phase |
-| Web companion | Supabase (Postgres, magic-link sign-in, storage, row-level security), hosted on Vercel | The only server; free tiers cover a small production |
+| Web companion | One static app on Vercel; Supabase (Postgres, magic-link sign-in, storage for review copies, row-level security) | The only server; publishing uploads a review copy and redeploys nothing |
+| Project themes | Colours worked out on the device from the project's logo: OKLab clustering in a Web Worker, 12 curated background families | Works offline, with no service and no new dependency |
 | AI | Storiiboard's own MCP server, plus optional in-app chat with the user's own key for Anthropic, OpenAI, Gemini or OpenRouter | Any MCP-capable AI gets full project context; Storiiboard pays nothing for AI |
 | Export | Konva renders pages to PNG, pdf-lib builds the PDF | Pixel-matched call sheets, boards and decks |
 | Quality | Vitest, Playwright, GitHub Actions building Mac and Windows installers | Claude Code can check its own work on every PR |
@@ -246,6 +275,14 @@ Every Storiiboard project is one .sbd file. Double-clicking it opens the app, li
 - **Collect Project** packs the .sbd and every linked file into one .sbdpack zip for handoff.
 - The format stays open: the schema is documented in the repo (docs/SBD_FORMAT.md), and every project exports to JSON and CSV.
 - Each file records its schema version; older projects are backed up, then upgraded when opened.
+- Every 5 minutes, if anything changed, a full copy goes to a Backups folder next to the .sbd. It's made with SQLite's
+  backup API, so it's consistent while the project is open. The last 12 copies and one a day for 14 days are kept, and
+  both numbers are in Settings. Saving each edit the moment it happens stays as it is.
+- Deleting moves an item to the Trash instead of erasing it: it keeps its data, can be restored, and stays out of every
+  view until the Trash is emptied.
+- History (every edit) stays in the file for the life of the project, and named versions are points in it. Backups are
+  the copies outside it.
+- The project's theme and watermark are stored in the file, so exports and the web review copy look the same.
 
 This replaces the earlier folder-of-JSON plan. The trade-off is that a project is no longer easy to compare line by line
 in git; the JSON export covers that.
@@ -283,16 +320,16 @@ demo data.**
 
 | Phase | Delivers | Gate |
 |---|---|---|
-| **0 · Foundation and .sbd** (current) | Desktop shell, .sbd file with autosave and history, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
-| 1 · Storyboard | Script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields | A real scene is boarded in one sitting |
-| 2 · Video and images | Playback copies, frame stepping, in and out, crop, still and clip capture, attachments | A still from a reference clip lands in a frame in a few clicks |
-| 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days | A real shoot's people, places and gear are entered |
+| **0 · Foundation and .sbd** (current) | Desktop shell with sidebar navigation, .sbd file with autosave, history and backups every 5 minutes, Projects screen with project state, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
+| 1 · Storyboard | Project themes and onboarding, script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields, Trash tile, History and named versions, export (PDF, PNG, shot list CSV) with watermark | A real scene is boarded in one sitting |
+| 2 · Video and images | Playback copies, frame stepping, in and out, crop, still and clip capture, attachments, Assets section | A still from a reference clip lands in a frame in a few clicks |
+| 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days, Team section, Calendar and Notifications tiles | A real shoot's people, places and gear are entered |
 | 4 · Call sheets | Call sheet per day with weather, sun times, map and hospital; PDF | Used on a real shoot day |
-| 5 · Bird's-eye view | Top-down plans with walls, cast, cameras with true field of view, lights, department layers | A gaffer plans a real setup with it |
+| 5 · Bird's-eye view | Setup section: top-down plans with walls, cast, cameras with true field of view, lights, department layers | A gaffer plans a real setup with it |
 | 6 · Moodboards and decks | Department moodboards, pitch decks from frames | A deck built in under an hour |
-| 7 · AI assistant | MCP server, mistake checks, approval queue | The checks catch a real scheduling or gear mistake |
+| 7 · AI assistant | MCP server, mistake checks, review screen for AI suggestions and imported change files | The checks catch a real scheduling or gear mistake |
 | 8 · Cloud links and release | Dropbox and Google Drive links, Collect Project, signed installers, public repo, Patreon | A stranger installs it and opens a shared project |
-| 9 · Web companion | Call sheets, compressed storyboard, bird's-eye viewer, availability, comments and suggestions, company workspaces | Cast and crew get their call sheet from the site and send a suggestion |
+| 9 · Web companion | Review copy in the project's theme: call sheets, compressed storyboard, bird's-eye viewer; availability, comments, suggested deletions downloaded as change files, company workspaces, Calendar, Notifications and Trash | Cast and crew get their call sheet from the site and send a suggestion |
 | 10 · 3D set and Blender (July to September 2027) | 3D set preview, glTF export, Open in Blender, the simple Blender layout | A DP checks a real setup through the 3D camera before the shoot |
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
@@ -317,7 +354,241 @@ Kickoff steps (from the hand-off):
 - [ ] A project survives force-quitting mid-edit.
 - [ ] Double-clicking a .sbd opens it.
 - [ ] Undo works across an app restart.
+- [ ] Edits produce a backup within 5 minutes, and Open backup opens it as a separate project.
 - [ ] Gate passes on Kevin's own material, not demo data.
+
+## Nov 2 features, round two
+
+Planned, not built. Each feature starts only when its phase's plan is approved.
+
+| Feature | Phase | Milestone |
+|---|---|---|
+| C · Navigation: left sidebar and project menu | 0 | D3, after D2 |
+| Archive Project (a project's state) | 0 | 0.7, with the Projects screen |
+| A · Per-project theming: tokens, generator, switching | 1 | First in Phase 1 |
+| B · Project onboarding and Settings → Theme | 1 | Second in Phase 1 |
+| History panel and named versions | 1 | After the storyboard core |
+| D · Export: PDF storyboard, PNG sequence, shot list CSV, watermark | 1 | Last in Phase 1 |
+| Assets, Team, Setup and Moodboard sections fill in | 2, 3, 5, 6 | With their tools |
+| E · Review screen and change-file import (desktop) | 7 | With the approval queue |
+| E · Themed review copy, suggested deletions, change-file download (web) | 9 | With the web companion |
+
+Phase 1 planning numbers its milestones; the order above is the recommendation.
+
+- Theming goes first in Phase 1 because it renames the colour tokens that every later screen is built from.
+- It stays out of Phase 0, whose gate is file safety, and it needs the media tables that arrive with the first stored
+  image.
+- The sidebar comes right after D2 because it replaces the top bar's workspace tabs that D2 docks into.
+
+### A · Per-project theming
+
+**Tokens.** A theme sets ten CSS variables: Kevin's eight, plus two the kit already needs.
+
+| Token | Kit token today | Used for |
+|---|---|---|
+| `--bg` | `--sb-paper` | App background, under the grain |
+| `--surface` | `--sb-panel` | Tile fill |
+| `--surface-raised` | `--sb-oatmeal` | Wells, the open tab, selected rows |
+| `--border` | `--sb-rule` | Tile outlines |
+| `--border-top` | `--sb-rule-top` | Top bar outline (paper in dark) |
+| `--text` | `--sb-ink` | Text, rules, and the ink fill that marks a selection |
+| `--text-muted` | `--sb-muted` | Secondary text |
+| `--text-inverse` | `--sb-ink-inverse` | Text on the ink selection fill |
+| `--accent` | `--sb-accent` | Orange's five uses in DESIGN.md |
+| `--accent-contrast` | `--sb-on-accent` | Text on the accent |
+
+- design/tokens stays an exact copy of the kit and becomes the default theme. The Tailwind classes move to the new
+  names in the same PR, as a mechanical rename.
+- Some colours are not themed, so they mean the same thing in every project:
+  - Signal Orange on the logo.
+  - Warning (Truffle) and golden hour (Burning Flame).
+  - The department colours, and the fixed paper and ink text on tags and chips.
+- Only colour changes. Type, 1.5px rules, grain, tiles, layout and the shot-status shapes stay as DESIGN.md has them.
+  The grain is grey with transparency, so it works on any tint.
+
+**Hardcoded colours to refactor.** No component has a hex value today. The prototype has many, but nothing imports it.
+
+| Where | What | Fix |
+|---|---|---|
+| src/ui/logo/SMark.tsx, Wordmark.tsx | The orange dots use the accent class, so a project theme would recolour them, which DESIGN.md forbids | A fixed brand-orange token |
+| src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes. The ink strokes already disappear on a dark plan | Phase 5 recolours them as they render: ink, oatmeal, white and orange become tokens, and department fills stay fixed |
+| src/ui/theme.css | `--color-paper-fixed: #eee9df` | Move it into the fixed token set |
+| src-tauri/tauri.conf.json | Window `backgroundColor` #EEE9DF | Set it from the project theme at runtime, so resizing a dark project never shows paper at the edges |
+| public/theme-boot.js | Sets only `data-theme` before first paint | Also apply the last project's tokens, cached in settings |
+
+**Generator** (src/ui/theme, shared by desktop and web; no network and no new dependency)
+
+1. Decode the image in a Web Worker and shrink it to about 96px. Skip transparent pixels and a logo's flat
+   background.
+2. Cluster the pixels in OKLab (k-means with a fixed seed), so the same image always gives the same theme.
+3. Offer 3–4 accent candidates: the clusters with enough colour to read as colour, ranked by saturation and share,
+   and kept visibly apart. The default is the most saturated. A black-and-white logo offers none and keeps the
+   default orange.
+4. Snap the accent's hue to the nearest of 12 curated families: Paper (the kit, the default), Sand, Clay, Rose, Plum,
+   Violet, Navy, Slate, Teal, Sage, Olive and Ochre. Each family has hand-tuned surfaces for light (soft pastels) and
+   dark (deep tinted darks), checked once and stored as a table, so no generated background can be unreadable.
+5. Adjust the accent as little as AA needs: keep its hue, then move its lightness (and its chroma, if lightness isn't
+   enough) until it reaches 3:1 against `--bg`, `--surface` and `--surface-raised`, with 4.5:1 for the text on it.
+   That text is ink whenever ink passes, as in the kit.
+6. Output both modes' tokens, plus the extracted and adjusted accents for the Settings preview.
+
+**Switching.** The tokens are registered with CSS `@property`, so the whole UI eases from one theme to the next in
+200ms, with no reload and no per-element transitions. Reduced motion switches instantly, and so does any webview
+without `@property`. Canvases (react-konva) re-read the tokens when the switch ends.
+
+**Light and dark.** Every theme has both. The project stores its preferred mode, chosen at onboarding. Each person's
+Appearance setting gains "Follow project", the new default, next to System, Light and Dark.
+
+**Tests**
+
+- Unit: every family, mode and accent hue (every 10°, at three chroma levels) passes AA on every token pair, and
+  fixture logos give the same theme on every run.
+- axe: the existing shell and catalogue checks run under the themes from 12 fixture logos, light and dark, in WebKit
+  and Chromium. The fixtures cover one per family and the hard cases: grayscale, transparent, photo, near-white and
+  neon.
+- e2e: switching projects swaps the tokens in about 200ms without a reload, and reduced motion switches instantly.
+
+**Stored** in the project record's `theme` prop (docs/SBD_FORMAT.md).
+
+- The computed tokens are stored rather than recomputed, so a newer generator never changes an approved look.
+  Settings → Theme has Regenerate.
+- Theme changes are ops, so they undo.
+- A project without an image gets the default theme, and the schema 2 migration writes it into older files.
+
+### B · Project onboarding
+
+- New project: name and folder, then an optional logo or key image (drop it, browse for it or paste it).
+- The theme previews live as soon as the image decodes, on the dialog itself and on a small shell in light and dark.
+- Pick one of the 3–4 extracted accents (swatches with their hex in mono; arrow keys move between them), then light
+  or dark. Create writes the image and the theme in the project's first op group.
+- Settings → Theme has the same controls, plus:
+  - Replace image.
+  - A manual accent: a hex field and a picker, put through the same AA adjustment, with "picked → used" shown.
+  - Regenerate, and Reset to default.
+- 0.7 ships New project with name and folder only; the image steps come with the theme milestones.
+
+### C · Navigation
+
+Left sidebar, top to bottom:
+
+- **Project switcher:** the open project as a dot in its accent plus its name. The list holds recent projects (dot,
+  name and state), All projects… and New project…; archived projects leave it. Switching opens the other .sbd in
+  place and runs the theme change.
+- **Storyboard:** expands to its scenes inline, as "SC 04  Scene Name" with the number in JetBrains Mono, then
+  "+ Add Scene". The active scene's marker is orange, and its bold name is the second cue.
+- **Assets** (Phase 2), **Team** (Phase 3: cast list, crew and departments; per-member web permissions are used from
+  Phase 9), **Setup** (Phase 5: home of the bird's-eye view, setups listed by scene), **Moodboard** (Phase 6) and
+  **Settings**.
+
+Top-right project menu: History, Watermark Settings, Export Project, Archive Project. There is no Moodboard entry.
+
+- Each section opens a workspace, which is a saved D2 layout; Alt+1 to Alt+6 follow the sidebar's order. This
+  replaces the workspace tabs DESIGN.md puts in the top bar. The top bar keeps the S mark, the project name and the
+  menu.
+- Schedule, call sheets, locations and gear have no section yet (open question below).
+- Calendar, Notifications and Trash stay tiles that open in any workspace. The status bar shows the unread count, and
+  clicking it opens Notifications.
+- The sidebar is a labelled navigation landmark, arrow keys move through it, and every item has a visible label.
+- Sections and menu items whose phase hasn't come show that phase and are disabled, as the D1 placeholder tiles are.
+
+### D · Export
+
+src/features/export holds a registry of formats, so adding one is a new file plus one line in the registry.
+
+- Each format declares an id, a label, its scopes (scene or project), its output (a file or a folder), default
+  options and an options form.
+- Its `run` reads the records in scope, leaving out the Trash, and writes through src/core/storage, the only code
+  that touches the disk.
+- Phase 1 formats:
+  - PDF storyboard: Konva renders the pages and pdf-lib builds the file.
+  - PNG image sequence: one image per frame, named by scene and shot number exactly as on the slate, so they sort.
+  - Shot list CSV: a report with one row per shot.
+- Later formats register the same way:
+  - Project data as JSON and CSV, the lossless round-trip export (Phase 2).
+  - Call sheet PDF (Phase 4) and deck PDF (Phase 6).
+  - The web review package (Phase 9).
+  - Resolve and Premiere markers (after Phase 10).
+- Watermark Settings (project menu) sets the text, position and opacity. The watermark goes on PDF and PNG exports,
+  and from Phase 9 on the web review copy. It's stored in the project record.
+- Every format has a golden test: a fixture project goes in, and the output is checked (exact CSV text, PDF page count
+  and text, PNG names and sizes).
+
+### E · Desktop and web review
+
+- Editing happens only in the desktop app, which is the source of truth. The web shows a review copy: compressed,
+  read-only, and in the project's theme.
+- **Reviewers.** Team members with reviewer access sign in by magic link and can suggest a shot or scene for deletion.
+  For everyone signed in, it then shows grayed out with the suggester's name, and the suggester can withdraw it.
+  View-only visitors can't suggest.
+- **Change file.** The producer downloads the pending suggestions as one change file (.sbdchanges, JSON, defined in
+  docs/SBD_FORMAT.md). Each suggestion has a kind. Version 1 defines deletion only. Comments, reorders, edits, new
+  shots and restore requests are reserved kinds: adding them later won't break older files, and an older app keeps
+  kinds it doesn't know without applying them.
+- **Review screen.** Drop a change file on the window, or use File → Import changes, to open the review screen. It
+  shows one suggestion at a time: the frame, its scene and shot number, who suggested it and when, and Approve or
+  Reject.
+  - It flags items that changed after the reviewer saw them, and items that no longer exist.
+  - Importing the same file twice adds nothing, and a file for another project is refused.
+- An approved deletion is a `trash` op: the shot or scene goes to the Trash, recoverable, never hard-deleted. A
+  rejection leaves the project unchanged and keeps the suggestion in the review log.
+- The review screen is also Phase 7's approval queue for MCP suggestions, so it's built once, in Phase 7, and tested
+  with fixture change files. Phase 9 adds the web side that writes them.
+
+**Hosting the review copy**
+
+- **The app:** one static web app (the `web/` entry, same React code) as its own Vercel project, separate from the
+  prototype's, so `main` and the live prototype site stay as they are. It has no server code.
+- **The data:** review copies live in Supabase, not in deployments. Publish uploads the records reviewers may see,
+  compressed images (about 1600px on the long edge, around 200 KB a frame) and the theme. They go to a private Storage
+  bucket and Postgres tables under row-level security. Publishing redeploys nothing, and no project ever gets a
+  public URL of its own.
+- **Suggestions:** they're Supabase rows until the producer downloads them as a change file.
+- **What it costs:**
+  - Vercel Hobby is free but for non-commercial use only; client productions need Pro, at $20 a month for one seat.
+  - Supabase Free gives 500 MB of database, about 1 GB of files and 5 GB of transfer a month, but pauses a project
+    after a week without visits, which breaks a review link a client opens later. Pro is $25 a month.
+  - About $45 a month for client work, or $0 for testing and non-commercial use. A 300-frame board is about 60 MB
+    as a review copy.
+  - Prices are from third-party summaries dated 2026; check vercel.com/pricing and supabase.com/pricing before
+    signing up.
+- **What it needs:** a Supabase project and an email sender for the magic links (Supabase's built-in mailer is for
+  testing only; Resend and Postmark have free tiers). A domain for the invite links is optional.
+- **Self-hosting:** open-source users point the app at their own Supabase project and any static host.
+- **Sooner, if wanted:** the review copy could split off as Phase 9's first milestone and move up to follow Phase 4.
+  It needs only the storyboard, Team and the review screen.
+
+### Two meanings of "archive"
+
+| | Archived project | Trash (archived items) |
+|---|---|---|
+| What | A project's state: draft, active or archived, from the prototype | Deleted shots, scenes, frames, notes and media, and deletions approved in review |
+| UI | Archive Project and Unarchive in the project menu; an Archived filter on the Projects screen; a banner when an archived project is opened | The Trash tile: filters, Restore, Empty Trash |
+| Code | `ProjectState`: `draft`, `active`, `archived` | `trash` and `restore` ops; trashed records filtered out |
+| File | `state` prop on the project record | `trashed_at` and `trashed_by` on every record |
+
+- The item archive is renamed the Trash in the UI, the code and the file, because Archive Project keeps the word.
+  Mac and Windows users already read Trash as "deleted, recoverable until emptied", which is exactly how it works.
+  0.4 hasn't built the columns yet, so the rename costs nothing.
+- An archived project isn't read-only; it only leaves the switcher and Recent. Archiving it is an op, so it undoes.
+- New projects start as drafts, as in the prototype.
+
+### History, versions and backups
+
+One model replaces three overlapping ones, and "snapshot" is dropped as a word.
+
+| | What it's for | Where | Kept |
+|---|---|---|---|
+| **History** (the op log) | Undo and redo; the History panel (every change: field, before and after, who, when); Notifications | Inside the .sbd | For the life of the project. Empty Trash removes those items' data from it |
+| **Named versions** | A point to come back to, such as "Board sent to client" or "Locked for shoot" | Inside the .sbd, as a named point in History | Until someone deletes it |
+| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd, as full copies | The last 12, plus one a day for 14 days (Settings) |
+| **Migration backups** | Undoing a schema upgrade | Next to the .sbd | Never pruned |
+| **Review copies** | What reviewers see on the web | Supabase | 30 days after the last shoot day |
+
+- Open version copies the project, undoes every op after that point in the copy, and opens the copy as a separate
+  project, as Open backup does. It reuses the undo engine, so there's one way to go back in time.
+- CLAUDE.md's "automatic snapshots are pruned after 30 days" is gone: backups are the automatic restore points.
+- The History panel and named versions come in Phase 1. Notifications (Phase 3) adds suggestions, comments and read
+  state to the same feed.
 
 ## Claude Code hand-off
 
@@ -360,7 +631,30 @@ companion for everyone on set. Three calls unblock Phase 0; the rest can wait un
 | License | MIT (anyone can do anything, including closed forks) or GPL (forks must stay open) | MIT for maximum reach; GPL if improvements should flow back | Phase 8 | Open |
 | Patreon model | Donations only, or paid tiers that unlock features | Donations only: perks like early builds, templates and a Discord, never locked features. Paid features would break Open-Meteo's free terms | Phase 8 | Open |
 | Code signing | Pay for Apple and Windows signing, or ship unsigned | Sign the Mac build at least; unsigned apps show scary warnings | Phase 8 | Open |
-| Web companion hosting | Kevin hosts one site for everyone, or each production hosts its own | Host it for Kevin's productions first with a self-host guide; decide on an open hosted service once costs are known | Phase 9 | Open |
+| Web companion hosting | Kevin hosts one site for everyone, or each production hosts its own | Host it for Kevin's productions first, on Vercel Pro and Supabase Pro (about $45 a month for client work), with a self-host guide; decide on an open hosted service once costs are known | Phase 9 | Open |
+
+### Open questions
+
+Settled Nov 2, second round:
+
+| Question | Decision |
+|---|---|
+| Trashing a scene: do its shots go with it? | Yes, in the same op group, so one restore brings the whole scene back. An approved scene deletion from review works the same way |
+| Empty Trash: is it final? | Yes, after a confirm. It removes the records, their media and their data in older ops, so named versions lose them too; backups keep them until they're pruned |
+| Who sees the full Trash on the web? | It's a Team permission, on by default for the project owner and the production and direction departments |
+| Backup size: up to 26 full copies sit next to the project, and they sync if it's in Dropbox | Keep the defaults, and show the Backups folder's size next to the two numbers in Settings |
+| CLAUDE.md's 30-day automatic snapshots | Dropped. See History, versions and backups |
+| The prototype's Archive was for whole projects | Kept as Archive Project, a project's state, in 0.7. The item archive becomes the Trash |
+| Light and dark: per project or per person? | Both. The project sets its mode, and each person can override it; "Follow project" is the new default |
+
+Still open:
+
+| Question | Recommendation | Needed by |
+|---|---|---|
+| Frames and notes aren't record types yet | Phase 1 planning decides whether a frame is its own record or a shot's image, and adds a note type | Phase 1 |
+| The sidebar replaces the top bar's workspace tabs in DESIGN.md, and schedule, call sheets, locations and gear have no section in it | Each section is a workspace. Add a Production section between Setup and Moodboard for those four tools | D2 |
+| The kit's orange on paper is 2.93:1, just under AA's 3:1 for UI marks (4.32:1 on dark). Generated accents are held to 3:1 | The default theme uses #DF5E27 (3.01:1, with ink on it at 5.0:1); the logo keeps #E0612B | First Phase 1 milestone |
+| View-only links: CLAUDE.md allows only per-person invites, but the review spec mentions anonymous link viewers | One optional view-only link per project: off by default, storyboard and bird's-eye only, never call sheets or contact details, no suggestions, and it expires with the review copy | Phase 9 |
 
 ## Risks
 
