@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: 0.1 merged into v2, 0.2 in review |
+| Phase 0 state | Building: 0.2 and D1 in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -35,9 +35,11 @@ One PR per milestone, each into `v2`.
 |---|---|---|
 | 0.1 Archive the prototype (password gate removed), add CLAUDE.md, PLAN.md and the PDF | pushed to v2 | Done |
 | 0.2 Scaffold: Vite, React, TypeScript, Tailwind, Tauri 2, ESLint, Vitest, Playwright | `phase0/0.2-scaffold` | In review |
+| D1 Design foundation: kit tokens, bundled fonts, logo, UI primitives, empty app shell in light and dark | `phase0/d1-design` | In review |
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | | Not started |
 | 0.4 .sbd storage: Rust commands, schema v1, migrations, docs/SBD_FORMAT.md | | Not started |
 | 0.5 Operations, undo and redo, autosave | | Not started |
+| D2 Dockable tiles: drag, split, tab, snap, maximize, reflow, saved workspaces (needs 0.5; library choice first) | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
 | 0.7 Projects screen: New, Open, Recent | | Not started |
 
@@ -48,7 +50,8 @@ Phase 0 calls made Nov 1, 2026:
 - CI runs lint and tests on Linux for every push. The Mac and Windows installers build on PRs and on pushes to `v2`,
   which saves private-repo macOS minutes.
 - Vercel skips `v2`; the prototype site on `main` stays live.
-- Kevin provides the design system later. Until then the app uses temporary tokens in one theme file.
+- Design system: Kevin's design kit arrived Nov 2, 2026 and lives in `design/` (DESIGN.md, tokens, logo). D1 builds it
+  into the app. At Kevin's request the shell comes before CI (0.3); docking (D2) waits for operations (0.5).
 
 ---
 
@@ -176,7 +179,7 @@ adopts those habits so the app matches how he already works.
 | Projects database | Client, type (photo, video, audio), budget, shoot date, due date, payment due, status from Discovery / Contract through Production, Editing, Revising, Pending Invoice, Complete | Same fields on the project record and a status pill on each project card |
 | Brand Collab shot list | Shot name plus location, a deliverables checklist, example content, point of contact | Confirms the core link: every shot carries a location. Add a deliverables checklist and client contact to each project |
 | YouTube video template | Pre-production, post and upload checklists; b-roll color-coded as already have, need to film, or need to source | Shot status on every frame: Have, Need to shoot, Source. The schedule only pulls "Need to shoot" frames into shoot days |
-| 5 Free Tools That Fix Claude's Front-End | Playwright for self-testing; design.md files as a design system to hand Claude; a taste skill against generic AI looks | Phase 0 writes docs/design.md from the /prototype look, so Claude Code builds to it. Playwright is already in the plan |
+| 5 Free Tools That Fix Claude's Front-End | Playwright for self-testing; design.md files as a design system to hand Claude; a taste skill against generic AI looks | Phase 0 writes docs/design.md from the /prototype look, so Claude Code builds to it. (Superseded Nov 2: design/DESIGN.md from Kevin's design kit.) Playwright is already in the plan |
 
 Not in Notion: anything on Storiiboard, Bey County, call sheets or locations, so those still come from Kevin directly.
 
@@ -306,7 +309,7 @@ Kickoff steps (from the hand-off):
 4. Register .sbd with Mac and Windows so double-clicking opens the app.
 5. Write docs/SBD_FORMAT.md for the first schema.
 6. Add Vitest, Playwright, ESLint and a GitHub Actions workflow that builds Mac and Windows installers.
-7. Ship a Projects screen (New, Open, Recent) that matches the prototype's look.
+7. Ship a Projects screen (New, Open, Recent) that matches the prototype's look. (Since Nov 2: match design/DESIGN.md.)
 
 **Exit criteria**
 

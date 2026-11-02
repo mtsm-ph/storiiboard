@@ -1,0 +1,63 @@
+/* Storiiboard design tokens: light (default) and dark.
+   Load fonts.css first. Put data-theme="dark" on <html> for dark mode. */
+/* Copied from the design kit (03_Tokens). Only change: the grain path points at design/images. */
+
+:root {
+  /* surfaces */
+  --sb-paper: #EEE9DF;        /* Palladian: app + page background, with grain */
+  --sb-oatmeal: #C9C1B1;      /* secondary surface: wells, open tab, selected row */
+  --sb-panel: #EEE9DF;        /* tile fill */
+  --sb-ink: #16150F;          /* text + 1.5px panel rules */
+  --sb-ink-inverse: #EEE9DF;  /* text on an ink fill */
+  --sb-muted: #5E5A52;        /* secondary text, 5.7:1 on paper */
+  --sb-rule: #16150F;         /* tile outlines inside the workspace */
+  --sb-rule-top: #16150F;     /* top bar + nav outlines (the "guiding board") */
+
+  /* accent: active state, selected frame, playhead, primary button ONLY */
+  --sb-accent: #E0612B;
+  --sb-on-accent: #16150F;    /* text on orange is always ink (5.2:1) */
+
+  /* supporting */
+  --sb-warning: #A35139;      /* Truffle: conflicts, warnings (paper text on it) */
+  --sb-highlight: #FFB162;    /* Burning Flame: golden hour, highlights (ink text) */
+
+  /* department tags (never used for state) */
+  --sb-dept-camera: #1F2F4D;      /* navy, paper text */
+  --sb-dept-lighting: #D9A23D;    /* mustard, ink text (lighting + grip) */
+  --sb-dept-art: #8FA38E;         /* sage, ink text */
+  --sb-dept-wardrobe: #E9B8A6;    /* blush, ink text (wardrobe + HMU, cast) */
+  --sb-dept-sound: #A8482F;       /* rust, paper text (sound + production) */
+
+  /* type */
+  --sb-font-ui: 'Inter Tight', 'Inter', Arial, sans-serif;
+  --sb-font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --sb-font-display: 'Archivo', 'Arial Black', sans-serif;  /* website: weight 900, font-stretch 125% */
+  --sb-font-futura: 'Jost', Futura, sans-serif;             /* website */
+  --sb-font-rounded: 'Outfit', sans-serif;                  /* website */
+  --sb-font-serif: 'Bodoni Moda', Didot, serif;             /* website editorial */
+
+  /* shape */
+  --sb-rule-width: 1.5px;
+  --sb-radius: 0;           /* nothing rounded inside the app; app icon only */
+  --sb-gap: 8px;            /* gutter between tiles */
+  --sb-titlebar: 26px;      /* tile title bar height */
+  --sb-topbar: 44px;
+  --sb-statusbar: 24px;
+}
+
+[data-theme="dark"] {
+  --sb-paper: #1B2632;        /* Abyssal */
+  --sb-oatmeal: #3A4B60;
+  --sb-panel: #2C3B4D;        /* Blue Fantastic */
+  --sb-ink: #EEE9DF;          /* paper-coloured text */
+  --sb-ink-inverse: #1B2632;
+  --sb-muted: #A9B2BC;
+  --sb-rule: #0E151C;         /* darker abyssal outlines inside the workspace */
+  --sb-rule-top: #EEE9DF;     /* top bar keeps the white outline */
+}
+
+/* paper grain: tile grain.png (in 04_Images) at low opacity */
+.sb-grain { background-color: var(--sb-paper); background-image: url("../images/grain.png"); }
+
+/* tiny uppercase mono label used everywhere */
+.sb-label { font: 500 10px/1.2 var(--sb-font-mono); letter-spacing: .08em; text-transform: uppercase; }

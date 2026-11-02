@@ -14,7 +14,7 @@
 ## Read first
 - docs/PLAN.md: current phase, scope and exit criteria.
 - Build only the current phase. Ask before starting anything outside it.
-- /prototype is visual reference only. Match its look; never import from it.
+- design/DESIGN.md and design/tokens set the look. /prototype is only an inventory of screens and flows; never import from it.
 
 ## Film vocabulary (use it correctly)
 - Shot sizes: EWS, WS, MS, MCU, CU, ECU, insert.
@@ -43,7 +43,8 @@
 - src/core/storage: .sbd read and write. The only code that touches the disk.
 - src/core/net: weather, geocoding, maps, cloud links.
 - src/core/checks: consistency checks shared by the app and MCP.
-- src/ui: shared components.
+- src/ui: shared components, theme, bundled fonts, plan icons.
+- design: DESIGN.md, tokens and logo sources, copied from Kevin's design kit (the kit folder itself stays out of git).
 - src-tauri: Rust shell, .sbd file association, ffmpeg sidecar.
 - mcp: MCP server.
 - web: web companion entry point.
@@ -152,9 +153,18 @@
 - Accessible: everything keyboard reachable, labels on icon buttons, AA contrast.
 
 ## Design
-- Dark charcoal base; pastel accents: dusty rose, sage, lavender, warm sand.
-- DM Sans for UI, Playfair Display for display type.
-- Dense, quiet UI like Linear. The storyboard images supply the color.
+- Full rules: [design/DESIGN.md](design/DESIGN.md); values: design/tokens. Build from src/ui components and token classes; no hex values in components.
+- Feel: a technical film poster printed on paper. Boxed tiles, 1.5px rules, 10px uppercase mono labels, gauges, bold type.
+- Light: paper #EEE9DF with grain, oatmeal #C9C1B1 for wells and selected rows, ink #16150F, muted #5E5A52.
+- Dark (data-theme="dark" on <html>): abyssal #1B2632, panels #2C3B4D, paper text, muted #A9B2BC; tile outlines #0E151C; the top bar keeps paper outlines.
+- Orange #E0612B only for: active workspace, selected frame, playhead, primary buttons, active scene marker. Never a large fill. Text on orange is ink.
+- Truffle #A35139 for warnings (paper text); Burning Flame #FFB162 for golden hour (ink text).
+- Department colours are tags, never state. Selection is an ink fill. Shot status is a shape: Have ■, Need to shoot □, Source ◩.
+- Inter Tight for UI; JetBrains Mono for every technical value (lens mm, T-stop, shot and scene numbers, times, timecode).
+- No radius and no shadow inside the app. Tiles: 26px title bar, 8px gaps; 44px top bar, 24px status bar.
+- The S mark stands alone, never with the wordmark; solid S at 32px and below; never recolour the dots.
+- AA: muted text never sits on oatmeal; focus rings are ink, never orange (on an ink fill use ink-inverse, on orange use on-accent); orange marks always pair with a second cue.
+- Fonts are bundled in src/ui/fonts; never load fonts from Google or any CDN.
 
 ## Workflow
 - Start each phase in plan mode and wait for Kevin's approval.
