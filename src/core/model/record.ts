@@ -21,6 +21,11 @@ export const RECORD_TYPES = [
   'comment',
   'suggestion',
   'availability',
+  // Schema 3 (1.10): a note card among a scene's frames, a character from the script (not a person: cast play
+  // characters), and one stroke of a frame's sketch, its own record so History doesn't copy every earlier stroke.
+  'note',
+  'character',
+  'stroke',
 ] as const;
 
 export type RecordType = (typeof RECORD_TYPES)[number];

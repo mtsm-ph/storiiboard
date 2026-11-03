@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.9 in review |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.10 done, 1.11 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -42,8 +42,8 @@ themes). One PR per milestone, each into `v2`.
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | Done |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
 | 1.8 Frame inspector | #23 | Done |
-| 1.9 Shot list and Strip views | #24 | In review |
-| 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
+| 1.9 Shot list and Strip views | #24 | Done |
+| 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | #25 | Done |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
 | 1.12 Drag to reorder; "/" menu | | Not started |
 | 1.13 Sketching | | Not started |
@@ -725,6 +725,13 @@ gone), and, rarely, an upload caught mid-write. Approved for Phase 1:
   backups next to them" (off by default). Open backup puts its copy beside the project either way. The online backup
   API wasn't needed: `VACUUM INTO` copies a 200 MB project in 0.33 s here, off the window's thread, and the step-wise
   API took the same time. Sizes with real images get measured again in 1.10.
+- As built in 1.10 (Nov 3): pictures are stored at most 2560px on the long edge, as Display P3 JPEG (PNG when they
+  have see-through pixels), each with a 640px thumbnail. Measured through WebKit, the Mac app's engine, on the 26 film
+  stills in the design kit and scaled to a 2560×1440 frame: about 560 KB a frame plus a 50 KB thumbnail. Chromium, the
+  Windows engine, writes about 40% less. A 300-frame project is 180 MB, and its backup copy takes 0.37 s; 1000 frames
+  are 603 MB and 1.16 s. Under the current keep rule (the last 12 plus one a day for 14 days, so up to 26 copies),
+  backups reach 4.7 GB at 300 frames and 15.7 GB at 1000, so new keep defaults went to Kevin with the 1.10 report.
+  A picture replaced in a frame stays in the file, since History can bring it back.
 
 ### History, versions and backups
 

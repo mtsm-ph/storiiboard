@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
+import { releaseImageUrls } from '../core/media/urls';
 import { apply, history, loadRecords, redo, undo, type Change, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
@@ -72,7 +73,11 @@ export function createProjectStore(): StoreApi<ProjectState> {
         }),
       close: () =>
         enqueue(async () => {
-          await get().project?.close();
+          const { project } = get();
+          if (project) {
+            await project.close();
+            await releaseImageUrls(project.file);
+          }
           set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
       apply: (changes) => edit((project) => apply(project.file, changes)),

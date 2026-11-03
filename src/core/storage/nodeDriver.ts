@@ -34,8 +34,8 @@ function toRow(row: Record<string, unknown>): Row {
   const out: Row = {};
   for (const [key, value] of Object.entries(row)) {
     if (typeof value === 'bigint') out[key] = Number(value);
-    else if (typeof value === 'string' || typeof value === 'number' || value === null) out[key] = value;
-    else throw new Error("Binary values aren't supported yet.");
+    else if (typeof value === 'string' || typeof value === 'number' || value === null || value instanceof Uint8Array) out[key] = value;
+    else throw new Error(`Unexpected value in column ${key}.`);
   }
   return out;
 }
@@ -162,6 +162,12 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): Project
         }
       }),
     query: (sql, params) => settle(() => db.prepare(sql).all(...(params ?? [])).map(toRow)),
+    readBlob: (sql, params) =>
+      settle(() => {
+        const row = db.prepare(sql).get(...(params ?? []));
+        const value = row ? Object.values(row)[0] : undefined;
+        return value instanceof Uint8Array ? value : null;
+      }),
     backup: (kind, name) =>
       settle(() => {
         checkUnchanged();

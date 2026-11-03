@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v1, backups and migrations are built (milestone 0.4); sections marked planned aren't yet. Every
+**Status:** schema v3 (milestone 1.10); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -115,7 +115,59 @@ The ops and op_groups tables are the project's History. It's kept for the life o
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back. Only Empty Trash removes data from it.
 
-The media and thumbnail tables come in a later migration, in the phase that first stores images (schema 3, below).
+## Schema v3: pictures (1.10)
+
+Pictures are stored in the file as bytes, addressed by their SHA-256, so a picture used in three frames is stored once
+and a stored picture never changes. A `media` record points at the bytes, and a frame points at its media record
+(1.11). The bytes sit in their own tables, apart from the records, so the History, which keeps whole records before
+and after each edit, never copies a picture.
+
+`media_files`: one row per stored picture.
+
+| Column | Type | Notes |
+|---|---|---|
+| sha256 | text, unique | Hex SHA-256 of `bytes`: the picture's address |
+| mime | text | `image/jpeg`, or `image/png` for a picture with see-through pixels |
+| width, height | integer | Pixels, upright |
+| byte_size | integer | Length of `bytes`, so totals don't read the pictures |
+| color_space | text | `display-p3` or `srgb`: the profile embedded in `bytes` |
+| bytes | blob | The stored picture: at most 2560px on the long edge, EXIF orientation applied |
+
+`thumbnails`: the smaller copies the board draws.
+
+| Column | Type | Notes |
+|---|---|---|
+| sha256 | text | The picture's address (media_files.sha256) |
+| long_edge | integer | 640. Unique with `sha256`, so other sizes can be added without a schema change |
+| mime, width, height | | As in media_files |
+| bytes | blob | |
+
+- `bytes` is the last column in both tables. SQLite reaches a column after a blob only by reading the blob's overflow
+  pages, so a picture's size or type would otherwise cost reading the whole picture.
+- Colour: pictures are stored with the Display P3 profile. P3 photos, which every recent iPhone takes, keep their full
+  colour; sRGB pictures lose nothing, since sRGB fits inside P3; other profiles, such as Adobe RGB, are converted. An
+  engine that can't draw in P3 stores sRGB, and `color_space` says which.
+- A picture's bytes are written in the same transaction as the op that first uses them, so a crash never leaves a
+  record pointing at nothing.
+- Bytes stay when the record using them is undone, trashed or given another picture, so undo, a History restore or a
+  named version can bring an old picture back. Only Empty Trash deletes bytes, and only bytes nothing left in the file
+  refers to (1.21).
+- The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
+  can use it if it's still there.
+
+`media` record props, for a picture:
+
+| Prop | Value | Notes |
+|---|---|---|
+| kind | `image` | Video arrives in Phase 2 |
+| file | text | media_files.sha256 |
+| mime, width, height, color_space | | As in media_files, so a view can lay out a frame without reading that table |
+| source_name | text | The file's name, when the picture came from a file: `IMG_4012.JPG` |
+| source_path | text | Where the original was: relative to the .sbd's folder when inside it (`refs/IMG_4012.JPG`, always with `/`), absolute otherwise. A pointer only; missing for a pasted picture |
+
+Schema 3 also adds three record types: `note` (a note card on the board, 1.12), `character` (from script import, 1.17)
+and `stroke` (one sketch stroke under its shot, 1.13). They need no table, but they come with the schema number: an
+older app refuses a file at schema 3 ("Update Storiiboard"), so it never meets a record type it doesn't know.
 
 ## Trash
 
@@ -193,8 +245,8 @@ number is given out twice. Unlocking renumbers the scene to follow the board aga
 
 - The tokens are stored, not recomputed when the project opens, so a newer generator never changes an approved look.
   Regenerate in Settings → Theme recomputes them on purpose.
-- A project with no `theme` uses the default theme. The schema 3 migration writes the default theme into older files,
-  so every file states its theme.
+- A project with no `theme` uses the default theme. No migration writes one in, so every change to a project's theme
+  is an op in History (decided Nov 2).
 
 ## Migrations (milestone 0.4)
 
@@ -337,12 +389,6 @@ merge a database, so two guards sit around every open project:
 
 ## Planned changes
 
-### Schema 3: media (Phase 1, project themes)
-
-The project's logo or key image is the first image the file stores, so the media and thumbnail tables arrive with
-project themes. The tables are designed in that milestone, with Kevin's approval. The migration also writes the default
-theme into projects that have none.
-
 ### Schema 4: named versions (Phase 1, History)
 
 A named version is a named point in History, not a copy. Open version copies the project, restores the copy to that
@@ -391,7 +437,7 @@ is each person's read state, in two tables.
 |---|---|---|
 | 1 | 0.4 | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
 | 2 | 0.5b | Append-only History: `op_groups`; `ops.state` and `meta.undo_cursor` removed. Each v1 `undone` or `discarded` mark becomes an `undo` group where that undo must have happened, and `ops.seq` is renumbered to follow the groups |
-| 3 | Phase 1 (planned) | Media and thumbnails, for the project's logo; default theme written into older projects |
+| 3 | 1.10 | Pictures: `media_files` and `thumbnails`, addressed by SHA-256; record types `note`, `character` and `stroke` |
 | 4 | Phase 1 (planned) | Named versions: `versions` |
 | 5 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 

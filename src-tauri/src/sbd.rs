@@ -67,6 +67,9 @@ pub enum BackupKind {
 
 pub type Row = Map<String, Json>;
 
+/// A statement with its values bound: SQL and parameters, bytes included.
+pub type Bound = (String, Vec<Value>);
+
 pub struct SbdFile {
     conn: Connection,
     path: PathBuf,
@@ -215,28 +218,54 @@ impl SbdFile {
     /// the one this app last wrote; afterwards it records the file as this write left it, even after a rollback, since
     /// SQLite may have touched the file either way.
     pub fn tx(&mut self, statements: &[Statement]) -> Result<Vec<usize>, String> {
+        let bound = statements
+            .iter()
+            .map(|statement| Ok((statement.sql.clone(), to_sql(&statement.params)?)))
+            .collect::<Result<Vec<_>, String>>()?;
+        self.tx_values(&bound)
+    }
+
+    /// The same transaction, with values already bound, as `sbd_tx_raw` sends them with image bytes among them.
+    pub fn tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
         self.check_unchanged()?;
         let result = self.run_tx(statements);
         self.fingerprint = fingerprint(&self.path)?;
         result
     }
 
-    fn run_tx(&mut self, statements: &[Statement]) -> Result<Vec<usize>, String> {
+    fn run_tx(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(text)?;
         let mut changes = Vec::with_capacity(statements.len());
-        for statement in statements {
-            let params = to_sql(&statement.params)?;
+        for (sql, params) in statements {
             changes.push(
-                tx.execute(&statement.sql, params_from_iter(params.iter()))
+                tx.execute(sql, params_from_iter(params.iter()))
                     .map_err(text)?,
             );
         }
         // Dropping an uncommitted transaction rolls it back, which is what an early return above relies on.
         tx.commit().map_err(text)?;
         Ok(changes)
+    }
+
+    /// The bytes in the first column of the first row, for an image or thumbnail; None when there's no such row.
+    /// Kept apart from `query`, whose rows travel as JSON, which has no bytes.
+    pub fn read_blob(&self, sql: &str, params: &[Json]) -> Result<Option<Vec<u8>>, String> {
+        let params = to_sql(params)?;
+        let mut statement = self.conn.prepare(sql).map_err(text)?;
+        let mut rows = statement
+            .query(params_from_iter(params.iter()))
+            .map_err(text)?;
+        match rows.next().map_err(text)? {
+            None => Ok(None),
+            Some(row) => match row.get_ref(0).map_err(text)? {
+                ValueRef::Blob(bytes) => Ok(Some(bytes.to_vec())),
+                ValueRef::Null => Ok(None),
+                _ => Err("That column doesn't hold bytes.".into()),
+            },
+        }
     }
 
     pub fn query(&self, sql: &str, params: &[Json]) -> Result<Vec<Row>, String> {
@@ -425,8 +454,9 @@ fn to_json(value: ValueRef<'_>) -> Result<Json, String> {
         ValueRef::Text(bytes) => String::from_utf8(bytes.to_vec())
             .map(Json::String)
             .map_err(|_| "Stored text isn't valid UTF-8.".to_string()),
-        // Schema v1 stores no images; raw bytes get their own path with the media tables (schema 2).
-        ValueRef::Blob(_) => Err("Binary values aren't supported yet.".into()),
+        // Query rows travel as JSON, which would make an image four times its size; bytes come back through
+        // sbd_read_blob as a raw response instead.
+        ValueRef::Blob(_) => Err("A query can't return bytes; read them with readBlob.".into()),
     }
 }
 
@@ -604,6 +634,80 @@ pub async fn sbd_tx(
     files.with(handle, |file| file.tx(&statements))
 }
 
+/// One transaction whose parameters can include bytes (images, thumbnails), sent raw rather than as JSON.
+/// The body is a 4-byte big-endian length, then that many bytes of JSON header, then every blob back to back:
+/// `{ "handle": 3, "statements": [{ "sql": "…", "params": [1, "a", { "$blob": [0, 51234] }] }] }`, where
+/// `[offset, length]` locate a blob after the header.
+#[tauri::command]
+pub async fn sbd_tx_raw(
+    files: State<'_, OpenFiles>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<Vec<usize>, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("Expected the transaction as raw bytes.".into());
+    };
+    let (handle, statements) = parse_raw_tx(body)?;
+    files.with(handle, |file| file.tx_values(&statements))
+}
+
+#[derive(Deserialize)]
+struct RawTx {
+    handle: u32,
+    statements: Vec<Statement>,
+}
+
+/// Unpacks `sbd_tx_raw`'s body (above) into bound statements.
+fn parse_raw_tx(body: &[u8]) -> Result<(u32, Vec<Bound>), String> {
+    let bad = || "The transaction's bytes are malformed.".to_string();
+    let length = u32::from_be_bytes(
+        body.get(..4)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?,
+    ) as usize;
+    let header = body.get(4..4 + length).ok_or_else(bad)?;
+    let blobs = &body[4 + length..];
+    let raw: RawTx = serde_json::from_slice(header).map_err(text)?;
+    let statements = raw
+        .statements
+        .into_iter()
+        .map(|statement| {
+            let params = statement
+                .params
+                .iter()
+                .map(
+                    |param| match param.get("$blob").and_then(|b| b.as_array()) {
+                        Some(range) => {
+                            let at = |i: usize| {
+                                range.get(i).and_then(|v| v.as_u64()).map(|n| n as usize)
+                            };
+                            let (offset, size) = (at(0).ok_or_else(bad)?, at(1).ok_or_else(bad)?);
+                            let bytes = blobs.get(offset..offset + size).ok_or_else(bad)?;
+                            Ok(Value::Blob(bytes.to_vec()))
+                        }
+                        None => to_sql(std::slice::from_ref(param)).map(|mut v| v.remove(0)),
+                    },
+                )
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok((statement.sql, params))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok((raw.handle, statements))
+}
+
+/// An image or thumbnail's bytes, raw (an ArrayBuffer on the page). Empty when there's no such row, which the page
+/// reads as "not in this project".
+#[tauri::command]
+pub async fn sbd_read_blob(
+    files: State<'_, OpenFiles>,
+    handle: u32,
+    sql: String,
+    params: Vec<Json>,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = files.with(handle, |file| file.read_blob(&sql, &params))?;
+    Ok(tauri::ipc::Response::new(bytes.unwrap_or_default()))
+}
+
 #[tauri::command]
 pub async fn sbd_query(
     files: State<'_, OpenFiles>,
@@ -680,6 +784,57 @@ mod tests {
         assert!(SbdFile::create(&path).is_err());
         assert!(SbdFile::open(&dir.join("Missing.sbd")).is_err());
         assert!(SbdFile::create(&dir.join("notes.txt")).is_err());
+    }
+
+    #[test]
+    fn stores_and_reads_back_image_bytes_sent_raw() {
+        let dir = temp_dir("blobs");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[statement(
+            "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+            vec![],
+        )])
+        .unwrap();
+        // The body the page sends: header length, header, then the bytes.
+        let picture: Vec<u8> = (0..=255)
+            .cycle()
+            .take(70_000)
+            .map(|b: u32| b as u8)
+            .collect();
+        let header = serde_json::json!({
+            "handle": 1,
+            "statements": [{
+                "sql": "INSERT INTO media_files (sha256, bytes) VALUES (?1, ?2)",
+                "params": ["abc", { "$blob": [0, picture.len()] }]
+            }]
+        })
+        .to_string();
+        let mut body = (header.len() as u32).to_be_bytes().to_vec();
+        body.extend_from_slice(header.as_bytes());
+        body.extend_from_slice(&picture);
+
+        let (handle, statements) = parse_raw_tx(&body).unwrap();
+        assert_eq!(handle, 1);
+        file.tx_values(&statements).unwrap();
+        let read = file
+            .read_blob(
+                "SELECT bytes FROM media_files WHERE sha256 = ?1",
+                &[Json::from("abc")],
+            )
+            .unwrap();
+        assert_eq!(read, Some(picture));
+        assert_eq!(
+            file.read_blob(
+                "SELECT bytes FROM media_files WHERE sha256 = ?1",
+                &[Json::from("none")]
+            )
+            .unwrap(),
+            None
+        );
+        // A header that points past the bytes is refused, not read out of bounds.
+        let mut short = body.clone();
+        short.truncate(body.len() - 10);
+        assert!(parse_raw_tx(&short).is_err());
     }
 
     #[test]

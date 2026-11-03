@@ -47,6 +47,12 @@ export interface OpOptions {
   /** `local` until people sign in. */
   author?: string;
   now?: () => Date;
+  /**
+   * Statements that land in the same transaction as the edit: an image's bytes (src/core/media/store.ts), so the
+   * frame and its picture are saved together or not at all. Content-addressed and written with INSERT OR IGNORE, so
+   * they're never part of the History themselves; the media record that points at them is.
+   */
+  alsoWrite?: readonly Statement[];
 }
 
 /** Each record an apply, undo or redo touched, as it is now; null where it no longer exists. */
@@ -188,7 +194,14 @@ interface GroupRow extends Tops {
 }
 
 /** Writes the records, the op rows and the group row in one transaction. Nothing already in the log is touched. */
-async function commit(file: ProjectFile, group: GroupRow, ops: readonly PendingOp[], author: string, at: string): Promise<string> {
+async function commit(
+  file: ProjectFile,
+  group: GroupRow,
+  ops: readonly PendingOp[],
+  author: string,
+  at: string,
+  alsoWrite: readonly Statement[] = [],
+): Promise<string> {
   const groupId = crypto.randomUUID();
   const [top] = await file.query(
     'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
@@ -197,6 +210,7 @@ async function commit(file: ProjectFile, group: GroupRow, ops: readonly PendingO
   const records = new Map<string, SbdRecord | null>();
   for (const op of ops) records.set(op.recordId, op.after);
   await file.tx([
+    ...alsoWrite,
     ...[...records].map(([id, record]) => write(id, record)),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
@@ -246,7 +260,7 @@ export async function apply(file: ProjectFile, changes: readonly Change[], optio
   }
 
   const { undoTop } = await tops(file);
-  await commit(file, { kind: 'edit', stackBelow: undoTop, undoTop: null, redoTop: null }, ops, author, at);
+  await commit(file, { kind: 'edit', stackBelow: undoTop, undoTop: null, redoTop: null }, ops, author, at, options.alsoWrite);
   return state;
 }
 
