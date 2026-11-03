@@ -6,6 +6,7 @@ mod app_data;
 mod backup;
 mod lock;
 mod opened;
+mod pictures;
 mod sbd;
 mod synced;
 
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(sbd::OpenFiles::default())
         .manage(opened::OpenedFiles::default())
+        .manage(pictures::Offered::default())
         .invoke_handler(tauri::generate_handler![
             sbd::sbd_create,
             sbd::sbd_open,
@@ -46,7 +48,15 @@ pub fn run() {
             opened::opened_files_take,
             synced::sync_service,
             synced::projects_folder_for_new,
+            pictures::pictures_choose,
+            pictures::pictures_read,
         ])
+        // Files dragged over the window, and dropped as pictures the page may read (pictures.rs).
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(drag) = event {
+                pictures::dragged(window, drag);
+            }
+        })
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {

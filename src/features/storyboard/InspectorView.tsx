@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type { Crop } from '../../core/media/crop';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
 import {
@@ -19,16 +20,30 @@ import {
   type ShotFields,
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
+import { isMac } from '../../app/shell/undoShortcuts';
+import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { departmentTagClass } from '../../ui/tags';
+import { CropEditor } from './CropEditor';
+import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
 
-// The Frame inspector (design board, Storyboard workspace): the selected frame's camera and story, then its scene.
+// The Frame inspector (design board, Storyboard workspace): the selected frame's picture, camera and story, then its
+// scene.
 // Each field saves as one op when it's left or picked, never on every keystroke, so History stays readable and ⌘Z
 // takes back one decision at a time. Pickers stay controlled, so changing one keeps keyboard focus on it; typed
 // fields are keyed by their saved value, so an undo shows in them at once. This part only draws.
+
+/** The selected frame's picture, with where it came from. */
+export interface InspectorPicture {
+  view: FramePictureView;
+  /** `IMG_4012.JPG`; empty for a pasted picture. */
+  sourceName: string;
+  /** The original's path, kept as a pointer: relative to the project's folder when inside it. */
+  sourcePath: string;
+}
 
 /** A set and an unset, as one update op takes them. */
 export interface FieldChange {
@@ -46,6 +61,12 @@ export interface InspectorViewProps {
   onSceneNumberChange: (number: string) => void;
   /** Escape: back to the frame on the board. */
   onBack: () => void;
+  picture?: InspectorPicture | null;
+  /** Width over height: the project's frame. */
+  frameAspect?: number;
+  onChoosePicture?: () => void;
+  onRemovePicture?: () => void;
+  onCropChange?: (crop: Crop) => void;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -132,9 +153,22 @@ function CommitArea({ label, value, onCommit }: { label: string; value: string; 
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+interface SectionProps {
+  title: string;
+  children: ReactNode;
+  /** Takes pictures dropped on it, for this frame (useBoardDrops). */
+  dropShotId?: string;
+  /** Where Enter on a frame takes focus. */
+  start?: boolean;
+}
+
+function Section({ title, children, dropShotId, start = false }: SectionProps) {
   return (
-    <section className="flex flex-col gap-3 border-b border-border p-3">
+    <section
+      data-drop-shot={dropShotId}
+      data-inspector-start={start ? '' : undefined}
+      className="flex flex-col gap-3 border-b border-border p-3"
+    >
       <h3 className="sb-label">{title}</h3>
       {children}
     </section>
@@ -161,6 +195,11 @@ export function InspectorView({
   onSceneChange,
   onSceneNumberChange,
   onBack,
+  picture = null,
+  frameAspect = 16 / 9,
+  onChoosePicture,
+  onRemovePicture,
+  onCropChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -194,7 +233,63 @@ export function InspectorView({
 
       {shot && (
         <>
-          <Section title="Camera">
+          <Section title="Picture" dropShotId={shot.id}>
+            {picture ? (
+              <>
+                <CropEditor
+                  // One editor per frame, so a move half made on one never lands on the next.
+                  key={shot.id}
+                  picture={picture.view}
+                  frameAspect={frameAspect}
+                  onCommit={(crop) => {
+                    onCropChange?.(crop);
+                  }}
+                />
+                {(picture.sourceName || picture.sourcePath) && (
+                  <p className="flex min-w-0 flex-col font-mono text-[11px] text-text-muted">
+                    {picture.sourceName && <span className="truncate">{picture.sourceName}</span>}
+                    {/* Only a pointer to the original: the board keeps its own copy. */}
+                    {picture.sourcePath && (
+                      <span className="truncate" title={picture.sourcePath}>
+                        {picture.sourcePath}
+                      </span>
+                    )}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div
+                className="flex w-full items-center justify-center border border-dashed border-text"
+                style={{ aspectRatio: String(frameAspect) }}
+              >
+                <span className="sb-label text-text-muted">No picture</span>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button data-choose-picture="" onClick={onChoosePicture}>
+                {picture ? 'Replace…' : 'Choose picture…'}
+              </Button>
+              {picture && (
+                <Button
+                  onClick={(event) => {
+                    // The button goes with the picture; focus stays in the section, on Choose picture….
+                    const section = event.currentTarget.closest('section');
+                    onRemovePicture?.();
+                    requestAnimationFrame(() => {
+                      section?.querySelector<HTMLElement>('[data-choose-picture]')?.focus();
+                    });
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+            {!picture && (
+              <p className="text-[12px] text-text-muted">Or drop one here, or paste it with {isMac() ? '⌘V' : 'Ctrl+V'}.</p>
+            )}
+          </Section>
+
+          <Section title="Camera" start>
             <SegmentedControl
               label="Size"
               options={SHOT_SIZES.map((value) => ({ value, label: SHOT_SIZE_LABEL[value] }))}

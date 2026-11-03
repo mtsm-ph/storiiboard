@@ -34,8 +34,8 @@ describe('the storyboard grid', () => {
       locked: true,
       counts: { have: 1, need: 1, source: 0 },
       frames: [
-        { id: 'a', number: '4A', spec: 'WS · 24MM · T2.8', status: 'have', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, t_stop: 2.8, status: 'have' }) },
-        { id: 'b', number: '4B', spec: 'MCU · 35MM · T2.0', status: 'need', fields: shotFields({ number: '4B', size: 'MCU', lens_mm: 35, t_stop: 2, move: 'push in', departments: ['camera'] }) },
+        { id: 'a', number: '4A', spec: 'WS · 24MM · T2.8', status: 'have', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, t_stop: 2.8, status: 'have' }), picture: null },
+        { id: 'b', number: '4B', spec: 'MCU · 35MM · T2.0', status: 'need', fields: shotFields({ number: '4B', size: 'MCU', lens_mm: 35, t_stop: 2, move: 'push in', departments: ['camera'] }), picture: null },
       ],
     };
     const html = renderToString(
@@ -95,8 +95,8 @@ describe('the strip and the shot list', () => {
     locked: false,
     counts: { have: 0, need: 2, source: 0 },
     frames: [
-      { id: 'a', number: '4A', spec: 'WS · 24MM', status: 'need', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, support: 'dolly', action: 'She waits.' }) },
-      { id: 'b', number: '4B', spec: '', status: 'need', fields: shotFields({ number: '4B', departments: ['camera', 'sound'] }) },
+      { id: 'a', number: '4A', spec: 'WS · 24MM', status: 'need', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, support: 'dolly', action: 'She waits.' }), picture: null },
+      { id: 'b', number: '4B', spec: '', status: 'need', fields: shotFields({ number: '4B', departments: ['camera', 'sound'] }), picture: null },
     ],
   };
   const render = (view: 'strip' | 'list') =>

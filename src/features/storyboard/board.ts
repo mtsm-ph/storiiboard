@@ -86,41 +86,64 @@ export function addShot(
   afterShotId: string | null = null,
   props: SbdRecord['props'] = {},
 ): { changes: Change[]; shotId: string } {
+  const { changes, shotIds } = addShots(records, projectId, sceneId, afterShotId, [props]);
+  return { changes, shotId: shotIds[0] ?? '' };
+}
+
+/**
+ * New frames in a row after `afterShotId` (or at the end of the scene), one per entry in `props`, and the scene's
+ * numbers after them, all in one op group: a drop of five pictures is one undo.
+ */
+export function addShots(
+  records: Records,
+  projectId: string,
+  sceneId: string,
+  afterShotId: string | null,
+  props: readonly SbdRecord['props'][],
+): { changes: Change[]; shotIds: string[] } {
   const shots = sceneShots(records, sceneId);
   const at = afterShotId === null ? shots.length - 1 : shots.findIndex((s) => s.id === afterShotId);
-  const before = shots[at]?.sortKey ?? null;
   const after = shots[at + 1]?.sortKey ?? null;
-  const shotId = crypto.randomUUID();
-  const created: SbdRecord = {
-    id: shotId,
-    type: 'shot',
-    parentId: sceneId,
-    sortKey: keyBetween(before, after),
-    props: { status: 'need', ...props },
-    trashedAt: null,
-    trashedBy: null,
-    createdAt: '',
-    updatedAt: '',
-  };
-  const order = [...shots.slice(0, at + 1), created, ...shots.slice(at + 1)];
-  // The create carries its number, so the frame never exists, even for a moment, without one.
+  let before = shots[at]?.sortKey ?? null;
+  const created = props.map((own): SbdRecord => {
+    before = keyBetween(before, after);
+    return {
+      id: crypto.randomUUID(),
+      type: 'shot',
+      parentId: sceneId,
+      sortKey: before,
+      props: { status: 'need', ...own },
+      trashedAt: null,
+      trashedBy: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+  });
+  const order = [...shots.slice(0, at + 1), ...created, ...shots.slice(at + 1)];
   const numbers = renumber(records, projectId, sceneId, order);
-  const own = numbers.find((c) => c.kind === 'update' && c.id === shotId);
-  const ownNumber = own?.kind === 'update' ? own.set?.number : undefined;
+  const isNew = new Set(created.map((shot) => shot.id));
+  const numberOf = (id: string) => {
+    const own = numbers.find((c) => c.kind === 'update' && c.id === id);
+    return own?.kind === 'update' ? own.set?.number : undefined;
+  };
   return {
-    shotId,
+    shotIds: created.map((shot) => shot.id),
     changes: [
-      {
-        kind: 'create',
-        record: {
-          id: shotId,
-          type: 'shot',
-          parentId: sceneId,
-          sortKey: created.sortKey,
-          props: { ...created.props, ...(ownNumber === undefined ? {} : { number: ownNumber }) },
-        },
-      },
-      ...numbers.filter((c) => !(c.kind === 'update' && c.id === shotId)),
+      // Each create carries its number, so a frame never exists, even for a moment, without one.
+      ...created.map((shot): Change => {
+        const number = numberOf(shot.id);
+        return {
+          kind: 'create',
+          record: {
+            id: shot.id,
+            type: 'shot',
+            parentId: sceneId,
+            sortKey: shot.sortKey,
+            props: { ...shot.props, ...(number === undefined ? {} : { number }) },
+          },
+        };
+      }),
+      ...numbers.filter((c) => !(c.kind === 'update' && isNew.has(c.id))),
     ],
   };
 }

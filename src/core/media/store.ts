@@ -95,6 +95,29 @@ export function mediaProps(image: PreparedImage, source: ImageSource = {}, proje
   };
 }
 
+/** A media record's picture as views read it: enough to lay out a frame without reading the bytes. */
+export interface MediaFields {
+  sha256: string;
+  width: number;
+  height: number;
+  sourceName: string;
+  sourcePath: string;
+}
+
+/** A media record's picture, or null when it isn't a stored image (another kind, or props it can't read). */
+export function mediaFields(props: Props): MediaFields | null {
+  const { kind, file, width, height } = props;
+  if (kind !== 'image' || typeof file !== 'string' || !/^[0-9a-f]{64}$/.test(file)) return null;
+  if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) return null;
+  return {
+    sha256: file,
+    width,
+    height,
+    sourceName: typeof props.source_name === 'string' ? props.source_name : '',
+    sourcePath: typeof props.source_path === 'string' ? props.source_path : '',
+  };
+}
+
 export interface ReadFile {
   bytes: Uint8Array;
   mime: string;

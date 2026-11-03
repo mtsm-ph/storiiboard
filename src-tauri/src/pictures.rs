@@ -1,0 +1,219 @@
+//! Pictures from files on disk, for frames (1.11). The page never names a file for Rust to read on its own: it can read
+//! only files the person dropped on the window or picked in the Open dialog shown from here, so a bug or a script
+//! slipped into the page can't read anything else on the computer.
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+use serde::Serialize;
+use tauri::{ipc::Response, AppHandle, DragDropEvent, Emitter, Manager, PhysicalPosition, Window};
+use tauri_plugin_dialog::DialogExt;
+
+/// The largest file read as a picture. A 48 MP ProRAW photo is about 75 MB; a file far past that isn't for a board.
+const MAX_BYTES: u64 = 200 * 1024 * 1024;
+
+/// What the Open dialog offers. The webview decides what it can read (HEIC only on a Mac); the rest gets a message.
+const EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff", "gif", "bmp",
+];
+
+/// The files the person has handed the app this session, by drop or by the Open dialog, and whether the dialog is
+/// open now.
+#[derive(Default)]
+pub struct Offered {
+    paths: Mutex<HashSet<PathBuf>>,
+    choosing: AtomicBool,
+}
+
+impl Offered {
+    /// Makes the paths readable and returns them as text. A path that isn't valid text (rare, but possible on
+    /// Windows) can't reach the page, so it isn't offered either.
+    fn offer(&self, paths: &[PathBuf]) -> Vec<String> {
+        let usable: Vec<(PathBuf, String)> = paths
+            .iter()
+            .filter_map(|path| Some((path.clone(), path.to_str()?.to_owned())))
+            .collect();
+        if let Ok(mut offered) = self.paths.lock() {
+            offered.extend(usable.iter().map(|(path, _)| path.clone()));
+        }
+        usable.into_iter().map(|(_, text)| text).collect()
+    }
+
+    fn has(&self, path: &Path) -> bool {
+        self.paths
+            .lock()
+            .is_ok_and(|offered| offered.contains(path))
+    }
+}
+
+/// A point in the page, in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct PagePoint {
+    x: f64,
+    y: f64,
+}
+
+/// Whether drag positions come in points rather than device pixels. Tauri labels them physical, but on a Mac wry
+/// reports AppKit's window points, which are CSS pixels already; WebView2 on Windows reports device pixels.
+const DRAG_IN_POINTS: bool = cfg!(target_os = "macos");
+
+fn page_point(position: PhysicalPosition<f64>, scale: f64, in_points: bool) -> PagePoint {
+    if in_points || scale <= 0.0 {
+        PagePoint {
+            x: position.x,
+            y: position.y,
+        }
+    } else {
+        PagePoint {
+            x: position.x / scale,
+            y: position.y / scale,
+        }
+    }
+}
+
+/// Where files were dropped, for the page to find the frame under them.
+#[derive(Clone, Serialize)]
+struct Dropped {
+    paths: Vec<String>,
+    at: PagePoint,
+}
+
+pub const DROPPED_EVENT: &str = "storiiboard://pictures-dropped";
+/// Where a drag of files is over the page now, or null once it has left.
+pub const DRAGGED_EVENT: &str = "storiiboard://pictures-dragged";
+
+/// Called for every drag of files over the window (lib.rs). A drop's files become readable first, and only then does
+/// the page hear of them, so it never asks for one it can't have yet.
+pub fn dragged(window: &Window, event: &DragDropEvent) {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    match event {
+        DragDropEvent::Enter { position, .. } | DragDropEvent::Over { position } => {
+            let _ = window.emit(
+                DRAGGED_EVENT,
+                Some(page_point(*position, scale, DRAG_IN_POINTS)),
+            );
+        }
+        DragDropEvent::Drop { paths, position } => {
+            let _ = window.emit(DRAGGED_EVENT, None::<PagePoint>);
+            let paths = window.state::<Offered>().offer(paths);
+            let at = page_point(*position, scale, DRAG_IN_POINTS);
+            let _ = window.emit(DROPPED_EVENT, Dropped { paths, at });
+        }
+        _ => {
+            let _ = window.emit(DRAGGED_EVENT, None::<PagePoint>);
+        }
+    }
+}
+
+/// Shows the Open dialog for pictures and returns what was picked, now readable; empty if the dialog was cancelled.
+#[tauri::command]
+pub async fn pictures_choose(app: AppHandle, multiple: bool) -> Result<Vec<String>, String> {
+    // One dialog at a time: a second press while it's open does nothing.
+    if app.state::<Offered>().choosing.swap(true, Ordering::SeqCst) {
+        return Ok(Vec::new());
+    }
+    let dialog = app.clone();
+    // The dialog waits for the person, so it waits on a thread of its own.
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = dialog
+            .dialog()
+            .file()
+            .set_title(if multiple {
+                "Choose pictures"
+            } else {
+                "Choose a picture"
+            })
+            .add_filter("Pictures", EXTENSIONS);
+        // Attached to the window, so it's a sheet on a Mac and modal on Windows.
+        if let Some(window) = dialog.get_webview_window("main") {
+            builder = builder.set_parent(&window);
+        }
+        if multiple {
+            builder.blocking_pick_files()
+        } else {
+            builder.blocking_pick_file().map(|path| vec![path])
+        }
+    })
+    .await;
+    app.state::<Offered>()
+        .choosing
+        .store(false, Ordering::SeqCst);
+    let paths: Vec<PathBuf> = picked
+        .map_err(|error| error.to_string())?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|path| path.into_path().ok())
+        .collect();
+    Ok(app.state::<Offered>().offer(&paths))
+}
+
+/// The bytes of a file the person dropped or picked.
+#[tauri::command]
+pub async fn pictures_read(app: AppHandle, path: String) -> Result<Response, String> {
+    // Off the async runtime: a 200 MB file takes a moment to read.
+    tauri::async_runtime::spawn_blocking(move || {
+        read(&app.state::<Offered>(), Path::new(&path)).map(Response::new)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn read(offered: &Offered, path: &Path) -> Result<Vec<u8>, String> {
+    if !offered.has(path) {
+        return Err("Storiiboard reads only the pictures you drop on it or choose.".into());
+    }
+    let meta = fs::metadata(path).map_err(|_| "That file isn't there any more.".to_string())?;
+    if !meta.is_file() {
+        return Err("That's a folder, not a picture.".into());
+    }
+    if meta.len() > MAX_BYTES {
+        return Err("That file is too large to be a picture for the board.".into());
+    }
+    fs::read(path).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_only_what_was_offered() {
+        let dir = std::env::temp_dir().join(format!("sbd-pictures-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (dropped, other) = (dir.join("still.jpg"), dir.join("secret.txt"));
+        fs::write(&dropped, [0xff, 0xd8, 0xff, 0xd9]).unwrap();
+        fs::write(&other, "private").unwrap();
+
+        let offered = Offered::default();
+        assert!(read(&offered, &dropped).is_err(), "nothing offered yet");
+        assert_eq!(
+            offered.offer(std::slice::from_ref(&dropped)),
+            [dropped.to_str().unwrap()]
+        );
+        assert_eq!(read(&offered, &dropped).unwrap(), [0xff, 0xd8, 0xff, 0xd9]);
+        assert!(read(&offered, &other).is_err());
+        // The same file by another spelling of its path isn't the file that was offered.
+        let name = dir.file_name().unwrap();
+        assert!(read(&offered, &dir.join("..").join(name).join("still.jpg")).is_err());
+
+        fs::remove_file(&dropped).unwrap();
+        assert_eq!(
+            read(&offered, &dropped).err().unwrap(),
+            "That file isn't there any more."
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn turns_a_drag_position_into_css_pixels() {
+        let at = PhysicalPosition::new(600.0, 300.0);
+        // A Mac reports points, the page's own pixels, even on a Retina screen.
+        assert_eq!(page_point(at, 2.0, true), PagePoint { x: 600.0, y: 300.0 });
+        // Windows reports device pixels: at 150% scaling, 600 of them are 400 in the page.
+        assert_eq!(page_point(at, 1.5, false), PagePoint { x: 400.0, y: 200.0 });
+        assert_eq!(page_point(at, 0.0, false), PagePoint { x: 600.0, y: 300.0 });
+    }
+}

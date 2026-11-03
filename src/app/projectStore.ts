@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { releaseImageUrls } from '../core/media/urls';
-import { apply, history, loadRecords, redo, undo, type Change, type Touched } from '../core/ops/ops';
+import { apply, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
 
@@ -24,7 +24,13 @@ export interface ProjectState {
   changedOnDisk: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
-  apply: (changes: readonly Change[]) => Promise<void>;
+  /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
+  apply: (changes: readonly Change[], options?: Pick<OpOptions, 'alsoWrite'>) => Promise<void>;
+  /**
+   * An edit worked out from the records as they are when its turn comes, after every edit queued before it. For edits
+   * that take a while to prepare (pictures), so two of them never number frames from the same records.
+   */
+  applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 }
@@ -80,7 +86,12 @@ export function createProjectStore(): StoreApi<ProjectState> {
           }
           set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
-      apply: (changes) => edit((project) => apply(project.file, changes)),
+      apply: (changes, options) => edit((project) => apply(project.file, changes, options)),
+      applyWith: (build) =>
+        edit(async (project) => {
+          const { changes, alsoWrite } = build(get().records);
+          return changes.length === 0 ? null : apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+        }),
       undo: () => edit((project) => undo(project.file)),
       redo: () => edit((project) => redo(project.file)),
     };
