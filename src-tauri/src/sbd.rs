@@ -343,7 +343,9 @@ impl SbdFile {
                 self.dir()?.join(file_name)
             }
         };
-        self.remove_leftover_copies(kind)?;
+        // Both folders, whichever backup this is: a migration's leftover would otherwise wait for the next migration.
+        self.remove_leftover_copies(BackupKind::Scheduled)?;
+        self.remove_leftover_copies(BackupKind::Migration)?;
         if dest.exists() {
             return Err(format!("A backup named \"{file_name}\" already exists."));
         }
@@ -368,8 +370,10 @@ impl SbdFile {
     }
 
     /// Deletes copies a crash or a quit cut off before they were finished: `<backup>.partial` files under this
-    /// project's own backup names. Only called with no copy running, so none of them is in use.
+    /// project's own backup names. It runs with no copy in progress here, but a finished copy may still be syncing to
+    /// disk after letting go of the file (back_up), so a partial touched in the last ten minutes is left alone.
     fn remove_leftover_copies(&self, kind: BackupKind) -> Result<(), String> {
+        const IN_USE: Duration = Duration::from_secs(10 * 60);
         let (dir, stem, file_name) = match kind {
             BackupKind::Scheduled => (self.backups_dir()?, self.stem()?, ""),
             BackupKind::Migration => (self.dir()?.to_path_buf(), "", self.file_name()?),
@@ -385,8 +389,12 @@ impl SbdFile {
                 BackupKind::Scheduled => is_backup_name(stem, backup),
                 BackupKind::Migration => is_migration_backup_name(file_name, backup),
             };
-            if ours {
-                let _ = fs::remove_file(dir.join(&name));
+            let path = dir.join(&name);
+            let recent = fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < IN_USE));
+            if ours && !recent {
+                let _ = fs::remove_file(path);
             }
         }
         Ok(())
@@ -1028,6 +1036,9 @@ mod tests {
             .unwrap();
     }
 
+    // Unix only, here and below: Windows won't rename over or delete a file SQLite has open, so its sync services
+    // can't do this to an open project either (size and time cover what they can do; see fingerprint).
+    #[cfg(unix)]
     #[test]
     fn stops_writing_when_a_sync_puts_another_file_in_its_place() {
         let dir = temp_dir("replaced");
@@ -1067,6 +1078,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn stops_writing_when_the_file_is_gone() {
         let dir = temp_dir("gone");
@@ -1372,15 +1384,19 @@ mod tests {
         drop(file);
         assert!(!partial.exists(), "closing mid-copy leaves nothing behind");
 
-        let mut file = SbdFile::open(&dir.join("Bey.sbd")).unwrap();
-        file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
-            .unwrap();
-        file.step_backup().unwrap();
-        drop(new_file(&dir, "incoming.sbd"));
-        fs::rename(dir.join("incoming.sbd"), dir.join("Bey.sbd")).unwrap();
-        assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
-        assert!(!partial.exists());
-        assert!(names(&file).is_empty());
+        // A sync replacing the file mid-copy; Unix only, as above.
+        #[cfg(unix)]
+        {
+            let mut file = SbdFile::open(&dir.join("Bey.sbd")).unwrap();
+            file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
+                .unwrap();
+            file.step_backup().unwrap();
+            drop(new_file(&dir, "incoming.sbd"));
+            fs::rename(dir.join("incoming.sbd"), dir.join("Bey.sbd")).unwrap();
+            assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
+            assert!(!partial.exists());
+            assert!(names(&file).is_empty());
+        }
     }
 
     #[test]
@@ -1389,29 +1405,103 @@ mod tests {
         let mut file = large_file(&dir, "Bey.sbd", 1);
         let backups = dir.join("Backups");
         fs::create_dir_all(&backups).unwrap();
+        // Left an hour ago; written just now, a partial could still be one being synced, so it would stay.
+        let cut_off = |path: PathBuf| {
+            fs::write(&path, "cut off").unwrap();
+            fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(3600))
+                .unwrap();
+        };
         for name in [
             "Bey 2026-11-02 09-00.sbd.partial",
             "Bey County 2026-11-02 09-00.sbd.partial",
             "notes.partial",
         ] {
-            fs::write(backups.join(name), "cut off").unwrap();
+            cut_off(backups.join(name));
         }
+        cut_off(dir.join("Bey.sbd.bak-v1-2026-11-02 09-00.partial"));
         fs::write(
-            dir.join("Bey.sbd.bak-v1-2026-11-02 09-00.partial"),
-            "cut off",
+            backups.join("Bey 2026-11-02 10-00.sbd.partial"),
+            "still syncing",
         )
         .unwrap();
         file.backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd")
             .unwrap();
-        file.backup(BackupKind::Migration, "Bey.sbd.bak-v2-2026-11-03 09-00")
-            .unwrap();
         assert!(!backups.join("Bey 2026-11-02 09-00.sbd.partial").exists());
+        // A scheduled backup clears a migration's leftover too.
         assert!(!dir.join("Bey.sbd.bak-v1-2026-11-02 09-00.partial").exists());
+        assert!(backups.join("Bey 2026-11-02 10-00.sbd.partial").exists());
         // Another project's and an unrelated file stay.
         assert!(backups
             .join("Bey County 2026-11-02 09-00.sbd.partial")
             .exists());
         assert!(backups.join("notes.partial").exists());
+    }
+
+    /// A project on an exFAT drive, as on a shuttle SSD: no clones, no exclusive rename, no private sizes. Its backup
+    /// is a full copy that still lands under its name and counts in full. Needs hdiutil; skipped without it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn backs_up_in_full_on_an_exfat_drive() {
+        use std::process::Command;
+        let dir = temp_dir("exfat");
+        let image = dir.join("shuttle.dmg");
+        let mount = dir.join("Shuttle");
+        let made = Command::new("hdiutil")
+            .args([
+                "create", "-size", "40m", "-fs", "ExFAT", "-volname", "Shuttle", "-quiet",
+            ])
+            .arg(&image)
+            .status()
+            .is_ok_and(|status| status.success());
+        let attached = made
+            && Command::new("hdiutil")
+                .args(["attach", "-nobrowse", "-quiet", "-mountpoint"])
+                .arg(&mount)
+                .arg(&image)
+                .status()
+                .is_ok_and(|status| status.success());
+        if !attached {
+            eprintln!("hdiutil couldn't make an exFAT image here; skipped");
+            return;
+        }
+        let result = std::panic::catch_unwind(|| {
+            let files = OpenFiles::default();
+            let handle = files.add(large_file(&mount, "Bey.sbd", 4)).unwrap();
+            let cloned = back_up(
+                &files,
+                handle,
+                BackupKind::Scheduled,
+                "Bey 2026-11-03 09-00.sbd",
+                true,
+            )
+            .unwrap();
+            assert!(!cloned, "exFAT can't clone");
+            let listed = files.with(handle, |file| file.backups()).unwrap();
+            assert_eq!(listed.len(), 1);
+            assert!(
+                listed[0].bytes > 4_000_000,
+                "counted in full: {}",
+                listed[0].bytes
+            );
+            let copy =
+                SbdFile::open(&mount.join("Backups").join("Bey 2026-11-03 09-00.sbd")).unwrap();
+            assert_eq!(
+                copy.query("PRAGMA integrity_check", &[]).unwrap()[0]["integrity_check"],
+                "ok"
+            );
+        });
+        let _ = Command::new("hdiutil")
+            .args(["detach", "-quiet", "-force"])
+            .arg(&mount)
+            .status();
+        let _ = fs::remove_dir_all(&dir);
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
     }
 
     #[test]
@@ -1445,6 +1535,9 @@ mod tests {
         file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
             .unwrap();
         file.step_backup().unwrap();
+        if let Some(copying) = file.copying.as_mut() {
+            copying.set_busy_limit(Duration::from_millis(500));
+        }
         // Another program holds the file for writing and doesn't let go.
         let other = Connection::open(dir.join("Bey.sbd")).unwrap();
         other.execute_batch("BEGIN EXCLUSIVE").unwrap();
@@ -1460,9 +1553,9 @@ mod tests {
             error,
             "Another program is using the project file, so the backup stopped."
         );
-        // Each busy step returned at once rather than waiting out SQLite's busy timeout.
+        // It gave up on time, never waiting out SQLite's five-second busy timeout in a step.
         assert!(
-            started.elapsed() < Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(4),
             "{:?}",
             started.elapsed()
         );

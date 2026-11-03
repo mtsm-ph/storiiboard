@@ -18,9 +18,9 @@ pub const STEP_PAGES: i32 = 1024;
 const MIN_STEP_PAGES: i32 = 32;
 /// A step that takes longer than this halves the next one, so a slow external drive still lets edits in quickly.
 const SLOW_STEP: Duration = Duration::from_millis(20);
-/// How many steps in a row can find the project busy (another program writing to it) before the copy gives up,
-/// rather than waiting for ever: about ten seconds with the pause between steps.
-const MAX_BUSY_STEPS: u32 = 5000;
+/// How long the project can stay busy (another program writing to it) before the copy gives up rather than waiting
+/// for ever. Counted in time, not steps: a busy step takes about 20 ms on Windows and next to nothing elsewhere.
+const BUSY_LIMIT: Duration = Duration::from_secs(10);
 
 /// The pause between steps, so an edit waiting for the project gets it before the next step does.
 pub const STEP_PAUSE: Duration = Duration::from_millis(2);
@@ -137,8 +137,9 @@ pub struct Copying {
     partial: Option<Partial>,
     /// Pages the next step takes; fewer on a slow drive.
     pages: i32,
-    /// Steps in a row that found the project busy.
-    busy: u32,
+    /// When the steps started finding the project busy, if the last one did.
+    busy_since: Option<Instant>,
+    busy_limit: Duration,
 }
 
 // SAFETY: the bundled SQLite is built thread-safe, and SbdFile only touches a copy while OpenFiles' mutex is held, so
@@ -191,8 +192,15 @@ impl Copying {
             backup: Some(backup),
             partial: Some(partial),
             pages: STEP_PAGES,
-            busy: 0,
+            busy_since: None,
+            busy_limit: BUSY_LIMIT,
         })
+    }
+
+    /// A shorter busy limit, so a test needn't wait ten seconds.
+    #[cfg(test)]
+    pub fn set_busy_limit(&mut self, limit: Duration) {
+        self.busy_limit = limit;
     }
 
     /// The file the copy is being written to.
@@ -217,13 +225,13 @@ impl Copying {
         match code {
             ffi::SQLITE_DONE => Ok(true),
             ffi::SQLITE_OK => {
-                self.busy = 0;
+                self.busy_since = None;
                 Ok(false)
             }
             // Busy or locked: something held the project for a moment, and the next step tries again.
             ffi::SQLITE_BUSY | ffi::SQLITE_LOCKED => {
-                self.busy += 1;
-                if self.busy > MAX_BUSY_STEPS {
+                let since = *self.busy_since.get_or_insert(started);
+                if since.elapsed() > self.busy_limit {
                     Err("Another program is using the project file, so the backup stopped.".into())
                 } else {
                     Ok(false)
@@ -307,19 +315,28 @@ fn rename_new(from: &Path, to: &Path) -> Result<(), String> {
         return Ok(());
     }
     let error = std::io::Error::last_os_error();
-    Err(if error.kind() == std::io::ErrorKind::AlreadyExists {
-        "A backup with that name already exists.".into()
-    } else {
-        text(error)
-    })
+    match error.raw_os_error() {
+        Some(libc::EEXIST) => Err("A backup with that name already exists.".into()),
+        // A volume without an exclusive rename (some exFAT, SMB and HFS+ drives, where full copies are made).
+        Some(libc::ENOTSUP | libc::EINVAL) => link_then_remove(from, to),
+        _ => Err(text(error)),
+    }
 }
 
-/// The same elsewhere: a hard link refuses an existing name, and the partial name then goes. A drive without hard
-/// links (exFAT) falls back to checking first.
 #[cfg(not(target_os = "macos"))]
 fn rename_new(from: &Path, to: &Path) -> Result<(), String> {
+    link_then_remove(from, to)
+}
+
+/// A hard link refuses an existing name, and the partial name then goes. A drive without hard links (exFAT) falls
+/// back to checking first.
+fn link_then_remove(from: &Path, to: &Path) -> Result<(), String> {
     match fs::hard_link(from, to) {
-        Ok(()) => fs::remove_file(from).map_err(text),
+        // The backup is there under its name; a partial name left behind goes with the next backup.
+        Ok(()) => {
+            let _ = fs::remove_file(from);
+            Ok(())
+        }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             Err("A backup with that name already exists.".into())
         }
