@@ -124,6 +124,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   place, across scenes too: the item lifts as a dashed ghost with a hard ink offset, like a tile, and a 3.5px ink bar
   shows where it will land; Escape cancels. "/" on the board opens the insert menu under the item: Frame, Scene,
   Note, Location…, narrowed as you type; the choice under the keys is the ink-filled row.
+- **Sketching:** S on a frame, or Sketch in the inspector, opens the frame large over its picture in a modal dialog:
+  Tool (Pen, Arrow, Box, Eraser; P, A, B, E), Line (Thin, Medium, Bold), Undo, Redo, Clear and Done, all in the
+  inspector's control style. Strokes are drawn in the text colour, so on cards they read in light and dark; a frame
+  with a sketch and no picture drops its "No image".
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
 - **Keyboard:** the board is one Tab stop. Arrows move through frames, notes and + Frame cards across scenes; Home and

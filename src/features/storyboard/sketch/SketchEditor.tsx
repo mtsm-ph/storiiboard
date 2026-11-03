@@ -91,6 +91,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const apply = useProject((s) => s.apply);
+  const applyWith = useProject((s) => s.applyWith);
   const undo = useProject((s) => s.undo);
   const redo = useProject((s) => s.redo);
   const canUndo = useProject((s) => s.canUndo);
@@ -186,7 +187,9 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     // A press without a drag draws a dot with the pen, and nothing with the arrow or the box.
     if (tool !== 'pen' && Math.hypot(x2 - x1, y2 - y1) < 0.01) return;
     const tidy = tidyPoints(draft.points, draft.pressures);
-    void apply([addStroke(records, shotId, { tool, points: tidy.points, pressures: tidy.pressures, width: WIDTHS[widthName] })]);
+    const stroke = { tool, points: tidy.points, pressures: tidy.pressures, width: WIDTHS[widthName] };
+    // Ordered after whatever strokes landed before it, even ones drawn faster than they're saved.
+    void applyWith((now) => ({ changes: [addStroke(now, shotId, stroke)] }));
     setSaid(`${TOOLS.find((t) => t.value === tool)?.label ?? 'Stroke'} drawn.`);
   };
 

@@ -275,10 +275,10 @@ export function InspectorView({
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={onSketch}>{strokeCount > 0 ? 'Edit sketch' : 'Sketch'}</Button>
               <Button data-choose-picture="" onClick={onChoosePicture}>
                 {picture ? 'Replace…' : 'Choose picture…'}
               </Button>
+              <Button onClick={onSketch}>{strokeCount > 0 ? 'Edit sketch' : 'Sketch'}</Button>
               {picture && (
                 <Button
                   onClick={(event) => {
