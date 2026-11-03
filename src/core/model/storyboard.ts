@@ -1,3 +1,4 @@
+import { readCrop, type Crop } from '../media/crop';
 import type { Props } from './record';
 import { SHOT_STATUSES, type ShotStatus } from './shotStatus';
 
@@ -114,6 +115,10 @@ export interface ShotFields {
   action: string;
   dialogue: string;
   departments: string[];
+  /** The `media` record the frame shows (1.11), a child of the shot; null for an empty frame. */
+  mediaId: string | null;
+  /** How the picture sits in the frame; centred and just covering it unless the person moved it. */
+  crop: Crop;
 }
 
 export function shotFields(props: Props): ShotFields {
@@ -130,6 +135,8 @@ export function shotFields(props: Props): ShotFields {
     action: text(props.action),
     dialogue: text(props.dialogue),
     departments: Array.isArray(props.departments) ? props.departments.filter((d): d is string => typeof d === 'string') : [],
+    mediaId: typeof props.media_id === 'string' && props.media_id !== '' ? props.media_id : null,
+    crop: readCrop(props),
   };
 }
 
