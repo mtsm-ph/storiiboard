@@ -411,8 +411,9 @@ Kickoff steps (from the hand-off):
 - [x] Gate passes on Kevin's own material, not demo data.
 
 Passed Nov 2 on the CI installers: every step on a Mac; on Windows, creating a project and double-clicking a .sbd
-(with the app closed and while running). The other steps ran on the Mac only; they share all their code with
-Windows except the Rust file layer, whose tests run on Windows in CI.
+(with the app closed and while running). The other steps (force-quit, undo after a restart, backups) ran on the Mac
+only. CI builds the Windows installers but runs the tests on Linux, so those steps are untested on Windows; they're
+worth a run there before the first public release.
 
 ## Nov 2 features, round two
 
