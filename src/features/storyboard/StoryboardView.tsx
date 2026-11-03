@@ -87,10 +87,12 @@ export interface StoryboardViewProps {
   onTrash: (id: string) => void;
   /** A frame or a note earlier (-1) or later (1) by one place, crossing into the next scene at either end. */
   onMove: (id: string, direction: -1 | 1) => void;
-  /** A frame or a note dragged to a new place. */
-  onMoveTo?: (id: string, place: DropPlace) => void;
+  /** A frame or a note dragged to a new place; resolves once it's saved, for focus to follow it. */
+  onMoveTo?: (id: string, place: DropPlace) => Promise<void>;
   /** A note picked: its scene becomes the active one, with no frame selected. */
-  onSelectScene?: (sceneId: string) => void;
+  onSelectScene?: (sceneId: string, noteId: string) => void;
+  /** The note the keys are on, which keeps the board's Tab stop. */
+  selectedNoteId?: string | null;
   /** The "/" menu's insert; resolves to the new item's id, for focus to go to it. */
   onInsert?: (choice: Exclude<SlashChoice, { kind: 'location' }>, place: InsertPlace) => Promise<string | null>;
   onSetLocation?: (sceneId: string, name: string) => void;
@@ -163,6 +165,7 @@ export function StoryboardView({
   dropHover = null,
   onMoveTo,
   onSelectScene,
+  selectedNoteId = null,
   onInsert,
   onSetLocation,
   onNoteText,
@@ -172,7 +175,7 @@ export function StoryboardView({
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
   // One Tab stop: the selected frame, or the first item when nothing is selected.
   const firstEntry = scenes.flatMap((s) => entriesOf(s))[0];
-  const tabStop = selectedShotId ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
+  const tabStop = selectedShotId ?? selectedNoteId ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
   const mac = isMac();
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [slash, setSlash] = useState<{ at: { left: number; top: number }; place: InsertPlace; from: HTMLElement } | null>(null);
@@ -181,10 +184,13 @@ export function StoryboardView({
     view === 'list',
     useCallback(
       (id: string, place: DropPlace) => {
-        onMoveTo?.(id, place);
-        requestAnimationFrame(() => {
-          document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
+        // Focus follows once the move is saved and drawn: into another scene, the item is drawn anew there.
+        void onMoveTo?.(id, place).then(() => {
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
+          });
         });
+        setAnnouncement('Moved.');
       },
       [onMoveTo],
     ),
@@ -219,6 +225,7 @@ export function StoryboardView({
     }
     void onInsert?.(choice, place).then((id) => {
       if (!id) return;
+      setAnnouncement(choice.kind === 'scene' ? 'Scene added.' : choice.kind === 'note' ? 'Note added.' : 'Frame added.');
       if (choice.kind === 'note') setEditingNote(id);
       else if (choice.kind === 'scene') {
         requestAnimationFrame(() => {
@@ -233,7 +240,7 @@ export function StoryboardView({
     const current = items.indexOf(event.currentTarget);
     const command = mac ? event.metaKey : event.ctrlKey;
     const sceneId = event.currentTarget.dataset.sceneId;
-    if (event.key === '/' && sceneId && onInsert) {
+    if (event.key === '/' && sceneId && onInsert && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       openSlash(event.currentTarget, { sceneId, afterId: itemId });
       return;
@@ -279,7 +286,7 @@ export function StoryboardView({
     const id = target?.dataset.shotId;
     const targetScene = target?.dataset.sceneId;
     if (id && targetScene) onSelect(id, targetScene);
-    else if (target?.dataset.noteId && targetScene) onSelectScene?.(targetScene);
+    else if (target?.dataset.noteId && targetScene) onSelectScene?.(targetScene, target.dataset.noteId);
   };
 
   /** The attributes every frame's focus target carries, whichever view draws it. */
@@ -361,7 +368,7 @@ export function StoryboardView({
     tabIndex: id === tabStop ? 0 : -1,
     ...dragHandlers(id, 'Note'),
     onClick: () => {
-      onSelectScene?.(sceneId);
+      onSelectScene?.(sceneId, id);
     },
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
       onKeyDown(event, id, 'note');
@@ -523,6 +530,7 @@ export function StoryboardView({
         <SlashMenu
           at={slash.at}
           sceneLabel={sceneLabel(scenes.find((s) => s.id === slash.place.sceneId)?.number ?? '')}
+          atEnd={slash.place.afterId === null}
           locationNames={locationNames}
           onPick={pickSlash}
           onClose={closeSlash}

@@ -19,6 +19,8 @@ interface SlashMenuProps {
   at: { left: number; top: number };
   /** "SC 04", for the hints. */
   sceneLabel: string;
+  /** Opened on the scene's + Frame, so a frame or a note goes at its end. */
+  atEnd?: boolean;
   /** The project's locations, for the second step. */
   locationNames: readonly string[];
   onPick: (choice: SlashChoice) => void;
@@ -27,7 +29,7 @@ interface SlashMenuProps {
 
 const WIDTH = 264;
 
-export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: SlashMenuProps) {
+export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick, onClose }: SlashMenuProps) {
   const [query, setQuery] = useState('');
   const [step, setStep] = useState<'insert' | 'location'>('insert');
   const [active, setActive] = useState(0);
@@ -41,9 +43,9 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
     step === 'insert'
       ? (
           [
-            { id: 'frame', label: 'Frame', hint: 'After this one', choice: { kind: 'frame' } },
+            { id: 'frame', label: 'Frame', hint: atEnd ? `At the end of ${sceneLabel}` : 'After this one', choice: { kind: 'frame' } },
             { id: 'scene', label: 'Scene', hint: `After ${sceneLabel}`, choice: { kind: 'scene' } },
-            { id: 'note', label: 'Note', hint: 'Between the frames', choice: { kind: 'note' } },
+            { id: 'note', label: 'Note', hint: atEnd ? `At the end of ${sceneLabel}` : 'After this one', choice: { kind: 'note' } },
             { id: 'location', label: 'Location…', hint: `For ${sceneLabel}`, choice: 'location' },
           ] satisfies Option[]
         ).filter((option) => option.label.toLowerCase().includes(typed.toLowerCase()))
@@ -57,10 +59,11 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
         ];
   const current = options[Math.min(active, options.length - 1)];
 
-  // Focus before the first paint, so a key pressed right after "/" already goes to the field.
+  // Focus before the first paint, so a key pressed right after "/" already goes to the field; again on the second
+  // step, whose field is a new one, so a screen reader announces its label.
   useLayoutEffect(() => {
     input.current?.focus();
-  }, []);
+  }, [step]);
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -118,6 +121,7 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
         {step === 'insert' ? 'Insert' : `Location for ${sceneLabel}`}
       </label>
       <input
+        key={step}
         ref={input}
         id={`${listId}-input`}
         role="combobox"
@@ -132,7 +136,8 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
           setActive(0);
         }}
         onKeyDown={onKeyDown}
-        className="mx-2 my-1.5 border border-text bg-surface-raised px-2 py-1 text-[13px] text-text"
+        // Placeholder at 70% ink, as src/ui/fields.tsx has it: the browser's own grey falls below AA on oatmeal.
+        className="mx-2 my-1.5 border border-text bg-surface-raised px-2 py-1 text-[13px] text-text placeholder:text-text/70"
       />
       <div id={listId} role="listbox" aria-label={step === 'insert' ? 'Insert' : 'Locations'} className="flex flex-col pb-1">
         {options.map((option) => {

@@ -126,9 +126,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   Note, Location…, narrowed as you type; the choice under the keys is the ink-filled row.
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
-- **Keyboard:** the board is one Tab stop. Arrows move through frames and + Frame cards across scenes; Home and End go
-  to the ends; Delete sends a frame to the Trash; ⌘ (Ctrl on Windows) with an arrow moves the frame one place,
-  crossing into the next scene at either end.
+- **Keyboard:** the board is one Tab stop. Arrows move through frames, notes and + Frame cards across scenes; Home and
+  End go to the ends; Delete sends a frame or a note to the Trash; ⌘ (Ctrl on Windows) with an arrow moves it one
+  place, crossing into the next scene at either end; "/" opens the insert menu. A frame stays in a scene whose
+  numbers are locked.
 
 - **Views:** Grid, Strip and Shot list, switched in the tile's header; the choice is the person's and is remembered.
   The strip is one row through the whole board, cards at a fixed height. The shot list is a table, one row per shot

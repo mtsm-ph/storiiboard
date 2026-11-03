@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react';
-import { showNotice } from '../../app/notice';
+import { showInfo, showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
-import { useProject } from '../../app/projectStore';
+import { projectStore, useProject } from '../../app/projectStore';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
 import { addPictures, usePicturesBusy } from './addPictures';
-import { addNote, addScene, addShot, board, locations, moveItem, setSceneLocation, trashShot, type BoardScene, type BoardShot } from './board';
+import {
+  addNote,
+  addScene,
+  addShot,
+  board,
+  leavesLockedScene,
+  locations,
+  moveItem,
+  setSceneLocation,
+  trashShot,
+  type BoardScene,
+  type BoardShot,
+} from './board';
 import { pictureView } from './framePictures';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
@@ -39,7 +51,8 @@ function savedView(): BoardView {
 function focusFrame(shotId: string | null, focus = true) {
   requestAnimationFrame(() => {
     if (!shotId) return;
-    const frame = document.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(shotId)}"]`);
+    // Any board item, frame or note, whichever view draws it.
+    const frame = document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(shotId)}"]`);
     if (focus) frame?.focus();
     else frame?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
@@ -75,7 +88,11 @@ export function StoryboardTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const apply = useProject((s) => s.apply);
+  // Edits worked out in the queue, from the records as the edits before them left them: a key held down on + Frame
+  // never numbers two frames from the same records.
+  const applyWith = useProject((s) => s.applyWith);
   const selectedShotId = useSelection((s) => s.shotId);
+  const selectedNoteId = useSelection((s) => s.noteId);
   const activeSceneId = useSelection((s) => s.sceneId);
   const projectId = project?.projectId ?? '';
   const scenes = project ? board(records, projectId) : [];
@@ -88,12 +105,23 @@ export function StoryboardTile() {
   // A scene picked in the sidebar or the Scenes tile comes into view, unless the pick came from a frame in it.
   useEffect(() => {
     if (!activeSceneId) return;
-    const { shotId } = selectionStore.getState();
-    const fromBoard = shotId !== null && records[shotId]?.parentId === activeSceneId;
+    const { shotId, noteId } = selectionStore.getState();
+    const picked = shotId ?? noteId;
+    const fromBoard = picked !== null && records[picked]?.parentId === activeSceneId;
     if (!fromBoard) document.querySelector(`[data-scene-group="${CSS.escape(activeSceneId)}"]`)?.scrollIntoView({ block: 'start' });
     // Only a change of scene should scroll, not every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSceneId]);
+
+  /** A frame or a note to a new place; a frame stays in a scene whose numbers are locked, and the person is told why. */
+  const moveTo = async (id: string, sceneId: string, beforeId: string | null) => {
+    if (leavesLockedScene(records, id, sceneId)) {
+      showInfo('This scene’s shot numbers are locked, so its frames stay in it. Unlock them to move a frame out.');
+      return;
+    }
+    await applyWith((now) => ({ changes: moveItem(now, projectId, id, sceneId, beforeId) }));
+    if (projectStore.getState().records[id]?.type === 'shot') selectionStore.getState().selectShot(id, sceneId);
+  };
 
   const frameCard = (shot: BoardShot): FrameCard => ({
     id: shot.record.id,
@@ -139,18 +167,27 @@ export function StoryboardTile() {
           selectionStore.getState().selectShot(shotId, sceneId);
         }}
         onAddFrame={(sceneId) => {
-          // After the selected frame when it's in this scene, so a frame goes where the person is working.
-          const selected = selectedShotId && records[selectedShotId]?.parentId === sceneId ? selectedShotId : null;
-          const { changes, shotId } = addShot(records, projectId, sceneId, selected);
-          void apply(changes).then(() => {
+          let shotId = '';
+          void applyWith((now) => {
+            // After the selected frame when it's in this scene, so a frame goes where the person is working.
+            const { shotId: selected } = selectionStore.getState();
+            const after = selected && now[selected]?.parentId === sceneId ? selected : null;
+            const added = addShot(now, projectId, sceneId, after);
+            shotId = added.shotId;
+            return added;
+          }).then(() => {
             selectionStore.getState().selectShot(shotId, sceneId);
             focusFrame(shotId);
           });
         }}
         onAddScene={() => {
-          const change = addScene(records, projectId);
-          void apply([change]).then(() => {
-            selectionStore.getState().selectScene(change.record.id);
+          let sceneId = '';
+          void applyWith((now) => {
+            const change = addScene(now, projectId);
+            sceneId = change.record.id;
+            return { changes: [change] };
+          }).then(() => {
+            selectionStore.getState().selectScene(sceneId);
           });
         }}
         onTrash={(id) => {
@@ -159,10 +196,11 @@ export function StoryboardTile() {
           const at = flat.findIndex((f) => (f.item.kind === 'shot' ? f.item.shot.record.id : f.item.note.record.id) === id);
           const next = flat[at + 1] ?? flat[at - 1] ?? null;
           const nextId = next ? (next.item.kind === 'shot' ? next.item.shot.record.id : next.item.note.record.id) : null;
-          const changes = records[id]?.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(records, projectId, id);
-          void apply(changes).then(() => {
+          void applyWith((now) => ({
+            changes: now[id]?.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id),
+          })).then(() => {
             if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
-            else selectionStore.getState().selectShot(null, next?.sceneId ?? null);
+            else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
             focusFrame(nextId);
           });
         }}
@@ -173,46 +211,48 @@ export function StoryboardTile() {
             .querySelector<HTMLElement>('[data-inspector-start] [role="radio"][tabindex="0"], [data-inspector-start] input')
             ?.focus();
         }}
-        onMove={(shotId, direction) => {
-          const target = moveTarget(scenes, shotId, direction);
+        onMove={(id, direction) => {
+          const target = moveTarget(scenes, id, direction);
           if (!target) return;
-          void apply(moveItem(records, projectId, shotId, target.sceneId, target.beforeShotId)).then(() => {
-            if (records[shotId]?.type === 'shot') selectionStore.getState().selectShot(shotId, target.sceneId);
-            focusFrame(shotId);
+          void moveTo(id, target.sceneId, target.beforeShotId).then(() => {
+            focusFrame(id);
           });
         }}
-        onMoveTo={(id, place) => {
-          void apply(moveItem(records, projectId, id, place.sceneId, place.beforeId)).then(() => {
-            if (records[id]?.type === 'shot') selectionStore.getState().selectShot(id, place.sceneId);
-          });
+        onMoveTo={(id, place) => moveTo(id, place.sceneId, place.beforeId)}
+        onSelectScene={(sceneId, noteId) => {
+          selectionStore.getState().selectNote(noteId, sceneId);
         }}
-        onSelectScene={(sceneId) => {
-          selectionStore.getState().selectShot(null, sceneId);
-        }}
+        selectedNoteId={selectedNoteId}
         locationNames={locations(records, projectId).map((l) => l.name)}
         onSetLocation={(sceneId, name) => {
-          void apply(setSceneLocation(records, projectId, sceneId, name));
+          void applyWith((now) => ({ changes: setSceneLocation(now, projectId, sceneId, name) }));
         }}
         onNoteText={(noteId, text) => {
           void apply([{ kind: 'update', id: noteId, set: { text } }]);
         }}
         onInsert={async (choice, place) => {
-          if (choice.kind === 'scene') {
-            const change = addScene(records, projectId, place.sceneId);
-            await apply([change]);
-            selectionStore.getState().selectScene(change.record.id);
-            return change.record.id;
-          }
-          if (choice.kind === 'note') {
-            const change = addNote(records, place.sceneId, place.afterId);
-            await apply([change]);
-            selectionStore.getState().selectShot(null, place.sceneId);
-            return change.record.id;
-          }
-          const { changes, shotId } = addShot(records, projectId, place.sceneId, place.afterId);
-          await apply(changes);
-          selectionStore.getState().selectShot(shotId, place.sceneId);
-          return shotId;
+          let id = '';
+          await applyWith((now) => {
+            if (choice.kind === 'scene') {
+              const change = addScene(now, projectId, place.sceneId);
+              id = change.record.id;
+              return { changes: [change] };
+            }
+            if (choice.kind === 'note') {
+              const change = addNote(now, place.sceneId, place.afterId);
+              id = change.record.id;
+              return { changes: [change] };
+            }
+            const added = addShot(now, projectId, place.sceneId, place.afterId);
+            id = added.shotId;
+            return added;
+          });
+          // Only once written: a failed edit has said why, and leaves nothing to go to.
+          if (!projectStore.getState().records[id]) return null;
+          if (choice.kind === 'scene') selectionStore.getState().selectScene(id);
+          else if (choice.kind === 'note') selectionStore.getState().selectNote(id, place.sceneId);
+          else selectionStore.getState().selectShot(id, place.sceneId);
+          return id;
         }}
         busy={busy}
         dropHover={dropHover}
