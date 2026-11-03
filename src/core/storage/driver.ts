@@ -2,8 +2,8 @@
 // and, from Phase 7, the MCP server use Node's own SQLite (nodeDriver.ts). Both behave the same, so everything above
 // this layer runs unchanged on either.
 
-/** What SQLite stores in schema v1. Objects and arrays go in as JSON text; raw bytes arrive with schema 2. */
-export type SqlValue = string | number | null;
+/** What SQLite stores. Objects and arrays go in as JSON text; bytes (images, schema 3) as Uint8Array. */
+export type SqlValue = string | number | null | Uint8Array;
 
 export type Row = Record<string, SqlValue>;
 
@@ -37,6 +37,11 @@ export interface ProjectFile {
   /** Runs every statement in one transaction: all of them land, or none do. */
   tx(statements: readonly Statement[]): Promise<void>;
   query(sql: string, params?: readonly SqlValue[]): Promise<Row[]>;
+  /**
+   * The bytes in the first column of the first row (an image or a thumbnail), or null when there's no such row.
+   * Rows from `query` travel as JSON in the desktop app, which can't carry bytes, so they come this way.
+   */
+  readBlob(sql: string, params?: readonly SqlValue[]): Promise<Uint8Array | null>;
   /**
    * Writes a consistent copy of the open file. Only a file name is passed; the driver puts it in the right folder
    * and refuses any name that isn't one of this project's own backup names (backups.ts makes them).

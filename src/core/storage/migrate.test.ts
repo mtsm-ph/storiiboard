@@ -58,7 +58,7 @@ describe('migrations', () => {
   it('gives a new file the current schema', async () => {
     const file = await nodeDriver.create(folder.path('New.sbd'));
     expect(await migrate(file, { isNew: true, now })).toEqual({ from: 0, to: SCHEMA_VERSION, backup: null });
-    expect(await tables(file)).toEqual(['meta', 'op_groups', 'ops', 'records']);
+    expect(await tables(file)).toEqual(['media_files', 'meta', 'op_groups', 'ops', 'records', 'thumbnails']);
     expect(await schemaVersion(file)).toBe(String(SCHEMA_VERSION));
     await file.close();
   });

@@ -34,6 +34,8 @@ pub fn run() {
             sbd::sbd_backups_folder,
             sbd::sbd_show_backups,
             sbd::sbd_tx,
+            sbd::sbd_tx_raw,
+            sbd::sbd_read_blob,
             sbd::sbd_query,
             sbd::sbd_backup,
             sbd::sbd_backups,

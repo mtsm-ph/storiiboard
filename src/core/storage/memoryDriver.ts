@@ -37,12 +37,7 @@ function checkExtension(path: string): void {
 }
 
 function toRow(row: Record<string, SqlJsValue>): Row {
-  const out: Row = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (value instanceof Uint8Array) throw new Error("Binary values aren't supported yet.");
-    out[key] = value;
-  }
-  return out;
+  return { ...row };
 }
 
 /** Runs a synchronous sql.js call and settles a promise with it, so refusals reject as the other drivers' do. */
@@ -148,6 +143,18 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
             const rows: Row[] = [];
             while (statement.step()) rows.push(toRow(statement.getAsObject()));
             return rows;
+          } finally {
+            statement.free();
+          }
+        }),
+      readBlob: (sql, params) =>
+        settle(() => {
+          const statement = db.prepare(sql);
+          try {
+            statement.bind(params ?? []);
+            if (!statement.step()) return null;
+            const value = Object.values(statement.getAsObject())[0];
+            return value instanceof Uint8Array ? value : null;
           } finally {
             statement.free();
           }

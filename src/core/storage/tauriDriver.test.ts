@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { tauriAppData } from './appData';
-import { tauriDriver } from './tauriDriver';
+import { packRawTx, tauriDriver } from './tauriDriver';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -45,6 +45,39 @@ describe('the desktop driver', () => {
       ['sbd_close', { handle: 7 }],
       ['app_data_write', { name: 'recent.json', contents: '[]' }],
     ]);
+  });
+
+  // Pictures go over as raw bytes, not a JSON array of numbers four times their size (decided Nov 2).
+  it('sends a transaction with bytes in it as one raw body, and reads bytes back', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      Promise.resolve(command === 'sbd_open' ? 7 : command === 'sbd_read_blob' ? new Uint8Array([9, 8]).buffer : null),
+    );
+    const file = await tauriDriver.open('/Projects/Bey.sbd');
+    const image = new Uint8Array([0, 255, 10, 13]);
+    await file.tx([{ sql: 'INSERT INTO media_files (sha256, bytes) VALUES (?, ?)', params: ['ab', image] }]);
+    expect(await file.readBlob('SELECT bytes FROM media_files WHERE sha256 = ?', ['ab'])).toEqual(new Uint8Array([9, 8]));
+
+    const [command, body] = invokeMock.mock.calls[1] ?? [];
+    expect(command).toBe('sbd_tx_raw');
+    expect(body).toEqual(packRawTx(7, [{ sql: 'INSERT INTO media_files (sha256, bytes) VALUES (?, ?)', params: ['ab', image] }]));
+    expect(invokeMock.mock.calls[2]).toEqual(['sbd_read_blob', { handle: 7, sql: 'SELECT bytes FROM media_files WHERE sha256 = ?', params: ['ab'] }]);
+  });
+
+  it('packs a raw body as the Rust side reads it: header length, JSON header, then the bytes', () => {
+    const body = packRawTx(3, [
+      { sql: 'A', params: [new Uint8Array([1, 2, 3]), 'x'] },
+      { sql: 'B', params: [new Uint8Array([4, 5])] },
+    ]);
+    const length = new DataView(body.buffer).getUint32(0);
+    const header: unknown = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + length)));
+    expect(header).toEqual({
+      handle: 3,
+      statements: [
+        { sql: 'A', params: [{ $blob: [0, 3] }, 'x'] },
+        { sql: 'B', params: [{ $blob: [3, 2] }] },
+      ],
+    });
+    expect([...body.subarray(4 + length)]).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("turns the Rust side's error message into an Error", async () => {

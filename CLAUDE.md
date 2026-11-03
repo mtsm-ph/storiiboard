@@ -85,7 +85,7 @@
 ## Data model
 - Every record has: id, type, props, parent_id, ordered children.
 - Changing a record's type never drops its props.
-- Records: project, scene, shot, setup, media, location, person, department, gear_item, shoot_day, callsheet, plan, plan_item, board, board_item, design, comment, suggestion, availability.
+- Records: project, scene, shot, stroke, note, setup, media, location, person, character, department, gear_item, shoot_day, callsheet, plan, plan_item, board, board_item, design, comment, suggestion, availability.
 - A shot links to: one scene, at most one location, shoot_day and setup, and many people, gear items and media.
 - Views (storyboard, shot list, schedule, call sheet, deck) read records. They never copy data.
 - Rollups (day totals, a location's shot list) are computed, never stored.
