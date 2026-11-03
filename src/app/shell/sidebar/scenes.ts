@@ -1,6 +1,4 @@
 import type { SbdRecord } from '../../../core/model/record';
-import type { Change } from '../../../core/ops/ops';
-import { keyBetween } from '../../../core/ops/order';
 
 // The scenes the sidebar lists under Storyboard. Views read records, never copy them (CLAUDE.md), so this works the
 // list out from the project store each time.
@@ -30,27 +28,5 @@ export function sceneEntries(records: Readonly<Record<string, SbdRecord>>, proje
   }));
 }
 
-/** "SC 04": a plain number gets two digits, as on the boards; a lettered one ("4A") is kept as the slate has it. */
-export function sceneLabel(number: string): string {
-  return `SC ${/^\d$/.test(number) ? number.padStart(2, '0') : number}`;
-}
-
-/** "+ Add Scene": one after the highest scene number, at the end of the board. */
-export function addSceneChange(
-  records: Readonly<Record<string, SbdRecord>>,
-  projectId: string,
-): Extract<Change, { kind: 'create' }> & { record: { id: string } } {
-  const scenes = scenesOf(records, projectId);
-  const highest = Math.max(0, ...scenes.map((s) => Number.parseInt(text(s.props.number), 10)).filter(Number.isFinite));
-  return {
-    kind: 'create',
-    record: {
-      // Made here, not by the op, so the sidebar can make the new scene the active one.
-      id: crypto.randomUUID(),
-      type: 'scene',
-      parentId: projectId,
-      sortKey: keyBetween(scenes.at(-1)?.sortKey ?? null, null),
-      props: { number: String(highest + 1), name: '' },
-    },
-  };
-}
+export { sceneLabel } from '../../../core/model/storyboard';
+export { addScene as addSceneChange } from '../../../features/storyboard/board';

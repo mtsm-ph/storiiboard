@@ -53,3 +53,13 @@ export function PlayGlyph() {
     </svg>
   );
 }
+
+/** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
+export function LockGlyph({ open = false }: { open?: boolean }) {
+  return (
+    <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden="true">
+      <path d={open ? 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0' : 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5'} fill="none" className="stroke-text" strokeWidth="1.5" />
+      <rect x="0.75" y="5.25" width="8.5" height="6" className={open ? 'fill-none stroke-text' : 'fill-text'} strokeWidth="1.5" />
+    </svg>
+  );
+}

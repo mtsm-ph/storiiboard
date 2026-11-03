@@ -1,17 +1,20 @@
 import { useId } from 'react';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { PROJECT_STATE_LABEL, PROJECT_STATES, projectStateOf } from '../../core/model/project';
-import { TextField } from '../../ui/fields';
+import { ASPECT_RATIOS, projectStoryboard } from '../../core/model/storyboard';
+import { setLettersAllowIO } from '../../features/storyboard/board';
+import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
 
-// The Project tile in Settings: the project's title and notes, enough to edit real material, force-quit and undo
-// in Phase 0 (docs/PLAN.md, 0.5 and 0.7). With + Add Scene in the sidebar, it's Phase 0's edit surface.
+// The Project tile in Settings: the project's state, title and notes, and the storyboard's frame shape and shot
+// letters. Every change is an op, so ⌘Z takes it back.
 
 export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
   const record = useProject((s) => (projectId ? s.records[projectId] : undefined));
   const apply = useProject((s) => s.apply);
+  const records = useProject((s) => s.records);
   const error = useProject((s) => s.error);
   if (!record) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   return (
@@ -21,6 +24,10 @@ export function ProjectHome() {
       onChange={(set) => {
         void apply([{ kind: 'update', id: record.id, set }]);
       }}
+      onLettersChange={(allowIO) => {
+        // Renumbers every unlocked scene in the same edit.
+        void apply(setLettersAllowIO(records, record.id, allowIO));
+      }}
     />
   );
 }
@@ -29,9 +36,12 @@ interface ProjectFieldsProps {
   record: SbdRecord;
   error: string | null;
   onChange: (set: Props) => void;
+  /** Allow I and O in shot letters (true), or skip them as most slates do. */
+  onLettersChange?: (allowIO: boolean) => void;
 }
 
-export function ProjectFields({ record, error, onChange }: ProjectFieldsProps) {
+export function ProjectFields({ record, error, onChange, onLettersChange }: ProjectFieldsProps) {
+  const storyboard = projectStoryboard(record.props);
   const notesId = useId();
   const title = typeof record.props.title === 'string' ? record.props.title : '';
   const notes = typeof record.props.notes === 'string' ? record.props.notes : '';
@@ -53,6 +63,33 @@ export function ProjectFields({ record, error, onChange }: ProjectFieldsProps) {
             onChange({ state });
           }}
         />
+        <div className="grid grid-cols-[minmax(0,200px)_1fr] items-end gap-4">
+          <Select
+            label="Aspect ratio"
+            mono
+            value={storyboard.aspectRatio}
+            onChange={(event) => {
+              onChange({ aspect_ratio: event.currentTarget.value });
+            }}
+          >
+            {ASPECT_RATIOS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.id}
+              </option>
+            ))}
+          </Select>
+          <Toggle
+            label="Use I and O in shot letters"
+            checked={!storyboard.skipIO}
+            onChange={(allow) => {
+              if (onLettersChange) onLettersChange(allow);
+              else onChange({ shot_letters_allow_io: allow });
+            }}
+          />
+        </div>
+        <p className="-mt-2 text-[12px] text-text-muted">
+          Frames take the scene number and a letter: 4A, 4B. Most slates skip I and O, which read as 1 and 0.
+        </p>
         {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
         <div key={record.updatedAt} className="flex flex-col gap-4">
           <TextField
