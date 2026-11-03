@@ -259,21 +259,35 @@ number is given out twice. Unlocking renumbers the scene to follow the board aga
 - A file without a `meta` table is refused as "not a Storiiboard project", unless the app has just created it empty.
   Nothing is added to a file that isn't a project.
 
-## Backups (milestone 0.4)
+## Backups (milestone 0.4; clones and the cap Nov 3)
 
-- Every 5 minutes while a project is open, and only if it changed since the last backup, a full copy is written to
+- Every 5 minutes while a project is open, and only if it changed since the last backup, a copy is written to
   `Backups/<Project> YYYY-MM-DD HH-mm.sbd` in the folder that holds the .sbd. `<Project>` is the .sbd's file name and
   the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`.
 - A project in a synced folder (iCloud Drive, Dropbox, Google Drive, OneDrive) keeps them in the app's data folder on
   this computer instead (1.4), so a full copy doesn't upload every 5 minutes or sync into conflicts. The folder is
   `Backups/<Project> <key>/` there; Files next to a project, below, has the key. Settings → Backups can keep them next
   to the project.
-- Copies are made with SQLite's online backup API or `VACUUM INTO`, so they're consistent while the project is open.
-  The file is never copied with a raw file copy. Each backup is a complete .sbd that opens on its own.
+- On a Mac a backup is an APFS clone of the .sbd (`clonefile`), taken between transactions so nothing in it is
+  half-written. It shares every block the project hasn't changed since, so it takes almost no space; Time Machine and
+  other copy tools still see a complete file.
+- Where a clone isn't possible (Windows, exFAT and other drives that aren't APFS, a backups folder on another volume),
+  the backup is a full copy made with SQLite's online backup API, 1024 pages (4 MB) a step. Between steps the app lets
+  go of the project, so edits go on, and they reach the copy as they're made. The copy is written to
+  `<backup>.partial`, flushed to disk between steps, synced once more at the end and only then renamed; a copy cut off
+  by a quit, a crash or a sync replacing the project is deleted, never left under a backup's name.
+- Either way the file is never copied with a raw file copy, and each backup is a complete .sbd that opens on its own.
+- Measured Nov 3 on a 614 MB project (1000 frames), with an edit every 5 ms on this Mac, where a commit takes about
+  14 ms: a clone took under 15 ms and held an edit at most 29 ms; a full copy took about 3 s and held an edit at most
+  25 ms. `VACUUM INTO`, used before, held an edit for 1.2 s. The test is `measures_how_long_a_backup_holds_up_an_edit`
+  in src-tauri/src/sbd.rs.
 - "Changed" means a row was written through the open connection since the last backup. Opening a project (its
   migration, its `app_version`) doesn't count, so opening alone never makes a backup.
 - Pruning runs after each backup. It keeps the newest 12 backups, plus the newest one from each of the last 14 calendar
-  days (today included), and deletes the rest. Both numbers become settings in 0.7.
+  days (today included), and deletes the rest. Both numbers are in Settings → Backups.
+- Then a cap: a project's backups share 5 GB (10^9 bytes). Each counts the space only it takes, which is what deleting
+  it would free: all of a full copy, and for a clone only the blocks no other file still shares (APFS's private size),
+  which starts at nothing. Over the cap, the oldest go first, but the newest 3 always stay, however large.
 - Pruning touches only this project's own backups, never other files in the folder: names are made and parsed in
   src/core/storage/backups.ts, and the Rust side refuses to write or delete any name that isn't this project's.
 - "Open backup" opens a copy of the backup as a separate project. The original is never overwritten without asking.

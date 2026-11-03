@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.10 done, 1.11 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.10b done, 1.11 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -44,6 +44,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.8 Frame inspector | #23 | Done |
 | 1.9 Shot list and Strip views | #24 | Done |
 | 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | #25 | Done |
+| 1.10b Backups as APFS clones, step-by-step full copies elsewhere, 5 GB cap; Linux checks on every PR | #26 | Done |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
 | 1.12 Drag to reorder; "/" menu | | Not started |
 | 1.13 Sketching | | Not started |
@@ -54,7 +55,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF | | Not started |
 | 1.19 Custom fields on shots | | Not started |
 | 1.20 Trash tile | | Not started |
-| 1.21 Empty Trash | | Not started |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
@@ -732,6 +733,19 @@ gone), and, rarely, an upload caught mid-write. Approved for Phase 1:
   are 603 MB and 1.16 s. Under the current keep rule (the last 12 plus one a day for 14 days, so up to 26 copies),
   backups reach 4.7 GB at 300 frames and 15.7 GB at 1000, so new keep defaults went to Kevin with the 1.10 report.
   A picture replaced in a frame stays in the file, since History can bring it back.
+- Decided Nov 3 (Kevin, from the 1.10 report), built in 1.10b: on a Mac each backup is an APFS clone, taken between
+  saves so it's consistent, and it shares the project's unchanged data. Where a clone isn't possible (Windows, exFAT,
+  another volume) it's a full copy made with SQLite's step-by-step backup API, because no backup may hold up an edit
+  more than about 100 ms and `VACUUM INTO` held one for 1.2 s at 1000 frames. Full copies share a 5 GB cap per
+  project: over it the oldest go first, but the 3 newest always stay. The keep rule stays 12 plus 14. CLAUDE.md's
+  "never a raw file copy" now names clones as the consistent way on a Mac.
+- As built in 1.10b (Nov 3): at 1000 frames (614 MB), with an edit every 5 ms, a clone took under 15 ms and held an
+  edit at most 29 ms; a full copy took about 3 s and held one at most 25 ms, against a 14 ms commit. The copy has to
+  flush itself to disk between steps: left to pile up, its writes made an edit's own sync wait past 100 ms. The cap
+  counts each backup's own space (APFS's private size), so clones barely count.
+- Decided Nov 3, for 1.21: Settings → Storage gets "Clean up old pictures". It shows how much space pictures that only
+  History still uses take up (a picture replaced in a frame, for example), and after a confirm removes them for good.
+  History then shows those steps as "picture removed".
 
 ### History, versions and backups
 
@@ -741,7 +755,7 @@ One model replaces three overlapping ones, and "snapshot" is dropped as a word.
 |---|---|---|---|
 | **History** (the op log) | Undo and redo; the History panel (every change: field, before and after, who, when); Notifications | Inside the .sbd | For the life of the project. Empty Trash removes those items' data from it |
 | **Named versions** | A point to come back to, such as "Board sent to client" or "Locked for shoot" | Inside the .sbd, as a named point in History | Until someone deletes it |
-| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd, as full copies; for a project in a synced folder, a local folder on this computer (F) | The last 12, plus one a day for 14 days (Settings) |
+| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd: APFS clones on a Mac, full copies elsewhere; for a project in a synced folder, a local folder on this computer (F) | The last 12, plus one a day for 14 days (Settings); full copies within 5 GB, the newest 3 always |
 | **Migration backups** | Undoing a schema upgrade | Next to the .sbd | Never pruned |
 | **Review copies** | What reviewers see on the web | Supabase | 30 days after the last shoot day |
 
