@@ -1,9 +1,12 @@
 name: CI
 
-# Linux checks run on every push. The Mac and Windows installers build on pull requests and on pushes to v2 only,
-# because macOS minutes cost ten times Linux ones on a private repo. Changes to docs alone skip CI.
+# Every pull request runs the Linux checks and builds the Mac and Windows installers, so a green pull request means all
+# three passed on its last commit (Kevin, Nov 3). Pushes run CI only on v2 and main, after a merge; a branch gets its
+# checks from its pull request. A pull request's paths filter looks at all of its changes, so a docs-only last commit
+# still runs everything when the pull request touches code. Changes to docs alone skip CI.
 on:
   push:
+    branches: [v2, main]
     paths-ignore: ['docs/**', '*.md', '*.pdf']
   pull_request:
     paths-ignore: ['docs/**', '*.md', '*.pdf']
@@ -25,8 +28,6 @@ permissions:
 jobs:
   checks:
     name: Checks (Linux)
-    # A pull request from this repo already ran these on its push; forks get them on the pull request.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
