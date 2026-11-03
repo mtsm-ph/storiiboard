@@ -76,7 +76,9 @@ export function Menu({ label, align = 'left', buttonClassName, panelClassName, c
           id={panelId}
           tabIndex={-1}
           className={cx(
-            'absolute top-full z-50 w-64 border border-rule-top bg-panel focus-visible:outline-offset-0',
+            // Never past the status bar: a long list (Open tile) scrolls rather than covering its controls.
+            'absolute top-full z-50 max-h-[calc(100dvh_-_var(--sb-topbar)_-_var(--sb-statusbar)_-_8px)] w-64 overflow-y-auto',
+            'border border-rule-top bg-panel focus-visible:outline-offset-0',
             align === 'right' ? 'right-0' : 'left-0',
             panelClassName,
           )}

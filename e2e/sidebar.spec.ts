@@ -61,12 +61,13 @@ test('Alt+1 to Alt+7 jump to a section, and focus follows from the tiles', async
   await expect(section(page, 'Production')).toHaveAttribute('aria-current', 'page');
   await expect(section(page, 'Production')).toBeFocused();
   await page.keyboard.press('Alt+7');
-  await expect(page.getByRole('region', { name: 'Settings', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Project', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Project', exact: true })).toContainText('No project open.');
   await expect(section(page, 'Settings')).toBeFocused();
   // The workspace already open: nothing unmounts, so focus stays where it is.
-  await page.getByRole('button', { name: 'Maximize Settings' }).focus();
+  await page.getByRole('button', { name: 'Maximize Project' }).focus();
   await page.keyboard.press('Alt+7');
-  await expect(page.getByRole('button', { name: 'Maximize Settings' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Maximize Project' })).toBeFocused();
 });
 
 test('the project menu and switcher show what each command waits for', async ({ page }) => {
@@ -82,9 +83,10 @@ test('the project menu and switcher show what each command waits for', async ({ 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Project', exact: true })).toBeFocused();
 
+  // The browser build has no files to open, so the switcher says where projects open.
   await page.getByRole('button', { name: /^Project:/ }).click();
-  await expect(page.getByRole('button', { name: 'New project… 0.7' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'All projects… 0.7' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'New project… Desktop app' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'All projects… Desktop app' })).toBeFocused();
 });
 
 // Paper ink on orange is 2.9:1, under the 3:1 a focus ring needs, so the ring on the active section stays ink.

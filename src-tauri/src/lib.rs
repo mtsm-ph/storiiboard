@@ -18,6 +18,7 @@ pub fn run() {
         );
     }));
     builder
+        .plugin(tauri_plugin_dialog::init())
         .manage(sbd::OpenFiles::default())
         .manage(opened::OpenedFiles::default())
         .invoke_handler(tauri::generate_handler![

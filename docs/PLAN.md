@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: 0.6 in review |
+| Phase 0 state | Building: 0.6 and 0.7a in review, 0.7b next |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -42,8 +42,8 @@ One PR per milestone, each into `v2`.
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | Done |
 | 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | Done |
 | D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | #11 | Done |
-| 0.6 Double-click opens a .sbd (Mac and Windows) | `phase0/0.6-open-sbd` | In review |
-| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
+| 0.6 Double-click opens a .sbd (Mac and Windows) | #12 | In review |
+| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | 0.7a `phase0/0.7a-projects` (Projects screen, switcher); 0.7b next (Open backup, backup settings, project state) | In review |
 
 Phase 0 calls, Nov 1 and 2, 2026:
 
@@ -91,6 +91,16 @@ Phase 0 calls, Nov 1 and 2, 2026:
   the single-instance plugin (approved Nov 2), a second launch on Windows hands its file to the running app. Either
   way the file opens in place of the open project, which stays open if the new file can't be opened, and the reason
   shows in an alert. CI checks the association in the built Info.plist and in the Windows installer scripts.
+- 0.7 is two PRs, each small enough to review (Nov 2). 0.7a as built:
+  - The Projects screen is one tile: New project… (the native Save dialog picks name and folder, starting in
+    Documents), Open…, and Recent with each project's path and when it was last opened, the open one marked, and
+    Remove from Recent. It shows when the desktop app has nothing open, and from the switcher's All projects….
+  - The switcher lists the last 8 recent projects; picking one switches in place. New project… is there too.
+  - An open project now shows its workspaces. Its title and notes, Phase 0's edit surface with + Add Scene, moved
+    into a Project tile in the Settings workspace, beside the Backups tile 0.7b fills.
+  - The browser build can't open files: it keeps the placeholder workspaces, and the switcher says projects open
+    in the desktop app. The Projects view is drawn in the UI catalogue so the axe checks cover it.
+  - The dialog plugin (tauri-plugin-dialog 2.8.3) was approved Nov 2. Only its Open and Save dialogs are allowed.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
   default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is
