@@ -8,13 +8,16 @@ import { cx } from '../../ui/cx';
 import { LockGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { StatusGlyph } from '../../ui/tags';
+import { FrameImage, type FramePictureView } from './FrameImage';
 import { verticalNeighbour } from './gridKeys';
 
 // The Storyboard tile (design board, Storyboard workspace) in its three views: Grid (frames by scene, wrapping),
 // Strip (one row through the whole board, like a filmstrip) and Shot list (a table, one row per shot). All three are
 // the same records and the same keys (CLAUDE.md, keyboard-first): the board is one Tab stop; arrows move through every
 // frame and + Frame, Enter goes on to the frame's details, Delete sends it to the Trash, ⌘ with an arrow moves it.
-// This part only draws and reads keys; StoryboardTile does the edits.
+// Pictures dropped on a frame become its picture; dropped elsewhere in a scene, new frames (1.11). This part only
+// draws and reads keys; StoryboardTile does the edits and finds what a drop landed on through the data-drop-*
+// attributes here.
 
 export type BoardView = 'grid' | 'strip' | 'list';
 
@@ -32,7 +35,12 @@ export interface FrameCard {
   status: ShotStatus;
   /** Every field, for the shot list's columns. */
   fields: ShotFields;
+  /** Null for a frame with no picture yet. */
+  picture: FramePictureView | null;
 }
+
+/** What a drag of files is over now: a frame (its picture) or a scene (new frames). */
+export type DropHover = { shotId: string } | { sceneId: string } | null;
 
 export interface SceneGroup {
   id: string;
@@ -61,6 +69,11 @@ export interface StoryboardViewProps {
   onMove: (shotId: string, direction: -1 | 1) => void;
   /** Enter on a frame: on to its details in the Frame inspector. */
   onOpen?: (shotId: string) => void;
+  /** Add pictures…: the Open dialog, each picture a new frame. */
+  onAddPictures?: () => void;
+  /** Pictures being prepared now. */
+  busy?: number;
+  dropHover?: DropHover;
 }
 
 const NAV = '[data-board-item]';
@@ -73,6 +86,15 @@ export function countsLine(counts: Record<ShotStatus, number>): string {
 
 function boardItems(from: HTMLElement): HTMLElement[] {
   return [...(from.closest('[data-board]')?.querySelectorAll<HTMLElement>(NAV) ?? [])];
+}
+
+/** Where a drag of files will land: a dashed ink box over the frame, with what the drop will do. */
+function DropMark({ label }: { label: string }) {
+  return (
+    <span aria-hidden="true" className="pointer-events-none absolute inset-1 flex items-end justify-start border-2 border-dashed border-text">
+      <span className="sb-label bg-text px-1 text-text-inverse">{label}</span>
+    </span>
+  );
 }
 
 /** "SC 04  INT. PENN STATION — DAY  1 3/8 pg · 4 have · 1 need", plus the lock when there is one. */
@@ -106,8 +128,12 @@ export function StoryboardView({
   onTrash,
   onMove,
   onOpen,
+  onAddPictures,
+  busy = 0,
+  dropHover = null,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
+  const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
   // One Tab stop: the selected frame, or the first item when nothing is selected.
   const tabStop = selectedShotId ?? scenes.flatMap((s) => s.frames)[0]?.id ?? scenes[0]?.id ?? null;
   const mac = isMac();
@@ -191,13 +217,23 @@ export function StoryboardView({
   /** A frame card: the picture at the aspect ratio, then the number, spec and status. Grid and strip share it. */
   const card = (frame: FrameCard, sceneId: string, className?: string) => {
     const selected = frame.id === selectedShotId;
+    const hovered = dropHover !== null && 'shotId' in dropHover && dropHover.shotId === frame.id;
     return (
-      <button {...itemProps(frame, sceneId)} className={cx('relative flex flex-col border border-border bg-surface text-left', className)}>
-        <span className="flex w-full items-center justify-center border-b border-border" style={{ aspectRatio: String(aspectRatio) }}>
-          {/* Hidden from screen readers: the card is named by what follows, number, spec and status. */}
-          <span aria-hidden="true" className="sb-label text-text-muted">
-            No image
-          </span>
+      <button
+        {...itemProps(frame, sceneId)}
+        data-drop-shot={frame.id}
+        className={cx('relative flex flex-col border border-border bg-surface text-left', className)}
+      >
+        <span className="relative flex w-full items-center justify-center border-b border-border" style={{ aspectRatio: String(aspectRatio) }}>
+          {frame.picture ? (
+            <FrameImage picture={frame.picture} frameAspect={aspectRatio} />
+          ) : (
+            // Hidden from screen readers: the card is named by what follows, number, spec and status.
+            <span aria-hidden="true" className="sb-label text-text-muted">
+              No image
+            </span>
+          )}
+          {hovered && <DropMark label={frame.picture ? 'Replace picture' : 'Set picture'} />}
         </span>
         <span className="flex items-center gap-2 px-2 py-1.5">
           {/* The selected frame is one of the accent's few uses; the ink chip on its number is the second cue, so
@@ -220,7 +256,13 @@ export function StoryboardView({
   let body: ReactNode;
   if (view === 'grid') {
     body = scenes.map((scene) => (
-      <section key={scene.id} data-scene-group={scene.id} aria-labelledby={`scene-${scene.id}`} className="border-b border-border p-3">
+      <section
+        key={scene.id}
+        data-scene-group={scene.id}
+        data-drop-scene={scene.id}
+        aria-labelledby={`scene-${scene.id}`}
+        className={cx('relative border-b border-border p-3', sceneHovered(scene.id) && 'outline-2 -outline-offset-4 outline-text outline-dashed')}
+      >
         <h3 id={`scene-${scene.id}`} className="mb-2.5">
           <SceneHeading scene={scene} />
         </h3>
@@ -247,7 +289,13 @@ export function StoryboardView({
     body = (
       <div className="flex min-h-0 flex-1 gap-gap overflow-x-auto p-3">
         {scenes.map((scene) => (
-          <section key={scene.id} data-scene-group={scene.id} aria-labelledby={`scene-${scene.id}`} className="flex shrink-0 flex-col gap-1.5">
+          <section
+            key={scene.id}
+            data-scene-group={scene.id}
+            data-drop-scene={scene.id}
+            aria-labelledby={`scene-${scene.id}`}
+            className={cx('flex shrink-0 flex-col gap-1.5', sceneHovered(scene.id) && 'outline-2 outline-offset-2 outline-text outline-dashed')}
+          >
             <h3 id={`scene-${scene.id}`} className="max-w-full">
               <SceneHeading scene={scene} className="flex-nowrap whitespace-nowrap" />
             </h3>
@@ -271,15 +319,28 @@ export function StoryboardView({
       </div>
     );
   } else {
-    body = <ShotList scenes={scenes} selectedShotId={selectedShotId} itemProps={itemProps} addProps={addProps} />;
+    body = (
+      <ShotList scenes={scenes} selectedShotId={selectedShotId} itemProps={itemProps} addProps={addProps} sceneHovered={sceneHovered} />
+    );
   }
 
   return (
     <div data-board="" className="flex min-h-full flex-col">
       <div className="flex items-center gap-3 border-b border-border px-3 py-1.5">
         <SegmentedControl label="View" size="sm" options={BOARD_VIEWS} value={view} onChange={onViewChange} />
-        <span className="sb-label ml-auto font-mono">
-          {frameCount} {frameCount === 1 ? 'frame' : 'frames'}
+        {onAddPictures && (
+          // As small as the view switch beside it, so the header keeps its height.
+          <button
+            type="button"
+            disabled={scenes.length === 0}
+            onClick={onAddPictures}
+            className="sb-label h-[20px] border border-text px-2 hover:bg-surface-raised disabled:border-dashed disabled:border-text-muted disabled:text-text-muted"
+          >
+            + Pictures…
+          </button>
+        )}
+        <span role="status" className="sb-label ml-auto font-mono">
+          {busy > 0 ? `Adding ${String(busy)} ${busy === 1 ? 'picture' : 'pictures'}…` : `${String(frameCount)} ${frameCount === 1 ? 'frame' : 'frames'}`}
         </span>
       </div>
       {scenes.length === 0 && <p className="p-3 text-[13px] text-text-muted">No scenes yet. Add a scene, then its frames.</p>}
@@ -302,6 +363,7 @@ interface ShotListProps {
   selectedShotId: string | null;
   itemProps: (frame: FrameCard, sceneId: string) => Record<string, unknown>;
   addProps: (scene: SceneGroup) => Record<string, unknown>;
+  sceneHovered: (sceneId: string) => boolean;
 }
 
 /**
@@ -309,7 +371,7 @@ interface ShotListProps {
  * is each row's focus target, so the board's keys work here too; the selected row takes the selected-row fill, with
  * the accent marker and the ink chip on its number.
  */
-function ShotList({ scenes, selectedShotId, itemProps, addProps }: ShotListProps) {
+function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered }: ShotListProps) {
   // Headers and short values stay on one line; only the action wraps.
   const head = 'sb-label px-2 py-1.5 text-left font-normal whitespace-nowrap text-text-muted';
   const cell = 'px-2 py-1.5 align-top';
@@ -327,7 +389,13 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps }: ShotListProps
           </tr>
         </thead>
         {scenes.map((scene) => (
-          <tbody key={scene.id} data-scene-group={scene.id} aria-label={`Frames in ${sceneLabel(scene.number)}`}>
+          <tbody
+            key={scene.id}
+            data-scene-group={scene.id}
+            data-drop-scene={scene.id}
+            aria-label={`Frames in ${sceneLabel(scene.number)}`}
+            className={cx(sceneHovered(scene.id) && 'outline-2 -outline-offset-2 outline-text outline-dashed')}
+          >
             <tr className="border-b border-border">
               {/* Heads the scene's rows below it, not a column. */}
               <th scope="rowgroup" colSpan={10} className="px-2 pt-3 pb-1.5 text-left font-normal">
@@ -340,7 +408,7 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps }: ShotListProps
               // Muted text never sits on the selected-row fill (DESIGN.md), so a selected row's cells go ink.
               const quiet = selected ? '' : 'text-text-muted';
               return (
-                <tr key={frame.id} className={cx('border-b border-border', selected && 'bg-surface-raised')}>
+                <tr key={frame.id} data-drop-shot={frame.id} className={cx('border-b border-border', selected && 'bg-surface-raised')}>
                   <td className={cx(cell, 'relative whitespace-nowrap')}>
                     {selected && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] bg-accent" />}
                     <button

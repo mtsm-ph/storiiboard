@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
+import { showNotice } from '../../app/notice';
+import { choosePictures } from '../../app/pictures';
 import { useProject } from '../../app/projectStore';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
+import { addPictures, usePicturesBusy } from './addPictures';
 import { addScene, addShot, board, moveShot, trashShot, type BoardScene } from './board';
+import { pictureView } from './framePictures';
+import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
-import { BOARD_VIEWS, StoryboardView, type BoardView, type SceneGroup } from './StoryboardView';
+import { BOARD_VIEWS, StoryboardView, type BoardView, type DropHover, type SceneGroup } from './StoryboardView';
+import { useBoardDrops } from './useBoardDrops';
 
 /** Which view the board shows is the person's choice, not the project's: kept in this browser, like the layouts. */
 export const BOARD_VIEW_KEY = 'storiiboard.board-view';
@@ -62,6 +68,9 @@ export function StoryboardTile() {
   const scenes = project ? board(records, projectId) : [];
   const { aspectRatio } = projectStoryboard(records[projectId]?.props);
   const [view, setView] = useState<BoardView>(savedView);
+  const [dropHover, setDropHover] = useState<DropHover>(null);
+  const busy = usePicturesBusy();
+  useBoardDrops(project !== null, setDropHover);
 
   // A scene picked in the sidebar or the Scenes tile comes into view, unless the pick came from a frame in it.
   useEffect(() => {
@@ -86,10 +95,12 @@ export function StoryboardTile() {
       spec: specLine(shot.fields),
       status: shot.fields.status,
       fields: shot.fields,
+      picture: pictureView(records, shot.fields),
     })),
   }));
 
   return (
+    <ProjectPictures>
     <StoryboardView
       scenes={groups}
       view={view}
@@ -146,6 +157,19 @@ export function StoryboardTile() {
           focusFrame(shotId);
         });
       }}
+      busy={busy}
+      dropHover={dropHover}
+      onAddPictures={() => {
+        // Into the selected scene, after the selected frame when there is one; else the last scene.
+        const { shotId, sceneId } = selectionStore.getState();
+        const scene = scenes.find((s) => s.record.id === sceneId) ?? scenes.at(-1);
+        if (!scene) return;
+        const after = shotId && records[shotId]?.parentId === scene.record.id ? shotId : null;
+        choosePictures(true)
+          .then((files) => addPictures(files, { kind: 'scene', sceneId: scene.record.id, afterShotId: after }))
+          .catch(showNotice);
+      }}
     />
+    </ProjectPictures>
   );
 }

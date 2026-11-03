@@ -1,7 +1,13 @@
+import { showNotice } from '../../app/notice';
+import { choosePictures } from '../../app/pictures';
 import { useProject } from '../../app/projectStore';
-import { sceneFields, shotFields } from '../../core/model/storyboard';
+import { mediaFields } from '../../core/media/store';
+import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
+import { addPictures } from './addPictures';
 import { setSceneNumber } from './board';
-import { InspectorView, type FieldChange } from './InspectorView';
+import { pictureView, removePicture, setCrop } from './framePictures';
+import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
+import { ProjectPictures } from './ProjectPictures';
 import { useSelection } from './selection';
 
 /** Escape from the inspector: focus goes back to the frame (or the scene) it was showing. */
@@ -35,7 +41,14 @@ export function InspectorTile() {
     void apply([{ kind: 'update', id, ...(set ? { set } : {}), ...(unset ? { unset } : {}) }]);
   };
 
+  const fields = shot ? shotFields(shot.props) : null;
+  const view = fields ? pictureView(records, fields) : null;
+  const media = view && fields?.mediaId ? mediaFields(records[fields.mediaId]?.props ?? {}) : null;
+  const picture: InspectorPicture | null =
+    view && media ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath } : null;
+
   return (
+    <ProjectPictures>
     <InspectorView
       scene={scene ? { id: scene.id, fields: sceneFields(scene.props) } : null}
       shot={shot ? { id: shot.id, fields: shotFields(shot.props) } : null}
@@ -53,6 +66,21 @@ export function InspectorTile() {
       onBack={() => {
         focusBoard(shot?.id ?? null, scene?.id ?? null);
       }}
+      picture={picture}
+      frameAspect={aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio)}
+      onChoosePicture={() => {
+        if (!shot) return;
+        choosePictures(false)
+          .then((files) => addPictures(files, { kind: 'frame', shotId: shot.id }))
+          .catch(showNotice);
+      }}
+      onRemovePicture={() => {
+        if (shot) void apply(removePicture(records, shot.id));
+      }}
+      onCropChange={(crop) => {
+        if (shot) void apply([setCrop(shot.id, crop)]);
+      }}
     />
+    </ProjectPictures>
   );
 }

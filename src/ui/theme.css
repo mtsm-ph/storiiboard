@@ -136,3 +136,37 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* A slider in the kit's style (the framing zoom, 1.11): a 1.5px ink rule and a square ink handle, no radius, in place
+   of each engine's own rounded one. */
+.sb-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+.sb-range::-webkit-slider-runnable-track {
+  height: 1.5px;
+  background: var(--text);
+}
+.sb-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 16px;
+  margin-top: -7.25px;
+  border: 0;
+  border-radius: 0;
+  background: var(--text);
+}
+.sb-range::-moz-range-track {
+  height: 1.5px;
+  background: var(--text);
+}
+.sb-range::-moz-range-thumb {
+  width: 10px;
+  height: 16px;
+  border: 0;
+  border-radius: 0;
+  background: var(--text);
+}
