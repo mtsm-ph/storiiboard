@@ -1,12 +1,11 @@
 name: CI
 
 # Every pull request runs the Linux checks and builds the Mac and Windows installers, so a green pull request means all
-# three passed on its last commit (Kevin, Nov 3). Pushes run CI only on v2 and main, after a merge; a branch gets its
-# checks from its pull request. A pull request's paths filter looks at all of its changes, so a docs-only last commit
-# still runs everything when the pull request touches code. Changes to docs alone skip CI.
+# three passed on its last commit (Kevin, Nov 3). Every push runs the Linux checks as well, so each commit is checked
+# on its own; the installers build on a push only to v2. A pull request's paths filter looks at all of its changes, so
+# a docs-only last commit still runs everything when the pull request touches code. Changes to docs alone skip CI.
 on:
   push:
-    branches: [v2, main]
     paths-ignore: ['docs/**', '*.md', '*.pdf']
   pull_request:
     paths-ignore: ['docs/**', '*.md', '*.pdf']
