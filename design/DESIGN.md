@@ -120,6 +120,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   to the ends; Delete sends a frame to the Trash; ⌘ (Ctrl on Windows) with an arrow moves the frame one place,
   crossing into the next scene at either end.
 
+- **Views:** Grid, Strip and Shot list, switched in the tile's header; the choice is the person's and is remembered.
+  The strip is one row through the whole board, cards at a fixed height. The shot list is a table, one row per shot
+  under a heading row per scene, with columns Shot, Size, Lens, T-stop, Support, Height, Move, Status, Action,
+  Departments; the selected row takes the selected-row fill with the accent marker at its left edge and the ink chip
+  on its number, and its cells go ink (muted text never sits on oatmeal). The board's keys work in every view.
 - **Frame inspector:** the shot number large in mono over "SC 04 · INT. PENN STATION — DAY", then sections under
   10px labels: Camera (size as a segmented control, lens mm, T-stop in thirds, support, height, move), Status (Have,
   Need, Source), Story (action, dialogue), Departments (tags in their colours when on, dashed outlines when off),
