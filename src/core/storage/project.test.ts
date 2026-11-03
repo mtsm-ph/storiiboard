@@ -54,7 +54,8 @@ describe('projects', () => {
 
     const opened = await openProject(path, { driver: nodeDriver, backups: false, now });
     expect(opened.migration).toEqual({ from: 1, to: 1, backup: null });
-    expect(await opened.file.query('SELECT id FROM records')).toEqual([{ id: 'scene-4' }]);
+    expect(await opened.file.query("SELECT id FROM records WHERE type <> 'project'")).toEqual([{ id: 'scene-4' }]);
+    expect(await opened.file.query("SELECT id FROM records WHERE type = 'project'")).toEqual([{ id: created.projectId }]);
     await opened.close();
   });
 

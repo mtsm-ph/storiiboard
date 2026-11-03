@@ -87,7 +87,7 @@ const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'pass
 
 // On a Mac, Option+number is how some layouts type characters (# is Option+3 on a British keyboard), so the
 // shortcut steps aside while someone is typing.
-function isTextEntry(target: EventTarget | null): boolean {
+export function isTextEntry(target: EventTarget | null): boolean {
   if (target === null || !('tagName' in target)) return false;
   const element = target as HTMLElement;
   if (element.isContentEditable || element.tagName === 'TEXTAREA') return true;

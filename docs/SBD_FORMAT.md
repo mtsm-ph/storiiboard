@@ -50,6 +50,13 @@ missing cursor reads as 0).
 
 Indexes: `records_by_parent (parent_id, sort_key)` for ordered children, and `records_by_type (type)`.
 
+Every file has exactly one record of type `project`, with no parent; every other record hangs below it. It's written
+with the file (or when a file without one is opened), not as an op, so undo can never remove it. Its props start as
+`title` (the file's name) and `notes`.
+
+`sort_key` is a base-62 string compared byte by byte, never ending in `0`, so a key always fits between any two
+(src/core/ops/order.ts).
+
 ### ops
 
 | Column | Type | Notes |
@@ -58,12 +65,21 @@ Indexes: `records_by_parent (parent_id, sort_key)` for ordered children, and `re
 | group_id | text | One user action; undo and redo move a whole group |
 | record_id | text | |
 | kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` |
-| before, after | JSON | The record either side of the op |
+| before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
 | author | text | `local` for now |
 | timestamp | text | When the edit happened |
 | state | text | `applied`, `undone`, or `discarded` (a redo tail dropped by a new edit) |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
+
+How undo and redo use it (milestone 0.5):
+
+- One user action is one op group, and its record writes, op rows and `undo_cursor` commit in one transaction. That
+  transaction is the autosave.
+- Undo takes the newest `applied` group, writes each record's `before` back (deleting records the group created) and
+  marks the group `undone`. Redo takes the oldest `undone` group and writes `after`.
+- A new edit after an undo marks every `undone` op `discarded`, so it can't be redone.
+- `undo_cursor` in meta is the seq of the last applied op, 0 when there is none.
 
 The ops table is the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old

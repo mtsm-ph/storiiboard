@@ -1,4 +1,5 @@
 import { version as appVersion } from '../../../package.json';
+import { keyBetween } from '../ops/order';
 import type { AppDataStore } from './appData';
 import { startBackups, type BackupOptions, type BackupSchedule } from './backups';
 import type { ProjectFile, SqlDriver } from './driver';
@@ -8,6 +9,8 @@ import { rememberRecent } from './recent';
 
 export interface Project {
   readonly file: ProjectFile;
+  /** The id of the file's one project record. */
+  readonly projectId: string;
   /** The .sbd's name without the extension, as Finder and Explorer show it. */
   readonly name: string;
   readonly migration: MigrationResult;
@@ -39,17 +42,17 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
   const { driver, recent, backups = {}, now = () => new Date() } = options;
   const file = isNew ? await driver.create(path) : await driver.open(path);
 
+  const name = fileStem(path);
   let migration: MigrationResult;
+  let projectId: string;
   try {
     migration = await migrate(file, { isNew, now });
-    // Which app last wrote the file, for anyone reading a support report or a file sent from another machine.
-    await file.tx([setMeta('app_version', appVersion, now())]);
+    projectId = await ensureProjectRecord(file, name, now);
   } catch (error) {
     await file.close();
     throw error;
   }
 
-  const name = fileStem(path);
   if (recent) {
     // The Recent list is a convenience: failing to update it must never stop a project from opening.
     await rememberRecent(recent, { path, name, openedAt: now().toISOString() }).catch(() => undefined);
@@ -58,6 +61,7 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
 
   return {
     file,
+    projectId,
     name,
     migration,
     backups: schedule,
@@ -66,4 +70,28 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
       await file.close();
     },
   };
+}
+
+/**
+ * Every file holds exactly one project record, the root every other record hangs from. It's written with the file,
+ * not as an op, so undo can never remove it. Also records which app last opened the file, for anyone reading a
+ * support report or a file sent from another machine.
+ */
+async function ensureProjectRecord(file: ProjectFile, name: string, now: () => Date): Promise<string> {
+  const [existing] = await file.query("SELECT id FROM records WHERE type = 'project' AND parent_id IS NULL LIMIT 1");
+  const at = now().toISOString();
+  const id = existing ? String(existing.id) : crypto.randomUUID();
+  await file.tx([
+    ...(existing
+      ? []
+      : [
+          {
+            sql: `INSERT INTO records (id, type, parent_id, sort_key, props, created_at, updated_at)
+              VALUES (?, 'project', NULL, ?, ?, ?, ?)`,
+            params: [id, keyBetween(null, null), JSON.stringify({ title: name, notes: '' }), at, at],
+          },
+        ]),
+    setMeta('app_version', appVersion, now()),
+  ]);
+  return id;
 }
