@@ -26,6 +26,11 @@ export interface ProjectState {
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
   apply: (changes: readonly Change[], options?: Pick<OpOptions, 'alsoWrite'>) => Promise<void>;
+  /**
+   * An edit worked out from the records as they are when its turn comes, after every edit queued before it. For edits
+   * that take a while to prepare (pictures), so two of them never number frames from the same records.
+   */
+  applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<void>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 }
@@ -82,6 +87,11 @@ export function createProjectStore(): StoreApi<ProjectState> {
           set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
       apply: (changes, options) => edit((project) => apply(project.file, changes, options)),
+      applyWith: (build) =>
+        edit(async (project) => {
+          const { changes, alsoWrite } = build(get().records);
+          return changes.length === 0 ? null : apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+        }),
       undo: () => edit((project) => undo(project.file)),
       redo: () => edit((project) => redo(project.file)),
     };

@@ -7,7 +7,7 @@ import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board } from './board';
-import { placePictures, removePicture, setCrop, setPicture, type FramePicture, type PictureEdit } from './framePictures';
+import { canPlace, placePictures, removePicture, setCrop, setPicture, type FramePicture, type PictureEdit } from './framePictures';
 
 function picture(seed: number, name = `IMG_${String(4000 + seed)}.JPG`): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -128,5 +128,26 @@ describe('pictures dropped on the board', () => {
     await apply(placed);
     expect(numbers()).toEqual(['4A', '4B', '4C']);
     expect(placed.selectShotId).toBe(board(records(), projectId)[0]?.shots[1]?.record.id);
+  });
+});
+
+describe('pictures aimed at something that has gone', () => {
+  it('lands nowhere: a trashed frame, a scene undone away, another project’s scene', async () => {
+    await store.getState().apply([{ kind: 'trash', id: shotId }]);
+    expect(canPlace(records(), projectId, { kind: 'frame', shotId })).toBe(false);
+    expect(placePictures(records(), projectId, { kind: 'frame', shotId }, [picture(1)], project.file.path).changes).toEqual([]);
+
+    expect(canPlace(records(), projectId, { kind: 'scene', sceneId: 'gone', afterShotId: null })).toBe(false);
+    expect(canPlace(records(), 'another-project', { kind: 'scene', sceneId: 'sc4', afterShotId: null })).toBe(false);
+    expect(canPlace(records(), projectId, { kind: 'scene', sceneId: 'sc4', afterShotId: null })).toBe(true);
+  });
+
+  it('numbers two drops queued together from the records each one finds, never the same', async () => {
+    const drop = (seed: number) =>
+      store.getState().applyWith((now) =>
+        placePictures(now, projectId, { kind: 'scene', sceneId: 'sc4', afterShotId: null }, [picture(seed)], project.file.path),
+      );
+    await Promise.all([drop(1), drop(2)]);
+    expect(board(records(), projectId)[0]?.shots.map((s) => s.fields.number)).toEqual(['4A', '4B', '4C']);
   });
 });

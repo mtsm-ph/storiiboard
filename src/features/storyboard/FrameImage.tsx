@@ -49,7 +49,8 @@ export function FrameImage({ picture, frameAspect, size = 'thumbnail', eager = f
           observer.disconnect();
         }
       },
-      { rootMargin: '600px' },
+      // Measured against the tile or strip that scrolls, so pictures a little off its edge load before they show.
+      { root: element.closest('[data-scroll-root]'), rootMargin: '600px' },
     );
     observer.observe(element);
     return () => {

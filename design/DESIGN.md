@@ -118,7 +118,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   the inspector. Drop pictures on a frame to set its picture, or on a scene (or its + Frame card) for new frames; while
   a drag is over it, the frame or scene shows a dashed ink box and says what the drop will do. ⌘V pastes into the
   selected frame; "+ Pictures…" in the tile's header adds a frame per picture. A missing picture says "Picture
-  missing" in the warning colour.
+  missing" in the warning colour (paper text in dark mode, where Truffle falls below AA).
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
 - **Keyboard:** the board is one Tab stop. Arrows move through frames and + Frame cards across scenes; Home and End go

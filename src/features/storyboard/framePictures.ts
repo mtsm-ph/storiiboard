@@ -141,6 +141,22 @@ export function addFramesWithPictures(
 /** Where pictures dropped or pasted on the board go. */
 export type PictureTarget = { kind: 'frame'; shotId: string } | { kind: 'scene'; sceneId: string; afterShotId: string | null };
 
+const liveScene = (records: Records, projectId: string, id: string | null | undefined) => {
+  const scene = id ? records[id] : undefined;
+  return scene?.type === 'scene' && scene.trashedAt === null && scene.parentId === projectId;
+};
+
+/**
+ * Whether pictures can still go where the person aimed them: a live frame in a live scene of this project, or a live
+ * scene. A selection can outlast what it names (an undo, a switch of project), and a frame can go to the Trash while
+ * its pictures are being prepared; pictures put there would be saved but never shown.
+ */
+export function canPlace(records: Records, projectId: string, target: PictureTarget): boolean {
+  if (target.kind === 'scene') return liveScene(records, projectId, target.sceneId);
+  const shot = records[target.shotId];
+  return shot?.type === 'shot' && shot.trashedAt === null && liveScene(records, projectId, shot.parentId);
+}
+
 /**
  * Pictures into the board: onto a frame, the first becomes its picture and the rest new frames after it; into a
  * scene, all of them new frames. Returns the frame to select afterwards.
@@ -154,7 +170,7 @@ export function placePictures(
   now = new Date(),
 ): PictureEdit & { selectShotId: string | null; sceneId: string | null } {
   const [first, ...rest] = pictures;
-  if (!first) return { changes: [], alsoWrite: [], selectShotId: null, sceneId: null };
+  if (!first || !canPlace(records, projectId, target)) return { changes: [], alsoWrite: [], selectShotId: null, sceneId: null };
   if (target.kind === 'scene') {
     const added = addFramesWithPictures(records, projectId, target.sceneId, target.afterShotId, pictures, projectPath, now);
     return { ...added, selectShotId: added.shotIds[0] ?? null, sceneId: target.sceneId };

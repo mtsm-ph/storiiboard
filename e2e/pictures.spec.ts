@@ -76,18 +76,45 @@ test('a drop on a frame sets its picture, a drop on the scene adds frames, and o
   await expect(pictureIn(page, 0)).toHaveCount(0);
 });
 
-test('pastes a picture into the selected frame, and Remove empties it again', async ({ page }) => {
-  await frames(page).nth(0).click();
-  await page.evaluate((data) => {
+/** A paste of a PNG, sent to whatever has focus, as ⌘V would. */
+const paste = (page: Page) =>
+  page.evaluate((data) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File([new Uint8Array(data)], 'image.png', { type: 'image/png' }));
-    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+    (document.activeElement ?? document).dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+    );
   }, fixture('alpha.png'));
+
+test('pastes a picture into the selected frame, and Remove empties it again', async ({ page }) => {
+  await frames(page).nth(0).click();
+  await paste(page);
   await expect(pictureIn(page, 0)).toBeVisible();
 
   await inspector(page).getByRole('button', { name: 'Remove' }).click();
   await expect(pictureIn(page, 0)).toHaveCount(0);
   await expect(inspector(page).getByText('No picture')).toBeVisible();
+  // Focus stays in the Picture section rather than falling to the page.
+  await expect(inspector(page).getByRole('button', { name: 'Choose picture…' })).toBeFocused();
+});
+
+test('a paste while typing in a field is the field’s, not a picture', async ({ page }) => {
+  await inspector(page).getByLabel('Lens (mm)').focus();
+  await paste(page);
+  await page.waitForTimeout(300);
+  await expect(pictureIn(page, 0)).toHaveCount(0);
+});
+
+test('Enter on a frame with a picture goes to its camera, and a drop on the inspector replaces the picture', async ({ page }) => {
+  await frames(page).nth(0).dispatchEvent('drop', { dataTransfer: await files(page, [jpeg('first.jpg')]) });
+  await expect(inspector(page).getByText('first.jpg')).toBeVisible();
+  await frames(page).nth(0).focus();
+  await page.keyboard.press('Enter');
+  await expect(inspector(page).getByRole('radiogroup', { name: 'Size' }).getByRole('radio').first()).toBeFocused();
+
+  const section = inspector(page).locator('section', { has: page.getByRole('application', { name: /^Framing/ }) });
+  await section.dispatchEvent('drop', { dataTransfer: await files(page, [jpeg('second.jpg')]) });
+  await expect(inspector(page).getByText('second.jpg')).toBeVisible();
 });
 
 test('frames the picture with the keys and the zoom, saving each move once', async ({ page }) => {

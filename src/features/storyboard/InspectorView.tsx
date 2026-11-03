@@ -153,9 +153,22 @@ function CommitArea({ label, value, onCommit }: { label: string; value: string; 
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+interface SectionProps {
+  title: string;
+  children: ReactNode;
+  /** Takes pictures dropped on it, for this frame (useBoardDrops). */
+  dropShotId?: string;
+  /** Where Enter on a frame takes focus. */
+  start?: boolean;
+}
+
+function Section({ title, children, dropShotId, start = false }: SectionProps) {
   return (
-    <section className="flex flex-col gap-3 border-b border-border p-3">
+    <section
+      data-drop-shot={dropShotId}
+      data-inspector-start={start ? '' : undefined}
+      className="flex flex-col gap-3 border-b border-border p-3"
+    >
       <h3 className="sb-label">{title}</h3>
       {children}
     </section>
@@ -220,10 +233,12 @@ export function InspectorView({
 
       {shot && (
         <>
-          <Section title="Picture">
+          <Section title="Picture" dropShotId={shot.id}>
             {picture ? (
               <>
                 <CropEditor
+                  // One editor per frame, so a move half made on one never lands on the next.
+                  key={shot.id}
                   picture={picture.view}
                   frameAspect={frameAspect}
                   onCommit={(crop) => {
@@ -244,7 +259,6 @@ export function InspectorView({
               </>
             ) : (
               <div
-                data-drop-shot={shot.id}
                 className="flex w-full items-center justify-center border border-dashed border-text"
                 style={{ aspectRatio: String(frameAspect) }}
               >
@@ -252,15 +266,30 @@ export function InspectorView({
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={onChoosePicture}>{picture ? 'Replace…' : 'Choose picture…'}</Button>
-              {picture && <Button onClick={onRemovePicture}>Remove</Button>}
+              <Button data-choose-picture="" onClick={onChoosePicture}>
+                {picture ? 'Replace…' : 'Choose picture…'}
+              </Button>
+              {picture && (
+                <Button
+                  onClick={(event) => {
+                    // The button goes with the picture; focus stays in the section, on Choose picture….
+                    const section = event.currentTarget.closest('section');
+                    onRemovePicture?.();
+                    requestAnimationFrame(() => {
+                      section?.querySelector<HTMLElement>('[data-choose-picture]')?.focus();
+                    });
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
             </div>
             {!picture && (
-              <p className="text-[12px] text-text-muted">Or drop one on the frame, or paste it with {isMac() ? '⌘V' : 'Ctrl+V'}.</p>
+              <p className="text-[12px] text-text-muted">Or drop one here, or paste it with {isMac() ? '⌘V' : 'Ctrl+V'}.</p>
             )}
           </Section>
 
-          <Section title="Camera">
+          <Section title="Camera" start>
             <SegmentedControl
               label="Size"
               options={SHOT_SIZES.map((value) => ({ value, label: SHOT_SIZE_LABEL[value] }))}

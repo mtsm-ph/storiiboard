@@ -40,12 +40,18 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
     picturesBusy.setState((s) => ({ count: s.count - files.length }));
   }
 
-  if (prepared.length > 0) {
-    // Read again: other edits may have landed while the pictures were prepared.
-    const { records, apply } = projectStore.getState();
-    const placed = placePictures(records, project.projectId, target, prepared, project.file.path);
-    await apply(placed.changes, { alsoWrite: placed.alsoWrite });
-    if (placed.selectShotId) selectionStore.getState().selectShot(placed.selectShotId, placed.sceneId);
+  // Another project may have opened while the pictures were prepared; they belong to the one they were dropped on.
+  if (prepared.length > 0 && projectStore.getState().project === project) {
+    let placed: ReturnType<typeof placePictures> | null = null;
+    // Worked out in the edit queue, after any edit still landing: two drops close together never number frames from
+    // the same records.
+    await projectStore.getState().applyWith((records) => {
+      placed = placePictures(records, project.projectId, target, prepared, project.file.path);
+      return placed;
+    });
+    const result = placed as ReturnType<typeof placePictures> | null;
+    if (result?.selectShotId) selectionStore.getState().selectShot(result.selectShotId, result.sceneId);
+    else if (result) showNotice('The frame or scene those pictures were for isn’t on the board any more.');
   }
   const [first] = problems;
   if (first) {
