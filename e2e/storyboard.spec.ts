@@ -67,6 +67,111 @@ test('sets the project’s aspect ratio and shot letters in Settings → Project
   await expect(page.getByRole('region', { name: 'Project', exact: true }).getByLabel('Aspect ratio')).toHaveValue('2.39:1');
 });
 
+const grid = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });
+const frames = (page: Page, scene: string) =>
+  grid(page).getByRole('list', { name: `Frames in ${scene}` }).locator('[data-shot-id]');
+/** The shot numbers in a scene, in board order. */
+async function numbers(page: Page, scene: string): Promise<string[]> {
+  return frames(page, scene).locator('[data-number]').allTextContents();
+}
+const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
+
+test('adds frames numbered by the slate rules, and moves through them with the arrow keys', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  const add = grid(page).getByRole('button', { name: '+ Frame in SC 01' });
+  await add.click();
+  await add.click();
+  await add.click();
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
+  // The new frame is selected and focused, and the board is one Tab stop.
+  await expect(frames(page, 'SC 01').nth(2)).toBeFocused();
+  await expect(frames(page, 'SC 01').nth(2)).toHaveAttribute('aria-current', 'true');
+
+  await page.keyboard.press('ArrowLeft');
+  await expect(frames(page, 'SC 01').nth(1)).toBeFocused();
+  await expect(frames(page, 'SC 01').nth(1)).toHaveAttribute('aria-current', 'true');
+  await page.keyboard.press('Home');
+  await expect(frames(page, 'SC 01').nth(0)).toBeFocused();
+  await expect(grid(page).getByText('3 frames')).toBeVisible();
+});
+
+test('Delete sends a frame to the Trash and closes up the letters; ⌘Z brings it back', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  const add = grid(page).getByRole('button', { name: '+ Frame in SC 01' });
+  for (let i = 0; i < 3; i += 1) await add.click();
+  await frames(page, 'SC 01').nth(1).click();
+  await page.keyboard.press('Delete');
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B']);
+  // Focus moves on to the next frame, where the keys can carry on.
+  await expect(frames(page, 'SC 01').nth(1)).toBeFocused();
+
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
+});
+
+test('⌘ with an arrow moves a frame, across scenes too, renumbering both', async ({ page }) => {
+  const newScene = scenesTile(page).getByRole('button', { name: '+ New scene' });
+  await newScene.click();
+  await newScene.click();
+  for (let i = 0; i < 2; i += 1) await grid(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await grid(page).getByRole('button', { name: '+ Frame in SC 02' }).click();
+
+  await frames(page, 'SC 01').nth(1).click();
+  const mod = await command(page);
+  await page.keyboard.press(`${mod}+ArrowRight`);
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A']);
+  await expect.poll(() => numbers(page, 'SC 02')).toEqual(['2A', '2B']);
+  await expect(frames(page, 'SC 02').nth(0)).toBeFocused();
+
+  await page.keyboard.press(`${mod}+z`);
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B']);
+});
+
+test('a locked scene keeps its numbers when a frame goes, and a new frame takes the next letter', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  const add = grid(page).getByRole('button', { name: '+ Frame in SC 01' });
+  for (let i = 0; i < 3; i += 1) await add.click();
+  await scenesTile(page).getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
+  await expect(grid(page).getByText('Numbers locked')).toBeVisible();
+
+  await frames(page, 'SC 01').nth(1).click();
+  await page.keyboard.press('Delete');
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1C']);
+  await add.click();
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1C', '1D']);
+});
+
+test('draws frames at the project’s aspect ratio', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  await grid(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  const picture = frames(page, 'SC 01').first().locator('span').first();
+  const ratio = async () => {
+    const box = await picture.boundingBox();
+    return box ? box.width / box.height : 0;
+  };
+  expect(await ratio()).toBeCloseTo(16 / 9, 1);
+
+  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
+  await page.getByRole('region', { name: 'Project', exact: true }).getByLabel('Aspect ratio').selectOption('2.39:1');
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  expect(await ratio()).toBeCloseTo(2.39, 1);
+});
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the board with a selected frame passes axe (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+    const add = grid(page).getByRole('button', { name: '+ Frame in SC 01' });
+    await add.click();
+    await add.click();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const { violations } = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
+  });
+}
+
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`the Storyboard workspace with scenes passes axe (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme });

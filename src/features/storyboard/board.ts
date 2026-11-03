@@ -133,6 +133,43 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
   return [{ kind: 'trash', id: shotId }, ...renumber(records, projectId, shot.parentId, order)];
 }
 
+/**
+ * Moves a frame to `beforeShotId`'s place in `targetSceneId` (or the end of it with null), renumbering the scenes it
+ * leaves and joins in the same op group. A frame moved into another scene is numbered there as a new frame would be:
+ * by board order while unlocked, or the next free letter once locked.
+ */
+export function moveShot(
+  records: Records,
+  projectId: string,
+  shotId: string,
+  targetSceneId: string,
+  beforeShotId: string | null,
+): Change[] {
+  const shot = records[shotId];
+  const sourceSceneId = shot?.parentId;
+  if (!shot || !sourceSceneId || beforeShotId === shotId) return [];
+  const target = sceneShots(records, targetSceneId).filter((s) => s.id !== shotId);
+  const at = beforeShotId === null ? target.length : target.findIndex((s) => s.id === beforeShotId);
+  if (at === -1) return [];
+  const sortKey = keyBetween(target[at - 1]?.sortKey ?? null, target[at]?.sortKey ?? null);
+  const changesScene = sourceSceneId !== targetSceneId;
+  const moved: SbdRecord = {
+    ...shot,
+    parentId: targetSceneId,
+    sortKey,
+    // Into another scene the old number means nothing (3B in scene 4); it's given a new one.
+    props: changesScene ? { ...shot.props, number: '' } : shot.props,
+  };
+  const order = [...target.slice(0, at), moved, ...target.slice(at)];
+  return [
+    { kind: 'move', id: shotId, parentId: targetSceneId, sortKey },
+    ...renumber(records, projectId, targetSceneId, order),
+    ...(changesScene
+      ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== shotId))
+      : []),
+  ];
+}
+
 /** Locks or unlocks a scene's shot numbers. Unlocking brings them back in line with the board. */
 export function setNumbersLocked(records: Records, projectId: string, sceneId: string, locked: boolean): Change[] {
   const scene = records[sceneId];
