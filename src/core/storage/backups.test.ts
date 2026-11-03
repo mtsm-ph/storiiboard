@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKUP_INTERVAL_MS,
   backupFileName,
+  backupsOverCap,
   backupsToDelete,
   DEFAULT_KEEP,
   isBackupName,
@@ -62,6 +63,30 @@ describe('pruning', () => {
   });
 });
 
+describe('the 5 GB cap', () => {
+  const GB = 1e9;
+  const backup = (hour: number, bytes: number) => ({ name: backupFileName('Bey', new Date(2026, 10, 3, hour, 0)), bytes });
+
+  it('deletes the oldest full copies until the rest fit', () => {
+    const backups = [backup(9, 2 * GB), backup(10, 2 * GB), backup(11, 2 * GB), backup(12, GB), backup(13, GB)];
+    expect(backupsOverCap(backups, 'Bey')).toEqual([backups[0]?.name, backups[1]?.name]);
+  });
+
+  it('always keeps the newest three, however large', () => {
+    const backups = [backup(9, 3 * GB), backup(10, 3 * GB), backup(11, 3 * GB), backup(12, 3 * GB)];
+    expect(backupsOverCap(backups, 'Bey')).toEqual([backups[0]?.name]);
+  });
+
+  it('barely counts clones, which take next to no space of their own', () => {
+    const clones = Array.from({ length: 26 }, (_, i) => backup(i % 24, 2_000_000));
+    expect(backupsOverCap(clones, 'Bey')).toEqual([]);
+  });
+
+  it("never returns a file that isn't one of this project's backups", () => {
+    expect(backupsOverCap([{ name: 'notes.txt', bytes: 9 * GB }, backup(9, 1)], 'Bey', 0)).toEqual([]);
+  });
+});
+
 describe('the 5-minute schedule', () => {
   let folder: TestFolder;
   let file: ProjectFile;
@@ -82,6 +107,7 @@ describe('the 5-minute schedule', () => {
   });
 
   const edit = (id: string) => file.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: [id] }]);
+  const names = async (of: ProjectFile) => (await of.listBackups()).map((backup) => backup.name);
 
   /** Lets five minutes pass, then waits for the run they started. */
   async function fiveMinutes(schedule: { runNow: () => Promise<unknown> }, minutes: number) {
@@ -94,14 +120,14 @@ describe('the 5-minute schedule', () => {
   it('backs up only when the project changed since the last backup', async () => {
     const schedule = await startBackups(file, { now: () => clock });
     await fiveMinutes(schedule, 5);
-    expect(await file.listBackups()).toEqual([]);
+    expect(await names(file)).toEqual([]);
 
     await edit('1A');
     await fiveMinutes(schedule, 10);
-    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-10.sbd']);
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd']);
 
     await fiveMinutes(schedule, 15);
-    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-10.sbd']);
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd']);
     schedule.stop();
   });
 
@@ -111,7 +137,18 @@ describe('the 5-minute schedule', () => {
       await edit(`1${String(minutes)}`);
       await fiveMinutes(schedule, minutes);
     }
-    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-10.sbd', 'Bey 2026-11-02 09-15.sbd']);
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd', 'Bey 2026-11-02 09-15.sbd']);
+    schedule.stop();
+  });
+
+  it('keeps full copies under the cap after the keep rule', async () => {
+    const schedule = await startBackups(file, { now: () => clock, capBytes: 1 });
+    for (const minutes of [5, 10, 15, 20]) {
+      await edit(`1${String(minutes)}`);
+      await fiveMinutes(schedule, minutes);
+    }
+    // Every copy is over a 1-byte cap, so only the newest three stay.
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd', 'Bey 2026-11-02 09-15.sbd', 'Bey 2026-11-02 09-20.sbd']);
     schedule.stop();
   });
 
@@ -122,11 +159,11 @@ describe('the 5-minute schedule', () => {
       await edit(`1${String(minutes)}`);
       await fiveMinutes(schedule, minutes);
     }
-    expect(await file.listBackups()).toHaveLength(3);
+    expect(await names(file)).toHaveLength(3);
     keep = { recent: 1, days: 0 };
     await edit('1X');
     await fiveMinutes(schedule, 20);
-    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-20.sbd']);
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-20.sbd']);
     schedule.stop();
   });
 
@@ -150,7 +187,29 @@ describe('the 5-minute schedule', () => {
     });
 
     await fiveMinutes(schedule, 10);
-    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-10.sbd']);
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd']);
     schedule.stop();
+  });
+
+  it("doesn't report a backup that fails after the project closed", async () => {
+    const errors: unknown[] = [];
+    let release: () => void = () => undefined;
+    const closing: ProjectFile = {
+      ...file,
+      // Held until the project has closed, as a copy cut off by closing is.
+      backup: () =>
+        new Promise((_, reject) => {
+          release = () => {
+            reject(new Error("That project isn't open."));
+          };
+        }),
+    };
+    const schedule = await startBackups(closing, { now: () => clock, onError: (error) => errors.push(error) });
+    await edit('1A');
+    await vi.advanceTimersByTimeAsync(BACKUP_INTERVAL_MS);
+    schedule.stop();
+    release();
+    await expect(schedule.runNow()).rejects.toThrow("isn't open");
+    expect(errors).toEqual([]);
   });
 });

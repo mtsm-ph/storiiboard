@@ -60,14 +60,17 @@
 - Every table has id (UUID v4), created_at, updated_at.
 - The meta table holds schema_version. Migrations live in src/core/storage/migrations.
 - Copy the file to a backup before running any migration.
-- Backups: every 5 minutes, only if the project changed, write a full copy named `<Project> YYYY-MM-DD HH-mm.sbd`
+- Backups: every 5 minutes, only if the project changed, write a copy named `<Project> YYYY-MM-DD HH-mm.sbd`
   (<Project> is its file name).
   - Where: in `Backups/` next to the .sbd. For a project in a synced folder (iCloud Drive, Dropbox, Google Drive,
     OneDrive), in a local folder on this computer instead, so copies don't upload every 5 minutes or sync into
     conflicts. Settings → Backups has Show backups, and a setting to keep synced projects' backups next to the project.
-  - Copy with SQLite's backup API or VACUUM INTO, so the copy is consistent while the project is open; never a raw
-    file copy.
+  - How: on a Mac, an APFS clone of the .sbd, taken between saves so it's consistent; it shares unchanged data with
+    the project, so it takes almost no space. Where a clone isn't possible (Windows, exFAT, another volume), a full
+    copy with SQLite's step-by-step backup API, so no edit waits more than about 100 ms. Never a raw file copy.
   - Keep the last 12 copies plus one per day for 14 days, and delete older ones. Both numbers are in Settings.
+    Backups share a 5 GB cap per project, each counted by the space it alone takes (all of a full copy, next to
+    nothing for a fresh clone): over it, delete the oldest first, but always keep the 3 newest.
     Pruning touches only this project's own backups.
   - "Open backup" opens a copy as a separate project; it never overwrites the original without asking.
   - Per-edit saving stays as it is; backups are an extra safety net.
@@ -111,7 +114,9 @@
     notifications read it. Nothing is ever deleted from it; only Empty Trash removes trashed records' data.
   - Named versions are named points in History, inside the .sbd, kept until deleted. Open version copies the project,
     restores the copy to that point and opens it as a separate project.
-  - Backups are full copies outside the .sbd (see above), for a lost or damaged file.
+  - Backups are copies outside the .sbd (see above), for a lost or damaged file: APFS clones on a Mac, full copies
+    elsewhere. A clone shares the project's unchanged blocks on disk, so it covers a damaged or wrongly edited file,
+    not a failing drive.
 
 ## Tool rules
 - Storyboard: keyboard-first; "/" menu inserts frame, scene, note, location; drag to reorder; auto shot numbers.

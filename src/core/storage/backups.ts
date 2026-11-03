@@ -1,9 +1,9 @@
-import type { ProjectFile } from './driver';
+import type { BackupFile, ProjectFile } from './driver';
 import { fileStem } from './paths';
 
-// Every 5 minutes, if the project changed, a full copy goes to Backups/ next to it (CLAUDE.md, docs/SBD_FORMAT.md).
-// Names and pruning are decided here, in local time, because that's how people read them in Finder or Explorer; the
-// Rust side checks every name again before it writes or deletes anything.
+// Every 5 minutes, if the project changed, a backup goes to Backups/ next to it (CLAUDE.md, docs/SBD_FORMAT.md): an
+// APFS clone on a Mac, a full copy elsewhere. Names and pruning are decided here, in local time, because that's how
+// people read them in Finder or Explorer; the Rust side checks every name again before it writes or deletes anything.
 
 export const BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -18,6 +18,15 @@ export interface BackupKeep {
 export const DEFAULT_KEEP: BackupKeep = { recent: 12, days: 14 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * A project's backups share this much disk (Kevin, Nov 3), each counted as the space it alone takes. In practice it
+ * limits full copies, since a clone shares nearly all it holds. Gigabytes as Finder and Explorer show them, 10^9 bytes.
+ */
+export const BACKUP_CAP_BYTES = 5e9;
+
+/** The newest backups the cap never deletes, however large they are. */
+export const ALWAYS_KEPT = 3;
 
 /** `YYYY-MM-DD HH-mm`, local time. Colons aren't allowed in Windows file names, hence the dash in the time. */
 export function stamp(at: Date): string {
@@ -85,6 +94,25 @@ export function backupsToDelete(names: readonly string[], projectStem: string, n
   return dated.filter((backup) => !kept.has(backup.name)).map((backup) => backup.name);
 }
 
+/**
+ * Which backups go to bring this project's under the cap, oldest first, never one of the newest three. Runs after the
+ * keep rule, on what it left.
+ */
+export function backupsOverCap(backups: readonly BackupFile[], projectStem: string, cap = BACKUP_CAP_BYTES): string[] {
+  const oldestFirst = backups
+    .map((backup) => ({ ...backup, at: parseBackupFileName(projectStem, backup.name) }))
+    .filter((backup): backup is BackupFile & { at: Date } => backup.at !== null)
+    .sort((a, b) => a.at.getTime() - b.at.getTime());
+  let total = oldestFirst.reduce((sum, backup) => sum + backup.bytes, 0);
+  const deleted: string[] = [];
+  for (const backup of oldestFirst.slice(0, Math.max(0, oldestFirst.length - ALWAYS_KEPT))) {
+    if (total <= cap) break;
+    deleted.push(backup.name);
+    total -= backup.bytes;
+  }
+  return deleted;
+}
+
 /** SQLite's count of rows changed through this connection since it opened. */
 async function changeCount(file: ProjectFile): Promise<number> {
   const [row] = await file.query('SELECT total_changes() AS changes');
@@ -101,6 +129,8 @@ export interface BackupOptions {
   intervalMs?: number;
   /** A function is read at every run, so a change in Settings applies without reopening the project. */
   keep?: BackupKeep | (() => BackupKeep);
+  /** BACKUP_CAP_BYTES unless a test sets it. */
+  capBytes?: number;
   now?: () => Date;
   /** A failed backup never stops the project; it's reported here so the app can show it. */
   onError?: (error: unknown) => void;
@@ -117,10 +147,12 @@ export interface BackupSchedule {
  * opening (a migration, the app version) doesn't count as a change, so opening a project alone never makes one.
  */
 export async function startBackups(file: ProjectFile, options: BackupOptions = {}): Promise<BackupSchedule> {
-  const { intervalMs = BACKUP_INTERVAL_MS, keep = DEFAULT_KEEP, now = () => new Date(), onError } = options;
+  const { intervalMs = BACKUP_INTERVAL_MS, keep = DEFAULT_KEEP, capBytes = BACKUP_CAP_BYTES, now = () => new Date() } =
+    options;
   const stem = fileStem(file.path);
   let backedUpAt = await changeCount(file);
   let running: Promise<BackupRun> | null = null;
+  let stopped = false;
 
   const backUp = async (): Promise<BackupRun> => {
     const changes = await changeCount(file);
@@ -129,9 +161,18 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     const name = backupFileName(stem, at);
     const existing = await file.listBackups();
     // Two runs in the same minute (a manual one right after a scheduled one) share a name; the first copy stands.
-    if (!existing.includes(name)) await file.backup('scheduled', name);
+    if (!existing.some((backup) => backup.name === name)) await file.backup('scheduled', name);
     backedUpAt = changes;
-    const deleted = backupsToDelete([...new Set([...existing, name])], stem, at, typeof keep === 'function' ? keep() : keep);
+    // Listed again for the new backup's size.
+    const backups = await file.listBackups();
+    const byAge = backupsToDelete(
+      backups.map((backup) => backup.name),
+      stem,
+      at,
+      typeof keep === 'function' ? keep() : keep,
+    );
+    const left = backups.filter((backup) => !byAge.includes(backup.name));
+    const deleted = [...byAge, ...backupsOverCap(left, stem, capBytes)];
     for (const old of deleted) await file.deleteBackup(old);
     return { created: name, deleted };
   };
@@ -145,12 +186,16 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   };
 
   const timer = setInterval(() => {
-    runNow().catch((error: unknown) => onError?.(error));
+    runNow().catch((error: unknown) => {
+      // A copy cut off by closing the project isn't a failure to tell anyone about.
+      if (!stopped) options.onError?.(error);
+    });
   }, intervalMs);
 
   return {
     runNow,
     stop: () => {
+      stopped = true;
       clearInterval(timer);
     },
   };

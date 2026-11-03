@@ -168,11 +168,11 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         }),
       listBackups: () =>
         settle(() =>
-          [...files.keys()]
-            .filter((key) => key.startsWith(`${backupsDir}/`))
-            .map((key) => key.slice(backupsDir.length + 1))
-            .filter((name) => isBackupName(stem, name))
-            .sort(),
+          [...files.entries()]
+            .filter(([key]) => key.startsWith(`${backupsDir}/`))
+            .map(([key, saved]) => ({ name: key.slice(backupsDir.length + 1), bytes: fromBase64(saved).length }))
+            .filter((backup) => isBackupName(stem, backup.name))
+            .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
         ),
       deleteBackup: (name) =>
         settle(() => {
