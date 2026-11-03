@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { clearNotice, useNotice } from '../notice';
 import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
-import { isDesktop, reopenChangedProject, setProjectState, syncRecentState } from '../projects/actions';
+import { canOpenFiles, isTauriApp } from '../fileAccess';
+import { reopenChangedProject, setProjectState, syncRecentState } from '../projects/actions';
 import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { noteIfSynced } from '../projects/synced';
 import { projectStore, useProject } from '../projectStore';
@@ -38,7 +39,7 @@ export function AppShell() {
 
   // Once per project: say that a project in a synced folder should be open on one computer at a time.
   useEffect(() => {
-    if (isDesktop && projectPath !== null) void noteIfSynced(projectPath);
+    if (isTauriApp && projectPath !== null) void noteIfSynced(projectPath);
   }, [projectPath]);
 
   // Recent shows each project's state without opening it, so a change here (or its undo) is copied there.
@@ -47,7 +48,7 @@ export function AppShell() {
   }, [projectPath, projectState]);
   // The desktop app with nothing open shows the Projects screen. The browser build can't open files, so it shows
   // the workspaces' placeholder tiles instead, as a preview of the shell (and for its end-to-end tests).
-  const showProjects = isDesktop && (projectPath === null || projectsAsked);
+  const showProjects = canOpenFiles && (projectPath === null || projectsAsked);
 
   // A project opening or switching leaves the Projects screen for its workspace.
   const [shownPath, setShownPath] = useState(projectPath);

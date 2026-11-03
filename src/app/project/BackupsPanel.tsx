@@ -4,7 +4,8 @@ import { joinPath } from '../../core/storage/openBackup';
 import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { localDateTime } from '../format';
 import { showNotice } from '../notice';
-import { isDesktop, openBackup } from '../projects/actions';
+import { isTauriApp } from '../fileAccess';
+import { openBackup } from '../projects/actions';
 import { syncServiceOf } from '../projects/synced';
 import { useProject } from '../projectStore';
 import { BackupsView, type BackupEntry } from './BackupsView';
@@ -21,7 +22,7 @@ export function BackupsPanel() {
   useEffect(() => {
     if (!project) return;
     let current = true;
-    const synced = isDesktop ? syncServiceOf(project.file.path).catch(() => null) : Promise.resolve(null);
+    const synced = isTauriApp ? syncServiceOf(project.file.path).catch(() => null) : Promise.resolve(null);
     Promise.all([project.file.backupsFolder(), project.file.listBackups(), synced])
       .then(([folder, names, service]) => {
         if (current) setFound({ folder, names, synced: service });

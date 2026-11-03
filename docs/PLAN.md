@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.4 |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.5 |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -38,7 +38,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.2 Write check and hidden lock file; second-computer warning | #17 | Done |
 | 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | #18 | Done |
 | 1.4 Local backups for synced projects (by file id), Show backups, setting | #19 | In review |
-| 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |
+| 1.5 Browser test driver (sql.js, dev and e2e only) | `phase1/1.5-test-driver` | In review |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | | Not started |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | | Not started |
 | 1.8 Frame inspector | | Not started |

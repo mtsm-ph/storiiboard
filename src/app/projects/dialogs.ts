@@ -2,6 +2,7 @@ import { join } from '@tauri-apps/api/path';
 import { message, open, save } from '@tauri-apps/plugin-dialog';
 import type { LockHolder } from '../../core/storage/driver';
 import { fileStem } from '../../core/storage/paths';
+import { fileMode } from '../fileAccess';
 import { localDateTime } from '../format';
 import type { LockedChoice } from '../openFiles';
 import { projectsFolderForNew } from './synced';
@@ -11,6 +12,12 @@ import { projectsFolderForNew } from './synced';
 
 const PROJECT_FILTER = [{ name: 'Storiiboard Project', extensions: ['sbd'] }];
 
+/** The memory build's stand-in for both dialogs: a project name, kept under /memory. The tests answer it. */
+function promptForPath(title: string): Promise<string | null> {
+  const name = window.prompt(title)?.trim();
+  return Promise.resolve(name ? withSbdExtension(name.startsWith('/') ? name : `/memory/${name}`) : null);
+}
+
 /** "x" and "x.sbd" both mean x.sbd: Windows adds the extension, and a Mac only adds it if the name has none. */
 export function withSbdExtension(path: string): string {
   return /\.sbd$/i.test(path) ? path : `${path}.sbd`;
@@ -18,6 +25,7 @@ export function withSbdExtension(path: string): string {
 
 /** Name and folder for a new project, in one dialog. It starts in Documents, or locally when Documents is synced. */
 export async function pickNewProjectPath(): Promise<string | null> {
+  if (fileMode === 'memory') return promptForPath('New project name');
   const path = await save({
     title: 'New Project',
     defaultPath: await join(await projectsFolderForNew(), 'Untitled.sbd'),
@@ -27,6 +35,7 @@ export async function pickNewProjectPath(): Promise<string | null> {
 }
 
 export async function pickProjectToOpen(title = 'Open Project'): Promise<string | null> {
+  if (fileMode === 'memory') return promptForPath(title);
   const path = await open({ title, multiple: false, directory: false, filters: PROJECT_FILTER });
   return typeof path === 'string' ? path : null;
 }
