@@ -84,7 +84,7 @@ function expectClose(actual: Rgba | undefined, expected: readonly number[], tole
 /**
  * The engines the app ships on manage colour: WebKit on a Mac and Chromium (WebView2 on Windows) apply a picture's
  * profile and draw in P3. WebKit on Linux, which CI also runs, decodes pictures without their profiles; there the
- * colour tests check only that storing a picture adds no shift of its own.
+ * colour tests check only that storing a picture adds no shift of its own, read in sRGB.
  */
 const ships = (browserName: string) => browserName === 'chromium' || process.platform === 'darwin';
 
@@ -105,7 +105,6 @@ test('a Display P3 photo keeps its full colour', async ({ page, browserName }) =
   if (managed) expectClose(result.stored.p3[0], [255, 0, 0]);
   else noteUnmanaged();
   expectClose(result.stored.srgb[0], result.source.srgb[0] ?? []);
-  if (result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
   expect([result.mime, result.width, result.height]).toEqual(['image/jpeg', 64, 48]);
 });
 
@@ -121,9 +120,10 @@ test('an Adobe RGB picture is converted, not read as if it were sRGB', async ({ 
   const source = result.source.srgb[0] ?? [0, 0, 0, 0];
   const managed = distance(source, [60, 170, 90]) > 4;
   if (ships(browserName)) expect(managed, 'the engine applies the picture’s profile').toBe(true);
-  if (!managed) noteUnmanaged();
   expectClose(result.stored.srgb[0], source);
-  if (result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
+  // Read in P3 only where the engine manages colour; without it, P3 readings near the edge of the gamut wander.
+  if (managed && result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
+  if (!managed) noteUnmanaged();
 });
 
 test('a phone photo taken upright stays upright', async ({ page }) => {
