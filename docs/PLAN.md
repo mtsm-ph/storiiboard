@@ -39,7 +39,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | #18 | Done |
 | 1.4 Local backups for synced projects (by file id), Show backups, setting | #19 | Done |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | #20 | Done |
-| 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | `phase1/1.6-storyboard-model` | In review |
+| 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | In review |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | | Not started |
 | 1.8 Frame inspector | | Not started |
 | 1.9 Shot list and Strip views | | Not started |
