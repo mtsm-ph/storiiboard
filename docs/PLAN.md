@@ -34,7 +34,7 @@ themes). One PR per milestone, each into `v2`.
 
 | Milestone | PR | State |
 |---|---|---|
-| 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | `phase1/1.1-theme-tokens` | In review |
+| 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | In review |
 | 1.2 Write check and hidden lock file; second-computer warning | | Not started |
 | 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | | Not started |
 | 1.4 Local backups for synced projects (by file id), Show backups, setting; online backup API | | Not started |
