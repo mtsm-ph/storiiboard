@@ -47,6 +47,11 @@ export function InspectorTile() {
   const picture: InspectorPicture | null =
     view && media ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath } : null;
 
+  const locationId = scene ? sceneFields(scene.props).locationId : null;
+  const location = locationId ? records[locationId] : undefined;
+  const locationName =
+    location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : null;
+
   return (
     <ProjectPictures>
     <InspectorView
@@ -67,6 +72,7 @@ export function InspectorTile() {
         focusBoard(shot?.id ?? null, scene?.id ?? null);
       }}
       picture={picture}
+      locationName={locationName}
       frameAspect={aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio)}
       onChoosePicture={() => {
         if (!shot) return;

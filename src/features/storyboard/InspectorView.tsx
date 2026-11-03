@@ -67,6 +67,8 @@ export interface InspectorViewProps {
   onChoosePicture?: () => void;
   onRemovePicture?: () => void;
   onCropChange?: (crop: Crop) => void;
+  /** The scene's location, set from the "/" menu; null when it has none. */
+  locationName?: string | null;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -187,6 +189,7 @@ export function InspectorView({
   onChoosePicture,
   onRemovePicture,
   onCropChange,
+  locationName = null,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -442,8 +445,16 @@ export function InspectorView({
 
       <Section title="Links">
         <ul className="flex flex-col gap-1.5 text-[13px]">
+          <li className="flex justify-between gap-3">
+            <span>Location</span>
+            {/* Linked from the board's "/" menu; addresses, contacts and parking arrive in Phase 3. */}
+            {locationName ? (
+              <span className="truncate font-semibold">{locationName}</span>
+            ) : (
+              <span className="sb-label text-text-muted">/ on the board</span>
+            )}
+          </li>
           {[
-            ['Location', 'Phase 3'],
             ['Shoot day', 'Phase 3'],
             ["Bird's-eye setup", 'Phase 5'],
           ].map(([name, phase]) => (
