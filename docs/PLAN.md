@@ -7,16 +7,16 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | 0.6, 0.7a and 0.7b in review; then Kevin runs the Phase 0 gate on the installers |
+| **Current phase** | **Phase 1 · Storyboard**: not started; it begins in plan mode, once Kevin approves the plan |
+| Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
 
 | Phase | State |
 |---|---|
-| 0 · Foundation and .sbd | **Current**, building |
-| 1 · Storyboard | Not started |
+| 0 · Foundation and .sbd | Done (Nov 2) |
+| 1 · Storyboard | **Next**, planning first |
 | 2 · Video and images | Not started |
 | 3 · Production data | Not started |
 | 4 · Call sheets | Not started |
@@ -42,8 +42,8 @@ One PR per milestone, each into `v2`.
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | Done |
 | 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | Done |
 | D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | #11 | Done |
-| 0.6 Double-click opens a .sbd (Mac and Windows) | #12 | In review |
-| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | 0.7a #13 (Projects screen, switcher); 0.7b `phase0/0.7b-backups-state` (Open backup, backup settings, project state) | In review |
+| 0.6 Double-click opens a .sbd (Mac and Windows) | #12 | Done |
+| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | 0.7a #13 (Projects screen, switcher); 0.7b #14 (Open backup, backup settings, project state) | Done |
 
 Phase 0 calls, Nov 1 and 2, 2026:
 
@@ -373,7 +373,7 @@ demo data.**
 
 | Phase | Delivers | Gate |
 |---|---|---|
-| **0 · Foundation and .sbd** (current) | Desktop shell with sidebar navigation, .sbd file with autosave, history and backups every 5 minutes, Projects screen with project state, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
+| **0 · Foundation and .sbd** (done) | Desktop shell with sidebar navigation, .sbd file with autosave, history and backups every 5 minutes, Projects screen with project state, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
 | 1 · Storyboard | Project themes and onboarding, script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields, Trash tile, History and named versions, export (PDF, PNG, shot list CSV) with watermark | A real scene is boarded in one sitting |
 | 2 · Video and images | Playback copies, frame stepping, in and out, crop, still and clip capture, attachments, Assets section | A still from a reference clip lands in a frame in a few clicks |
 | 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days, Team section, Calendar and Notifications tiles | A real shoot's people, places and gear are entered |
@@ -388,7 +388,7 @@ demo data.**
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.
 
-### Phase 0 · Foundation and .sbd (current)
+### Phase 0 · Foundation and .sbd (done, Nov 2)
 
 Kickoff steps (from the hand-off):
 
@@ -403,12 +403,16 @@ Kickoff steps (from the hand-off):
 
 **Exit criteria**
 
-- [ ] CI green on both platforms (Mac and Windows installers build on every PR).
-- [ ] A project survives force-quitting mid-edit.
-- [ ] Double-clicking a .sbd opens it.
-- [ ] Undo works across an app restart.
-- [ ] Edits produce a backup within 5 minutes, and Open backup opens it as a separate project.
-- [ ] Gate passes on Kevin's own material, not demo data.
+- [x] CI green on both platforms (Mac and Windows installers build on every PR).
+- [x] A project survives force-quitting mid-edit.
+- [x] Double-clicking a .sbd opens it.
+- [x] Undo works across an app restart.
+- [x] Edits produce a backup within 5 minutes, and Open backup opens it as a separate project.
+- [x] Gate passes on Kevin's own material, not demo data.
+
+Passed Nov 2 on the CI installers: every step on a Mac; on Windows, creating a project and double-clicking a .sbd
+(with the app closed and while running). The other steps ran on the Mac only; they share all their code with
+Windows except the Rust file layer, whose tests run on Windows in CI.
 
 ## Nov 2 features, round two
 
