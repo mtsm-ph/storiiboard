@@ -21,9 +21,9 @@ describe('SMark', () => {
   });
 
   it('keeps the dots orange and lets the inline match the background', () => {
-    const html = renderToString(<SMark size={96} inline="var(--sb-panel)" />);
-    expect(count(html, 'fill-accent')).toBe(4);
-    expect(html).toContain('stroke:var(--sb-panel)');
+    const html = renderToString(<SMark size={96} inline="var(--surface)" />);
+    expect(count(html, 'fill-brand')).toBe(4);
+    expect(html).toContain('stroke:var(--surface)');
   });
 
   it('is an image named Storiiboard unless marked decorative', () => {
@@ -37,10 +37,10 @@ describe('SMark', () => {
 describe('Wordmark', () => {
   it('has nine ink letters and two orange I bars with their dots', () => {
     const html = renderToString(<Wordmark />);
-    expect(count(html, 'class="fill-ink"')).toBe(9);
+    expect(count(html, 'class="fill-text"')).toBe(9);
     expect(count(html, '<rect')).toBe(2);
     expect(count(html, '<circle')).toBe(2);
-    expect(count(html, 'fill-accent')).toBe(4);
+    expect(count(html, 'fill-brand')).toBe(4);
   });
 
   it('never carries the S mark', () => {

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import tokens from '../../design/tokens/tokens.json';
@@ -29,6 +29,42 @@ function loadPreset(): Preset {
 
 const tokensCss = read('design/tokens/tokens.css');
 
+/** Where each kit colour lives now. Semantic tokens are what a project theme sets; the rest are fixed. */
+const KIT_TO_TOKEN: Record<string, string> = {
+  paper: 'bg',
+  panel: 'surface',
+  oatmeal: 'surface-raised',
+  rule: 'border',
+  'rule-top': 'border-top',
+  ink: 'text',
+  muted: 'text-muted',
+  'ink-inverse': 'text-inverse',
+  'on-accent': 'accent-contrast',
+  // The kit's accent is Signal Orange: the logo's fixed brand colour. The theme accent is set on its own.
+  accent: 'brand',
+  warning: 'warning',
+  highlight: 'highlight',
+  'dept-camera': 'dept-camera',
+  'dept-lighting': 'dept-lighting',
+  'dept-art': 'dept-art',
+  'dept-wardrobe': 'dept-wardrobe',
+  'dept-sound': 'dept-sound',
+};
+
+/** Every component and screen source file, tests left out. */
+function componentFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: URL) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), dir);
+      if (entry.isDirectory()) walk(url);
+      else if (/\.tsx$/.test(entry.name) && !/\.test\.tsx$/.test(entry.name)) out.push(url.pathname.slice(root.pathname.length));
+    }
+  };
+  walk(new URL('src/', root));
+  return out;
+}
+
 /** The --sb-* variables one rule of tokens.css sets, by name without the leading dashes. */
 function cssVariables(selector: string): Map<string, string> {
   const start = tokensCss.indexOf(`${selector} {`);
@@ -45,11 +81,34 @@ describe('src/ui/theme.css mirrors the kit preset', () => {
     expect(Object.keys(preset).sort()).toEqual(['borderRadius', 'borderWidth', 'colors', 'fontFamily', 'fontSize', 'spacing']);
   });
 
-  it('defines every colour, reading the kit variables', () => {
+  it('gives every kit colour a home: a semantic token a project theme can set, or a fixed one', () => {
     for (const [name, value] of Object.entries(preset.colors)) {
       const entries = typeof value === 'string' ? [[name, value]] : Object.entries(value).map(([k, v]) => [`${name}-${k}`, v]);
-      for (const [key, variable] of entries) expect(theme).toContain(`--color-${String(key)}: ${String(variable)};`);
+      for (const [key, variable] of entries) {
+        const token = KIT_TO_TOKEN[String(key)];
+        // A colour the kit adds fails here until it's placed in one layer or the other.
+        expect(token, `kit colour ${String(key)}`).toBeDefined();
+        // Semantic: the token reads the kit variable, and the Tailwind colour reads the token.
+        const semantic = theme.includes(`--${String(token)}: ${String(variable)};`);
+        const classColour = semantic ? `var(--${String(token)})` : String(variable);
+        expect(theme, `${String(key)} → ${String(token)}`).toContain(`--color-${String(token)}: ${classColour};`);
+      }
     }
+  });
+
+  it('sets the default accent to #DF5E27 and keeps the logo on Signal Orange, a fixed brand token', () => {
+    expect(theme).toContain('--accent: #df5e27;');
+    expect(theme).toContain('--brand: var(--sb-accent);');
+    expect(light.get('sb-accent')?.toUpperCase()).toBe('#E0612B');
+    for (const logo of ['src/ui/logo/SMark.tsx', 'src/ui/logo/Wordmark.tsx']) {
+      expect(read(logo)).not.toContain('accent');
+      expect(read(logo)).toContain('fill-brand');
+    }
+  });
+
+  it('never lets a component paint with the kit names or a hex value', () => {
+    const offenders = componentFiles().filter((file) => /var\(--sb-(?!topbar|statusbar|gap|titlebar)|#[0-9a-fA-F]{6}\b/.test(read(file)));
+    expect(offenders).toEqual([]);
   });
 
   it('reads each font stack from the kit variable that lists the same fonts', () => {
@@ -131,7 +190,7 @@ function over(hex: string, alpha: number, background: string): string {
   return `#${mixed.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
-const placeholderAlpha = Number(/placeholder:text-ink\/(\d+)/.exec(read('src/ui/fields.tsx'))?.[1] ?? 'NaN') / 100;
+const placeholderAlpha = Number(/placeholder:text-text\/(\d+)/.exec(read('src/ui/fields.tsx'))?.[1] ?? 'NaN') / 100;
 
 describe('colour pairs the app uses meet AA (4.5:1)', () => {
   const { light, dark, accent, onAccent, warning, highlight, department } = tokens.color;
@@ -151,7 +210,8 @@ describe('colour pairs the app uses meet AA (4.5:1)', () => {
     // TextField placeholders: ink at the opacity fields.tsx sets, on the oatmeal well.
     ['light: placeholder on oatmeal', over(light.ink, placeholderAlpha, light.oatmeal), light.oatmeal],
     ['dark: placeholder on oatmeal', over(dark.ink, placeholderAlpha, dark.oatmeal), dark.oatmeal],
-    ['ink on orange', onAccent, accent],
+    ['ink on Signal Orange (the kit accent)', onAccent, accent],
+    ['ink on the default theme accent', onAccent, '#DF5E27'],
     ['paper on Truffle', paper, warning],
     ['ink on Burning Flame', ink, highlight],
     ['camera tag', paper, department.camera],

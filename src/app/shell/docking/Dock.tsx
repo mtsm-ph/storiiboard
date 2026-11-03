@@ -271,7 +271,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         className="h-full"
         style={style}
       >
-        {Content ? <Content /> : <p className="sb-label p-3 text-muted">{info?.note}</p>}
+        {Content ? <Content /> : <p className="sb-label p-3 text-text-muted">{info?.note}</p>}
       </Tile>
     );
   };
@@ -343,7 +343,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
                     onClick={() => {
                       commit(toggleMaximize(layout, maximized.id));
                     }}
-                    className="sb-label border border-rule bg-panel px-2.5 py-1.5"
+                    className="sb-label border border-border bg-surface px-2.5 py-1.5"
                   >
                     {String(order.indexOf(tile) + 1).padStart(2, '0')} {title(tile)}
                   </button>
@@ -362,14 +362,14 @@ export function Dock({ workspace }: { workspace: Workspace }) {
           style={preview}
         >
           {/* The label is the second cue: the orange outline alone never carries meaning (DESIGN.md). */}
-          <span className="sb-label bg-ink px-1.5 py-1 text-ink-inverse">{ZONE_LABEL[previewZone]}</span>
+          <span className="sb-label bg-text px-1.5 py-1 text-text-inverse">{ZONE_LABEL[previewZone]}</span>
         </div>
       )}
       {drag?.started && (
         // The lifted tile: a dashed ghost with a hard ink offset, which is a second box, never a shadow.
         <div aria-hidden="true" className="pointer-events-none fixed z-50" style={{ left: drag.x + 12, top: drag.y + 12 }}>
-          <div className="absolute top-1 left-1 h-titlebar w-48 bg-ink" />
-          <div className="sb-label relative flex h-titlebar w-48 items-center border-[1.5px] border-dashed border-ink bg-panel px-2 font-bold">
+          <div className="absolute top-1 left-1 h-titlebar w-48 bg-text" />
+          <div className="sb-label relative flex h-titlebar w-48 items-center border-[1.5px] border-dashed border-text bg-surface px-2 font-bold">
             {drag.title}
           </div>
         </div>
@@ -378,7 +378,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         <div
           aria-hidden="true"
           className={cx(
-            'pointer-events-none fixed z-30 border-dashed border-ink',
+            'pointer-events-none fixed z-30 border-dashed border-text',
             guide.direction === 'row' ? 'top-0 bottom-0 w-0 border-l-[1.5px]' : 'right-0 left-0 h-0 border-t-[1.5px]',
           )}
           style={guide.direction === 'row' ? { left: guide.position } : { top: guide.position }}

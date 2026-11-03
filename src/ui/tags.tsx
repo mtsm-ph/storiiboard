@@ -6,7 +6,7 @@ import { cx } from './cx';
 // both themes: paper on navy and rust, ink on mustard, sage and blush.
 // The 1.5px rule on outline tags comes out of the padding, so both kinds stand the same height.
 const FILLED = 'px-[7px] py-1';
-const OUTLINE = 'border border-ink px-[5.5px] py-[2.5px] text-ink';
+const OUTLINE = 'border border-text px-[5.5px] py-[2.5px] text-text';
 
 const DEPARTMENT_TAG: Record<Department, string> = {
   // Navy all but vanishes on the dark panel (1.2:1), so dark mode edges it in paper, as the kit's dark boards do.
@@ -44,9 +44,9 @@ export function DepartmentTag({ department, label }: DepartmentTagProps) {
 
 // Shape, not colour, carries shot status: it reads in both themes, in print and for colour-blind crew.
 const STATUS_SHAPE: Record<ShotStatus, string> = {
-  have: 'bg-ink',
+  have: 'bg-text',
   need: '',
-  source: 'bg-[linear-gradient(135deg,var(--sb-ink)_50%,transparent_50%)]',
+  source: 'bg-[linear-gradient(135deg,var(--text)_50%,transparent_50%)]',
 };
 
 interface StatusGlyphProps {
@@ -57,7 +57,7 @@ interface StatusGlyphProps {
 
 export function StatusGlyph({ status, showLabel = false }: StatusGlyphProps) {
   const name = SHOT_STATUS_LABELS[status];
-  const square = cx('inline-block size-[9px] shrink-0 border border-ink', STATUS_SHAPE[status]);
+  const square = cx('inline-block size-[9px] shrink-0 border border-text', STATUS_SHAPE[status]);
   if (!showLabel) return <span role="img" aria-label={name} className={square} />;
   return (
     <span className="inline-flex items-center gap-1.5">

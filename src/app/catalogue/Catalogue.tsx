@@ -29,7 +29,7 @@ type IntExt = 'int' | 'ext' | 'int-ext';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3 border border-rule bg-panel p-4">
+    <section className="flex flex-col gap-3 border border-border bg-surface p-4">
       <h2 className="sb-label font-bold">{title}</h2>
       {children}
     </section>
@@ -44,7 +44,7 @@ export function Catalogue() {
   const [snap, setSnap] = useState(true);
 
   return (
-    <main className="sb-grain flex min-h-full flex-col gap-gap p-6 text-ink">
+    <main className="sb-grain flex min-h-full flex-col gap-gap p-6 text-text">
       <div className="flex items-center justify-between">
         <h1 className="text-[32px] font-extrabold tracking-[-0.02em]">UI catalogue</h1>
         <ThemeSwitch />
@@ -53,14 +53,14 @@ export function Catalogue() {
       <div className="grid grid-cols-2 gap-gap">
         <Section title="Logo">
           {/* Two marks, never combined: each gets its own ruled cell, as on the kit's logo sheet. */}
-          <div className="flex flex-col border border-rule">
-            <div className="border-b border-rule p-4">
+          <div className="flex flex-col border border-border">
+            <div className="border-b border-border p-4">
               <Wordmark height={40} />
             </div>
             <div className="flex flex-wrap items-end gap-6 p-4">
               {/* The inline of the full mark matches what is behind it: the panel. */}
-              <SMark size={96} label="S mark, full" inline="var(--sb-panel)" />
-              <SMark size={48} label="S mark, 48px" inline="var(--sb-panel)" />
+              <SMark size={96} label="S mark, full" inline="var(--surface)" />
+              <SMark size={48} label="S mark, 48px" inline="var(--surface)" />
               <SMark size={32} label="S mark, 32px (solid)" />
               <SMark size={16} label="S mark, 16px (solid)" />
             </div>
@@ -85,7 +85,7 @@ export function Catalogue() {
             onClose={() => undefined}
             className="h-40"
           >
-            <p className="sb-label p-3 text-muted">Open tab: {tab === 'sc04' ? 'SC 04' : 'SC 05'}</p>
+            <p className="sb-label p-3 text-text-muted">Open tab: {tab === 'sc04' ? 'SC 04' : 'SC 05'}</p>
           </Tile>
         </Section>
 
@@ -171,7 +171,7 @@ export function Catalogue() {
               // The kit draws these in fixed ink, so they sit on paper in both themes.
               <li
                 key={icon.id}
-                className="flex flex-col items-center gap-1 border border-rule bg-paper-fixed p-2 text-ink-fixed"
+                className="flex flex-col items-center gap-1 border border-border bg-paper-fixed p-2 text-ink-fixed"
               >
                 <img src={planIconDataUrl(icon)} alt="" width={32} height={32} />
                 <span className="sb-label text-center">{icon.label}</span>

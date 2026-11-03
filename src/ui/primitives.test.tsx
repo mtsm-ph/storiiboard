@@ -13,7 +13,7 @@ describe('Button', () => {
   it('keeps orange for primary, with ink text, and never submits forms by accident', () => {
     const html = renderToString(<Button variant="primary">Capture frame</Button>);
     expect(html).toContain('bg-accent');
-    expect(html).toContain('text-on-accent');
+    expect(html).toContain('text-accent-contrast');
     expect(html).toContain('type="button"');
   });
 
@@ -69,7 +69,7 @@ describe('SegmentedControl', () => {
   });
 
   it('marks the selection with an ink fill, not orange, and keeps its focus ring visible on the fill', () => {
-    expect(html).toContain('bg-ink text-ink-inverse focus-visible:outline-ink-inverse');
+    expect(html).toContain('bg-text text-text-inverse focus-visible:outline-text-inverse');
     expect(html).not.toContain('accent');
   });
 });
@@ -80,7 +80,7 @@ describe('fields', () => {
     expect(html).toMatch(/^<label[^>]*><span class="sb-label">Shot<\/span><input/);
     expect(html).toContain('font-mono');
     // tokens.test.ts checks this placeholder colour for AA on the oatmeal well.
-    expect(html).toContain('placeholder:text-ink/70');
+    expect(html).toContain('placeholder:text-text/70');
   });
 
   it('gives the slider a readable value, not just an index', () => {
@@ -153,7 +153,7 @@ describe('Tile', () => {
 
   it('marks the open tab with oatmeal, ink and bold, and keeps the strip above the title-bar rule', () => {
     const openTab = /<button[^>]*aria-selected="true"[^>]*class="([^"]*)"/.exec(html)?.[1]?.split(' ') ?? [];
-    expect(openTab).toEqual(expect.arrayContaining(['bg-oatmeal', 'font-bold', 'text-ink']));
+    expect(openTab).toEqual(expect.arrayContaining(['bg-surface-raised', 'font-bold', 'text-text']));
     const tablist = /<div role="tablist"[^>]*class="([^"]*)"/.exec(html)?.[1]?.split(' ') ?? [];
     expect(tablist).toContain('self-stretch');
     expect(tablist).not.toContain('h-titlebar');

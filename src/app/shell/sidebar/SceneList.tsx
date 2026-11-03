@@ -28,10 +28,10 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: Sc
               onClick={() => {
                 onSelect(scene.id);
               }}
-              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] hover:bg-oatmeal focus-visible:-outline-offset-4"
+              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] hover:bg-surface-raised focus-visible:-outline-offset-4"
             >
               {/* The active scene's marker is orange; its bold name is the second cue. */}
-              <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-ink')} />
+              <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-text')} />
               <span className="font-mono text-[11px]">{sceneLabel(scene.number)}</span>
               <span className={cx('truncate', current && 'font-bold')}>{scene.name || 'Untitled'}</span>
             </button>
@@ -46,7 +46,7 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: Sc
           tabIndex={-1}
           disabled={!canAdd}
           onClick={onAdd}
-          className="sb-label flex h-7 w-full items-center pl-[30px] text-left enabled:hover:bg-oatmeal disabled:text-muted focus-visible:-outline-offset-4"
+          className="sb-label flex h-7 w-full items-center pl-[30px] text-left enabled:hover:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
         >
           + Add Scene
         </button>

@@ -126,8 +126,8 @@ export function Splitter({ direction, before, after, label, onResize, onEvenOut,
             row ? 'top-2 left-1/2 -translate-x-1/2' : 'top-1/2 left-2 -translate-y-1/2',
           )}
         >
-          <span className="bg-ink px-1 text-ink-inverse">{live[0]} px</span>
-          <span className="bg-ink px-1 text-ink-inverse">{live[1]} px</span>
+          <span className="bg-text px-1 text-text-inverse">{live[0]} px</span>
+          <span className="bg-text px-1 text-text-inverse">{live[1]} px</span>
         </span>
       )}
     </div>

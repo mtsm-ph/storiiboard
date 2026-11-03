@@ -72,12 +72,12 @@ export function BackupsView({ keep, onKeepChange, project, status, onBackUpNow, 
         <KeepField key={`r${String(keep.recent)}`} label="Keep the last" field="recent" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
         <KeepField key={`d${String(keep.days)}`} label="Plus one a day for" field="days" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
       </div>
-      <p id={helpId} className="text-[12px] text-muted">
+      <p id={helpId} className="text-[12px] text-text-muted">
         Copies, then days. Every 5 minutes, if anything changed, a full copy goes to a Backups folder next to the
         project. Older copies are deleted; these numbers apply to every project.
       </p>
       {project === null ? (
-        <p className="sb-label text-muted">No project open.</p>
+        <p className="sb-label text-text-muted">No project open.</p>
       ) : (
         <>
           <div className="flex items-center gap-3">
@@ -86,13 +86,13 @@ export function BackupsView({ keep, onKeepChange, project, status, onBackUpNow, 
               {status}
             </p>
           </div>
-          <p className="font-mono text-[11px] text-muted">{project.folder}</p>
+          <p className="font-mono text-[11px] text-text-muted">{project.folder}</p>
           {project.backups.length === 0 ? (
-            <p className="text-[13px] text-muted">No backups yet. The first comes 5 minutes after an edit.</p>
+            <p className="text-[13px] text-text-muted">No backups yet. The first comes 5 minutes after an edit.</p>
           ) : (
-            <ul aria-label="Backups" className="border-t border-rule">
+            <ul aria-label="Backups" className="border-t border-border">
               {project.backups.map((backup) => (
-                <li key={backup.name} className="flex items-center gap-3 border-b border-rule py-1.5">
+                <li key={backup.name} className="flex items-center gap-3 border-b border-border py-1.5">
                   <span className="font-mono text-[12px]">{backup.at ? localDateTime(backup.at) : backup.name}</span>
                   <Button
                     className="ml-auto"

@@ -44,6 +44,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Brand: Signal Orange #E0612B**, a fixed token for the logo's dots and bars only. It never follows a project theme.
 - **Project themes:** a project can take its colours from its logo or key image. The accent and the surfaces change;
   type, rules, grain, layout, the logo, warning, golden hour and the department colours don't.
+- **Tokens in code** (src/ui/theme.css):
+  - **Semantic, set by a project theme:** `bg`, `surface`, `surface-raised`, `border`, `border-top`, `text`, `text-muted`, `text-inverse`, `accent`, `accent-contrast`. Classes read `bg-surface`, `text-text-muted`, `border-border`.
+  - **Fixed, the same in every project:** `brand`, `warning`, `highlight`, the `dept-*` tags, and `paper-fixed` and `ink-fixed` for text on tags and chips.
+  - **The default theme** reads the kit's variables (paper, panel, oatmeal, rule, ink, muted), so the names above map to the colours listed here.
 - **Supporting colours:**
   - Truffle #A35139 for warnings and conflicts, with paper text.
   - Burning Flame #FFB162 for golden hour and highlights, with ink text.

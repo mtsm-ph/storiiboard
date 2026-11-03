@@ -37,7 +37,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
     <Menu
       align="right"
       label={<>Layout{unsaved && <span className="sr-only"> (unsaved changes)</span>}</>}
-      buttonClassName="sb-label flex h-full items-center border-l border-rule-top px-4 focus-visible:-outline-offset-4"
+      buttonClassName="sb-label flex h-full items-center border-l border-border-top px-4 focus-visible:-outline-offset-4"
     >
       {(close) => {
         /** Runs a command, then closes the menu with focus back on its button. */
@@ -70,9 +70,9 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
             >
               Undo layout change
             </button>
-            <p className="sb-label px-3 pt-3 pb-1 text-muted">Open tile</p>
+            <p className="sb-label px-3 pt-3 pb-1 text-text-muted">Open tile</p>
             {missing.length === 0 ? (
-              <p className="sb-label px-3 pb-3 text-muted">Every tile is open.</p>
+              <p className="sb-label px-3 pb-3 text-text-muted">Every tile is open.</p>
             ) : (
               missing.map((tile) => (
                 <button key={tile} type="button" className={menuItemClass} data-tile={tile} onClick={onOpenTile}>
