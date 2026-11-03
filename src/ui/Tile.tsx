@@ -1,4 +1,4 @@
-import { useId, type CSSProperties, type ReactNode } from 'react';
+import { useId, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { IconButton } from './Button';
 import { cx } from './cx';
 import { CloseGlyph, GripGlyph, MaximizeGlyph, RestoreGlyph } from './glyphs';
@@ -22,6 +22,15 @@ interface TileProps {
   maximized?: boolean;
   onToggleMaximize?: () => void;
   onClose?: () => void;
+  /** Docking: the title bar becomes a drag handle, and the grip a button for keyboard moves. */
+  drag?: {
+    onPointerDown: (event: PointerEvent<HTMLElement>) => void;
+    onGripKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+    /** True while this tile is being moved from the keyboard. */
+    moving?: boolean;
+  };
+  /** Marks the tile as a drop target for docking. */
+  stackId?: string | undefined;
   className?: string | undefined;
   style?: CSSProperties | undefined;
   children?: ReactNode;
@@ -37,6 +46,8 @@ export function Tile({
   maximized = false,
   onToggleMaximize,
   onClose,
+  drag,
+  stackId,
   className,
   style,
   children,
@@ -48,12 +59,33 @@ export function Tile({
   return (
     <section
       aria-label={title}
+      data-stack-id={stackId}
       className={cx('flex min-h-0 min-w-0 flex-col overflow-hidden border border-rule bg-panel', className)}
       style={style}
     >
-      <div className="flex h-titlebar shrink-0 items-center gap-2 border-b border-rule pr-1 pl-2">
-        {/* Docking (D2) makes the title bar the drag handle; until then the grip only marks it. */}
-        <GripGlyph />
+      <div
+        className={cx('flex h-titlebar shrink-0 items-center gap-2 border-b border-rule pr-1 pl-2', drag && 'touch-none')}
+        onPointerDown={(event) => {
+          // The title bar drags the tile, except from its own buttons (the grip is the one that does).
+          const button = (event.target as HTMLElement).closest('button');
+          if (drag && (!button || button.dataset.grip !== undefined)) drag.onPointerDown(event);
+        }}
+      >
+        {drag ? (
+          <button
+            type="button"
+            data-grip=""
+            aria-label={`Move ${title}`}
+            aria-pressed={drag.moving ?? false}
+            aria-keyshortcuts="Enter"
+            onKeyDown={drag.onGripKeyDown}
+            className="flex h-5 w-3 cursor-grab items-center justify-center focus-visible:outline-offset-0"
+          >
+            <GripGlyph />
+          </button>
+        ) : (
+          <GripGlyph />
+        )}
         <span className="sb-label shrink-0 font-bold">
           {String(index).padStart(2, '0')} / {title}
         </span>

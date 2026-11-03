@@ -1,6 +1,8 @@
 import { cx } from '../../ui/cx';
 import { SMark } from '../../ui/logo/SMark';
 import { roveFocus } from '../../ui/roving';
+import { LayoutMenu } from './docking/LayoutMenu';
+import { isUnsaved, useLayouts } from './docking/layoutStore';
 import { WORKSPACE_PANEL_ID, workspaceTabId, type Workspace, type WorkspaceId } from './workspaces';
 
 interface TopBarProps {
@@ -13,6 +15,8 @@ interface TopBarProps {
 // The top bar keeps paper-coloured outlines in dark mode (rule-top): it is the "guiding board" that shows
 // which workspace people are in.
 export function TopBar({ projectName, workspaces, activeId, onSelect }: TopBarProps) {
+  const layouts = useLayouts((s) => s.layouts);
+  const activeWorkspace = workspaces.find((w) => w.id === activeId);
   return (
     <header className="flex h-topbar shrink-0 items-center border-b border-rule-top">
       <h1 className="sr-only">Storiiboard</h1>
@@ -56,10 +60,15 @@ export function TopBar({ projectName, workspaces, activeId, onSelect }: TopBarPr
               )}
             >
               {workspace.label}
+              {isUnsaved(layouts[workspace.id]) && (
+                // The dot marks a layout changed since it was last saved (DESIGN.md, Workspaces).
+                <span aria-label="unsaved layout" role="img" className="ml-1.5 inline-block size-1.5 rounded-full bg-current" />
+              )}
             </button>
           );
         })}
       </div>
+      {activeWorkspace && <LayoutMenu workspace={activeWorkspace} />}
     </header>
   );
 }

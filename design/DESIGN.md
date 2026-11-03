@@ -90,11 +90,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - 1.5px ink border, no radius, no shadow.
   - 26px title bar: grip, "NN / Title" mono label, tabs (the open tab on Oatmeal), maximize, close.
   - 8px gap between tiles, 44px top bar, 24px status bar.
-- **Drag:** the tile lifts as a dashed ghost with a hard ink offset. The tile under the cursor shows five zones: four edges split, the centre adds a tab. The live zone turns to the accent and previews the split line. Escape cancels. Alt floats the tile.
+- **Drag:** the tile lifts as a dashed ghost with a hard ink offset. The tile under the cursor shows five zones: four edges split, the centre adds a tab. The live zone turns to the accent and previews the split line. Escape cancels. There are no floating windows (decided Nov 2).
 - **Snap:** tiles snap within 8px and a dashed guide line shows. Hold Cmd to place freely.
 - **Splitter:** dragging it resizes both neighbours, with live widths in mono. Double-click evens them out.
 - **Maximize:** backtick (`) fills the app; the other tiles fold into chips along the bottom. Restore returns every tile to its exact size and position.
-- **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Cmd+Z undoes.
+- **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Cmd+Z undoes any layout change in the session.
 - **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings (Alt+1 to
   7). A dot marks unsaved layout changes.
 

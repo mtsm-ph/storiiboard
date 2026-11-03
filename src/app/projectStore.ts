@@ -22,6 +22,13 @@ export interface ProjectState {
   redo: () => Promise<void>;
 }
 
+/** Listeners told after each edit lands (not after undo or redo); the shared ⌘Z timeline uses it (undo.ts). */
+const editListeners = new Set<() => void>();
+export function onProjectEdit(listener: () => void): () => void {
+  editListeners.add(listener);
+  return () => editListeners.delete(listener);
+}
+
 export function createProjectStore(): StoreApi<ProjectState> {
   // Edits run one at a time, in the order they were made: each reads the records the previous one wrote.
   let queue: Promise<unknown> = Promise.resolve();
@@ -66,7 +73,12 @@ export function createProjectStore(): StoreApi<ProjectState> {
           await get().project?.close();
           set({ project: null, records: {}, canUndo: false, canRedo: false, error: null });
         }),
-      apply: (changes) => edit((project) => apply(project.file, changes)),
+      apply: (changes) =>
+        edit(async (project) => {
+          const touched = await apply(project.file, changes);
+          if (touched.size > 0) for (const listener of editListeners) listener();
+          return touched;
+        }),
       undo: () => edit((project) => undo(project.file)),
       redo: () => edit((project) => redo(project.file)),
     };
