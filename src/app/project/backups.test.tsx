@@ -1,6 +1,6 @@
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { BackupsView, parseKeep } from './BackupsView';
+import { BackupsView, parseKeep, placeNote } from './BackupsView';
 
 const noop = () => undefined;
 const keep = { recent: 12, days: 14 };
@@ -28,9 +28,13 @@ describe('the Backups tile', () => {
             { name: 'Bey County 2026-11-02 14-05.sbd', at: new Date(2026, 10, 2, 14, 5) },
             { name: 'Bey County 2026-11-02 13-55.sbd', at: new Date(2026, 10, 2, 13, 55) },
           ],
+          synced: null,
         }}
+        nextToProject={false}
+        onNextToProjectChange={noop}
         status={null}
         onBackUpNow={noop}
+        onShowBackups={noop}
         onOpen={noop}
       />,
     );
@@ -43,10 +47,28 @@ describe('the Backups tile', () => {
 
   it('keeps the settings editable with no project open, since they apply to every project', () => {
     const html = renderToString(
-      <BackupsView keep={keep} onKeepChange={noop} project={null} status={null} onBackUpNow={noop} onOpen={noop} />,
+      <BackupsView
+        keep={keep}
+        onKeepChange={noop}
+        nextToProject={false}
+        onNextToProjectChange={noop}
+        project={null}
+        status={null}
+        onBackUpNow={noop}
+        onShowBackups={noop}
+        onOpen={noop}
+      />,
     );
     expect(html).toContain('No project open.');
     expect(html).not.toContain('Back up now');
     expect(html).toContain('Keep the last');
+  });
+
+  it('says where a project’s backups are, and why', () => {
+    expect(placeNote(null, false)).toBe('Kept in a Backups folder next to the project.');
+    expect(placeNote('iCloud Drive', false)).toBe(
+      'This project is in iCloud Drive, so its backups stay on this computer instead of uploading every 5 minutes.',
+    );
+    expect(placeNote('Dropbox', true)).toBe('This project is in Dropbox; its backups are next to it and sync with it.');
   });
 });

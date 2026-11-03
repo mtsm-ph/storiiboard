@@ -1,27 +1,30 @@
 import { useEffect, useState } from 'react';
 import { parseBackupFileName } from '../../core/storage/backups';
-import { backupPath, backupsFolder } from '../../core/storage/openBackup';
+import { joinPath } from '../../core/storage/openBackup';
 import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { localDateTime } from '../format';
 import { showNotice } from '../notice';
-import { openBackup } from '../projects/actions';
+import { isDesktop, openBackup } from '../projects/actions';
+import { syncServiceOf } from '../projects/synced';
 import { useProject } from '../projectStore';
 import { BackupsView, type BackupEntry } from './BackupsView';
 
 export function BackupsPanel() {
   const project = useProject((s) => s.project);
   const [keep, setKeep] = useState(() => loadSettings().backups);
-  const [names, setNames] = useState<readonly string[]>([]);
+  const [nextToProject, setNextToProject] = useState(() => loadSettings().backupsNextToProject);
+  const [found, setFound] = useState<{ folder: string; names: readonly string[]; synced: string | null } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  // Bumped after Back up now, so the list is read again.
+  // Bumped after Back up now or a change of folder, so the list is read again.
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
+    if (!project) return;
     let current = true;
-    project?.file
-      .listBackups()
-      .then((list) => {
-        if (current) setNames(list);
+    const synced = isDesktop ? syncServiceOf(project.file.path).catch(() => null) : Promise.resolve(null);
+    Promise.all([project.file.backupsFolder(), project.file.listBackups(), synced])
+      .then(([folder, names, service]) => {
+        if (current) setFound({ folder, names, synced: service });
       })
       .catch(showNotice);
     return () => {
@@ -29,11 +32,12 @@ export function BackupsPanel() {
     };
   }, [project, generation]);
 
-  const entries: BackupEntry[] = project
-    ? names
-        .map((name) => ({ name, at: parseBackupFileName(project.name, name) }))
-        .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
-    : [];
+  const entries: BackupEntry[] =
+    project && found
+      ? found.names
+          .map((name) => ({ name, at: parseBackupFileName(project.name, name) }))
+          .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+      : [];
 
   return (
     <BackupsView
@@ -41,7 +45,18 @@ export function BackupsPanel() {
       onKeepChange={(next) => {
         setKeep(saveSettings({ backups: next }).backups);
       }}
-      project={project ? { folder: backupsFolder(project.file.path), backups: entries } : null}
+      nextToProject={nextToProject}
+      onNextToProjectChange={(next) => {
+        setNextToProject(saveSettings({ backupsNextToProject: next }).backupsNextToProject);
+        // The open project moves its backups at once; earlier copies stay where they were made.
+        project?.file
+          .placeBackups(next)
+          .then(() => {
+            setGeneration((n) => n + 1);
+          })
+          .catch(showNotice);
+      }}
+      project={project && found ? { folder: found.folder, backups: entries, synced: found.synced } : null}
       status={status}
       onBackUpNow={() => {
         const schedule = project?.backups;
@@ -54,8 +69,11 @@ export function BackupsPanel() {
           })
           .catch(showNotice);
       }}
+      onShowBackups={() => {
+        project?.file.showBackups().catch(showNotice);
+      }}
       onOpen={(name) => {
-        if (project) void openBackup(backupPath(project.file.path, name));
+        if (project && found) void openBackup(joinPath(found.folder, name), project.file.path);
       }}
     />
   );

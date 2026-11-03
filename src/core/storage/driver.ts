@@ -45,6 +45,15 @@ export interface ProjectFile {
   /** This project's scheduled backups, by file name. */
   listBackups(): Promise<string[]>;
   deleteBackup(fileName: string): Promise<void>;
+  /**
+   * Decides where scheduled backups go and returns the folder: `Backups/` beside the project, or for a project in a
+   * synced folder, a folder on this computer unless `nextToProject` (the person's setting).
+   */
+  placeBackups(nextToProject: boolean): Promise<string>;
+  /** The folder this project's scheduled backups go to. */
+  backupsFolder(): Promise<string>;
+  /** Opens the backups folder in Finder or Explorer. */
+  showBackups(): Promise<void>;
   /** Rewrites this computer's lock file, so another computer sees the project is still open here. */
   refreshLock(): Promise<void>;
   /** Closes the file and removes its lock. */

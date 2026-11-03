@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.3 |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.4 |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -37,7 +37,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | Done |
 | 1.2 Write check and hidden lock file; second-computer warning | #17 | Done |
 | 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | #18 | In review |
-| 1.4 Local backups for synced projects (by file id), Show backups, setting; online backup API | | Not started |
+| 1.4 Local backups for synced projects (by file id), Show backups, setting | `phase1/1.4-local-backups` | In review |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | | Not started |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | | Not started |
@@ -702,6 +702,11 @@ gone), and, rarely, an upload caught mid-write. Approved for Phase 1:
   The note is an info notice (ink outline), once per project. New project starts in Documents, or in
   `Movies/Storiiboard` (`Videos\Storiiboard` on Windows) when Documents is synced, or the home folder if that's synced
   too.
+- As built in 1.4 (Nov 3): a synced project's backups go to the app's data folder, `Backups/<Project> <key>/`, keyed
+  by the file's new `file_id` meta value and its path. Settings → Backups has Show backups and "Keep synced projects'
+  backups next to them" (off by default). Open backup puts its copy beside the project either way. The online backup
+  API wasn't needed: `VACUUM INTO` copies a 200 MB project in 0.33 s here, off the window's thread, and the step-wise
+  API took the same time. Sizes with real images get measured again in 1.10.
 
 ### History, versions and backups
 

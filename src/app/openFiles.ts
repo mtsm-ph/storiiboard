@@ -16,6 +16,8 @@ export interface OpenFileOptions {
   driver: SqlDriver;
   recent?: AppDataStore;
   backups?: BackupOptions;
+  /** Read at each open: the person's setting to keep synced projects' backups next to them. */
+  backupsNextToProject?: () => boolean;
   /**
    * Asked when another computer has the project open (its lock file is fresh). Left out, the project opens anyway,
    * as it would for someone who chose Open anyway.
@@ -76,12 +78,17 @@ export async function createProjectFile(path: string, options: OpenFileOptions):
 
 async function replaceWith(
   path: string,
-  { store, driver, recent, backups }: OpenFileOptions,
+  { store, driver, recent, backups, backupsNextToProject }: OpenFileOptions,
   start: typeof openProject,
 ): Promise<void> {
   let project: Project;
   try {
-    project = await start(path, { driver, ...(recent ? { recent } : {}), ...(backups ? { backups } : {}) });
+    project = await start(path, {
+      driver,
+      ...(recent ? { recent } : {}),
+      ...(backups ? { backups } : {}),
+      backupsNextToProject: backupsNextToProject?.() ?? false,
+    });
   } catch (error) {
     throw new OpenFileError(path, error);
   }
