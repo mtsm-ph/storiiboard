@@ -28,6 +28,16 @@ export interface LockHolder {
 /** A scheduled backup goes to `Backups/` next to the project; a migration backup sits beside the file. */
 export type BackupKind = 'scheduled' | 'migration';
 
+/** One of a project's scheduled backups. */
+export interface BackupFile {
+  name: string;
+  /**
+   * The space only this backup takes, which is what deleting it would free: all of a full copy, and for an APFS clone
+   * on a Mac, only what no other file shares, which starts at nothing (src-tauri/src/backup.rs).
+   */
+  bytes: number;
+}
+
 /**
  * An open project file. Every write first checks the file is still the one this app last wrote, and refuses with
  * CHANGED_ON_DISK if not. Opening writes a lock file next to it.
@@ -43,12 +53,13 @@ export interface ProjectFile {
    */
   readBlob(sql: string, params?: readonly SqlValue[]): Promise<Uint8Array | null>;
   /**
-   * Writes a consistent copy of the open file. Only a file name is passed; the driver puts it in the right folder
-   * and refuses any name that isn't one of this project's own backup names (backups.ts makes them).
+   * Writes a consistent copy of the open file: in the desktop app an APFS clone where it can, otherwise a full copy
+   * made a few pages at a time so edits go on meanwhile. Only a file name is passed; the driver puts it in the right
+   * folder and refuses any name that isn't one of this project's own backup names (backups.ts makes them).
    */
   backup(kind: BackupKind, fileName: string): Promise<void>;
-  /** This project's scheduled backups, by file name. */
-  listBackups(): Promise<string[]>;
+  /** This project's scheduled backups, in name order, with the space each takes. */
+  listBackups(): Promise<BackupFile[]>;
   deleteBackup(fileName: string): Promise<void>;
   /**
    * Decides where scheduled backups go and returns the folder: `Backups/` beside the project, or for a project in a

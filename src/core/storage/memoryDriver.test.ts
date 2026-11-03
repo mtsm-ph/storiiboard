@@ -50,7 +50,8 @@ describe('the memory driver for end-to-end tests', () => {
     const driver = await createMemoryDriver({ wasm });
     const project = await createProject('/memory/Pilot.sbd', { driver, backups: false });
     await project.file.backup('scheduled', 'Pilot 2026-11-03 09-00.sbd');
-    expect(await project.file.listBackups()).toEqual(['Pilot 2026-11-03 09-00.sbd']);
+    expect((await project.file.listBackups()).map((backup) => backup.name)).toEqual(['Pilot 2026-11-03 09-00.sbd']);
+    expect((await project.file.listBackups())[0]?.bytes).toBeGreaterThan(0);
     await project.file.deleteBackup('Pilot 2026-11-03 09-00.sbd');
     expect(await project.file.listBackups()).toEqual([]);
     await driver.copy('/memory/Pilot.sbd', '/memory/Pilot (copy).sbd');

@@ -25,7 +25,7 @@ export function BackupsPanel() {
     const synced = isTauriApp ? syncServiceOf(project.file.path).catch(() => null) : Promise.resolve(null);
     Promise.all([project.file.backupsFolder(), project.file.listBackups(), synced])
       .then(([folder, names, service]) => {
-        if (current) setFound({ folder, names, synced: service });
+        if (current) setFound({ folder, names: names.map((backup) => backup.name), synced: service });
       })
       .catch(showNotice);
     return () => {

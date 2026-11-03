@@ -75,7 +75,7 @@ describe('projects', () => {
     ]);
     const run = await project.backups.runNow();
     expect(run.created).toMatch(/^Bey \d{4}-\d{2}-\d{2} \d{2}-\d{2}\.sbd$/);
-    expect(await project.file.listBackups()).toEqual([run.created]);
+    expect((await project.file.listBackups()).map((backup) => backup.name)).toEqual([run.created]);
     await project.close();
   });
 

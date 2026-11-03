@@ -10,10 +10,11 @@ use std::time::SystemTime;
 
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Connection, OpenFlags, TransactionBehavior};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value as Json};
 use tauri::State;
 
+use crate::backup::{self, Copying, Partial};
 use crate::lock::{self, Holder, Lock, Machine};
 
 /// The refusal when a sync replaced or rewrote the file while it was open. src/core/storage/driver.ts has the same
@@ -67,10 +68,21 @@ pub enum BackupKind {
 
 pub type Row = Map<String, Json>;
 
+/// One of a project's scheduled backups, as Settings → Backups and pruning see it.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct BackupFile {
+    pub name: String,
+    /// The space only this backup takes (backup::own_bytes): all of a full copy, next to nothing for a fresh clone.
+    pub bytes: u64,
+}
+
 /// A statement with its values bound: SQL and parameters, bytes included.
 pub type Bound = (String, Vec<Value>);
 
 pub struct SbdFile {
+    /// A full backup copy being made a step at a time. Declared before `conn` so it's dropped first: SQLite's backup
+    /// must end before the connection it reads from closes.
+    copying: Option<Copying>,
     conn: Connection,
     path: PathBuf,
     fingerprint: Fingerprint,
@@ -156,6 +168,7 @@ impl SbdFile {
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(text)?;
         Ok(Self {
+            copying: None,
             fingerprint: fingerprint(path)?,
             conn,
             path: path.to_path_buf(),
@@ -290,10 +303,20 @@ impl SbdFile {
         Ok(out)
     }
 
-    /// Writes a consistent copy of the open project with VACUUM INTO, which is safe while the project is in use; a
-    /// raw file copy isn't. Only the file name comes from the caller, and it must be one of this project's own
-    /// backup names, so a copy can never land anywhere else or overwrite anything.
-    pub fn backup(&self, kind: BackupKind, file_name: &str) -> Result<PathBuf, String> {
+    /// Starts a consistent copy of the open project. Where it can (APFS, on a Mac) it's a clone, done at once and
+    /// returned; otherwise a full copy that step_backup makes a few pages at a time. A raw file copy isn't safe while
+    /// SQLite has the file open, but a clone is: it's taken here, between transactions, with nothing half-written. Only
+    /// the file name comes from the caller, and it must be one of this project's own backup names, so a copy can never
+    /// land anywhere else or overwrite anything.
+    pub fn start_backup(
+        &mut self,
+        kind: BackupKind,
+        file_name: &str,
+        clone: bool,
+    ) -> Result<Option<PathBuf>, String> {
+        if self.copying.is_some() {
+            return Err("A backup of this project is already being made.".into());
+        }
         // A copy of a file a sync has replaced would back up the old version as if it were current.
         self.check_unchanged()?;
         let dest = match kind {
@@ -319,27 +342,75 @@ impl SbdFile {
         if dest.exists() {
             return Err(format!("A backup named \"{file_name}\" already exists."));
         }
-        let dest_text = dest.to_str().ok_or("The backup path isn't valid text.")?;
-        self.conn
-            .execute("VACUUM INTO ?1", [dest_text])
-            .map_err(text)?;
-        Ok(dest)
+        // Any failure (Windows, exFAT, another volume) falls back to a full copy.
+        if clone && backup::clone_file(&self.path, &dest).is_ok() {
+            return Ok(Some(dest));
+        }
+        self.copying = Some(Copying::start(&self.conn, &dest)?);
+        Ok(None)
     }
 
-    /// This project's scheduled backups, by file name. Other files in the folder are left out.
-    pub fn backups(&self) -> Result<Vec<String>, String> {
+    /// The file a full copy in progress is being written to.
+    pub fn copying_path(&self) -> Option<PathBuf> {
+        self.copying.as_ref()?.path().map(Path::to_path_buf)
+    }
+
+    /// Takes the next step of the full copy start_backup began. Once the copy is complete it's handed back, to be
+    /// saved after letting go of the file.
+    pub fn step_backup(&mut self) -> Result<Option<Partial>, String> {
+        if self.copying.is_none() {
+            return Err("No backup of this project is being made.".into());
+        }
+        // The rest of a copy would come from a file a sync has since replaced. Dropping the copy deletes it.
+        let step = self.check_unchanged().and_then(|()| {
+            self.copying
+                .as_mut()
+                .map_or(Ok(false), |copying| copying.step(backup::STEP_PAGES))
+        });
+        match step {
+            Ok(false) => Ok(None),
+            Ok(true) => self.copying.take().map(Copying::end).transpose(),
+            Err(error) => {
+                self.copying = None;
+                Err(error)
+            }
+        }
+    }
+
+    /// A whole backup in one go, holding the file throughout, for tests. The app goes through back_up, which lets go
+    /// of the file between steps.
+    #[cfg(test)]
+    pub fn backup(&mut self, kind: BackupKind, file_name: &str) -> Result<PathBuf, String> {
+        if let Some(dest) = self.start_backup(kind, file_name, true)? {
+            return Ok(dest);
+        }
+        loop {
+            if let Some(partial) = self.step_backup()? {
+                return partial.save();
+            }
+        }
+    }
+
+    /// This project's scheduled backups, by file name, with the space each takes. Other files in the folder, and
+    /// copies still being made, are left out.
+    pub fn backups(&self) -> Result<Vec<BackupFile>, String> {
         let dir = self.backups_dir()?;
         if !dir.is_dir() {
             return Ok(Vec::new());
         }
         let stem = self.stem()?;
-        let mut names: Vec<String> = fs::read_dir(&dir)
+        let mut found: Vec<BackupFile> = fs::read_dir(&dir)
             .map_err(text)?
             .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
             .filter(|name| is_backup_name(stem, name))
+            .filter_map(|name| {
+                // A backup deleted between the listing and here is simply not there.
+                let bytes = backup::own_bytes(&dir.join(&name)).ok()?;
+                Some(BackupFile { name, bytes })
+            })
             .collect();
-        names.sort();
-        Ok(names)
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(found)
     }
 
     /// Pruning goes through here, so it can only ever delete this project's own scheduled backups.
@@ -718,18 +789,61 @@ pub async fn sbd_query(
     files.with(handle, |file| file.query(&sql, &params))
 }
 
+/// Makes a backup of an open project. A clone is done at once. A full copy takes the files' lock for one step at a time
+/// and lets go between steps, so an edit waits for a step, never the whole copy (over a second at 1000 frames).
+/// Returns whether it cloned.
+fn back_up(
+    files: &OpenFiles,
+    handle: u32,
+    kind: BackupKind,
+    file_name: &str,
+    clone: bool,
+) -> Result<bool, String> {
+    if files
+        .with(handle, |file| file.start_backup(kind, file_name, clone))?
+        .is_some()
+    {
+        return Ok(true);
+    }
+    let written = files
+        .with(handle, |file| Ok(file.copying_path()))?
+        .and_then(|path| fs::OpenOptions::new().write(true).open(path).ok());
+    loop {
+        // Closing the project mid-copy drops the copy, and this then stops with "That project isn't open."
+        if let Some(partial) = files.with(handle, |file| file.step_backup())? {
+            // Closed first: Windows won't rename a file that's open.
+            drop(written);
+            partial.save()?;
+            return Ok(false);
+        }
+        if let Some(written) = &written {
+            backup::flush(written);
+        }
+        std::thread::sleep(backup::STEP_PAUSE);
+    }
+}
+
 #[tauri::command]
 pub async fn sbd_backup(
-    files: State<'_, OpenFiles>,
+    app: tauri::AppHandle,
     handle: u32,
     kind: BackupKind,
     file_name: String,
 ) -> Result<(), String> {
-    files.with(handle, |file| file.backup(kind, &file_name).map(|_| ()))
+    use tauri::Manager;
+    // On a thread of its own, since a full copy sleeps between steps.
+    tauri::async_runtime::spawn_blocking(move || {
+        back_up(&app.state::<OpenFiles>(), handle, kind, &file_name, true).map(|_| ())
+    })
+    .await
+    .map_err(text)?
 }
 
 #[tauri::command]
-pub async fn sbd_backups(files: State<'_, OpenFiles>, handle: u32) -> Result<Vec<String>, String> {
+pub async fn sbd_backups(
+    files: State<'_, OpenFiles>,
+    handle: u32,
+) -> Result<Vec<BackupFile>, String> {
     files.with(handle, |file| file.backups())
 }
 
@@ -764,6 +878,14 @@ mod tests {
             sql: sql.into(),
             params,
         }
+    }
+
+    fn names(file: &SbdFile) -> Vec<String> {
+        file.backups()
+            .unwrap()
+            .into_iter()
+            .map(|backup| backup.name)
+            .collect()
     }
 
     fn new_file(dir: &Path, name: &str) -> SbdFile {
@@ -935,10 +1057,7 @@ mod tests {
             .backup(BackupKind::Scheduled, "Bey County 2026-11-03 09-00.sbd")
             .unwrap();
         assert!(first_dir.join("Bey County 2026-11-03 09-00.sbd").is_file());
-        assert_eq!(
-            first.backups().unwrap(),
-            vec!["Bey County 2026-11-03 09-00.sbd"]
-        );
+        assert_eq!(names(&first), vec!["Bey County 2026-11-03 09-00.sbd"]);
         assert!(copy.backups().unwrap().is_empty());
         first
             .delete_backup("Bey County 2026-11-03 09-00.sbd")
@@ -1124,10 +1243,237 @@ mod tests {
             .is_err());
     }
 
+    /// A file of about `megabytes` MB, so a full copy of it takes more than one step.
+    fn large_file(dir: &Path, name: &str, megabytes: usize) -> SbdFile {
+        let mut file = new_file(dir, name);
+        let picture: Vec<u8> = (0..1_000_000_u32).map(|i| (i % 251) as u8).collect();
+        file.tx(&[statement(
+            "CREATE TABLE pictures (id INTEGER PRIMARY KEY, bytes BLOB)",
+            vec![],
+        )])
+        .unwrap();
+        let rows: Vec<Bound> = (0..megabytes)
+            .map(|_| {
+                (
+                    "INSERT INTO pictures (bytes) VALUES (?)".to_string(),
+                    vec![Value::Blob(picture.clone())],
+                )
+            })
+            .collect();
+        file.tx_values(&rows).unwrap();
+        file
+    }
+
+    #[test]
+    fn makes_a_full_copy_a_step_at_a_time_and_keeps_edits_made_between_steps() {
+        let dir = temp_dir("steps");
+        let mut file = large_file(&dir, "Bey.sbd", 12);
+        let name = "Bey 2026-11-03 09-00.sbd";
+        let dest = dir.join("Backups").join(name);
+        assert_eq!(
+            file.start_backup(BackupKind::Scheduled, name, false)
+                .unwrap(),
+            None
+        );
+        assert!(file
+            .start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-05.sbd", false)
+            .is_err());
+        assert!(file.step_backup().unwrap().is_none());
+        // Mid-copy: written under its partial name, so it isn't a backup yet.
+        assert!(backup::partial_path(&dest).exists());
+        assert!(names(&file).is_empty());
+        file.tx(&[statement("INSERT INTO shots VALUES ('1B', 50)", vec![])])
+            .unwrap();
+        let done = loop {
+            if let Some(partial) = file.step_backup().unwrap() {
+                break partial;
+            }
+        };
+        assert!(names(&file).is_empty(), "not a backup until it's saved");
+        assert_eq!(done.save().unwrap(), dest);
+        assert!(!backup::partial_path(&dest).exists());
+        assert_eq!(names(&file), [name]);
+        let backup = file.backups().unwrap().remove(0);
+        assert!(backup.bytes > 12_000_000, "a full copy counts in full");
+
+        let copy = SbdFile::open(&dest).unwrap();
+        assert_eq!(
+            copy.query("PRAGMA integrity_check", &[]).unwrap()[0]["integrity_check"],
+            "ok"
+        );
+        assert_eq!(
+            copy.query("SELECT lens FROM shots WHERE id = '1B'", &[])
+                .unwrap()[0]["lens"],
+            50,
+            "the edit made between steps is in the copy"
+        );
+        assert!(file.step_backup().is_err(), "nothing left to step");
+    }
+
+    #[test]
+    fn deletes_a_copy_cut_off_by_closing_the_project_or_by_a_sync() {
+        let dir = temp_dir("cut-off");
+        let mut file = large_file(&dir, "Bey.sbd", 6);
+        let partial = backup::partial_path(&dir.join("Backups").join("Bey 2026-11-03 09-00.sbd"));
+        file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
+            .unwrap();
+        file.step_backup().unwrap();
+        assert!(partial.exists());
+        drop(file);
+        assert!(!partial.exists(), "closing mid-copy leaves nothing behind");
+
+        let mut file = SbdFile::open(&dir.join("Bey.sbd")).unwrap();
+        file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
+            .unwrap();
+        file.step_backup().unwrap();
+        drop(new_file(&dir, "incoming.sbd"));
+        fs::rename(dir.join("incoming.sbd"), dir.join("Bey.sbd")).unwrap();
+        assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
+        assert!(!partial.exists());
+        assert!(names(&file).is_empty());
+    }
+
+    #[test]
+    fn backs_up_through_the_open_files_and_clones_where_it_can() {
+        let dir = temp_dir("open-files");
+        let files = OpenFiles::default();
+        let handle = files.add(large_file(&dir, "Bey.sbd", 6)).unwrap();
+        let cloned = back_up(
+            &files,
+            handle,
+            BackupKind::Scheduled,
+            "Bey 2026-11-03 09-00.sbd",
+            true,
+        )
+        .unwrap();
+        // The temp folder is on APFS on a Mac; nowhere else can clone.
+        assert_eq!(cloned, cfg!(target_os = "macos"));
+        assert!(!back_up(
+            &files,
+            handle,
+            BackupKind::Scheduled,
+            "Bey 2026-11-03 09-05.sbd",
+            false
+        )
+        .unwrap());
+        let listed = files.with(handle, |file| file.backups()).unwrap();
+        assert_eq!(listed.len(), 2);
+        if cloned {
+            assert!(
+                listed[0].bytes < 1_000_000,
+                "a fresh clone takes next to nothing"
+            );
+        }
+        assert!(listed[1].bytes > 6_000_000);
+    }
+
+    /// A measurement, not run by default (Kevin, Nov 3: a backup must never hold up an edit more than about 100 ms):
+    /// `cargo test --release --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture holds_up`
+    /// Builds a 1000-frame project, about 613 KB of picture a frame (docs/PLAN.md, as built in 1.10), and times an edit
+    /// made every 5 ms while each kind of backup runs as the app runs it.
+    #[test]
+    #[ignore = "writes 1.2 GB and takes a minute; run it by hand"]
+    fn measures_how_long_a_backup_holds_up_an_edit() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+
+        let dir = temp_dir("holds-up");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE pictures (id INTEGER PRIMARY KEY, bytes BLOB)",
+                vec![],
+            ),
+            statement("INSERT INTO shots VALUES ('1A', 35)", vec![]),
+        ])
+        .unwrap();
+        // Varied bytes, as a JPEG's are.
+        let picture: Vec<u8> = (0..613_000_u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8)
+            .collect();
+        for _ in 0..100 {
+            let rows: Vec<Bound> = (0..10)
+                .map(|_| {
+                    (
+                        "INSERT INTO pictures (bytes) VALUES (?)".to_string(),
+                        vec![Value::Blob(picture.clone())],
+                    )
+                })
+                .collect();
+            file.tx_values(&rows).unwrap();
+        }
+        let size = fs::metadata(dir.join("Bey County.sbd")).unwrap().len();
+        let files = OpenFiles::default();
+        let handle = files.add(file).unwrap();
+        println!("project: {} MB", size / 1_000_000);
+
+        type Run<'a> = (&'a str, &'a dyn Fn(&str));
+        let runs: [Run; 3] = [
+            ("clone", &|name| {
+                assert!(back_up(&files, handle, BackupKind::Scheduled, name, true).unwrap());
+            }),
+            ("step-by-step copy", &|name| {
+                assert!(!back_up(&files, handle, BackupKind::Scheduled, name, false).unwrap());
+            }),
+            ("VACUUM INTO (before Nov 3)", &|name| {
+                let dest = dir.join("Backups").join(name);
+                files
+                    .with(handle, |file| {
+                        file.conn
+                            .execute("VACUUM INTO ?1", [dest.to_str().unwrap()])
+                            .map_err(text)
+                    })
+                    .unwrap();
+            }),
+        ];
+        for (minute, (label, run)) in runs.iter().enumerate() {
+            if *label == "clone" && !cfg!(target_os = "macos") {
+                continue;
+            }
+            let stop = AtomicBool::new(false);
+            let (took, mut waits) = std::thread::scope(|scope| {
+                let editor = scope.spawn(|| {
+                    let mut waits = Vec::new();
+                    let mut lens = 35_i64;
+                    while !stop.load(Ordering::Relaxed) {
+                        lens += 1;
+                        let asked = Instant::now();
+                        files
+                            .with(handle, |file| {
+                                file.tx(&[statement(
+                                    "UPDATE shots SET lens = ?",
+                                    vec![lens.into()],
+                                )])
+                            })
+                            .unwrap();
+                        waits.push(asked.elapsed());
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    waits
+                });
+                std::thread::sleep(Duration::from_millis(200));
+                let started = Instant::now();
+                run(&format!("Bey County 2026-11-03 10-{minute:02}.sbd"));
+                let took = started.elapsed();
+                std::thread::sleep(Duration::from_millis(200));
+                stop.store(true, Ordering::Relaxed);
+                (took, editor.join().unwrap())
+            });
+            waits.sort();
+            println!(
+                "{label}: backup took {took:.2?}; {} edits, median {:.1?}, longest {:.1?}",
+                waits.len(),
+                waits[waits.len() / 2],
+                waits[waits.len() - 1]
+            );
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn lists_and_deletes_only_this_projects_backups() {
         let dir = temp_dir("prune");
-        let file = new_file(&dir, "Bey.sbd");
+        let mut file = new_file(&dir, "Bey.sbd");
         file.backup(BackupKind::Scheduled, "Bey 2026-11-01 09-00.sbd")
             .unwrap();
         file.backup(BackupKind::Scheduled, "Bey 2026-11-02 09-00.sbd")
@@ -1141,7 +1487,7 @@ mod tests {
         fs::write(dir.join("Backups").join("notes.txt"), "").unwrap();
 
         assert_eq!(
-            file.backups().unwrap(),
+            names(&file),
             ["Bey 2026-11-01 09-00.sbd", "Bey 2026-11-02 09-00.sbd"]
         );
         file.delete_backup("Bey 2026-11-01 09-00.sbd").unwrap();
@@ -1150,7 +1496,7 @@ mod tests {
             .delete_backup("Bey County 2026-11-01 09-00.sbd")
             .is_err());
         assert!(dir.join("Backups").join("notes.txt").exists());
-        assert_eq!(file.backups().unwrap(), ["Bey 2026-11-02 09-00.sbd"]);
+        assert_eq!(names(&file), ["Bey 2026-11-02 09-00.sbd"]);
     }
 
     #[test]

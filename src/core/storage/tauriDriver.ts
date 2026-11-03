@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { LockHolder, ProjectFile, Row, SqlDriver, Statement } from './driver';
+import type { BackupFile, LockHolder, ProjectFile, Row, SqlDriver, Statement } from './driver';
 
 /**
  * Calls a Rust command. The commands reject with a plain message string; this turns it into an Error. Bytes as the
@@ -62,7 +62,7 @@ function tauriFile(handle: number, path: string): ProjectFile {
       return bytes.length === 0 ? null : bytes;
     },
     backup: (kind, fileName) => command('sbd_backup', { handle, kind, fileName }),
-    listBackups: () => command<string[]>('sbd_backups', { handle }),
+    listBackups: () => command<BackupFile[]>('sbd_backups', { handle }),
     deleteBackup: (fileName) => command('sbd_delete_backup', { handle, fileName }),
     placeBackups: (nextToProject) => command<string>('sbd_place_backups', { handle, nextToProject }),
     backupsFolder: () => command<string>('sbd_backups_folder', { handle }),

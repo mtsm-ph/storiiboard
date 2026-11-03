@@ -3,6 +3,7 @@ use std::{path::Path, thread, time::Duration};
 use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
+mod backup;
 mod lock;
 mod opened;
 mod sbd;

@@ -181,6 +181,8 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): Project
           ? readdirSync(backupsDir)
               .filter((name) => isBackupName(stem, name))
               .sort()
+              // Node has no clones: every backup here is a full copy.
+              .map((name) => ({ name, bytes: statSync(join(backupsDir, name)).size }))
           : [],
       ),
     deleteBackup: (name) =>
