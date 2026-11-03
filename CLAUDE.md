@@ -70,7 +70,7 @@
     copy with SQLite's step-by-step backup API, so no edit waits more than about 100 ms. Never a raw file copy.
   - Keep the last 12 copies plus one per day for 14 days, and delete older ones. Both numbers are in Settings.
     Backups share a 5 GB cap per project, each counted by the space it alone takes (all of a full copy, next to
-    nothing for a clone): over it, delete the oldest first, but always keep the 3 newest.
+    nothing for a fresh clone): over it, delete the oldest first, but always keep the 3 newest.
     Pruning touches only this project's own backups.
   - "Open backup" opens a copy as a separate project; it never overwrites the original without asking.
   - Per-edit saving stays as it is; backups are an extra safety net.
