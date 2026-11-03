@@ -3,6 +3,7 @@ use std::{path::Path, thread, time::Duration};
 use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
+mod lock;
 mod opened;
 mod sbd;
 
@@ -26,6 +27,8 @@ pub fn run() {
             sbd::sbd_open,
             sbd::sbd_close,
             sbd::sbd_copy,
+            sbd::sbd_lock_holder,
+            sbd::sbd_lock_refresh,
             sbd::sbd_tx,
             sbd::sbd_query,
             sbd::sbd_backup,
@@ -38,6 +41,9 @@ pub fn run() {
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {
+            // This computer's id and name, for the lock files next to open projects (lock.rs).
+            let data_dir = app.path().app_data_dir().unwrap_or_default();
+            app.manage(lock::Machine::load(&data_dir));
             // A double-click on Windows launches the app with the file as an argument.
             let cwd = std::env::current_dir().unwrap_or_default();
             opened::queue(
@@ -65,17 +71,20 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Storiiboard")
-        .run(|_app, _event| {
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                app.state::<sbd::OpenFiles>().close_all();
+            }
             // On a Mac a double-click arrives as an Apple Event, whether or not the app was running.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Opened { urls } = _event {
+            if let tauri::RunEvent::Opened { urls } = event {
                 let paths: Vec<String> = urls
                     .iter()
                     .filter_map(|url| url.to_file_path().ok())
                     .filter_map(|path| path.to_str().map(str::to_owned))
                     .collect();
                 let cwd = std::env::current_dir().unwrap_or_default();
-                opened::queue(_app, opened::sbd_paths(paths, &cwd));
+                opened::queue(app, opened::sbd_paths(paths, &cwd));
             }
         });
 }

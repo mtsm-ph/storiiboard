@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { clearNotice, useNotice } from '../notice';
 import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
-import { isDesktop, setProjectState, syncRecentState } from '../projects/actions';
+import { isDesktop, reopenChangedProject, setProjectState, syncRecentState } from '../projects/actions';
 import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
@@ -28,6 +28,12 @@ export function AppShell() {
   });
   const projectPath = useProject((s) => s.project?.file.path ?? null);
   const projectState = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
+
+  // A write refused because a sync replaced the file: open the newer version (src/app/projects/actions.ts).
+  const changedOnDisk = useProject((s) => s.changedOnDisk);
+  useEffect(() => {
+    if (changedOnDisk) void reopenChangedProject();
+  }, [changedOnDisk]);
 
   // Recent shows each project's state without opening it, so a change here (or its undo) is copied there.
   useEffect(() => {

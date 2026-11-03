@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { apply, history, loadRecords, redo, undo, type Change, type Touched } from '../core/ops/ops';
+import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
@@ -15,6 +16,11 @@ export interface ProjectState {
   canRedo: boolean;
   /** The last edit that failed, in words a person can read. */
   error: string | null;
+  /**
+   * True once a write was refused because a sync replaced the file (CHANGED_ON_DISK). Nothing was written; the app
+   * reopens the newer version and this goes back to false.
+   */
+  changedOnDisk: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   apply: (changes: readonly Change[]) => Promise<void>;
@@ -46,7 +52,9 @@ export function createProjectStore(): StoreApi<ProjectState> {
         try {
           await merge(project, await run(project));
         } catch (error) {
-          set({ error: error instanceof Error ? error.message : String(error) });
+          const message = error instanceof Error ? error.message : String(error);
+          if (message === CHANGED_ON_DISK) set({ changedOnDisk: true });
+          else set({ error: message });
         }
       });
 
@@ -56,15 +64,16 @@ export function createProjectStore(): StoreApi<ProjectState> {
       canUndo: false,
       canRedo: false,
       error: null,
+      changedOnDisk: false,
       open: (project) =>
         enqueue(async () => {
           const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
-          set({ project, records, ...(await history(project.file)), error: null });
+          set({ project, records, ...(await history(project.file)), error: null, changedOnDisk: false });
         }),
       close: () =>
         enqueue(async () => {
           await get().project?.close();
-          set({ project: null, records: {}, canUndo: false, canRedo: false, error: null });
+          set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
       apply: (changes) => edit((project) => apply(project.file, changes)),
       undo: () => edit((project) => undo(project.file)),

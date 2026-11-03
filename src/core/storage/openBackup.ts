@@ -37,10 +37,10 @@ export function backupPath(projectPath: string, backupName: string): string {
 
 const MAX_COPIES = 50;
 
-/** Copies a backup next to its project and returns the copy's path, for the caller to open. */
-export async function copyBackup(source: string, driver: SqlDriver): Promise<string> {
+/** Copies `source` to the first free path `pathFor` gives, and returns it. */
+async function copyToFree(source: string, driver: SqlDriver, pathFor: (attempt: number) => string): Promise<string> {
   for (let attempt = 1; attempt <= MAX_COPIES; attempt += 1) {
-    const dest = backupCopyPath(source, attempt);
+    const dest = pathFor(attempt);
     try {
       await driver.copy(source, dest);
       return dest;
@@ -48,5 +48,21 @@ export async function copyBackup(source: string, driver: SqlDriver): Promise<str
       if (!(error instanceof Error && error.message === 'A file already exists at that path.')) throw error;
     }
   }
-  throw new Error('This backup has been opened many times already; move some of its copies first.');
+  throw new Error('There are many copies of this project here already; move some of them first.');
+}
+
+/** Copies a backup next to its project and returns the copy's path, for the caller to open. */
+export function copyBackup(source: string, driver: SqlDriver): Promise<string> {
+  return copyToFree(source, driver, (attempt) => backupCopyPath(source, attempt));
+}
+
+/** `/Films/Bey County.sbd` → `/Films/Bey County (copy).sbd`, then `(copy 2)`. */
+export function copyPath(source: string, label: string, attempt = 1): string {
+  const suffix = attempt > 1 ? ` (${label} ${String(attempt)})` : ` (${label})`;
+  return `${folderOf(source)}${source[lastSeparator(source)] ?? '/'}${fileStem(source)}${suffix}.sbd`;
+}
+
+/** Copies a project beside itself, for Open a copy when another computer has it open. */
+export function copyBeside(source: string, label: string, driver: SqlDriver): Promise<string> {
+  return copyToFree(source, driver, (attempt) => copyPath(source, label, attempt));
 }

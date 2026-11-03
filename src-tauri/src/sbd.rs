@@ -6,12 +6,48 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Connection, OpenFlags, TransactionBehavior};
 use serde::Deserialize;
 use serde_json::{Map, Number, Value as Json};
 use tauri::State;
+
+use crate::lock::{self, Holder, Lock, Machine};
+
+/// The refusal when a sync replaced or rewrote the file while it was open. src/core/storage/driver.ts has the same
+/// text, so the page can tell this apart from any other failure and reopen the new version.
+pub const CHANGED_ON_DISK: &str =
+    "The project file changed on disk since Storiiboard last saved it.";
+
+/// What the file on disk looked like after this app's last write. If any of it changes, someone else wrote the file:
+/// usually a sync service putting a newer version from another computer in its place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Fingerprint {
+    len: u64,
+    modified: Option<SystemTime>,
+    /// Device and inode, which change when a file is replaced by a rename. Windows has no stable equivalent in std,
+    /// and its sync services can't rename over a file SQLite has open, so size and time cover it there.
+    id: Option<(u64, u64)>,
+}
+
+fn fingerprint(path: &Path) -> Result<Fingerprint, String> {
+    // A file that's gone was replaced or deleted under us: the same refusal.
+    let meta = fs::metadata(path).map_err(|_| CHANGED_ON_DISK.to_string())?;
+    #[cfg(unix)]
+    let id = {
+        use std::os::unix::fs::MetadataExt;
+        Some((meta.dev(), meta.ino()))
+    };
+    #[cfg(not(unix))]
+    let id = None;
+    Ok(Fingerprint {
+        len: meta.len(),
+        modified: meta.modified().ok(),
+        id,
+    })
+}
 
 /// One statement in a batch: SQL with `?` placeholders, and its parameters.
 #[derive(Debug, Deserialize)]
@@ -34,6 +70,9 @@ pub type Row = Map<String, Json>;
 pub struct SbdFile {
     conn: Connection,
     path: PathBuf,
+    fingerprint: Fingerprint,
+    /// Held while the project is open; dropping the file drops the lock, which removes it.
+    lock: Option<Lock>,
 }
 
 impl SbdFile {
@@ -111,13 +150,46 @@ impl SbdFile {
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(text)?;
         Ok(Self {
+            fingerprint: fingerprint(path)?,
             conn,
             path: path.to_path_buf(),
+            lock: None,
         })
     }
 
-    /// Runs every statement in one transaction: all of them land, or none do.
+    /// Writes this computer's lock next to the project (see lock.rs). Best effort: a read-only folder gets none.
+    pub fn take_lock(&mut self, machine: &Machine) {
+        self.lock = Lock::take(&self.path, machine, lock::now_ms());
+    }
+
+    pub fn refresh_lock(&mut self) -> Result<(), String> {
+        match &mut self.lock {
+            Some(lock) => lock.refresh(lock::now_ms()),
+            None => Ok(()),
+        }
+    }
+
+    /// Refuses to go on if the file isn't the one this app last wrote: writing to it would either land in a file a
+    /// sync has already replaced (and vanish on close) or mix two computers' edits in one database.
+    fn check_unchanged(&self) -> Result<(), String> {
+        if fingerprint(&self.path)? == self.fingerprint {
+            Ok(())
+        } else {
+            Err(CHANGED_ON_DISK.into())
+        }
+    }
+
+    /// Runs every statement in one transaction: all of them land, or none do. First it checks that the file is still
+    /// the one this app last wrote; afterwards it records the file as this write left it, even after a rollback, since
+    /// SQLite may have touched the file either way.
     pub fn tx(&mut self, statements: &[Statement]) -> Result<Vec<usize>, String> {
+        self.check_unchanged()?;
+        let result = self.run_tx(statements);
+        self.fingerprint = fingerprint(&self.path)?;
+        result
+    }
+
+    fn run_tx(&mut self, statements: &[Statement]) -> Result<Vec<usize>, String> {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -161,6 +233,8 @@ impl SbdFile {
     /// raw file copy isn't. Only the file name comes from the caller, and it must be one of this project's own
     /// backup names, so a copy can never land anywhere else or overwrite anything.
     pub fn backup(&self, kind: BackupKind, file_name: &str) -> Result<PathBuf, String> {
+        // A copy of a file a sync has replaced would back up the old version as if it were current.
+        self.check_unchanged()?;
         let dest = match kind {
             BackupKind::Scheduled => {
                 if !is_backup_name(self.stem()?, file_name) {
@@ -329,6 +403,14 @@ struct Files {
 }
 
 impl OpenFiles {
+    /// Closes every open project, which removes their lock files. Quitting ends the process without running the
+    /// page's close, so the app calls this on exit; otherwise another computer would see the project as still open.
+    pub fn close_all(&self) {
+        if let Ok(mut files) = self.0.lock() {
+            files.open.clear();
+        }
+    }
+
     fn add(&self, file: SbdFile) -> Result<u32, String> {
         let mut files = self
             .0
@@ -360,13 +442,39 @@ impl OpenFiles {
 // The commands are async so a slow disk or a large backup never blocks the window's main thread.
 
 #[tauri::command]
-pub async fn sbd_create(files: State<'_, OpenFiles>, path: String) -> Result<u32, String> {
-    files.add(SbdFile::create(Path::new(&path))?)
+pub async fn sbd_create(
+    files: State<'_, OpenFiles>,
+    machine: State<'_, Machine>,
+    path: String,
+) -> Result<u32, String> {
+    let mut file = SbdFile::create(Path::new(&path))?;
+    file.take_lock(&machine);
+    files.add(file)
 }
 
 #[tauri::command]
-pub async fn sbd_open(files: State<'_, OpenFiles>, path: String) -> Result<u32, String> {
-    files.add(SbdFile::open(Path::new(&path))?)
+pub async fn sbd_open(
+    files: State<'_, OpenFiles>,
+    machine: State<'_, Machine>,
+    path: String,
+) -> Result<u32, String> {
+    let mut file = SbdFile::open(Path::new(&path))?;
+    file.take_lock(&machine);
+    files.add(file)
+}
+
+/// Another computer that has this project open now, asked before opening it (null when none does).
+#[tauri::command]
+pub async fn sbd_lock_holder(
+    machine: State<'_, Machine>,
+    path: String,
+) -> Result<Option<Holder>, String> {
+    Ok(lock::holder(Path::new(&path), &machine, lock::now_ms()))
+}
+
+#[tauri::command]
+pub async fn sbd_lock_refresh(files: State<'_, OpenFiles>, handle: u32) -> Result<(), String> {
+    files.with(handle, |file| file.refresh_lock())
 }
 
 #[tauri::command]
@@ -470,6 +578,97 @@ mod tests {
         assert!(SbdFile::create(&path).is_err());
         assert!(SbdFile::open(&dir.join("Missing.sbd")).is_err());
         assert!(SbdFile::create(&dir.join("notes.txt")).is_err());
+    }
+
+    #[test]
+    fn keeps_writing_through_its_own_edits() {
+        let dir = temp_dir("own-writes");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        for lens in [24, 35, 50, 85] {
+            file.tx(&[statement(
+                "INSERT INTO shots VALUES (?1, ?2)",
+                vec![Json::from(format!("4-{lens}")), Json::from(lens)],
+            )])
+            .unwrap();
+        }
+        // A failed transaction is ours too: the next one still goes through.
+        assert!(file
+            .tx(&[statement("INSERT INTO nowhere VALUES (1)", vec![])])
+            .is_err());
+        file.tx(&[statement("DELETE FROM shots WHERE lens = 24", vec![])])
+            .unwrap();
+    }
+
+    #[test]
+    fn stops_writing_when_a_sync_puts_another_file_in_its_place() {
+        let dir = temp_dir("replaced");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        // The way sync services deliver a newer version: write it beside the file, then rename it over.
+        drop(new_file(&dir, "incoming.sbd"));
+        fs::rename(dir.join("incoming.sbd"), dir.join("Bey County.sbd")).unwrap();
+
+        let error = file
+            .tx(&[statement("INSERT INTO shots VALUES ('4A', 35)", vec![])])
+            .err()
+            .unwrap();
+        assert_eq!(error, CHANGED_ON_DISK);
+        assert_eq!(
+            file.backup(BackupKind::Scheduled, "Bey County 2026-11-03 09-00.sbd")
+                .err()
+                .unwrap(),
+            CHANGED_ON_DISK
+        );
+    }
+
+    #[test]
+    fn stops_writing_when_something_else_rewrites_the_file() {
+        let dir = temp_dir("rewritten");
+        let mut file = new_file(&dir, "Pilot.sbd");
+        let mut other = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("Pilot.sbd"))
+            .unwrap();
+        other.write_all(&[0; 4096]).unwrap();
+        drop(other);
+        assert_eq!(
+            file.tx(&[statement("INSERT INTO shots VALUES ('1A', 50)", vec![])])
+                .err()
+                .unwrap(),
+            CHANGED_ON_DISK
+        );
+    }
+
+    #[test]
+    fn stops_writing_when_the_file_is_gone() {
+        let dir = temp_dir("gone");
+        let mut file = new_file(&dir, "Pilot.sbd");
+        fs::remove_file(dir.join("Pilot.sbd")).unwrap();
+        assert_eq!(
+            file.tx(&[statement("INSERT INTO shots VALUES ('1A', 50)", vec![])])
+                .err()
+                .unwrap(),
+            CHANGED_ON_DISK
+        );
+    }
+
+    #[test]
+    fn locks_the_project_while_it_is_open() {
+        let dir = temp_dir("lock");
+        let laptop = Machine {
+            id: "laptop".into(),
+            name: "Kevin's MacBook Pro".into(),
+        };
+        let studio = Machine {
+            id: "studio".into(),
+            name: "Studio iMac".into(),
+        };
+        let path = dir.join("Bey County.sbd");
+        let mut file = SbdFile::create(&path).unwrap();
+        file.take_lock(&studio);
+        let holder = lock::holder(&path, &laptop, lock::now_ms()).unwrap();
+        assert_eq!(holder.computer, "Studio iMac");
+        drop(file);
+        assert_eq!(lock::holder(&path, &laptop, lock::now_ms()), None);
     }
 
     #[test]

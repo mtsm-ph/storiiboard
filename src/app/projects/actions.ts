@@ -1,14 +1,15 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { ProjectState } from '../../core/model/project';
 import { tauriAppData } from '../../core/storage/appData';
+import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { copyBackup } from '../../core/storage/openBackup';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
 import { tauriDriver } from '../../core/storage/tauriDriver';
 import { clearNotice, showNotice } from '../notice';
-import { createProjectFile, openProjectFile, type OpenFileOptions } from '../openFiles';
+import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
 import { projectStore } from '../projectStore';
-import { pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
+import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
 import { createRecentStore } from './recentStore';
 
 // What the Projects screen and the switcher do. Projects live on disk, so this is the desktop app's alone: the
@@ -24,13 +25,40 @@ export const files: OpenFileOptions = {
   store: projectStore,
   driver: tauriDriver,
   recent: tauriAppData,
+  askWhenLocked,
   backups: {
     keep: () => loadSettings().backups,
     onError: (error) => {
-      showNotice(`The last backup didn’t complete. ${error instanceof Error ? error.message : String(error)}`);
+      // A backup refused because a sync replaced the file is handled like a refused edit: reopen the new version.
+      if (error instanceof Error && error.message === CHANGED_ON_DISK) projectStore.setState({ changedOnDisk: true });
+      else showNotice(`The last backup didn’t complete. ${error instanceof Error ? error.message : String(error)}`);
     },
   },
 };
+
+let reopening = false;
+
+/**
+ * After a write was refused because a sync put a newer version of the file in place (most likely edited on another
+ * computer): open that version, and say what happened. The refused change was never written.
+ */
+export async function reopenChangedProject(): Promise<void> {
+  const path = projectStore.getState().project?.file.path;
+  if (!path || reopening) return;
+  reopening = true;
+  try {
+    await reopenProjectFile(path, files);
+    showNotice(
+      'This project changed on disk, most likely from another computer, so Storiiboard opened the newest version. ' +
+        'Your last change wasn’t saved; please make it again.',
+    );
+  } catch (error) {
+    showNotice(error);
+  } finally {
+    reopening = false;
+    await recentStore.getState().refresh();
+  }
+}
 
 /** Runs an action; on failure the reason shows as a notice, on success any old notice goes. Recent is re-read. */
 async function attempt(action: () => Promise<void>): Promise<void> {

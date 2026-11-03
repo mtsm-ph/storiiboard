@@ -1,7 +1,8 @@
 import type { StoreApi } from 'zustand/vanilla';
 import type { AppDataStore } from '../core/storage/appData';
 import type { BackupOptions } from '../core/storage/backups';
-import type { SqlDriver } from '../core/storage/driver';
+import type { LockHolder, SqlDriver } from '../core/storage/driver';
+import { copyBeside } from '../core/storage/openBackup';
 import { fileName } from '../core/storage/paths';
 import { createProject, openProject, type Project } from '../core/storage/project';
 import type { ProjectState } from './projectStore';
@@ -15,7 +16,15 @@ export interface OpenFileOptions {
   driver: SqlDriver;
   recent?: AppDataStore;
   backups?: BackupOptions;
+  /**
+   * Asked when another computer has the project open (its lock file is fresh). Left out, the project opens anyway,
+   * as it would for someone who chose Open anyway.
+   */
+  askWhenLocked?: (holder: LockHolder, path: string) => Promise<LockedChoice>;
 }
+
+/** Open a copy (safe: a separate project), open anyway (edits may end up in two conflicting copies), or cancel. */
+export type LockedChoice = 'copy' | 'anyway' | 'cancel';
 
 /** A failure to open, worded for the person: which file, and why. */
 export class OpenFileError extends Error {
@@ -34,7 +43,30 @@ export class OpenFileError extends Error {
  */
 export async function openProjectFile(path: string, options: OpenFileOptions): Promise<void> {
   if (options.store.getState().project?.file.path === path) return;
-  await replaceWith(path, options, openProject);
+  await openChecked(path, options);
+}
+
+/**
+ * Opens the project at `path` again, even though it's the one open: after a sync replaced the file, this loads the
+ * newer version. The old connection, still on the replaced file, closes once the new one is open.
+ */
+export async function reopenProjectFile(path: string, options: OpenFileOptions): Promise<void> {
+  await openChecked(path, options);
+}
+
+async function openChecked(path: string, options: OpenFileOptions): Promise<void> {
+  const holder = options.askWhenLocked ? await options.driver.lockHolder(path) : null;
+  const choice = holder && options.askWhenLocked ? await options.askWhenLocked(holder, path) : 'anyway';
+  if (choice === 'cancel') return;
+  let target = path;
+  if (choice === 'copy') {
+    try {
+      target = await copyBeside(path, 'copy', options.driver);
+    } catch (error) {
+      throw new OpenFileError(path, error);
+    }
+  }
+  await replaceWith(target, options, openProject);
 }
 
 /** Makes a new project at `path` and opens it in place of the open one. It never overwrites an existing file. */
