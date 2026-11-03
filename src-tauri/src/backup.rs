@@ -119,6 +119,18 @@ pub fn flush(file: &fs::File) {
     }
 }
 
+/// How long a partial copy is taken to be in use after it was last written: a finished copy still syncing to disk
+/// after letting go of the project (back_up) writes nothing new for a while, but it isn't a leftover yet.
+pub const IN_USE: Duration = Duration::from_secs(10 * 60);
+
+/// Whether a file was written in the last ten minutes, or claims a time still to come (a clock set back, or another
+/// computer's ahead, in a synced folder), so it may still be in use.
+pub fn recently_written(path: &Path) -> bool {
+    fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .is_ok_and(|at| at.elapsed().map_or(true, |age| age < IN_USE))
+}
+
 /// Where a full copy is written until it's complete.
 pub fn partial_path(dest: &Path) -> PathBuf {
     let mut name = dest.file_name().unwrap_or_default().to_os_string();
@@ -156,8 +168,18 @@ impl Copying {
     /// OpenFiles' mutex and declares its copy before its connection, so the copy drops first.
     pub unsafe fn start(source: &Connection, dest_path: &Path) -> Result<Self, String> {
         let path = partial_path(dest_path);
-        // Left by a copy that was cut off; it was never a backup.
+        // One still being written may be a finished copy syncing after a close and reopen: left alone, or its rename
+        // would give this unfinished one the backup's name. An older one was cut off and never was a backup.
+        if recently_written(&path) {
+            return Err("A backup with that name is still being written.".into());
+        }
         let _ = fs::remove_file(&path);
+        // Made new here, refusing a file that appeared since, before SQLite opens it as an empty database.
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(text)?;
         let partial = Partial {
             dest: Some(Connection::open(&path).map_err(text)?),
             path,
