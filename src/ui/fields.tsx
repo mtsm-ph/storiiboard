@@ -16,7 +16,7 @@ export function TextField({ label, mono = false, type = 'text', ...rest }: TextF
         type={type}
         className={cx(
           // ink/70 keeps placeholders at AA on the oatmeal well in both themes; the kit's muted would not.
-          'h-8 w-full border border-ink bg-oatmeal px-2.5 text-[13px] text-ink placeholder:text-ink/70',
+          'h-8 w-full border border-text bg-surface-raised px-2.5 text-[13px] text-text placeholder:text-text/70',
           mono && 'font-mono',
         )}
         {...rest}
@@ -39,7 +39,7 @@ export function Select({ label, mono = false, children, ...rest }: SelectProps) 
       <span className="relative flex">
         <select
           className={cx(
-            'h-8 w-full appearance-none border border-ink bg-paper pr-7 pl-2 text-[13px] text-ink',
+            'h-8 w-full appearance-none border border-text bg-bg pr-7 pl-2 text-[13px] text-text',
             mono && 'font-mono',
           )}
           {...rest}
@@ -103,19 +103,19 @@ export function Slider<T extends number | string>({
           }}
           className="peer absolute inset-0 z-10 m-0 w-full cursor-pointer opacity-0"
         />
-        <div aria-hidden="true" className="absolute inset-x-0 top-[10px] border-t border-ink" />
+        <div aria-hidden="true" className="absolute inset-x-0 top-[10px] border-t border-text" />
         <div aria-hidden="true" className="absolute inset-x-0 top-1 flex h-1.5 justify-between">
           {stops.map((stop) => (
-            <span key={String(stop)} className="w-[1.5px] bg-ink" />
+            <span key={String(stop)} className="w-[1.5px] bg-text" />
           ))}
         </div>
         <div
           aria-hidden="true"
-          className="absolute top-[3px] -ml-1.5 h-4 w-3 border border-ink bg-paper peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink"
+          className="absolute top-[3px] -ml-1.5 h-4 w-3 border border-text bg-bg peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-text"
           style={{ left: `${String(percent)}%` }}
         />
       </div>
-      <div aria-hidden="true" className="flex justify-between font-mono text-[10px] text-muted">
+      <div aria-hidden="true" className="flex justify-between font-mono text-[10px] text-text-muted">
         {stops.map((stop) => (
           <span key={String(stop)}>{String(stop)}</span>
         ))}
@@ -147,9 +147,9 @@ export function BarGauge({ label, value, max = 100 }: BarGaugeProps) {
         aria-valuemax={max}
         aria-valuenow={clamped}
         aria-valuetext={`${String(percent)}%`}
-        className="flex h-4 border border-ink"
+        className="flex h-4 border border-text"
       >
-        <div className="bg-ink" style={{ width: `${String(percent)}%` }} />
+        <div className="bg-text" style={{ width: `${String(percent)}%` }} />
       </div>
     </div>
   );
@@ -180,11 +180,11 @@ export function Toggle({ label, checked, onChange, disabled = false }: TogglePro
           onChange(!checked);
         }}
         className={cx(
-          'flex h-5 w-10 shrink-0 items-center border border-ink p-0 disabled:border-dashed disabled:opacity-60',
-          checked ? 'justify-end bg-ink' : 'justify-start',
+          'flex h-5 w-10 shrink-0 items-center border border-text p-0 disabled:border-dashed disabled:opacity-60',
+          checked ? 'justify-end bg-text' : 'justify-start',
         )}
       >
-        <span aria-hidden="true" className={cx('size-3.5', checked ? 'mr-[1.5px] bg-ink-inverse' : 'ml-[1.5px] bg-ink')} />
+        <span aria-hidden="true" className={cx('size-3.5', checked ? 'mr-[1.5px] bg-text-inverse' : 'ml-[1.5px] bg-text')} />
       </button>
     </div>
   );

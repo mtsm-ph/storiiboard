@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: not started; it begins in plan mode, once Kevin approves the plan |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.1 |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -16,7 +16,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
-| 1 · Storyboard | **Next**, planning first |
+| 1 · Storyboard | **Current**, building |
 | 2 · Video and images | Not started |
 | 3 · Production data | Not started |
 | 4 · Call sheets | Not started |
@@ -26,6 +26,42 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
+
+### Phase 1 milestones
+
+Plan approved Nov 2, 2026 (one panel per shot; numbers follow board order until Lock numbers; storyboard before
+themes). One PR per milestone, each into `v2`.
+
+| Milestone | PR | State |
+|---|---|---|
+| 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | In review |
+| 1.2 Write check and hidden lock file; second-computer warning | | Not started |
+| 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | | Not started |
+| 1.4 Local backups for synced projects (by file id), Show backups, setting; online backup API | | Not started |
+| 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |
+| 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | | Not started |
+| 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | | Not started |
+| 1.8 Frame inspector | | Not started |
+| 1.9 Shot list and Strip views | | Not started |
+| 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
+| 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
+| 1.12 Drag to reorder; "/" menu | | Not started |
+| 1.13 Sketching | | Not started |
+| 1.14 Theme generator | | Not started |
+| 1.15 Theme switching, Follow project | | Not started |
+| 1.16 Onboarding and Settings → Theme | | Not started |
+| 1.17 Script import: Fountain and FDX | | Not started |
+| 1.18 Script import: PDF | | Not started |
+| 1.19 Custom fields on shots | | Not started |
+| 1.20 Trash tile | | Not started |
+| 1.21 Empty Trash | | Not started |
+| 1.22 History tile | | Not started |
+| 1.23 Named versions (schema 4) and Open version | | Not started |
+| 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
+| 1.25 PDF storyboard | | Not started |
+
+Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
+a PDF.
 
 ### Phase 0 milestones
 

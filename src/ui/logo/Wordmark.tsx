@@ -25,13 +25,13 @@ export function Wordmark({ height = 24, label = 'Storiiboard', className }: Word
     >
       {WORDMARK_LETTERS.map((d, i) => (
         // A fixed list of letters, so the position is a stable key.
-        <path key={i} d={d} className="fill-ink" />
+        <path key={i} d={d} className="fill-text" />
       ))}
       {/* The two I's: orange bars, each with a round dot above. Fixed colours in every theme. */}
-      <rect x={273.57} y={-72.75} width={20} height={72.75} className="fill-accent" />
-      <circle cx={283.57} cy={-94.25} r={11.5} className="fill-accent" />
-      <rect x={298.57} y={-72.75} width={20} height={72.75} className="fill-accent" />
-      <circle cx={308.57} cy={-94.25} r={11.5} className="fill-accent" />
+      <rect x={273.57} y={-72.75} width={20} height={72.75} className="fill-brand" />
+      <circle cx={283.57} cy={-94.25} r={11.5} className="fill-brand" />
+      <rect x={298.57} y={-72.75} width={20} height={72.75} className="fill-brand" />
+      <circle cx={308.57} cy={-94.25} r={11.5} className="fill-brand" />
     </svg>
   );
 }

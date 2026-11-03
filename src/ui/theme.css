@@ -6,22 +6,50 @@
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 /*
- * The kit's Tailwind names. design/tokens/tailwind.preset.js is a Tailwind v3 preset and the app runs v4, so it is
- * restated here; src/ui/tokens.test.ts fails if a preset key goes missing. "inline" makes utilities read the
- * --sb-* variables directly, so every class follows data-theme.
+ * Two layers of colour (docs/PLAN.md, A · Per-project theming).
+ *
+ * 1. Semantic tokens, below: the ten colours a project theme sets. The default theme reads them from the kit's
+ *    variables (design/tokens/tokens.css, kept an exact copy of the kit), so light and dark follow data-theme. A
+ *    project theme overrides these ten and nothing else.
+ * 2. Fixed tokens: colours that mean the same in every project. Signal Orange on the logo (brand), warning, golden
+ *    hour (highlight), the department tags, and the fixed paper and ink text on tags and chips.
+ *
+ * Components paint only with the Tailwind names in @theme, never with hex values or the kit's --sb-* names.
  */
+:root {
+  --bg: var(--sb-paper);
+  --surface: var(--sb-panel);
+  --surface-raised: var(--sb-oatmeal);
+  --border: var(--sb-rule);
+  --border-top: var(--sb-rule-top);
+  --text: var(--sb-ink);
+  --text-muted: var(--sb-muted);
+  --text-inverse: var(--sb-ink-inverse);
+  /* The default theme's accent (decided Nov 2). The kit's --sb-accent stays Signal Orange, the brand. */
+  --accent: #df5e27;
+  --accent-contrast: var(--sb-on-accent);
+}
+
+/* Fixed: Signal Orange, the logo's colour in every project. Never the accent (DESIGN.md, Logo). */
+:root {
+  --brand: var(--sb-accent);
+}
+
+/* "inline" makes utilities read the variables directly, so every class follows data-theme and a project theme. */
 @theme inline {
   --color-*: initial;
-  --color-paper: var(--sb-paper);
-  --color-oatmeal: var(--sb-oatmeal);
-  --color-panel: var(--sb-panel);
-  --color-ink: var(--sb-ink);
-  --color-ink-inverse: var(--sb-ink-inverse);
-  --color-muted: var(--sb-muted);
-  --color-rule: var(--sb-rule);
-  --color-rule-top: var(--sb-rule-top);
-  --color-accent: var(--sb-accent);
-  --color-on-accent: var(--sb-on-accent);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-top: var(--border-top);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  /* Fixed: never themed. */
+  --color-brand: var(--brand);
   --color-warning: var(--sb-warning);
   --color-highlight: var(--sb-highlight);
   --color-dept-camera: var(--sb-dept-camera);
@@ -29,7 +57,7 @@
   --color-dept-art: var(--sb-dept-art);
   --color-dept-wardrobe: var(--sb-dept-wardrobe);
   --color-dept-sound: var(--sb-dept-sound);
-  /* Not in the kit's preset: text that keeps its colour in both themes, on department tags and chips. */
+  /* Text that keeps its colour in both themes, on department tags and chips. */
   --color-paper-fixed: #eee9df;
   --color-ink-fixed: var(--sb-on-accent);
 
@@ -73,8 +101,8 @@
   }
 
   body {
-    background-color: var(--sb-paper);
-    color: var(--sb-ink);
+    background-color: var(--bg);
+    color: var(--text);
     font-family: var(--sb-font-ui);
     font-size: 14px;
     line-height: 1.5;
@@ -92,9 +120,14 @@
 
   /* Ink, never orange (orange is reserved). Controls filled with ink or orange recolour the ring so it shows. */
   :focus-visible {
-    outline: 2px solid var(--sb-ink);
+    outline: 2px solid var(--text);
     outline-offset: 2px;
   }
+}
+
+/* The kit's grain class fills with --sb-paper; the app's background follows the theme instead. */
+.sb-grain {
+  background-color: var(--bg);
 }
 
 /* A tile or splitter drag is under way (src/app/shell/docking/textSelection.ts). */

@@ -26,13 +26,13 @@ export function SegmentedControl<T extends string>({
   const labelId = useId();
   return (
     <div className={cx('flex', size === 'md' ? 'flex-col gap-[5px]' : 'items-center gap-2')}>
-      <span id={labelId} className={cx('sb-label', size === 'sm' && 'text-muted')}>
+      <span id={labelId} className={cx('sb-label', size === 'sm' && 'text-text-muted')}>
         {label}
       </span>
       <div
         role="radiogroup"
         aria-labelledby={labelId}
-        className="grid border border-ink"
+        className="grid border border-text"
         style={{ gridTemplateColumns: `repeat(${String(options.length)}, minmax(0, 1fr))` }}
       >
         {options.map((option, i) => {
@@ -55,10 +55,10 @@ export function SegmentedControl<T extends string>({
               className={cx(
                 'sb-label focus-visible:-outline-offset-4',
                 size === 'md' ? 'h-[30px] px-3' : 'h-[18px] px-2',
-                i > 0 && 'border-l border-ink',
+                i > 0 && 'border-l border-text',
                 // Selection is an ink fill, never orange. Focus always lands on the selected cell, so its ring
                 // flips to ink-inverse: an ink ring on an ink fill would be invisible.
-                selected ? 'bg-ink text-ink-inverse focus-visible:outline-ink-inverse' : 'text-ink',
+                selected ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'text-text',
               )}
             >
               {option.label}

@@ -6,16 +6,16 @@ export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'warning';
 const VARIANT: Record<ButtonVariant, string> = {
   // Orange is reserved for primary actions; text on it is always ink. Dark mode edges it in orange rather than
   // paper, as the kit's dark boards do.
-  primary: 'border border-ink bg-accent text-on-accent dark:enabled:border-accent',
-  secondary: 'border border-ink text-ink',
-  ghost: 'text-ink underline underline-offset-3',
+  primary: 'border border-text bg-accent text-accent-contrast dark:enabled:border-accent',
+  secondary: 'border border-text text-text',
+  ghost: 'text-text underline underline-offset-3',
   // Truffle text falls below AA on the dark panel (2.1:1), so dark mode keeps the outline with paper text.
-  warning: 'border border-warning text-warning dark:text-ink',
+  warning: 'border border-warning text-warning dark:text-text',
 };
 
 // Disabled controls are exempt from AA contrast, which is what lets the kit's oatmeal-and-muted style stand.
 const DISABLED =
-  'disabled:border disabled:border-dashed disabled:border-muted disabled:bg-oatmeal disabled:text-muted disabled:no-underline';
+  'disabled:border disabled:border-dashed disabled:border-text-muted disabled:bg-surface-raised disabled:text-text-muted disabled:no-underline';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -68,11 +68,11 @@ export function IconButton({ label, size = 'md', className, children, type = 'bu
       aria-label={label}
       title={label}
       className={cx(
-        'inline-flex shrink-0 items-center justify-center text-ink',
+        'inline-flex shrink-0 items-center justify-center text-text',
         // Title-bar buttons are 24px, WCAG 2.2's smallest target, where the kit draws 22px: side by side, 22px ones
         // are too small to hit reliably, and on a borderless button the extra 2px doesn't show. They sit against the
         // tile's clipped top edge, so their ring is drawn inside.
-        size === 'md' ? 'size-[34px] border border-ink' : 'size-[24px] focus-visible:-outline-offset-2',
+        size === 'md' ? 'size-[34px] border border-text' : 'size-[24px] focus-visible:-outline-offset-2',
         DISABLED,
         className,
       )}

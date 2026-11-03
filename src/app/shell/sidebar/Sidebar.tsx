@@ -58,15 +58,15 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
 
   return (
     // The sidebar keeps paper outlines in dark, like the top bar: together they're the guiding board.
-    <nav aria-label="Sections" className="flex w-sidebar shrink-0 flex-col border-r border-rule-top">
-      <div className="h-11 shrink-0 border-b border-rule-top">
+    <nav aria-label="Sections" className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
+      <div className="h-11 shrink-0 border-b border-border-top">
         <Menu
           label={
             <>
               {/* The project's accent; the name beside it is the second cue. */}
               <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent" />
               <span className="sr-only">Project: </span>
-              <span className={cx('truncate', projectName === null && 'text-muted')}>{projectName ?? 'No project open'}</span>
+              <span className={cx('truncate', projectName === null && 'text-text-muted')}>{projectName ?? 'No project open'}</span>
             </>
           }
           buttonClassName="sb-label flex h-full w-full items-center gap-2 px-4 text-left focus-visible:-outline-offset-4"
@@ -131,7 +131,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
         {workspaces.map((workspace, i) => {
           const active = workspace.id === activeId;
           return (
-            <li key={workspace.id} className="border-b border-rule-top">
+            <li key={workspace.id} className="border-b border-border-top">
               <button
                 id={sectionId(workspace.id)}
                 type="button"
@@ -149,10 +149,10 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   // since the dark theme's paper ink is only 2.9:1 on orange. Sections still to come are muted
                   // until hovered: muted text never sits on oatmeal.
                   active
-                    ? 'bg-accent font-bold text-on-accent focus-visible:outline-on-accent'
+                    ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast'
                     : workspace.phase === null
-                      ? 'text-ink hover:bg-oatmeal'
-                      : 'text-muted hover:bg-oatmeal hover:text-ink',
+                      ? 'text-text hover:bg-surface-raised'
+                      : 'text-text-muted hover:bg-surface-raised hover:text-text',
                 )}
               >
                 {workspace.label}

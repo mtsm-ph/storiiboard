@@ -222,7 +222,7 @@
 - Accessible: everything keyboard reachable, labels on icon buttons, AA contrast.
 
 ## Design
-- Full rules: [design/DESIGN.md](design/DESIGN.md); values: design/tokens. Build from src/ui components and token classes; no hex values in components.
+- Full rules: [design/DESIGN.md](design/DESIGN.md); values: design/tokens. Build from src/ui components and the semantic token classes (bg-surface, text-text-muted…); no hex values or --sb-* names in components.
 - Feel: a technical film poster printed on paper. Boxed tiles, 1.5px rules, 10px uppercase mono labels, gauges, bold type.
 - Light: paper #EEE9DF with grain, oatmeal #C9C1B1 for wells and selected rows, ink #16150F, muted #5E5A52.
 - Dark (data-theme="dark" on <html>): abyssal #1B2632, panels #2C3B4D, paper text, muted #A9B2BC; tile outlines #0E151C; the top bar keeps paper outlines.
@@ -234,7 +234,7 @@
 - Inter Tight for UI; JetBrains Mono for every technical value (lens mm, T-stop, shot and scene numbers, times, timecode).
 - No radius and no shadow inside the app. Tiles: 26px title bar, 8px gaps; 44px top bar, 248px sidebar, 24px status bar.
 - The S mark stands alone, never with the wordmark; solid S at 32px and below; never recolour the dots.
-- AA: muted text never sits on oatmeal; focus rings are ink, never orange (on an ink fill use ink-inverse, on orange use on-accent); orange marks always pair with a second cue.
+- AA: muted text never sits on oatmeal; focus rings are ink, never orange (on an ink fill use text-inverse, on orange use accent-contrast); orange marks always pair with a second cue.
 - Fonts are bundled in src/ui/fonts; never load fonts from Google or any CDN.
 
 ## Workflow

@@ -18,7 +18,7 @@ interface SMarkProps {
 
 export function SMark({
   size = 32,
-  inline = 'var(--sb-paper)',
+  inline = 'var(--bg)',
   label = 'Storiiboard',
   decorative = false,
   className,
@@ -30,18 +30,18 @@ export function SMark({
       {/* The dots are always Signal Orange; never recolour them. */}
       {small ? (
         <>
-          <path d={S_PATH} fill="none" className="stroke-ink" strokeWidth={24} />
-          <circle cx={79} cy={33} r={13.5} className="fill-accent" />
-          <circle cx={21} cy={85} r={13.5} className="fill-accent" />
+          <path d={S_PATH} fill="none" className="stroke-text" strokeWidth={24} />
+          <circle cx={79} cy={33} r={13.5} className="fill-brand" />
+          <circle cx={21} cy={85} r={13.5} className="fill-brand" />
         </>
       ) : (
         <>
-          <path d={S_PATH} fill="none" className="stroke-ink" strokeWidth={22} />
-          <circle cx={79} cy={33} r={12.5} className="fill-accent" />
-          <circle cx={21} cy={85} r={12.5} className="fill-accent" />
+          <path d={S_PATH} fill="none" className="stroke-text" strokeWidth={22} />
+          <circle cx={79} cy={33} r={12.5} className="fill-brand" />
+          <circle cx={21} cy={85} r={12.5} className="fill-brand" />
           <path d={S_PATH} fill="none" strokeWidth={2.6} style={{ stroke: inline }} />
-          <circle cx={79} cy={33} r={5.6} className="fill-accent" strokeWidth={2.6} style={{ stroke: inline }} />
-          <circle cx={21} cy={85} r={5.6} className="fill-accent" strokeWidth={2.6} style={{ stroke: inline }} />
+          <circle cx={79} cy={33} r={5.6} className="fill-brand" strokeWidth={2.6} style={{ stroke: inline }} />
+          <circle cx={21} cy={85} r={5.6} className="fill-brand" strokeWidth={2.6} style={{ stroke: inline }} />
         </>
       )}
     </svg>

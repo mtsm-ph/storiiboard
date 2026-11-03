@@ -22,3 +22,16 @@ test('app shell loads with its heading and bundled fonts', async ({ page }) => {
   expect(loaded).toEqual(expect.arrayContaining(['Inter Tight', 'JetBrains Mono']));
   expect(external).toEqual([]);
 });
+
+// The accent belongs to the theme and the logo's orange to the brand (DESIGN.md, Colour), so a project theme can
+// change one without the other.
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the active section uses the theme accent, and the logo keeps Signal Orange (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto('/');
+    const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ });
+    expect(await section.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(223, 94, 39)');
+    const dot = page.getByRole('banner').locator('svg circle').first();
+    expect(await dot.evaluate((el) => getComputedStyle(el).fill)).toBe('rgb(224, 97, 43)');
+  });
+}

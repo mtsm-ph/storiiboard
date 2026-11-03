@@ -13,7 +13,7 @@ export function ProjectHome() {
   const record = useProject((s) => (projectId ? s.records[projectId] : undefined));
   const apply = useProject((s) => s.apply);
   const error = useProject((s) => s.error);
-  if (!record) return <p className="sb-label p-3 text-muted">No project open.</p>;
+  if (!record) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   return (
     <ProjectFields
       record={record}
@@ -76,7 +76,7 @@ export function ProjectFields({ record, error, onChange }: ProjectFieldsProps) {
               onBlur={(event) => {
                 commit('notes', event.currentTarget.value, notes);
               }}
-              className="w-full border border-ink bg-oatmeal px-2.5 py-2 text-[13px] text-ink"
+              className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text"
             />
           </div>
           {error && (

@@ -87,7 +87,7 @@ export function AppShell() {
   }, [workspaceId]);
 
   return (
-    <div className="sb-grain flex h-full flex-col text-ink">
+    <div className="sb-grain flex h-full flex-col text-text">
       <TopBar projectName={projectTitle} workspace={workspace} />
       <div className="flex min-h-0 flex-1">
         <Sidebar
@@ -114,7 +114,7 @@ export function AppShell() {
             </div>
           )}
           {!showProjects && projectState === 'archived' && (
-            <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-ink px-3 py-1.5">
+            <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
               <p className="text-[13px]">
                 This project is archived: it’s off the switcher and under Archived on the Projects screen. It stays
                 editable.

@@ -60,11 +60,11 @@ export function Tile({
     <section
       aria-label={title}
       data-stack-id={stackId}
-      className={cx('flex min-h-0 min-w-0 flex-col overflow-hidden border border-rule bg-panel', className)}
+      className={cx('flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface', className)}
       style={style}
     >
       <div
-        className={cx('flex h-titlebar shrink-0 items-center gap-2 border-b border-rule pr-1 pl-2', drag && 'touch-none select-none')}
+        className={cx('flex h-titlebar shrink-0 items-center gap-2 border-b border-border pr-1 pl-2', drag && 'touch-none select-none')}
         onPointerDown={(event) => {
           // The title bar drags the tile, except from its own buttons (the grip is the one that does).
           const button = (event.target as HTMLElement).closest('button');
@@ -89,7 +89,7 @@ export function Tile({
         <span className="sb-label shrink-0 font-bold">
           {String(index).padStart(2, '0')} / {title}
         </span>
-        {meta !== undefined && <span className="sb-label shrink-0 text-muted">{meta}</span>}
+        {meta !== undefined && <span className="sb-label shrink-0 text-text-muted">{meta}</span>}
 
         {hasTabs && (
           // Stretched to the title bar's content box, so the open tab stops at the rule instead of covering it.
@@ -113,11 +113,11 @@ export function Tile({
                     if (nextTab) onTabChange?.(nextTab.id);
                   }}
                   className={cx(
-                    'sb-label flex items-center border-r border-rule px-2.5 focus-visible:-outline-offset-4',
+                    'sb-label flex items-center border-r border-border px-2.5 focus-visible:-outline-offset-4',
                     i === 0 && 'border-l',
                     // Muted text never sits on oatmeal (3.8:1), so the open tab switches to ink. Bold is the second
                     // cue: the oatmeal fill alone sits too close to the panel to mark which tab is open.
-                    open ? 'bg-oatmeal font-bold text-ink' : 'text-muted',
+                    open ? 'bg-surface-raised font-bold text-text' : 'text-text-muted',
                   )}
                 >
                   {tab.label}

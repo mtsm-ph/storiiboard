@@ -17,15 +17,15 @@ interface TopBarProps {
 export function TopBar({ projectName, workspace }: TopBarProps) {
   const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
   return (
-    <header className="flex h-topbar shrink-0 items-center border-b border-rule-top">
+    <header className="flex h-topbar shrink-0 items-center border-b border-border-top">
       <h1 className="sr-only">Storiiboard</h1>
-      <div className="flex h-full items-center border-r border-rule-top px-4">
+      <div className="flex h-full items-center border-r border-border-top px-4">
         <SMark size={24} decorative />
       </div>
       <span
         className={cx(
-          'sb-label flex h-full items-center border-r border-rule-top px-4',
-          projectName === null && 'text-muted',
+          'sb-label flex h-full items-center border-r border-border-top px-4',
+          projectName === null && 'text-text-muted',
         )}
       >
         {projectName ?? 'No project open'}
@@ -36,7 +36,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
         <Menu
           align="right"
           label="Project"
-          buttonClassName="sb-label flex h-full items-center border-l border-rule-top px-4 focus-visible:-outline-offset-4"
+          buttonClassName="sb-label flex h-full items-center border-l border-border-top px-4 focus-visible:-outline-offset-4"
         >
           {(close) => (
             <>

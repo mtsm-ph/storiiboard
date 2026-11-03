@@ -78,7 +78,7 @@ export function Menu({ label, align = 'left', buttonClassName, panelClassName, c
           className={cx(
             // Never past the status bar: a long list (Open tile) scrolls rather than covering its controls.
             'absolute top-full z-50 max-h-[calc(100dvh_-_var(--sb-topbar)_-_var(--sb-statusbar)_-_8px)] w-64 overflow-y-auto',
-            'border border-rule-top bg-panel focus-visible:outline-offset-0',
+            'border border-border-top bg-surface focus-visible:outline-offset-0',
             align === 'right' ? 'right-0' : 'left-0',
             panelClassName,
           )}
@@ -92,7 +92,7 @@ export function Menu({ label, align = 'left', buttonClassName, panelClassName, c
 
 export const menuItemClass =
   // Muted text never sits on oatmeal (DESIGN.md), so only commands that work light up on hover.
-  'sb-label flex w-full items-center gap-2 border-b border-rule px-3 py-2 text-left enabled:hover:bg-oatmeal disabled:text-muted';
+  'sb-label flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left enabled:hover:bg-surface-raised disabled:text-text-muted';
 
 /**
  * A command whose phase hasn't come. It stays focusable (aria-disabled rather than disabled), so keyboard and
@@ -100,7 +100,7 @@ export const menuItemClass =
  */
 export function ComingItem({ label, phase }: { label: string; phase: string }) {
   return (
-    <button type="button" aria-disabled="true" className={cx(menuItemClass, 'cursor-default text-muted enabled:hover:bg-transparent')}>
+    <button type="button" aria-disabled="true" className={cx(menuItemClass, 'cursor-default text-text-muted enabled:hover:bg-transparent')}>
       {label}
       <span className="ml-auto">{phase}</span>
     </button>
