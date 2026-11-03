@@ -83,13 +83,16 @@ function expectClose(actual: Rgba | undefined, expected: readonly number[], tole
 
 /**
  * The engines the app ships on manage colour: WebKit on a Mac and Chromium (WebView2 on Windows) apply a picture's
- * profile and draw in P3. WebKit on Linux, which CI also runs, decodes pictures without their profiles; there the
- * colour tests check only that storing a picture adds no shift of its own, read in sRGB.
+ * profile and draw in P3. WebKit on Linux, which CI also runs, decodes pictures into sRGB, so a P3 photo's widest
+ * colours are clipped before they reach the canvas; there the P3 test checks only that storing adds no shift of its own.
  */
 const ships = (browserName: string) => browserName === 'chromium' || process.platform === 'darwin';
 
-function noteUnmanaged() {
-  test.info().annotations.push({ type: 'colour', description: 'This engine ignores colour profiles; checked only that storing adds no shift.' });
+function noteClipped() {
+  test.info().annotations.push({
+    type: 'colour',
+    description: 'This engine decodes into sRGB, so P3 colour is clipped before storing; checked only that storing adds no shift.',
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -98,12 +101,12 @@ test.beforeEach(async ({ page }) => {
 
 test('a Display P3 photo keeps its full colour', async ({ page, browserName }) => {
   const result = await prepare(page, 'IMG_P3.jpg', 'image/jpeg', fixture('p3-red.jpg'));
-  const managed = result.engineP3 && distance(result.source.p3[0], [255, 0, 0]) <= 4;
-  if (ships(browserName)) expect({ engineP3: result.engineP3, managed }).toEqual({ engineP3: true, managed: true });
+  const keepsP3 = result.engineP3 && distance(result.source.p3[0], [255, 0, 0]) <= 4;
+  if (ships(browserName)) expect({ engineP3: result.engineP3, keepsP3 }).toEqual({ engineP3: true, keepsP3: true });
   expect(result.colorSpace).toBe(result.engineP3 ? 'display-p3' : 'srgb');
   // P3 red stays P3 red. Squeezed into sRGB on the way, it would come back about (234, 51, 35) here.
-  if (managed) expectClose(result.stored.p3[0], [255, 0, 0]);
-  else noteUnmanaged();
+  if (keepsP3) expectClose(result.stored.p3[0], [255, 0, 0]);
+  else noteClipped();
   expectClose(result.stored.srgb[0], result.source.srgb[0] ?? []);
   expect([result.mime, result.width, result.height]).toEqual(['image/jpeg', 64, 48]);
 });
@@ -116,14 +119,14 @@ test('an sRGB picture comes out the same colour', async ({ page }) => {
 
 test('an Adobe RGB picture is converted, not read as if it were sRGB', async ({ page, browserName }) => {
   const result = await prepare(page, 'scan.jpg', 'image/jpeg', fixture('adobe-rgb.jpg'));
-  // With its profile applied, (60, 170, 90) in Adobe RGB is a different sRGB colour; ignored, it comes through as is.
+  // A muted green, (110, 160, 100) in Adobe RGB, is (78, 161, 96) in sRGB; with the profile ignored, it would come
+  // through as (110, 160, 100). It sits well inside sRGB, so no channel clips on the way.
   const source = result.source.srgb[0] ?? [0, 0, 0, 0];
-  const managed = distance(source, [60, 170, 90]) > 4;
+  const managed = distance(source, [110, 160, 100]) > 4;
   if (ships(browserName)) expect(managed, 'the engine applies the picture’s profile').toBe(true);
+  if (managed) expectClose(source, [78, 161, 96]);
   expectClose(result.stored.srgb[0], source);
-  // Read in P3 only where the engine manages colour; without it, P3 readings near the edge of the gamut wander.
-  if (managed && result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
-  if (!managed) noteUnmanaged();
+  if (result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
 });
 
 test('a phone photo taken upright stays upright', async ({ page }) => {
