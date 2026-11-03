@@ -114,6 +114,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   and up, filling the row, with the picture at the project's aspect ratio and a strip below: the shot number in bold
   mono, the spec ("MCU · 35MM · T2.0") in mono, and the status shape at the right. Each group ends with a dashed
   "+ Frame" card the height of its neighbours.
+- **Pictures:** a frame's picture fills it at the project's aspect ratio, cropped on its long side until it's framed in
+  the inspector. Drop pictures on a frame to set its picture, or on a scene (or its + Frame card) for new frames; while
+  a drag is over it, the frame or scene shows a dashed ink box and says what the drop will do. ⌘V pastes into the
+  selected frame; "+ Pictures…" in the tile's header adds a frame per picture. A missing picture says "Picture
+  missing" in the warning colour.
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
 - **Keyboard:** the board is one Tab stop. Arrows move through frames and + Frame cards across scenes; Home and End go
@@ -126,10 +131,13 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   Departments; the selected row takes the selected-row fill with the accent marker at its left edge and the ink chip
   on its number, and its cells go ink (muted text never sits on oatmeal). The board's keys work in every view.
 - **Frame inspector:** the shot number large in mono over "SC 04 · INT. PENN STATION — DAY", then sections under
-  10px labels: Camera (size as a segmented control, lens mm, T-stop in thirds, support, height, move), Status (Have,
-  Need, Source), Story (action, dialogue), Departments (tags in their colours when on, dashed outlines when off),
-  then the scene (number, name, INT/EXT, time, length) and the links still to come with their phase. Typed fields save
-  when left or on Enter; pickers save on change. Enter on a frame goes to the inspector; Escape comes back.
+  10px labels: Picture (the frame-shaped framing well: drag, or arrows, + and −, 0; a Zoom slider with its percentage
+  in mono; Centre; the file's name and path in mono; Choose picture… or Replace…, and Remove), Camera (size as a
+  segmented control, lens mm, T-stop in thirds, support, height, move), Status (Have, Need, Source), Story (action,
+  dialogue), Departments (tags in their colours when on, dashed outlines when off), then the scene (number, name,
+  INT/EXT, time, length) and the links still to come with their phase. Typed fields save when left or on Enter;
+  pickers save on change; the framing saves when it's let go. Enter on a frame goes to the inspector; Escape comes
+  back.
 
 ## Bird's-eye plan
 - **Icons:** 68 top-down icons on a 32px grid with a 1.5px ink stroke, filled with the department colour (see `05_Plan_Icons/INDEX.md`).

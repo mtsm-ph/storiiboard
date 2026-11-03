@@ -222,6 +222,16 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | status | `have`, `need`, `source` | A new frame is `need` |
 | shot | action, dialogue | text | |
 | shot | departments | array of department ids | src/core/model/department.ts |
+| shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
+| shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
+
+**Frame pictures** (1.11, src/features/storyboard/framePictures.ts). A frame's picture is a `media` record under its
+shot, and the shot's `media_id` names it. Replacing or removing the picture trashes that media record in the same op
+group, so undo brings it back and the bytes stay for History. Several pictures dropped or pasted at once land in one
+op group, so one undo takes back the drop. The picture always fills the frame at the project's aspect ratio: at zoom 1
+it just covers it, cropped on its long side; `zoom` goes up to 4; `x` and `y` (0 to 1, across and down) are the point
+of the picture at the frame's centre. A reader clamps the crop, so the picture never leaves a gap, even after the
+aspect ratio changes. src/core/media/crop.ts does the arithmetic.
 
 **Shot numbers** (src/core/model/shotNumbers.ts). A shot is its scene's number plus a letter: A to Z, skipping I and
 O unless the project allows them, then AA, AB. While a scene is unlocked, its numbers follow the board, so adding,
