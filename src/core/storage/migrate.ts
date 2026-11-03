@@ -8,6 +8,11 @@ export interface Migration {
   version: number;
   description: string;
   statements: readonly Statement[];
+  /**
+   * Statements worked out from the file's data, for a change SQL alone can't express. Read before the transaction,
+   * at the old schema; they run after `statements`, in the same transaction.
+   */
+  backfill?: (file: ProjectFile, now: () => Date) => Promise<readonly Statement[]>;
 }
 
 export interface MigrationResult {
@@ -88,7 +93,8 @@ export async function migrate(file: ProjectFile, options: MigrateOptions): Promi
     await file.backup('migration', backup);
   }
   for (const migration of migrations.slice(from)) {
-    await file.tx([...migration.statements, setMeta('schema_version', String(migration.version), now())]);
+    const backfill = (await migration.backfill?.(file, now)) ?? [];
+    await file.tx([...migration.statements, ...backfill, setMeta('schema_version', String(migration.version), now())]);
   }
   return { from, to: latest, backup };
 }

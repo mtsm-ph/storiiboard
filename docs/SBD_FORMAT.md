@@ -22,9 +22,10 @@ schema change is recorded here, and the schema changes only with Kevin's approva
 - JSON columns are text that holds a JSON value.
 - Colours are `#RRGGBB` text.
 
-## Schema v1 (milestone 0.4)
+## Schema v2 (milestone 0.4, History made append-only after 0.5)
 
-All three tables are `STRICT`, so SQLite enforces the column types. JSON columns are checked with `json_valid`. Kinds
+Schema v1 (0.4) had meta, records and ops. v2 adds op_groups and drops `ops.state`, so the log is only ever appended
+to (see Change log). Every table is `STRICT`, so SQLite enforces the column types. JSON columns are checked with `json_valid`. Kinds
 and states aren't checked by SQLite: changing a CHECK means rebuilding the table, and later phases add op kinds.
 
 ### meta
@@ -34,8 +35,8 @@ and states aren't checked by SQLite: changing a CHECK means rebuilding the table
 | key | text, unique | |
 | value | text | |
 
-Keys: `schema_version` (1); `app_version`, the app that last opened the file; and `undo_cursor`, written from 0.5 (a
-missing cursor reads as 0).
+Keys: `schema_version` (2), and `app_version`, the app that last opened the file. v1 files written by 0.5 also had
+`undo_cursor`; schema 2 removes it, since the undo position now lives in op_groups.
 
 ### records
 
@@ -61,31 +62,59 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 
 | Column | Type | Notes |
 |---|---|---|
-| seq | integer, unique | Order of the log, which UUIDs can't give |
-| group_id | text | One user action; undo and redo move a whole group |
+| seq | integer, unique | Order of the log, which UUIDs can't give. It follows the order of the groups: every op in a group has a higher seq than every op in earlier groups |
+| group_id | text | The op group it belongs to (op_groups.id) |
 | record_id | text | |
-| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` |
+| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), or `revert` (set back by a restore group). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
 | author | text | `local` for now |
 | timestamp | text | When the edit happened |
-| state | text | `applied`, `undone`, or `discarded` (a redo tail dropped by a new edit) |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
 
-How undo and redo use it (milestone 0.5):
+### op_groups (schema 2)
 
-- One user action is one op group, and its record writes, op rows and `undo_cursor` commit in one transaction. That
+One row per op group: one user action, or one undo, redo or restore.
+
+| Column | Type | Notes |
+|---|---|---|
+| seq | integer, unique | Order of the groups |
+| kind | text | `edit`, `undo`, `redo` or `restore` |
+| target_group_id | text, null | For `undo` and `redo`: the group undone or redone |
+| restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
+| stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
+| undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
+| author | text | `local` for now |
+| timestamp | text | When it happened |
+
+Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,
+`undo_top` and `redo_top` all point at op_groups rows; an edit's or restore's `undo_top` is the row itself.
+`stack_below`, `undo_top` and `redo_top` are worked out from the log as each group is written: they thread the undo and
+redo stacks through it, so ⌘Z reads two rows instead of replaying every group.
+
+### How undo, redo and restore use the log
+
+The log is append-only: no op or op_groups row is ever changed or deleted, except by Empty Trash (below).
+
+- One user action is one `edit` group. Its record writes, op rows and group row commit in one transaction. That
   transaction is the autosave.
-- Undo takes the newest `applied` group, writes each record's `before` back (deleting records the group created) and
-  marks the group `undone`. Redo takes the oldest `undone` group and writes `after`.
-- A new edit after an undo marks every `undone` op `discarded`, so it can't be redone.
-- `undo_cursor` in meta is the seq of the last applied op, 0 when there is none.
+- Undo is a new `undo` group for the newest group's `undo_top`. Its ops write each record's `before` back (deleting
+  records the group created), so each one swaps the undone op's before and after.
+- Redo is a new `redo` group for the newest group's `redo_top`. Its ops write `after` again, so they copy the redone
+  group's ops.
+- A new edit or restore empties the redo stack (`redo_top` null), as in every editor. The undone groups stay in the
+  log, and a restore can still bring them back.
+- Restore to point P (any group, or the project as created) is a new `restore` group. For each record touched after
+  P, the `before` of its first op after P is its state at P, since every record write goes through the log. Records
+  that already match are left out, and a restore with nothing to change writes no group. Undo reverses a restore like
+  any edit.
+- The project record is written with the file, not as an op, so neither undo nor a restore to the start can remove it.
 
-The ops table is the project's History. It's kept for the life of the project: undo, the History panel, named versions
+The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back. Only Empty Trash removes data from it.
 
-The media and thumbnail tables come in a later migration, in the phase that first stores images (schema 2, below).
+The media and thumbnail tables come in a later migration, in the phase that first stores images (schema 3, below).
 
 ## Trash
 
@@ -131,7 +160,7 @@ Changing any of them is an op, so it undoes and shows in History.
 
 - The tokens are stored, not recomputed when the project opens, so a newer generator never changes an approved look.
   Regenerate in Settings → Theme recomputes them on purpose.
-- A project with no `theme` uses the default theme. The schema 2 migration writes the default theme into older files,
+- A project with no `theme` uses the default theme. The schema 3 migration writes the default theme into older files,
   so every file states its theme.
 
 ## Migrations (milestone 0.4)
@@ -247,16 +276,16 @@ Importing:
 
 ## Planned changes
 
-### Schema 2: media (Phase 1, project themes)
+### Schema 3: media (Phase 1, project themes)
 
 The project's logo or key image is the first image the file stores, so the media and thumbnail tables arrive with
 project themes. The tables are designed in that milestone, with Kevin's approval. The migration also writes the default
 theme into projects that have none.
 
-### Schema 3: named versions (Phase 1, History)
+### Schema 4: named versions (Phase 1, History)
 
-A named version is a named point in History, not a copy. Open version copies the project, undoes every op after that
-point in the copy, and opens the copy as a separate project, as Open backup does.
+A named version is a named point in History, not a copy. Open version copies the project, restores the copy to that
+point, and opens the copy as a separate project, as Open backup does.
 
 `versions`
 
@@ -264,12 +293,12 @@ point in the copy, and opens the copy as a separate project, as Open backup does
 |---|---|---|
 | name | text | "Board sent to client" |
 | note | text, null | |
-| op_seq | integer | The last op included |
+| op_group_id | text | The last op group included (op_groups.id) |
 | created_by | text | |
 
 Versions are kept until someone deletes them.
 
-### Schema 4: notification read state (Phase 3)
+### Schema 5: notification read state (Phase 3)
 
 The notification feed isn't stored: like every rollup, it's computed from ops, suggestions and comments. What is stored
 is each person's read state, in two tables.
@@ -300,9 +329,10 @@ is each person's read state, in two tables.
 | Schema | Milestone | Change |
 |---|---|---|
 | 1 | 0.4 | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
-| 2 | Phase 1 (planned) | Media and thumbnails, for the project's logo; default theme written into older projects |
-| 3 | Phase 1 (planned) | Named versions: `versions` |
-| 4 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
+| 2 | 0.5b | Append-only History: `op_groups`; `ops.state` and `meta.undo_cursor` removed. Each v1 `undone` or `discarded` mark becomes an `undo` group where that undo must have happened, and `ops.seq` is renumbered to follow the groups |
+| 3 | Phase 1 (planned) | Media and thumbnails, for the project's logo; default theme written into older projects |
+| 4 | Phase 1 (planned) | Named versions: `versions` |
+| 5 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

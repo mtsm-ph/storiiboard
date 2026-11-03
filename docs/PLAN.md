@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: D2 in review |
+| Phase 0 state | Building: D2 and 0.5b in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -39,7 +39,8 @@ One PR per milestone, each into `v2`.
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | #5 | Done |
 | 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | #7 | Done |
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | #8 | Done |
-| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | `phase0/d2-docking` | In review |
+| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | In review |
+| 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | In review |
 | D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
 | 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
@@ -68,6 +69,10 @@ Phase 0 calls, Nov 1 and 2, 2026:
   undo for the session from the Layout menu (Undo layout change, per workspace); ⌘Z undoes project edits only, and
   survives restarts (Kevin, Nov 2). The four workspaces stay until D3 makes them the sidebar sections.
   Custom workspaces (+ Workspace, Save as…, Duplicate, Manage) wait for D3, since the sidebar fixes the set.
+- Undo never destroys history (Kevin, Nov 2): the edit log is append-only. Undo, redo and restore are op groups of
+  their own, linked to the group they undo, redo or restore to; a new edit after an undo ends the redo stack, but the
+  undone work stays and can be restored. Restore to any point is built in 0.5b with tests; the History panel that
+  lists every step and restores from any point stays in Phase 1. The schema change (schema 2) was approved.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
   default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is
@@ -464,7 +469,7 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
 - The computed tokens are stored rather than recomputed, so a newer generator never changes an approved look.
   Settings → Theme has Regenerate.
 - Theme changes are ops, so they undo.
-- A project without an image gets the default theme, and the schema 2 migration writes it into older files.
+- A project without an image gets the default theme, and the schema 3 migration writes it into older files.
 
 ### B · Project onboarding
 

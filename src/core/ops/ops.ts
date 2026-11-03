@@ -1,13 +1,34 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
 import type { ProjectFile, Row, Statement } from '../storage/driver';
-import { setMeta } from '../storage/migrate';
 
 // Every change to a project is an operation (CLAUDE.md, Edits, undo and autosave). One user action is one op group:
-// its record changes, its op rows and the undo cursor commit in a single transaction, which is the autosave. Each op
+// its record changes, its op rows and its group row commit in a single transaction, which is the autosave. Each op
 // keeps the whole record before and after, so undo writes "before" back and redo writes "after", with no per-kind
 // inverse to get wrong.
+//
+// The log is append-only: undo, redo and restore are op groups of their own, written like any edit, and no op or
+// group row is ever changed or deleted. So nothing a person did is lost, not even work undone and then edited over:
+// restoreTo can bring back the project as it was after any group.
 
-export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore';
+/** `revert` is a record set back to an earlier point by restoreTo. Undo and redo rows keep the kind they reverse. */
+export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert';
+
+/** What one op group was: an edit, or one of the three ways of going back and forth through the log. */
+export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore';
+
+export interface OpGroup {
+  id: string;
+  seq: number;
+  kind: GroupKind;
+  /** For undo and redo: the group undone or redone. */
+  targetGroupId: string | null;
+  /** For restore: the group whose end state the project went back to, or null for the project as created. */
+  restoreTo: string | null;
+  author: string;
+  timestamp: string;
+  /** How many records the group wrote. */
+  opCount: number;
+}
 
 export type Change =
   | {
@@ -33,10 +54,11 @@ export type Touched = Map<string, SbdRecord | null>;
 
 const RECORD_COLUMNS = 'id, type, parent_id, sort_key, props, trashed_at, trashed_by, created_at, updated_at';
 
+const text = (value: Row[string] | undefined) => (value === null || value === undefined ? null : String(value));
+
 function fromRow(row: Row): SbdRecord {
   const type = row.type;
   if (!isRecordType(type)) throw new Error(`Unknown record type "${String(type)}".`);
-  const text = (value: Row[string]) => (value === null ? null : String(value));
   return {
     id: String(row.id),
     type,
@@ -136,18 +158,85 @@ function changed(change: Change, before: SbdRecord | null, at: string, author: s
 
 const changeId = (change: Change) => (change.kind === 'create' ? change.record.id : change.id);
 
+interface PendingOp {
+  recordId: string;
+  kind: OpKind;
+  before: SbdRecord | null;
+  after: SbdRecord | null;
+}
+
+/** The undo and redo stacks as they stand after the newest group: the next group ⌘Z and ⌘⇧Z would take. */
+interface Tops {
+  undoTop: string | null;
+  redoTop: string | null;
+}
+
+async function tops(file: ProjectFile): Promise<Tops> {
+  const [row] = await file.query('SELECT undo_top, redo_top FROM op_groups ORDER BY seq DESC LIMIT 1');
+  return { undoTop: text(row?.undo_top), redoTop: text(row?.redo_top) };
+}
+
+interface GroupRow extends Tops {
+  kind: GroupKind;
+  targetGroupId?: string | null;
+  restoreTo?: string | null;
+  /**
+   * The stacks are linked lists threaded through the log, so ⌘Z never replays it. On an edit or restore: the group
+   * ⌘Z takes once this one is undone. On an undo: the group ⌘⇧Z takes once the undone group is redone.
+   */
+  stackBelow: string | null;
+}
+
+/** Writes the records, the op rows and the group row in one transaction. Nothing already in the log is touched. */
+async function commit(file: ProjectFile, group: GroupRow, ops: readonly PendingOp[], author: string, at: string): Promise<string> {
+  const groupId = crypto.randomUUID();
+  const [top] = await file.query(
+    'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
+  );
+  const firstSeq = Number(top?.op ?? 0) + 1;
+  const records = new Map<string, SbdRecord | null>();
+  for (const op of ops) records.set(op.recordId, op.after);
+  await file.tx([
+    ...[...records].map(([id, record]) => write(id, record)),
+    {
+      sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
+        timestamp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        groupId,
+        Number(top?.grp ?? 0) + 1,
+        group.kind,
+        group.targetGroupId ?? null,
+        group.restoreTo ?? null,
+        group.stackBelow,
+        // An edit or restore becomes the top of the undo stack itself; its id only exists here.
+        group.kind === 'edit' || group.kind === 'restore' ? groupId : group.undoTop,
+        group.redoTop,
+        author,
+        at,
+        at,
+        at,
+      ],
+    },
+    ...ops.map((op, i) => ({
+      sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at,
+        updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [crypto.randomUUID(), firstSeq + i, groupId, op.recordId, op.kind, snapshot(op.before), snapshot(op.after), author, at, at, at],
+    })),
+  ]);
+  return groupId;
+}
+
 /**
- * Applies one user action as one op group. Anything undone before it can no longer be redone: those ops are marked
- * discarded, as in every editor. Resolves once the group is on disk.
+ * Applies one user action as one op group. A new edit ends the redo stack, as in every editor, but the undone groups
+ * stay in the log and restoreTo can still bring them back. Resolves once the group is on disk.
  */
 export async function apply(file: ProjectFile, changes: readonly Change[], options: OpOptions = {}): Promise<Touched> {
   const { author = 'local', now = () => new Date() } = options;
   if (changes.length === 0) return new Map();
   const at = now().toISOString();
-  const groupId = crypto.randomUUID();
 
   const state: Touched = new Map();
-  const ops: { recordId: string; kind: OpKind; before: SbdRecord | null; after: SbdRecord }[] = [];
+  const ops: PendingOp[] = [];
   for (const change of changes) {
     const id = changeId(change);
     const before = id === undefined ? null : state.has(id) ? (state.get(id) ?? null) : await getRecord(file, id);
@@ -156,69 +245,133 @@ export async function apply(file: ProjectFile, changes: readonly Change[], optio
     ops.push({ recordId: after.id, kind: change.kind, before, after });
   }
 
-  const [top] = await file.query('SELECT coalesce(max(seq), 0) AS seq FROM ops');
-  const firstSeq = Number(top?.seq ?? 0) + 1;
-  const lastSeq = firstSeq + ops.length - 1;
-  await file.tx([
-    { sql: "UPDATE ops SET state = 'discarded', updated_at = ? WHERE state = 'undone'", params: [at] },
-    ...[...state].map(([id, record]) => write(id, record)),
-    ...ops.map((op, i) => ({
-      sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, state, created_at,
-        updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'applied', ?, ?)`,
-      params: [crypto.randomUUID(), firstSeq + i, groupId, op.recordId, op.kind, snapshot(op.before), snapshot(op.after), author, at, at, at],
-    })),
-    setMeta('undo_cursor', String(lastSeq), now()),
-  ]);
+  const { undoTop } = await tops(file);
+  await commit(file, { kind: 'edit', stackBelow: undoTop, undoTop: null, redoTop: null }, ops, author, at);
   return state;
 }
 
-async function moveGroup(file: ProjectFile, direction: 'undo' | 'redo', now: () => Date): Promise<Touched | null> {
-  const undoing = direction === 'undo';
-  // Undo takes the newest applied group; redo the oldest undone one, so redo replays in the order things happened.
-  const [pick] = await file.query(
-    undoing
-      ? "SELECT group_id FROM ops WHERE state = 'applied' ORDER BY seq DESC LIMIT 1"
-      : "SELECT group_id FROM ops WHERE state = 'undone' ORDER BY seq ASC LIMIT 1",
+async function groupOps(file: ProjectFile, groupId: string): Promise<PendingOp[]> {
+  const rows = await file.query('SELECT record_id, kind, before, after FROM ops WHERE group_id = ? ORDER BY seq', [groupId]);
+  return rows.map((row) => ({
+    recordId: String(row.record_id),
+    kind: String(row.kind) as OpKind,
+    before: fromSnapshot(row.before),
+    after: fromSnapshot(row.after),
+  }));
+}
+
+const touchedBy = (ops: readonly PendingOp[]): Touched => new Map(ops.map((op) => [op.recordId, op.after]));
+
+/** Undoes the newest group on the undo stack, as a new undo group. Null when there's nothing to undo. */
+export async function undo(file: ProjectFile, options: OpOptions = {}): Promise<Touched | null> {
+  const { author = 'local', now = () => new Date() } = options;
+  const { undoTop, redoTop } = await tops(file);
+  if (undoTop === null) return null;
+  const [target] = await file.query('SELECT stack_below FROM op_groups WHERE id = ?', [undoTop]);
+  // Backwards through the group, each op swapped: the last write per record is its state before the group began.
+  const ops = (await groupOps(file, undoTop)).reverse().map((op) => ({ ...op, before: op.after, after: op.before }));
+  await commit(
+    file,
+    {
+      kind: 'undo',
+      targetGroupId: undoTop,
+      stackBelow: redoTop,
+      undoTop: text(target?.stack_below),
+      redoTop: undoTop,
+    },
+    ops,
+    author,
+    now().toISOString(),
   );
-  if (!pick) return null;
-  const groupId = String(pick.group_id);
+  return touchedBy(ops);
+}
+
+/** Redoes the group undone most recently, as a new redo group. Null when there's nothing to redo. */
+export async function redo(file: ProjectFile, options: OpOptions = {}): Promise<Touched | null> {
+  const { author = 'local', now = () => new Date() } = options;
+  const { redoTop } = await tops(file);
+  if (redoTop === null) return null;
+  // The redo stack beneath this group is what it was when the group was last undone.
+  const [lastUndo] = await file.query(
+    "SELECT stack_below FROM op_groups WHERE kind = 'undo' AND target_group_id = ? ORDER BY seq DESC LIMIT 1",
+    [redoTop],
+  );
+  const ops = await groupOps(file, redoTop);
+  await commit(
+    file,
+    {
+      kind: 'redo',
+      targetGroupId: redoTop,
+      stackBelow: null,
+      undoTop: redoTop,
+      redoTop: text(lastUndo?.stack_below),
+    },
+    ops,
+    author,
+    now().toISOString(),
+  );
+  return touchedBy(ops);
+}
+
+/**
+ * Brings the project back to how it was right after `groupId`, or as created when it's null, as one new restore
+ * group: undo takes it back like any edit. Any group can be the point, undone ones and earlier restores included.
+ * Null when the project is already that way.
+ */
+export async function restoreTo(file: ProjectFile, groupId: string | null, options: OpOptions = {}): Promise<Touched | null> {
+  const { author = 'local', now = () => new Date() } = options;
+  let lastSeq = 0;
+  if (groupId !== null) {
+    const [point] = await file.query(
+      'SELECT g.id, (SELECT coalesce(max(o.seq), 0) FROM ops o JOIN op_groups e ON e.id = o.group_id WHERE e.seq <= g.seq) AS last FROM op_groups g WHERE g.id = ?',
+      [groupId],
+    );
+    if (!point) throw new Error('That point is not in this project’s history.');
+    lastSeq = Number(point.last);
+  }
+  // Every write goes through the log, so a record's first op after the point starts from its state at the point.
   const rows = await file.query(
-    `SELECT seq, record_id, before, after FROM ops WHERE group_id = ? ORDER BY seq ${undoing ? 'DESC' : 'ASC'}`,
-    [groupId],
+    'SELECT record_id, before FROM ops WHERE seq IN (SELECT min(seq) FROM ops WHERE seq > ? GROUP BY record_id) ORDER BY seq',
+    [lastSeq],
   );
-
-  // Walking the group backwards for undo, the last write for a record is its state before the group began.
-  const state: Touched = new Map();
-  for (const row of rows) state.set(String(row.record_id), fromSnapshot(undoing ? row.before : row.after));
-
-  const [cursor] = await file.query(
-    undoing
-      ? "SELECT coalesce(max(seq), 0) AS seq FROM ops WHERE state = 'applied' AND group_id <> ?"
-      : 'SELECT max(seq) AS seq FROM ops WHERE group_id = ?',
-    [groupId],
+  const ops: PendingOp[] = [];
+  for (const row of rows) {
+    const recordId = String(row.record_id);
+    const before = await getRecord(file, recordId);
+    const after = fromSnapshot(row.before);
+    if (snapshot(before) !== snapshot(after)) ops.push({ recordId, kind: 'revert', before, after });
+  }
+  if (ops.length === 0) return null;
+  const { undoTop } = await tops(file);
+  await commit(
+    file,
+    { kind: 'restore', restoreTo: groupId, stackBelow: undoTop, undoTop: null, redoTop: null },
+    ops,
+    author,
+    now().toISOString(),
   );
-  const at = now().toISOString();
-  await file.tx([
-    ...[...state].map(([id, record]) => write(id, record)),
-    { sql: 'UPDATE ops SET state = ?, updated_at = ? WHERE group_id = ?', params: [undoing ? 'undone' : 'applied', at, groupId] },
-    setMeta('undo_cursor', String(Number(cursor?.seq ?? 0)), now()),
-  ]);
-  return state;
-}
-
-/** Undoes the last applied op group. Null when there's nothing to undo. Works across restarts: it's all on disk. */
-export function undo(file: ProjectFile, options: Pick<OpOptions, 'now'> = {}): Promise<Touched | null> {
-  return moveGroup(file, 'undo', options.now ?? (() => new Date()));
-}
-
-/** Redoes the op group undone first. Null when there's nothing to redo. */
-export function redo(file: ProjectFile, options: Pick<OpOptions, 'now'> = {}): Promise<Touched | null> {
-  return moveGroup(file, 'redo', options.now ?? (() => new Date()));
+  return touchedBy(ops);
 }
 
 export async function history(file: ProjectFile): Promise<{ canUndo: boolean; canRedo: boolean }> {
-  const [row] = await file.query(
-    "SELECT sum(state = 'applied') AS applied, sum(state = 'undone') AS undone FROM ops",
+  const { undoTop, redoTop } = await tops(file);
+  return { canUndo: undoTop !== null, canRedo: redoTop !== null };
+}
+
+/** Every op group, oldest first, undos, redos and restores included: what the History panel lists. */
+export async function log(file: ProjectFile): Promise<OpGroup[]> {
+  const rows = await file.query(
+    `SELECT g.id, g.seq, g.kind, g.target_group_id, g.restore_to, g.author, g.timestamp,
+      (SELECT count(*) FROM ops o WHERE o.group_id = g.id) AS op_count FROM op_groups g ORDER BY g.seq`,
   );
-  return { canUndo: Number(row?.applied ?? 0) > 0, canRedo: Number(row?.undone ?? 0) > 0 };
+  return rows.map((row) => ({
+    id: String(row.id),
+    seq: Number(row.seq),
+    kind: String(row.kind) as GroupKind,
+    targetGroupId: text(row.target_group_id),
+    restoreTo: text(row.restore_to),
+    author: String(row.author),
+    timestamp: String(row.timestamp),
+    opCount: Number(row.op_count),
+  }));
 }

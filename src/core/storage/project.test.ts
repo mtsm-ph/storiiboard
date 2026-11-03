@@ -5,6 +5,7 @@ import { nodeDriver } from './nodeDriver';
 import { fileName, fileStem } from './paths';
 import { createProject, openProject } from './project';
 import { forgetRecent, listRecent, MAX_RECENT, RECENT_FILE, rememberRecent } from './recent';
+import { SCHEMA_VERSION } from './migrations';
 import { makeTestFolder, type TestFolder } from './testFolder';
 
 function memoryStore(initial: Record<string, string> = {}): AppDataStore & { files: Record<string, string> } {
@@ -36,7 +37,7 @@ describe('projects', () => {
     const project = await createProject(path, { driver: nodeDriver, recent, now });
 
     expect(project.name).toBe('Bey County');
-    expect(project.migration).toEqual({ from: 0, to: 1, backup: null });
+    expect(project.migration).toEqual({ from: 0, to: SCHEMA_VERSION, backup: null });
     expect(await project.file.query("SELECT value FROM meta WHERE key = 'app_version'")).toEqual([{ value: version }]);
     expect(await listRecent(recent)).toEqual([{ path, name: 'Bey County', openedAt: '2026-11-02T14:05:00.000Z' }]);
     await project.close();
@@ -53,7 +54,7 @@ describe('projects', () => {
     await created.close();
 
     const opened = await openProject(path, { driver: nodeDriver, backups: false, now });
-    expect(opened.migration).toEqual({ from: 1, to: 1, backup: null });
+    expect(opened.migration).toEqual({ from: SCHEMA_VERSION, to: SCHEMA_VERSION, backup: null });
     expect(await opened.file.query("SELECT id FROM records WHERE type <> 'project'")).toEqual([{ id: 'scene-4' }]);
     expect(await opened.file.query("SELECT id FROM records WHERE type = 'project'")).toEqual([{ id: created.projectId }]);
     await opened.close();
