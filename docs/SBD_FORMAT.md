@@ -276,6 +276,7 @@ MIME type is `application/vnd.storiiboard.project`.
 | `<Project>.sbd` | The project | 0.4 | |
 | `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies | 0.4 | 12 plus one a day for 14 days |
 | `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` | Copy made before a migration | 0.4 | Never pruned |
+| `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
 | `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |

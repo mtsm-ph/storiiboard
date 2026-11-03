@@ -1,11 +1,10 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
-import { tauriAppData } from '../../core/storage/appData';
-import { command, tauriDriver } from '../../core/storage/tauriDriver';
+import { command } from '../../core/storage/tauriDriver';
 import { clearNotice, showNotice } from '../notice';
 import { openProjectFile } from '../openFiles';
-import { projectStore } from '../projectStore';
+import { files } from '../projects/actions';
 
 // .sbd files the OS asked the app to open (src-tauri/src/opened.rs). The queue is taken once when the page loads,
 // for the double-click that launched the app, and again on every event, for one while it runs.
@@ -19,7 +18,7 @@ export function useOpenedFiles(): void {
       const last = (await command<string[]>('opened_files_take', {})).at(-1);
       if (last === undefined) return;
       try {
-        await openProjectFile(last, { store: projectStore, driver: tauriDriver, recent: tauriAppData });
+        await openProjectFile(last, files);
         clearNotice();
       } catch (error) {
         showNotice(error);

@@ -1,3 +1,5 @@
+import { DEFAULT_KEEP, type BackupKeep } from './backups';
+
 // App settings that belong to the person, not the project: they never go into a .sbd file.
 // They stay in the webview's localStorage, which the app keeps in its own data folder: public/theme-boot.js has to
 // read the theme synchronously before first paint, which a file behind a Rust command can't offer. Lists that other
@@ -7,12 +9,24 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 
 export interface Settings {
   theme: ThemePreference;
+  /** How many backups to keep (CLAUDE.md: both numbers are in Settings). */
+  backups: BackupKeep;
+}
+
+/** The ranges the Backups tile accepts. Keeping no recent copies would leave nothing to open. */
+export const KEEP_LIMITS = { recent: { min: 1, max: 500 }, days: { min: 0, max: 365 } } as const;
+
+function keepValue(value: unknown, field: keyof BackupKeep): number {
+  const { min, max } = KEEP_LIMITS[field];
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : DEFAULT_KEEP[field];
 }
 
 /** Read before first paint by public/theme-boot.js too; keep the two in step. */
 export const SETTINGS_KEY = 'storiiboard.settings';
 
-export const DEFAULT_SETTINGS: Settings = { theme: 'system' };
+export const DEFAULT_SETTINGS: Settings = { theme: 'system', backups: { ...DEFAULT_KEEP } };
 
 type Reader = Pick<Storage, 'getItem'>;
 type Writer = Pick<Storage, 'getItem' | 'setItem'>;
@@ -33,12 +47,17 @@ function isThemePreference(value: unknown): value is ThemePreference {
 export function loadSettings(storage: Reader | undefined = browserStorage()): Settings {
   try {
     const raw = storage?.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
+    if (!raw) return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP } };
     const parsed: unknown = JSON.parse(raw);
-    const theme = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).theme : undefined;
-    return { theme: isThemePreference(theme) ? theme : DEFAULT_SETTINGS.theme };
+    const saved = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+    const backups = typeof saved.backups === 'object' && saved.backups !== null ? (saved.backups as Record<string, unknown>) : {};
+    return {
+      theme: isThemePreference(saved.theme) ? saved.theme : DEFAULT_SETTINGS.theme,
+      // Each number falls back on its own, so one bad value never costs the other.
+      backups: { recent: keepValue(backups.recent, 'recent'), days: keepValue(backups.days, 'days') },
+    };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP } };
   }
 }
 

@@ -25,6 +25,7 @@ pub fn run() {
             sbd::sbd_create,
             sbd::sbd_open,
             sbd::sbd_close,
+            sbd::sbd_copy,
             sbd::sbd_tx,
             sbd::sbd_query,
             sbd::sbd_backup,

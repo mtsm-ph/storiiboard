@@ -1,6 +1,8 @@
 import { useId } from 'react';
 import type { Props, SbdRecord } from '../../core/model/record';
+import { PROJECT_STATE_LABEL, PROJECT_STATES, projectStateOf } from '../../core/model/project';
 import { TextField } from '../../ui/fields';
+import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
 
 // The Project tile in Settings: the project's title and notes, enough to edit real material, force-quit and undo
@@ -40,37 +42,49 @@ export function ProjectFields({ record, error, onChange }: ProjectFieldsProps) {
 
   return (
     <>
-      {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
-      <div key={record.updatedAt} className="flex max-w-[640px] flex-col gap-4 p-4">
-        <TextField
-          label="Title"
-          defaultValue={title}
-          onBlur={(event) => {
-            commit('title', event.currentTarget.value, title);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur();
+      <div className="flex max-w-[640px] flex-col gap-4 p-4">
+        {/* An op like any edit: archiving undoes with ⌘Z. It sits outside the keyed block below, so arrowing
+            through the states keeps focus on the control. */}
+        <SegmentedControl
+          label="State"
+          options={PROJECT_STATES.map((value) => ({ value, label: PROJECT_STATE_LABEL[value] }))}
+          value={projectStateOf(record.props)}
+          onChange={(state) => {
+            onChange({ state });
           }}
         />
-        <div className="flex flex-col gap-[5px]">
-          <label htmlFor={notesId} className="sb-label">
-            Notes
-          </label>
-          <textarea
-            id={notesId}
-            rows={10}
-            defaultValue={notes}
+        {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
+        <div key={record.updatedAt} className="flex flex-col gap-4">
+          <TextField
+            label="Title"
+            defaultValue={title}
             onBlur={(event) => {
-              commit('notes', event.currentTarget.value, notes);
+              commit('title', event.currentTarget.value, title);
             }}
-            className="w-full border border-ink bg-oatmeal px-2.5 py-2 text-[13px] text-ink"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
           />
+          <div className="flex flex-col gap-[5px]">
+            <label htmlFor={notesId} className="sb-label">
+              Notes
+            </label>
+            <textarea
+              id={notesId}
+              rows={10}
+              defaultValue={notes}
+              onBlur={(event) => {
+                commit('notes', event.currentTarget.value, notes);
+              }}
+              className="w-full border border-ink bg-oatmeal px-2.5 py-2 text-[13px] text-ink"
+            />
+          </div>
+          {error && (
+            <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+              {error}
+            </p>
+          )}
         </div>
-        {error && (
-          <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-            {error}
-          </p>
-        )}
       </div>
     </>
   );

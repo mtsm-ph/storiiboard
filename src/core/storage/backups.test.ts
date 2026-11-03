@@ -115,6 +115,21 @@ describe('the 5-minute schedule', () => {
     schedule.stop();
   });
 
+  it('reads the keep numbers at every run, so a change in Settings applies at once', async () => {
+    let keep = { recent: 3, days: 0 };
+    const schedule = await startBackups(file, { now: () => clock, keep: () => keep });
+    for (const minutes of [5, 10, 15]) {
+      await edit(`1${String(minutes)}`);
+      await fiveMinutes(schedule, minutes);
+    }
+    expect(await file.listBackups()).toHaveLength(3);
+    keep = { recent: 1, days: 0 };
+    await edit('1X');
+    await fiveMinutes(schedule, 20);
+    expect(await file.listBackups()).toEqual(['Bey 2026-11-02 09-20.sbd']);
+    schedule.stop();
+  });
+
   it('reports a failed backup and tries again next time', async () => {
     const errors: unknown[] = [];
     let failNext = true;

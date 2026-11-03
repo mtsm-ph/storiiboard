@@ -1,6 +1,9 @@
 import { cx } from '../../ui/cx';
 import { SMark } from '../../ui/logo/SMark';
-import { ComingItem, Menu } from '../../ui/Menu';
+import { projectStateOf } from '../../core/model/project';
+import { ComingItem, Menu, menuItemClass } from '../../ui/Menu';
+import { setProjectState } from '../projects/actions';
+import { useProject } from '../projectStore';
 import { LayoutMenu } from './docking/LayoutMenu';
 import type { Workspace } from './workspaces';
 
@@ -12,6 +15,7 @@ interface TopBarProps {
 // The top bar keeps paper-coloured outlines in dark mode (rule-top): with the sidebar it is the "guiding board".
 // Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name and the menus.
 export function TopBar({ projectName, workspace }: TopBarProps) {
+  const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
   return (
     <header className="flex h-topbar shrink-0 items-center border-b border-rule-top">
       <h1 className="sr-only">Storiiboard</h1>
@@ -34,12 +38,23 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
           label="Project"
           buttonClassName="sb-label flex h-full items-center border-l border-rule-top px-4 focus-visible:-outline-offset-4"
         >
-          {() => (
+          {(close) => (
             <>
               <ComingItem label="History" phase="Phase 1" />
               <ComingItem label="Watermark Settings" phase="Phase 1" />
               <ComingItem label="Export Project" phase="Phase 1" />
-              <ComingItem label="Archive Project" phase="0.7" />
+              {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}
+              <button
+                type="button"
+                className={menuItemClass}
+                disabled={state === null}
+                onClick={() => {
+                  close();
+                  void setProjectState(state === 'archived' ? 'active' : 'archived');
+                }}
+              >
+                {state === 'archived' ? 'Unarchive Project' : 'Archive Project'}
+              </button>
             </>
           )}
         </Menu>

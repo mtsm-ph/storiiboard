@@ -14,7 +14,7 @@ export interface BackupKeep {
   days: number;
 }
 
-/** Both numbers become settings in 0.7. */
+/** The defaults for both numbers, which people change in Settings (src/core/storage/settings.ts). */
 export const DEFAULT_KEEP: BackupKeep = { recent: 12, days: 14 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -99,7 +99,8 @@ export interface BackupRun {
 
 export interface BackupOptions {
   intervalMs?: number;
-  keep?: BackupKeep;
+  /** A function is read at every run, so a change in Settings applies without reopening the project. */
+  keep?: BackupKeep | (() => BackupKeep);
   now?: () => Date;
   /** A failed backup never stops the project; it's reported here so the app can show it. */
   onError?: (error: unknown) => void;
@@ -130,7 +131,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     // Two runs in the same minute (a manual one right after a scheduled one) share a name; the first copy stands.
     if (!existing.includes(name)) await file.backup('scheduled', name);
     backedUpAt = changes;
-    const deleted = backupsToDelete([...new Set([...existing, name])], stem, at, keep);
+    const deleted = backupsToDelete([...new Set([...existing, name])], stem, at, typeof keep === 'function' ? keep() : keep);
     for (const old of deleted) await file.deleteBackup(old);
     return { created: name, deleted };
   };

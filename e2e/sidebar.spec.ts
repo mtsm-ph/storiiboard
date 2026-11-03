@@ -17,7 +17,8 @@ test('lists the seven sections in order, each showing its phase, and opens one p
     'SetupPhase 5',
     'ProductionPhases 3–4',
     'MoodboardPhase 6',
-    'Settings0.7',
+    // Built in 0.7, so no phase.
+    'Settings',
   ]);
   await expect(section(page, 'Storyboard')).toHaveAttribute('aria-current', 'page');
 
@@ -76,10 +77,11 @@ test('the project menu and switcher show what each command waits for', async ({ 
     ['History', 'Phase 1'],
     ['Watermark Settings', 'Phase 1'],
     ['Export Project', 'Phase 1'],
-    ['Archive Project', '0.7'],
   ] as const) {
     await expect(page.getByRole('button', { name: `${name} ${phase}` })).toHaveAttribute('aria-disabled', 'true');
   }
+  // Archive Project is built; with no project open there's nothing to archive.
+  await expect(page.getByRole('button', { name: 'Archive Project' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Project', exact: true })).toBeFocused();
 
@@ -120,4 +122,21 @@ test('a tile maximizes to fill the workspace and restores', async ({ page }) => 
   await expect(page.getByRole('region', { name: 'Scenes' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Restore Storyboard' }).click();
   await expect(page.getByRole('region', { name: 'Scenes' })).toBeVisible();
+});
+
+test('the Backups tile keeps its settings for every project, across a reload, and refuses a bad number', async ({ page }) => {
+  await section(page, 'Settings').click();
+  const backups = page.getByRole('region', { name: 'Backups', exact: true });
+  const copies = backups.getByLabel('Keep the last');
+  await expect(copies).toHaveValue('12');
+  await copies.fill('20');
+  await copies.press('Enter');
+  const days = backups.getByLabel('Plus one a day for');
+  await days.fill('-3');
+  await days.press('Enter');
+  await expect(days).toHaveValue('14');
+
+  await page.reload();
+  await section(page, 'Settings').click();
+  await expect(page.getByRole('region', { name: 'Backups', exact: true }).getByLabel('Keep the last')).toHaveValue('20');
 });

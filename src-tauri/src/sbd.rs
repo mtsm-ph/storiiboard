@@ -62,6 +62,31 @@ impl SbdFile {
         )
     }
 
+    /// Copies a .sbd that isn't open here, such as a backup, to a new file, for Open backup: the person edits the
+    /// copy, never the backup, which pruning may delete later. The source is opened read-only and copied with
+    /// VACUUM INTO, so a copy is consistent even if another program has the source open. Refuses to overwrite.
+    pub fn copy(source: &Path, dest: &Path) -> Result<(), String> {
+        check_extension(source)?;
+        check_extension(dest)?;
+        if !source.is_file() {
+            return Err("There's no project file at that path.".into());
+        }
+        if dest.exists() {
+            return Err("A file already exists at that path.".into());
+        }
+        let conn =
+            Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(text)?;
+        let dest_text = dest.to_str().ok_or("The copy's path isn't valid text.")?;
+        conn.execute("VACUUM INTO ?1", [dest_text])
+            .map_err(|error| match error.sqlite_error_code() {
+                Some(rusqlite::ErrorCode::NotADatabase) => {
+                    "This file isn't a Storiiboard project.".into()
+                }
+                _ => text(error),
+            })?;
+        Ok(())
+    }
+
     fn configure(conn: Connection, path: &Path) -> Result<Self, String> {
         // The rollback journal, not WAL: WAL keeps -wal and -shm files beside the project, and Dropbox or email can
         // split them from it. This is also the first read of the file, so it's where a non-SQLite file fails.
@@ -345,6 +370,11 @@ pub async fn sbd_open(files: State<'_, OpenFiles>, path: String) -> Result<u32, 
 }
 
 #[tauri::command]
+pub async fn sbd_copy(source: String, dest: String) -> Result<(), String> {
+    SbdFile::copy(Path::new(&source), Path::new(&dest))
+}
+
+#[tauri::command]
 pub async fn sbd_close(files: State<'_, OpenFiles>, handle: u32) -> Result<(), String> {
     let mut files = files
         .0
@@ -440,6 +470,34 @@ mod tests {
         assert!(SbdFile::create(&path).is_err());
         assert!(SbdFile::open(&dir.join("Missing.sbd")).is_err());
         assert!(SbdFile::create(&dir.join("notes.txt")).is_err());
+    }
+
+    #[test]
+    fn copies_a_closed_project_to_a_new_file_and_never_overwrites() {
+        let dir = temp_dir("copy");
+        let mut file = new_file(&dir, "Bey County 2026-11-02 14-05.sbd");
+        file.tx(&[statement(
+            "INSERT INTO shots VALUES (?1, ?2)",
+            vec![Json::from("4A"), Json::from(85)],
+        )])
+        .unwrap();
+        drop(file);
+
+        let source = dir.join("Bey County 2026-11-02 14-05.sbd");
+        let dest = dir.join("Restored.sbd");
+        SbdFile::copy(&source, &dest).unwrap();
+        let copy = SbdFile::open(&dest).unwrap();
+        assert_eq!(
+            copy.query("SELECT lens FROM shots", &[]).unwrap()[0]["lens"],
+            85
+        );
+
+        assert_eq!(
+            SbdFile::copy(&source, &dest).err().unwrap(),
+            "A file already exists at that path."
+        );
+        assert!(SbdFile::copy(&source, &dir.join("notes.txt")).is_err());
+        assert!(SbdFile::copy(&dir.join("Missing.sbd"), &dir.join("Other.sbd")).is_err());
     }
 
     #[test]

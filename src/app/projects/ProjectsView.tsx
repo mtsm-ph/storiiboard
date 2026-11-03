@@ -1,11 +1,14 @@
-import type { ReactNode } from 'react';
+import { useState } from 'react';
+import { PROJECT_STATE_LABEL } from '../../core/model/project';
 import type { RecentProject } from '../../core/storage/recent';
 import { Button, IconButton } from '../../ui/Button';
 import { CloseGlyph } from '../../ui/glyphs';
+import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Tile } from '../../ui/Tile';
+import { localDateTime } from '../format';
 
-// The Projects screen (0.7): New, Open and Recent, in one tile. It shows when no project is open and from the
-// switcher's All projects…. This part only draws; ProjectsScreen feeds it.
+// The Projects screen (0.7): New, Open, Open backup, and Recent with an Archived list, in one tile. It shows when no
+// project is open and from the switcher's All projects…. This part only draws; ProjectsScreen feeds it.
 
 export interface ProjectsViewProps {
   recent: readonly RecentProject[];
@@ -17,22 +20,23 @@ export interface ProjectsViewProps {
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onForget: (path: string) => void;
-  /** Open backup… and the archived filter join in 0.7b. */
-  extraActions?: ReactNode;
+  onOpenBackup: () => void;
 }
 
-/** "2026-11-02 14:05" in local time, as the backups name their files. */
+type Shown = 'recent' | 'archived';
+
+/** When a Recent entry was last opened, in local time. */
 export function openedAtLabel(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return '';
-  const two = (n: number) => String(n).padStart(2, '0');
-  return `${String(at.getFullYear())}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;
+  return localDateTime(new Date(iso));
 }
 
-export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenRecent, onForget, extraActions }: ProjectsViewProps) {
+export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenRecent, onForget, onOpenBackup }: ProjectsViewProps) {
+  const [shown, setShown] = useState<Shown>('recent');
+  // An archived project leaves Recent for the Archived list (CLAUDE.md, Data model).
+  const listed = recent.filter((entry) => (entry.state === 'archived') === (shown === 'archived'));
   return (
     <div className="flex min-h-0 flex-1 flex-col p-gap">
-      <Tile index={1} title="Projects" meta={`${String(recent.length)} recent`} className="min-h-0 flex-1">
+      <Tile index={1} title="Projects" className="min-h-0 flex-1">
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-wrap items-center gap-2 border-b border-rule p-3">
             <Button variant="primary" disabled={!canOpen} onClick={onNew}>
@@ -41,17 +45,31 @@ export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenR
             <Button disabled={!canOpen} onClick={onOpen}>
               Open…
             </Button>
-            {extraActions}
+            <Button disabled={!canOpen} onClick={onOpenBackup}>
+              Open backup…
+            </Button>
             {!canOpen && <p className="sb-label ml-2 text-muted">Projects open in the desktop app.</p>}
           </div>
-          <h2 className="sb-label px-3 pt-3 pb-2">Recent</h2>
-          {recent.length === 0 ? (
+          <div className="px-3 pt-3 pb-3">
+            <SegmentedControl<Shown>
+              label="Show"
+              options={[
+                { value: 'recent', label: 'Recent' },
+                { value: 'archived', label: 'Archived' },
+              ]}
+              value={shown}
+              onChange={setShown}
+            />
+          </div>
+          {listed.length === 0 ? (
             <p className="px-3 text-[13px] text-muted">
-              No recent projects yet. New project makes one; Open… finds one on disk.
+              {shown === 'archived'
+                ? 'No archived projects. Archive Project, in the project menu, moves one here.'
+                : 'No recent projects yet. New project makes one; Open… finds one on disk.'}
             </p>
           ) : (
-            <ul aria-label="Recent projects" className="min-h-0 overflow-y-auto border-t border-rule">
-              {recent.map((entry) => {
+            <ul aria-label={shown === 'archived' ? 'Archived projects' : 'Recent projects'} className="min-h-0 overflow-y-auto border-t border-rule">
+              {listed.map((entry) => {
                 const open = entry.path === openPath;
                 return (
                   <li key={entry.path} className="group flex items-stretch border-b border-rule">
@@ -71,6 +89,7 @@ export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenR
                         <span className="truncate font-mono text-[11px] text-muted group-hover:text-ink">{entry.path}</span>
                       </span>
                       {open && <span className="sb-label shrink-0 border border-ink px-1.5 py-0.5">Open</span>}
+                      <span className="sb-label shrink-0">{PROJECT_STATE_LABEL[entry.state ?? 'active']}</span>
                       <span className="ml-auto shrink-0 font-mono text-[11px] text-muted group-hover:text-ink">
                         {openedAtLabel(entry.openedAt)}
                       </span>

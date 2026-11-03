@@ -32,7 +32,7 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
   // Production's cast and crew tile and the Team section read the same person records.
   people: { title: 'Cast and crew', note: 'People by department, characters, contacts. Phase 3.' },
   project: { title: 'Project', note: 'Title and notes.' },
-  settings: { title: 'Backups', note: 'Backup settings and Open backup. 0.7.' },
+  backups: { title: 'Backups', note: 'How many copies to keep, and Open backup.' },
   // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
   calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
   notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
@@ -42,8 +42,8 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
 export interface Workspace {
   id: WorkspaceId;
   label: string;
-  /** When the section's tools arrive; the sidebar shows it until then. */
-  phase: string;
+  /** When the section's tools arrive; the sidebar shows it until then. Null once they're built. */
+  phase: string | null;
   /** How the design numbers this workspace's tiles (01 / Scenes…); tiles opened later count on after them. */
   order: readonly TileId[];
   /** A fresh copy each call, so a layout can never share nodes with the defaults. */
@@ -129,9 +129,9 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   {
     id: 'settings',
     label: 'Settings',
-    phase: '0.7',
-    order: ['project', 'settings'],
-    defaultLayout: () => layout(split('row', [stack(['project']), stack(['settings'])], [760, 656])),
+    phase: null,
+    order: ['project', 'backups'],
+    defaultLayout: () => layout(split('row', [stack(['project']), stack(['backups'])], [760, 656])),
   },
 ];
 

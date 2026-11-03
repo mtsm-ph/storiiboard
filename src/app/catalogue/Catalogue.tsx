@@ -19,7 +19,7 @@ import { ProjectsView } from '../projects/ProjectsView';
 // Sample entries for the Projects screen, which the browser build can't reach with real files.
 const SAMPLE_RECENT = [
   { path: '/Users/kevin/Films/Bey County.sbd', name: 'Bey County', openedAt: '2026-11-02T14:05:00.000Z' },
-  { path: '/Volumes/Jobs/Parfum No. 7.sbd', name: 'Parfum No. 7', openedAt: '2026-10-28T09:30:00.000Z' },
+  { path: '/Volumes/Jobs/Parfum No. 7.sbd', name: 'Parfum No. 7', openedAt: '2026-10-28T09:30:00.000Z', state: 'draft' as const },
 ];
 const noop = () => undefined;
 
@@ -160,6 +160,7 @@ export function Catalogue() {
               onOpen={noop}
               onOpenRecent={noop}
               onForget={noop}
+              onOpenBackup={noop}
             />
           </div>
         </Section>

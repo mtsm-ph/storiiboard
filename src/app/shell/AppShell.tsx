@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { clearNotice, useNotice } from '../notice';
-import { isDesktop } from '../projects/actions';
+import { projectStateOf } from '../../core/model/project';
+import { Button } from '../../ui/Button';
+import { isDesktop, setProjectState, syncRecentState } from '../projects/actions';
 import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
@@ -25,6 +27,12 @@ export function AppShell() {
     return typeof title === 'string' ? title : (s.project?.name ?? null);
   });
   const projectPath = useProject((s) => s.project?.file.path ?? null);
+  const projectState = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
+
+  // Recent shows each project's state without opening it, so a change here (or its undo) is copied there.
+  useEffect(() => {
+    if (projectPath !== null && projectState !== null) void syncRecentState(projectPath, projectState);
+  }, [projectPath, projectState]);
   // The desktop app with nothing open shows the Projects screen. The browser build can't open files, so it shows
   // the workspaces' placeholder tiles instead, as a preview of the shell (and for its end-to-end tests).
   const showProjects = isDesktop && (projectPath === null || projectsAsked);
@@ -103,6 +111,17 @@ export function AppShell() {
               >
                 Dismiss
               </button>
+            </div>
+          )}
+          {!showProjects && projectState === 'archived' && (
+            <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-ink px-3 py-1.5">
+              <p className="text-[13px]">
+                This project is archived: it’s off the switcher and under Archived on the Projects screen. It stays
+                editable.
+              </p>
+              <Button className="ml-auto" onClick={() => void setProjectState('active')}>
+                Unarchive
+              </Button>
             </div>
           )}
           {showProjects ? (

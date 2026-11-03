@@ -25,3 +25,8 @@ export async function pickProjectToOpen(title = 'Open Project'): Promise<string 
   const path = await open({ title, multiple: false, directory: false, filters: PROJECT_FILTER });
   return typeof path === 'string' ? path : null;
 }
+
+/** Open backup… starts nowhere in particular: backups sit in a Backups folder next to each project. */
+export function pickBackupToOpen(): Promise<string | null> {
+  return pickProjectToOpen('Open Backup');
+}

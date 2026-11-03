@@ -1,4 +1,6 @@
 import { version as appVersion } from '../../../package.json';
+import { projectStateOf, type ProjectState } from '../model/project';
+import type { Props } from '../model/record';
 import { keyBetween } from '../ops/order';
 import type { AppDataStore } from './appData';
 import { startBackups, type BackupOptions, type BackupSchedule } from './backups';
@@ -55,7 +57,8 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
 
   if (recent) {
     // The Recent list is a convenience: failing to update it must never stop a project from opening.
-    await rememberRecent(recent, { path, name, openedAt: now().toISOString() }).catch(() => undefined);
+    const state = await readState(file, projectId);
+    await rememberRecent(recent, { path, name, openedAt: now().toISOString(), state }).catch(() => undefined);
   }
   const schedule = backups === false ? null : await startBackups(file, { now, ...backups });
 
@@ -88,10 +91,17 @@ async function ensureProjectRecord(file: ProjectFile, name: string, now: () => D
           {
             sql: `INSERT INTO records (id, type, parent_id, sort_key, props, created_at, updated_at)
               VALUES (?, 'project', NULL, ?, ?, ?, ?)`,
-            params: [id, keyBetween(null, null), JSON.stringify({ title: name, notes: '' }), at, at],
+            // New projects start as drafts, as in the prototype.
+            params: [id, keyBetween(null, null), JSON.stringify({ title: name, notes: '', state: 'draft' }), at, at],
           },
         ]),
     setMeta('app_version', appVersion, now()),
   ]);
   return id;
+}
+
+/** The project's state, for the Recent list, which shows it without opening every file. */
+async function readState(file: ProjectFile, projectId: string): Promise<ProjectState> {
+  const [row] = await file.query('SELECT props FROM records WHERE id = ?', [projectId]);
+  return projectStateOf(row ? (JSON.parse(String(row.props)) as Props) : undefined);
 }

@@ -36,4 +36,9 @@ export interface SqlDriver {
   /** Makes a new, empty .sbd; refuses if a file is already there. */
   create(path: string): Promise<ProjectFile>;
   open(path: string): Promise<ProjectFile>;
+  /**
+   * Copies a .sbd that isn't open, such as a backup, to a new file with VACUUM INTO, for Open backup. Refuses to
+   * overwrite anything.
+   */
+  copy(source: string, dest: string): Promise<void>;
 }

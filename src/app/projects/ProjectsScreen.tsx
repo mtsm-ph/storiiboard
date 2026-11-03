@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useProject } from '../projectStore';
-import { isDesktop, newProject, openRecent, openWithDialog, recentStore } from './actions';
+import { isDesktop, newProject, openBackupWithDialog, openRecent, openWithDialog, recentStore } from './actions';
 import { ProjectsView } from './ProjectsView';
 import { useRecent } from './recentStore';
 
@@ -21,6 +21,7 @@ export function ProjectsScreen() {
       onOpen={() => void openWithDialog()}
       onOpenRecent={(path) => void openRecent(path)}
       onForget={(path) => void recentStore.getState().forget(path)}
+      onOpenBackup={() => void openBackupWithDialog()}
     />
   );
 }
