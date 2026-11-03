@@ -36,8 +36,8 @@ themes). One PR per milestone, each into `v2`.
 |---|---|---|
 | 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | Done |
 | 1.2 Write check and hidden lock file; second-computer warning | #17 | Done |
-| 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | #18 | In review |
-| 1.4 Local backups for synced projects (by file id), Show backups, setting | `phase1/1.4-local-backups` | In review |
+| 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | #18 | Done |
+| 1.4 Local backups for synced projects (by file id), Show backups, setting | #19 | In review |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | | Not started |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | | Not started |
