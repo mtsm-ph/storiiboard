@@ -263,6 +263,12 @@ Importing:
   dropped.
 - Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
 
+## File type
+
+The installers register `.sbd` as "Storiiboard Project", with Storiiboard as its owner, so a double-click opens it.
+On macOS the exported type is `app.storiiboard.project`, conforming to `public.data` and `public.database`; the
+MIME type is `application/vnd.storiiboard.project`.
+
 ## Files next to a project
 
 | File | What it is | From | Kept |

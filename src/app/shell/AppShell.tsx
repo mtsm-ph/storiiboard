@@ -4,6 +4,7 @@ import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
 import { Sidebar } from './sidebar/Sidebar';
+import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
 import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
@@ -12,6 +13,9 @@ export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
   // The scene the storyboard is on: its sidebar entry carries the orange marker. Phase 1's board follows it.
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  // Why the last file the person asked for didn't open; shown until dismissed or another one opens.
+  const [openError, setOpenError] = useState<string | null>(null);
+  useOpenedFiles(setOpenError);
   const workspace = WORKSPACES.find((w) => w.id === workspaceId) ?? WORKSPACES[0];
   const projectTitle = useProject((s) => {
     const title = s.project ? s.records[s.project.projectId]?.props.title : undefined;
@@ -68,6 +72,20 @@ export function AppShell() {
           onSelectScene={setActiveSceneId}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {openError && (
+            <div role="alert" className="mx-gap mt-gap flex items-center gap-3 bg-warning px-3 py-2 text-paper-fixed">
+              <p className="text-[13px]">{openError}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenError(null);
+                }}
+                className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           {projectOpen ? (
             // Phase 0's edit surface; the workspaces fill with real tools from Phase 1.
             <div id={WORKSPACE_PANEL_ID} className="flex min-h-0 flex-1 flex-col">
