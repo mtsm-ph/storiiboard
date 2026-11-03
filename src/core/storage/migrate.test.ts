@@ -32,7 +32,7 @@ async function tables(file: ProjectFile): Promise<string[]> {
 async function v1Project(name = 'Bey County.sbd'): Promise<string> {
   const path = folder.path(name);
   const file = await nodeDriver.create(path);
-  await migrate(file, { isNew: true, now });
+  await migrate(file, { isNew: true, migrations: [initial], now });
   const at = now().toISOString();
   await file.tx([
     {
@@ -55,11 +55,11 @@ describe('migrations', () => {
     expect(MIGRATIONS.map((m) => m.version)).toEqual(Array.from({ length: SCHEMA_VERSION }, (_, i) => i + 1));
   });
 
-  it('gives a new file schema v1', async () => {
+  it('gives a new file the current schema', async () => {
     const file = await nodeDriver.create(folder.path('New.sbd'));
-    expect(await migrate(file, { isNew: true, now })).toEqual({ from: 0, to: 1, backup: null });
-    expect(await tables(file)).toEqual(['meta', 'ops', 'records']);
-    expect(await schemaVersion(file)).toBe('1');
+    expect(await migrate(file, { isNew: true, now })).toEqual({ from: 0, to: SCHEMA_VERSION, backup: null });
+    expect(await tables(file)).toEqual(['meta', 'op_groups', 'ops', 'records']);
+    expect(await schemaVersion(file)).toBe(String(SCHEMA_VERSION));
     await file.close();
   });
 
@@ -80,8 +80,9 @@ describe('migrations', () => {
   });
 
   it('leaves a file at the current version alone', async () => {
-    const file = await nodeDriver.open(await v1Project());
-    expect(await migrate(file, { isNew: false, now })).toEqual({ from: 1, to: 1, backup: null });
+    const file = await nodeDriver.create(folder.path('Current.sbd'));
+    await migrate(file, { isNew: true, now });
+    expect(await migrate(file, { isNew: false, now })).toEqual({ from: SCHEMA_VERSION, to: SCHEMA_VERSION, backup: null });
     await file.close();
   });
 

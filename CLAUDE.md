@@ -89,13 +89,18 @@
 ## Edits, undo and autosave
 - Every change is an operation: id, record_id, kind, before, after, author, timestamp.
 - The UI, MCP, imports and web suggestions all apply edits through src/core/ops.
-- Undo and redo walk the op log. Every canvas action is undoable.
+- Undo and redo walk the op log. Every canvas action is undoable. ⌘Z undoes project edits only, never a layout change
+  (the Layout menu has Undo layout change for those).
+- The log is append-only; undo never destroys history. Every undo, redo and restore is an op group of its own, saved
+  like any edit and linked to the group it undid, redid or restored to. A new edit after an undo clears ⌘⇧Z's redo
+  stack, but the undone work stays in History and can be restored.
+- Restore to any earlier point in History is a new op group too, so it can be undone.
 - Each op commits to SQLite in a transaction right away. There is no Save button.
 - Going back in time, one model ("snapshot" is not a term here):
   - History is the op log, inside the .sbd, kept for the life of the project. Undo, the History panel and
-    notifications read it. Only Empty Trash removes data from it.
+    notifications read it. Nothing is ever deleted from it; only Empty Trash removes trashed records' data.
   - Named versions are named points in History, inside the .sbd, kept until deleted. Open version copies the project,
-    undoes every later op in the copy and opens it as a separate project.
+    restores the copy to that point and opens it as a separate project.
   - Backups are full copies outside the .sbd (see above), for a lost or damaged file.
 
 ## Tool rules
@@ -123,8 +128,9 @@
   - Never bundle Blender. Ship a Storiiboard application template with a simplified layout.
 - Trash (Phase 1): trashed frames, shots, scenes, notes and media, filtered by scene and type; restore with one
   click; "Empty Trash" asks to confirm, then deletes for good.
-- History (Phase 1, project menu): every change to an item (field, before and after, who, when); restoring an old
-  value is a new op. Name a version from here.
+- History (Phase 1, project menu): every step, undos and redos included, and every change to an item (field, before
+  and after, who, when). Restore the project from any point, or an old value; either is a new op group. Name a version
+  from here.
 - Notifications (Phase 3): the History feed plus suggestions and comments: what changed, who, when, with a link to
   the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op.
   - Unread count; filters for all, unread and the current scene; Mark all read. Filtered to one item, it is that
