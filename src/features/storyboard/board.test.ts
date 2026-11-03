@@ -3,7 +3,7 @@ import { createProjectStore } from '../../app/projectStore';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addShot, board, coverage, setLettersAllowIO, setNumbersLocked, setSceneNumber, trashShot } from './board';
+import { addShot, board, coverage, moveShot, setLettersAllowIO, setNumbersLocked, setSceneNumber, trashShot } from './board';
 
 let folder: TestFolder;
 const store = createProjectStore();
@@ -99,5 +99,31 @@ describe('numbering on the board', () => {
     expect(scene?.counts).toEqual({ have: 1, need: 1, source: 0 });
     expect(coverage(board(records(), projectId))).toBe(50);
     expect(coverage([])).toBeNull();
+  });
+
+  it('reorders within a scene and renumbers, as one edit', async () => {
+    const a = await add();
+    await add();
+    const c = await add();
+    await store.getState().apply(moveShot(records(), projectId, c, 'sc4', a));
+    const shots = board(records(), projectId)[0]?.shots ?? [];
+    expect(shots.map((s) => [s.record.id === c, s.fields.number])).toEqual([[true, '4A'], [false, '4B'], [false, '4C']]);
+    await store.getState().undo();
+    expect(board(records(), projectId)[0]?.shots.map((s) => s.record.id).at(-1)).toBe(c);
+  });
+
+  it('moves a frame into another scene, numbering it there and closing up where it left', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc5', type: 'scene', parentId: projectId, sortKey: 'k', props: { number: '5' } } },
+    ]);
+    await add();
+    const b = await add();
+    await store.getState().apply(setNumbersLocked(records(), projectId, 'sc5', true));
+    await store.getState().apply(addShot(records(), projectId, 'sc5').changes);
+    await store.getState().apply(moveShot(records(), projectId, b, 'sc5', null));
+    const [four, five] = board(records(), projectId);
+    expect(four?.shots.map((s) => s.fields.number)).toEqual(['4A']);
+    // Scene 5 is locked: the frame that arrives takes its next free letter.
+    expect(five?.shots.map((s) => s.fields.number)).toEqual(['5A', '5B']);
   });
 });

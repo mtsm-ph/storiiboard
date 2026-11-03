@@ -106,6 +106,20 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings (Alt+1 to
   7). A dot marks unsaved layout changes.
 
+## Storyboard
+- **Scenes tile:** each scene as number (mono, bold), heading ("INT. PENN STATION — DAY" once INT/EXT or DAY/NIGHT is
+  set) and "1 3/8 pg · 6 fr · 67%" in mono ("done" at 100%). The active scene has the orange marker and a bold heading,
+  as in the sidebar. A padlock per scene locks its shot numbers: open or closed, never faded.
+- **Grid:** frames by scene group, each group headed "SC 04  Heading  1 3/8 pg · 4 have · 1 need". Cards are 176px
+  and up, filling the row, with the picture at the project's aspect ratio and a strip below: the shot number in bold
+  mono, the spec ("MCU · 35MM · T2.0") in mono, and the status shape at the right. Each group ends with a dashed
+  "+ Frame" card the height of its neighbours.
+- **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
+  ring outside it.
+- **Keyboard:** the board is one Tab stop. Arrows move through frames and + Frame cards across scenes; Home and End go
+  to the ends; Delete sends a frame to the Trash; ⌘ (Ctrl on Windows) with an arrow moves the frame one place,
+  crossing into the next scene at either end.
+
 ## Bird's-eye plan
 - **Icons:** 68 top-down icons on a 32px grid with a 1.5px ink stroke, filled with the department colour (see `05_Plan_Icons/INDEX.md`).
 - **Selected camera:** accent outline, and its field-of-view cone in the accent at 10% fill. Field of view = 2 x atan(sensor width / (2 x focal length)).
