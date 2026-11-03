@@ -122,4 +122,22 @@ function openFile(path: string, isNew: boolean): Promise<ProjectFile> {
 export const nodeDriver: SqlDriver = {
   create: (path) => openFile(path, true),
   open: (path) => openFile(path, false),
+  copy: (source, dest) =>
+    settle(() => {
+      checkExtension(source);
+      checkExtension(dest);
+      if (!existsSync(source)) throw new Error("There's no project file at that path.");
+      if (existsSync(dest)) throw new Error('A file already exists at that path.');
+      const db = new DatabaseSync(source, { readOnly: true });
+      try {
+        db.prepare('VACUUM INTO ?').run(dest);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('file is not a database')) {
+          throw new Error("This file isn't a Storiiboard project.", { cause: error });
+        }
+        throw error;
+      } finally {
+        db.close();
+      }
+    }),
 };

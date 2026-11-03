@@ -1,3 +1,4 @@
+import { isProjectState, type ProjectState } from '../model/project';
 import type { AppDataStore } from './appData';
 
 // The Recent list on the Projects screen (0.7) and in the sidebar's project switcher (D3). It holds paths on this
@@ -8,6 +9,8 @@ export interface RecentProject {
   name: string;
   /** ISO 8601, UTC. */
   openedAt: string;
+  /** As of the last open or state change; lists written before 0.7b have none, which reads as active. */
+  state?: ProjectState;
 }
 
 export const RECENT_FILE = 'recent.json';
@@ -16,7 +19,12 @@ export const MAX_RECENT = 20;
 function isRecentProject(value: unknown): value is RecentProject {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
-  return typeof entry.path === 'string' && typeof entry.name === 'string' && typeof entry.openedAt === 'string';
+  return (
+    typeof entry.path === 'string' &&
+    typeof entry.name === 'string' &&
+    typeof entry.openedAt === 'string' &&
+    (entry.state === undefined || isProjectState(entry.state))
+  );
 }
 
 /** Newest first. A corrupt or hand-edited file reads as an empty list rather than stopping the app. */
@@ -45,5 +53,15 @@ export async function forgetRecent(store: AppDataStore, path: string): Promise<R
   return save(
     store,
     (await listRecent(store)).filter((entry) => entry.path !== path),
+  );
+}
+
+/** Records a project's new state in its entry, without moving it in the list. A path not in the list is left out. */
+export async function setRecentState(store: AppDataStore, path: string, state: ProjectState): Promise<RecentProject[]> {
+  const entries = await listRecent(store);
+  if (!entries.some((entry) => entry.path === path && entry.state !== state)) return entries;
+  return save(
+    store,
+    entries.map((entry) => (entry.path === path ? { ...entry, state } : entry)),
   );
 }

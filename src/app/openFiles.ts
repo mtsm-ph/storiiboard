@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand/vanilla';
 import type { AppDataStore } from '../core/storage/appData';
+import type { BackupOptions } from '../core/storage/backups';
 import type { SqlDriver } from '../core/storage/driver';
 import { fileName } from '../core/storage/paths';
 import { createProject, openProject, type Project } from '../core/storage/project';
@@ -13,6 +14,7 @@ export interface OpenFileOptions {
   store: StoreApi<ProjectState>;
   driver: SqlDriver;
   recent?: AppDataStore;
+  backups?: BackupOptions;
 }
 
 /** A failure to open, worded for the person: which file, and why. */
@@ -42,12 +44,12 @@ export async function createProjectFile(path: string, options: OpenFileOptions):
 
 async function replaceWith(
   path: string,
-  { store, driver, recent }: OpenFileOptions,
+  { store, driver, recent, backups }: OpenFileOptions,
   start: typeof openProject,
 ): Promise<void> {
   let project: Project;
   try {
-    project = await start(path, { driver, ...(recent ? { recent } : {}) });
+    project = await start(path, { driver, ...(recent ? { recent } : {}), ...(backups ? { backups } : {}) });
   } catch (error) {
     throw new OpenFileError(path, error);
   }

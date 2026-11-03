@@ -47,7 +47,7 @@ describe('the Projects screen', () => {
 
   it('lists recent projects with their path and when they were opened, marking the one open', () => {
     const html = renderToString(
-      <ProjectsView recent={[bey, parfum]} openPath={bey.path} canOpen onNew={noop} onOpen={noop} onOpenRecent={noop} onForget={noop} />,
+      <ProjectsView recent={[bey, parfum]} openPath={bey.path} canOpen onNew={noop} onOpen={noop} onOpenRecent={noop} onForget={noop} onOpenBackup={noop} />,
     );
     expect(html).toContain('Bey County');
     expect(html).toContain('/Volumes/Jobs/Parfum No. 7.sbd');
@@ -58,10 +58,31 @@ describe('the Projects screen', () => {
 
   it('says what to do with no recent projects, and that the browser build can’t open files', () => {
     const html = renderToString(
-      <ProjectsView recent={[]} openPath={null} canOpen={false} onNew={noop} onOpen={noop} onOpenRecent={noop} onForget={noop} />,
+      <ProjectsView recent={[]} openPath={null} canOpen={false} onNew={noop} onOpen={noop} onOpenRecent={noop} onForget={noop} onOpenBackup={noop} />,
     );
     expect(html).toContain('No recent projects yet.');
     expect(html).toContain('Projects open in the desktop app.');
-    expect(html.split('disabled=""').length - 1).toBe(2);
+    expect(html.split('disabled=""').length - 1).toBe(3);
+  });
+
+  it('lists only live projects under Recent, each with its state; archived ones wait under Archived', () => {
+    const archived = { ...parfum, path: '/Volumes/Jobs/Momentum.sbd', name: 'Momentum', state: 'archived' as const };
+    const html = renderToString(
+      <ProjectsView
+        recent={[{ ...bey, state: 'draft' }, parfum, archived]}
+        openPath={null}
+        canOpen
+        onNew={noop}
+        onOpen={noop}
+        onOpenRecent={noop}
+        onForget={noop}
+        onOpenBackup={noop}
+      />,
+    );
+    expect(html).not.toContain('Momentum');
+    expect(html).toContain('>Draft</span>');
+    // Lists from before 0.7b have no state: they read as active.
+    expect(html).toContain('>Active</span>');
+    expect(html).toContain('Open backup…');
   });
 });

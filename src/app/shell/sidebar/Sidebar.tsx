@@ -37,7 +37,10 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     return typeof title === 'string' && title !== '' ? title : (s.project?.name ?? null);
   });
   const scenes = project ? sceneEntries(records, project.projectId) : [];
-  const recent = useRecent(recentStore, (s) => s.entries).slice(0, SWITCHER_RECENT);
+  // Archived projects leave the switcher; the Projects screen's Archived list still has them.
+  const recent = useRecent(recentStore, (s) => s.entries)
+    .filter((entry) => entry.state !== 'archived')
+    .slice(0, SWITCHER_RECENT);
   const openPath = project?.file.path ?? null;
 
   // Re-read Recent whenever the open project changes, however it was opened.
@@ -147,7 +150,9 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   // until hovered: muted text never sits on oatmeal.
                   active
                     ? 'bg-accent font-bold text-on-accent focus-visible:outline-on-accent'
-                    : 'text-muted hover:bg-oatmeal hover:text-ink',
+                    : workspace.phase === null
+                      ? 'text-ink hover:bg-oatmeal'
+                      : 'text-muted hover:bg-oatmeal hover:text-ink',
                 )}
               >
                 {workspace.label}
@@ -155,7 +160,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   // The dot marks a layout changed since it was last saved (DESIGN.md, Workspaces).
                   <span aria-label="unsaved layout" role="img" className="inline-block size-1.5 rounded-full bg-current" />
                 )}
-                <span className="ml-auto font-normal">{workspace.phase}</span>
+                {workspace.phase !== null && <span className="ml-auto font-normal">{workspace.phase}</span>}
               </button>
               {workspace.id === 'storyboard' && (
                 <SceneList

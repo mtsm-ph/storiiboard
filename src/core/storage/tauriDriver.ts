@@ -28,4 +28,5 @@ function tauriFile(handle: number, path: string): ProjectFile {
 export const tauriDriver: SqlDriver = {
   create: async (path) => tauriFile(await command<number>('sbd_create', { path }), path),
   open: async (path) => tauriFile(await command<number>('sbd_open', { path }), path),
+  copy: (source, dest) => command('sbd_copy', { source, dest }),
 };

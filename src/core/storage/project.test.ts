@@ -4,7 +4,7 @@ import type { AppDataStore } from './appData';
 import { nodeDriver } from './nodeDriver';
 import { fileName, fileStem } from './paths';
 import { createProject, openProject } from './project';
-import { forgetRecent, listRecent, MAX_RECENT, RECENT_FILE, rememberRecent } from './recent';
+import { forgetRecent, listRecent, MAX_RECENT, RECENT_FILE, rememberRecent, setRecentState } from './recent';
 import { SCHEMA_VERSION } from './migrations';
 import { makeTestFolder, type TestFolder } from './testFolder';
 
@@ -39,7 +39,12 @@ describe('projects', () => {
     expect(project.name).toBe('Bey County');
     expect(project.migration).toEqual({ from: 0, to: SCHEMA_VERSION, backup: null });
     expect(await project.file.query("SELECT value FROM meta WHERE key = 'app_version'")).toEqual([{ value: version }]);
-    expect(await listRecent(recent)).toEqual([{ path, name: 'Bey County', openedAt: '2026-11-02T14:05:00.000Z' }]);
+    // New projects start as drafts, and Recent shows the state without opening the file.
+    expect(await listRecent(recent)).toEqual([
+      { path, name: 'Bey County', openedAt: '2026-11-02T14:05:00.000Z', state: 'draft' },
+    ]);
+    const [record] = await project.file.query("SELECT props FROM records WHERE type = 'project'");
+    expect(JSON.parse(String(record?.props))).toEqual({ title: 'Bey County', notes: '', state: 'draft' });
     await project.close();
   });
 
@@ -119,5 +124,26 @@ describe('paths', () => {
     expect(fileName('/Users/kevin/Projects/Bey County.sbd')).toBe('Bey County.sbd');
     expect(fileName('C:\\Users\\kevin\\Projects\\Bey County.sbd')).toBe('Bey County.sbd');
     expect(fileStem('C:\\Projects\\Bey County.SBD')).toBe('Bey County');
+  });
+});
+
+describe('a project’s state in Recent', () => {
+  it('changes in place, keeping the list’s order, and ignores a path that isn’t listed', async () => {
+    const recent = memoryStore();
+    await rememberRecent(recent, { path: '/a.sbd', name: 'A', openedAt: '2026-11-01T10:00:00.000Z', state: 'draft' });
+    await rememberRecent(recent, { path: '/b.sbd', name: 'B', openedAt: '2026-11-02T10:00:00.000Z', state: 'active' });
+    await setRecentState(recent, '/a.sbd', 'archived');
+    await setRecentState(recent, '/missing.sbd', 'archived');
+    expect((await listRecent(recent)).map((e) => `${e.name}:${String(e.state)}`)).toEqual(['B:active', 'A:archived']);
+  });
+
+  it('reads an entry from before 0.7b, with no state, and drops one with a state it doesn’t know', async () => {
+    const recent = memoryStore({
+      [RECENT_FILE]: JSON.stringify([
+        { path: '/old.sbd', name: 'Old', openedAt: '2026-10-01T10:00:00.000Z' },
+        { path: '/odd.sbd', name: 'Odd', openedAt: '2026-10-01T10:00:00.000Z', state: 'shelved' },
+      ]),
+    });
+    expect((await listRecent(recent)).map((e) => e.name)).toEqual(['Old']);
   });
 });

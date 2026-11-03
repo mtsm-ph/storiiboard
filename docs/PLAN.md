@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: 0.6 and 0.7a in review, 0.7b next |
+| Phase 0 state | 0.6, 0.7a and 0.7b in review; then Kevin runs the Phase 0 gate on the installers |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -43,7 +43,7 @@ One PR per milestone, each into `v2`.
 | 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | Done |
 | D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | #11 | Done |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | #12 | In review |
-| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | 0.7a `phase0/0.7a-projects` (Projects screen, switcher); 0.7b next (Open backup, backup settings, project state) | In review |
+| 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | 0.7a #13 (Projects screen, switcher); 0.7b `phase0/0.7b-backups-state` (Open backup, backup settings, project state) | In review |
 
 Phase 0 calls, Nov 1 and 2, 2026:
 
@@ -101,6 +101,17 @@ Phase 0 calls, Nov 1 and 2, 2026:
   - The browser build can't open files: it keeps the placeholder workspaces, and the switcher says projects open
     in the desktop app. The Projects view is drawn in the UI catalogue so the axe checks cover it.
   - The dialog plugin (tauri-plugin-dialog 2.8.3) was approved Nov 2. Only its Open and Save dialogs are allowed.
+- 0.7b as built (Nov 2):
+  - Open backup copies the backup beside its project as `<backup name> (from backup).sbd` (numbered if opened
+    again) and opens the copy, so the backup itself is never edited and pruning can't take work with it. It's on the
+    Projects screen (Open backup…, a file dialog) and in the Backups tile, which lists the open project's backups.
+  - Backup settings live in the Backups tile in Settings: keep the last N copies (1 to 500, default 12) plus one a
+    day for N days (0 to 365, default 14). They belong to the person and apply to every project at the next backup.
+    Back up now is there too.
+  - Project state: new projects start as drafts. The Project tile has Draft, Active and Archived; the project menu
+    has Archive Project and Unarchive Project. Each is an op, so ⌘Z takes it back. An archived project shows a
+    banner, leaves the switcher and moves to Archived on the Projects screen. Recent keeps each project's state.
+  - The Settings section is built, so it no longer shows a phase.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
   default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is
