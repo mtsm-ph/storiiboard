@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: D3 in review |
+| Phase 0 state | Building: 0.6 in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -41,8 +41,8 @@ One PR per milestone, each into `v2`.
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | #8 | Done |
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | Done |
 | 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | Done |
-| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | #11 | In review |
-| 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
+| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | #11 | Done |
+| 0.6 Double-click opens a .sbd (Mac and Windows) | `phase0/0.6-open-sbd` | In review |
 | 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
 
 Phase 0 calls, Nov 1 and 2, 2026:
@@ -86,6 +86,11 @@ Phase 0 calls, Nov 1 and 2, 2026:
   - Scenes list under Storyboard, and + Add Scene creates the next scene number as one op. Nothing opens a project
     until 0.7, so the list is tested against a project file in unit tests. Setup's setups by scene come in Phase 5
     with setups, and the status bar's unread count in Phase 3 with notifications.
+- 0.6 as built (Nov 2): the installers register .sbd as "Storiiboard Project" (macOS type `app.storiiboard.project`,
+  the app as its owner). A double-click arrives as an Apple Event on a Mac and as a launch argument on Windows; with
+  the single-instance plugin (approved Nov 2), a second launch on Windows hands its file to the running app. Either
+  way the file opens in place of the open project, which stays open if the new file can't be opened, and the reason
+  shows in an alert. CI checks the association in the built Info.plist and in the Windows installer scripts.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
   default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is

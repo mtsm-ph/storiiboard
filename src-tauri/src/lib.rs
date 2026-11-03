@@ -1,14 +1,25 @@
-use std::{thread, time::Duration};
+use std::{path::Path, thread, time::Duration};
 
 use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
+mod opened;
 mod sbd;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Registered first, as the plugin asks, so a second launch exits before it sets anything else up.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        opened::queue(
+            app,
+            opened::sbd_paths(args.into_iter().skip(1), Path::new(&cwd)),
+        );
+    }));
+    builder
         .manage(sbd::OpenFiles::default())
+        .manage(opened::OpenedFiles::default())
         .invoke_handler(tauri::generate_handler![
             sbd::sbd_create,
             sbd::sbd_open,
@@ -20,10 +31,17 @@ pub fn run() {
             sbd::sbd_delete_backup,
             app_data::app_data_read,
             app_data::app_data_write,
+            opened::opened_files_take,
         ])
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {
+            // A double-click on Windows launches the app with the file as an argument.
+            let cwd = std::env::current_dir().unwrap_or_default();
+            opened::queue(
+                app.handle(),
+                opened::sbd_paths(std::env::args().skip(1), &cwd),
+            );
             if let Some(window) = app.get_webview_window("main") {
                 thread::spawn(move || {
                     thread::sleep(Duration::from_secs(3));
@@ -43,6 +61,19 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Storiiboard");
+        .build(tauri::generate_context!())
+        .expect("error while building Storiiboard")
+        .run(|_app, _event| {
+            // On a Mac a double-click arrives as an Apple Event, whether or not the app was running.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths: Vec<String> = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .filter_map(|path| path.to_str().map(str::to_owned))
+                    .collect();
+                let cwd = std::env::current_dir().unwrap_or_default();
+                opened::queue(_app, opened::sbd_paths(paths, &cwd));
+            }
+        });
 }

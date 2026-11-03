@@ -40,6 +40,20 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["sbd"],
+        "name": "Storiiboard Project",
+        "description": "Storiiboard Project",
+        "role": "Editor",
+        "rank": "Owner",
+        "mimeType": "application/vnd.storiiboard.project",
+        "exportedType": {
+          "identifier": "app.storiiboard.project",
+          "conformsTo": ["public.data", "public.database"]
+        }
+      }
+    ]
   }
 }

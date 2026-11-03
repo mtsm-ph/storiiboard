@@ -109,6 +109,21 @@ jobs:
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
       - uses: tauri-apps/tauri-action@v1
+      # Double-clicking a .sbd opens Storiiboard (0.6). The association lives in what the bundler writes, so check
+      # it there rather than trust the config.
+      - name: Check the .sbd file association (macOS)
+        if: matrix.name == 'macOS'
+        run: |
+          plist=src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/Info.plist
+          plutil -extract CFBundleDocumentTypes json -o - "$plist" | grep -q '"CFBundleTypeExtensions":\["sbd"\]'
+          plutil -extract UTExportedTypeDeclarations json -o - "$plist" | grep -q '"UTTypeIdentifier":"app.storiiboard.project"'
+      - name: Check the .sbd file association (Windows)
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: |
+          $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
+          if (-not $found) { throw 'Neither installer registers .sbd files.' }
+          $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
       # Kept a week: a private repo on the free plan has 500 MB of artifact storage.
       - uses: actions/upload-artifact@v7
         with:
