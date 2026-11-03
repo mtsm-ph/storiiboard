@@ -6,6 +6,7 @@ mod app_data;
 mod lock;
 mod opened;
 mod sbd;
+mod synced;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -37,6 +38,8 @@ pub fn run() {
             app_data::app_data_read,
             app_data::app_data_write,
             opened::opened_files_take,
+            synced::sync_service,
+            synced::projects_folder_for_new,
         ])
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.

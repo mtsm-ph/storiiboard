@@ -11,7 +11,12 @@ export interface Settings {
   theme: ThemePreference;
   /** How many backups to keep (CLAUDE.md: both numbers are in Settings). */
   backups: BackupKeep;
+  /** Projects already told they're in a synced folder: the note shows once per project (src/app/projects/synced.ts). */
+  syncNoted: string[];
 }
+
+/** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
+export const MAX_SYNC_NOTED = 500;
 
 /** The ranges the Backups tile accepts. Keeping no recent copies would leave nothing to open. */
 export const KEEP_LIMITS = { recent: { min: 1, max: 500 }, days: { min: 0, max: 365 } } as const;
@@ -26,7 +31,7 @@ function keepValue(value: unknown, field: keyof BackupKeep): number {
 /** Read before first paint by public/theme-boot.js too; keep the two in step. */
 export const SETTINGS_KEY = 'storiiboard.settings';
 
-export const DEFAULT_SETTINGS: Settings = { theme: 'system', backups: { ...DEFAULT_KEEP } };
+export const DEFAULT_SETTINGS: Settings = { theme: 'system', backups: { ...DEFAULT_KEEP }, syncNoted: [] };
 
 type Reader = Pick<Storage, 'getItem'>;
 type Writer = Pick<Storage, 'getItem' | 'setItem'>;
@@ -47,7 +52,7 @@ function isThemePreference(value: unknown): value is ThemePreference {
 export function loadSettings(storage: Reader | undefined = browserStorage()): Settings {
   try {
     const raw = storage?.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP } };
+    if (!raw) return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
     const parsed: unknown = JSON.parse(raw);
     const saved = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
     const backups = typeof saved.backups === 'object' && saved.backups !== null ? (saved.backups as Record<string, unknown>) : {};
@@ -55,9 +60,12 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       theme: isThemePreference(saved.theme) ? saved.theme : DEFAULT_SETTINGS.theme,
       // Each number falls back on its own, so one bad value never costs the other.
       backups: { recent: keepValue(backups.recent, 'recent'), days: keepValue(backups.days, 'days') },
+      syncNoted: Array.isArray(saved.syncNoted)
+        ? saved.syncNoted.filter((p): p is string => typeof p === 'string').slice(-MAX_SYNC_NOTED)
+        : [],
     };
   } catch {
-    return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP } };
+    return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
   }
 }
 

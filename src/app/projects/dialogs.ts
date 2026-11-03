@@ -1,9 +1,10 @@
-import { documentDir, join } from '@tauri-apps/api/path';
+import { join } from '@tauri-apps/api/path';
 import { message, open, save } from '@tauri-apps/plugin-dialog';
 import type { LockHolder } from '../../core/storage/driver';
 import { fileStem } from '../../core/storage/paths';
 import { localDateTime } from '../format';
 import type { LockedChoice } from '../openFiles';
+import { projectsFolderForNew } from './synced';
 
 // The native Save and Open dialogs (tauri-plugin-dialog), filtered to projects. Desktop only. Each returns null when
 // the person cancels.
@@ -15,11 +16,11 @@ export function withSbdExtension(path: string): string {
   return /\.sbd$/i.test(path) ? path : `${path}.sbd`;
 }
 
-/** Name and folder for a new project, in one dialog. It starts in Documents. */
+/** Name and folder for a new project, in one dialog. It starts in Documents, or locally when Documents is synced. */
 export async function pickNewProjectPath(): Promise<string | null> {
   const path = await save({
     title: 'New Project',
-    defaultPath: await join(await documentDir(), 'Untitled.sbd'),
+    defaultPath: await join(await projectsFolderForNew(), 'Untitled.sbd'),
     filters: PROJECT_FILTER,
   });
   return path === null ? null : withSbdExtension(path);
