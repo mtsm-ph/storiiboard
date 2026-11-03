@@ -210,7 +210,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | scene | name | text | Shown as the heading until INT/EXT or DAY/NIGHT is set. Older files may have `heading` instead |
 | scene | int_ext | `INT`, `EXT`, `INT/EXT` | |
 | scene | day_night | `DAY`, `NIGHT`, `DAWN`, `DUSK`, `MAGIC HOUR` | |
-| scene | location_id | record id | A `location` record (1.12, script import) |
+| scene | location_id | record id | A `location` record (1.12, script import). Set from the board's "/" menu, by name |
 | scene | page_eighths | integer | Script length in eighths of a page (1.17); shown as "1 3/8 pg" |
 | scene | characters | array of text | Speaking characters, from script import (1.17) |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
@@ -224,6 +224,12 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | departments | array of department ids | src/core/model/department.ts |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
+
+**Notes and locations** (1.12). A note card is a `note` record under its scene, ordered among the scene's shots by
+`sort_key`, with one prop, `text`. Notes take no shot number. A `location` record sits under the project with one prop
+so far, `name`; the "/" menu reuses a location whose name matches, whatever its case, before it makes a new one.
+Phase 3 adds addresses, contacts and parking. New sort keys among a scene's shots and notes are worked out with the
+trashed ones included, so a restored item never shares a key with one added since.
 
 **Frame pictures** (1.11, src/features/storyboard/framePictures.ts). A frame's picture is a `media` record under its
 shot, and the shot's `media_id` names it. Replacing or removing the picture trashes that media record in the same op

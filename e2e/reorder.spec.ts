@@ -17,6 +17,9 @@ test.beforeEach(async ({ page }) => {
   await newScene.click();
   for (let i = 0; i < 3; i += 1) await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await board(page).getByRole('button', { name: '+ Frame in SC 02' }).click();
+  // Each new frame takes focus once it's saved; wait for the last, so it can't take focus back from a test's first
+  // steps.
+  await expect(frames(page, 'SC 02').nth(0)).toBeFocused();
 });
 
 const board = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });

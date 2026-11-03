@@ -119,6 +119,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   a drag is over it, the frame or scene shows a dashed ink box and says what the drop will do. ⌘V pastes into the
   selected frame; "+ Pictures…" in the tile's header adds a frame per picture. A missing picture says "Picture
   missing" in the warning colour (paper text in dark mode, where Truffle falls below AA).
+- **Notes and moves:** a note sits among the frames as a dashed ink card headed "Note", taking no number; Enter (or a
+  double click) writes in it, ⌘Enter or leaving saves, Escape leaves it as it was. Frames and notes drag to a new
+  place, across scenes too: the item lifts as a dashed ghost with a hard ink offset, like a tile, and a 3.5px ink bar
+  shows where it will land; Escape cancels. "/" on the board opens the insert menu under the item: Frame, Scene,
+  Note, Location…, narrowed as you type; the choice under the keys is the ink-filled row.
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
 - **Keyboard:** the board is one Tab stop. Arrows move through frames and + Frame cards across scenes; Home and End go
