@@ -50,8 +50,10 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
       return placed;
     });
     const result = placed as ReturnType<typeof placePictures> | null;
-    if (result?.selectShotId) selectionStore.getState().selectShot(result.selectShotId, result.sceneId);
-    else if (result) showNotice('The frame or scene those pictures were for isn’t on the board any more.');
+    // Selected only once written: an edit that failed has said why already, and leaves nothing to select.
+    const written = result?.selectShotId ? projectStore.getState().records[result.selectShotId] : undefined;
+    if (result?.selectShotId && written) selectionStore.getState().selectShot(result.selectShotId, result.sceneId);
+    else if (result && !result.selectShotId) showNotice('The frame or scene those pictures were for isn’t on the board any more.');
   }
   const [first] = problems;
   if (first) {
