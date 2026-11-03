@@ -7,13 +7,20 @@ use std::ffi::CStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rusqlite::{ffi, Connection};
 
-/// Pages a full copy takes per step: 4 MB at SQLite's 4 KB pages, a few milliseconds on an SSD. The measurement in
-/// sbd.rs (measures_how_long_a_backup_holds_up_an_edit) checks the longest wait an edit sees.
+/// Pages a full copy takes per step at most: 4 MB at SQLite's 4 KB pages, a few milliseconds on an SSD. The
+/// measurement in sbd.rs (measures_how_long_a_backup_holds_up_an_edit) checks the longest wait an edit sees.
 pub const STEP_PAGES: i32 = 1024;
+/// The fewest pages a step takes, on a slow drive.
+const MIN_STEP_PAGES: i32 = 32;
+/// A step that takes longer than this halves the next one, so a slow external drive still lets edits in quickly.
+const SLOW_STEP: Duration = Duration::from_millis(20);
+/// How many steps in a row can find the project busy (another program writing to it) before the copy gives up,
+/// rather than waiting for ever: about ten seconds with the pause between steps.
+const MAX_BUSY_STEPS: u32 = 5000;
 
 /// The pause between steps, so an edit waiting for the project gets it before the next step does.
 pub const STEP_PAUSE: Duration = Duration::from_millis(2);
@@ -39,9 +46,10 @@ pub fn clone_file(_source: &Path, _dest: &Path) -> std::io::Result<()> {
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
-/// The space only this file takes: what deleting it would free. A full copy's is its size. An APFS clone's is the
-/// blocks no other file shares, which starts at nothing and grows only by what the project has changed since. This is
-/// what the 5 GB cap on a project's backups counts (backups.ts).
+/// The space only this file takes: what deleting it alone would free. A full copy's is its size. An APFS clone's is
+/// the blocks no other file shares, which starts at nothing and grows with what the project changes after it. This is
+/// what the 5 GB cap on a project's backups counts (backups.ts). For clones the sum is a lower bound: a block two old
+/// clones still share, and the project no longer has, belongs to neither alone.
 pub fn own_bytes(path: &Path) -> std::io::Result<u64> {
     let len = fs::metadata(path)?.len();
     Ok(private_size(path).map_or(len, |size| size.min(len)))
@@ -55,14 +63,17 @@ fn private_size(path: &Path) -> Option<u64> {
     let mut request = libc::attrlist {
         bitmapcount: libc::ATTR_BIT_MAP_COUNT,
         reserved: 0,
-        commonattr: 0,
+        // Asked for so the reply says whether the volume keeps a private size at all: exFAT, HFS+ and network shares
+        // don't, and would otherwise read as zero.
+        commonattr: libc::ATTR_CMN_RETURNED_ATTRS,
         volattr: 0,
         dirattr: 0,
         fileattr: 0,
         forkattr: libc::ATTR_CMNEXT_PRIVATESIZE,
     };
-    // The reply: its own length (u32), then the private size (off_t).
-    let mut reply = [0u8; 16];
+    // The reply: its own length (u32), the attributes that came back (five u32s, the extended ones last), then the
+    // private size (off_t).
+    let mut reply = [0u8; 40];
     // SAFETY: the path is NUL-terminated, and the reply buffer is as long as the length passed with it.
     let read = unsafe {
         libc::getattrlist(
@@ -76,7 +87,12 @@ fn private_size(path: &Path) -> Option<u64> {
     if read != 0 {
         return None;
     }
-    let size = i64::from_ne_bytes(reply[4..12].try_into().ok()?);
+    let length = u32::from_ne_bytes(reply[0..4].try_into().ok()?) as usize;
+    let returned = u32::from_ne_bytes(reply[20..24].try_into().ok()?);
+    if returned & libc::ATTR_CMNEXT_PRIVATESIZE == 0 || length < 32 {
+        return None;
+    }
+    let size = i64::from_ne_bytes(reply[24..32].try_into().ok()?);
     u64::try_from(size).ok()
 }
 
@@ -119,6 +135,10 @@ pub struct Copying {
     backup: Option<NonNull<ffi::sqlite3_backup>>,
     /// None once handed on by end().
     partial: Option<Partial>,
+    /// Pages the next step takes; fewer on a slow drive.
+    pages: i32,
+    /// Steps in a row that found the project busy.
+    busy: u32,
 }
 
 // SAFETY: the bundled SQLite is built thread-safe, and SbdFile only touches a copy while OpenFiles' mutex is held, so
@@ -126,9 +146,14 @@ pub struct Copying {
 unsafe impl Send for Copying {}
 
 impl Copying {
-    /// Starts copying `source` to `dest_path`. `source` must stay open until the copy has ended or been dropped;
-    /// SbdFile declares its copy before its connection, so the copy drops first.
-    pub fn start(source: &Connection, dest_path: &Path) -> Result<Self, String> {
+    /// Starts copying `source` to `dest_path`.
+    ///
+    /// # Safety
+    ///
+    /// The copy keeps SQLite's handle on `source` without borrowing it, so `source` must stay open until the copy has
+    /// ended or been dropped, and must only be used from one thread at a time meanwhile. SbdFile keeps both behind
+    /// OpenFiles' mutex and declares its copy before its connection, so the copy drops first.
+    pub unsafe fn start(source: &Connection, dest_path: &Path) -> Result<Self, String> {
         let path = partial_path(dest_path);
         // Left by a copy that was cut off; it was never a backup.
         let _ = fs::remove_file(&path);
@@ -165,6 +190,8 @@ impl Copying {
         Ok(Self {
             backup: Some(backup),
             partial: Some(partial),
+            pages: STEP_PAGES,
+            busy: 0,
         })
     }
 
@@ -173,14 +200,35 @@ impl Copying {
         self.partial.as_ref().map(|partial| partial.path.as_path())
     }
 
-    /// Copies the next `pages` pages, and says whether that was the last of them.
-    pub fn step(&mut self, pages: i32) -> Result<bool, String> {
+    /// Copies the next few pages, and says whether that was the last of them. A step that ran slow makes the next one
+    /// smaller, and a quick one lets it grow back.
+    pub fn step(&mut self) -> Result<bool, String> {
         let backup = self.backup.ok_or("The backup copy has already ended.")?;
+        let started = Instant::now();
         // SAFETY: the handle is live until finish_handle() takes it.
-        match unsafe { ffi::sqlite3_backup_step(backup.as_ptr(), pages) } {
+        let code = unsafe { ffi::sqlite3_backup_step(backup.as_ptr(), self.pages) };
+        self.pages = if started.elapsed() > SLOW_STEP {
+            (self.pages / 2).max(MIN_STEP_PAGES)
+        } else if started.elapsed() < SLOW_STEP / 4 {
+            (self.pages * 2).min(STEP_PAGES)
+        } else {
+            self.pages
+        };
+        match code {
             ffi::SQLITE_DONE => Ok(true),
+            ffi::SQLITE_OK => {
+                self.busy = 0;
+                Ok(false)
+            }
             // Busy or locked: something held the project for a moment, and the next step tries again.
-            ffi::SQLITE_OK | ffi::SQLITE_BUSY | ffi::SQLITE_LOCKED => Ok(false),
+            ffi::SQLITE_BUSY | ffi::SQLITE_LOCKED => {
+                self.busy += 1;
+                if self.busy > MAX_BUSY_STEPS {
+                    Err("Another program is using the project file, so the backup stopped.".into())
+                } else {
+                    Ok(false)
+                }
+            }
             code => Err(error_text(code)),
         }
     }
@@ -233,10 +281,7 @@ impl Partial {
             .open(&self.path)
             .and_then(|file| file.sync_all())
             .map_err(text)?;
-        if self.backup_path.exists() {
-            return Err("A backup with that name already exists.".into());
-        }
-        fs::rename(&self.path, &self.backup_path).map_err(text)?;
+        rename_new(&self.path, &self.backup_path)?;
         Ok(self.backup_path.clone())
     }
 }
@@ -246,6 +291,40 @@ impl Drop for Partial {
         drop(self.dest.take());
         // A copy cut off before it was saved. Once saved, the file has its backup name and there's nothing here.
         let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Renames `from` to `to`, refusing if `to` exists, without the gap between checking and renaming a plain rename
+/// would leave (rename replaces whatever is there, on every system).
+#[cfg(target_os = "macos")]
+fn rename_new(from: &Path, to: &Path) -> Result<(), String> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let source = CString::new(from.as_os_str().as_bytes()).map_err(text)?;
+    let dest = CString::new(to.as_os_str().as_bytes()).map_err(text)?;
+    // SAFETY: both paths are NUL-terminated and outlive the call.
+    if unsafe { libc::renamex_np(source.as_ptr(), dest.as_ptr(), libc::RENAME_EXCL) } == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    Err(if error.kind() == std::io::ErrorKind::AlreadyExists {
+        "A backup with that name already exists.".into()
+    } else {
+        text(error)
+    })
+}
+
+/// The same elsewhere: a hard link refuses an existing name, and the partial name then goes. A drive without hard
+/// links (exFAT) falls back to checking first.
+#[cfg(not(target_os = "macos"))]
+fn rename_new(from: &Path, to: &Path) -> Result<(), String> {
+    match fs::hard_link(from, to) {
+        Ok(()) => fs::remove_file(from).map_err(text),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err("A backup with that name already exists.".into())
+        }
+        Err(_) if to.exists() => Err("A backup with that name already exists.".into()),
+        Err(_) => fs::rename(from, to).map_err(text),
     }
 }
 
@@ -269,6 +348,61 @@ mod tests {
             partial_path(Path::new("/p/Backups/Bey 2026-11-03 09-00.sbd")),
             Path::new("/p/Backups/Bey 2026-11-03 09-00.sbd.partial")
         );
+    }
+
+    #[test]
+    fn renames_without_ever_replacing() {
+        let dir = std::env::temp_dir().join(format!("sbd-rename-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (from, to) = (dir.join("a.partial"), dir.join("a.sbd"));
+        fs::write(&from, "new").unwrap();
+        fs::write(&to, "old").unwrap();
+        assert!(rename_new(&from, &to).is_err());
+        assert_eq!(fs::read_to_string(&to).unwrap(), "old");
+        fs::remove_file(&to).unwrap();
+        rename_new(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "new");
+        assert!(!from.exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A full copy on a drive that keeps no private sizes (HFS+ here; exFAT and network shares are the same) counts in
+    /// full toward the cap, rather than as nothing. Runs on a disk image, so it needs hdiutil; it's skipped without.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn counts_a_whole_file_on_a_drive_without_private_sizes() {
+        use std::process::Command;
+        let dir = std::env::temp_dir().join(format!("sbd-hfs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("plain.dmg");
+        let mount = dir.join("mount");
+        let made = Command::new("hdiutil")
+            .args([
+                "create", "-size", "8m", "-fs", "HFS+", "-volname", "sbdtest", "-quiet",
+            ])
+            .arg(&image)
+            .status();
+        let attached = made.is_ok_and(|status| status.success())
+            && Command::new("hdiutil")
+                .args(["attach", "-nobrowse", "-quiet", "-mountpoint"])
+                .arg(&mount)
+                .arg(&image)
+                .status()
+                .is_ok_and(|status| status.success());
+        if !attached {
+            eprintln!("hdiutil couldn't make a disk image here; skipped");
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        let file = mount.join("copy.sbd");
+        fs::write(&file, vec![1u8; 1_000_000]).unwrap();
+        let own = own_bytes(&file);
+        let _ = Command::new("hdiutil")
+            .args(["detach", "-quiet"])
+            .arg(&mount)
+            .status();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(own.unwrap(), 1_000_000);
     }
 
     #[cfg(target_os = "macos")]
