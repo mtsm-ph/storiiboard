@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.10 in progress |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.10 done, 1.11 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -43,7 +43,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
 | 1.8 Frame inspector | #23 | Done |
 | 1.9 Shot list and Strip views | #24 | Done |
-| 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | In progress |
+| 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | #25 | Done |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
 | 1.12 Drag to reorder; "/" menu | | Not started |
 | 1.13 Sketching | | Not started |
