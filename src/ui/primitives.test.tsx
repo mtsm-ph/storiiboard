@@ -167,3 +167,21 @@ describe('Tile', () => {
     expect(html).toContain(`role="tabpanel" aria-labelledby="${String(openTabId)}"`);
   });
 });
+
+describe('SegmentedControl with nothing chosen yet', () => {
+  it('keeps the first cell as the Tab stop, so the group can still be reached', () => {
+    const html = renderToString(
+      <SegmentedControl
+        label="Size"
+        options={[
+          { value: 'WS', label: 'WS' },
+          { value: 'CU', label: 'CU' },
+        ]}
+        value={'' as 'WS' | 'CU'}
+        onChange={() => undefined}
+      />,
+    );
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toMatch(/aria-checked="false" tabindex="0"[^>]*>WS</);
+  });
+});

@@ -10,8 +10,8 @@ import { verticalNeighbour } from './gridKeys';
 
 // The Storyboard tile (design board, Storyboard workspace): frames grouped by scene, each card at the project's aspect
 // ratio with its shot number, its spec in mono and its status shape. Keyboard-first (CLAUDE.md): the board is one Tab
-// stop; arrows move through every frame and + Frame card, Delete sends a frame to the Trash, ⌘ with an arrow moves
-// it. This part only draws and reads keys; StoryboardTile does the edits.
+// stop; arrows move through every frame and + Frame card, Enter goes on to the frame's details, Delete sends it to
+// the Trash, ⌘ with an arrow moves it. This part only draws and reads keys; StoryboardTile does the edits.
 
 export interface FrameCard {
   id: string;
@@ -44,6 +44,8 @@ export interface StoryboardViewProps {
   onTrash: (shotId: string) => void;
   /** Earlier (-1) or later (1) by one place, crossing into the next scene at either end. */
   onMove: (shotId: string, direction: -1 | 1) => void;
+  /** Enter on a frame: on to its details in the Frame inspector. */
+  onOpen?: (shotId: string) => void;
 }
 
 const NAV = '[data-board-item]';
@@ -68,6 +70,7 @@ export function StoryboardView({
   onAddScene,
   onTrash,
   onMove,
+  onOpen,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   // One Tab stop: the selected frame, or the first item when nothing is selected.
@@ -81,6 +84,11 @@ export function StoryboardView({
     if (shotId !== null && command && event.key.startsWith('Arrow')) {
       event.preventDefault();
       onMove(shotId, event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
+    if (shotId !== null && event.key === 'Enter' && onOpen) {
+      event.preventDefault();
+      onOpen(shotId);
       return;
     }
     if (shotId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {

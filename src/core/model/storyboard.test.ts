@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pageLabel, projectStoryboard, sceneFields, sceneLabel, shotFields, specLine, tStopLabel } from './storyboard';
+import { isSceneNumber, pageLabel, parsePages, projectStoryboard, sceneFields, sceneLabel, shotFields, specLine, tStopLabel } from './storyboard';
 
 describe('storyboard props', () => {
   it('read page counts as a breakdown sheet writes them', () => {
@@ -36,5 +36,20 @@ describe('storyboard props', () => {
   it('label scenes as the slate does', () => {
     expect(sceneLabel('4')).toBe('SC 04');
     expect(sceneLabel('4A')).toBe('SC 4A');
+  });
+
+  it('read page lengths as people type them, and refuse what isn’t one', () => {
+    expect(parsePages('1 3/8')).toBe(11);
+    expect(parsePages('6/8')).toBe(6);
+    expect(parsePages('2')).toBe(16);
+    expect(parsePages('1 3/8 pg')).toBe(11);
+    expect(parsePages('9/8')).toBeNull();
+    expect(parsePages('a page')).toBeNull();
+    for (const eighths of [3, 8, 11, 24]) expect(parsePages(pageLabel(eighths).replace(/ pg$/, ''))).toBe(eighths);
+  });
+
+  it('take scene numbers as scripts write them', () => {
+    for (const ok of ['4', '12', '4A', 'A1', '12BC']) expect(isSceneNumber(ok)).toBe(true);
+    for (const bad of ['', 'A', '4-A', 'SC 4', '4a']) expect(isSceneNumber(bad)).toBe(false);
   });
 });
