@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.1 |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.2 |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -34,8 +34,8 @@ themes). One PR per milestone, each into `v2`.
 
 | Milestone | PR | State |
 |---|---|---|
-| 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | In review |
-| 1.2 Write check and hidden lock file; second-computer warning | | Not started |
+| 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | Done |
+| 1.2 Write check and hidden lock file; second-computer warning | `phase1/1.2-write-check-lock` | In review |
 | 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | | Not started |
 | 1.4 Local backups for synced projects (by file id), Show backups, setting; online backup API | | Not started |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |

@@ -12,10 +12,26 @@ export interface Statement {
   params?: readonly SqlValue[];
 }
 
+/**
+ * The refusal when a sync replaced or rewrote the file while it was open (src-tauri/src/sbd.rs has the same text).
+ * Nothing was written; the app reopens the new version.
+ */
+export const CHANGED_ON_DISK = 'The project file changed on disk since Storiiboard last saved it.';
+
+/** Another computer that has a project open now, from the lock file next to it (src-tauri/src/lock.rs). */
+export interface LockHolder {
+  computer: string;
+  /** When it opened the project, in ms since the epoch. */
+  openedAt: number;
+}
+
 /** A scheduled backup goes to `Backups/` next to the project; a migration backup sits beside the file. */
 export type BackupKind = 'scheduled' | 'migration';
 
-/** An open project file. */
+/**
+ * An open project file. Every write first checks the file is still the one this app last wrote, and refuses with
+ * CHANGED_ON_DISK if not. Opening writes a lock file next to it.
+ */
 export interface ProjectFile {
   readonly path: string;
   /** Runs every statement in one transaction: all of them land, or none do. */
@@ -29,6 +45,9 @@ export interface ProjectFile {
   /** This project's scheduled backups, by file name. */
   listBackups(): Promise<string[]>;
   deleteBackup(fileName: string): Promise<void>;
+  /** Rewrites this computer's lock file, so another computer sees the project is still open here. */
+  refreshLock(): Promise<void>;
+  /** Closes the file and removes its lock. */
   close(): Promise<void>;
 }
 
@@ -41,4 +60,6 @@ export interface SqlDriver {
    * overwrite anything.
    */
   copy(source: string, dest: string): Promise<void>;
+  /** Another computer with this project open now, or null. Asked before opening, so the person can choose. */
+  lockHolder(path: string): Promise<LockHolder | null>;
 }

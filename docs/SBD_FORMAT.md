@@ -269,6 +269,21 @@ The installers register `.sbd` as "Storiiboard Project", with Storiiboard as its
 On macOS the exported type is `app.storiiboard.project`, conforming to `public.data` and `public.database`; the
 MIME type is `application/vnd.storiiboard.project`.
 
+## Safety while a project is open (1.2)
+
+Sync services (iCloud Drive, Dropbox, Google Drive, OneDrive) don't carry SQLite's locks between computers and can't
+merge a database, so two guards sit around every open project:
+
+- **The check before every write.** After each of its own writes, the app records the file's size and modified time,
+  plus its device and inode on Mac and Linux. Before the next write or backup it compares them. If they differ, a
+  sync has replaced or rewritten the file: the write is refused ("The project file changed on disk since Storiiboard
+  last saved it."), nothing is written, and the app reopens the newer version and says the last change wasn't saved.
+  Windows has no stable file id in Rust's std, and sync services there can't rename over a file SQLite has open, so
+  size and time cover it.
+- **The lock file** (below). Opening a project whose lock is fresh and from another computer asks first: Open a copy,
+  Open anyway or Cancel. A lock from this same computer (one left by a crash) or one not refreshed for 5 minutes is
+  ignored. It's advice: Open anyway takes it over.
+
 ## Files next to a project
 
 | File | What it is | From | Kept |
@@ -277,6 +292,8 @@ MIME type is `application/vnd.storiiboard.project`.
 | `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies | 0.4 | 12 plus one a day for 14 days |
 | `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` | Copy made before a migration | 0.4 | Never pruned |
 | `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
+| `.<Project>.sbd.lock` | While the project is open: which computer has it open. JSON: `app`, `computer` (its name), `machine` (a random id per install), `session`, `opened_at` and `refreshed_at` (ms since the epoch). Hidden: a leading dot on Mac, the hidden attribute on Windows | 1.2 | Deleted on close; rewritten every minute while open; stale after 5 minutes |
+| `<Project> (copy).sbd` | Open a copy, chosen when another computer has the project open. A separate project | 1.2 | Like any project |
 | `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |

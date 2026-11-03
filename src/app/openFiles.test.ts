@@ -1,9 +1,10 @@
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { nodeDriver } from '../core/storage/nodeDriver';
+import type { LockHolder } from '../core/storage/driver';
+import { nodeDriver, nodeDriverFor } from '../core/storage/nodeDriver';
 import { createProject } from '../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
-import { createProjectFile, OpenFileError, openProjectFile } from './openFiles';
+import { createProjectFile, OpenFileError, openProjectFile, reopenProjectFile, type LockedChoice } from './openFiles';
 import { createProjectStore } from './projectStore';
 
 let folder: TestFolder;
@@ -75,5 +76,84 @@ describe('opening a .sbd the OS hands over', () => {
       'Couldn’t open “Pilot.sbd”. A file already exists at that path.',
     );
     expect(openPath()).toBe(fresh);
+  });
+});
+
+describe('a project open on another computer', () => {
+  const studio = nodeDriverFor({ id: 'studio', name: 'Studio iMac' });
+  const laptop = nodeDriverFor({ id: 'laptop', name: 'Kevin’s MacBook Pro' });
+
+  /** The project, open on the studio computer for the whole test. */
+  async function openOnStudio() {
+    const path = folder.path('Bey County.sbd');
+    const elsewhere = await createProject(path, { driver: studio, backups: false });
+    return { path, elsewhere };
+  }
+
+  const answering = (choice: LockedChoice) => {
+    const asked: LockHolder[] = [];
+    return {
+      asked,
+      ask: (holder: LockHolder) => {
+        asked.push(holder);
+        return Promise.resolve(choice);
+      },
+    };
+  };
+
+  it('asks first, and Cancel opens nothing', async () => {
+    const { path, elsewhere } = await openOnStudio();
+    const { asked, ask } = answering('cancel');
+    await openProjectFile(path, { store, driver: laptop, askWhenLocked: ask });
+    expect(asked.map((h) => h.computer)).toEqual(['Studio iMac']);
+    expect(openPath()).toBeUndefined();
+    await elsewhere.close();
+  });
+
+  it('opens a copy beside it, a separate project', async () => {
+    const { path, elsewhere } = await openOnStudio();
+    await openProjectFile(path, { store, driver: laptop, askWhenLocked: answering('copy').ask });
+    expect(openPath()).toBe(folder.path('Bey County (copy).sbd'));
+    await elsewhere.close();
+  });
+
+  it('opens it anyway when asked to', async () => {
+    const { path, elsewhere } = await openOnStudio();
+    await openProjectFile(path, { store, driver: laptop, askWhenLocked: answering('anyway').ask });
+    expect(openPath()).toBe(path);
+    await elsewhere.close();
+  });
+
+  it('asks nothing when the other computer has closed it', async () => {
+    const { path, elsewhere } = await openOnStudio();
+    await elsewhere.close();
+    const { asked, ask } = answering('cancel');
+    await openProjectFile(path, { store, driver: laptop, askWhenLocked: ask });
+    expect(asked).toEqual([]);
+    expect(openPath()).toBe(path);
+  });
+});
+
+describe('a sync replacing the file while it is open', () => {
+  it('refuses the edit, flags it, and reopening loads the newer version', async () => {
+    const path = await onDisk('Bey County.sbd');
+    await openProjectFile(path, { store, driver: nodeDriver });
+    const projectId = store.getState().project?.projectId ?? '';
+
+    // The other computer's version, renamed over this one as sync services do.
+    const theirs = await createProject(folder.path('theirs.sbd'), { driver: nodeDriver, backups: false });
+    await theirs.close();
+    renameSync(folder.path('theirs.sbd'), path);
+
+    await store.getState().apply([{ kind: 'update', id: projectId, set: { notes: 'Golden hour on 4A' } }]);
+    expect(store.getState().changedOnDisk).toBe(true);
+    expect(store.getState().error).toBeNull();
+
+    await reopenProjectFile(path, { store, driver: nodeDriver });
+    expect(store.getState().changedOnDisk).toBe(false);
+    expect(openPath()).toBe(path);
+    // The newer file has its own project record; the refused note was never written anywhere.
+    const notes = Object.values(store.getState().records).map((r) => r.props.notes);
+    expect(notes).toEqual(['']);
   });
 });

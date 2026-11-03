@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ProjectFile, Row, SqlDriver } from './driver';
+import type { LockHolder, ProjectFile, Row, SqlDriver } from './driver';
 
 /** Calls a Rust command. The commands reject with a plain message string; this turns it into an Error. */
 export async function command<T = void>(name: string, args: Record<string, unknown>): Promise<T> {
@@ -20,6 +20,7 @@ function tauriFile(handle: number, path: string): ProjectFile {
     backup: (kind, fileName) => command('sbd_backup', { handle, kind, fileName }),
     listBackups: () => command<string[]>('sbd_backups', { handle }),
     deleteBackup: (fileName) => command('sbd_delete_backup', { handle, fileName }),
+    refreshLock: () => command('sbd_lock_refresh', { handle }),
     close: () => command('sbd_close', { handle }),
   };
 }
@@ -29,4 +30,5 @@ export const tauriDriver: SqlDriver = {
   create: async (path) => tauriFile(await command<number>('sbd_create', { path }), path),
   open: async (path) => tauriFile(await command<number>('sbd_open', { path }), path),
   copy: (source, dest) => command('sbd_copy', { source, dest }),
+  lockHolder: (path) => command<LockHolder | null>('sbd_lock_holder', { path }),
 };
