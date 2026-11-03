@@ -1,5 +1,8 @@
 import { cx } from '../../../ui/cx';
-import { ComingItem, Menu } from '../../../ui/Menu';
+import { useEffect } from 'react';
+import { ComingItem, Menu, menuItemClass } from '../../../ui/Menu';
+import { isDesktop, newProject, openRecent, recentStore } from '../../projects/actions';
+import { useRecent } from '../../projects/recentStore';
 import { useProject } from '../../projectStore';
 import { isUnsaved, useLayouts } from '../docking/layoutStore';
 import { sectionId, type Workspace, type WorkspaceId } from '../workspaces';
@@ -17,9 +20,14 @@ interface SidebarProps {
   onSelect: (id: WorkspaceId) => void;
   activeSceneId: string | null;
   onSelectScene: (id: string) => void;
+  /** All projects…: the Projects screen. */
+  onShowProjects: () => void;
 }
 
-export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelectScene }: SidebarProps) {
+/** How many recent projects the switcher lists; All projects… has the rest. */
+const SWITCHER_RECENT = 8;
+
+export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelectScene, onShowProjects }: SidebarProps) {
   const layouts = useLayouts((s) => s.layouts);
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
@@ -29,6 +37,13 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     return typeof title === 'string' && title !== '' ? title : (s.project?.name ?? null);
   });
   const scenes = project ? sceneEntries(records, project.projectId) : [];
+  const recent = useRecent(recentStore, (s) => s.entries).slice(0, SWITCHER_RECENT);
+  const openPath = project?.file.path ?? null;
+
+  // Re-read Recent whenever the open project changes, however it was opened.
+  useEffect(() => {
+    void recentStore.getState().refresh();
+  }, [openPath]);
 
   const addScene = () => {
     if (!project) return;
@@ -54,13 +69,59 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
           buttonClassName="sb-label flex h-full w-full items-center gap-2 px-4 text-left focus-visible:-outline-offset-4"
           panelClassName="w-full"
         >
-          {() => (
-            // Recent projects and switching in place arrive with the Projects screen (0.7).
-            <>
-              <ComingItem label="All projects…" phase="0.7" />
-              <ComingItem label="New project…" phase="0.7" />
-            </>
-          )}
+          {(close) =>
+            isDesktop ? (
+              <>
+                {recent.length > 0 && (
+                  <ul aria-label="Recent projects">
+                    {recent.map((entry) => (
+                      <li key={entry.path}>
+                        <button
+                          type="button"
+                          aria-current={entry.path === openPath ? 'true' : undefined}
+                          onClick={() => {
+                            close();
+                            // Switching opens the other .sbd in place, without reloading the window.
+                            void openRecent(entry.path);
+                          }}
+                          className={cx(menuItemClass, entry.path === openPath && 'font-bold')}
+                        >
+                          <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent" />
+                          <span className="truncate">{entry.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  className={menuItemClass}
+                  onClick={() => {
+                    close();
+                    onShowProjects();
+                  }}
+                >
+                  All projects…
+                </button>
+                <button
+                  type="button"
+                  className={menuItemClass}
+                  onClick={() => {
+                    close();
+                    void newProject();
+                  }}
+                >
+                  New project…
+                </button>
+              </>
+            ) : (
+              // The browser build has no files to open.
+              <>
+                <ComingItem label="All projects…" phase="Desktop app" />
+                <ComingItem label="New project…" phase="Desktop app" />
+              </>
+            )
+          }
         </Menu>
       </div>
       <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">

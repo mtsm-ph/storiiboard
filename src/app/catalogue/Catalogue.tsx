@@ -11,9 +11,17 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { ConflictChip, DepartmentTag, GoldenHourChip, StatusGlyph } from '../../ui/tags';
 import { ThemeSwitch } from '../../ui/theme/ThemeSwitch';
 import { Tile } from '../../ui/Tile';
+import { ProjectsView } from '../projects/ProjectsView';
 
 // Dev-only page (open the app at #catalogue): every primitive and state, in whichever theme is active.
 // It doubles as the "stories" for src/ui and as the page the end-to-end keyboard tests drive.
+
+// Sample entries for the Projects screen, which the browser build can't reach with real files.
+const SAMPLE_RECENT = [
+  { path: '/Users/kevin/Films/Bey County.sbd', name: 'Bey County', openedAt: '2026-11-02T14:05:00.000Z' },
+  { path: '/Volumes/Jobs/Parfum No. 7.sbd', name: 'Parfum No. 7', openedAt: '2026-10-28T09:30:00.000Z' },
+];
+const noop = () => undefined;
 
 const T_STOPS = [1.4, 2, 2.8, 4, 5.6, 8, 11] as const;
 type TStop = (typeof T_STOPS)[number];
@@ -139,6 +147,20 @@ export function Catalogue() {
           <div className="flex flex-wrap gap-1.5">
             <GoldenHourChip time="15:52" />
             <ConflictChip>Day 02</ConflictChip>
+          </div>
+        </Section>
+
+        <Section title="Projects screen">
+          <div className="flex h-[300px] flex-col">
+            <ProjectsView
+              recent={SAMPLE_RECENT}
+              openPath={SAMPLE_RECENT[0]?.path ?? null}
+              canOpen
+              onNew={noop}
+              onOpen={noop}
+              onOpenRecent={noop}
+              onForget={noop}
+            />
           </div>
         </Section>
 

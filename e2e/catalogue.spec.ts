@@ -60,6 +60,7 @@ test('tile tabs move with the arrow keys', async ({ page }) => {
 });
 
 test('lists all 68 plan icons', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Plan icons (68)' })).toBeVisible();
-  await expect(page.getByRole('listitem')).toHaveCount(68);
+  const heading = page.getByRole('heading', { name: 'Plan icons (68)' });
+  await expect(heading).toBeVisible();
+  await expect(page.locator('section', { has: heading }).getByRole('listitem')).toHaveCount(68);
 });

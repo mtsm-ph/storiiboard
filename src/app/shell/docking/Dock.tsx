@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
+import { TILE_CONTENT } from '../tileContent';
 import { isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
 import { previewBox, zoneAt, type Box } from './geometry';
 import {
@@ -228,6 +229,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   const renderStack = (stack: Stack, style?: CSSProperties) => {
     const active = stack.active;
     const info = TILES[active];
+    const Content = TILE_CONTENT[active];
     return (
       <Tile
         key={stack.id}
@@ -269,7 +271,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         className="h-full"
         style={style}
       >
-        <p className="sb-label p-3 text-muted">{info?.note}</p>
+        {Content ? <Content /> : <p className="sb-label p-3 text-muted">{info?.note}</p>}
       </Tile>
     );
   };

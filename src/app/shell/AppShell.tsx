@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ProjectHome } from '../project/ProjectHome';
+import { clearNotice, useNotice } from '../notice';
+import { isDesktop } from '../projects/actions';
+import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
@@ -13,15 +15,30 @@ export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
   // The scene the storyboard is on: its sidebar entry carries the orange marker. Phase 1's board follows it.
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  // Why the last file the person asked for didn't open; shown until dismissed or another one opens.
-  const [openError, setOpenError] = useState<string | null>(null);
-  useOpenedFiles(setOpenError);
+  // All projects… asks for the Projects screen while a project is open; opening one, or a section, leaves it.
+  const [projectsAsked, setProjectsAsked] = useState(false);
+  const notice = useNotice();
+  useOpenedFiles();
   const workspace = WORKSPACES.find((w) => w.id === workspaceId) ?? WORKSPACES[0];
   const projectTitle = useProject((s) => {
     const title = s.project ? s.records[s.project.projectId]?.props.title : undefined;
     return typeof title === 'string' ? title : (s.project?.name ?? null);
   });
-  const projectOpen = useProject((s) => s.project !== null);
+  const projectPath = useProject((s) => s.project?.file.path ?? null);
+  // The desktop app with nothing open shows the Projects screen. The browser build can't open files, so it shows
+  // the workspaces' placeholder tiles instead, as a preview of the shell (and for its end-to-end tests).
+  const showProjects = isDesktop && (projectPath === null || projectsAsked);
+
+  // A project opening or switching leaves the Projects screen for its workspace.
+  const [shownPath, setShownPath] = useState(projectPath);
+  if (shownPath !== projectPath) {
+    setShownPath(projectPath);
+    setProjectsAsked(false);
+  }
+  const selectWorkspace = (id: WorkspaceId) => {
+    setWorkspaceId(id);
+    setProjectsAsked(false);
+  };
 
   useEffect(() => {
     const mac = isMac();
@@ -52,6 +69,7 @@ export function AppShell() {
         (document.getElementById(WORKSPACE_PANEL_ID)?.contains(focused) === true ||
           WORKSPACES.some((w) => sectionId(w.id) === focused.id));
       setWorkspaceId(target.id);
+      setProjectsAsked(false);
       if (follow) requestAnimationFrame(() => document.getElementById(sectionId(target.id))?.focus());
     };
     window.addEventListener('keydown', onKeyDown);
@@ -67,29 +85,29 @@ export function AppShell() {
         <Sidebar
           workspaces={WORKSPACES}
           activeId={workspace.id}
-          onSelect={setWorkspaceId}
+          onSelect={selectWorkspace}
           activeSceneId={activeSceneId}
           onSelectScene={setActiveSceneId}
+          onShowProjects={() => {
+            setProjectsAsked(true);
+          }}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {openError && (
+          {notice && (
             <div role="alert" className="mx-gap mt-gap flex items-center gap-3 bg-warning px-3 py-2 text-paper-fixed">
-              <p className="text-[13px]">{openError}</p>
+              <p className="text-[13px]">{notice}</p>
               <button
                 type="button"
-                onClick={() => {
-                  setOpenError(null);
-                }}
+                onClick={clearNotice}
                 className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
               >
                 Dismiss
               </button>
             </div>
           )}
-          {projectOpen ? (
-            // Phase 0's edit surface; the workspaces fill with real tools from Phase 1.
+          {showProjects ? (
             <div id={WORKSPACE_PANEL_ID} className="flex min-h-0 flex-1 flex-col">
-              <ProjectHome />
+              <ProjectsScreen />
             </div>
           ) : (
             // Keyed by workspace so drag and keyboard-move state never carries from one workspace to the next.

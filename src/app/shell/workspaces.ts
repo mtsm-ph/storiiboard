@@ -31,7 +31,8 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
   team: { title: 'Team', note: 'Who is on the project; from Phase 9, what each person sees on the web. Phase 3.' },
   // Production's cast and crew tile and the Team section read the same person records.
   people: { title: 'Cast and crew', note: 'People by department, characters, contacts. Phase 3.' },
-  settings: { title: 'Settings', note: 'Backups, units and keys. From 0.7.' },
+  project: { title: 'Project', note: 'Title and notes.' },
+  settings: { title: 'Backups', note: 'Backup settings and Open backup. 0.7.' },
   // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
   calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
   notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
@@ -129,8 +130,8 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
     id: 'settings',
     label: 'Settings',
     phase: '0.7',
-    order: ['settings'],
-    defaultLayout: () => layout(stack(['settings'])),
+    order: ['project', 'settings'],
+    defaultLayout: () => layout(split('row', [stack(['project']), stack(['settings'])], [760, 656])),
   },
 ];
 

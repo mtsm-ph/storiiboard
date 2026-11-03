@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nodeDriver } from '../core/storage/nodeDriver';
 import { createProject } from '../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
-import { OpenFileError, openProjectFile } from './openFiles';
+import { createProjectFile, OpenFileError, openProjectFile } from './openFiles';
 import { createProjectStore } from './projectStore';
 
 let folder: TestFolder;
@@ -60,5 +60,20 @@ describe('opening a .sbd the OS hands over', () => {
       "Couldn’t open “Gone.sbd”. There's no project file at that path.",
     );
     expect(openPath()).toBe(pilot);
+  });
+
+  it('makes a new project in place of the open one, and never overwrites a file', async () => {
+    const pilot = await onDisk('Pilot.sbd');
+    await openProjectFile(pilot, { store, driver: nodeDriver });
+
+    const fresh = folder.path('Open Water.sbd');
+    await createProjectFile(fresh, { store, driver: nodeDriver });
+    expect(openPath()).toBe(fresh);
+    expect(store.getState().project?.name).toBe('Open Water');
+
+    await expect(createProjectFile(pilot, { store, driver: nodeDriver })).rejects.toThrow(
+      'Couldn’t open “Pilot.sbd”. A file already exists at that path.',
+    );
+    expect(openPath()).toBe(fresh);
   });
 });

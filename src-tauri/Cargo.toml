@@ -20,6 +20,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # bundled compiles SQLite in, so every install has the same version whatever the OS ships.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+# Native Save and Open dialogs for New project, Open and Open backup (0.7, approved Nov 2).
+tauri-plugin-dialog = "2.8.3"
 
 # Desktop only: a second launch (a double-click on a .sbd while the app runs, on Windows) hands its arguments to the
 # running app and exits, so one window owns the open project (src/opened.rs).

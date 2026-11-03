@@ -1,18 +1,17 @@
 import { useId } from 'react';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { TextField } from '../../ui/fields';
-import { Tile } from '../../ui/Tile';
 import { useProject } from '../projectStore';
 
-// Phase 0's whole edit surface: a project's title and notes, enough to edit real material, force-quit and undo
-// (docs/PLAN.md, 0.5). Phase 1 replaces it with the storyboard.
+// The Project tile in Settings: the project's title and notes, enough to edit real material, force-quit and undo
+// in Phase 0 (docs/PLAN.md, 0.5 and 0.7). With + Add Scene in the sidebar, it's Phase 0's edit surface.
 
 export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
   const record = useProject((s) => (projectId ? s.records[projectId] : undefined));
   const apply = useProject((s) => s.apply);
   const error = useProject((s) => s.error);
-  if (!record) return null;
+  if (!record) return <p className="sb-label p-3 text-muted">No project open.</p>;
   return (
     <ProjectFields
       record={record}
@@ -40,41 +39,39 @@ export function ProjectFields({ record, error, onChange }: ProjectFieldsProps) {
   };
 
   return (
-    <div className="grid min-h-0 flex-1 p-gap">
-      <Tile index={1} title="Project">
-        {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
-        <div key={record.updatedAt} className="flex max-w-[640px] flex-col gap-4 p-4">
-          <TextField
-            label="Title"
-            defaultValue={title}
+    <>
+      {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
+      <div key={record.updatedAt} className="flex max-w-[640px] flex-col gap-4 p-4">
+        <TextField
+          label="Title"
+          defaultValue={title}
+          onBlur={(event) => {
+            commit('title', event.currentTarget.value, title);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+        />
+        <div className="flex flex-col gap-[5px]">
+          <label htmlFor={notesId} className="sb-label">
+            Notes
+          </label>
+          <textarea
+            id={notesId}
+            rows={10}
+            defaultValue={notes}
             onBlur={(event) => {
-              commit('title', event.currentTarget.value, title);
+              commit('notes', event.currentTarget.value, notes);
             }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur();
-            }}
+            className="w-full border border-ink bg-oatmeal px-2.5 py-2 text-[13px] text-ink"
           />
-          <div className="flex flex-col gap-[5px]">
-            <label htmlFor={notesId} className="sb-label">
-              Notes
-            </label>
-            <textarea
-              id={notesId}
-              rows={10}
-              defaultValue={notes}
-              onBlur={(event) => {
-                commit('notes', event.currentTarget.value, notes);
-              }}
-              className="w-full border border-ink bg-oatmeal px-2.5 py-2 text-[13px] text-ink"
-            />
-          </div>
-          {error && (
-            <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-              {error}
-            </p>
-          )}
         </div>
-      </Tile>
-    </div>
+        {error && (
+          <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+            {error}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
