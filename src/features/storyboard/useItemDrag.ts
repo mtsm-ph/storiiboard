@@ -38,11 +38,41 @@ function sceneItems(sceneId: string): HTMLElement[] {
 /** The box an item takes on the board: its card, or its row in the shot list. */
 const boxOf = (element: HTMLElement) => (element.closest('tr') ?? element).getBoundingClientRect();
 
+/** The item an element is part of: its card, or in the shot list any cell of its row. */
+function itemOf(node: Element): HTMLElement | null {
+  const own = node.closest<HTMLElement>('[data-item-id]');
+  if (own) return own;
+  return node.closest('tr')?.querySelector<HTMLElement>('[data-item-id]') ?? null;
+}
+
+/** The scene's item nearest a point, for a pointer in the gaps between cards. */
+function nearestItem(sceneId: string, x: number, y: number, draggedId: string): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestDistance = Infinity;
+  for (const node of sceneItems(sceneId)) {
+    if (node.dataset.itemId === draggedId) continue;
+    const box = boxOf(node);
+    const dx = Math.max(box.left - x, 0, x - box.right);
+    const dy = Math.max(box.top - y, 0, y - box.bottom);
+    const distance = Math.hypot(dx, dy);
+    if (distance < bestDistance) {
+      best = node;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 function placeAt(x: number, y: number, draggedId: string, vertical: boolean): { place: DropPlace; bar: Bar } | null {
   const under = document.elementsFromPoint(x, y);
-  const item = under
-    .map((node) => (node instanceof HTMLElement ? node.closest<HTMLElement>('[data-item-id]') : null))
+  const direct = under
+    .map((node) => itemOf(node))
     .find((node): node is HTMLElement => node !== null && node.closest('[data-board]') !== null);
+  const scene = under
+    .map((node) => (node instanceof HTMLElement ? node.closest<HTMLElement>('[data-drop-scene]') : null))
+    .find((node): node is HTMLElement => node !== null);
+  // Between cards, the nearest one in the scene decides, so crossing a gap doesn't jump to the scene's end.
+  const item = direct ?? (scene?.dataset.dropScene ? nearestItem(scene.dataset.dropScene, x, y, draggedId) : null);
   if (item?.dataset.sceneId && item.dataset.itemId) {
     const sceneId = item.dataset.sceneId;
     const siblings = sceneItems(sceneId);
@@ -54,9 +84,6 @@ function placeAt(x: number, y: number, draggedId: string, vertical: boolean): { 
       : { left: after ? box.right + 2 : box.left - 5.5, top: box.top, vertical: true, length: box.height };
     return item.dataset.itemId === draggedId ? null : { place: { sceneId, beforeId }, bar };
   }
-  const scene = under
-    .map((node) => (node instanceof HTMLElement ? node.closest<HTMLElement>('[data-drop-scene]') : null))
-    .find((node): node is HTMLElement => node !== null);
   const sceneId = scene?.dataset.dropScene;
   if (!sceneId) return null;
   // Past the last item in a scene: its end, marked after the last item (or at the scene's + Frame when it has none).
@@ -86,6 +113,8 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
   const pressed = useRef<{ id: string; label: string; x: number; y: number; started: boolean } | null>(null);
   // The click that follows a drag's release isn't a click on the item.
   const swallowClick = useRef(false);
+  // A drag cancelled with Escape: the release still to come swallows its click too.
+  const cancelled = useRef(false);
   const dropRef = useRef(onDrop);
   useEffect(() => {
     dropRef.current = onDrop;
@@ -109,9 +138,20 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
         swallowClick.current = false;
       }, 0);
     };
+    const cancel = () => {
+      if (pressed.current?.started) cancelled.current = true;
+      pressed.current = null;
+      latest.current = null;
+      setDrag(null);
+    };
     const up = () => {
       const press = pressed.current;
       pressed.current = null;
+      if (cancelled.current) {
+        cancelled.current = false;
+        swallowNextClick();
+        return;
+      }
       if (!press?.started) return;
       swallowNextClick();
       const current = latest.current;
@@ -123,19 +163,21 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
       if (event.key !== 'Escape' || !pressed.current) return;
       event.preventDefault();
       event.stopPropagation();
-      if (pressed.current.started) swallowNextClick();
-      pressed.current = null;
-      latest.current = null;
-      setDrag(null);
+      cancel();
+    };
+    // A pointer the system takes away (a gesture, a window switch) cancels the drag; it never drops.
+    const lost = () => {
+      cancel();
+      cancelled.current = false;
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    window.addEventListener('pointercancel', lost);
     window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('pointercancel', lost);
       window.removeEventListener('keydown', key, true);
     };
   }, [vertical]);

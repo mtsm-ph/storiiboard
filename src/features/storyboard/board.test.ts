@@ -6,6 +6,8 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import {
   addNote,
   addScene,
+  compareSceneNumbers,
+  leavesLockedScene,
   addShot,
   board,
   coverage,
@@ -197,5 +199,44 @@ describe('notes, inserts and locations (1.12)', () => {
     expect(locations(records(), projectId)).toHaveLength(1);
     expect(records().sc5?.props.location_id).toBe(first?.id);
     expect(setSceneLocation(records(), projectId, 'sc5', '   ')).toEqual([]);
+  });
+});
+
+describe('review fixes (1.12)', () => {
+  const scene = (id: string, number: string, sortKey: string) =>
+    ({ kind: 'create', record: { id, type: 'scene', parentId: projectId, sortKey, props: { number } } }) as const;
+  const sceneNumbers = () => board(records(), projectId).map((s) => s.fields.number);
+
+  it('keeps a frame in a scene whose numbers are locked, so no slate number is ever given twice', async () => {
+    await store.getState().apply([scene('sc5', '5', 'k')]);
+    const a = await add();
+    await add();
+    const c = await add();
+    await store.getState().apply(setNumbersLocked(records(), projectId, 'sc4', true));
+    expect(leavesLockedScene(records(), c, 'sc5')).toBe(true);
+    expect(moveShot(records(), projectId, c, 'sc5', null)).toEqual([]);
+    // Within the locked scene it still moves, keeping its number.
+    await store.getState().apply(moveShot(records(), projectId, c, 'sc4', a));
+    expect(numbers()).toEqual(['4C', '4A', '4B']);
+  });
+
+  it('puts an inserted scene where its number sorts: 4B goes after 4A, not between 4 and 4A', async () => {
+    await store.getState().apply([scene('sc4a', '4A', 'Vm'), scene('sc5', '5', 'k')]);
+    await store.getState().apply([addScene(records(), projectId, 'sc4')]);
+    expect(sceneNumbers()).toEqual(['4', '4A', '4B', '5']);
+  });
+
+  it('puts a scene inserted after the last live one past any trashed ones, as + Scene does', async () => {
+    await store.getState().apply([scene('sc5', '5', 'k')]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc5' }]);
+    await store.getState().apply([addScene(records(), projectId, 'sc4')]);
+    await store.getState().apply([{ kind: 'restore', id: 'sc5' }]);
+    expect(sceneNumbers()).toEqual(['4', '5', '6']);
+  });
+
+  it('orders scene numbers as slates do, and links a location already set without an edit', async () => {
+    expect(['5', '4B', 'A4', '4', '4A', '12'].sort(compareSceneNumbers)).toEqual(['A4', '4', '4A', '4B', '5', '12']);
+    await store.getState().apply(setSceneLocation(records(), projectId, 'sc4', 'Penn Station'));
+    expect(setSceneLocation(records(), projectId, 'sc4', 'penn station')).toEqual([]);
   });
 });

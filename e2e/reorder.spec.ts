@@ -165,6 +165,43 @@ test('the "/" menu sets the scene’s location, reusing one the project has', as
   await expect(inspector(page).getByText('Penn Station')).toBeVisible();
 });
 
+test('in the shot list, a row dropped on any cell of another row lands there', async ({ page }) => {
+  await board(page).getByRole('radio', { name: 'Shot list' }).click();
+  const rows = board(page).locator('[aria-label="Frames in SC 01"] tr', { has: page.locator('[data-shot-id]') });
+  const last = rows.nth(2);
+  const id = await last.locator('[data-shot-id]').getAttribute('data-shot-id');
+  // Lifted by its shot number, the row's focus target, and let go over the first row's Move cell.
+  await drag(page, last.locator('[data-shot-id]'), rows.nth(0).locator('td').nth(6), 0.5);
+  await expect(frames(page, 'SC 01').nth(0)).toHaveAttribute('data-shot-id', id ?? '');
+});
+
+test('a frame stays in a scene whose numbers are locked, and the board says why', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
+  await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);
+  await expect(page.getByText('This scene’s shot numbers are locked, so its frames stay in it.', { exact: false })).toBeVisible();
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
+});
+
+test('focus stays on the board when the frame before a note goes to the Trash, and a click outside closes the menu', async ({ page }) => {
+  await frames(page, 'SC 01').nth(0).focus();
+  await page.keyboard.press('/');
+  await page.keyboard.type('note');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Rain');
+  await page.keyboard.press(`${await command(page)}+Enter`);
+  // ⌘Enter puts focus back on the note once it's drawn; wait for that before moving on.
+  await expect(board(page).locator('[data-note-id]')).toBeFocused();
+  await frames(page, 'SC 01').nth(0).focus();
+  await page.keyboard.press('Delete');
+  // The note that came next takes focus.
+  await expect(board(page).locator('[data-note-id]')).toBeFocused();
+
+  await page.keyboard.press('/');
+  await expect(page.getByRole('combobox', { name: 'Insert' })).toBeFocused();
+  await board(page).getByRole('heading', { name: /^SC 02/ }).click();
+  await expect(page.getByRole('combobox', { name: 'Insert' })).toHaveCount(0);
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`the board with a note and the "/" menu open passes axe (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });

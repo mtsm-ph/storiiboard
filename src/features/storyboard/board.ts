@@ -209,6 +209,7 @@ export function moveItem(
   const item = records[id];
   const sourceSceneId = item?.parentId;
   if (!item || !sourceSceneId || beforeId === id || (item.type !== 'shot' && item.type !== 'note')) return [];
+  if (leavesLockedScene(records, id, targetSceneId)) return [];
   const target = sceneItems(records, targetSceneId).filter((s) => s.id !== id);
   const at = beforeId === null ? target.length : target.findIndex((s) => s.id === beforeId);
   if (at === -1) return [];
@@ -230,6 +231,17 @@ export function moveItem(
       ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id))
       : []),
   ];
+}
+
+/**
+ * Whether a move would take a frame out of a scene whose numbers are locked. It isn't allowed: the frame's number is
+ * on a slate there, and once it left, nothing would stop a later frame taking the same letter. Unlocking the scene
+ * first frees it to move.
+ */
+export function leavesLockedScene(records: Records, id: string, targetSceneId: string): boolean {
+  const item = records[id];
+  if (item?.type !== 'shot' || !item.parentId || item.parentId === targetSceneId) return false;
+  return sceneFields(records[item.parentId]?.props ?? {}).numbersLocked;
 }
 
 /** moveItem for a frame. */
@@ -265,6 +277,8 @@ export function setSceneLocation(records: Records, projectId: string, sceneId: s
   const trimmed = name.trim();
   if (!records[sceneId] || trimmed === '') return [];
   const existing = locations(records, projectId).find((l) => l.name.toLowerCase() === trimmed.toLowerCase());
+  // Already this scene's location: no edit, so no empty step in History.
+  if (existing && sceneFields(records[sceneId].props).locationId === existing.id) return [];
   if (existing) return [{ kind: 'update', id: sceneId, set: { location_id: existing.id } }];
   const id = crypto.randomUUID();
   const all = childrenOf(records, projectId, 'location', true);
@@ -314,9 +328,29 @@ export function setLettersAllowIO(records: Records, projectId: string, allow: bo
   ];
 }
 
+/** Slate order for scene numbers: by number, then A4 (inserted before 4), then 4, then 4A, 4B. */
+export function compareSceneNumbers(a: string, b: string): number {
+  const parse = (n: string) => {
+    const match = /^([A-Z]*)(\d+)([A-Z]*)$/.exec(n);
+    return match ? { prefix: match[1] ?? '', number: Number(match[2]), suffix: match[3] ?? '' } : null;
+  };
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return a < b ? -1 : a > b ? 1 : 0;
+  if (x.number !== y.number) return x.number - y.number;
+  // Prefixed ones come first, then the plain number, then suffixed ones; letters by length, then alphabet.
+  const rank = (p: typeof x) => (p.prefix ? 0 : p.suffix ? 2 : 1);
+  if (rank(x) !== rank(y)) return rank(x) - rank(y);
+  const left = x.prefix || x.suffix;
+  const right = y.prefix || y.suffix;
+  return left.length - right.length || (left < right ? -1 : left > right ? 1 : 0);
+}
+
 /**
  * + New scene and + Add Scene: a scene at the end of the board, numbered one past the highest. With `afterSceneId`
- * (the "/" menu), right after that scene instead, numbered between it and the next as scripts do: 4A after 4.
+ * (the "/" menu), right after that scene instead, numbered between it and the next as scripts do: 4A after 4. When
+ * that number would sort past the scenes that follow (4B, with 4A already next), it goes after them, so the board
+ * always reads in slate order.
  */
 export function addScene(
   records: Records,
@@ -327,9 +361,17 @@ export function addScene(
   const all = childrenOf(records, projectId, 'scene', true);
   const taken = all.map((scene) => sceneFields(scene.props).number);
   const live = all.filter((scene) => scene.trashedAt === null);
-  const at = afterSceneId === null ? -1 : live.findIndex((scene) => scene.id === afterSceneId);
-  const before = at === -1 ? (all.at(-1) ?? null) : (live[at] ?? null);
-  const nextLive = at === -1 ? null : (live[at + 1] ?? null);
+  const numberOf = (scene: SbdRecord | undefined) => (scene ? sceneFields(scene.props).number : null);
+  let at = afterSceneId === null ? -1 : live.findIndex((scene) => scene.id === afterSceneId);
+  let number: string;
+  if (at === -1) {
+    number = sceneNumberBetween(taken.at(-1) ?? null, null, taken);
+  } else {
+    number = sceneNumberBetween(numberOf(live[at]), numberOf(live[at + 1]), taken);
+    while (live[at + 1] && compareSceneNumbers(numberOf(live[at + 1]) ?? '', number) < 0) at += 1;
+  }
+  // After the last scene, trashed ones included, when it goes at the end, as + Scene does; else between neighbours.
+  const before = at === -1 || !live[at + 1] ? (all.at(-1) ?? null) : (live[at] ?? null);
   const nextKey = before ? (all[all.indexOf(before) + 1]?.sortKey ?? null) : null;
   return {
     kind: 'create',
@@ -339,13 +381,7 @@ export function addScene(
       type: 'scene',
       parentId: projectId,
       sortKey: keyBetween(before?.sortKey ?? null, nextKey),
-      props: {
-        number:
-          at === -1
-            ? sceneNumberBetween(taken.at(-1) ?? null, null, taken)
-            : sceneNumberBetween(sceneFields(live[at]?.props ?? {}).number, nextLive ? sceneFields(nextLive.props).number : null, taken),
-        name: '',
-      },
+      props: { number, name: '' },
     },
   };
 }
