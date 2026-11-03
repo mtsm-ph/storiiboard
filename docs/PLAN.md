@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.2 |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; building 1.3 |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -36,7 +36,7 @@ themes). One PR per milestone, each into `v2`.
 |---|---|---|
 | 1.1 Theme tokens: semantic names, default accent #DF5E27, logo on a fixed brand token #E0612B | #16 | Done |
 | 1.2 Write check and hidden lock file; second-computer warning | #17 | In review |
-| 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | | Not started |
+| 1.3 Synced-folder detection, one-time note, New starts locally when Documents is synced | `phase1/1.3-synced-folders` | In review |
 | 1.4 Local backups for synced projects (by file id), Show backups, setting; online backup API | | Not started |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | | Not started |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | | Not started |
@@ -695,6 +695,13 @@ gone), and, rarely, an upload caught mid-write. Approved for Phase 1:
   .sbd.
 - Deferred to Phase 8, only if moving a live project between computers becomes a real need: editing a local working
   copy and writing the whole file back.
+- As built in 1.3 (Nov 3): detection reads what each service writes on disk, never the network. On a Mac that's the
+  `com.apple.file-provider-domain-id` attribute every File Provider service (iCloud Drive with Desktop and Documents,
+  current Dropbox, Google Drive, OneDrive, Box) puts on its folders, plus the iCloud Drive and CloudStorage locations
+  for older installs. On Windows it's the cloud-files attributes plus OneDrive's, Dropbox's and iCloud's known folders.
+  The note is an info notice (ink outline), once per project. New project starts in Documents, or in
+  `Movies/Storiiboard` (`Videos\Storiiboard` on Windows) when Documents is synced, or the home folder if that's synced
+  too.
 
 ### History, versions and backups
 

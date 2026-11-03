@@ -4,6 +4,7 @@ import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
 import { isDesktop, reopenChangedProject, setProjectState, syncRecentState } from '../projects/actions';
 import { ProjectsScreen } from '../projects/ProjectsScreen';
+import { noteIfSynced } from '../projects/synced';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
@@ -34,6 +35,11 @@ export function AppShell() {
   useEffect(() => {
     if (changedOnDisk) void reopenChangedProject();
   }, [changedOnDisk]);
+
+  // Once per project: say that a project in a synced folder should be open on one computer at a time.
+  useEffect(() => {
+    if (isDesktop && projectPath !== null) void noteIfSynced(projectPath);
+  }, [projectPath]);
 
   // Recent shows each project's state without opening it, so a change here (or its undo) is copied there.
   useEffect(() => {
@@ -107,18 +113,26 @@ export function AppShell() {
           }}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {notice && (
-            <div role="alert" className="mx-gap mt-gap flex items-center gap-3 bg-warning px-3 py-2 text-paper-fixed">
-              <p className="text-[13px]">{notice}</p>
-              <button
-                type="button"
-                onClick={clearNotice}
-                className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
+          {notice.message !== null &&
+            (notice.kind === 'warning' ? (
+              <div role="alert" className="mx-gap mt-gap flex items-center gap-3 bg-warning px-3 py-2 text-paper-fixed">
+                <p className="text-[13px]">{notice.message}</p>
+                <button
+                  type="button"
+                  onClick={clearNotice}
+                  className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : (
+              <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
+                <p className="text-[13px]">{notice.message}</p>
+                <button type="button" onClick={clearNotice} className="sb-label ml-auto border border-text px-2 py-1">
+                  Got it
+                </button>
+              </div>
+            ))}
           {!showProjects && projectState === 'archived' && (
             <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
               <p className="text-[13px]">
