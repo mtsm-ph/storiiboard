@@ -48,7 +48,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | #27 | In review |
 | 1.12 Drag to reorder; "/" menu | | Not started |
 | 1.13 Sketching | | Not started |
-| 1.14 Theme generator | | Not started |
+| 1.14 Theme generator: 12 families, OKLab accents, AA fit, in a Web Worker | #31 | Done |
 | 1.15 Theme switching, Follow project | | Not started |
 | 1.16 Onboarding and Settings → Theme | | Not started |
 | 1.17 Script import: Fountain and FDX | | Not started |
@@ -569,6 +569,19 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
   and Chromium. The fixtures cover one per family and the hard cases: grayscale, transparent, photo, near-white and
   neon.
 - e2e: switching projects swaps the tokens in about 200ms without a reload, and reduced motion switches instantly.
+
+**As built in 1.14 (Nov 3)** (src/ui/theme/generator):
+- Images are read at 96px in a Web Worker and clustered with seeded k-means (8 clusters) in OKLab. A colour that fills
+  most of the edge (see-through places included) is the background and is left out.
+- Up to 4 accents are offered, with chroma of at least 0.05 and at least 1.5% of the image, at least 0.09 apart in
+  OKLab, the most saturated first. A grey image offers none and keeps the kit.
+- Accents snap by OKLCH hue: Rose 10°, Clay 32°, Paper 48° (the kit's orange is at 41°), Ochre 78°, Sand 95°, Olive
+  115°, Sage 145°, Teal 195°, Slate 235° (also every greyish accent), Navy 262°, Violet 295°, Plum 335°. The 11
+  tinted families were worked out in OKLCH and stored as fixed values.
+- Decided while building, to review: the fitted accent reaches 3:1 on the background and the tiles, but not on
+  oatmeal wells (`surface-raised`). With ink text on the accent, as in the kit, that can't be met in light mode: ink
+  needs a light accent, oatmeal a dark one. The kit's own #DF5E27 is 2.1:1 on oatmeal too. The one place the accent
+  meets oatmeal is the selected row's 3px marker, which the ink-filled row already carries.
 
 **Stored** in the project record's `theme` prop (docs/SBD_FORMAT.md).
 
