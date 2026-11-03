@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ProjectHome } from '../project/ProjectHome';
-import { useProject } from '../projectStore';
-import { redoLast, undoLast } from '../undo';
+import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
 import { TopBar } from './TopBar';
@@ -23,7 +22,8 @@ export function AppShell() {
       const command = undoCommandFor(event, mac);
       if (!command) return;
       event.preventDefault();
-      void (command === 'undo' ? undoLast() : redoLast());
+      // ⌘Z is the project's alone; layout changes undo from the Layout menu.
+      void (command === 'undo' ? projectStore.getState().undo() : projectStore.getState().redo());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {

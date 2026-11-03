@@ -5,7 +5,8 @@ import { isLayout, sameLayout, tilesIn, type Layout } from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
 // never in a .sbd. A workspace keeps its current layout and the one last saved; the tab shows a dot when they differ.
-// Layout changes undo with ⌘Z for this session (src/app/undo.ts); the saved layouts survive restarts.
+// ⌘Z belongs to the project alone; layout changes undo from the Layout menu, for this session only. The saved layouts
+// survive restarts.
 
 export const LAYOUTS_KEY = 'storiiboard.layouts';
 
@@ -23,11 +24,10 @@ interface LayoutChange {
 export interface LayoutState {
   layouts: Record<WorkspaceId, WorkspaceLayouts>;
   past: LayoutChange[];
-  future: LayoutChange[];
   /** Replaces a workspace's layout as one undoable step. */
   change: (workspace: WorkspaceId, next: Layout) => void;
-  undo: () => boolean;
-  redo: () => boolean;
+  /** Takes back the workspace's last change this session. False when there is none. */
+  undo: (workspace: WorkspaceId) => boolean;
   /** Makes the current layout the saved one, clearing the dot. */
   save: (workspace: WorkspaceId) => void;
   resetToSaved: (workspace: WorkspaceId) => void;
@@ -85,25 +85,20 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
     return {
       layouts: load(storage),
       past: [],
-      future: [],
       change: (workspace, next) => {
         const before = get().layouts[workspace].current;
         if (before === next) return;
-        set({ past: [...get().past, { workspace, before, after: next }], future: [] });
+        set({ past: [...get().past, { workspace, before, after: next }] });
         setCurrent(workspace, next);
       },
-      undo: () => {
-        const last = get().past.at(-1);
+      undo: (workspace) => {
+        // Per workspace: the menu undoes what's on screen, never a change hidden in another workspace.
+        const past = get().past;
+        const index = past.findLastIndex((c) => c.workspace === workspace);
+        const last = past[index];
         if (!last) return false;
-        set({ past: get().past.slice(0, -1), future: [...get().future, last] });
-        setCurrent(last.workspace, last.before);
-        return true;
-      },
-      redo: () => {
-        const next = get().future.at(-1);
-        if (!next) return false;
-        set({ future: get().future.slice(0, -1), past: [...get().past, next] });
-        setCurrent(next.workspace, next.after);
+        set({ past: past.filter((_, i) => i !== index) });
+        setCurrent(workspace, last.before);
         return true;
       },
       save: (workspace) => {
@@ -129,6 +124,11 @@ export function useLayouts<T>(select: (state: LayoutState) => T): T {
 }
 
 /** True when the workspace's layout has changes that haven't been saved: the tab's dot. */
+/** True when the workspace has a layout change this session that "Undo layout change" can take back. */
+export function canUndoLayout(past: LayoutState['past'], workspace: WorkspaceId): boolean {
+  return past.some((c) => c.workspace === workspace);
+}
+
 export function isUnsaved(layouts: WorkspaceLayouts): boolean {
   return !sameLayout(layouts.current, layouts.saved);
 }

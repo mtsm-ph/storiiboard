@@ -65,8 +65,8 @@ Phase 0 calls, Nov 1 and 2, 2026:
   named versions and export go to Phase 1; the review screen for change files to Phase 7; the web side to Phase 9.
   The item archive is renamed the Trash, and one model replaces snapshots. Details under Nov 2 features, round two.
 - D2 as built (Nov 2): layouts live in the person's settings, not the .sbd, so layout changes can't be ops. They
-  undo for the session through a shared ⌘Z that takes whichever changed last, the project or the layout; the
-  project's own undo still survives restarts. The four workspaces stay until D3 makes them the sidebar sections.
+  undo for the session from the Layout menu (Undo layout change, per workspace); ⌘Z undoes project edits only, and
+  survives restarts (Kevin, Nov 2). The four workspaces stay until D3 makes them the sidebar sections.
   Custom workspaces (+ Workspace, Save as…, Duplicate, Manage) wait for D3, since the sidebar fixes the set.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The

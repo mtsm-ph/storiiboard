@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
-import { changeLayout } from '../../undo';
 import { TILES, type Workspace } from '../workspaces';
 import { openTile, tilesIn } from './layout';
-import { isUnsaved, layoutStore, useLayouts } from './layoutStore';
+import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore';
 
-// The workspace's layout commands (DESIGN.md, State 05): save, reset, and open any tile in this workspace.
+// The workspace's layout commands (DESIGN.md, State 05): save, reset, undo, and open any tile in this workspace.
+// Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
 
 export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   const [open, setOpen] = useState(false);
@@ -12,6 +12,10 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const layouts = useLayouts((s) => s.layouts[workspace.id]);
+  const undoable = useLayouts((s) => canUndoLayout(s.past, workspace.id));
+  const change = (next: Parameters<typeof openTile>[0]) => {
+    layoutStore.getState().change(workspace.id, next);
+  };
   const unsaved = isUnsaved(layouts);
   const missing = Object.keys(TILES).filter((tile) => !tilesIn(layouts.current).includes(tile));
 
@@ -64,7 +68,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
     const tile = event.currentTarget.dataset.tile;
     if (!tile) return;
     finish(() => {
-      changeLayout(workspace.id, openTile(layoutStore.getState().layouts[workspace.id].current, tile));
+      change(openTile(layoutStore.getState().layouts[workspace.id].current, tile));
     });
   };
 
@@ -100,7 +104,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
             disabled={!unsaved}
             onClick={() => {
               finish(() => {
-              changeLayout(workspace.id, layouts.saved);
+                change(layouts.saved);
               });
             }}
           >
@@ -111,11 +115,23 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
             className={item}
             onClick={() => {
               finish(() => {
-              changeLayout(workspace.id, workspace.defaultLayout());
+                change(workspace.defaultLayout());
               });
             }}
           >
             Reset to default layout
+          </button>
+          <button
+            type="button"
+            className={item}
+            disabled={!undoable}
+            onClick={() => {
+              finish(() => {
+                layoutStore.getState().undo(workspace.id);
+              });
+            }}
+          >
+            Undo layout change
           </button>
           <p className="sb-label px-3 pt-3 pb-1 text-muted">Open tile</p>
           {missing.length === 0 ? (

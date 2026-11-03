@@ -91,15 +91,19 @@ test('maximizes with backtick, folds the others into chips, and restores every s
   expect(after).toEqual(sizes);
 });
 
-test('closes a tile into its neighbour, and ⌘Z brings it back', async ({ page }) => {
+test('closes a tile into its neighbour; ⌘Z leaves the layout alone and the Layout menu brings it back', async ({ page }) => {
   await page.getByRole('button', { name: 'Close Frame inspector' }).click();
   await expect(tile(page, 'Frame inspector')).toBeHidden();
   // The app picks ⌘ or Ctrl from the user agent, and Playwright's Chromium profile reports Windows even on a Mac.
   const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
   await page.keyboard.press(`${mod}+z`);
-  await expect(tile(page, 'Frame inspector')).toBeVisible();
-  await page.keyboard.press(`${mod}+Shift+z`);
   await expect(tile(page, 'Frame inspector')).toBeHidden();
+
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Undo layout change' }).click();
+  await expect(tile(page, 'Frame inspector')).toBeVisible();
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await expect(page.getByRole('button', { name: 'Undo layout change' })).toBeDisabled();
 });
 
 test('keeps the layout after a reload, marks it unsaved, and resets', async ({ page }) => {

@@ -94,7 +94,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Snap:** tiles snap within 8px and a dashed guide line shows. Hold Cmd to place freely.
 - **Splitter:** dragging it resizes both neighbours, with live widths in mono. Double-click evens them out.
 - **Maximize:** backtick (`) fills the app; the other tiles fold into chips along the bottom. Restore returns every tile to its exact size and position.
-- **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Cmd+Z undoes any layout change in the session.
+- **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Layout menu → Undo layout change takes back this workspace's layout changes for the session; Cmd+Z undoes project edits only.
 - **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings (Alt+1 to
   7). A dot marks unsaved layout changes.
 

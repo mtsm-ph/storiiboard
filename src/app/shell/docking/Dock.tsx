@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
-import { changeLayout } from '../../undo';
 import { isTextEntry, TILES, WORKSPACE_PANEL_ID, workspaceTabId, type Workspace } from '../workspaces';
 import { previewBox, zoneAt, type Box } from './geometry';
 import {
@@ -19,7 +18,7 @@ import {
   type LayoutNode,
   type Stack,
 } from './layout';
-import { useLayouts } from './layoutStore';
+import { layoutStore, useLayouts } from './layoutStore';
 
 // Docking on pointer events, with no library and no HTML5 drag and drop: on Windows, Tauri's own file drop has to
 // stay on for Phase 2 (footage dragged into frames), and HTML5 drag and drop would need it off (decided Nov 2).
@@ -95,7 +94,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
 
   const commit = (next: Layout) => {
     setDraft(null);
-    changeLayout(workspace.id, next);
+    layoutStore.getState().change(workspace.id, next);
   };
   // Numbers follow the design's order for the workspace, then the order tiles were opened in.
   const present = tilesIn(layout);
@@ -110,7 +109,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
       const stackId = focused?.dataset.stackId ?? current.maximized;
       if (!stackId) return;
       event.preventDefault();
-      changeLayout(workspace.id, toggleMaximize(current, stackId));
+      layoutStore.getState().change(workspace.id, toggleMaximize(current, stackId));
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
@@ -140,7 +139,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         event.preventDefault();
         setKeyMove(null);
         if (target) {
-          changeLayout(workspace.id, dropTile(layoutRef.current, move.tile, target, move.zone));
+          layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, move.tile, target, move.zone));
           setAnnouncement(`${move.title} moved.`);
           // Focus follows the tile to where it landed.
           requestAnimationFrame(() => {
@@ -202,7 +201,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
       window.removeEventListener('keydown', onEscape, true);
       setDrag(null);
       if (drop && current.started && current.target) {
-        changeLayout(workspace.id, dropTile(layoutRef.current, tile, current.target.stackId, current.target.zone));
+        layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, tile, current.target.stackId, current.target.zone));
       }
     };
     const onUp = () => {

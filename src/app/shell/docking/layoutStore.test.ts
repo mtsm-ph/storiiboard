@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WORKSPACES } from '../workspaces';
 import { removeTile, sameLayout, tilesIn } from './layout';
-import { createLayoutStore, isUnsaved, LAYOUTS_KEY } from './layoutStore';
+import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY } from './layoutStore';
 
 function memory(initial: string | null = null) {
   let value = initial;
@@ -38,16 +38,19 @@ describe('saved layouts', () => {
     expect(tilesIn(store.getState().layouts.storyboard.current)).toContain('scenes');
   });
 
-  it('undo and redo one change at a time, and a new change ends the redo tail', () => {
+  it('undo one change at a time, only in the workspace asked', () => {
     const store = createLayoutStore(memory());
     const start = store.getState().layouts.storyboard.current;
+    const other = store.getState().layouts.production.current;
     store.getState().change('storyboard', removeTile(start, 'player'));
-    expect(store.getState().undo()).toBe(true);
+    store.getState().change('production', removeTile(other, tilesIn(other)[0] ?? ''));
+    expect(canUndoLayout(store.getState().past, 'storyboard')).toBe(true);
+
+    expect(store.getState().undo('storyboard')).toBe(true);
     expect(store.getState().layouts.storyboard.current).toBe(start);
-    expect(store.getState().redo()).toBe(true);
-    store.getState().undo();
-    store.getState().change('storyboard', removeTile(start, 'scenes'));
-    expect(store.getState().redo()).toBe(false);
+    expect(store.getState().layouts.production.current).not.toBe(other);
+    expect(store.getState().undo('storyboard')).toBe(false);
+    expect(canUndoLayout(store.getState().past, 'storyboard')).toBe(false);
   });
 
   it('fall back to the defaults for a corrupt entry or a tile this app does not know', () => {
