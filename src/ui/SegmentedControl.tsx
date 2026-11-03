@@ -37,13 +37,15 @@ export function SegmentedControl<T extends string>({
       >
         {options.map((option, i) => {
           const selected = option.value === value;
+          // With nothing chosen yet (a new frame's size), the first cell is the Tab stop, so the group stays reachable.
+          const tabStop = selected || (i === 0 && !options.some((o) => o.value === value));
           return (
             <button
               key={option.value}
               type="button"
               role="radio"
               aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={tabStop ? 0 : -1}
               onClick={() => {
                 onChange(option.value);
               }}
@@ -54,7 +56,8 @@ export function SegmentedControl<T extends string>({
               }}
               className={cx(
                 'sb-label focus-visible:-outline-offset-4',
-                size === 'md' ? 'h-[30px] px-3' : 'h-[18px] px-2',
+                // Many options (the seven shot sizes) share a narrow tile, so their cells give up side padding.
+                size === 'md' ? cx('h-[30px]', options.length > 4 ? 'px-1' : 'px-3') : 'h-[18px] px-2',
                 i > 0 && 'border-l border-text',
                 // Selection is an ink fill, never orange. Focus always lands on the selected cell, so its ring
                 // flips to ink-inverse: an ink ring on an ink fill would be invisible.

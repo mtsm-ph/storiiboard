@@ -157,6 +157,88 @@ test('draws frames at the project’s aspect ratio', async ({ page }) => {
   expect(await ratio()).toBeCloseTo(2.39, 1);
 });
 
+const inspector = (page: Page) => page.getByRole('region', { name: 'Frame inspector', exact: true });
+
+/** One scene with two frames, the first selected. */
+async function twoFrames(page: Page) {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  const add = grid(page).getByRole('button', { name: '+ Frame in SC 01' });
+  await add.click();
+  await add.click();
+  await frames(page, 'SC 01').nth(0).click();
+}
+
+test('sets a frame’s camera in the inspector, and the card shows it', async ({ page }) => {
+  await twoFrames(page);
+  await expect(inspector(page).getByText('1A', { exact: true })).toBeVisible();
+  await inspector(page).getByRole('radio', { name: 'MCU' }).click();
+  const lens = inspector(page).getByLabel('Lens (mm)');
+  await lens.fill('35');
+  await lens.press('Enter');
+  await inspector(page).getByLabel('T-stop').selectOption('2');
+  await inspector(page).getByRole('combobox', { name: 'Move', exact: true }).selectOption('push in');
+  await expect(frames(page, 'SC 01').nth(0)).toContainText('MCU · 35MM · T2.0');
+
+  // A refused lens snaps back and says why.
+  await lens.fill('fifty');
+  await lens.press('Enter');
+  await expect(inspector(page).getByRole('alert')).toHaveText('A focal length in mm, such as 35.');
+  await expect(lens).toHaveValue('35');
+
+  // ⌘Z takes back one field at a time, newest first.
+  await grid(page).click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press(`${await command(page)}+z`);
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect(frames(page, 'SC 01').nth(0)).toContainText('MCU · 35MM');
+  await expect(frames(page, 'SC 01').nth(0)).not.toContainText('T2.0');
+});
+
+test('marks a frame Have, and the scene and film coverage follow', async ({ page }) => {
+  await twoFrames(page);
+  await inspector(page).getByRole('radio', { name: 'Have' }).click();
+  await expect(frames(page, 'SC 01').nth(0).getByRole('img', { name: 'Have' })).toBeVisible();
+  await expect(scenesTile(page).locator('[data-scene-row]').first()).toContainText('2 fr · 50%');
+  await expect(scenesTile(page).getByText('50%', { exact: true })).toBeVisible();
+});
+
+test('edits the scene: number, name, INT/EXT, time and length, renumbering its frames', async ({ page }) => {
+  await twoFrames(page);
+  const number = inspector(page).getByLabel('Number');
+  await number.fill('4');
+  await number.press('Enter');
+  await expect.poll(() => numbers(page, 'SC 04')).toEqual(['4A', '4B']);
+
+  const name = inspector(page).getByLabel('Name');
+  await name.fill('Penn Station');
+  await name.press('Enter');
+  await inspector(page).getByRole('radio', { name: 'INT', exact: true }).click();
+  await inspector(page).getByLabel('Time').selectOption('DAY');
+  const length = inspector(page).getByLabel('Length');
+  await length.fill('1 3/8');
+  await length.press('Enter');
+  await expect(grid(page).getByRole('heading', { name: /SC 04 INT\. PENN STATION — DAY 1 3\/8 pg/ })).toBeVisible();
+  await expect(sidebar(page).getByRole('button', { name: /^SC 04 Penn Station/ })).toBeVisible();
+
+  // Another scene's number is refused.
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  await scenesTile(page).locator('[data-scene-row]').nth(1).click();
+  await inspector(page).getByLabel('Number').fill('4');
+  await inspector(page).getByLabel('Number').press('Enter');
+  await expect(inspector(page).getByRole('alert')).toHaveText("There's already a scene 4.");
+});
+
+test('Enter on a frame goes to its details, and Escape comes back to the frame', async ({ page }) => {
+  await twoFrames(page);
+  await frames(page, 'SC 01').nth(1).focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await expect(inspector(page).getByRole('radio', { name: 'EWS' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(frames(page, 'SC 01').nth(0)).toContainText('WS');
+  await page.keyboard.press('Escape');
+  await expect(frames(page, 'SC 01').nth(0)).toBeFocused();
+});
+
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`the board with a selected frame passes axe (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme });

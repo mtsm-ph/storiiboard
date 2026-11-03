@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.7 in review |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.8 in review |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -40,8 +40,8 @@ themes). One PR per milestone, each into `v2`.
 | 1.4 Local backups for synced projects (by file id), Show backups, setting | #19 | Done |
 | 1.5 Browser test driver (sql.js, dev and e2e only) | #20 | Done |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | Done |
-| 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | In review |
-| 1.8 Frame inspector | | Not started |
+| 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
+| 1.8 Frame inspector | `phase1/1.8-frame-inspector` | In review |
 | 1.9 Shot list and Strip views | | Not started |
 | 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
@@ -420,6 +420,12 @@ demo data.**
 | 8 · Cloud links and release | Dropbox and Google Drive links, Collect Project, signed installers, public repo, Patreon | A stranger installs it and opens a shared project |
 | 9 · Web companion | Review copy in the project's theme: call sheets, compressed storyboard, bird's-eye viewer; availability, comments, suggested deletions downloaded as change files, company workspaces, Calendar, Notifications and Trash | Cast and crew get their call sheet from the site and send a suggestion |
 | 10 · 3D set and Blender (July to September 2027) | 3D set preview, glTF export, Open in Blender, the simple Blender layout | A DP checks a real setup through the 3D camera before the shoot |
+
+### Phase 4 notes
+
+- When a scene goes on an issued call sheet, its shot numbers lock automatically (Kevin, Nov 3): slates and the script
+  supervisor work from them from then on. The lock is the same `numbers_locked` prop the Scenes tile sets (1.6), set
+  in the op group that issues the call sheet, so undoing the issue unlocks it again. Unlocking by hand stays possible.
 
 ### Phase 8 release checklist
 

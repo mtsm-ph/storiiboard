@@ -120,6 +120,12 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   to the ends; Delete sends a frame to the Trash; ⌘ (Ctrl on Windows) with an arrow moves the frame one place,
   crossing into the next scene at either end.
 
+- **Frame inspector:** the shot number large in mono over "SC 04 · INT. PENN STATION — DAY", then sections under
+  10px labels: Camera (size as a segmented control, lens mm, T-stop in thirds, support, height, move), Status (Have,
+  Need, Source), Story (action, dialogue), Departments (tags in their colours when on, dashed outlines when off),
+  then the scene (number, name, INT/EXT, time, length) and the links still to come with their phase. Typed fields save
+  when left or on Enter; pickers save on change. Enter on a frame goes to the inspector; Escape comes back.
+
 ## Bird's-eye plan
 - **Icons:** 68 top-down icons on a 32px grid with a 1.5px ink stroke, filled with the department colour (see `05_Plan_Icons/INDEX.md`).
 - **Selected camera:** accent outline, and its field-of-view cone in the accent at 10% fill. Field of view = 2 x atan(sensor width / (2 x focal length)).

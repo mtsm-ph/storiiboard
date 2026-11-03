@@ -103,6 +103,10 @@ export function StoryboardTile() {
           focusFrame(next?.id ?? null);
         });
       }}
+      onOpen={() => {
+        // The inspector already shows the selected frame; Enter takes focus there, when the tile is open.
+        document.querySelector<HTMLElement>('[data-inspector] [role="radio"][tabindex="0"], [data-inspector] input')?.focus();
+      }}
       onMove={(shotId, direction) => {
         const target = moveTarget(scenes, shotId, direction);
         if (!target) return;
