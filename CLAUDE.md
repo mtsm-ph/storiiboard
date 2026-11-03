@@ -59,14 +59,23 @@
 - Every table has id (UUID v4), created_at, updated_at.
 - The meta table holds schema_version. Migrations live in src/core/storage/migrations.
 - Copy the file to a backup before running any migration.
-- Backups: every 5 minutes, only if the project changed, write a full copy to `Backups/<Project> YYYY-MM-DD HH-mm.sbd`
-  next to the .sbd (<Project> is its file name).
+- Backups: every 5 minutes, only if the project changed, write a full copy named `<Project> YYYY-MM-DD HH-mm.sbd`
+  (<Project> is its file name).
+  - Where: in `Backups/` next to the .sbd. For a project in a synced folder (iCloud Drive, Dropbox, Google Drive,
+    OneDrive), in a local folder on this computer instead, so copies don't upload every 5 minutes or sync into
+    conflicts. Settings → Backups has Show backups, and a setting to keep synced projects' backups next to the project.
   - Copy with SQLite's backup API or VACUUM INTO, so the copy is consistent while the project is open; never a raw
     file copy.
   - Keep the last 12 copies plus one per day for 14 days, and delete older ones. Both numbers are in Settings.
     Pruning touches only this project's own backups.
   - "Open backup" opens a copy as a separate project; it never overwrites the original without asking.
   - Per-edit saving stays as it is; backups are an extra safety net.
+- Synced folders (Phase 1): the .sbd works in iCloud Drive, Dropbox, Google Drive or OneDrive, but must be open on one
+  computer at a time.
+  - Detect synced folders; say so once at New and at Open. New project starts in a local folder when Documents is synced.
+  - A lock file next to the .sbd says which computer has it open, so a second computer can warn before opening it.
+  - Before every write, check that the file on disk is still the one open. If a sync replaced it, stop writing and
+    reopen the new version; never write to a file that's no longer there.
 - .sbdpack = zip of the .sbd plus all linked media ("Collect project").
 - .sbdchanges = a change file of suggestions from the web review copy (see Review below).
 - Document every schema change in docs/SBD_FORMAT.md.

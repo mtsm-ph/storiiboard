@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 2, 2026 |
+| Last updated | Nov 2, 2026 (synced-folder decisions) |
 
 | Phase | State |
 |---|---|
@@ -385,6 +385,12 @@ demo data.**
 | 9 · Web companion | Review copy in the project's theme: call sheets, compressed storyboard, bird's-eye viewer; availability, comments, suggested deletions downloaded as change files, company workspaces, Calendar, Notifications and Trash | Cast and crew get their call sheet from the site and send a suggestion |
 | 10 · 3D set and Blender (July to September 2027) | 3D set preview, glTF export, Open in Blender, the simple Blender layout | A DP checks a real setup through the 3D camera before the shoot |
 
+### Phase 8 release checklist
+
+- [ ] Run the Phase 0 gate's force-quit, undo-after-restart and backup steps on Windows (Phase 0 ran them on the Mac
+  only).
+- [ ] Choose the license, Patreon tiers and signing (also in Next steps).
+
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.
 
@@ -425,6 +431,7 @@ Planned, not built. Each feature starts only when its phase's plan is approved.
 | Archive Project (a project's state) | 0 | 0.7, with the Projects screen |
 | A · Per-project theming: tokens, generator, switching | 1 | First in Phase 1 |
 | B · Project onboarding and Settings → Theme | 1 | Second in Phase 1 |
+| F · Synced folders: detect and note, lock file, check before every write; local backups for synced projects | 1 | Phase 1 planning places it |
 | History panel and named versions | 1 | After the storyboard core |
 | D · Export: PDF storyboard, PNG sequence, shot list CSV, watermark | 1 | Last in Phase 1 |
 | Assets, Team, Setup and Moodboard sections fill in | 2, 3, 5, 6 | With their tools |
@@ -634,6 +641,25 @@ src/features/export holds a registry of formats, so adding one is a new file plu
 - An archived project isn't read-only; it only leaves the switcher and Recent. Archiving it is an op, so it undoes.
 - New projects start as drafts, as in the prototype.
 
+### F · Synced folders (decided Nov 2)
+
+A .sbd in iCloud Drive, Dropbox, Google Drive or OneDrive works, but sync services don't carry SQLite's locks and can't
+merge a database. The rollback journal (not WAL) keeps the file whole between edits, so the risks are a project open on
+two computers (conflicted copies), a newer version replacing the file while it's open (edits written to a file that's
+gone), and, rarely, an upload caught mid-write. Approved for Phase 1:
+
+- Detect synced folders and say so once, at New and at Open: it works, but open it on one computer at a time. New
+  project starts in a local folder when Documents is synced (iCloud's Desktop & Documents).
+- A lock file next to the .sbd names the computer that has it open and when, refreshed while open. It syncs, so a
+  second computer sees it and warns before opening.
+- Before every write, Rust checks that the path still names the file it has open. If a sync replaced it, writing
+  stops and the app reopens the new version.
+- Backups of a synced project go to a local folder on this computer, not next to the project; Settings → Backups has
+  Show backups and a setting to keep them next to the project instead. Unsynced projects keep `Backups/` beside the
+  .sbd.
+- Deferred to Phase 8, only if moving a live project between computers becomes a real need: editing a local working
+  copy and writing the whole file back.
+
 ### History, versions and backups
 
 One model replaces three overlapping ones, and "snapshot" is dropped as a word.
@@ -642,12 +668,12 @@ One model replaces three overlapping ones, and "snapshot" is dropped as a word.
 |---|---|---|---|
 | **History** (the op log) | Undo and redo; the History panel (every change: field, before and after, who, when); Notifications | Inside the .sbd | For the life of the project. Empty Trash removes those items' data from it |
 | **Named versions** | A point to come back to, such as "Board sent to client" or "Locked for shoot" | Inside the .sbd, as a named point in History | Until someone deletes it |
-| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd, as full copies | The last 12, plus one a day for 14 days (Settings) |
+| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd, as full copies; for a project in a synced folder, a local folder on this computer (F) | The last 12, plus one a day for 14 days (Settings) |
 | **Migration backups** | Undoing a schema upgrade | Next to the .sbd | Never pruned |
 | **Review copies** | What reviewers see on the web | Supabase | 30 days after the last shoot day |
 
-- Open version copies the project, undoes every op after that point in the copy, and opens the copy as a separate
-  project, as Open backup does. It reuses the undo engine, so there's one way to go back in time.
+- Open version copies the project, restores the copy to that point (0.5b's restore, a new op group), and opens the
+  copy as a separate project, as Open backup does. It reuses the History engine, so there's one way to go back in time.
 - CLAUDE.md's "automatic snapshots are pruned after 30 days" is gone: backups are the automatic restore points.
 - The History panel and named versions come in Phase 1. Notifications (Phase 3) adds suggestions, comments and read
   state to the same feed.
@@ -740,7 +766,7 @@ Still open:
 - [x] Remove the client-side password from the v2 prototype
 - [x] Kevin keeps the old password as is (Nov 1, 2026); it stays readable in main, git history and the live site
 - [x] Create the v2 branch
-- [ ] Add CLAUDE.md and docs/PLAN.md to the v2 branch (first PR)
+- [x] Add CLAUDE.md and docs/PLAN.md to the v2 branch (first PR)
 - [x] Run the Phase 0 kickoff in Claude Code (plan mode)
 - [ ] Pick the pilot shoot days for the call sheet phase
 - [ ] Before Phase 8: choose the license, Patreon tiers and signing
