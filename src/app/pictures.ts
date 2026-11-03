@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { isTauriApp } from './fileAccess';
 
 // Pictures from the person's files, for frames (1.11). In the desktop app the page never names a file to read: Rust
@@ -34,7 +33,10 @@ export function typeOf(name: string): string {
   return TYPES[name.split('.').pop()?.toLowerCase() ?? ''] ?? '';
 }
 
+// Sent by src-tauri/src/pictures.rs, with points already in CSS pixels: Tauri's own drag events mix device pixels
+// (Windows) and points (Mac) under one label.
 const DROPPED_EVENT = 'storiiboard://pictures-dropped';
+const DRAGGED_EVENT = 'storiiboard://pictures-dragged';
 
 /** A file the person dropped or picked in the desktop app, read through Rust when it's needed. */
 export function fromPath(path: string): PictureFile {
@@ -86,21 +88,14 @@ export interface PagePoint {
  * the page sees them, so in the app this replaces the page's own drop events.
  */
 export function onWindowDrop(handler: (files: PictureFile[], at: PagePoint) => void): Promise<() => void> {
-  return listen<{ paths: string[]; x: number; y: number }>(DROPPED_EVENT, ({ payload }) => {
-    // Tauri reports physical pixels.
-    const scale = window.devicePixelRatio || 1;
-    handler(payload.paths.map(fromPath), { x: payload.x / scale, y: payload.y / scale });
+  return listen<{ paths: string[]; at: PagePoint }>(DROPPED_EVENT, ({ payload }) => {
+    handler(payload.paths.map(fromPath), payload.at);
   });
 }
 
 /** Desktop app only: where a drag of files is over the page, or null once it has left or dropped. */
 export function onWindowDrag(handler: (at: PagePoint | null) => void): Promise<() => void> {
-  return getCurrentWebview().onDragDropEvent(({ payload }) => {
-    const scale = window.devicePixelRatio || 1;
-    if (payload.type === 'enter' || payload.type === 'over') {
-      handler({ x: payload.position.x / scale, y: payload.position.y / scale });
-    } else {
-      handler(null);
-    }
+  return listen<PagePoint | null>(DRAGGED_EVENT, ({ payload }) => {
+    handler(payload);
   });
 }

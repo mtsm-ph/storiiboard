@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Connection, OpenFlags, TransactionBehavior};
@@ -21,6 +21,10 @@ use crate::lock::{self, Holder, Lock, Machine};
 /// text, so the page can tell this apart from any other failure and reopen the new version.
 pub const CHANGED_ON_DISK: &str =
     "The project file changed on disk since Storiiboard last saved it.";
+
+/// How long an edit waits for a lock another program holds on the file: rusqlite's default, set again after a backup
+/// step turns it off.
+const EDIT_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What the file on disk looked like after this app's last write. If any of it changes, someone else wrote the file:
 /// usually a sync service putting a newer version from another computer in its place.
@@ -339,15 +343,53 @@ impl SbdFile {
                 self.dir()?.join(file_name)
             }
         };
+        self.remove_leftover_copies(kind)?;
         if dest.exists() {
             return Err(format!("A backup named \"{file_name}\" already exists."));
         }
+        // A journal beside the file means a write didn't finish: the file itself isn't whole until SQLite rolls it
+        // back, so it isn't cloned as it stands. The full copy reads through SQLite, which does that first.
+        let journal = self
+            .path
+            .with_file_name(format!("{}-journal", self.file_name()?));
         // Any failure (Windows, exFAT, another volume) falls back to a full copy.
-        if clone && backup::clone_file(&self.path, &dest).is_ok() {
+        if clone && !journal.exists() && backup::clone_file(&self.path, &dest).is_ok() {
+            // A sync that replaced the file just then would have been cloned in its place.
+            if let Err(error) = self.check_unchanged() {
+                let _ = fs::remove_file(&dest);
+                return Err(error);
+            }
             return Ok(Some(dest));
         }
-        self.copying = Some(Copying::start(&self.conn, &dest)?);
+        // SAFETY: the copy is kept in self.copying, declared before self.conn so it drops first, and both are only
+        // reached through OpenFiles' mutex.
+        self.copying = Some(unsafe { Copying::start(&self.conn, &dest)? });
         Ok(None)
+    }
+
+    /// Deletes copies a crash or a quit cut off before they were finished: `<backup>.partial` files under this
+    /// project's own backup names. Only called with no copy running, so none of them is in use.
+    fn remove_leftover_copies(&self, kind: BackupKind) -> Result<(), String> {
+        let (dir, stem, file_name) = match kind {
+            BackupKind::Scheduled => (self.backups_dir()?, self.stem()?, ""),
+            BackupKind::Migration => (self.dir()?.to_path_buf(), "", self.file_name()?),
+        };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return Ok(());
+        };
+        for name in entries.filter_map(|entry| entry.ok()?.file_name().into_string().ok()) {
+            let Some(backup) = name.strip_suffix(".partial") else {
+                continue;
+            };
+            let ours = match kind {
+                BackupKind::Scheduled => is_backup_name(stem, backup),
+                BackupKind::Migration => is_migration_backup_name(file_name, backup),
+            };
+            if ours {
+                let _ = fs::remove_file(dir.join(&name));
+            }
+        }
+        Ok(())
     }
 
     /// The file a full copy in progress is being written to.
@@ -361,12 +403,20 @@ impl SbdFile {
         if self.copying.is_none() {
             return Err("No backup of this project is being made.".into());
         }
-        // The rest of a copy would come from a file a sync has since replaced. Dropping the copy deletes it.
-        let step = self.check_unchanged().and_then(|()| {
-            self.copying
-                .as_mut()
-                .map_or(Ok(false), |copying| copying.step(backup::STEP_PAGES))
-        });
+        // The rest of a copy would come from a file a sync has since replaced, and a last step taken as one arrived
+        // would end on it. Either way dropping the copy deletes it.
+        // No busy wait during a step: another program holding the file would otherwise hold every edit here for
+        // SQLite's five seconds a step, behind the files' lock. A busy step returns at once and is tried again.
+        self.conn.busy_timeout(Duration::ZERO).map_err(text)?;
+        let step = self
+            .check_unchanged()
+            .and_then(|()| {
+                self.copying
+                    .as_mut()
+                    .map_or(Ok(false), |copying| copying.step())
+            })
+            .and_then(|done| self.check_unchanged().map(|()| done));
+        self.conn.busy_timeout(EDIT_BUSY_TIMEOUT).map_err(text)?;
         match step {
             Ok(false) => Ok(None),
             Ok(true) => self.copying.take().map(Copying::end).transpose(),
@@ -1331,6 +1381,96 @@ mod tests {
         assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
         assert!(!partial.exists());
         assert!(names(&file).is_empty());
+    }
+
+    #[test]
+    fn deletes_leftover_copies_of_its_own_and_nothing_else() {
+        let dir = temp_dir("leftovers");
+        let mut file = large_file(&dir, "Bey.sbd", 1);
+        let backups = dir.join("Backups");
+        fs::create_dir_all(&backups).unwrap();
+        for name in [
+            "Bey 2026-11-02 09-00.sbd.partial",
+            "Bey County 2026-11-02 09-00.sbd.partial",
+            "notes.partial",
+        ] {
+            fs::write(backups.join(name), "cut off").unwrap();
+        }
+        fs::write(
+            dir.join("Bey.sbd.bak-v1-2026-11-02 09-00.partial"),
+            "cut off",
+        )
+        .unwrap();
+        file.backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd")
+            .unwrap();
+        file.backup(BackupKind::Migration, "Bey.sbd.bak-v2-2026-11-03 09-00")
+            .unwrap();
+        assert!(!backups.join("Bey 2026-11-02 09-00.sbd.partial").exists());
+        assert!(!dir.join("Bey.sbd.bak-v1-2026-11-02 09-00.partial").exists());
+        // Another project's and an unrelated file stay.
+        assert!(backups
+            .join("Bey County 2026-11-02 09-00.sbd.partial")
+            .exists());
+        assert!(backups.join("notes.partial").exists());
+    }
+
+    #[test]
+    fn copies_rather_than_clones_a_file_with_a_journal_beside_it() {
+        let dir = temp_dir("journal");
+        let mut file = large_file(&dir, "Bey.sbd", 1);
+        // Left by a write that didn't finish. Empty, so SQLite has nothing to roll back here.
+        fs::write(dir.join("Bey.sbd-journal"), "").unwrap();
+        assert!(file
+            .start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", true)
+            .unwrap()
+            .is_none());
+        let done = loop {
+            if let Some(partial) = file.step_backup().unwrap() {
+                break partial.save().unwrap();
+            }
+        };
+        assert_eq!(
+            SbdFile::open(&done)
+                .unwrap()
+                .query("PRAGMA integrity_check", &[])
+                .unwrap()[0]["integrity_check"],
+            "ok"
+        );
+    }
+
+    #[test]
+    fn stops_a_copy_another_program_keeps_busy() {
+        let dir = temp_dir("busy");
+        let mut file = large_file(&dir, "Bey.sbd", 6);
+        file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
+            .unwrap();
+        file.step_backup().unwrap();
+        // Another program holds the file for writing and doesn't let go.
+        let other = Connection::open(dir.join("Bey.sbd")).unwrap();
+        other.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let started = std::time::Instant::now();
+        let error = loop {
+            match file.step_backup() {
+                Ok(None) => {}
+                Ok(Some(_)) => panic!("finished while the file was held"),
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(
+            error,
+            "Another program is using the project file, so the backup stopped."
+        );
+        // Each busy step returned at once rather than waiting out SQLite's busy timeout.
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        other.execute_batch("ROLLBACK").unwrap();
+        assert!(names(&file).is_empty());
+        assert!(
+            !backup::partial_path(&dir.join("Backups").join("Bey 2026-11-03 09-00.sbd")).exists()
+        );
     }
 
     #[test]

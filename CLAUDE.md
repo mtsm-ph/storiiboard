@@ -113,7 +113,9 @@
     notifications read it. Nothing is ever deleted from it; only Empty Trash removes trashed records' data.
   - Named versions are named points in History, inside the .sbd, kept until deleted. Open version copies the project,
     restores the copy to that point and opens it as a separate project.
-  - Backups are full copies outside the .sbd (see above), for a lost or damaged file.
+  - Backups are copies outside the .sbd (see above), for a lost or damaged file: APFS clones on a Mac, full copies
+    elsewhere. A clone shares the project's unchanged blocks on disk, so it covers a damaged or wrongly edited file,
+    not a failing drive.
 
 ## Tool rules
 - Storyboard: keyboard-first; "/" menu inserts frame, scene, note, location; drag to reorder; auto shot numbers.

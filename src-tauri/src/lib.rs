@@ -51,12 +51,10 @@ pub fn run() {
             pictures::pictures_choose,
             pictures::pictures_read,
         ])
-        // Files dropped on the window become pictures the page may read (pictures.rs).
+        // Files dragged over the window, and dropped as pictures the page may read (pictures.rs).
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) =
-                event
-            {
-                pictures::dropped(window, paths, *position);
+            if let tauri::WindowEvent::DragDrop(drag) = event {
+                pictures::dragged(window, drag);
             }
         })
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev

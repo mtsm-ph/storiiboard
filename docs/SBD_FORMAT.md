@@ -261,7 +261,7 @@ number is given out twice. Unlocking renumbers the scene to follow the board aga
 ## Migrations (milestone 0.4)
 
 - Migrations live in src/core/storage/migrations, numbered from 1; a file's schema version is the number it has run.
-- Before upgrading an existing file, a full copy is written beside it as
+- Before upgrading an existing file, a copy (a clone on a Mac, as below) is written beside it as
   `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` (local time). Migration backups are never pruned.
 - Each migration runs in its own transaction together with its `schema_version` bump, so a failure leaves the file at
   the last version that completed.
@@ -279,25 +279,35 @@ number is given out twice. Unlocking renumbers the scene to follow the board aga
   `Backups/<Project> <key>/` there; Files next to a project, below, has the key. Settings → Backups can keep them next
   to the project.
 - On a Mac a backup is an APFS clone of the .sbd (`clonefile`), taken between transactions so nothing in it is
-  half-written. It shares every block the project hasn't changed since, so it takes almost no space; Time Machine and
-  other copy tools still see a complete file.
+  half-written; with a `-journal` left beside the file by a write that didn't finish, it's a full copy instead. A clone
+  shares every block the project hasn't changed since, so it takes almost no space; Time Machine and other copy tools
+  still see a complete file. Sharing blocks also means a clone covers a damaged or wrongly edited file, not a failing
+  drive.
 - Where a clone isn't possible (Windows, exFAT and other drives that aren't APFS, a backups folder on another volume),
-  the backup is a full copy made with SQLite's online backup API, 1024 pages (4 MB) a step. Between steps the app lets
-  go of the project, so edits go on, and they reach the copy as they're made. The copy is written to
-  `<backup>.partial`, flushed to disk between steps, synced once more at the end and only then renamed; a copy cut off
-  by a quit, a crash or a sync replacing the project is deleted, never left under a backup's name.
+  the backup is a full copy made with SQLite's online backup API, up to 1024 pages (4 MB) a step, fewer on a drive
+  slow enough that a step takes over 20 ms. Between steps the app lets go of the project, so edits go on, and they
+  reach the copy as they're made. The copy is written to `<backup>.partial`, flushed to disk between steps, synced
+  once more at the end and only then renamed, never over an existing file. A copy cut off by closing the project or a
+  sync replacing it is deleted at once; one cut off by a crash or a quit is deleted when the next backup starts. It
+  never sits under a backup's name.
+- A copy that finds the file held by another program for about ten seconds stops with "Another program is using the
+  project file, so the backup stopped."; the next one tries again.
 - Either way the file is never copied with a raw file copy, and each backup is a complete .sbd that opens on its own.
 - Measured Nov 3 on a 614 MB project (1000 frames), with an edit every 5 ms on this Mac, where a commit takes about
   14 ms: a clone took under 15 ms and held an edit at most 29 ms; a full copy took about 3 s and held an edit at most
   25 ms. `VACUUM INTO`, used before, held an edit for 1.2 s. The test is `measures_how_long_a_backup_holds_up_an_edit`
-  in src-tauri/src/sbd.rs.
+  in src-tauri/src/sbd.rs. Windows, which always makes full copies, hasn't been measured; CI runs the copy's tests
+  there.
 - "Changed" means a row was written through the open connection since the last backup. Opening a project (its
   migration, its `app_version`) doesn't count, so opening alone never makes a backup.
 - Pruning runs after each backup. It keeps the newest 12 backups, plus the newest one from each of the last 14 calendar
   days (today included), and deletes the rest. Both numbers are in Settings → Backups.
 - Then a cap: a project's backups share 5 GB (10^9 bytes). Each counts the space only it takes, which is what deleting
-  it would free: all of a full copy, and for a clone only the blocks no other file still shares (APFS's private size),
-  which starts at nothing. Over the cap, the oldest go first, but the newest 3 always stay, however large.
+  it alone would free: all of a full copy, and for a clone only the blocks no other file still shares (APFS's private
+  size), which starts at nothing. A drive that keeps no private sizes (exFAT, HFS+, a network share) counts every
+  backup in full. Over the cap, the oldest go first, but the newest 3 always stay, however large. For clones the total
+  is a lower bound: a block two old clones still share, and the project no longer has, counts for neither, so the cap
+  bounds full copies and only roughly bounds clones.
 - Pruning touches only this project's own backups, never other files in the folder: names are made and parsed in
   src/core/storage/backups.ts, and the Rust side refuses to write or delete any name that isn't this project's.
 - "Open backup" opens a copy of the backup as a separate project. The original is never overwritten without asking.
@@ -402,7 +412,8 @@ merge a database, so two guards sit around every open project:
 | File | What it is | From | Kept |
 |---|---|---|---|
 | `<Project>.sbd` | The project | 0.4 | |
-| `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies, for a project in an ordinary folder. A project in a synced folder keeps them in the app's data folder on this computer instead, in `Backups/<Project> <key>/`, where `<key>` is 8 hex digits of an FNV-1a hash of its `file_id` and path, so copies of a project never share a folder. Settings → Backups can keep them next to the project | 0.4, 1.4 | 12 plus one a day for 14 days |
+| `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic backups (APFS clones on a Mac, full copies elsewhere), for a project in an ordinary folder. A project in a synced folder keeps them in the app's data folder on this computer instead, in `Backups/<Project> <key>/`, where `<key>` is 8 hex digits of an FNV-1a hash of its `file_id` and path, so copies of a project never share a folder. Settings → Backups can keep them next to the project | 0.4, 1.4, 1.10b | 12 plus one a day for 14 days; within 5 GB, the newest 3 always |
+| `Backups/<Project> YYYY-MM-DD HH-mm.sbd.partial`, `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm.partial` | A full copy being made, renamed to its backup name once complete. The migration one sits beside the project, so in a synced folder it uploads while it's written | 1.10b | Deleted when cut off, or when the next backup starts |
 | `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` | Copy made before a migration | 0.4 | Never pruned |
 | `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
 | `.<Project>.sbd.lock` | While the project is open: which computer has it open. JSON: `app`, `computer` (its name), `machine` (a random id per install), `session`, `opened_at` and `refreshed_at` (ms since the epoch). Hidden: a leading dot on Mac, the hidden attribute on Windows | 1.2 | Deleted on close; rewritten every minute while open; stale after 5 minutes |

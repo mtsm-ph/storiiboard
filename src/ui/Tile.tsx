@@ -142,6 +142,7 @@ export function Tile({
       </div>
 
       <div
+        data-scroll-root=""
         className="min-h-0 flex-1 overflow-auto"
         {...(hasTabs && activeTab !== undefined
           ? { role: 'tabpanel', 'aria-labelledby': tabId(activeTab) }

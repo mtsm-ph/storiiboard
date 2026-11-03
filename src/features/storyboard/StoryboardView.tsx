@@ -430,7 +430,7 @@ export function StoryboardView({
     // One row through the whole board. Cards keep a fixed height, so wide and tall frames line up along it.
     const width = Math.round(120 * aspectRatio);
     body = (
-      <div className="flex min-h-0 flex-1 gap-gap overflow-x-auto p-3">
+      <div data-scroll-root="" className="flex min-h-0 flex-1 gap-gap overflow-x-auto p-3">
         {scenes.map((scene) => (
           <section
             key={scene.id}

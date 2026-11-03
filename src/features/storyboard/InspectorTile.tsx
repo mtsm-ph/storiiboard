@@ -54,39 +54,39 @@ export function InspectorTile() {
 
   return (
     <ProjectPictures>
-    <InspectorView
-      scene={scene ? { id: scene.id, fields: sceneFields(scene.props) } : null}
-      shot={shot ? { id: shot.id, fields: shotFields(shot.props) } : null}
-      otherSceneNumbers={otherSceneNumbers}
-      onShotChange={(change) => {
-        if (shot) update(shot.id, change);
-      }}
-      onSceneChange={(change) => {
-        if (scene) update(scene.id, change);
-      }}
-      onSceneNumberChange={(number) => {
-        // Renumbers its unlocked shots in the same edit.
-        if (scene) void apply(setSceneNumber(records, project.projectId, scene.id, number));
-      }}
-      onBack={() => {
-        focusBoard(shot?.id ?? null, scene?.id ?? null);
-      }}
-      picture={picture}
-      locationName={locationName}
-      frameAspect={aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio)}
-      onChoosePicture={() => {
-        if (!shot) return;
-        choosePictures(false)
-          .then((files) => addPictures(files, { kind: 'frame', shotId: shot.id }))
-          .catch(showNotice);
-      }}
-      onRemovePicture={() => {
-        if (shot) void apply(removePicture(records, shot.id));
-      }}
-      onCropChange={(crop) => {
-        if (shot) void apply([setCrop(shot.id, crop)]);
-      }}
-    />
+      <InspectorView
+        scene={scene ? { id: scene.id, fields: sceneFields(scene.props) } : null}
+        shot={shot ? { id: shot.id, fields: shotFields(shot.props) } : null}
+        otherSceneNumbers={otherSceneNumbers}
+        onShotChange={(change) => {
+          if (shot) update(shot.id, change);
+        }}
+        onSceneChange={(change) => {
+          if (scene) update(scene.id, change);
+        }}
+        onSceneNumberChange={(number) => {
+          // Renumbers its unlocked shots in the same edit.
+          if (scene) void apply(setSceneNumber(records, project.projectId, scene.id, number));
+        }}
+        onBack={() => {
+          focusBoard(shot?.id ?? null, scene?.id ?? null);
+        }}
+        picture={picture}
+        locationName={locationName}
+        frameAspect={aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio)}
+        onChoosePicture={() => {
+          if (!shot) return;
+          choosePictures(false)
+            .then((files) => addPictures(files, { kind: 'frame', shotId: shot.id }))
+            .catch(showNotice);
+        }}
+        onRemovePicture={() => {
+          if (shot) void apply(removePicture(records, shot.id));
+        }}
+        onCropChange={(crop) => {
+          if (shot) void apply([setCrop(shot.id, crop)]);
+        }}
+      />
     </ProjectPictures>
   );
 }

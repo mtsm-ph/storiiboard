@@ -28,9 +28,15 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
   const hintId = useId();
   const zoomId = useId();
 
+  const [said, setSaid] = useState('');
   const commit = (next: Crop | null) => {
     setDraft(null);
-    if (next && !same(next, picture.crop)) onCommit(next);
+    if (!next || same(next, picture.crop)) return;
+    onCommit(next);
+    // Said once it's saved, not on every step: where the picture's centre now is, and the zoom.
+    setSaid(
+      `Zoom ${String(Math.round(next.zoom * 100))}%, centred ${String(Math.round(next.x * 100))}% across and ${String(Math.round(next.y * 100))}% down.`,
+    );
   };
   const pan = (from: Crop, dx: number, dy: number) => panCrop(from, dx, dy, picture.aspect, frameAspect);
   const zoom = (to: number) => zoomCrop(shown, to, picture.aspect, frameAspect);
@@ -97,9 +103,18 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
         onKeyUp={() => {
           if (draft) commit(draft);
         }}
+        // A key held down as focus leaves still saves where it got to.
+        onBlur={() => {
+          if (draft) commit(draft);
+        }}
       >
-        <FrameImage picture={{ ...picture, crop: shown }} frameAspect={frameAspect} size="original" eager />
+        {/* The 640px thumbnail: the well is a few hundred pixels wide, and full-size pictures read here would stay in
+            memory until the project closes. */}
+        <FrameImage picture={{ ...picture, crop: shown }} frameAspect={frameAspect} eager />
       </div>
+      <p aria-live="polite" className="sr-only">
+        {said}
+      </p>
       <p id={hintId} className="text-[12px] text-text-muted">
         Drag to move the picture, or use the arrow keys; + and − zoom, 0 centres it.
       </p>

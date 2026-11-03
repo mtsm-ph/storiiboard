@@ -1,8 +1,8 @@
 name: CI
 
 # Every pull request runs the Linux checks and builds the Mac and Windows installers, so a green pull request means all
-# three passed on its last commit (Kevin, Nov 3). Every push runs the Linux checks as well, so each commit is checked
-# on its own; the installers build on a push only to v2. A pull request's paths filter looks at all of its changes, so
+# three passed on its last commit (Kevin, Nov 3). Every push runs the Linux checks as well, so the last commit of each
+# push is checked on its own; the installers build on a push only to v2. A pull request's paths filter looks at all of its changes, so
 # a docs-only last commit still runs everything when the pull request touches code. Changes to docs alone skip CI.
 on:
   push:
@@ -106,6 +106,10 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+      # The Rust tests here too: clones and private sizes exist only on a Mac, and on Windows the step-by-step copy is
+      # the only backup path, so Linux alone never runs them.
+      - name: Rust tests
+        run: cargo test --lib --manifest-path src-tauri/Cargo.toml
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
       - uses: tauri-apps/tauri-action@v1

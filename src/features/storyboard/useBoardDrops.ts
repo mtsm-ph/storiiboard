@@ -2,15 +2,17 @@ import { useEffect } from 'react';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo } from '../../app/notice';
 import { fromFile, onWindowDrag, onWindowDrop, type PagePoint, type PictureFile } from '../../app/pictures';
+import { projectStore } from '../../app/projectStore';
 import { addPictures } from './addPictures';
-import type { PictureTarget } from './framePictures';
+import { canPlace, type PictureTarget } from './framePictures';
 import { selectionStore } from './selection';
 import type { DropHover } from './StoryboardView';
 
 // Pictures dropped on the board or pasted (1.11). Whatever carries the drop, frames and scenes say what they are
-// with data-drop-shot and data-drop-scene, so the board, the strip, the shot list and the inspector's picture all
-// take drops the same way. In the desktop app Tauri catches file drops before the page sees them and reports a point;
-// in the browser build the page's own drag events carry the files.
+// with data-drop-shot and data-drop-scene, so the board, the strip, the shot list and the inspector's Picture section
+// all take drops the same way. In the desktop app Tauri catches file drops before the page sees them and Rust reports
+// a point; in the browser build the page's own drag events carry the files. The listeners live with the board tile,
+// so drops and pastes work while the board is open.
 
 /** The frame or scene under an element, if it's one that takes pictures. */
 function targetOf(element: Element | null): PictureTarget | null {
@@ -36,19 +38,27 @@ function drop(files: PictureFile[], target: PictureTarget | null) {
   void addPictures(files, target);
 }
 
-/** ⌘V with a picture on the clipboard: into the selected frame, or a new frame at the end of the selected scene. */
+/** Whether focus is where typing goes, so a paste there is the field's. */
+function typing(element: Element | null): boolean {
+  return element instanceof HTMLElement && (element.isContentEditable || element.closest('input, textarea, select') !== null);
+}
+
+/**
+ * ⌘V with a picture on the clipboard: into the selected frame, or a new frame at the end of the selected scene. A
+ * selection that no longer names anything live (after an undo, say) falls back to its scene, then to nothing.
+ */
 function onPaste(event: ClipboardEvent) {
   const files = [...(event.clipboardData?.files ?? [])];
   if (files.length === 0) return;
   // A text field pastes text as it always does.
-  if (document.activeElement?.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if (typing(document.activeElement)) return;
   event.preventDefault();
   const { shotId, sceneId } = selectionStore.getState();
-  const target: PictureTarget | null = shotId
-    ? { kind: 'frame', shotId }
-    : sceneId
-      ? { kind: 'scene', sceneId, afterShotId: null }
-      : null;
+  const { project, records } = projectStore.getState();
+  const projectId = project?.projectId ?? '';
+  const frame: PictureTarget | null = shotId ? { kind: 'frame', shotId } : null;
+  const scene: PictureTarget | null = sceneId ? { kind: 'scene', sceneId, afterShotId: null } : null;
+  const target = [frame, scene].find((t): t is PictureTarget => t !== null && canPlace(records, projectId, t)) ?? null;
   if (!target) {
     showInfo('Select a frame or a scene, then paste the picture.');
     return;
@@ -57,9 +67,17 @@ function onPaste(event: ClipboardEvent) {
 }
 
 /** Takes picture drops and pastes while a project is open, and reports what a drag of files is over. */
-export function useBoardDrops(enabled: boolean, setHover: (hover: DropHover) => void): void {
+export function useBoardDrops(enabled: boolean, onHover: (hover: DropHover) => void): void {
   useEffect(() => {
     if (!enabled) return;
+    // A drag reports dozens of times a second; the board redraws only when what's under it changes.
+    let shown = '';
+    const setHover = (hover: DropHover) => {
+      const key = hover === null ? '' : 'shotId' in hover ? `shot:${hover.shotId}` : `scene:${hover.sceneId}`;
+      if (key === shown) return;
+      shown = key;
+      onHover(hover);
+    };
     document.addEventListener('paste', onPaste);
     if (isTauriApp) {
       let live = true;
@@ -109,5 +127,5 @@ export function useBoardDrops(enabled: boolean, setHover: (hover: DropHover) => 
       document.removeEventListener('drop', dropped);
       document.removeEventListener('paste', onPaste);
     };
-  }, [enabled, setHover]);
+  }, [enabled, onHover]);
 }
