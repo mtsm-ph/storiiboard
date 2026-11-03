@@ -8,7 +8,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | | |
 |---|---|
 | **Current phase** | **Phase 0 · Foundation and .sbd** |
-| Phase 0 state | Building: D2 and 0.5b in review |
+| Phase 0 state | Building: D3 in review |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
 | Last updated | Nov 2, 2026 |
@@ -39,9 +39,9 @@ One PR per milestone, each into `v2`.
 | 0.3 CI: checks on every push; Mac and Windows installers on PRs | #5 | Done |
 | 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | #7 | Done |
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | #8 | Done |
-| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | In review |
-| 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | In review |
-| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
+| D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | Done |
+| 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | Done |
+| D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | `phase0/d3-navigation` | In review |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
 | 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
 
@@ -73,6 +73,19 @@ Phase 0 calls, Nov 1 and 2, 2026:
   their own, linked to the group they undo, redo or restore to; a new edit after an undo ends the redo stack, but the
   undone work stays and can be restored. Restore to any point is built in 0.5b with tests; the History panel that
   lists every step and restores from any point stays in Phase 1. The schema change (schema 2) was approved.
+- D3 as built (Nov 2):
+  - The seven sections are the workspaces, so Alt+1 to Alt+7 follow the sidebar. Setup takes the old Bird's-eye
+    layout, and Production takes Call sheet's (shoot days, call sheet) plus calendar, locations, gear, and cast and
+    crew. New placeholder tiles: Assets, Team, Cast and crew, Settings.
+  - Sections still to come open their workspace of placeholder tiles, muted and showing their phase, as DESIGN.md
+    says; only project menu and switcher commands are disabled until their phase.
+  - The switcher shows the open project. Its recent list and switching in place come with the Projects screen (0.7);
+    until then All projects… and New project… show 0.7.
+  - The Layout menu sits in the top bar beside the project menu, and the unsaved-layout dot moved to the section.
+  - Layouts saved under D2's four workspaces start over (a new settings key); nobody has used them outside testing.
+  - Scenes list under Storyboard, and + Add Scene creates the next scene number as one op. Nothing opens a project
+    until 0.7, so the list is tested against a project file in unit tests. Setup's setups by scene come in Phase 5
+    with setups, and the status bar's unread count in Phase 3 with notifications.
 - Kevin's round-two decisions (Nov 2): every sidebar section is a workspace, and a Production section (schedule,
   calendar, call sheets, locations, gear, cast and crew) sits between Setup and Moodboard; DESIGN.md updated. The
   default theme's accent is #DF5E27 and the logo keeps #E0612B as a fixed brand token. An optional view-only link is

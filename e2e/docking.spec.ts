@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.clear();
   });
   await page.reload();
-  await expect(page.getByRole('tablist', { name: 'Workspaces' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
 });
 
 const tile = (page: Page, name: string) => page.getByRole('region', { name, exact: true });
@@ -110,7 +110,7 @@ test('closes a tile into its neighbour; ⌘Z leaves the layout alone and the Lay
 
 test('keeps the layout after a reload, marks it unsaved, and resets', async ({ page }) => {
   await page.getByRole('button', { name: 'Close Player' }).click();
-  const tab = page.getByRole('tab', { name: /Storyboard/ });
+  const tab = page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ });
   await expect(tab.getByRole('img', { name: 'unsaved layout' })).toBeVisible();
   await page.reload();
   await expect(tile(page, 'Player')).toBeHidden();

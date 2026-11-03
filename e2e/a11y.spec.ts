@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 // axe checks roles, names, labels and text contrast against WCAG 2.2 A and AA, in both themes and both engines.
 const VIEWS: { name: string; path: string; ready: (page: Page) => Locator }[] = [
-  { name: 'app shell', path: '/', ready: (page) => page.getByRole('tablist', { name: 'Workspaces' }) },
+  { name: 'app shell', path: '/', ready: (page) => page.getByRole('navigation', { name: 'Sections' }) },
   { name: 'UI catalogue', path: '/#catalogue', ready: (page) => page.getByRole('heading', { name: 'UI catalogue' }) },
 ];
 

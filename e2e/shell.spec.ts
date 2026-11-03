@@ -9,8 +9,8 @@ test('app shell loads with its heading and bundled fonts', async ({ page }) => {
 
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Storiiboard' })).toBeAttached();
-  await expect(page.getByRole('tablist', { name: 'Workspaces' })).toBeVisible();
-  // Landmarks let screen-reader users jump between the top bar, the tiles and the status bar.
+  // Landmarks let screen-reader users jump between the top bar, the sidebar, the tiles and the status bar.
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
   await expect(page.getByRole('banner')).toBeVisible();
   await expect(page.getByRole('main')).toBeVisible();
   await expect(page.getByRole('contentinfo')).toBeVisible();

@@ -1,10 +1,9 @@
 import { split, stack, type Layout, type TileId } from './docking/layout';
 
-// The four saved workspaces and their default layouts, taken from the design boards in the kit (04_Design_Source),
-// sized for the boards' 1440px. People rearrange them by docking (D2); the tiles stay empty until each tool's phase
-// fills them. D3 turns the workspaces into the sidebar's sections.
+// One workspace per sidebar section (D3), in the sidebar's order, with default layouts sized for the design boards'
+// 1440px. People rearrange them by docking (D2); the tiles stay empty until each tool's phase fills them.
 
-export type WorkspaceId = 'storyboard' | 'production' | 'birdseye' | 'callsheet';
+export type WorkspaceId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard' | 'settings';
 
 export interface TileInfo {
   title: string;
@@ -28,7 +27,12 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
   library: { title: 'Library', note: '68 plan icons by department. Phase 5.' },
   days: { title: 'Shoot days', note: 'Frames grouped into days, golden hour. Phase 3.' },
   sheet: { title: 'Call sheet', note: 'Calls, weather, sun times, map. Phase 4.' },
-  // In no default layout: opened in any workspace when needed (CLAUDE.md).
+  assets: { title: 'Assets', note: 'Images, clips and attachments, linked to frames. Phase 2.' },
+  team: { title: 'Team', note: 'Who is on the project; from Phase 9, what each person sees on the web. Phase 3.' },
+  // Production's cast and crew tile and the Team section read the same person records.
+  people: { title: 'Cast and crew', note: 'People by department, characters, contacts. Phase 3.' },
+  settings: { title: 'Settings', note: 'Backups, units and keys. From 0.7.' },
+  // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
   calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
   notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
   trash: { title: 'Trash', note: 'Deleted frames, shots and scenes, restorable. Phase 1.' },
@@ -37,6 +41,8 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
 export interface Workspace {
   id: WorkspaceId;
   label: string;
+  /** When the section's tools arrive; the sidebar shows it until then. */
+  phase: string;
   /** How the design numbers this workspace's tiles (01 / Scenes…); tiles opened later count on after them. */
   order: readonly TileId[];
   /** A fresh copy each call, so a layout can never share nodes with the defaults. */
@@ -50,6 +56,7 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   {
     id: 'storyboard',
     label: 'Storyboard',
+    phase: 'Phase 1',
     order: ['scenes', 'board', 'inspector', 'player'],
     defaultLayout: () =>
       layout(
@@ -61,15 +68,24 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
       ),
   },
   {
-    id: 'production',
-    label: 'Production',
-    order: ['moodboard', 'gear', 'locations'],
-    defaultLayout: () =>
-      layout(split('row', [stack(['moodboard']), split('column', [stack(['gear']), stack(['locations'])], [478, 330])], [1056, 360])),
+    id: 'assets',
+    label: 'Assets',
+    phase: 'Phase 2',
+    order: ['assets', 'player'],
+    defaultLayout: () => layout(split('row', [stack(['assets']), stack(['player'])], [1056, 360])),
   },
   {
-    id: 'birdseye',
-    label: "Bird's-eye",
+    id: 'team',
+    label: 'Team',
+    phase: 'Phase 3',
+    order: ['team'],
+    defaultLayout: () => layout(stack(['team'])),
+  },
+  {
+    // Home of the bird's-eye view (CLAUDE.md, Navigation).
+    id: 'setup',
+    label: 'Setup',
+    phase: 'Phase 5',
     order: ['layers', 'plan', 'selection', 'frames', 'library'],
     defaultLayout: () =>
       layout(
@@ -85,17 +101,44 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
       ),
   },
   {
-    id: 'callsheet',
-    label: 'Call sheet',
-    order: ['days', 'sheet'],
-    defaultLayout: () => layout(split('row', [stack(['days']), stack(['sheet'])], [500, 916])),
+    id: 'production',
+    label: 'Production',
+    phase: 'Phases 3–4',
+    order: ['days', 'calendar', 'sheet', 'locations', 'gear', 'people'],
+    defaultLayout: () =>
+      layout(
+        split(
+          'row',
+          [
+            split('column', [stack(['days']), stack(['calendar'])], [404, 404]),
+            stack(['sheet']),
+            split('column', [stack(['locations']), stack(['gear']), stack(['people'])], [270, 269, 269]),
+          ],
+          [400, 680, 336],
+        ),
+      ),
+  },
+  {
+    id: 'moodboard',
+    label: 'Moodboard',
+    phase: 'Phase 6',
+    order: ['moodboard'],
+    defaultLayout: () => layout(stack(['moodboard'])),
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    phase: '0.7',
+    order: ['settings'],
+    defaultLayout: () => layout(stack(['settings'])),
   },
 ];
 
 export const WORKSPACE_PANEL_ID = 'workspace-panel';
 
-export function workspaceTabId(id: WorkspaceId): string {
-  return `workspace-tab-${id}`;
+/** The sidebar entry that opens a workspace, for focus to land on. */
+export function sectionId(id: WorkspaceId): string {
+  return `section-${id}`;
 }
 
 type ShortcutEvent = Pick<KeyboardEvent, 'altKey' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'code' | 'target'>;
@@ -111,7 +154,7 @@ export function isTextEntry(target: EventTarget | null): boolean {
   return element.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((element as HTMLInputElement).type);
 }
 
-/** Alt+1–4. Read from event.code, because Option+number types ¡™£¢ on a Mac keyboard. */
+/** Alt+1–7, in the sidebar's order. Read from event.code, because Option+number types ¡™£¢ on a Mac keyboard. */
 export function workspaceForShortcut(event: ShortcutEvent): Workspace | undefined {
   if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTextEntry(event.target)) return undefined;
   const match = /^Digit([1-9])$/.exec(event.code);

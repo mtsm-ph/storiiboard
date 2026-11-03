@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
 import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
-import { isTextEntry, TILES, WORKSPACE_PANEL_ID, workspaceTabId, type Workspace } from '../workspaces';
+import { isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
 import { previewBox, zoneAt, type Box } from './geometry';
 import {
   dropTile,
@@ -323,8 +323,8 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   return (
     <div
       id={WORKSPACE_PANEL_ID}
-      role="tabpanel"
-      aria-labelledby={workspaceTabId(workspace.id)}
+      role="region"
+      aria-label={`${workspace.label} workspace`}
       className="flex min-h-0 flex-1 flex-col p-gap"
     >
       {maximized ? (
