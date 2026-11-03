@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { nodeDriver } from './nodeDriver';
-import { backupCopyPath, backupPath, backupsFolder, copyBackup } from './openBackup';
+import { backupCopyPath, copyBackup, folderOfPath, joinPath } from './openBackup';
 import { createProject, openProject } from './project';
 import { makeTestFolder, type TestFolder } from './testFolder';
 
@@ -26,10 +26,18 @@ describe('Open backup', () => {
     );
   });
 
-  it('finds a project’s Backups folder and its backups by name, on either platform', () => {
-    expect(backupsFolder('/Films/Bey County.sbd')).toBe('/Films/Backups');
-    expect(backupPath('C:\\Films\\Bey County.sbd', 'Bey County 2026-11-02 14-05.sbd')).toBe(
+  it('joins and splits paths with the platform’s own separator', () => {
+    expect(joinPath('C:\\Films\\Backups', 'Bey County 2026-11-02 14-05.sbd')).toBe(
       'C:\\Films\\Backups\\Bey County 2026-11-02 14-05.sbd',
+    );
+    expect(joinPath('/Films/Backups', 'Bey.sbd')).toBe('/Films/Backups/Bey.sbd');
+    expect(folderOfPath('/Films/Bey County.sbd')).toBe('/Films');
+  });
+
+  it('puts the copy of a backup kept on this computer beside the project, not in the app’s folder', () => {
+    const local = '/Users/kevin/Library/Application Support/app.storiiboard.desktop/Backups/Bey County 1a2b3c4d';
+    expect(backupCopyPath(`${local}/Bey County 2026-11-02 14-05.sbd`, 1, '/Users/kevin/Dropbox/Films')).toBe(
+      '/Users/kevin/Dropbox/Films/Bey County 2026-11-02 14-05 (from backup).sbd',
     );
   });
 

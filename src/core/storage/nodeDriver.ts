@@ -56,6 +56,19 @@ function settle<T>(run: () => T): Promise<T> {
 export interface NodeMachine {
   id: string;
   name: string;
+  /**
+   * Stands in for sync-folder detection (src-tauri/src/synced.rs), which needs the desktop app: a project in a synced
+   * folder keeps its backups under `localBackups`, as the app keeps them in its data folder.
+   */
+  synced?: (path: string) => boolean;
+  localBackups?: string;
+}
+
+/** FNV-1a, as sbd.rs names local backup folders. */
+function fnv1a(text: string): number {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  return Number(hash & 0xffffffffn);
 }
 
 /** Five minutes without a refresh: the lock was left by a crash, as in lock.rs. */
@@ -90,7 +103,7 @@ function fingerprint(path: string): string {
 
 function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): ProjectFile {
   const dir = dirname(path);
-  const backupsDir = join(dir, 'Backups');
+  let backupsDir = join(dir, 'Backups');
   const stem = fileStem(path);
 
   const backupPath = (kind: BackupKind, name: string): string => {
@@ -169,6 +182,25 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): Project
         if (!isBackupName(stem, name)) throw new Error(`"${name}" isn't a backup name for this project.`);
         rmSync(join(backupsDir, name));
       }),
+    placeBackups: (nextToProject) =>
+      settle(() => {
+        const synced = machine.synced?.(path) === true && machine.localBackups !== undefined;
+        if (synced && !nextToProject) {
+          let fileId = '';
+          try {
+            fileId = String(db.prepare("SELECT value FROM meta WHERE key = 'file_id'").get()?.value ?? '');
+          } catch {
+            // No meta table yet: keyed by the path alone, as in sbd.rs.
+          }
+          const key = fnv1a(`${fileId}\n${path}`).toString(16).padStart(8, '0');
+          backupsDir = join(machine.localBackups ?? '', `${stem} ${key}`);
+        } else {
+          backupsDir = join(dir, 'Backups');
+        }
+        return backupsDir;
+      }),
+    backupsFolder: () => settle(() => backupsDir),
+    showBackups: () => settle(() => undefined),
     refreshLock: () =>
       settle(() => {
         lock.refreshed_at = Date.now();

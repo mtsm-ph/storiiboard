@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CHANGED_ON_DISK } from './driver';
 import { migrate } from './migrate';
 import { nodeDriverFor } from './nodeDriver';
-import { createProject } from './project';
+import { createProject, openProject } from './project';
 import { makeTestFolder, type TestFolder } from './testFolder';
 
 // Two computers sharing a synced folder, as two Node drivers with their own machine ids.
@@ -83,5 +83,44 @@ describe('the check before every write', () => {
     await expect(file.tx([{ sql: 'INSERT INTO nowhere VALUES (1)' }])).rejects.toThrow();
     await file.tx([{ sql: "DELETE FROM meta WHERE key = 'a'" }]);
     await file.close();
+  });
+});
+
+describe('backups of a project in a synced folder', () => {
+  it('stay in a folder on this computer, one per file, unless the setting keeps them next to the project', async () => {
+    const local = folder.path('app data', 'Backups');
+    const synced = (path: string) => path.includes('/Dropbox/');
+    const here = nodeDriverFor({ id: 'laptop', name: 'Laptop', synced, localBackups: local });
+    mkdirSync(folder.path('Dropbox'));
+    mkdirSync(folder.path('Films'));
+
+    const project = await createProject(folder.path('Dropbox', 'Bey County.sbd'), { driver: here, backups: false });
+    const backupsAt = await project.file.backupsFolder();
+    expect(backupsAt.startsWith(local)).toBe(true);
+    await project.file.backup('scheduled', 'Bey County 2026-11-03 09-00.sbd');
+    expect(existsSync(folder.path('Dropbox', 'Backups'))).toBe(false);
+    expect(existsSync(`${backupsAt}/Bey County 2026-11-03 09-00.sbd`)).toBe(true);
+    await project.close();
+
+    // Opened again, the same file finds the same folder; with the setting on, backups go next to it.
+    const again = await openProject(folder.path('Dropbox', 'Bey County.sbd'), { driver: here, backups: false });
+    expect(await again.file.backupsFolder()).toBe(backupsAt);
+    expect(await again.file.placeBackups(true)).toBe(folder.path('Dropbox', 'Backups'));
+    await again.close();
+
+    // A project in an ordinary folder keeps Backups/ next to it whatever the setting.
+    const plain = await createProject(folder.path('Films', 'Pilot.sbd'), { driver: here, backups: false });
+    expect(await plain.file.backupsFolder()).toBe(folder.path('Films', 'Backups'));
+    await plain.close();
+  });
+
+  it('gives every file its own id', async () => {
+    const one = await createProject(folder.path('One.sbd'), { driver: studio, backups: false });
+    const two = await createProject(folder.path('Two.sbd'), { driver: studio, backups: false });
+    const id = async (file: typeof one.file) => (await file.query("SELECT value FROM meta WHERE key = 'file_id'"))[0]?.value;
+    expect(await id(one.file)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await id(one.file)).not.toBe(await id(two.file));
+    await one.close();
+    await two.close();
   });
 });

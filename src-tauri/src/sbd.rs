@@ -73,6 +73,9 @@ pub struct SbdFile {
     fingerprint: Fingerprint,
     /// Held while the project is open; dropping the file drops the lock, which removes it.
     lock: Option<Lock>,
+    /// Where scheduled backups go when it isn't `Backups/` beside the file: a folder on this computer, for a project
+    /// in a synced folder (place_backups).
+    local_backups: Option<PathBuf>,
 }
 
 impl SbdFile {
@@ -154,7 +157,36 @@ impl SbdFile {
             conn,
             path: path.to_path_buf(),
             lock: None,
+            local_backups: None,
         })
+    }
+
+    /// Puts scheduled backups in `local_root/<Project> <key>/` instead of beside the project, or back beside it with
+    /// None. The key comes from the file's id (meta `file_id`) and its path, so two copies of a project, even with the
+    /// same name, never share a folder, and pruning never reaches the other's backups.
+    pub fn place_backups(&mut self, local_root: Option<&Path>) -> Result<PathBuf, String> {
+        self.local_backups = match local_root {
+            None => None,
+            Some(root) => {
+                // A file without the id (or, in tests, without a meta table) is keyed by its path alone.
+                let rows = self
+                    .query("SELECT value FROM meta WHERE key = 'file_id'", &[])
+                    .unwrap_or_default();
+                let file_id = rows
+                    .first()
+                    .and_then(|row| row.get("value"))
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let path = self
+                    .path
+                    .canonicalize()
+                    .unwrap_or_else(|_| self.path.clone());
+                let key = fnv1a(format!("{file_id}\n{}", path.display()).as_bytes());
+                Some(root.join(format!("{} {:08x}", self.stem()?, key as u32)))
+            }
+        };
+        self.backups_dir()
     }
 
     /// Writes this computer's lock next to the project (see lock.rs). Best effort: a read-only folder gets none.
@@ -297,8 +329,11 @@ impl SbdFile {
             .ok_or_else(|| "The project has no folder.".to_string())
     }
 
-    fn backups_dir(&self) -> Result<PathBuf, String> {
-        Ok(self.dir()?.join("Backups"))
+    pub fn backups_dir(&self) -> Result<PathBuf, String> {
+        match &self.local_backups {
+            Some(dir) => Ok(dir.clone()),
+            None => Ok(self.dir()?.join("Backups")),
+        }
     }
 
     fn file_name(&self) -> Result<&str, String> {
@@ -314,6 +349,13 @@ impl SbdFile {
             .and_then(|stem| stem.to_str())
             .ok_or_else(|| "The project's file name isn't valid text.".to_string())
     }
+}
+
+/// FNV-1a, spelled out here because the folder names it makes must never change; std's hasher may between releases.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 fn check_extension(path: &Path) -> Result<(), String> {
@@ -470,6 +512,66 @@ pub async fn sbd_lock_holder(
     path: String,
 ) -> Result<Option<Holder>, String> {
     Ok(lock::holder(Path::new(&path), &machine, lock::now_ms()))
+}
+
+/// Decides where this project's scheduled backups go and returns the folder. A project in a synced folder keeps them
+/// in the app's data folder on this computer, unless the person's setting keeps them next to the project
+/// (docs/PLAN.md, F). Only the yes or no comes from the page; the folder is worked out here.
+#[tauri::command]
+pub async fn sbd_place_backups(
+    app: tauri::AppHandle,
+    files: State<'_, OpenFiles>,
+    handle: u32,
+    next_to_project: bool,
+) -> Result<String, String> {
+    use tauri::Manager;
+    let home = app.path().home_dir().map_err(|error| error.to_string())?;
+    let local_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("Backups");
+    files.with(handle, |file| {
+        let synced = crate::synced::service(&file.path, &home).is_some();
+        let root = (synced && !next_to_project).then_some(local_root.as_path());
+        let dir = file.place_backups(root)?;
+        dir.to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "The backups folder's path isn't valid text.".into())
+    })
+}
+
+/// The folder this project's backups go to.
+#[tauri::command]
+pub async fn sbd_backups_folder(
+    files: State<'_, OpenFiles>,
+    handle: u32,
+) -> Result<String, String> {
+    files.with(handle, |file| {
+        file.backups_dir()?
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "The backups folder's path isn't valid text.".into())
+    })
+}
+
+/// Show backups: opens the backups folder in Finder or Explorer, making it first if no backup has been made yet.
+#[tauri::command]
+pub async fn sbd_show_backups(files: State<'_, OpenFiles>, handle: u32) -> Result<(), String> {
+    let dir = files.with(handle, |file| file.backups_dir())?;
+    fs::create_dir_all(&dir).map_err(text)?;
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(&dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(text)
 }
 
 #[tauri::command]
@@ -649,6 +751,55 @@ mod tests {
                 .unwrap(),
             CHANGED_ON_DISK
         );
+    }
+
+    #[test]
+    fn keeps_backups_of_a_synced_project_in_a_local_folder_of_its_own() {
+        let dir = temp_dir("local-backups");
+        let local = dir.join("app data").join("Backups");
+        fs::create_dir_all(dir.join("Dropbox")).unwrap();
+        fs::create_dir_all(dir.join("Desk")).unwrap();
+        let mut first = new_file(&dir.join("Dropbox"), "Bey County.sbd");
+        let mut copy = new_file(&dir.join("Desk"), "Bey County.sbd");
+
+        let first_dir = first.place_backups(Some(&local)).unwrap();
+        let copy_dir = copy.place_backups(Some(&local)).unwrap();
+        // Same name, different files: separate folders, so pruning one never deletes the other's backups.
+        assert_ne!(first_dir, copy_dir);
+        assert!(first_dir.starts_with(&local));
+        assert!(first_dir
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("Bey County "));
+        // The same file always gets the same folder.
+        assert_eq!(first.place_backups(Some(&local)).unwrap(), first_dir);
+
+        first
+            .backup(BackupKind::Scheduled, "Bey County 2026-11-03 09-00.sbd")
+            .unwrap();
+        assert!(first_dir.join("Bey County 2026-11-03 09-00.sbd").is_file());
+        assert_eq!(
+            first.backups().unwrap(),
+            vec!["Bey County 2026-11-03 09-00.sbd"]
+        );
+        assert!(copy.backups().unwrap().is_empty());
+        first
+            .delete_backup("Bey County 2026-11-03 09-00.sbd")
+            .unwrap();
+
+        // Back beside the project when the person's setting asks for it.
+        assert_eq!(
+            first.place_backups(None).unwrap(),
+            dir.join("Dropbox").join("Backups")
+        );
+    }
+
+    #[test]
+    fn names_local_backup_folders_the_same_on_every_build() {
+        assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv1a(b"a"), 0xaf63_dc4c_8601_ec8c);
     }
 
     #[test]

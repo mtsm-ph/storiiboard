@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { BackupKeep } from '../../core/storage/backups';
 import { KEEP_LIMITS } from '../../core/storage/settings';
 import { Button } from '../../ui/Button';
-import { TextField } from '../../ui/fields';
+import { TextField, Toggle } from '../../ui/fields';
 import { localDateTime } from '../format';
 
 // The Backups tile in Settings: how many copies to keep (the person's setting, for every project), and the open
@@ -17,12 +17,24 @@ export interface BackupEntry {
 export interface BackupsViewProps {
   keep: BackupKeep;
   onKeepChange: (keep: BackupKeep) => void;
-  /** Null with no project open. */
-  project: { folder: string; backups: readonly BackupEntry[] } | null;
+  /** The person's setting: keep a synced project's backups next to it instead of on this computer. */
+  nextToProject: boolean;
+  onNextToProjectChange: (next: boolean) => void;
+  /** Null with no project open. `synced` names the sync service the project is in, if any. */
+  project: { folder: string; backups: readonly BackupEntry[]; synced: string | null } | null;
   /** What the last Back up now did, for the live region. */
   status: string | null;
   onBackUpNow: () => void;
+  onShowBackups: () => void;
   onOpen: (name: string) => void;
+}
+
+/** Where this project's backups are, and why, in a line. */
+export function placeNote(synced: string | null, nextToProject: boolean): string {
+  if (synced === null) return 'Kept in a Backups folder next to the project.';
+  return nextToProject
+    ? `This project is in ${synced}; its backups are next to it and sync with it.`
+    : `This project is in ${synced}, so its backups stay on this computer instead of uploading every 5 minutes.`;
 }
 
 /** A whole number in range, or null for anything else, which leaves the setting as it was. */
@@ -64,7 +76,17 @@ function KeepField({ label, field, keep, onKeepChange, helpId }: KeepFieldProps)
   );
 }
 
-export function BackupsView({ keep, onKeepChange, project, status, onBackUpNow, onOpen }: BackupsViewProps) {
+export function BackupsView({
+  keep,
+  onKeepChange,
+  nextToProject,
+  onNextToProjectChange,
+  project,
+  status,
+  onBackUpNow,
+  onShowBackups,
+  onOpen,
+}: BackupsViewProps) {
   const helpId = useId();
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -76,16 +98,29 @@ export function BackupsView({ keep, onKeepChange, project, status, onBackUpNow, 
         Copies, then days. Every 5 minutes, if anything changed, a full copy goes to a Backups folder next to the
         project. Older copies are deleted; these numbers apply to every project.
       </p>
+      <div className="flex max-w-[420px] flex-col gap-1.5">
+        <Toggle
+          label="Keep synced projects’ backups next to them"
+          checked={nextToProject}
+          onChange={onNextToProjectChange}
+        />
+        <p className="text-[12px] text-text-muted">
+          Off, backups of a project in iCloud Drive, Dropbox, Google Drive or OneDrive stay on this computer. On, they
+          go in a Backups folder beside the project and sync with it.
+        </p>
+      </div>
       {project === null ? (
         <p className="sb-label text-text-muted">No project open.</p>
       ) : (
         <>
           <div className="flex items-center gap-3">
             <Button onClick={onBackUpNow}>Back up now</Button>
+            <Button onClick={onShowBackups}>Show backups</Button>
             <p role="status" className="text-[12px]">
               {status}
             </p>
           </div>
+          <p className="text-[12px]">{placeNote(project.synced, nextToProject)}</p>
           <p className="font-mono text-[11px] text-text-muted">{project.folder}</p>
           {project.backups.length === 0 ? (
             <p className="text-[13px] text-text-muted">No backups yet. The first comes 5 minutes after an edit.</p>

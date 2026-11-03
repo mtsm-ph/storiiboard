@@ -13,6 +13,8 @@ export interface Settings {
   backups: BackupKeep;
   /** Projects already told they're in a synced folder: the note shows once per project (src/app/projects/synced.ts). */
   syncNoted: string[];
+  /** Keep a synced project's backups next to it, rather than in a folder on this computer (the default). */
+  backupsNextToProject: boolean;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -31,7 +33,12 @@ function keepValue(value: unknown, field: keyof BackupKeep): number {
 /** Read before first paint by public/theme-boot.js too; keep the two in step. */
 export const SETTINGS_KEY = 'storiiboard.settings';
 
-export const DEFAULT_SETTINGS: Settings = { theme: 'system', backups: { ...DEFAULT_KEEP }, syncNoted: [] };
+export const DEFAULT_SETTINGS: Settings = {
+  theme: 'system',
+  backups: { ...DEFAULT_KEEP },
+  syncNoted: [],
+  backupsNextToProject: false,
+};
 
 type Reader = Pick<Storage, 'getItem'>;
 type Writer = Pick<Storage, 'getItem' | 'setItem'>;
@@ -63,6 +70,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       syncNoted: Array.isArray(saved.syncNoted)
         ? saved.syncNoted.filter((p): p is string => typeof p === 'string').slice(-MAX_SYNC_NOTED)
         : [],
+      backupsNextToProject: saved.backupsNextToProject === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

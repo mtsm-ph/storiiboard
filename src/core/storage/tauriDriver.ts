@@ -20,6 +20,9 @@ function tauriFile(handle: number, path: string): ProjectFile {
     backup: (kind, fileName) => command('sbd_backup', { handle, kind, fileName }),
     listBackups: () => command<string[]>('sbd_backups', { handle }),
     deleteBackup: (fileName) => command('sbd_delete_backup', { handle, fileName }),
+    placeBackups: (nextToProject) => command<string>('sbd_place_backups', { handle, nextToProject }),
+    backupsFolder: () => command<string>('sbd_backups_folder', { handle }),
+    showBackups: () => command('sbd_show_backups', { handle }),
     refreshLock: () => command('sbd_lock_refresh', { handle }),
     close: () => command('sbd_close', { handle }),
   };

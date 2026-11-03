@@ -35,7 +35,8 @@ and states aren't checked by SQLite: changing a CHECK means rebuilding the table
 | key | text, unique | |
 | value | text | |
 
-Keys: `schema_version` (2), and `app_version`, the app that last opened the file. v1 files written by 0.5 also had
+Keys: `schema_version` (2); `app_version`, the app that last opened the file; and `file_id` (from 1.4), a UUID written
+the first time a file opens, which keys a synced project's local backup folder. v1 files written by 0.5 also had
 `undo_cursor`; schema 2 removes it, since the undo position now lives in op_groups.
 
 ### records
@@ -179,6 +180,10 @@ Changing any of them is an op, so it undoes and shows in History.
 - Every 5 minutes while a project is open, and only if it changed since the last backup, a full copy is written to
   `Backups/<Project> YYYY-MM-DD HH-mm.sbd` in the folder that holds the .sbd. `<Project>` is the .sbd's file name and
   the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`.
+- A project in a synced folder (iCloud Drive, Dropbox, Google Drive, OneDrive) keeps them in the app's data folder on
+  this computer instead (1.4), so a full copy doesn't upload every 5 minutes or sync into conflicts. The folder is
+  `Backups/<Project> <key>/` there; Files next to a project, below, has the key. Settings → Backups can keep them next
+  to the project.
 - Copies are made with SQLite's online backup API or `VACUUM INTO`, so they're consistent while the project is open.
   The file is never copied with a raw file copy. Each backup is a complete .sbd that opens on its own.
 - "Changed" means a row was written through the open connection since the last backup. Opening a project (its
@@ -289,7 +294,7 @@ merge a database, so two guards sit around every open project:
 | File | What it is | From | Kept |
 |---|---|---|---|
 | `<Project>.sbd` | The project | 0.4 | |
-| `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies | 0.4 | 12 plus one a day for 14 days |
+| `Backups/<Project> YYYY-MM-DD HH-mm.sbd` | Automatic full copies, for a project in an ordinary folder. A project in a synced folder keeps them in the app's data folder on this computer instead, in `Backups/<Project> <key>/`, where `<key>` is 8 hex digits of an FNV-1a hash of its `file_id` and path, so copies of a project never share a folder. Settings → Backups can keep them next to the project | 0.4, 1.4 | 12 plus one a day for 14 days |
 | `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm` | Copy made before a migration | 0.4 | Never pruned |
 | `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
 | `.<Project>.sbd.lock` | While the project is open: which computer has it open. JSON: `app`, `computer` (its name), `machine` (a random id per install), `session`, `opened_at` and `refreshed_at` (ms since the epoch). Hidden: a leading dot on Mac, the hidden attribute on Windows | 1.2 | Deleted on close; rewritten every minute while open; stale after 5 minutes |

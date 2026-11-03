@@ -2,7 +2,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import type { ProjectState } from '../../core/model/project';
 import { tauriAppData } from '../../core/storage/appData';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
-import { copyBackup } from '../../core/storage/openBackup';
+import { appDataDir } from '@tauri-apps/api/path';
+import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
 import { tauriDriver } from '../../core/storage/tauriDriver';
@@ -11,6 +12,7 @@ import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOpt
 import { projectStore } from '../projectStore';
 import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
 import { createRecentStore } from './recentStore';
+import { projectsFolderForNew } from './synced';
 
 // What the Projects screen and the switcher do. Projects live on disk, so this is the desktop app's alone: the
 // browser build (tests, the shell preview) has no files to open, and says so instead of failing.
@@ -26,6 +28,7 @@ export const files: OpenFileOptions = {
   driver: tauriDriver,
   recent: tauriAppData,
   askWhenLocked,
+  backupsNextToProject: () => loadSettings().backupsNextToProject,
   backups: {
     keep: () => loadSettings().backups,
     onError: (error) => {
@@ -89,17 +92,27 @@ export function openRecent(path: string): Promise<void> {
   return attempt(() => openProjectFile(path, files));
 }
 
-/** Opens a copy of a backup as its own project, beside the original; the backup itself is never edited. */
-export function openBackup(path: string): Promise<void> {
+/**
+ * Opens a copy of a backup as its own project; the backup itself is never edited. From the Backups tile the copy goes
+ * beside the open project, wherever its backups are kept.
+ */
+export function openBackup(path: string, projectPath: string): Promise<void> {
   return attempt(async () => {
-    await openProjectFile(await copyBackup(path, tauriDriver), files);
+    await openProjectFile(await copyBackup(path, tauriDriver, folderOfPath(projectPath)), files);
   });
 }
 
+/**
+ * Open backup… on the Projects screen. A backup picked from a Backups folder beside its project is copied beside the
+ * project; one from the app's own folder (a synced project's) is copied where New project would start.
+ */
 export function openBackupWithDialog(): Promise<void> {
   return attempt(async () => {
     const path = await pickBackupToOpen();
-    if (path !== null) await openProjectFile(await copyBackup(path, tauriDriver), files);
+    if (path === null) return;
+    const local = path.startsWith(await appDataDir());
+    const beside = local ? await projectsFolderForNew() : undefined;
+    await openProjectFile(await copyBackup(path, tauriDriver, beside), files);
   });
 }
 

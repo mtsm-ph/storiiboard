@@ -31,6 +31,11 @@ export interface ProjectOptions {
   backups?: BackupOptions | false;
   /** How often the lock file is rewritten while open; another computer counts it stale after 5 minutes. */
   lockRefreshMs?: number;
+  /**
+   * The person's setting: keep a synced project's backups next to it rather than in a folder on this computer
+   * (docs/PLAN.md, F). Unsynced projects keep them next to the file either way.
+   */
+  backupsNextToProject?: boolean;
   now?: () => Date;
 }
 
@@ -45,7 +50,14 @@ export function openProject(path: string, options: ProjectOptions): Promise<Proj
 }
 
 async function start(path: string, options: ProjectOptions, isNew: boolean): Promise<Project> {
-  const { driver, recent, backups = {}, lockRefreshMs = LOCK_REFRESH_MS, now = () => new Date() } = options;
+  const {
+    driver,
+    recent,
+    backups = {},
+    lockRefreshMs = LOCK_REFRESH_MS,
+    backupsNextToProject = false,
+    now = () => new Date(),
+  } = options;
   const file = isNew ? await driver.create(path) : await driver.open(path);
 
   const name = fileStem(path);
@@ -64,6 +76,8 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     const state = await readState(file, projectId);
     await rememberRecent(recent, { path, name, openedAt: now().toISOString(), state }).catch(() => undefined);
   }
+  // Where backups go is settled before the first one: a synced project keeps them on this computer.
+  await file.placeBackups(backupsNextToProject);
   const schedule = backups === false ? null : await startBackups(file, { now, ...backups });
   // A missed refresh only risks a later warning on another computer, never the project, so failures are ignored.
   const lockTimer = setInterval(() => {
@@ -105,8 +119,14 @@ async function ensureProjectRecord(file: ProjectFile, name: string, now: () => D
           },
         ]),
     setMeta('app_version', appVersion, now()),
+    // An id for the file itself, so a synced project's local backup folder belongs to this file and no copy of it.
+    ...(await hasMeta(file, 'file_id') ? [] : [setMeta('file_id', crypto.randomUUID(), now())]),
   ]);
   return id;
+}
+
+async function hasMeta(file: ProjectFile, key: string): Promise<boolean> {
+  return (await file.query('SELECT 1 FROM meta WHERE key = ?', [key])).length > 0;
 }
 
 /** The project's state, for the Recent list, which shows it without opening every file. */

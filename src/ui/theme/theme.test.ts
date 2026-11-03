@@ -19,14 +19,14 @@ describe('backup settings', () => {
   it('keep 12 copies and 14 days unless changed, and drop a bad number on its own', () => {
     expect(loadSettings(memoryStorage()).backups).toEqual({ recent: 12, days: 14 });
     const storage = memoryStorage('{"theme":"dark","backups":{"recent":30,"days":-1}}');
-    expect(loadSettings(storage)).toEqual({ theme: 'dark', backups: { recent: 30, days: 14 }, syncNoted: [] });
+    expect(loadSettings(storage)).toEqual({ theme: 'dark', backups: { recent: 30, days: 14 }, syncNoted: [], backupsNextToProject: false });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
 
   it('saves the keep numbers alongside the theme', () => {
     const storage = memoryStorage('{"theme":"light"}');
     saveSettings({ backups: { recent: 5, days: 30 } }, storage);
-    expect(loadSettings(storage)).toEqual({ theme: 'light', backups: { recent: 5, days: 30 }, syncNoted: [] });
+    expect(loadSettings(storage)).toEqual({ theme: 'light', backups: { recent: 5, days: 30 }, syncNoted: [], backupsNextToProject: false });
   });
 });
 

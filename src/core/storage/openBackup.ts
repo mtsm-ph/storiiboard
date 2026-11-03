@@ -14,25 +14,14 @@ function folderOf(path: string): string {
 /**
  * Where the copy goes: beside the project the backup came from (out of its Backups folder), named after the
  * backup, `Bey County 2026-11-02 14-05 (from backup).sbd`. A second copy of the same backup gets a number.
+ * `besideFolder` says where the project is, for backups kept in a folder on this computer (a synced project's).
  */
-export function backupCopyPath(backupPath: string, attempt = 1): string {
+export function backupCopyPath(backupPath: string, attempt = 1, besideFolder?: string): string {
   const separator = backupPath[lastSeparator(backupPath)] ?? '/';
-  let folder = folderOf(backupPath);
-  if (/(^|[/\\])Backups$/.test(folder)) folder = folderOf(folder);
+  let folder = besideFolder ?? folderOf(backupPath);
+  if (besideFolder === undefined && /(^|[/\\])Backups$/.test(folder)) folder = folderOf(folder);
   const suffix = attempt > 1 ? ` (from backup ${String(attempt)})` : ' (from backup)';
   return `${folder}${separator}${fileStem(backupPath)}${suffix}.sbd`;
-}
-
-/** The Backups folder next to a project. */
-export function backupsFolder(projectPath: string): string {
-  const separator = projectPath[lastSeparator(projectPath)] ?? '/';
-  return `${folderOf(projectPath)}${separator}Backups`;
-}
-
-/** A scheduled backup's full path, from the project's path and the backup's file name. */
-export function backupPath(projectPath: string, backupName: string): string {
-  const separator = projectPath[lastSeparator(projectPath)] ?? '/';
-  return `${backupsFolder(projectPath)}${separator}${backupName}`;
 }
 
 const MAX_COPIES = 50;
@@ -52,8 +41,19 @@ async function copyToFree(source: string, driver: SqlDriver, pathFor: (attempt: 
 }
 
 /** Copies a backup next to its project and returns the copy's path, for the caller to open. */
-export function copyBackup(source: string, driver: SqlDriver): Promise<string> {
-  return copyToFree(source, driver, (attempt) => backupCopyPath(source, attempt));
+export function copyBackup(source: string, driver: SqlDriver, besideFolder?: string): Promise<string> {
+  return copyToFree(source, driver, (attempt) => backupCopyPath(source, attempt, besideFolder));
+}
+
+/** The folder a file is in. */
+export function folderOfPath(path: string): string {
+  return folderOf(path);
+}
+
+/** A file in a folder, with the folder's own separator. */
+export function joinPath(folder: string, name: string): string {
+  const separator = folder.includes('\\') && !folder.includes('/') ? '\\' : '/';
+  return `${folder}${separator}${name}`;
 }
 
 /** `/Films/Bey County.sbd` → `/Films/Bey County (copy).sbd`, then `(copy 2)`. */
