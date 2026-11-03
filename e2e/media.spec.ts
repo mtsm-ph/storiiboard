@@ -69,13 +69,27 @@ async function prepare(page: Page, name: string, type: string, data: number[], p
   );
 }
 
+/** The furthest any channel is from what was expected. */
+const distance = (actual: Rgba | undefined, expected: readonly number[]) =>
+  Math.max(...expected.map((value, i) => Math.abs((actual?.[i] ?? -999) - value)));
+
 /** Within a few levels per channel: colour conversion rounds, and JPEG moves a flat colour by a level or two. */
 function expectClose(actual: Rgba | undefined, expected: readonly number[], tolerance = 4) {
   expect(actual, `expected about ${expected.join(', ')}`).toBeDefined();
-  const off = expected.map((value, i) => Math.abs((actual?.[i] ?? -999) - value));
-  expect(Math.max(...off), `${String(actual)} is more than ${String(tolerance)} from ${expected.join(', ')}`).toBeLessThanOrEqual(
+  expect(distance(actual, expected), `${String(actual)} is more than ${String(tolerance)} from ${expected.join(', ')}`).toBeLessThanOrEqual(
     tolerance,
   );
+}
+
+/**
+ * The engines the app ships on manage colour: WebKit on a Mac and Chromium (WebView2 on Windows) apply a picture's
+ * profile and draw in P3. WebKit on Linux, which CI also runs, decodes pictures without their profiles; there the
+ * colour tests check only that storing a picture adds no shift of its own.
+ */
+const ships = (browserName: string) => browserName === 'chromium' || process.platform === 'darwin';
+
+function noteUnmanaged() {
+  test.info().annotations.push({ type: 'colour', description: 'This engine ignores colour profiles; checked only that storing adds no shift.' });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -84,17 +98,14 @@ test.beforeEach(async ({ page }) => {
 
 test('a Display P3 photo keeps its full colour', async ({ page, browserName }) => {
   const result = await prepare(page, 'IMG_P3.jpg', 'image/jpeg', fixture('p3-red.jpg'));
-  // The engines the app ships on draw in P3: WebKit on a Mac, and Chromium (WebView2 on Windows). Only WebKit on Linux,
-  // which CI also runs, falls back to sRGB.
-  if (browserName === 'chromium' || process.platform === 'darwin') expect(result.engineP3).toBe(true);
-  if (result.engineP3) {
-    expect(result.colorSpace).toBe('display-p3');
-    // P3 red stays P3 red. Squeezed into sRGB on the way, it would come back about (234, 51, 35) here.
-    expectClose(result.stored.p3[0], [255, 0, 0]);
-  } else {
-    expect(result.colorSpace).toBe('srgb');
-  }
+  const managed = result.engineP3 && distance(result.source.p3[0], [255, 0, 0]) <= 4;
+  if (ships(browserName)) expect({ engineP3: result.engineP3, managed }).toEqual({ engineP3: true, managed: true });
+  expect(result.colorSpace).toBe(result.engineP3 ? 'display-p3' : 'srgb');
+  // P3 red stays P3 red. Squeezed into sRGB on the way, it would come back about (234, 51, 35) here.
+  if (managed) expectClose(result.stored.p3[0], [255, 0, 0]);
+  else noteUnmanaged();
   expectClose(result.stored.srgb[0], result.source.srgb[0] ?? []);
+  if (result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
   expect([result.mime, result.width, result.height]).toEqual(['image/jpeg', 64, 48]);
 });
 
@@ -104,11 +115,13 @@ test('an sRGB picture comes out the same colour', async ({ page }) => {
   expectClose(result.stored.srgb[0], [200, 80, 40]);
 });
 
-test('an Adobe RGB picture is converted, not read as if it were sRGB', async ({ page }) => {
+test('an Adobe RGB picture is converted, not read as if it were sRGB', async ({ page, browserName }) => {
   const result = await prepare(page, 'scan.jpg', 'image/jpeg', fixture('adobe-rgb.jpg'));
-  // The engine honours the profile: read as sRGB numbers, (60, 170, 90) would come through untouched.
+  // With its profile applied, (60, 170, 90) in Adobe RGB is a different sRGB colour; ignored, it comes through as is.
   const source = result.source.srgb[0] ?? [0, 0, 0, 0];
-  expect(Math.max(...[60, 170, 90].map((v, i) => Math.abs((source[i] ?? 0) - v)))).toBeGreaterThan(4);
+  const managed = distance(source, [60, 170, 90]) > 4;
+  if (ships(browserName)) expect(managed, 'the engine applies the picture’s profile').toBe(true);
+  if (!managed) noteUnmanaged();
   expectClose(result.stored.srgb[0], source);
   if (result.engineP3) expectClose(result.stored.p3[0], result.source.p3[0] ?? []);
 });
