@@ -373,7 +373,6 @@ impl SbdFile {
     /// project's own backup names. It runs with no copy in progress here, but a finished copy may still be syncing to
     /// disk after letting go of the file (back_up), so a partial touched in the last ten minutes is left alone.
     fn remove_leftover_copies(&self, kind: BackupKind) -> Result<(), String> {
-        const IN_USE: Duration = Duration::from_secs(10 * 60);
         let (dir, stem, file_name) = match kind {
             BackupKind::Scheduled => (self.backups_dir()?, self.stem()?, ""),
             BackupKind::Migration => (self.dir()?.to_path_buf(), "", self.file_name()?),
@@ -390,10 +389,7 @@ impl SbdFile {
                 BackupKind::Migration => is_migration_backup_name(file_name, backup),
             };
             let path = dir.join(&name);
-            let recent = fs::metadata(&path)
-                .and_then(|meta| meta.modified())
-                .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < IN_USE));
-            if ours && !recent {
+            if ours && !backup::recently_written(&path) {
                 let _ = fs::remove_file(path);
             }
         }
@@ -1384,19 +1380,40 @@ mod tests {
         drop(file);
         assert!(!partial.exists(), "closing mid-copy leaves nothing behind");
 
-        // A sync replacing the file mid-copy; Unix only, as above.
-        #[cfg(unix)]
-        {
-            let mut file = SbdFile::open(&dir.join("Bey.sbd")).unwrap();
+        // Something else rewriting the file mid-copy, as a sync can on every system (in place, so Windows allows it).
+        let mut file = SbdFile::open(&dir.join("Bey.sbd")).unwrap();
+        file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-01.sbd", false)
+            .unwrap();
+        file.step_backup().unwrap();
+        let mut other = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("Bey.sbd"))
+            .unwrap();
+        other.write_all(&[0; 4096]).unwrap();
+        drop(other);
+        assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
+        assert!(
+            !backup::partial_path(&dir.join("Backups").join("Bey 2026-11-03 09-01.sbd")).exists()
+        );
+        assert!(names(&file).is_empty());
+    }
+
+    #[test]
+    fn never_starts_over_a_partial_still_being_written() {
+        let dir = temp_dir("in-use");
+        let mut file = large_file(&dir, "Bey.sbd", 1);
+        let backups = dir.join("Backups");
+        fs::create_dir_all(&backups).unwrap();
+        // A finished copy from before a close and reopen, still syncing under its partial name.
+        let syncing = backups.join("Bey 2026-11-03 09-00.sbd.partial");
+        fs::write(&syncing, "still syncing").unwrap();
+        assert_eq!(
             file.start_backup(BackupKind::Scheduled, "Bey 2026-11-03 09-00.sbd", false)
-                .unwrap();
-            file.step_backup().unwrap();
-            drop(new_file(&dir, "incoming.sbd"));
-            fs::rename(dir.join("incoming.sbd"), dir.join("Bey.sbd")).unwrap();
-            assert_eq!(file.step_backup().err().unwrap(), CHANGED_ON_DISK);
-            assert!(!partial.exists());
-            assert!(names(&file).is_empty());
-        }
+                .err()
+                .unwrap(),
+            "A backup with that name is still being written."
+        );
+        assert_eq!(fs::read_to_string(&syncing).unwrap(), "still syncing");
     }
 
     #[test]
@@ -1466,6 +1483,7 @@ mod tests {
                 .is_ok_and(|status| status.success());
         if !attached {
             eprintln!("hdiutil couldn't make an exFAT image here; skipped");
+            let _ = fs::remove_dir_all(&dir);
             return;
         }
         let result = std::panic::catch_unwind(|| {

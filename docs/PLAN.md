@@ -755,7 +755,7 @@ One model replaces three overlapping ones, and "snapshot" is dropped as a word.
 |---|---|---|---|
 | **History** (the op log) | Undo and redo; the History panel (every change: field, before and after, who, when); Notifications | Inside the .sbd | For the life of the project. Empty Trash removes those items' data from it |
 | **Named versions** | A point to come back to, such as "Board sent to client" or "Locked for shoot" | Inside the .sbd, as a named point in History | Until someone deletes it |
-| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd: APFS clones on a Mac, full copies elsewhere; for a project in a synced folder, a local folder on this computer (F) | The last 12, plus one a day for 14 days (Settings); full copies within 5 GB, the newest 3 always |
+| **Backups** | Getting back a lost, damaged or wrongly edited file | `Backups/` next to the .sbd: APFS clones on a Mac, full copies elsewhere; for a project in a synced folder, a local folder on this computer (F) | The last 12, plus one a day for 14 days (Settings); within 5 GB by the space each takes alone, the newest 3 always |
 | **Migration backups** | Undoing a schema upgrade | Next to the .sbd | Never pruned |
 | **Review copies** | What reviewers see on the web | Supabase | 30 days after the last shoot day |
 
