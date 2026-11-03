@@ -42,7 +42,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | Done |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
 | 1.8 Frame inspector | #23 | Done |
-| 1.9 Shot list and Strip views | `phase1/1.9-shot-list-strip` | In review |
+| 1.9 Shot list and Strip views | #24 | In review |
 | 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
 | 1.12 Drag to reorder; "/" menu | | Not started |
