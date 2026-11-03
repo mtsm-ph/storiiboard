@@ -35,6 +35,8 @@ test('drops a tile on an edge to split, and on the centre to stack it as a tab',
   await drag(page, tile(page, 'Frame inspector'), { x: board.x + 20, y: board.y + board.height / 2 });
   const inspector = await box(tile(page, 'Frame inspector'));
   expect(inspector.x).toBeLessThan((await box(tile(page, 'Storyboard'))).x);
+  // A drag never selects text: a selection under the next press would start the browser's own drag instead.
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
   const target = await box(tile(page, 'Storyboard'));
   await drag(page, tile(page, 'Player'), { x: target.x + target.width / 2, y: target.y + target.height / 2 });

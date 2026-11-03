@@ -64,7 +64,7 @@ export function Tile({
       style={style}
     >
       <div
-        className={cx('flex h-titlebar shrink-0 items-center gap-2 border-b border-rule pr-1 pl-2', drag && 'touch-none')}
+        className={cx('flex h-titlebar shrink-0 items-center gap-2 border-b border-rule pr-1 pl-2', drag && 'touch-none select-none')}
         onPointerDown={(event) => {
           // The title bar drags the tile, except from its own buttons (the grip is the one that does).
           const button = (event.target as HTMLElement).closest('button');

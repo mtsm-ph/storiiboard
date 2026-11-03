@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent } from 'react';
 import { cx } from '../../../ui/cx';
 import { snap, SNAP_PX } from './geometry';
+import { holdTextSelection, releaseTextSelection } from './textSelection';
 
 interface SplitterProps {
   /** row: the splitter is a vertical line between tiles side by side. */
@@ -55,7 +56,7 @@ export function Splitter({ direction, before, after, label, onResize, onEvenOut,
     if (!el || !span || event.button !== 0) return;
     // No preventDefault here: in Chromium it also cancels the mouse events a double-click (even out) is made of.
     // Text selection is switched off for the drag instead.
-    document.body.style.userSelect = 'none';
+    holdTextSelection();
     el.setPointerCapture(event.pointerId);
     const lines = otherLines(el, direction);
     const move = (e: globalThis.PointerEvent, done: boolean) => {
@@ -72,7 +73,7 @@ export function Splitter({ direction, before, after, label, onResize, onEvenOut,
     const onUp = (e: globalThis.PointerEvent) => {
       move(e, true);
       setLive(null);
-      document.body.style.userSelect = '';
+      releaseTextSelection();
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onUp);
       el.removeEventListener('pointercancel', onUp);

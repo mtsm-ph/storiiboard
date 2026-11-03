@@ -19,6 +19,7 @@ import {
   type Stack,
 } from './layout';
 import { layoutStore, useLayouts } from './layoutStore';
+import { holdTextSelection, releaseTextSelection } from './textSelection';
 
 // Docking on pointer events, with no library and no HTML5 drag and drop: on Windows, Tauri's own file drop has to
 // stay on for Phase 2 (footage dragged into frames), and HTML5 drag and drop would need it off (decided Nov 2).
@@ -188,6 +189,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
     if (event.button !== 0) return;
     const tile = stack.active;
     const origin = { x: event.clientX, y: event.clientY };
+    holdTextSelection();
     let current: Drag = { tile, title: title(tile), x: origin.x, y: origin.y, started: false, target: null };
 
     const onMove = (e: globalThis.PointerEvent) => {
@@ -198,7 +200,9 @@ export function Dock({ workspace }: { workspace: Workspace }) {
     const finish = (drop: boolean) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       window.removeEventListener('keydown', onEscape, true);
+      releaseTextSelection();
       setDrag(null);
       if (drop && current.started && current.target) {
         layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, tile, current.target.stackId, current.target.zone));
@@ -207,6 +211,9 @@ export function Dock({ workspace }: { workspace: Workspace }) {
     const onUp = () => {
       finish(true);
     };
+    const onCancel = () => {
+      finish(false);
+    };
     const onEscape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
@@ -214,6 +221,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
     window.addEventListener('keydown', onEscape, true);
   };
 
