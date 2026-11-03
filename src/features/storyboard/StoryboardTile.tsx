@@ -6,6 +6,8 @@ import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/
 import { addPictures, usePicturesBusy } from './addPictures';
 import { addNote, addScene, addShot, board, locations, moveItem, setSceneLocation, trashShot, type BoardScene, type BoardShot } from './board';
 import { pictureView } from './framePictures';
+import { openSketch } from './sketch/sketchStore';
+import { strokesByShot } from './sketch/strokes';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
@@ -95,6 +97,7 @@ export function StoryboardTile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSceneId]);
 
+  const strokes = strokesByShot(records);
   const frameCard = (shot: BoardShot): FrameCard => ({
     id: shot.record.id,
     number: shot.fields.number,
@@ -102,6 +105,7 @@ export function StoryboardTile() {
     status: shot.fields.status,
     fields: shot.fields,
     picture: pictureView(records, shot.fields),
+    strokes: strokes.get(shot.record.id) ?? [],
   });
 
   const groups: SceneGroup[] = scenes.map((scene) => ({
@@ -190,6 +194,7 @@ export function StoryboardTile() {
           selectionStore.getState().selectShot(null, sceneId);
         }}
         locationNames={locations(records, projectId).map((l) => l.name)}
+        onSketch={openSketch}
         onSetLocation={(sceneId, name) => {
           void apply(setSceneLocation(records, projectId, sceneId, name));
         }}

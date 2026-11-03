@@ -11,6 +11,8 @@ import { StatusGlyph } from '../../ui/tags';
 import { FrameImage, type FramePictureView } from './FrameImage';
 import { verticalNeighbour } from './gridKeys';
 import { NoteCard } from './NoteCard';
+import { SketchSvg } from './sketch/SketchSvg';
+import type { Stroke } from './sketch/strokes';
 import { SlashMenu, type SlashChoice } from './SlashMenu';
 import { useItemDrag, type DropPlace } from './useItemDrag';
 
@@ -41,6 +43,8 @@ export interface FrameCard {
   fields: ShotFields;
   /** Null for a frame with no picture yet. */
   picture: FramePictureView | null;
+  /** The frame's sketch, drawn over its picture; empty for none. */
+  strokes?: readonly Stroke[];
 }
 
 /** One thing on the board, in order: a frame or a note. */
@@ -97,6 +101,8 @@ export interface StoryboardViewProps {
   onNoteText?: (noteId: string, text: string) => void;
   /** The project's locations, for the "/" menu. */
   locationNames?: readonly string[];
+  /** S on a frame: its sketch, in the editor. */
+  onSketch?: (shotId: string) => void;
   /** Enter on a frame: on to its details in the Frame inspector. */
   onOpen?: (shotId: string) => void;
   /** Add pictures…: the Open dialog, each picture a new frame. */
@@ -167,6 +173,7 @@ export function StoryboardView({
   onSetLocation,
   onNoteText,
   locationNames = [],
+  onSketch,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
@@ -249,6 +256,11 @@ export function StoryboardView({
       else onOpen?.(itemId);
       return;
     }
+    if (itemId !== null && kind === 'frame' && onSketch && event.key.toLowerCase() === 's' && !command && !event.altKey) {
+      event.preventDefault();
+      onSketch(itemId);
+      return;
+    }
     if (itemId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {
       event.preventDefault();
       onTrash(itemId);
@@ -329,11 +341,14 @@ export function StoryboardView({
           {frame.picture ? (
             <FrameImage picture={frame.picture} frameAspect={aspectRatio} />
           ) : (
-            // Hidden from screen readers: the card is named by what follows, number, spec and status.
-            <span aria-hidden="true" className="sb-label text-text-muted">
-              No image
-            </span>
+            !frame.strokes?.length && (
+              // Hidden from screen readers: the card is named by what follows, number, spec and status.
+              <span aria-hidden="true" className="sb-label text-text-muted">
+                No image
+              </span>
+            )
           )}
+          {frame.strokes && frame.strokes.length > 0 && <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />}
           {hovered && <DropMark label={frame.picture ? 'Replace picture' : 'Set picture'} />}
         </span>
         <span className="flex items-center gap-2 px-2 py-1.5">

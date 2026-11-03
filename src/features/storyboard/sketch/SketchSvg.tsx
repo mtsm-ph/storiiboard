@@ -1,0 +1,66 @@
+import { arrowHead, pressureOutline, type Stroke } from './strokes';
+
+// A frame's sketch on its card (1.13): inline SVG over the picture, in the text colour, so it reads on paper in light
+// and dark alike. The editor draws the same strokes with Konva; this needs no canvas, so a 1000-frame board stays a
+// page of plain elements.
+
+/** The SVG for one stroke, in a box `width` by `height`. */
+export function StrokeShape({ stroke, width, height }: { stroke: Stroke; width: number; height: number }) {
+  const line = stroke.width * height;
+  const p = stroke.points.map((n, i) => (i % 2 === 0 ? n * width : n * height));
+  if (stroke.tool === 'box') {
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = p;
+    return (
+      <rect
+        x={Math.min(x1, x2)}
+        y={Math.min(y1, y2)}
+        width={Math.abs(x2 - x1)}
+        height={Math.abs(y2 - y1)}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={line}
+      />
+    );
+  }
+  if (stroke.tool === 'arrow') {
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = p;
+    return (
+      <g>
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={line} strokeLinecap="round" />
+        <polygon points={arrowHead(stroke.points, width, height, stroke.width).join(' ')} fill="currentColor" />
+      </g>
+    );
+  }
+  if (stroke.pressures) {
+    return <polygon points={pressureOutline(stroke.points, stroke.pressures, width, height, stroke.width).join(' ')} fill="currentColor" />;
+  }
+  return (
+    <polyline
+      points={p.join(' ')}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={line}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
+}
+
+/** Fills its parent, which gives the frame its shape (width over height: `aspect`). */
+export function SketchSvg({ strokes, aspect }: { strokes: readonly Stroke[]; aspect: number }) {
+  const height = 1000;
+  const width = Math.round(height * aspect);
+  return (
+    <svg
+      aria-hidden="true"
+      data-sketch=""
+      viewBox={`0 0 ${String(width)} ${String(height)}`}
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-0 h-full w-full text-text"
+    >
+      {strokes.map((stroke) => (
+        <StrokeShape key={stroke.id} stroke={stroke} width={width} height={height} />
+      ))}
+    </svg>
+  );
+}

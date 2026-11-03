@@ -67,6 +67,10 @@ export interface InspectorViewProps {
   onChoosePicture?: () => void;
   onRemovePicture?: () => void;
   onCropChange?: (crop: Crop) => void;
+  /** Opens the frame's sketch in the editor. */
+  onSketch?: () => void;
+  /** Strokes in the frame's sketch, for the Sketch button's name. */
+  strokeCount?: number;
   /** The scene's location, set from the "/" menu; null when it has none. */
   locationName?: string | null;
 }
@@ -203,6 +207,8 @@ export function InspectorView({
   onRemovePicture,
   onCropChange,
   locationName = null,
+  onSketch,
+  strokeCount = 0,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -269,6 +275,7 @@ export function InspectorView({
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={onSketch}>{strokeCount > 0 ? 'Edit sketch' : 'Sketch'}</Button>
               <Button data-choose-picture="" onClick={onChoosePicture}>
                 {picture ? 'Replace…' : 'Choose picture…'}
               </Button>
