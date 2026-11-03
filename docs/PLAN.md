@@ -41,7 +41,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.5 Browser test driver (sql.js, dev and e2e only) | #20 | Done |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | Done |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
-| 1.8 Frame inspector | `phase1/1.8-frame-inspector` | In review |
+| 1.8 Frame inspector | #23 | In review |
 | 1.9 Shot list and Strip views | | Not started |
 | 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
