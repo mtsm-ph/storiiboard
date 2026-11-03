@@ -40,7 +40,7 @@ One PR per milestone, each into `v2`.
 | 0.4 .sbd storage: Rust commands, schema v1 (records carry trashed_at and trashed_by), migrations, backups every 5 minutes with pruning, docs/SBD_FORMAT.md | #7 | Done |
 | 0.5 Operations, undo and redo, autosave; deleting moves a record to the Trash, and restoring is an op | #8 | Done |
 | D2 Dockable tiles on pointer events: split on a tile's edges, tab on its center, splitters that snap, maximize and restore, saved workspaces, keyboard moves, open any tile in any workspace (needs 0.5) | #9 | In review |
-| 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | `phase0/history-log` | In review |
+| 0.5b Append-only History: undo, redo and restore are op groups of their own; restore to any point; schema 2 | #10 | In review |
 | D3 Navigation: left sidebar (project switcher, then Storyboard with its scenes, Assets, Team, Setup, Production, Moodboard, Settings), each section a workspace; the project menu (History, Watermark Settings, Export Project, Archive Project). Sections and menu items show their phase until built | | Not started |
 | 0.6 Double-click opens a .sbd (Mac and Windows) | | Not started |
 | 0.7 Projects screen: New, Open, Recent, Open backup; backup settings; project state (draft, active, archived) and Archive Project; the switcher lists recent projects, and switching opens a project in place without a reload | | Not started |
