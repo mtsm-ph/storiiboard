@@ -1,0 +1,163 @@
+import type { Props } from './record';
+import { SHOT_STATUSES, type ShotStatus } from './shotStatus';
+
+// The storyboard's records, read from their props (docs/SBD_FORMAT.md, Storyboard props). Props stay open JSON, so
+// these readers never trust a value: a missing or odd one reads as empty, and custom props pass through untouched.
+
+export const SHOT_SIZES = ['EWS', 'WS', 'MS', 'MCU', 'CU', 'ECU', 'INSERT'] as const;
+export type ShotSize = (typeof SHOT_SIZES)[number];
+export const SHOT_SIZE_LABEL: Readonly<Record<ShotSize, string>> = {
+  EWS: 'EWS',
+  WS: 'WS',
+  MS: 'MS',
+  MCU: 'MCU',
+  CU: 'CU',
+  ECU: 'ECU',
+  INSERT: 'INS',
+};
+
+export const SUPPORTS = ['sticks', 'handheld', 'shoulder', 'gimbal', 'steadicam', 'dolly', 'slider', 'crane', 'drone', 'car'] as const;
+export const HEIGHTS = ['ground', 'low', 'hip', 'chest', 'eye', 'high', 'overhead'] as const;
+export const MOVES = [
+  'static',
+  'pan',
+  'tilt',
+  'push in',
+  'pull out',
+  'track',
+  'arc',
+  'crane up',
+  'crane down',
+  'zoom in',
+  'zoom out',
+  'follow',
+] as const;
+
+export const INT_EXT = ['INT', 'EXT', 'INT/EXT'] as const;
+export type IntExt = (typeof INT_EXT)[number];
+export const DAY_NIGHT = ['DAY', 'NIGHT', 'DAWN', 'DUSK', 'MAGIC HOUR'] as const;
+export type DayNight = (typeof DAY_NIGHT)[number];
+
+/** The project's frame shape (approved Nov 2), as written on a camera report, with its width over height. */
+export const ASPECT_RATIOS = [
+  { id: '2.39:1', ratio: 2.39 },
+  { id: '2:1', ratio: 2 },
+  { id: '1.85:1', ratio: 1.85 },
+  { id: '16:9', ratio: 16 / 9 },
+  { id: '4:3', ratio: 4 / 3 },
+  { id: '1:1', ratio: 1 },
+  { id: '4:5', ratio: 4 / 5 },
+  { id: '9:16', ratio: 9 / 16 },
+] as const;
+export type AspectRatio = (typeof ASPECT_RATIOS)[number]['id'];
+export const DEFAULT_ASPECT_RATIO: AspectRatio = '16:9';
+
+const text = (value: unknown) => (typeof value === 'string' ? value : '');
+const oneOf = <T extends string>(options: readonly T[], value: unknown): T | null =>
+  options.includes(value as T) ? (value as T) : null;
+const number = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+export interface ProjectStoryboard {
+  aspectRatio: AspectRatio;
+  /** Skip I and O in shot letters; true unless the project allows them. */
+  skipIO: boolean;
+}
+
+export function projectStoryboard(props: Props | undefined): ProjectStoryboard {
+  return {
+    aspectRatio: oneOf(ASPECT_RATIOS.map((a) => a.id), props?.aspect_ratio) ?? DEFAULT_ASPECT_RATIO,
+    skipIO: props?.shot_letters_allow_io !== true,
+  };
+}
+
+export function aspectRatioValue(id: AspectRatio): number {
+  return ASPECT_RATIOS.find((a) => a.id === id)?.ratio ?? 16 / 9;
+}
+
+export interface SceneFields {
+  /** As on the slate and in the script: "4", "4A", "12". */
+  number: string;
+  name: string;
+  intExt: IntExt | null;
+  dayNight: DayNight | null;
+  locationId: string | null;
+  /** Script length in eighths of a page; null until a script is imported or it's typed in. */
+  pageEighths: number | null;
+  numbersLocked: boolean;
+  characters: string[];
+}
+
+export function sceneFields(props: Props): SceneFields {
+  const characters = Array.isArray(props.characters) ? props.characters.filter((c): c is string => typeof c === 'string') : [];
+  return {
+    number: text(props.number),
+    // Scenes made before 1.6 kept their heading in `heading`.
+    name: text(props.name) || text(props.heading),
+    intExt: oneOf(INT_EXT, props.int_ext),
+    dayNight: oneOf(DAY_NIGHT, props.day_night),
+    locationId: typeof props.location_id === 'string' ? props.location_id : null,
+    pageEighths: number(props.page_eighths),
+    numbersLocked: props.numbers_locked === true,
+    characters,
+  };
+}
+
+export interface ShotFields {
+  number: string;
+  size: ShotSize | null;
+  lensMm: number | null;
+  tStop: number | null;
+  support: string;
+  height: string;
+  move: string;
+  status: ShotStatus;
+  action: string;
+  dialogue: string;
+  departments: string[];
+}
+
+export function shotFields(props: Props): ShotFields {
+  return {
+    number: text(props.number),
+    size: oneOf(SHOT_SIZES, props.size),
+    lensMm: number(props.lens_mm),
+    tStop: number(props.t_stop),
+    support: text(props.support),
+    height: text(props.height),
+    move: text(props.move),
+    // A frame starts as one still to shoot.
+    status: oneOf(SHOT_STATUSES, props.status) ?? 'need',
+    action: text(props.action),
+    dialogue: text(props.dialogue),
+    departments: Array.isArray(props.departments) ? props.departments.filter((d): d is string => typeof d === 'string') : [],
+  };
+}
+
+/** "6/8 pg", "1 pg", "1 3/8 pg": how page counts read on a breakdown sheet. */
+export function pageLabel(eighths: number | null): string {
+  if (eighths === null) return '—';
+  const pages = Math.floor(eighths / 8);
+  const rest = eighths % 8;
+  if (rest === 0) return `${String(pages)} pg`;
+  return pages === 0 ? `${String(rest)}/8 pg` : `${String(pages)} ${String(rest)}/8 pg`;
+}
+
+/** "WS · 24MM · T2.8": a frame card's spec line, leaving out what isn't set. */
+export function specLine(shot: ShotFields): string {
+  const parts = [
+    shot.size ? SHOT_SIZE_LABEL[shot.size] : null,
+    shot.lensMm === null ? null : `${String(shot.lensMm)}MM`,
+    shot.tStop === null ? null : tStopLabel(shot.tStop),
+  ];
+  return parts.filter((p) => p !== null).join(' · ');
+}
+
+/** T2.0, T2.8, T5.6 as lenses mark them, with one decimal; T11 and up as whole stops. */
+export function tStopLabel(stop: number): string {
+  return `T${stop >= 10 ? String(Math.round(stop)) : stop.toFixed(1)}`;
+}
+
+/** "SC 04": a plain number gets two digits, as on the boards; a lettered one ("4A") is kept as the slate has it. */
+export function sceneLabel(number: string): string {
+  return `SC ${/^\d$/.test(number) ? number.padStart(2, '0') : number}`;
+}

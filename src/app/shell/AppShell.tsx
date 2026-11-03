@@ -9,6 +9,7 @@ import { noteIfSynced } from '../projects/synced';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
+import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
@@ -17,8 +18,9 @@ import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type W
 
 export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
-  // The scene the storyboard is on: its sidebar entry carries the orange marker. Phase 1's board follows it.
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  // The scene the storyboard is on, shared with the Scenes tile and the board (src/features/storyboard/selection.ts).
+  const activeSceneId = useSelection((s) => s.sceneId);
+  const setActiveSceneId = useSelection((s) => s.selectScene);
   // All projects… asks for the Projects screen while a project is open; opening one, or a section, leaves it.
   const [projectsAsked, setProjectsAsked] = useState(false);
   const notice = useNotice();

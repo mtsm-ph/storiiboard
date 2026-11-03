@@ -142,8 +142,40 @@ and MCP read them.
 | state | `draft`, `active` or `archived` | Archive Project sets `archived`. New projects start as `draft`, as in the prototype; a missing value reads as `active`. A Notion-style production stage (Discovery to Complete), when it comes, is a separate `stage` prop |
 | theme | object (below) | Phase 1 |
 | watermark | `text`, `position`, `opacity` (0 to 1), `applies_to` (any of `pdf`, `png`, `review`) | Phase 1, with export |
+| aspect_ratio | `2.39:1`, `2:1`, `1.85:1`, `16:9`, `4:3`, `1:1`, `4:5`, `9:16` | 1.6. The storyboard's frame shape; missing reads as `16:9` |
+| shot_letters_allow_io | true or false | 1.6. Shot letters skip I and O unless this is true |
 
 Changing any of them is an op, so it undoes and shows in History.
+
+## Storyboard props (1.6)
+
+Scenes are `scene` records under the project, and each frame is a `shot` record under its scene (one panel per
+shot), both ordered by `sort_key`. Like every prop, a missing or unreadable value reads as empty.
+
+| Record | Prop | Value | Notes |
+|---|---|---|---|
+| scene | number | text | As in the script and on the slate: `4`, `4A`, `12`. A scene added between 4 and 5 is `4A` |
+| scene | name | text | Shown as the heading until INT/EXT or DAY/NIGHT is set. Older files may have `heading` instead |
+| scene | int_ext | `INT`, `EXT`, `INT/EXT` | |
+| scene | day_night | `DAY`, `NIGHT`, `DAWN`, `DUSK`, `MAGIC HOUR` | |
+| scene | location_id | record id | A `location` record (1.12, script import) |
+| scene | page_eighths | integer | Script length in eighths of a page (1.17); shown as "1 3/8 pg" |
+| scene | characters | array of text | Speaking characters, from script import (1.17) |
+| scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
+| shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
+| shot | size | `EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT` | |
+| shot | lens_mm | number | Focal length |
+| shot | t_stop | number | |
+| shot | support, height, move | text | From lists in the inspector (1.8); free text is kept |
+| shot | status | `have`, `need`, `source` | A new frame is `need` |
+| shot | action, dialogue | text | |
+| shot | departments | array of department ids | src/core/model/department.ts |
+
+**Shot numbers** (src/core/model/shotNumbers.ts). A shot is its scene's number plus a letter: A to Z, skipping I and
+O unless the project allows them, then AA, AB. While a scene is unlocked, its numbers follow the board, so adding,
+moving or deleting a frame renumbers the scene in the same op group. Locked, every shot keeps its number, even if the
+scene is renumbered; a new frame takes the next letter after the highest ever used, trashed frames included, so no
+number is given out twice. Unlocking renumbers the scene to follow the board again.
 
 ### theme
 
