@@ -101,11 +101,19 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
       latest.current = { id: press.id, label: press.label, x: event.clientX, y: event.clientY, place: found?.place ?? null, bar: found?.bar ?? null };
       setDrag(latest.current);
     };
+    // The click a release sends lands at once, in the same task, on the item or whatever holds both ends of the
+    // drag; it's swallowed if it reaches an item, and the flag clears straight after, so the next click counts.
+    const swallowNextClick = () => {
+      swallowClick.current = true;
+      setTimeout(() => {
+        swallowClick.current = false;
+      }, 0);
+    };
     const up = () => {
       const press = pressed.current;
       pressed.current = null;
       if (!press?.started) return;
-      swallowClick.current = true;
+      swallowNextClick();
       const current = latest.current;
       latest.current = null;
       setDrag(null);
@@ -115,7 +123,7 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
       if (event.key !== 'Escape' || !pressed.current) return;
       event.preventDefault();
       event.stopPropagation();
-      if (pressed.current.started) swallowClick.current = true;
+      if (pressed.current.started) swallowNextClick();
       pressed.current = null;
       latest.current = null;
       setDrag(null);

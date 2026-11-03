@@ -1,4 +1,4 @@
-import { useEffect, useRef, type HTMLAttributes, type KeyboardEvent } from 'react';
+import { useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent } from 'react';
 import { cx } from '../../ui/cx';
 
 // A note among a scene's frames (1.12): what a board says between panels, "Rain starts" or "Cut to black". It's a
@@ -12,7 +12,8 @@ interface NoteCardProps {
   /** The board item's own attributes and keys, from StoryboardView. */
   itemProps: HTMLAttributes<HTMLButtonElement> & Record<`data-${string}`, string | undefined>;
   onEdit: () => void;
-  onSave: (text: string) => void;
+  /** `back` when left with ⌘Enter, so focus returns to the note; leaving by Tab or a click goes where that sent it. */
+  onSave: (text: string, back: boolean) => void;
   onCancel: () => void;
   className?: string | undefined;
 }
@@ -21,9 +22,13 @@ export function NoteCard({ id, text, editing, itemProps, onEdit, onSave, onCance
   const field = useRef<HTMLTextAreaElement>(null);
   // Set by Escape, so the blur that follows as the field goes away doesn't save what was typed.
   const cancelled = useRef(false);
-  useEffect(() => {
+  // Set by ⌘Enter, which leaves the field on purpose and goes back to the note.
+  const back = useRef(false);
+  // Before the first paint, so typing straight after "/" Note lands in the field.
+  useLayoutEffect(() => {
     if (!editing) return;
     cancelled.current = false;
+    back.current = false;
     const element = field.current;
     element?.focus();
     element?.setSelectionRange(element.value.length, element.value.length);
@@ -38,6 +43,7 @@ export function NoteCard({ id, text, editing, itemProps, onEdit, onSave, onCance
       onCancel();
     } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
+      back.current = true;
       event.currentTarget.blur();
     }
   };
@@ -55,7 +61,7 @@ export function NoteCard({ id, text, editing, itemProps, onEdit, onSave, onCance
             defaultValue={text}
             rows={4}
             onBlur={(event) => {
-              if (!cancelled.current) onSave(event.currentTarget.value);
+              if (!cancelled.current) onSave(event.currentTarget.value, back.current);
             }}
             onKeyDown={onKeyDown}
             className="min-h-0 w-full flex-1 resize-none bg-surface-raised px-2 py-1.5 text-[13px] text-text"

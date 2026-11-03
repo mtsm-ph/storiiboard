@@ -377,10 +377,10 @@ export function StoryboardView({
       onEdit={() => {
         setEditingNote(entry.id);
       }}
-      onSave={(text) => {
+      onSave={(text, back) => {
         setEditingNote(null);
         if (text !== entry.text) onNoteText?.(entry.id, text);
-        focusItem(entry.id);
+        if (back) focusItem(entry.id);
       }}
       onCancel={() => {
         setEditingNote(null);

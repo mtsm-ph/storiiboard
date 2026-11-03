@@ -28,6 +28,9 @@ const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(na
 
 /** Presses on `from`, moves in steps and lets go over `to`, at a fraction of its width (0.2 is its left part). */
 async function drag(page: Page, from: Locator, to: Locator, across = 0.2) {
+  // The board may have scrolled to the last frame added.
+  await to.scrollIntoViewIfNeeded();
+  await from.scrollIntoViewIfNeeded();
   const start = await from.boundingBox();
   const end = await to.boundingBox();
   if (!start || !end) throw new Error('not on screen');
@@ -57,6 +60,7 @@ test('drags a frame into another scene, numbering it there', async ({ page }) =>
 test('Escape cancels a drag, and a press that doesn’t move is a click', async ({ page }) => {
   const first = frames(page, 'SC 01').nth(0);
   const id = await first.getAttribute('data-shot-id');
+  await first.scrollIntoViewIfNeeded();
   const target = await frames(page, 'SC 01').nth(2).boundingBox();
   const box = await first.boundingBox();
   if (!box || !target) throw new Error('not on screen');
@@ -77,7 +81,7 @@ test('the "/" menu inserts a note, written in place and saved when left', async 
   const menu = page.getByRole('combobox', { name: 'Insert' });
   await expect(menu).toBeFocused();
   await page.keyboard.type('no');
-  await expect(page.getByRole('option')).toHaveText([/^Note/]);
+  await expect(page.getByRole('listbox').getByRole('option')).toHaveText([/^Note/]);
   await page.keyboard.press('Enter');
 
   const field = board(page).getByRole('textbox', { name: 'Note' });
@@ -152,7 +156,8 @@ test('the "/" menu sets the scene’s location, reusing one the project has', as
   await page.keyboard.type('loc');
   await page.keyboard.press('Enter');
   await page.keyboard.type('penn');
-  await expect(page.getByRole('option')).toHaveText([/^Penn Station/]);
+  // The project's own location comes first; a new one with what was typed is still offered.
+  await expect(page.getByRole('listbox').getByRole('option')).toHaveText([/^Penn Station/, /^New location “penn”/]);
   await page.keyboard.press('Enter');
   await expect(inspector(page).getByText('Penn Station')).toBeVisible();
 });

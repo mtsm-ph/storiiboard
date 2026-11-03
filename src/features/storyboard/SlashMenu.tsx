@@ -57,8 +57,12 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
         ];
   const current = options[Math.min(active, options.length - 1)];
 
-  useEffect(() => {
+  // Focus before the first paint, so a key pressed right after "/" already goes to the field.
+  useLayoutEffect(() => {
     input.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (!panel.current?.contains(event.target as Node)) onClose();
     };
@@ -130,11 +134,11 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
         onKeyDown={onKeyDown}
         className="mx-2 my-1.5 border border-text bg-surface-raised px-2 py-1 text-[13px] text-text"
       />
-      <ul id={listId} role="listbox" aria-label={step === 'insert' ? 'Insert' : 'Locations'} className="flex flex-col pb-1">
+      <div id={listId} role="listbox" aria-label={step === 'insert' ? 'Insert' : 'Locations'} className="flex flex-col pb-1">
         {options.map((option) => {
           const selected = option === current;
           return (
-            <li
+            <div
               key={option.id}
               id={`${listId}-${option.id}`}
               role="option"
@@ -148,13 +152,13 @@ export function SlashMenu({ at, sceneLabel, locationNames, onPick, onClose }: Sl
             >
               <span className="text-[13px] font-semibold">{option.label}</span>
               <span className={cx('sb-label', selected ? 'text-text-inverse' : 'text-text-muted')}>{option.hint}</span>
-            </li>
+            </div>
           );
         })}
-        {options.length === 0 && (
-          <li className="px-2 py-1 text-[12px] text-text-muted">{step === 'insert' ? 'Nothing matches.' : 'Type a name.'}</li>
-        )}
-      </ul>
+      </div>
+      {options.length === 0 && (
+        <p className="px-2 pb-1.5 text-[12px] text-text-muted">{step === 'insert' ? 'Nothing matches.' : 'Type a name.'}</p>
+      )}
     </div>
   );
 }
