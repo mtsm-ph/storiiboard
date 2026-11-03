@@ -2,9 +2,25 @@ use std::{thread, time::Duration};
 
 use tauri::{webview::PageLoadEvent, Manager};
 
+mod app_data;
+mod sbd;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(sbd::OpenFiles::default())
+        .invoke_handler(tauri::generate_handler![
+            sbd::sbd_create,
+            sbd::sbd_open,
+            sbd::sbd_close,
+            sbd::sbd_tx,
+            sbd::sbd_query,
+            sbd::sbd_backup,
+            sbd::sbd_backups,
+            sbd::sbd_delete_backup,
+            app_data::app_data_read,
+            app_data::app_data_write,
+        ])
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {
