@@ -45,6 +45,8 @@
   --spacing-titlebar: var(--sb-titlebar);
   --spacing-topbar: var(--sb-topbar);
   --spacing-statusbar: var(--sb-statusbar);
+  /* Not in the kit's tokens yet: the sidebar's width from DESIGN.md (Navigation). */
+  --spacing-sidebar: 248px;
 
   --text-label: 10px;
   --text-label--letter-spacing: 0.08em;

@@ -13,8 +13,17 @@ const element = (tagName: string, extra: { type?: string; isContentEditable?: bo
   ({ tagName, type: extra.type, isContentEditable: extra.isContentEditable ?? false }) as unknown as EventTarget;
 
 describe('workspaces', () => {
-  it('are the four from the design, in order', () => {
-    expect(WORKSPACES.map((w) => w.label)).toEqual(['Storyboard', 'Production', "Bird's-eye", 'Call sheet']);
+  it("are the seven sidebar sections, in the sidebar's order", () => {
+    expect(WORKSPACES.map((w) => w.label)).toEqual([
+      'Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard', 'Settings',
+    ]);
+  });
+
+  it('put Calendar in Production, and Notifications and Trash in none', () => {
+    const holding = (tile: string) => WORKSPACES.filter((w) => tilesIn(w.defaultLayout()).includes(tile)).map((w) => w.id);
+    expect(holding('calendar')).toEqual(['production']);
+    expect(holding('notifications')).toEqual([]);
+    expect(holding('trash')).toEqual([]);
   });
 
   it('lay out known tiles, each once, and hand out a fresh copy every time', () => {
@@ -26,10 +35,11 @@ describe('workspaces', () => {
     }
   });
 
-  it('switch with Alt+1 to Alt+4 by key position, whatever character Option types', () => {
+  it('switch with Alt+1 to Alt+7 by key position, whatever character Option types', () => {
     expect(workspaceForShortcut(key('Digit1', { altKey: true }))?.id).toBe('storyboard');
-    expect(workspaceForShortcut(key('Digit4', { altKey: true }))?.id).toBe('callsheet');
-    expect(workspaceForShortcut(key('Digit5', { altKey: true }))).toBeUndefined();
+    expect(workspaceForShortcut(key('Digit5', { altKey: true }))?.id).toBe('production');
+    expect(workspaceForShortcut(key('Digit7', { altKey: true }))?.id).toBe('settings');
+    expect(workspaceForShortcut(key('Digit8', { altKey: true }))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit2'))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit2', { altKey: true, metaKey: true }))).toBeUndefined();
   });
@@ -40,7 +50,7 @@ describe('workspaces', () => {
     expect(alt3(element('INPUT', { type: 'search' }))).toBeUndefined();
     expect(alt3(element('TEXTAREA'))).toBeUndefined();
     expect(alt3(element('DIV', { isContentEditable: true }))).toBeUndefined();
-    expect(alt3(element('INPUT', { type: 'range' }))?.id).toBe('birdseye');
-    expect(alt3(element('BUTTON'))?.id).toBe('birdseye');
+    expect(alt3(element('INPUT', { type: 'range' }))?.id).toBe('team');
+    expect(alt3(element('BUTTON'))?.id).toBe('team');
   });
 });

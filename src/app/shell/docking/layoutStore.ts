@@ -8,7 +8,8 @@ import { isLayout, sameLayout, tilesIn, type Layout } from './layout';
 // ⌘Z belongs to the project alone; layout changes undo from the Layout menu, for this session only. The saved layouts
 // survive restarts.
 
-export const LAYOUTS_KEY = 'storiiboard.layouts';
+// Versioned by the set of workspaces: D3's seven replaced D2's four, so layouts saved under the old key start over.
+export const LAYOUTS_KEY = 'storiiboard.layouts.2';
 
 interface WorkspaceLayouts {
   current: Layout;
