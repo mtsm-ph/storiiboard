@@ -33,7 +33,8 @@
 - Video: ffmpeg sidecar, LGPL build, for proxies, stills and trims.
 - PDFs: pdf-lib. Sun times: SunCalc. 3D (Phase 10): three.js through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
-- Tests: Vitest (unit), Playwright (end to end).
+- Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
+  (sql.js, dev only, src/app/fileAccess.ts), so end-to-end tests can create, edit, reload and reopen projects.
 - CI: GitHub Actions builds Mac and Windows installers on every PR.
 
 ## Repo layout

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useProject } from '../projectStore';
-import { isDesktop, newProject, openBackupWithDialog, openRecent, openWithDialog, recentStore } from './actions';
+import { canOpenFiles } from '../fileAccess';
+import { newProject, openBackupWithDialog, openRecent, openWithDialog, recentStore } from './actions';
 import { ProjectsView } from './ProjectsView';
 import { useRecent } from './recentStore';
 
@@ -16,7 +17,7 @@ export function ProjectsScreen() {
     <ProjectsView
       recent={recent}
       openPath={openPath}
-      canOpen={isDesktop}
+      canOpen={canOpenFiles}
       onNew={() => void newProject()}
       onOpen={() => void openWithDialog()}
       onOpenRecent={(path) => void openRecent(path)}

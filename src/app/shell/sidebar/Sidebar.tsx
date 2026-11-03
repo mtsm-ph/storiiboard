@@ -1,7 +1,8 @@
 import { cx } from '../../../ui/cx';
 import { useEffect } from 'react';
 import { ComingItem, Menu, menuItemClass } from '../../../ui/Menu';
-import { isDesktop, newProject, openRecent, recentStore } from '../../projects/actions';
+import { canOpenFiles } from '../../fileAccess';
+import { newProject, openRecent, recentStore } from '../../projects/actions';
 import { useRecent } from '../../projects/recentStore';
 import { useProject } from '../../projectStore';
 import { isUnsaved, useLayouts } from '../docking/layoutStore';
@@ -73,7 +74,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
           panelClassName="w-full"
         >
           {(close) =>
-            isDesktop ? (
+            canOpenFiles ? (
               <>
                 {recent.length > 0 && (
                   <ul aria-label="Recent projects">
