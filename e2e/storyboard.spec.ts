@@ -68,8 +68,8 @@ test('sets the project’s aspect ratio and shot letters in Settings → Project
 });
 
 const grid = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });
-const frames = (page: Page, scene: string) =>
-  grid(page).getByRole('list', { name: `Frames in ${scene}` }).locator('[data-shot-id]');
+/** A scene's frames in whichever view: a list in the grid and strip, a group of rows in the shot list. */
+const frames = (page: Page, scene: string) => grid(page).locator(`[aria-label="Frames in ${scene}"] [data-shot-id]`);
 /** The shot numbers in a scene, in board order. */
 async function numbers(page: Page, scene: string): Promise<string[]> {
   return frames(page, scene).locator('[data-number]').allTextContents();
@@ -238,6 +238,59 @@ test('Enter on a frame goes to its details, and Escape comes back to the frame',
   await page.keyboard.press('Escape');
   await expect(frames(page, 'SC 01').nth(0)).toBeFocused();
 });
+
+test('the strip lays every frame along one row, and Up and Down step along it', async ({ page }) => {
+  await twoFrames(page);
+  await grid(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await grid(page).getByRole('radio', { name: 'Strip' }).click();
+  const tops = await frames(page, 'SC 01').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
+  // The frame selected in the grid (the new one, added after 1A) is still the one selected.
+  await expect(frames(page, 'SC 01').nth(1)).toHaveAttribute('aria-current', 'true');
+  await frames(page, 'SC 01').nth(0).click();
+  await page.keyboard.press('ArrowDown');
+  await expect(frames(page, 'SC 01').nth(1)).toBeFocused();
+});
+
+test('the shot list shows a row per shot with its columns, and the board’s keys work on it', async ({ page }) => {
+  await twoFrames(page);
+  await inspector(page).getByRole('radio', { name: 'MCU' }).click();
+  await grid(page).getByRole('radio', { name: 'Shot list' }).click();
+  const table = grid(page).getByRole('table', { name: 'Shot list' });
+  await expect(table.getByRole('columnheader')).toHaveText(['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments']);
+  const rows = table.locator('tr:has([data-shot-id])');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('MCU');
+
+  await frames(page, 'SC 01').nth(0).click();
+  await page.keyboard.press('ArrowDown');
+  await expect(frames(page, 'SC 01').nth(1)).toBeFocused();
+  await expect(inspector(page).getByText('1B', { exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Delete');
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A']);
+});
+
+test('keeps the chosen view across a reload', async ({ page }) => {
+  await twoFrames(page);
+  await grid(page).getByRole('radio', { name: 'Shot list' }).click();
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await expect(grid(page).getByRole('radio', { name: 'Shot list' })).toHaveAttribute('aria-checked', 'true');
+  await expect(grid(page).getByRole('table', { name: 'Shot list' })).toBeVisible();
+});
+
+for (const view of ['Strip', 'Shot list'] as const) {
+  test(`the ${view.toLowerCase()} passes axe`, async ({ page }) => {
+    await twoFrames(page);
+    await grid(page).getByRole('radio', { name: view }).click();
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const { violations } = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
+  });
+}
 
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`the board with a selected frame passes axe (${colorScheme})`, async ({ page }) => {

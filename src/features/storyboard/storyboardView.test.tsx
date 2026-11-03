@@ -1,6 +1,7 @@
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { SbdRecord } from '../../core/model/record';
+import { shotFields } from '../../core/model/storyboard';
 import { boardScene } from './board';
 import { moveTarget } from './StoryboardTile';
 import { countsLine, StoryboardView, type SceneGroup } from './StoryboardView';
@@ -33,13 +34,15 @@ describe('the storyboard grid', () => {
       locked: true,
       counts: { have: 1, need: 1, source: 0 },
       frames: [
-        { id: 'a', number: '4A', spec: 'WS · 24MM · T2.8', status: 'have' },
-        { id: 'b', number: '4B', spec: 'MCU · 35MM · T2.0', status: 'need' },
+        { id: 'a', number: '4A', spec: 'WS · 24MM · T2.8', status: 'have', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, t_stop: 2.8, status: 'have' }) },
+        { id: 'b', number: '4B', spec: 'MCU · 35MM · T2.0', status: 'need', fields: shotFields({ number: '4B', size: 'MCU', lens_mm: 35, t_stop: 2, move: 'push in', departments: ['camera'] }) },
       ],
     };
     const html = renderToString(
       <StoryboardView
         scenes={[scene]}
+        view="grid"
+        onViewChange={noop}
         aspectRatio={2.39}
         selectedShotId="b"
         canEdit
@@ -52,7 +55,8 @@ describe('the storyboard grid', () => {
     );
     expect(html.split('border-accent').length - 1).toBe(1);
     expect(html).toMatch(/bg-text px-1 text-text-inverse">4B</);
-    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    // One Tab stop among the board's items (the view switch is a control of its own).
+    expect(html.match(/data-board-item=""[^>]*tabindex="0"/g)).toHaveLength(1);
     expect(html).toMatch(/data-shot-id="b"[^>]*tabindex="0"/);
     expect(html).toContain('aspect-ratio:2.39');
     expect(html).toContain('Numbers locked');
@@ -79,5 +83,53 @@ describe('moving a frame one place', () => {
     expect(moveTarget(scenes, 'c', -1)).toEqual({ sceneId: 'sc4', beforeShotId: null });
     expect(moveTarget(scenes, 'a', -1)).toBeNull();
     expect(moveTarget(scenes, 'c', 1)).toBeNull();
+  });
+});
+
+describe('the strip and the shot list', () => {
+  const scene: SceneGroup = {
+    id: 'sc4',
+    number: '4',
+    heading: 'INT. PENN STATION — DAY',
+    pageEighths: null,
+    locked: false,
+    counts: { have: 0, need: 2, source: 0 },
+    frames: [
+      { id: 'a', number: '4A', spec: 'WS · 24MM', status: 'need', fields: shotFields({ number: '4A', size: 'WS', lens_mm: 24, support: 'dolly', action: 'She waits.' }) },
+      { id: 'b', number: '4B', spec: '', status: 'need', fields: shotFields({ number: '4B', departments: ['camera', 'sound'] }) },
+    ],
+  };
+  const render = (view: 'strip' | 'list') =>
+    renderToString(
+      <StoryboardView
+        scenes={[scene]}
+        view={view}
+        onViewChange={noop}
+        aspectRatio={2}
+        selectedShotId="a"
+        canEdit
+        onSelect={noop}
+        onAddFrame={noop}
+        onAddScene={noop}
+        onTrash={noop}
+        onMove={noop}
+      />,
+    );
+
+  it('draws the strip as fixed-height cards along one row', () => {
+    const html = render('strip');
+    expect(html).toContain('width:240px');
+    expect(html).toContain('overflow-x-auto');
+  });
+
+  it('lists every shot with its columns, and marks the selected row', () => {
+    const html = render('list');
+    expect(html).toContain('<caption class="sr-only">Shot list</caption>');
+    expect(html).toMatch(/<td class="px-2 py-1.5 align-top font-mono">24mm<\/td>/);
+    expect(html).toContain('Dolly');
+    expect(html).toContain('She waits.');
+    expect(html).toContain('Camera, Sound');
+    expect(html).toMatch(/bg-surface-raised/);
+    expect(html.split('bg-accent').length - 1).toBe(1);
   });
 });

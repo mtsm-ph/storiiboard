@@ -1,15 +1,33 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useProject } from '../../app/projectStore';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
 import { addScene, addShot, board, moveShot, trashShot, type BoardScene } from './board';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
-import { StoryboardView, type SceneGroup } from './StoryboardView';
+import { BOARD_VIEWS, StoryboardView, type BoardView, type SceneGroup } from './StoryboardView';
 
-/** Puts focus back on a frame once React has drawn it where it now is (after an add, a move or a delete). */
-function focusFrame(shotId: string | null) {
+/** Which view the board shows is the person's choice, not the project's: kept in this browser, like the layouts. */
+export const BOARD_VIEW_KEY = 'storiiboard.board-view';
+
+function savedView(): BoardView {
+  try {
+    const value = globalThis.localStorage.getItem(BOARD_VIEW_KEY);
+    return BOARD_VIEWS.find((v) => v.value === value)?.value ?? 'grid';
+  } catch {
+    return 'grid';
+  }
+}
+
+/**
+ * Puts focus back on a frame once React has drawn it where it now is (after an add, a move or a delete). With
+ * `focus` false it only scrolls the frame into view, as after a change of view, where focus stays on the switch.
+ */
+function focusFrame(shotId: string | null, focus = true) {
   requestAnimationFrame(() => {
-    if (shotId) document.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(shotId)}"]`)?.focus();
+    if (!shotId) return;
+    const frame = document.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(shotId)}"]`);
+    if (focus) frame?.focus();
+    else frame?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
 }
 
@@ -43,6 +61,7 @@ export function StoryboardTile() {
   const projectId = project?.projectId ?? '';
   const scenes = project ? board(records, projectId) : [];
   const { aspectRatio } = projectStoryboard(records[projectId]?.props);
+  const [view, setView] = useState<BoardView>(savedView);
 
   // A scene picked in the sidebar or the Scenes tile comes into view, unless the pick came from a frame in it.
   useEffect(() => {
@@ -66,12 +85,24 @@ export function StoryboardTile() {
       number: shot.fields.number,
       spec: specLine(shot.fields),
       status: shot.fields.status,
+      fields: shot.fields,
     })),
   }));
 
   return (
     <StoryboardView
       scenes={groups}
+      view={view}
+      onViewChange={(next) => {
+        setView(next);
+        try {
+          globalThis.localStorage.setItem(BOARD_VIEW_KEY, next);
+        } catch {
+          // A blocked store only loses the preference.
+        }
+        // The selected frame stays selected and in view in the new layout.
+        focusFrame(selectionStore.getState().shotId, false);
+      }}
       aspectRatio={aspectRatioValue(aspectRatio)}
       selectedShotId={selectedShotId}
       canEdit={project !== null}

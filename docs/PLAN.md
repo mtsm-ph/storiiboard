@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.8 in review |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.9 in review |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -41,8 +41,8 @@ themes). One PR per milestone, each into `v2`.
 | 1.5 Browser test driver (sql.js, dev and e2e only) | #20 | Done |
 | 1.6 Storyboard model, shot numbering and Lock numbers, aspect ratio, Scenes tile | #21 | Done |
 | 1.7 Storyboard grid: frame cards, keyboard, Delete to the Trash | #22 | Done |
-| 1.8 Frame inspector | #23 | In review |
-| 1.9 Shot list and Strip views | | Not started |
+| 1.8 Frame inspector | #23 | Done |
+| 1.9 Shot list and Strip views | `phase1/1.9-shot-list-strip` | In review |
 | 1.10 Image storage (schema 3: media, thumbnails, note, character, stroke); 2560px cap, colour kept; backup sizes measured | | Not started |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | | Not started |
 | 1.12 Drag to reorder; "/" menu | | Not started |
@@ -426,6 +426,18 @@ demo data.**
 - When a scene goes on an issued call sheet, its shot numbers lock automatically (Kevin, Nov 3): slates and the script
   supervisor work from them from then on. The lock is the same `numbers_locked` prop the Scenes tile sets (1.6), set
   in the op group that issues the call sheet, so undoing the issue unlocks it again. Unlocking by hand stays possible.
+
+### Phase 5 notes
+
+Field of view is `2 * atan(sensor_width / (2 * focal_length))` (CLAUDE.md), so both numbers have to be real (Kevin,
+Nov 3):
+
+- **Camera body per project, with its sensor width.** For example, Sony FX3, full frame, 35.6mm. The bird's-eye
+  cameras and the 3D preview read it, and a project can list more than one body (A and B cameras).
+- **Lenses can be zooms and anamorphic.** A zoom records its range and the focal length used for the shot. An
+  anamorphic lens records its squeeze factor, such as 1.33x or 2x, which widens the horizontal field of view by that
+  factor at the same focal length. The shot's `lens_mm` stays the focal length used; the range and squeeze are new
+  props, proposed for approval in Phase 5's plan.
 
 ### Phase 8 release checklist
 
