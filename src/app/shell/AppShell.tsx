@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ProjectHome } from '../project/ProjectHome';
 import { projectStore, useProject } from '../projectStore';
 import { StatusBar } from './StatusBar';
-import { TileArea } from './TileArea';
+import { Dock } from './docking/Dock';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
 import { WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, workspaceTabId, type WorkspaceId } from './workspaces';
@@ -22,7 +22,8 @@ export function AppShell() {
       const command = undoCommandFor(event, mac);
       if (!command) return;
       event.preventDefault();
-      void projectStore.getState()[command]();
+      // ⌘Z is the project's alone; layout changes undo from the Layout menu.
+      void (command === 'undo' ? projectStore.getState().undo() : projectStore.getState().redo());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
@@ -68,8 +69,8 @@ export function AppShell() {
             <ProjectHome />
           </div>
         ) : (
-          // Keyed by workspace so each one opens with its own default layout, nothing maximized.
-          <TileArea key={workspace.id} workspace={workspace} />
+          // Keyed by workspace so drag and keyboard-move state never carries from one workspace to the next.
+          <Dock key={workspace.id} workspace={workspace} />
         )}
       </main>
       <StatusBar workspace={workspace} />

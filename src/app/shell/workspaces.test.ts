@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACES, workspaceForShortcut } from './workspaces';
+import { tilesIn } from './docking/layout';
+import { TILES, WORKSPACES, workspaceForShortcut } from './workspaces';
 
 const key = (
   code: string,
@@ -16,11 +17,12 @@ describe('workspaces', () => {
     expect(WORKSPACES.map((w) => w.label)).toEqual(['Storyboard', 'Production', "Bird's-eye", 'Call sheet']);
   });
 
-  it('place every tile in a named grid area, numbered in order', () => {
+  it('lay out known tiles, each once, and hand out a fresh copy every time', () => {
     for (const workspace of WORKSPACES) {
-      const areas = workspace.areas.replace(/"/g, ' ').split(/\s+/).filter(Boolean);
-      for (const tile of workspace.tiles) expect(areas).toContain(tile.area);
-      expect(workspace.tiles.map((t) => t.index)).toEqual(workspace.tiles.map((_, i) => i + 1));
+      const tiles = tilesIn(workspace.defaultLayout());
+      expect(tiles.every((tile) => tile in TILES)).toBe(true);
+      expect(new Set(tiles).size).toBe(tiles.length);
+      expect(workspace.defaultLayout()).not.toBe(workspace.defaultLayout());
     }
   });
 

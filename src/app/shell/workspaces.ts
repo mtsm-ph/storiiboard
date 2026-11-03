@@ -1,77 +1,94 @@
-// The four saved workspaces and their default tile layouts, taken from the design boards in the kit
-// (04_Design_Source). Static until docking (D2) lets people rearrange them; the tiles are empty until each
-// tool's phase fills them.
+import { split, stack, type Layout, type TileId } from './docking/layout';
+
+// The four saved workspaces and their default layouts, taken from the design boards in the kit (04_Design_Source),
+// sized for the boards' 1440px. People rearrange them by docking (D2); the tiles stay empty until each tool's phase
+// fills them. D3 turns the workspaces into the sidebar's sections.
 
 export type WorkspaceId = 'storyboard' | 'production' | 'birdseye' | 'callsheet';
 
-export interface PlaceholderTile {
-  /** Grid area name, unique within the workspace. */
-  area: string;
-  index: number;
+export interface TileInfo {
   title: string;
   /** What will live here, and when. */
   note: string;
 }
 
+/** Every tile, by an id unique across workspaces, so any tile can open in any workspace. */
+export const TILES: Readonly<Record<TileId, TileInfo>> = {
+  scenes: { title: 'Scenes', note: 'Scene list from script import. Phase 1.' },
+  board: { title: 'Storyboard', note: 'Frames by scene, auto shot numbers. Phase 1.' },
+  inspector: { title: 'Frame inspector', note: 'Shot size, lens, T-stop, status. Phase 1.' },
+  player: { title: 'Player', note: 'Proxy playback, in and out, capture. Phase 2.' },
+  moodboard: { title: 'Moodboard', note: 'Department boards and references. Phase 6.' },
+  gear: { title: 'Gear', note: 'Packages per shoot day, linked to shots. Phase 3.' },
+  locations: { title: 'Locations', note: 'Addresses, contacts, parking, power. Phase 3.' },
+  layers: { title: 'Layers', note: 'Camera, lighting, grip, art, cast. Phase 5.' },
+  plan: { title: 'Set plan', note: 'Top-down plan in real units. Phase 5.' },
+  selection: { title: 'Selection', note: 'Camera lens, field of view, light beam. Phase 5.' },
+  frames: { title: 'Frames in setup', note: 'The shots this setup covers. Phase 5.' },
+  library: { title: 'Library', note: '68 plan icons by department. Phase 5.' },
+  days: { title: 'Shoot days', note: 'Frames grouped into days, golden hour. Phase 3.' },
+  sheet: { title: 'Call sheet', note: 'Calls, weather, sun times, map. Phase 4.' },
+  // In no default layout: opened in any workspace when needed (CLAUDE.md).
+  calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
+  notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
+  trash: { title: 'Trash', note: 'Deleted frames, shots and scenes, restorable. Phase 1.' },
+};
+
 export interface Workspace {
   id: WorkspaceId;
   label: string;
-  columns: string;
-  rows: string;
-  areas: string;
-  tiles: readonly PlaceholderTile[];
+  /** How the design numbers this workspace's tiles (01 / Scenes…); tiles opened later count on after them. */
+  order: readonly TileId[];
+  /** A fresh copy each call, so a layout can never share nodes with the defaults. */
+  defaultLayout: () => Layout;
 }
 
+const layout = (root: Layout['root']): Layout => ({ root, maximized: null });
+
+// Sizes are in px at the boards' 1440 x 900; the layout keeps them as shares, so they scale with the window.
 export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   {
     id: 'storyboard',
     label: 'Storyboard',
-    columns: '248px minmax(0, 1fr) 336px',
-    rows: 'minmax(0, 1fr) 290px',
-    areas: '"scenes board inspector" "scenes player inspector"',
-    tiles: [
-      { area: 'scenes', index: 1, title: 'Scenes', note: 'Scene list from script import. Phase 1.' },
-      { area: 'board', index: 2, title: 'Storyboard', note: 'Frames by scene, auto shot numbers. Phase 1.' },
-      { area: 'inspector', index: 3, title: 'Frame inspector', note: 'Shot size, lens, T-stop, status. Phase 1.' },
-      { area: 'player', index: 4, title: 'Player', note: 'Proxy playback, in and out, capture. Phase 2.' },
-    ],
+    order: ['scenes', 'board', 'inspector', 'player'],
+    defaultLayout: () =>
+      layout(
+        split(
+          'row',
+          [stack(['scenes']), split('column', [stack(['board']), stack(['player'])], [518, 290]), stack(['inspector'])],
+          [248, 824, 336],
+        ),
+      ),
   },
   {
     id: 'production',
     label: 'Production',
-    columns: 'minmax(0, 1fr) 360px',
-    rows: 'minmax(0, 1fr) 330px',
-    areas: '"moodboard gear" "moodboard locations"',
-    tiles: [
-      { area: 'moodboard', index: 1, title: 'Moodboard', note: 'Department boards and references. Phase 6.' },
-      { area: 'gear', index: 2, title: 'Gear', note: 'Packages per shoot day, linked to shots. Phase 3.' },
-      { area: 'locations', index: 3, title: 'Locations', note: 'Addresses, contacts, parking, power. Phase 3.' },
-    ],
+    order: ['moodboard', 'gear', 'locations'],
+    defaultLayout: () =>
+      layout(split('row', [stack(['moodboard']), split('column', [stack(['gear']), stack(['locations'])], [478, 330])], [1056, 360])),
   },
   {
     id: 'birdseye',
     label: "Bird's-eye",
-    columns: '248px minmax(0, 1fr) 336px',
-    rows: 'auto minmax(0, 1fr) 150px',
-    areas: '"layers plan selection" "library plan selection" "library frames selection"',
-    tiles: [
-      { area: 'layers', index: 1, title: 'Layers', note: 'Camera, lighting, grip, art, cast. Phase 5.' },
-      { area: 'plan', index: 2, title: 'Set plan', note: 'Top-down plan in real units. Phase 5.' },
-      { area: 'selection', index: 3, title: 'Selection', note: 'Camera lens, field of view, light beam. Phase 5.' },
-      { area: 'frames', index: 4, title: 'Frames in setup', note: 'The shots this setup covers. Phase 5.' },
-      { area: 'library', index: 5, title: 'Library', note: '68 plan icons by department. Phase 5.' },
-    ],
+    order: ['layers', 'plan', 'selection', 'frames', 'library'],
+    defaultLayout: () =>
+      layout(
+        split(
+          'row',
+          [
+            split('column', [stack(['layers']), stack(['library'])], [120, 688]),
+            split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
+            stack(['selection']),
+          ],
+          [248, 824, 336],
+        ),
+      ),
   },
   {
     id: 'callsheet',
     label: 'Call sheet',
-    columns: '500px minmax(0, 1fr)',
-    rows: 'minmax(0, 1fr)',
-    areas: '"days sheet"',
-    tiles: [
-      { area: 'days', index: 1, title: 'Shoot days', note: 'Frames grouped into days, golden hour. Phase 3.' },
-      { area: 'sheet', index: 2, title: 'Call sheet', note: 'Calls, weather, sun times, map. Phase 4.' },
-    ],
+    order: ['days', 'sheet'],
+    defaultLayout: () => layout(split('row', [stack(['days']), stack(['sheet'])], [500, 916])),
   },
 ];
 

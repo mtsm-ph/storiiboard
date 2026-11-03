@@ -94,3 +94,10 @@
     outline-offset: 2px;
   }
 }
+
+/* A tile or splitter drag is under way (src/app/shell/docking/textSelection.ts). */
+.sb-dragging,
+.sb-dragging * {
+  -webkit-user-select: none;
+  user-select: none;
+}
