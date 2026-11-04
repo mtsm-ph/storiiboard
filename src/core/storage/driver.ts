@@ -58,6 +58,12 @@ export interface ProjectFile {
    * folder and refuses any name that isn't one of this project's own backup names (backups.ts makes them).
    */
   backup(kind: BackupKind, fileName: string): Promise<void>;
+  /**
+   * Compact project (1.27): rewrites the file without its free space (SQLite's VACUUM), in place. One write through
+   * SQLite's journal, so a crash or a kill partway leaves the file as it was. Refused, like a write, if a sync has
+   * replaced the file. Make a backup first (src/core/storage/compact.ts does).
+   */
+  compact(): Promise<void>;
   /** This project's scheduled backups, in name order, with the space each takes. */
   listBackups(): Promise<BackupFile[]>;
   deleteBackup(fileName: string): Promise<void>;

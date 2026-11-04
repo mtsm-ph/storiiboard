@@ -176,6 +176,11 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
           files.set(dest, toBase64(exportBytes()));
           persist();
         }),
+      compact: () =>
+        settle(() => {
+          db.exec('VACUUM');
+          save();
+        }),
       listBackups: () =>
         settle(() =>
           [...files.entries()]

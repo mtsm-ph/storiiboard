@@ -274,6 +274,30 @@ impl SbdFile {
         self.tx_values(&bound)
     }
 
+    /// Compact project (1.27): rewrites the file without its free space, SQLite's VACUUM, in place. It runs as one
+    /// write through the rollback journal, so a crash or a kill partway leaves the file as it was once it's next
+    /// opened. The app makes a backup first, in turn with the scheduled ones; a copy still being made here is a reason
+    /// to refuse, never to drop it.
+    pub fn compact(&mut self) -> Result<(), String> {
+        if self.copying.is_some() {
+            return Err("A backup of this project is being made. Try again when it's done.".into());
+        }
+        self.check_unchanged()?;
+        // Fresh, so the lock reads as held for as long as possible while the file is half rewritten.
+        let _ = self.refresh_lock();
+        let before = self.fingerprint.id;
+        let result = self.conn.execute_batch("VACUUM").map_err(text);
+        self.fingerprint = fingerprint(&self.path)?;
+        // A sync that renamed another file over the project while it was rewritten (seconds, on a large one) must not
+        // be taken for the file this app wrote: every write after refuses, and this says so now, so the app reopens the
+        // newer file rather than report a compaction of one it no longer has.
+        if before.is_some() && self.fingerprint.id != before {
+            self.fingerprint.len = u64::MAX;
+            return Err(CHANGED_ON_DISK.into());
+        }
+        result
+    }
+
     /// The same transaction, with values already bound, as `sbd_tx_raw` sends them with image bytes among them.
     pub fn tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
         self.check_unchanged()?;
@@ -1062,6 +1086,18 @@ pub async fn sbd_backup(
     // On a thread of its own, since a full copy sleeps between steps.
     tauri::async_runtime::spawn_blocking(move || {
         back_up(&app.state::<OpenFiles>(), handle, kind, &file_name, true).map(|_| ())
+    })
+    .await
+    .map_err(text)?
+}
+
+/// Compacts an open project (SbdFile::compact), on a thread of its own: a large file takes a few seconds, and edits wait
+/// for it behind the files' lock.
+#[tauri::command]
+pub async fn sbd_compact(app: tauri::AppHandle, handle: u32) -> Result<(), String> {
+    use tauri::Manager;
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<OpenFiles>().with(handle, |file| file.compact())
     })
     .await
     .map_err(text)?
@@ -2079,6 +2115,226 @@ mod tests {
             "Bey.sbd",
             "Bey.sbd.bak-v-2026-11-02 14-05"
         ));
+    }
+
+    /// A project-like file with `rows` rows of 4 KB, every other one then deleted, so compacting has real work to do.
+    fn file_with_free_space(dir: &Path, rows: i64) -> PathBuf {
+        let path = dir.join("Compact.sbd");
+        let mut file = SbdFile::create(&path).unwrap();
+        file.tx(&[statement(
+            "CREATE TABLE ops (seq INTEGER PRIMARY KEY, payload TEXT NOT NULL)",
+            vec![],
+        )])
+        .unwrap();
+        let payload = "x".repeat(4096);
+        let inserts: Vec<Statement> = (1..=rows)
+            .map(|seq| {
+                statement(
+                    "INSERT INTO ops (seq, payload) VALUES (?, ?)",
+                    vec![seq.into(), format!("{seq}{payload}").into()],
+                )
+            })
+            .collect();
+        file.tx(&inserts).unwrap();
+        file.tx(&[statement("DELETE FROM ops WHERE seq % 2 = 0", vec![])])
+            .unwrap();
+        path
+    }
+
+    /// What the rows hold, to check that compacting changed nothing: how many, and a sum over their text.
+    fn contents(file: &SbdFile) -> (i64, i64) {
+        let rows = file
+            .query(
+                "SELECT count(*) AS n, sum(seq * length(payload)) AS weight FROM ops",
+                &[],
+            )
+            .unwrap();
+        (
+            rows[0]["n"].as_i64().unwrap(),
+            rows[0]["weight"].as_i64().unwrap(),
+        )
+    }
+
+    #[test]
+    fn compacting_shrinks_the_file_and_keeps_every_row() {
+        let dir = temp_dir("compact");
+        let path = file_with_free_space(&dir, 2000);
+        let mut file = SbdFile::open(&path).unwrap();
+        let before = (fs::metadata(&path).unwrap().len(), contents(&file));
+        file.compact().unwrap();
+        assert_eq!(contents(&file), before.1);
+        assert!(fs::metadata(&path).unwrap().len() < before.0 * 2 / 3);
+        let check = file.query("PRAGMA integrity_check", &[]).unwrap();
+        assert_eq!(check[0]["integrity_check"], "ok");
+        // Edits carry on: compacting recorded the file as it left it.
+        file.tx(&[statement(
+            "INSERT INTO ops (seq, payload) VALUES (2, 'after')",
+            vec![],
+        )])
+        .unwrap();
+        drop(file);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Run by `survives_a_kill_mid_compact` as a separate process; it does nothing in a normal test run.
+    #[test]
+    fn compact_child() {
+        let Ok(path) = std::env::var("SBD_COMPACT_CHILD") else {
+            return;
+        };
+        let mut file = SbdFile::open(Path::new(&path)).unwrap();
+        let mut out = std::io::stdout();
+        writeln!(out, "start").unwrap();
+        out.flush().unwrap();
+        file.compact().unwrap();
+        writeln!(out, "done").unwrap();
+        out.flush().unwrap();
+    }
+
+    /// Starts `compact_child` on `path` and waits for its "start" line; returns it, with the lines still to come.
+    fn start_compact_child(
+        path: &Path,
+    ) -> (std::process::Child, std::thread::JoinHandle<Vec<String>>) {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "sbd::tests::compact_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("SBD_COMPACT_CHILD", path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The test harness prints its own lines first.
+        loop {
+            let line = lines
+                .next()
+                .expect("the child ended before it began")
+                .unwrap();
+            if line.contains("start") {
+                break;
+            }
+        }
+        // The rest is read to the end, which comes when the child exits or is killed.
+        let rest = std::thread::spawn(move || lines.map_while(Result::ok).collect());
+        (child, rest)
+    }
+
+    fn file_hash(path: &Path) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        fs::read(path).unwrap().hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn survives_a_kill_mid_compact() {
+        // One compaction start to finish: how long it takes here, and how large it leaves the file.
+        let dir = temp_dir("compact-time");
+        let path = file_with_free_space(&dir, 12_000);
+        let began = std::time::Instant::now();
+        let (mut child, rest) = start_compact_child(&path);
+        child.wait().unwrap();
+        assert!(rest
+            .join()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("done")));
+        let whole = began.elapsed();
+        let compacted = fs::metadata(&path).unwrap().len();
+        fs::remove_dir_all(&dir).unwrap();
+
+        // Killed while the copy-back is under way (the journal, which keeps the pages being overwritten, past half
+        // the compacted size), and at moments across the run. Each time the file opens whole, every row as it was,
+        // and either as it was or compacted all the way (a kill just after the commit). At least one kill must have
+        // caught the file with its pages already overwritten and a journal to roll them back, or this proves nothing.
+        let mut rolled_back = 0;
+        for share in [
+            None,
+            None,
+            Some(30),
+            Some(60),
+            Some(80),
+            Some(90),
+            Some(95),
+            Some(99),
+        ] {
+            let dir = temp_dir("compact-kill");
+            let path = file_with_free_space(&dir, 12_000);
+            let expected = contents(&SbdFile::open(&path).unwrap());
+            let (len, hash) = (fs::metadata(&path).unwrap().len(), file_hash(&path));
+            let journal = path.with_file_name("Compact.sbd-journal");
+            let (mut child, rest) = start_compact_child(&path);
+            match share {
+                Some(share) => std::thread::sleep(whole * share / 100),
+                None => {
+                    let until = std::time::Instant::now() + Duration::from_secs(60);
+                    while std::time::Instant::now() < until
+                        && child.try_wait().unwrap().is_none()
+                        && !fs::metadata(&journal).is_ok_and(|m| m.len() > compacted / 2)
+                    {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
+            // SIGKILL on Mac and Linux, TerminateProcess on Windows: no chance to finish what it was writing.
+            child.kill().unwrap();
+            child.wait().unwrap();
+            rest.join().unwrap();
+            let hot = fs::metadata(&journal).is_ok_and(|m| m.len() > 0);
+            if hot && file_hash(&path) != hash {
+                rolled_back += 1;
+            }
+
+            let file = SbdFile::open(&path).unwrap();
+            let check = file.query("PRAGMA integrity_check", &[]).unwrap();
+            assert_eq!(
+                check[0]["integrity_check"], "ok",
+                "after a kill at {share:?}"
+            );
+            assert_eq!(contents(&file), expected, "after a kill at {share:?}");
+            let now = fs::metadata(&path).unwrap().len();
+            if hot {
+                assert_eq!(now, len, "rolled back after a kill at {share:?}");
+            } else {
+                assert!(
+                    now == len || now == compacted,
+                    "{now} bytes after a kill at {share:?}: neither as it was ({len}) nor compacted ({compacted})"
+                );
+            }
+            drop(file);
+            fs::remove_dir_all(&dir).unwrap();
+        }
+        assert!(
+            rolled_back > 0,
+            "no kill caught the file partly rewritten with a journal to roll it back"
+        );
+    }
+
+    #[test]
+    fn compacting_refuses_while_a_backup_is_being_made() {
+        let dir = temp_dir("compact-backup");
+        let path = file_with_free_space(&dir, 600);
+        let mut file = SbdFile::open(&path).unwrap();
+        file.place_backups(None).unwrap();
+        assert!(file
+            .start_backup(BackupKind::Scheduled, "Compact 2026-11-04 18-30.sbd", false)
+            .unwrap()
+            .is_none());
+        assert!(file.compact().unwrap_err().contains("being made"));
+        // The copy carries on and completes.
+        loop {
+            if let Some(partial) = file.step_backup().unwrap() {
+                partial.save().unwrap();
+                break;
+            }
+        }
+        file.compact().unwrap();
+        drop(file);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Run by `survives_a_kill_mid_write` as a separate process; it does nothing in a normal test run.

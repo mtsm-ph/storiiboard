@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.26 built; Kevin tests the batch; Compact project, then the polish step and the gate |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.27 built; Kevin tests the batch; then the polish step and the gate |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.26 merged: slate numbers, schema 5) |
+| Last updated | Nov 4, 2026 (1.27 merged: Compact project) |
 
 | Phase | State |
 |---|---|
@@ -61,6 +61,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #43 | Done |
 | 1.25 PDF storyboard | #44 | Done |
 | 1.26 Locked scenes keep every letter they've used, after Empty Trash too (schema 5) | #46 | Done |
+| 1.27 Compact project in Settings → Storage: a backup, then VACUUM | #47 | Done |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
@@ -74,7 +75,7 @@ Decided Nov 4 (Kevin):
   leave alone, so a letter that has been on a slate is never given out again. Schema 5, with a migration (backup
   first) that fills the table from what the file still holds. The Empty Trash warning stays only where the migration
   can't recover numbers (a project that ran Empty Trash before schema 5), while a scene is locked.
-- No automatic compaction: only Kevin's test projects predate 1.21. The polish step adds Compact project to
+- No automatic compaction: only Kevin's test projects predate 1.21. Compact project (built early, as 1.27) is in
   Settings → Storage: it makes a backup, then compacts the file (SQLite's VACUUM), which clears free space older
   builds left and shrinks the file after big deletions.
 - 9:16 PDF frames: Kevin prints a page and reports back.
@@ -449,7 +450,7 @@ src/app/openVersion.ts):
   pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
   record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
   aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
-  of the whole file. Kevin, Nov 4: no automatic one; the polish step adds Compact project to Settings → Storage.
+  of the whole file. Kevin, Nov 4: no automatic one; Compact project (1.27) is in Settings → Storage.
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
   gone stays as it is now, and so does whatever it sits under. A frame kept as it is now keeps its scene as it is now,
   and a scene kept as it is now keeps every frame in it or going back into it (1.26, so a scene never comes back
@@ -467,7 +468,7 @@ src/app/openVersion.ts):
   Trash, and no step on the undo stack had (so one ⌘Z, such as undoing a History restore, never brings back a frame
   whose picture is gone; only redo can). A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
   Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
-  missing". The file isn't compacted; a Compact project command could come later.
+  missing". The file isn't compacted; Compact project (1.27) does that, after a backup.
 
 **As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and

@@ -5,6 +5,7 @@ import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
+import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
 
@@ -45,6 +46,8 @@ export interface ProjectState {
    * and opened again, since it's kept here rather than in the tile.
    */
   restoring: boolean;
+  /** True while Compact project (1.27) runs; kept here, like `restoring`, so a tile closed and opened again knows. */
+  compacting: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -74,6 +77,8 @@ export interface ProjectState {
   restoreTo: (groupId: string | null) => Promise<boolean>;
   /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
   cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
+  /** Compact project (1.27): a backup, then the file rewritten without its free space. Null when it failed (`error` says why). */
+  compact: () => Promise<Compacted | null>;
 }
 
 export function createProjectStore(): StoreApi<ProjectState> {
@@ -143,6 +148,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       picturesWritten: 0,
       deletedForGood: 0,
       restoring: false,
+      compacting: false,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'canUndo' | 'canRedo'>;
@@ -257,6 +263,25 @@ export function createProjectStore(): StoreApi<ProjectState> {
       },
       redo: async () => {
         await edit((project) => redo(project.file));
+      },
+      compact: async () => {
+        if (get().compacting) return null;
+        let result: Compacted | null = null;
+        set({ compacting: true });
+        try {
+          // In the queue like an edit: nothing is written while the file is rewritten.
+          await edit(async (project) => {
+            result = await compactProject(project.file, { schedule: project.backups });
+            // Compacting may renumber the table's rows, so the slate numbers are read again from the start.
+            const slate = await slateNumbersAfter(project.file, 0);
+            slateRead = slate.last;
+            set({ slateNumbers: slate.rows, error: null });
+            return null;
+          });
+        } finally {
+          set({ compacting: false });
+        }
+        return result;
       },
     };
   });
