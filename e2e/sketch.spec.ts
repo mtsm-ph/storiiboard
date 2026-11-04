@@ -79,10 +79,13 @@ test('an arrow can be two clicks, and a release outside the frame still ends a s
 
 test('in dark mode the editor draws in the theme’s text colour, as the cards do', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
+  // The app has switched to dark before the editor opens.
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.keyboard.press('s');
   await draw(page, [0.2, 0.5], [0.8, 0.5]);
   await expect(cardStrokes(page)).toHaveCount(1);
-  const [ink, drawn] = await page.evaluate(() => {
+  // Konva redraws on the next frame, so the canvas is read until it has caught up (or the test times out).
+  const read = () => page.evaluate(() => {
     // The text colour as the page resolves it, in rgb() like the canvas reads back.
     const probe = document.createElement('span');
     probe.style.color = 'var(--text)';
@@ -98,7 +101,10 @@ test('in dark mode the editor draws in the theme’s text colour, as the cards d
     }
     return [text, 'nothing drawn'];
   });
-  expect(drawn).toBe(ink);
+  await expect.poll(async () => {
+    const [ink, drawn] = await read();
+    return drawn === ink ? 'ink' : `${drawn ?? ''} vs ${ink ?? ''}`;
+  }).toBe('ink');
 });
 
 test('the editor closes when its frame goes, and focus doesn’t fall off the board', async ({ page }) => {

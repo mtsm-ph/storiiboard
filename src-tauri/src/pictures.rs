@@ -19,10 +19,12 @@ const MAX_BYTES: u64 = 200 * 1024 * 1024;
 const EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff", "gif", "bmp",
 ];
-/// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt) and Final Draft.
-const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx"];
-/// The largest script read: a feature script is well under 1 MB, and the page parses all of it at once.
+/// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt), Final Draft and PDF.
+const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx", "pdf"];
+/// The largest text script read: a feature script is well under 1 MB, and the page parses all of it at once.
 const MAX_SCRIPT_BYTES: u64 = 10 * 1024 * 1024;
+/// A script PDF may carry pictures (a title page, storyboards), so it may be larger.
+const MAX_SCRIPT_PDF_BYTES: u64 = 50 * 1024 * 1024;
 
 /// How large a file may be read, by what it is.
 fn max_bytes(path: &Path) -> u64 {
@@ -30,8 +32,9 @@ fn max_bytes(path: &Path) -> u64 {
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
-    match extension {
-        Some(e) if SCRIPT_EXTENSIONS.contains(&e.as_str()) => MAX_SCRIPT_BYTES,
+    match extension.as_deref() {
+        Some("pdf") => MAX_SCRIPT_PDF_BYTES,
+        Some(e) if SCRIPT_EXTENSIONS.contains(&e) => MAX_SCRIPT_BYTES,
         _ => MAX_BYTES,
     }
 }
@@ -226,6 +229,10 @@ mod tests {
         assert_eq!(
             max_bytes(Path::new("/Films/Bey County.FDX")),
             MAX_SCRIPT_BYTES
+        );
+        assert_eq!(
+            max_bytes(Path::new("/Films/Bey County.pdf")),
+            MAX_SCRIPT_PDF_BYTES
         );
         assert_eq!(max_bytes(Path::new("/Films/still.jpg")), MAX_BYTES);
         assert_eq!(max_bytes(Path::new("/Films/no-extension")), MAX_BYTES);

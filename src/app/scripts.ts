@@ -7,20 +7,18 @@ import { isTauriApp } from './fileAccess';
 export interface ScriptFile {
   /** As the person saw it: `Bey County.fountain`. */
   name: string;
-  text(): Promise<string>;
+  bytes(): Promise<ArrayBuffer>;
 }
 
 /** What the Open dialog offers; src-tauri/src/pictures.rs lists the same for the desktop app. */
-export const SCRIPT_EXTENSIONS = ['fountain', 'spmd', 'txt', 'fdx'] as const;
-
-const decode = (bytes: ArrayBuffer) => new TextDecoder('utf-8').decode(bytes);
+export const SCRIPT_EXTENSIONS = ['fountain', 'spmd', 'txt', 'fdx', 'pdf'] as const;
 
 /** The Open dialog for a script; null when it's cancelled. */
 export async function chooseScript(): Promise<ScriptFile | null> {
   if (isTauriApp) {
     const [path] = await invoke<string[]>('script_choose');
     if (!path) return null;
-    return { name: path.split(/[/\\]/).pop() ?? path, text: async () => decode(await invoke<ArrayBuffer>('pictures_read', { path })) };
+    return { name: path.split(/[/\\]/).pop() ?? path, bytes: () => invoke<ArrayBuffer>('pictures_read', { path }) };
   }
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -29,7 +27,7 @@ export async function chooseScript(): Promise<ScriptFile | null> {
     input.hidden = true;
     const done = (file: File | null) => {
       input.remove();
-      resolve(file ? { name: file.name, text: () => file.text() } : null);
+      resolve(file ? { name: file.name, bytes: () => file.arrayBuffer() } : null);
     };
     input.addEventListener('change', () => {
       done(input.files?.[0] ?? null);
