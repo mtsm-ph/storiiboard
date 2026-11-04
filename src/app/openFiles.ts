@@ -41,11 +41,12 @@ export class OpenFileError extends Error {
 
 /**
  * Opens the project at `path` in place of the one open now. The new file is opened before the old one closes, so if
- * it can't be opened (missing, not a project, from a newer Storiiboard) the current project stays as it was.
+ * it can't be opened (missing, not a project, from a newer Storiiboard) the current project stays as it was. Resolves
+ * to whether it's open: Cancel at "open on another computer" opens nothing.
  */
-export async function openProjectFile(path: string, options: OpenFileOptions): Promise<void> {
-  if (options.store.getState().project?.file.path === path) return;
-  await openChecked(path, options);
+export async function openProjectFile(path: string, options: OpenFileOptions): Promise<boolean> {
+  if (options.store.getState().project?.file.path === path) return true;
+  return openChecked(path, options);
 }
 
 /**

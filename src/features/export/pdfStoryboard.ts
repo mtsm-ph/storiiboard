@@ -281,17 +281,19 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
         // One frame that won't draw (a damaged picture) goes out marked, and the rest of the storyboard with it.
         input.signal?.throwIfAborted();
         let drawn = false;
+        let pictureMissing = false;
         try {
           const image = await input.frame(sceneIndex, start + column);
           if (image) {
             current.drawImage(await pdf.embedJpg(image.jpeg), box);
             drawn = true;
-            if (image.pictureMissing) missing.push(f.number || String(start + column + 1));
+            pictureMissing = image.pictureMissing === true;
           }
         } catch (error) {
           if (input.signal?.aborted) throw error;
         }
-        if (!drawn) {
+        // The PDF's own 8pt label in both cases: the one drawn into a small frame's JPEG prints at 3 to 5pt.
+        if (!drawn || pictureMissing) {
           const said = 'PICTURE MISSING';
           const width = fonts.monoBold.widthOfTextAtSize(said, 8);
           current.drawText(said, { x: x + (frame.width - width) / 2, y: frameTop - frame.height / 2 - 3, size: 8, font: fonts.monoBold, color: INK });
@@ -374,6 +376,13 @@ const STAMP_ANGLE = 15;
  * margin above the header (top) or between the last row and the footer (bottom), so it never crosses a frame's rules
  * or the header's text, and shrinks to fit between the side margins.
  */
+/**
+ * The watermark font's ascent and descent as fractions of its size, from Inter Tight's hhea table (1984 and 494 of
+ * its 2048 units an em). pdf-lib's heightAtSize takes every font as 1000 units an em, which put a centred watermark
+ * about a quarter of its size above the page's middle.
+ */
+export const WATERMARK_METRICS = { ascent: 1984 / 2048, descent: 494 / 2048 } as const;
+
 export function watermarkPlacement(watermark: Watermark, font: PDFFont): { x: number; y: number; size: number; angle: number } {
   const roomWidth = PAGE.width - 2 * MARGIN;
   if (watermark.position === 'center') {
@@ -381,8 +390,8 @@ export function watermarkPlacement(watermark: Watermark, font: PDFFont): { x: nu
     const turn = (angle * Math.PI) / 180;
     const at = (size: number) => {
       const width = font.widthOfTextAtSize(watermark.text, size);
-      const ascent = font.heightAtSize(size, { descender: false });
-      const descent = font.heightAtSize(size) - ascent;
+      const ascent = size * WATERMARK_METRICS.ascent;
+      const descent = size * WATERMARK_METRICS.descent;
       return { width, ascent, descent, height: ascent + descent };
     };
     const most = 48;
@@ -405,7 +414,7 @@ export function watermarkPlacement(watermark: Watermark, font: PDFFont): { x: nu
   const most = 12;
   const size = Math.min(most, (most * roomWidth) / font.widthOfTextAtSize(watermark.text, most));
   const width = font.widthOfTextAtSize(watermark.text, size);
-  const descent = font.heightAtSize(size) - font.heightAtSize(size, { descender: false });
+  const descent = size * WATERMARK_METRICS.descent;
   const x = watermark.position.endsWith('left') ? MARGIN : PAGE.width - MARGIN - width;
   const y = watermark.position.startsWith('top') ? PAGE.height - MARGIN + descent : MARGIN + 3 + descent;
   return { x, y, size, angle: 0 };

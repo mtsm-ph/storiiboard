@@ -9,7 +9,7 @@ import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { ASPECT_RATIOS } from '../../core/model/storyboard';
 import { addShot } from '../storyboard/board';
-import { frameBox, localDate, MARGIN, PAGE, storyboardPdf, watermarkPlacement, wrap, type PdfFonts } from './pdfStoryboard';
+import { frameBox, localDate, MARGIN, PAGE, storyboardPdf, WATERMARK_METRICS, watermarkPlacement, wrap, type PdfFonts } from './pdfStoryboard';
 import { watermarkOutline } from './renderFrame';
 import { scenesIn } from './scope';
 import type { Watermark, WatermarkPosition } from './watermark';
@@ -131,8 +131,8 @@ describe('the PDF watermark', () => {
   /** The four corners of the text's box as drawn: from its baseline's start, turned by its angle. */
   function corners(font: PDFFont, text: string, at: { x: number; y: number; size: number; angle: number }) {
     const width = font.widthOfTextAtSize(text, at.size);
-    const ascent = font.heightAtSize(at.size, { descender: false });
-    const descent = font.heightAtSize(at.size) - ascent;
+    const ascent = at.size * WATERMARK_METRICS.ascent;
+    const descent = at.size * WATERMARK_METRICS.descent;
     const turn = (at.angle * Math.PI) / 180;
     return [
       [0, -descent],
@@ -143,6 +143,12 @@ describe('the PDF watermark', () => {
   }
 
   const long = 'CONFIDENTIAL — NOT FOR DISTRIBUTION — BEY COUNTY CLIENT CUT 3 — PROPERTY OF THE PRODUCTION';
+
+  it('measures the font as its own file does, not as pdf-lib’s 1000 units an em would', () => {
+    const font = fontkit.create(fonts.sansSemiBold);
+    expect(WATERMARK_METRICS.ascent).toBeCloseTo(font.ascent / font.unitsPerEm, 6);
+    expect(WATERMARK_METRICS.descent).toBeCloseTo(-font.descent / font.unitsPerEm, 6);
+  });
 
   it('centred, turns about its own middle onto the page’s, and shrinks until it fits inside the margins', async () => {
     const { semi } = await measured();
@@ -513,7 +519,10 @@ describe('the PDF storyboard', () => {
 
   it('names a frame drawn without its stored picture', async () => {
     await scene('sc4', '4', 2);
-    const { missing } = await storyboardPdf({ ...board(), frame: (_scene, shot) => Promise.resolve({ jpeg, pictureMissing: shot === 0 }) });
+    const { bytes, missing } = await storyboardPdf({ ...board(), frame: (_scene, shot) => Promise.resolve({ jpeg, pictureMissing: shot === 0 }) });
+    // In the PDF's own type, readable on paper, not only the small label inside the frame's picture.
+    const [one = ''] = await pageTexts(bytes);
+    expect(one.split('PICTURE MISSING')).toHaveLength(2);
     expect(missing).toEqual(['4A']);
   });
 

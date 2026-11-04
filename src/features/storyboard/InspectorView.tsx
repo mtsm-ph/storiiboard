@@ -6,7 +6,7 @@ import {
   DAY_NIGHT,
   HEIGHTS,
   INT_EXT,
-  isSceneNumber,
+  sceneNumberProblem,
   MOVES,
   pageLabel,
   parsePages,
@@ -58,6 +58,8 @@ export interface InspectorViewProps {
   shot: { id: string; fields: ShotFields } | null;
   /** Other scenes' numbers, so a duplicate is refused. */
   otherSceneNumbers: readonly string[];
+  /** Numbers of scenes in the Trash, taken too until it's emptied. */
+  trashedSceneNumbers?: readonly string[];
   onShotChange: (change: FieldChange) => void;
   onSceneChange: (change: FieldChange) => void;
   onSceneNumberChange: (number: string) => void;
@@ -335,6 +337,7 @@ export function InspectorView({
   scene,
   shot,
   otherSceneNumbers,
+  trashedSceneNumbers = [],
   onShotChange,
   onSceneChange,
   onSceneNumberChange,
@@ -574,8 +577,8 @@ export function InspectorView({
             value={s.number}
             onCommit={(text) => {
               const number = text.trim().toUpperCase();
-              if (!isSceneNumber(number)) return 'Scene numbers look like 4, 4A or A1.';
-              if (otherSceneNumbers.includes(number)) return `There's already a scene ${number}.`;
+              const problem = sceneNumberProblem(number, otherSceneNumbers, trashedSceneNumbers);
+              if (problem) return problem;
               onSceneNumberChange(number);
               return null;
             }}
