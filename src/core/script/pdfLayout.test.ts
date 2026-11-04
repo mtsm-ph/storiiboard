@@ -115,6 +115,23 @@ describe('a screenplay PDF', () => {
     expect(noisy.scenes[0]?.number).toBe('9');
   });
 
+  it('takes no speaker from a wide gap in action, a centred line or a shout a few lines above a cue', () => {
+    const tricky: PdfText[] = [
+      at(1, 2, 108, 'INT. DINER - NIGHT'),
+      at(1, 2, 400, '(FLASHBACK)'),
+      at(1, 4, 108, 'BANG!'),
+      at(1, 4, 288, 'BANG!'),
+      at(1, 6, 256, 'ONE YEAR LATER'),
+      at(1, 8, 108, 'Dust on the counter.'),
+      at(1, 10, 252, 'JOE'),
+      at(1, 11, 180, 'Still open?'),
+      at(1, 12, 72, '11.03.26'),
+    ];
+    const script = parseScreenplayPdf(tricky);
+    expect(script.scenes.map((s) => [s.location, s.characters])).toEqual([['DINER', ['JOE']]]);
+    expect(script.scenes[0]?.number).toBeNull();
+  });
+
   it('copes with a page whose margin isn’t the usual inch and a half', () => {
     const shifted = SCRIPT.filter((t) => t.page === 2).map((t) => ({ ...t, x: t.x - 36 }));
     expect(parseScreenplayPdf(shifted).scenes.map((s) => s.characters)).toEqual([['MARY', 'TOM'], ['MARY']]);

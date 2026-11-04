@@ -24,6 +24,8 @@ export async function readPdfText(bytes: ArrayBuffer, name: string): Promise<Pdf
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
+      // A worker stuck in a page never answers a polite stop: it's ended first.
+      port.terminate();
       reject(new Error(`“${name}” took too long to read. Export the script as a PDF again from the writing app, and try that.`));
     }, TIMEOUT_MS);
   });
@@ -33,8 +35,9 @@ export async function readPdfText(bytes: ArrayBuffer, name: string): Promise<Pdf
     throw readable(error, name);
   } finally {
     clearTimeout(timer);
-    // Frees the document, and with it the worker, on every path: done, refused or broken.
-    await task.destroy().catch(() => undefined);
+    // Frees the document and the worker on every path: done, refused, broken or stuck. pdf.js waits for the worker
+    // to say it's done, which a stuck one never does, so that wait is cut short.
+    await Promise.race([task.destroy().catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 1000))]);
     pdfWorker.destroy();
     port.terminate();
   }

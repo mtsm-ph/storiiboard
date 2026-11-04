@@ -42,8 +42,11 @@ const INCH = 72;
 
 /** A page number: `2.` (scene numbers carry no dot). */
 const PAGE_NUMBER = /^\d+\.$/;
-/** What can stand outside the margins as a scene number: short, no spaces, with a digit (`12`, `12A`, `A7`, `12-14`). */
-const MARGIN_NUMBER = /^(?=.*\d)[A-Z0-9][A-Z0-9.-]{0,7}$/i;
+/**
+ * What can stand outside the margins as a scene number: short, no spaces, with a digit, at most one dash (`12`, `12A`,
+ * `A7`, `12-14`), or a page number's trailing dot. A date such as `11.03.26` isn't one.
+ */
+const MARGIN_NUMBER = /^(?=.*\d)[A-Z0-9]{1,6}(-[A-Z0-9]{1,6})?\.?$/i;
 /** A revision mark in the right margin, one asterisk or a few. */
 const REVISION = /^\*+$/;
 
@@ -98,11 +101,14 @@ function linesOf(row: Row, margin: number): Line[] {
     if (MARGIN_NUMBER.test(text) && !PAGE_NUMBER.test(text)) number ??= text;
     return false;
   });
+  // Only a row that starts indented can be two columns, as dual dialogue is: action and headings start at the
+  // margin, and a wide gap in them (`BANG!     BANG!`, a heading's `(FLASHBACK)` far right) is still one line.
+  const indented = (kept[0]?.x ?? margin) - margin >= 0.5 * INCH;
   const columns: PdfText[][] = [];
   for (const item of kept) {
     const column = columns.at(-1);
     const last = column?.at(-1);
-    if (column && last && item.x - (last.x + last.width) < INCH) column.push(item);
+    if (column && last && (!indented || item.x - (last.x + last.width) < INCH)) column.push(item);
     else columns.push([item]);
   }
   const split = columns.length > 1;
@@ -119,17 +125,23 @@ const isUpper = (text: string) => {
   return /[A-Z]/.test(bare) && bare === bare.toUpperCase();
 };
 
-/** The line that reads after `line` in its own column: the next one below it, starting within reach of it. */
+/**
+ * The line that reads right after `line` in its own column: on the next row or two below it, starting within reach.
+ * Dialogue sits on the line under its cue, so anything further down (a gap, a heading, a later scene) doesn't count.
+ */
 function below(lines: readonly Line[], index: number): Line | undefined {
   const line = lines[index];
   if (!line) return undefined;
   for (let i = index + 1; i < lines.length; i += 1) {
     const next = lines[i];
-    if (!next || next.page !== line.page) return undefined;
+    if (!next || next.page !== line.page || line.y - next.y > 2.5 * LINE) return undefined;
     if (next.y < line.y - 1 && Math.abs(next.x - line.x) < 2 * INCH) return next;
   }
   return undefined;
 }
+
+/** A title page is short: a title, a credit, contact lines. A first page of script is longer. */
+const TITLE_PAGE_LINES = 15;
 
 /** A screenplay PDF's scenes, from its positioned text. The title is the first line of a title page, if it has one. */
 export function parseScreenplayPdf(items: readonly PdfText[]): Script {
@@ -142,7 +154,9 @@ export function parseScreenplayPdf(items: readonly PdfText[]): Script {
   let current: (ScriptScene & { lines: number }) | null = null;
   const firstPage = lines[0]?.page;
   // A title page has no scene on it; a script that starts on page one has no title page.
-  const titlePage = firstPage !== undefined && !lines.some((l) => l.page === firstPage && l.indent < 0.5 * INCH && looksLikeHeading(l.text));
+  const onFirst = lines.filter((l) => l.page === firstPage);
+  const titlePage =
+    firstPage !== undefined && onFirst.length < TITLE_PAGE_LINES && !onFirst.some((l) => l.indent < 0.5 * INCH && looksLikeHeading(l.text));
   const title = titlePage ? (lines[0]?.text ?? null) : null;
   const close = () => {
     if (!current) return;
