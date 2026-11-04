@@ -234,6 +234,12 @@ describe('review fixes (1.12)', () => {
     expect(sceneNumbers()).toEqual(['4', '5', '6']);
   });
 
+  it('keeps a scene inserted on a board renumbered out of order right after the one picked', async () => {
+    await store.getState().apply([scene('sc20', '20', 'W'), scene('sc3', '3', 'X')]);
+    await store.getState().apply([addScene(records(), projectId, 'sc20')]);
+    expect(sceneNumbers()).toEqual(['4', '20', '20A', '3']);
+  });
+
   it('orders scene numbers as slates do, and links a location already set without an edit', async () => {
     expect(['5', '4B', 'A4', '4', '4A', '12'].sort(compareSceneNumbers)).toEqual(['A4', '4', '4A', '4B', '5', '12']);
     await store.getState().apply(setSceneLocation(records(), projectId, 'sc4', 'Penn Station'));

@@ -165,6 +165,17 @@ test('the "/" menu sets the scene’s location, reusing one the project has', as
   await expect(inspector(page).getByText('Penn Station')).toBeVisible();
 });
 
+test('⌘ with an arrow, pressed twice quickly, moves a frame two places', async ({ page }) => {
+  const first = frames(page, 'SC 01').nth(0);
+  const id = await first.getAttribute('data-shot-id');
+  await first.focus();
+  const mod = await command(page);
+  await page.keyboard.press(`${mod}+ArrowRight`);
+  await page.keyboard.press(`${mod}+ArrowRight`);
+  await expect(frames(page, 'SC 01').nth(2)).toHaveAttribute('data-shot-id', id ?? '');
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
+});
+
 test('in the shot list, a row dropped on any cell of another row lands there', async ({ page }) => {
   await board(page).getByRole('radio', { name: 'Shot list' }).click();
   const rows = board(page).locator('[aria-label="Frames in SC 01"] tr', { has: page.locator('[data-shot-id]') });

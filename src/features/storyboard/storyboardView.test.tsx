@@ -64,6 +64,36 @@ describe('the storyboard grid', () => {
     expect(html).toContain('<span aria-hidden="true" class="sb-label text-text-muted">No image</span>');
     expect(html).toContain('1 3/8 pg · 1 have · 1 need');
   });
+
+  it('keeps a Tab stop on the board when the selected frame is no longer on it', () => {
+    const scene: SceneGroup = {
+      id: 'sc4',
+      number: '4',
+      heading: 'Penn Station',
+      pageEighths: null,
+      locked: false,
+      counts: { have: 0, need: 1, source: 0 },
+      frames: [{ id: 'a', number: '4A', spec: '', status: 'need', fields: shotFields({ number: '4A' }), picture: null }],
+    };
+    const html = renderToString(
+      <StoryboardView
+        scenes={[scene]}
+        view="grid"
+        onViewChange={noop}
+        aspectRatio={16 / 9}
+        // Trashed, or undone away: the board doesn't draw it.
+        selectedShotId="gone"
+        canEdit
+        onSelect={noop}
+        onAddFrame={noop}
+        onAddScene={noop}
+        onTrash={noop}
+        onMove={noop}
+      />,
+    );
+    expect(html.match(/data-board-item=""[^>]*tabindex="0"/g)).toHaveLength(1);
+    expect(html).toMatch(/data-shot-id="a"[^>]*tabindex="0"/);
+  });
 });
 
 describe('moving a frame one place', () => {
