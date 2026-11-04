@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -106,9 +106,13 @@ function ExportDialog() {
     },
     [],
   );
+  // Worked out once per change to the records, not on every render: a PNG export re-renders the dialog after each
+  // frame to say how far it got, and on a feature-size board this was a second or more of work per frame, on the
+  // main thread, which Stop and Escape had to wait behind. The dialog is modal, so the records hold still meanwhile.
+  const projectId = project?.projectId ?? null;
+  const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
   if (!project) return null;
   const format = FORMATS.find((f) => f.id === formatId) ?? FORMATS[0];
-  const scenes = board(records, project.projectId);
   const scene = scenes.find((s) => s.record.id === sceneId) ?? null;
   const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
   const props = records[project.projectId]?.props;
