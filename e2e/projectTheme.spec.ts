@@ -14,10 +14,12 @@ async function newProject(page: Page, name: string) {
 function setProjectTheme(page: Page, accent: string, mode: 'light' | 'dark') {
   return page.evaluate(
     async ({ accent, mode }) => {
+      // Paths in variables, so TypeScript leaves them to Vite's dev server.
+      const urls = ['/src/ui/theme/generator/generate.ts', '/src/ui/theme/projectTheme.ts', '/src/app/projectStore.ts'] as const;
       const [{ themeFor }, { themeProp }, { projectStore }] = await Promise.all([
-        import(/* @vite-ignore */ '/src/ui/theme/generator/generate.ts') as Promise<typeof import('../src/ui/theme/generator/generate')>,
-        import(/* @vite-ignore */ '/src/ui/theme/projectTheme.ts') as Promise<typeof import('../src/ui/theme/projectTheme')>,
-        import(/* @vite-ignore */ '/src/app/projectStore.ts') as Promise<typeof import('../src/app/projectStore')>,
+        import(/* @vite-ignore */ urls[0]) as Promise<typeof import('../src/ui/theme/generator/generate')>,
+        import(/* @vite-ignore */ urls[1]) as Promise<typeof import('../src/ui/theme/projectTheme')>,
+        import(/* @vite-ignore */ urls[2]) as Promise<typeof import('../src/app/projectStore')>,
       ]);
       const { project, apply } = projectStore.getState();
       if (!project) throw new Error('no project open');
