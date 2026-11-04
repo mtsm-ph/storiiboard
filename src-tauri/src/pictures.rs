@@ -21,6 +21,20 @@ const EXTENSIONS: &[&str] = &[
 ];
 /// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt) and Final Draft.
 const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx"];
+/// The largest script read: a feature script is well under 1 MB, and the page parses all of it at once.
+const MAX_SCRIPT_BYTES: u64 = 10 * 1024 * 1024;
+
+/// How large a file may be read, by what it is.
+fn max_bytes(path: &Path) -> u64 {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    match extension {
+        Some(e) if SCRIPT_EXTENSIONS.contains(&e.as_str()) => MAX_SCRIPT_BYTES,
+        _ => MAX_BYTES,
+    }
+}
 
 /// The files the person has handed the app this session, by drop or by the Open dialog, and whether the dialog is
 /// open now.
@@ -193,7 +207,7 @@ fn read(offered: &Offered, path: &Path) -> Result<Vec<u8>, String> {
     if !meta.is_file() {
         return Err("That's a folder, not a file.".into());
     }
-    if meta.len() > MAX_BYTES {
+    if meta.len() > max_bytes(path) {
         return Err("That file is too large to open.".into());
     }
     fs::read(path).map_err(|error| error.to_string())
@@ -202,6 +216,20 @@ fn read(offered: &Offered, path: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caps_a_script_well_below_a_picture() {
+        assert_eq!(
+            max_bytes(Path::new("/Films/Bey County.fountain")),
+            MAX_SCRIPT_BYTES
+        );
+        assert_eq!(
+            max_bytes(Path::new("/Films/Bey County.FDX")),
+            MAX_SCRIPT_BYTES
+        );
+        assert_eq!(max_bytes(Path::new("/Films/still.jpg")), MAX_BYTES);
+        assert_eq!(max_bytes(Path::new("/Films/no-extension")), MAX_BYTES);
+    }
 
     #[test]
     fn reads_only_what_was_offered() {

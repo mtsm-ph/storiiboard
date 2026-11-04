@@ -1,5 +1,6 @@
 import type { Props, SbdRecord } from '../../core/model/record';
-import { sceneFields } from '../../core/model/storyboard';
+import { sceneNumberBetween } from '../../core/model/shotNumbers';
+import { isSceneNumber, sceneFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import type { Script, ScriptScene } from '../../core/script/script';
@@ -11,12 +12,22 @@ import { locations } from '../storyboard/board';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
+/**
+ * What happens to a script's scene:
+ * - `new`: imported;
+ * - `same`: the board has this scene already (its number, INT/EXT and place), left as it is;
+ * - `taken`: the board has a different scene with this number, so it's left out rather than renumbered off the slate;
+ * - `trashed`: a scene with this number is in the Trash; restoring it would clash, so this one is left out.
+ */
+export type PlannedStatus = 'new' | 'same' | 'taken' | 'trashed';
+
 export interface PlannedScene {
   scene: ScriptScene;
-  /** The number it gets: the script's own, or the next whole number when the script prints none. */
+  /** The number it gets: the script's own, or for one the script doesn't number, the one the script would give it. */
   number: string;
-  /** Already in the project (a scene with this number, live or in the Trash): left as it is. */
-  exists: boolean;
+  status: PlannedStatus;
+  /** Why its number isn't the one printed, when it isn't. */
+  note: string | null;
 }
 
 export interface ImportPlan {
@@ -43,35 +54,65 @@ function liveNames(records: Records, projectId: string, type: 'location' | 'char
 /** The location a scene points at: only a heading with INT or EXT names a place (a forced `FLASHBACK` doesn't). */
 const placeOf = (scene: ScriptScene) => (scene.intExt !== null && scene.location.trim() !== '' ? scene.location.trim() : null);
 
+/** A scene as the board would match it: INT/EXT and the place, whatever the case. */
+const sceneKey = (intExt: string | null, name: string) => `${intExt ?? ''}|${name.trim().replace(/\s+/g, ' ').toLowerCase()}`;
+
+/** A printed number as the slate has it (`1-a` and `4 A` are 1A and 4A); null for one that can't be a scene number. */
+function slateNumber(printed: string | null): string | null {
+  const tidy = printed?.toUpperCase().replace(/[\s-]/g, '') ?? '';
+  return isSceneNumber(tidy) ? tidy : null;
+}
+
 /** What an import of this script would do to the project, for the preview and for `importChanges`. */
 export function planImport(records: Records, projectId: string, script: Script): ImportPlan {
-  const scenesNow = Object.values(records).filter((r) => r.type === 'scene' && r.parentId === projectId);
-  const taken = new Set(scenesNow.map((r) => sceneFields(r.props).number.toUpperCase()).filter((n) => n !== ''));
-  // Scenes the script doesn't number are numbered as the script would be: the first is 1, then the next whole number
-  // after the highest so far. So importing the same unnumbered draft again finds its scenes on the board.
-  let highest = 0;
-  const planned: PlannedScene[] = [];
-  const numbered = new Set<string>();
-  for (const scene of script.scenes) {
-    let number = scene.number?.toUpperCase() ?? '';
-    if (number === '' || numbered.has(number)) {
-      do highest += 1;
-      while (numbered.has(String(highest)));
-      number = String(highest);
-    } else {
-      const whole = parseInt(number, 10);
-      if (Number.isFinite(whole)) highest = Math.max(highest, whole);
-    }
-    numbered.add(number);
-    planned.push({ scene, number, exists: taken.has(number) });
+  const board = new Map<string, { key: string; trashed: boolean }>();
+  for (const record of Object.values(records)) {
+    if (record.type !== 'scene' || record.parentId !== projectId) continue;
+    const fields = sceneFields(record.props);
+    if (fields.number !== '') board.set(fields.number.toUpperCase(), { key: sceneKey(fields.intExt, fields.name), trashed: record.trashedAt !== null });
   }
+  // The script's own numbers are kept, exactly; one it prints twice keeps the first.
+  const printed = script.scenes.map((scene) => slateNumber(scene.number));
+  const first = new Map<string, number>();
+  printed.forEach((number, index) => {
+    if (number !== null && !first.has(number)) first.set(number, index);
+  });
+  const scriptNumbers = [...first.keys()];
+
+  const planned: PlannedScene[] = [];
+  script.scenes.forEach((scene, index) => {
+    const own = printed[index] ?? null;
+    let number: string;
+    let note: string | null = null;
+    if (own !== null && first.get(own) === index) {
+      number = own;
+    } else {
+      // Numbered as the script would be: after the scene before it and before the next number it prints (1, then 1A
+      // before a printed 2), so importing the same draft again finds its scenes on the board.
+      const before = planned.at(-1)?.number ?? null;
+      const after = printed.slice(index + 1).find((n): n is string => n !== null && first.has(n)) ?? null;
+      number = sceneNumberBetween(before, after, [...scriptNumbers, ...planned.map((p) => p.number)]);
+      if (scene.number !== null) {
+        note = own === null ? `The script’s number “${scene.number}” isn’t a scene number` : `The script prints ${own} twice`;
+      }
+    }
+    const there = board.get(number);
+    const status: PlannedStatus = !there
+      ? 'new'
+      : there.trashed
+        ? 'trashed'
+        : there.key === sceneKey(scene.intExt, sceneName(scene))
+          ? 'same'
+          : 'taken';
+    planned.push({ scene, number, status, note });
+  });
 
   const sort = (names: Iterable<string>) => [...names].sort((a, b) => a.localeCompare(b));
   const split = (wanted: Map<string, string>, have: Map<string, { id: string; name: string }>) => ({
     created: sort([...wanted].filter(([k]) => !have.has(k)).map(([, name]) => name)),
     linked: sort([...wanted].filter(([k]) => have.has(k)).map(([k, name]) => have.get(k)?.name ?? name)),
   });
-  const importing = planned.filter((p) => !p.exists).map((p) => p.scene);
+  const importing = planned.filter((p) => p.status === 'new').map((p) => p.scene);
   const places = new Map<string, string>();
   const people = new Map<string, string>();
   for (const scene of importing) {
@@ -118,8 +159,8 @@ export function importChanges(records: Records, projectId: string, plan: ImportP
   for (const name of plan.characters.created) personKey = create('character', { name }, personKey).sortKey;
 
   let sceneKey = lastKey('scene');
-  for (const { scene, number, exists } of plan.scenes) {
-    if (exists) continue;
+  for (const { scene, number, status } of plan.scenes) {
+    if (status !== 'new') continue;
     const place = placeOf(scene);
     const props: Props = {
       number,
