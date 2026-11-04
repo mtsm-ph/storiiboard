@@ -1,10 +1,11 @@
 import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
-import { useProject } from '../../app/projectStore';
+import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
+import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { addPictures } from './addPictures';
-import { setSceneNumber } from './board';
+import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
 import { ProjectPictures } from './ProjectPictures';
@@ -91,6 +92,14 @@ export function InspectorTile() {
         }}
         onCropChange={(crop) => {
           if (shot) void apply([setCrop(shot.id, crop)]);
+        }}
+        customFields={shot ? customFieldsOf(shot.props) : {}}
+        customNames={customFieldNames(records)}
+        customHidden={shot ? hiddenFieldNames(shot.props) : []}
+        onCustomChange={async (name, value) => {
+          if (!shot) return;
+          // Worked out when it lands, so two fields added quickly both stay.
+          await projectStore.getState().applyWith((now) => ({ changes: setCustomField(now, shot.id, name, value) }));
         }}
       />
     </ProjectPictures>

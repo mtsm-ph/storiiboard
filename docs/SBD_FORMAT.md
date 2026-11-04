@@ -226,6 +226,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | departments | array of department ids | src/core/model/department.ts |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
+| shot | custom | object of text by field name | 1.19. The frame's own fields (`{ "Drone": "Mavic 3" }`), in the order added. Missing when it has none. The project's list of field names isn't stored: it's every name its live shots use |
 
 **Sketches** (1.13, src/features/storyboard/sketch/strokes.ts). Each stroke of a frame's sketch is a `stroke` record
 under its shot, ordered by `sort_key` as drawn, so the History never copies earlier strokes into later ones.

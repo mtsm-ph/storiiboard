@@ -21,9 +21,11 @@ import {
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { Button } from '../../ui/Button';
+import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
+import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
+import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { departmentTagClass } from '../../ui/tags';
 import { CropEditor } from './CropEditor';
@@ -73,6 +75,15 @@ export interface InspectorViewProps {
   strokeCount?: number;
   /** The scene's location, set from the "/" menu; null when it has none. */
   locationName?: string | null;
+  /** The frame's own fields (1.19), by name. */
+  customFields?: Readonly<Record<string, string>>;
+  /** Every field name the project's frames use. */
+  customNames?: readonly string[];
+  /** Names the frame keeps something other than text under, which a new field can't take. */
+  customHidden?: readonly string[];
+  /** A value to set, or null to take the field off the frame. */
+  /** Settles once the edit has landed, so focus can go to what it made. */
+  onCustomChange?: (name: string, value: string | null) => Promise<void>;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -181,6 +192,133 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
   );
 }
 
+/** A frame's own fields (1.19): each saves like the others; a new one takes a name, offering the project's. */
+function CustomFields({
+  fields,
+  known,
+  hidden,
+  onChange,
+}: {
+  fields: Readonly<Record<string, string>>;
+  /** Every field name the project's frames use, for the new field's suggestions. */
+  known: readonly string[];
+  /** Names this frame keeps something other than text under. */
+  hidden: readonly string[];
+  /** A value to set, or null to take the field off this frame; settles once it has landed. */
+  onChange: (name: string, value: string | null) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const listId = useId();
+  const errorId = useId();
+  const rows = useRef<HTMLDivElement>(null);
+  const newField = useRef<HTMLInputElement>(null);
+  // After the edit lands and the row is drawn (or gone), so the focus finds it: a desktop write takes a few frames.
+  // Only if the focus is still where the person left it (`from`, or nowhere): someone who has moved on isn't pulled back.
+  const focusField = (field: string | null, from: Element | null) => {
+    requestAnimationFrame(() => {
+      const now = document.activeElement;
+      if (now !== from && now !== document.body && now !== null) return;
+      const input = field === null ? null : rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`);
+      (input ?? newField.current)?.focus();
+    });
+  };
+  const add = () => {
+    const tidy = fieldName(name, known, hidden);
+    if (!tidy.ok) {
+      setError(tidy.problem);
+      return;
+    }
+    setError(null);
+    // Add field turns off as the name clears; the name's own field keeps the focus until the new one is there.
+    if (document.activeElement !== newField.current) newField.current?.focus();
+    setName('');
+    // Already on this frame, in any case: go to it rather than add it twice.
+    const existing = fieldKey(fields, tidy.name);
+    if (existing !== null) {
+      focusField(existing, newField.current);
+      return;
+    }
+    void onChange(tidy.name, '').then(() => {
+      focusField(tidy.name, newField.current);
+    });
+  };
+  const remove = (field: string) => {
+    // Focus goes to the field below, or above, or New field when it was the last.
+    const names = Object.keys(fields);
+    const at = names.indexOf(field);
+    const next = names[at + 1] ?? names[at - 1] ?? null;
+    const from = document.activeElement;
+    void onChange(field, null).then(() => {
+      focusField(next, from);
+    });
+  };
+  const offered = known.filter((k) => fieldKey(fields, k) === null);
+  return (
+    <>
+      <div ref={rows} className="flex flex-col gap-3">
+        {Object.entries(fields).map(([field, value]) => (
+          <div key={field} data-custom-field={field} className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <CommitText
+                label={field}
+                value={value}
+                onCommit={(text) => {
+                  void onChange(field, text);
+                  return null;
+                }}
+              />
+            </div>
+            <IconButton
+              label={`Remove ${field} from this frame`}
+              onClick={() => {
+                remove(field);
+              }}
+            >
+              <CloseGlyph />
+            </IconButton>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <TextField
+              ref={newField}
+              label="New field"
+              value={name}
+              list={listId}
+              maxLength={MAX_FIELD_NAME}
+              placeholder="Drone, VFX, budget…"
+              aria-invalid={error !== null}
+              aria-describedby={error ? errorId : undefined}
+              onChange={(event) => {
+                setName(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') add();
+              }}
+            />
+          </div>
+          <Button disabled={name.trim() === ''} onClick={add}>
+            Add field
+          </Button>
+        </div>
+        <datalist id={listId}>
+          {offered.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+        {error && (
+          <p id={errorId} role="alert" className="text-[12px] text-warning dark:text-text">
+            {error}
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 const choices = (options: readonly string[], format: (v: string) => string = (v) => v.charAt(0).toUpperCase() + v.slice(1)) =>
   [
     <option key="" value="">
@@ -209,6 +347,10 @@ export function InspectorView({
   locationName = null,
   onSketch,
   strokeCount = 0,
+  customFields = {},
+  customNames = [],
+  customHidden = [],
+  onCustomChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -415,6 +557,12 @@ export function InspectorView({
               })}
             </ul>
           </Section>
+
+          {onCustomChange && (
+            <Section title="Custom fields">
+              <CustomFields key={shot.id} fields={customFields} known={customNames} hidden={customHidden} onChange={onCustomChange} />
+            </Section>
+          )}
         </>
       )}
 
