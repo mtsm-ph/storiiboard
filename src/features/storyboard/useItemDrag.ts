@@ -71,8 +71,14 @@ function placeAt(x: number, y: number, draggedId: string, vertical: boolean): { 
   const scene = under
     .map((node) => (node instanceof HTMLElement ? node.closest<HTMLElement>('[data-drop-scene]') : null))
     .find((node): node is HTMLElement => node !== null);
-  // Between cards, the nearest one in the scene decides, so crossing a gap doesn't jump to the scene's end.
-  const item = direct ?? (scene?.dataset.dropScene ? nearestItem(scene.dataset.dropScene, x, y, draggedId) : null);
+  // Over the scene's + Frame, its end. In a gap between cards, the nearest card in the same row decides (or in the
+  // shot list, the nearest row), so crossing a gap doesn't jump to the scene's end; past the last card in a row that
+  // has none, the end again.
+  const onAdd = under.some((node) => node instanceof HTMLElement && node.closest('[data-board-item]:not([data-item-id])'));
+  const nearest = !direct && !onAdd && scene?.dataset.dropScene ? nearestItem(scene.dataset.dropScene, x, y, draggedId) : null;
+  const nearestBox = nearest ? boxOf(nearest) : null;
+  const sameRow = nearestBox !== null && (vertical || (y >= nearestBox.top && y <= nearestBox.bottom));
+  const item = direct ?? (sameRow ? nearest : null);
   if (item?.dataset.sceneId && item.dataset.itemId) {
     const sceneId = item.dataset.sceneId;
     const siblings = sceneItems(sceneId);
@@ -185,6 +191,8 @@ export function useItemDrag(vertical: boolean, onDrop: (id: string, place: DropP
   /** Handlers for an item that can be dragged. */
   const dragHandlers = (id: string, label: string) => ({
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
+      // A release that never came after an Escape mustn't count against this press.
+      cancelled.current = false;
       if (event.button !== 0 || event.pointerType === 'touch') return;
       pressed.current = { id, label, x: event.clientX, y: event.clientY, started: false };
     },

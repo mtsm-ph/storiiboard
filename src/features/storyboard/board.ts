@@ -368,7 +368,16 @@ export function addScene(
     number = sceneNumberBetween(taken.at(-1) ?? null, null, taken);
   } else {
     number = sceneNumberBetween(numberOf(live[at]), numberOf(live[at + 1]), taken);
-    while (live[at + 1] && compareSceneNumbers(numberOf(live[at + 1]) ?? '', number) < 0) at += 1;
+    // Only past scenes that also sort after the one picked: on a board renumbered out of order (1, 20, 3), a scene
+    // after 20 stays right after it.
+    const picked = numberOf(live[at]) ?? '';
+    while (
+      live[at + 1] &&
+      compareSceneNumbers(numberOf(live[at + 1]) ?? '', number) < 0 &&
+      compareSceneNumbers(numberOf(live[at + 1]) ?? '', picked) > 0
+    ) {
+      at += 1;
+    }
   }
   // After the last scene, trashed ones included, when it goes at the end, as + Scene does; else between neighbours.
   const before = at === -1 || !live[at + 1] ? (all.at(-1) ?? null) : (live[at] ?? null);

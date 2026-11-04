@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
+import type { SbdRecord } from '../../core/model/record';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
 import { addPictures, usePicturesBusy } from './addPictures';
 import {
@@ -113,14 +114,42 @@ export function StoryboardTile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSceneId]);
 
-  /** A frame or a note to a new place; a frame stays in a scene whose numbers are locked, and the person is told why. */
-  const moveTo = async (id: string, sceneId: string, beforeId: string | null) => {
-    if (leavesLockedScene(records, id, sceneId)) {
-      showInfo('This scene’s shot numbers are locked, so its frames stay in it. Unlock them to move a frame out.');
-      return;
-    }
-    await applyWith((now) => ({ changes: moveItem(now, projectId, id, sceneId, beforeId) }));
-    if (projectStore.getState().records[id]?.type === 'shot') selectionStore.getState().selectShot(id, sceneId);
+  const lockedNotice = () => {
+    showInfo('This scene’s shot numbers are locked, so its frames stay in it. Unlock them to move a frame out.');
+  };
+
+  /** Selects a frame or a note where it now is, once an edit has put it there. */
+  const selectItem = (id: string) => {
+    const record = projectStore.getState().records[id];
+    if (!record?.parentId || record.trashedAt !== null) return;
+    if (record.type === 'shot') selectionStore.getState().selectShot(id, record.parentId);
+    else if (record.type === 'note') selectionStore.getState().selectNote(id, record.parentId);
+  };
+
+  /**
+   * A frame or a note to a new place, worked out in the edit queue from the board as it is then. A frame stays in a
+   * scene whose numbers are locked, and the person is told why. Resolves to whether it moved.
+   */
+  const moveTo = async (
+    id: string,
+    place: (now: Readonly<Record<string, SbdRecord>>) => { sceneId: string; beforeId: string | null } | null,
+  ) => {
+    // Set by the builder, which runs in the queue.
+    const outcome = { refused: false, moved: false };
+    await applyWith((now) => {
+      const target = place(now);
+      if (!target) return { changes: [] };
+      if (leavesLockedScene(now, id, target.sceneId)) {
+        outcome.refused = true;
+        return { changes: [] };
+      }
+      const changes = moveItem(now, projectId, id, target.sceneId, target.beforeId);
+      outcome.moved = changes.length > 0;
+      return { changes };
+    });
+    if (outcome.refused) lockedNotice();
+    if (outcome.moved) selectItem(id);
+    return outcome.moved;
   };
 
   const frameCard = (shot: BoardShot): FrameCard => ({
@@ -176,6 +205,8 @@ export function StoryboardTile() {
             shotId = added.shotId;
             return added;
           }).then(() => {
+            // Only once written: a failed edit has said why, and leaves nothing to go to.
+            if (!projectStore.getState().records[shotId]) return;
             selectionStore.getState().selectShot(shotId, sceneId);
             focusFrame(shotId);
           });
@@ -187,7 +218,7 @@ export function StoryboardTile() {
             sceneId = change.record.id;
             return { changes: [change] };
           }).then(() => {
-            selectionStore.getState().selectScene(sceneId);
+            if (projectStore.getState().records[sceneId]) selectionStore.getState().selectScene(sceneId);
           });
         }}
         onTrash={(id) => {
@@ -196,11 +227,16 @@ export function StoryboardTile() {
           const at = flat.findIndex((f) => (f.item.kind === 'shot' ? f.item.shot.record.id : f.item.note.record.id) === id);
           const next = flat[at + 1] ?? flat[at - 1] ?? null;
           const nextId = next ? (next.item.kind === 'shot' ? next.item.shot.record.id : next.item.note.record.id) : null;
-          void applyWith((now) => ({
-            changes: now[id]?.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id),
-          })).then(() => {
+          void applyWith((now) => {
+            const item = now[id];
+            // A key held down can ask twice; the second finds it in the Trash already.
+            if (!item || item.trashedAt !== null) return { changes: [] };
+            return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id) };
+          }).then(() => {
             if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
             else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
+            // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it.
+            else selectionStore.getState().selectShot(null, null);
             focusFrame(nextId);
           });
         }}
@@ -212,13 +248,15 @@ export function StoryboardTile() {
             ?.focus();
         }}
         onMove={(id, direction) => {
-          const target = moveTarget(scenes, id, direction);
-          if (!target) return;
-          void moveTo(id, target.sceneId, target.beforeShotId).then(() => {
+          // From the board as earlier moves left it, so holding ⌘ and an arrow steps one place each time.
+          void moveTo(id, (now) => {
+            const target = moveTarget(board(now, projectId), id, direction);
+            return target ? { sceneId: target.sceneId, beforeId: target.beforeShotId } : null;
+          }).then(() => {
             focusFrame(id);
           });
         }}
-        onMoveTo={(id, place) => moveTo(id, place.sceneId, place.beforeId)}
+        onMoveTo={(id, place) => moveTo(id, () => place)}
         onSelectScene={(sceneId, noteId) => {
           selectionStore.getState().selectNote(noteId, sceneId);
         }}

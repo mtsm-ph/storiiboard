@@ -87,8 +87,8 @@ export interface StoryboardViewProps {
   onTrash: (id: string) => void;
   /** A frame or a note earlier (-1) or later (1) by one place, crossing into the next scene at either end. */
   onMove: (id: string, direction: -1 | 1) => void;
-  /** A frame or a note dragged to a new place; resolves once it's saved, for focus to follow it. */
-  onMoveTo?: (id: string, place: DropPlace) => Promise<void>;
+  /** A frame or a note dragged to a new place; resolves once it's saved, to whether it moved, for focus to follow. */
+  onMoveTo?: (id: string, place: DropPlace) => Promise<boolean>;
   /** A note picked: its scene becomes the active one, with no frame selected. */
   onSelectScene?: (sceneId: string, noteId: string) => void;
   /** The note the keys are on, which keeps the board's Tab stop. */
@@ -175,7 +175,10 @@ export function StoryboardView({
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
   // One Tab stop: the selected frame, or the first item when nothing is selected.
   const firstEntry = scenes.flatMap((s) => entriesOf(s))[0];
-  const tabStop = selectedShotId ?? selectedNoteId ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
+  // The selected frame or note is the stop only while it's on the board; one gone to the Trash or undone away isn't.
+  const onBoard = new Set(scenes.flatMap((s) => entriesOf(s).map(entryId)));
+  const kept = [selectedShotId, selectedNoteId].find((id): id is string => id !== null && onBoard.has(id));
+  const tabStop = kept ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
   const mac = isMac();
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [slash, setSlash] = useState<{ at: { left: number; top: number }; place: InsertPlace; from: HTMLElement } | null>(null);
@@ -185,12 +188,12 @@ export function StoryboardView({
     useCallback(
       (id: string, place: DropPlace) => {
         // Focus follows once the move is saved and drawn: into another scene, the item is drawn anew there.
-        void onMoveTo?.(id, place).then(() => {
+        void onMoveTo?.(id, place).then((moved) => {
+          if (moved) setAnnouncement('Moved.');
           requestAnimationFrame(() => {
             document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
           });
         });
-        setAnnouncement('Moved.');
       },
       [onMoveTo],
     ),
