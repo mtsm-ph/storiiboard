@@ -515,6 +515,40 @@ async function unusedPictures(file: ProjectFile, without: readonly string[], his
   return rows.map((row) => ({ sha256: String(row.sha256), bytes: Number(row.size) }));
 }
 
+/**
+ * Records that exist only in History (made and then undone, say) and could only ever come back under what Empty
+ * Trash is deleting: every parent they had in any step is going, was deleted by an earlier Empty Trash (no step of it
+ * holds data any more), or is one of these. A restore never brings a record back under a parent that's gone, so their
+ * data in the log would stay in the file for good; Empty Trash clears it with the rest.
+ */
+async function onlyInHistoryUnder(file: ProjectFile, live: readonly SbdRecord[], deleting: readonly string[]): Promise<string[]> {
+  const rows = await file.query(
+    `SELECT record_id, before, after FROM ops WHERE record_id NOT IN (SELECT id FROM records)
+      AND (before IS NOT NULL OR after IS NOT NULL) ORDER BY seq`,
+  );
+  const parents = new Map<string, Set<string | null>>();
+  for (const row of rows) {
+    const id = String(row.record_id);
+    const seen = parents.get(id) ?? new Set<string | null>();
+    for (const snap of [fromSnapshot(row.before), fromSnapshot(row.after)]) if (snap) seen.add(snap.parentId);
+    parents.set(id, seen);
+  }
+  const exists = new Set(live.map((r) => r.id));
+  const gone = new Set(deleting);
+  const isGone = (id: string | null) => id !== null && (gone.has(id) || (!exists.has(id) && !parents.has(id)));
+  const found: string[] = [];
+  for (let more = true; more; ) {
+    more = false;
+    for (const [id, had] of parents) {
+      if (gone.has(id) || had.size === 0 || ![...had].every(isGone)) continue;
+      gone.add(id);
+      found.push(id);
+      more = true;
+    }
+  }
+  return found;
+}
+
 function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
   const list = JSON.stringify(pictures.map((p) => p.sha256));
   // Thumbnails first: they point at the file.
@@ -538,10 +572,11 @@ export async function emptyTrash(
   const all = await loadRecords(file);
   const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
-  const pictures = await unusedPictures(file, ids, true);
+  const unreachable = await onlyInHistoryUnder(file, all, ids);
+  const pictures = await unusedPictures(file, [...ids, ...unreachable], true);
   const at = now().toISOString();
   const groupId = crypto.randomUUID();
-  const gone = JSON.stringify(ids);
+  const gone = JSON.stringify([...ids, ...unreachable]);
   const [top] = await file.query(
     'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
   );

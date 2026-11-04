@@ -195,7 +195,9 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
   them until they're pruned.
 - As built in 1.21 (src/core/ops/ops.ts, `emptyTrash`), in one transaction: every trashed scene, shot, note and media
-  record and everything under it is deleted (an erased stroke on a frame still on the board stays, with its ops); their ops keep their rows but `before` and `after` become null; an
+  record and everything under it is deleted (an erased stroke on a frame still on the board stays, with its ops),
+  and so are records that exist only in History and could only come back under what's deleted (a note made and
+  undone in a deleted scene: every parent they ever had is gone); their ops keep their rows but `before` and `after` become null; an
   `empty_trash` group of `purge` ops (one per deleted record) is written with `undo_top` and `redo_top` null, so
   neither stack reaches past it; and stored pictures nothing left refers to (no record's props, no remaining op) are
   deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that

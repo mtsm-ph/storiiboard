@@ -116,6 +116,36 @@ describe('Empty Trash', () => {
     expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([historyOnly]);
   });
 
+  it('clears what only History holds under a deleted scene: a note and a picture made and undone there', async () => {
+    const shot = await frame('sc4');
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'n1', type: 'note', parentId: 'sc4', sortKey: 'Z', props: { text: 'SECRET-NOTE-TEXT-XYZ' } } },
+    ]);
+    await store.getState().undo();
+    await withPicture(shot, 11);
+    await store.getState().undo();
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+    await store.getState().close();
+    const bytes = readFileSync(folder.path('Bey County.sbd'));
+    expect(bytes.includes(Buffer.from('SECRET-NOTE-TEXT-XYZ'))).toBe(false);
+    expect(fileHolds(11)).toBe(false);
+    await reopen();
+  });
+
+  it('keeps what only History holds under a parent that stays: a note made and undone in a live scene', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'n2', type: 'note', parentId: 'sc5', sortKey: 'Z', props: { text: 'KEPT-NOTE-TEXT' } } },
+    ]);
+    const made = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().undo();
+    await trash(await frame('sc4'));
+    await store.getState().emptyTrash();
+    await restoreTo(project.file, made);
+    await reopen();
+    expect(records().n2?.props.text).toBe('KEPT-NOTE-TEXT');
+  });
+
   it('leaves a stroke erased from a frame still on the board, so History can bring the sketch back', async () => {
     const [kept, gone] = [await frame(), await frame()];
     const stroke = addStroke(records(), kept, { tool: 'pen', points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null });
