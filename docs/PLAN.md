@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.13 done, 1.14 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.21 done, 1.22 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 2, 2026 (synced-folder decisions) |
+| Last updated | Nov 4, 2026 (1.21 merged; testing and CI rules) |
 
 | Phase | State |
 |---|---|
@@ -55,7 +55,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
-| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
