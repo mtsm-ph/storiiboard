@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 
 // The History tile (1.22) in the memory build: every step in words, newest first; Restore to here as a step of its
@@ -67,6 +67,75 @@ test('one frame’s own changes, field by field, with an old value to put back',
   await expect(changes.getByRole('row').nth(1)).toContainText('50mm');
   await changes.getByRole('button', { name: 'Put back lens 35mm' }).click();
   await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
+});
+
+async function addField(page: Page, name: string, value: string) {
+  await inspector(page).getByLabel('New field').fill(name);
+  await inspector(page).getByRole('button', { name: 'Add field' }).click();
+  await setField(page, name, value);
+}
+
+async function setField(page: Page, name: string, value: string) {
+  const field = inspector(page).getByRole('textbox', { name, exact: true });
+  await field.fill(value);
+  await field.press('Enter');
+}
+
+const fontOf = (where: Locator, text: string) =>
+  where.locator('.font-mono', { hasText: text }).first().evaluate((el) => getComputedStyle(el).fontFamily);
+
+test('a custom field goes back on its own, its values shown, and the value already there isn’t offered', async ({ page }) => {
+  await frames(page).first().click();
+  await addField(page, 'Drone', 'Mavic 3');
+  await setField(page, 'Drone', 'FPV');
+  await addField(page, 'VFX', 'Sky replace');
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('1A: VFX — → Sky replace');
+  await expect(steps(page).nth(1)).toContainText('1A: added the field VFX');
+  await expect(steps(page).nth(2)).toContainText('1A: Drone Mavic 3 → FPV');
+
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  await expect(changes.getByRole('row').nth(2)).toContainText(/VFX\s*no field\s*—\s*You/);
+  await expect(changes.getByRole('row').nth(3)).toContainText(/Drone\s*Mavic 3\s*FPV\s*You/);
+  await changes.getByRole('button', { name: 'Put back Drone Mavic 3', exact: true }).click();
+  await expect(inspector(page).getByRole('textbox', { name: 'Drone', exact: true })).toHaveValue('Mavic 3');
+  await expect(inspector(page).getByRole('textbox', { name: 'VFX', exact: true })).toHaveValue('Sky replace');
+  // Mavic 3 is on the frame again: nothing to put back from that change now.
+  await expect(changes.getByRole('row').nth(1)).toContainText(/Drone\s*FPV\s*Mavic 3/);
+  await expect(changes.getByRole('button', { name: 'Put back Drone Mavic 3', exact: true })).toHaveCount(0);
+});
+
+test('a new selection never shows the frame selected before, so Put back can’t reach it', async ({ page }) => {
+  await frames(page).first().click();
+  await setLens(page, '35');
+  await openHistory(page);
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  await expect(history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' })).toContainText('35mm');
+
+  // Every state the tile passes through on its way to 1B's changes, however briefly.
+  await history(page).evaluate((tile) => {
+    const seen: string[] = [];
+    Object.assign(window, { historySeen: seen });
+    new MutationObserver(() => seen.push(tile.textContent)).observe(tile, { subtree: true, childList: true, characterData: true });
+  });
+  await frames(page).nth(1).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1B, newest first' });
+  await expect(changes).toContainText('Added');
+  await expect(changes).not.toContainText('35mm');
+  const seen = await page.evaluate(() => (window as unknown as { historySeen: string[] }).historySeen);
+  expect(seen.filter((text) => text.includes('Only frame 1B') && text.includes('35mm'))).toEqual([]);
+});
+
+test('shot numbers, lens and T-stop are set in mono, in the steps and the frame’s toggle', async ({ page }) => {
+  await frames(page).first().click();
+  await setLens(page, '50');
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('1A: lens — → 50mm');
+  expect(await fontOf(steps(page).first(), '50mm')).toContain('JetBrains Mono');
+  expect(await fontOf(steps(page).first(), '1A')).toContain('JetBrains Mono');
+  expect(await fontOf(history(page), '1A')).toContain('JetBrains Mono');
+  await expect(history(page).getByRole('switch', { name: 'Only frame 1A' })).toBeVisible();
 });
 
 for (const scheme of ['light', 'dark'] as const) {

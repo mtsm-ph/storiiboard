@@ -1,0 +1,38 @@
+import { log, opsOfGroups, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import type { ProjectFile } from '../../core/storage/driver';
+import { describeGroup, type Line } from './summary';
+
+/** Steps shown at a time; older ones load on asking (Show older steps), so a long project opens its History at once. */
+export const PAGE = 100;
+
+export interface Steps {
+  /** Newest first. */
+  steps: { group: OpGroup; line: Line }[];
+  /** More steps before the oldest shown. */
+  more: boolean;
+}
+
+/** The newest `count` steps, each with its line. */
+export async function loadSteps(file: ProjectFile, count: number): Promise<Steps> {
+  const groups = await log(file);
+  const shown = groups.slice(-count);
+  // Undo, redo and restore name the step they point at, which may be older than the page, and may itself point at
+  // another (an undone restore names its point): followed until every line has what it names.
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const wanted = new Set<string>();
+  const pending: (string | null)[] = shown.map((g) => g.id);
+  while (pending.length > 0) {
+    const id = pending.pop() ?? null;
+    const group = id === null ? undefined : byId.get(id);
+    if (!group || wanted.has(group.id)) continue;
+    wanted.add(group.id);
+    pending.push(group.targetGroupId, group.restoreTo);
+  }
+  const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
+  const byGroup = new Map<string, LoggedOp[]>();
+  for (const op of ops) byGroup.set(op.groupId, [...(byGroup.get(op.groupId) ?? []), op]);
+  // Oldest first, so the step an undo, redo or restore names already has its line.
+  const titles = new Map<string, Line>();
+  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored));
+  return { steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? ['a step'] })), more: groups.length > count };
+}

@@ -277,14 +277,21 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   "Undid: …"), with who and when. A drag that renumbers a scene is one step.
 - Restore to here brings the project back to just after that step, as a new step that ⌘Z takes back (a restore
   never brings back what Empty Trash deleted). Steps load 100 at a time.
-- Only frame 4A lists every change to the selected frame, field by field (before, after, when), and Put back sets an
-  old value again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status,
-  action, dialogue, departments, custom fields).
+- Only frame 4A lists every change to the selected frame, newest first, field by field (change, before, after, who,
+  when): undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
+  by field ("lens, restored", "Restore to here: out of the Trash"), and renumbers show too. Put back sets an old value
+  again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
+  dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
+  Put back isn't offered where the frame already has that value. A new selection shows only its own changes.
+- Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
 - A step whose picture was cleaned up (1.21) says "(picture removed)".
-- Tests: a restore and its undo, a restore after a restart (and undone after another), and a restore whose write dies
-  halfway changing nothing.
+- Tests: a restore and its undo, a restore after a restart (and undone after another), a restore whose write dies
+  halfway changing nothing, a restore after Empty Trash (src/core/ops/purge.test.ts), a frame's Trash state and the
+  board's order brought back, Put back on custom fields and the action, no empty step, and paging.
 - Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
-  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9).
+  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9). A
+  custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
+  marked by a word after the field rather than a column of their own.
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside

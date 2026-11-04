@@ -521,6 +521,8 @@ export async function history(file: ProjectFile): Promise<{ canUndo: boolean; ca
 /** One write in the log, as the History tile reads it. */
 export interface LoggedOp {
   groupId: string;
+  /** The group's kind: an undo's ops keep the kind they reverse, so this is what tells an undone add from an add. */
+  groupKind: GroupKind;
   recordId: string;
   kind: OpKind;
   before: SbdRecord | null;
@@ -531,6 +533,7 @@ export interface LoggedOp {
 
 const loggedOp = (row: Row): LoggedOp => ({
   groupId: String(row.group_id),
+  groupKind: String(row.group_kind) as GroupKind,
   recordId: String(row.record_id),
   kind: String(row.kind) as OpKind,
   before: fromSnapshot(row.before),
@@ -543,7 +546,8 @@ const loggedOp = (row: Row): LoggedOp => ({
 export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]): Promise<LoggedOp[]> {
   if (groupIds.length === 0) return [];
   const rows = await file.query(
-    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE group_id IN (SELECT value FROM json_each(?)) ORDER BY seq',
+    `SELECT o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.group_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
     [JSON.stringify(groupIds)],
   );
   return rows.map(loggedOp);
@@ -552,7 +556,8 @@ export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]
 /** Every write to one record, oldest first (ops_by_record): an item's own history. */
 export async function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
   const rows = await file.query(
-    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE record_id = ? ORDER BY seq',
+    `SELECT o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id = ? ORDER BY o.seq`,
     [recordId],
   );
   return rows.map(loggedOp);
