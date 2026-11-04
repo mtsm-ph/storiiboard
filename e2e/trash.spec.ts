@@ -59,10 +59,10 @@ test('filters by type and scene, and a restore keeps focus in the list', async (
     await page.keyboard.press('Delete');
   }
   await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(2);
-  await trashTile(page).getByLabel('Type').selectOption({ label: 'Notes' });
+  await trashTile(page).getByRole('combobox', { name: /^Type/ }).selectOption({ label: 'Notes' });
   await expect(trashTile(page).getByText('Nothing in the Trash matches these filters.')).toBeVisible();
-  await trashTile(page).getByLabel('Type').selectOption({ label: 'Frames' });
-  await trashTile(page).getByLabel('Scene').selectOption({ label: 'SC 01' });
+  await trashTile(page).getByRole('combobox', { name: /^Type/ }).selectOption({ label: 'Frames' });
+  await trashTile(page).getByRole('combobox', { name: /^Scene/ }).selectOption({ label: 'SC 01' });
   await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(2);
 
   await trashTile(page).getByRole('button', { name: /^Restore frame/ }).first().click();

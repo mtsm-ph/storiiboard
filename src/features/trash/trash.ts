@@ -73,22 +73,36 @@ function nameOf(records: Records, record: SbdRecord, kind: TrashKind): { name: s
   }
 }
 
-/** Everything in the project's Trash, the most recently deleted first. */
+/** Whether a record went to the Trash with its parent, in the same op group (a scene's frames and notes). */
+function trashedWithParent(records: Records, record: SbdRecord): boolean {
+  const parent = record.parentId ? records[record.parentId] : undefined;
+  return parent !== undefined && parent.trashedAt !== null && parent.trashedAt === record.trashedAt && parent.trashedBy === record.trashedBy;
+}
+
+/** A scene's frames and notes that went to the Trash with it. */
+function trashedWith(records: Records, scene: SbdRecord): SbdRecord[] {
+  return Object.values(records).filter((r) => r.parentId === scene.id && (r.type === 'shot' || r.type === 'note') && trashedWithParent(records, r));
+}
+
+/** Everything in the project's Trash, the most recently deleted first; a scene's frames deleted with it are in its row. */
 export function trashItems(records: Records, projectId: string): TrashItem[] {
   const items: TrashItem[] = [];
   for (const record of Object.values(records)) {
     if (record.trashedAt === null) continue;
     const kind = kindOf(record);
-    if (!kind) continue;
+    if (!kind || (record.type !== 'scene' && record.type !== 'media' && trashedWithParent(records, record))) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
     while (top?.parentId) top = records[top.parentId];
     if (top?.id !== projectId) continue;
+    const named = nameOf(records, record, kind);
+    const inside = kind === 'scene' ? trashedWith(records, record).filter((r) => r.type === 'shot').length : 0;
     items.push({
       id: record.id,
       kind,
-      ...nameOf(records, record, kind),
+      ...named,
+      name: inside > 0 ? `${named.name} (with ${String(inside)} ${inside === 1 ? 'frame' : 'frames'})` : named.name,
       sceneId: scene?.id ?? null,
       sceneName: scene ? sceneLabel(sceneFields(scene.props).number) : null,
       trashedAt: record.trashedAt,
@@ -124,6 +138,9 @@ export function restoreChanges(records: Records, projectId: string, id: string):
         ...(showing && showing.id !== id && showing.trashedAt === null ? [{ kind: 'trash' as const, id: showing.id }] : []),
       ];
     }
+    case 'scene':
+      // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.
+      return [{ kind: 'restore', id }, ...trashedWith(records, record).map((r) => ({ kind: 'restore' as const, id: r.id }))];
     default:
       return [{ kind: 'restore', id }];
   }

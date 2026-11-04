@@ -54,7 +54,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.17 Script import: Fountain and FDX, with a preview | #34 | Done |
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
-| 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
+| 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
@@ -269,6 +269,16 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
+- Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and
+  pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
+- Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
+  focus stays in the list.
+- Tests: undo of a restore, restore after closing and reopening the project, and a write that fails halfway
+  leaving the item in the Trash with nothing half restored.
+- Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
+  goes to the Trash); the project's logo or key image comes back on its own, without becoming the theme's image again.
 
 **As built in 1.19 (Nov 3): custom fields on shots** (src/core/model/customFields.ts):
 - The inspector has a Custom fields section: each of the frame's fields saves like the others (on leaving it or

@@ -48,7 +48,8 @@ const records = () => store.getState().records;
 const numbers = () => (board(records(), project.projectId)[0]?.shots ?? []).map((s) => s.fields.number);
 const trash = (id: string) => store.getState().applyWith((now) => ({ changes: trashShot(now, project.projectId, id) }));
 const restore = (id: string) => store.getState().applyWith((now) => ({ changes: restoreChanges(now, project.projectId, id) }));
-const [a, b] = [0, 1].map((i) => () => shots[i] ?? '');
+const a = () => shots[0] ?? '';
+const b = () => shots[1] ?? '';
 
 describe('the Trash', () => {
   it('lists deleted frames, notes and pictures, newest first, but not strokes the eraser took', async () => {
@@ -97,6 +98,21 @@ describe('the Trash', () => {
     await store.getState().undo();
     expect(shotFields(records()[frame]?.props ?? {}).mediaId).toBe(secondId);
     expect(records()[firstId]?.trashedAt).not.toBeNull();
+  });
+
+  it('lists a scene deleted with its frames as one row, and brings them back together, not ones deleted before', async () => {
+    const frameA = a();
+    await trash(frameA);
+    // The scene and its remaining frames in one op group, as deleting a scene does.
+    const live = (board(records(), project.projectId)[0]?.shots ?? []).map((s) => s.record.id);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...live.map((id) => ({ kind: 'trash' as const, id }))]);
+    expect(trashItems(records(), project.projectId).map((i) => [i.kind, i.name])).toEqual([
+      ['scene', 'SC 04  Diner (with 2 frames)'],
+      ['frame', '4A'],
+    ]);
+    await restore('sc4');
+    expect(numbers()).toEqual(['4A', '4B']);
+    expect(records()[frameA]?.trashedAt).not.toBeNull();
   });
 
   it('brings a frame’s scene back with it when that’s in the Trash too', async () => {
