@@ -255,3 +255,10 @@
   WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.
 - Update the status in docs/PLAN.md at the end of each PR.
+
+## Safety (Kevin, Nov 4)
+- Subagents, reviewers included, are read-only. They read and report; they never delete, move or install anything.
+  Only the main session changes files, and it runs any test or probe a reviewer asks for.
+- Never delete anything outside this repo's own build output: node_modules, dist, src-tauri/target, test-results,
+  playwright-report. Anything else that should go, Kevin deletes.
+- No git worktrees or directory junctions: removing a worktree once deleted a real node_modules through a junction.
