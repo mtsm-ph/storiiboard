@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.25 built; Kevin tests the batch, then the polish step and the gate |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.25 built; Kevin tests the batch; 1.26 (locked scenes keep their letters) next; then the polish step and the gate |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.25 merged; Phase 1 checkpoint) |
+| Last updated | Nov 4, 2026 (1.25 merged; Phase 1 checkpoint; Kevin's Nov 4 decisions) |
 
 | Phase | State |
 |---|---|
@@ -60,6 +60,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #42 | Done |
 | 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #43 | Done |
 | 1.25 PDF storyboard | #44 | Done |
+| 1.26 Locked scenes keep every letter they've used, after Empty Trash too (schema 5) | | Next |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
@@ -67,6 +68,16 @@ a PDF.
 Before the gate (Kevin, Nov 4): a checkpoint for all of Phase 1 (the smoke set on Linux and in WebKit on the CI Mac,
 both installers), Kevin tests 1.11 to 1.25 as one batch, then a polish step, which turns the screenshot tests back on
 with fresh baselines. Phase 2 waits for the gate.
+
+Decided Nov 4 (Kevin):
+- 1.26: a locked scene remembers every letter it has used, in a record that Empty Trash, undo and History restores
+  leave alone, so a letter that has been on a slate is never given out again. Schema 5, with a migration (backup first) that fills the
+  field from what the file still holds. The Empty Trash warning stays only for scenes the migration couldn't fill in.
+- No automatic compaction: only Kevin's test projects predate 1.21. The polish step adds Compact project to
+  Settings → Storage: it makes a backup, then compacts the file (SQLite's VACUUM), which clears free space older
+  builds left and shrinks the file after big deletions.
+- 9:16 PDF frames: Kevin prints a page and reports back.
+- pdf-lib 1.17.1 and @pdf-lib/fontkit 1.1.1 (MIT): confirmed.
 
 Testing from Nov 4: every PR runs quick checks on Linux (lint, types, unit tests, Rust tests, the Rust data-safety
 tests among them), and a newer push cancels the outdated run. The end-to-end smoke set (create, open, add a scene and
@@ -437,7 +448,7 @@ src/app/openVersion.ts):
   pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
   record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
   aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
-  of the whole file, for Kevin to decide (REPORT.local.md).
+  of the whole file. Kevin, Nov 4: no automatic one; the polish step adds Compact project to Settings → Storage.
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
   gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
   that scene as it is now, and a scene or frame that would go back onto a number another one holds stays as it is
