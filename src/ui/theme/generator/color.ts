@@ -81,10 +81,12 @@ export function hex([r, g, b]: Rgb): string {
   return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
 }
 
+/** #RRGGBB or #RGB, with or without the #, in either case. */
 export function parseHex(text: string): Rgb {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(text.trim());
-  if (!m) throw new Error(`Not a colour: ${text}`);
-  return [parseInt(m[1] ?? '0', 16), parseInt(m[2] ?? '0', 16), parseInt(m[3] ?? '0', 16)];
+  const value = text.trim().replace(/^#/, '');
+  const full = /^[0-9a-f]{3}$/i.test(value) ? value.replace(/./g, (digit) => digit.repeat(2)) : value;
+  if (!/^[0-9a-f]{6}$/i.test(full)) throw new Error(`Not a colour: ${text}`);
+  return [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)];
 }
 
 /** WCAG 2 relative luminance. */

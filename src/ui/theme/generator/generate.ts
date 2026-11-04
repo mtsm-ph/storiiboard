@@ -85,8 +85,9 @@ export function clusters(points: readonly Lab[], k: number, seed = 1): { center:
 }
 
 /**
- * The pixels worth reading from an RGBA image: opaque ones, without a logo's flat background. A colour that fills
- * most of the edge is taken for the background and left out, so a red mark on white offers red, not white.
+ * The pixels worth reading from an RGBA image: opaque ones, without a logo's flat background. A grey or white that
+ * fills most of the edge is taken for the background and left out, so a red mark on white offers red, not white. A
+ * colour filling the edge stays: a white mark on a red square, or a solid red image, offers red.
  */
 export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width: number, height: number): Lab[] {
   const at = (x: number, y: number): Rgb | null => {
@@ -111,7 +112,8 @@ export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width:
     look(0, y);
     if (width > 1) look(width - 1, y);
   }
-  const background = edge.find((candidate) => edge.filter((p) => deltaE(p, candidate) < 0.03).length > places * 0.6) ?? null;
+  const filling = edge.find((candidate) => edge.filter((p) => deltaE(p, candidate) < 0.03).length > places * 0.6) ?? null;
+  const background = filling && labToLch(filling).c < MIN_CHROMA ? filling : null;
   const out: Lab[] = [];
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -130,8 +132,12 @@ export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width:
  * chroma and share, and kept visibly apart. Empty for a grey image, which keeps the kit's orange.
  */
 export function accentCandidates(rgba: Uint8ClampedArray | readonly number[], width: number, height: number): string[] {
+  // Judged as the hex it will be stored as, so an accent offered is never one the family table reads as grey.
   const found = clusters(colourPixels(rgba, width, height), CLUSTERS)
-    .map(({ center, share }) => ({ center, share, lch: labToLch(center) }))
+    .map(({ center, share }) => {
+      const value = hex(lchToRgb(labToLch(center)));
+      return { center, share, value, lch: rgbToLch(parseHex(value)) };
+    })
     .filter((c) => c.lch.c >= MIN_CHROMA && c.share >= MIN_SHARE)
     .sort((a, b) => b.lch.c * Math.sqrt(b.share) - a.lch.c * Math.sqrt(a.share));
   const kept: typeof found = [];
@@ -141,7 +147,7 @@ export function accentCandidates(rgba: Uint8ClampedArray | readonly number[], wi
   }
   // The default is the most saturated; the rest follow in rank.
   kept.sort((a, b) => b.lch.c - a.lch.c);
-  return kept.map((c) => hex(lchToRgb(c.lch)));
+  return kept.map((c) => c.value);
 }
 
 const hueDistance = (a: number, b: number) => {
@@ -160,28 +166,28 @@ export function familyFor(accent: string | null): Family {
 /**
  * The accent as close to the one picked as AA allows on this mode's surfaces: its hue kept, its lightness moved (and
  * its chroma lowered, if lightness alone isn't enough) until it stands 3:1 against the background and the tiles, with
- * 4.5:1 for the text on it. That text is ink, as in the kit, whenever ink passes; otherwise paper.
+ * 4.5:1 for the ink on it. The text on the accent is always ink, as in the kit (CLAUDE.md, Design). Every family
+ * leaves room for that at some lightness, so the search covers the whole range, from near black to near white.
  */
-export function fitAccent(accent: string, surfaces: Surfaces, ink: string, paper: string): { accent: string; accentContrast: string } {
+export function fitAccent(accent: string, surfaces: Surfaces, ink: string): { accent: string; accentContrast: string } {
   const start = rgbToLch(parseHex(accent));
-  const [bg, surface] = [parseHex(surfaces.bg), parseHex(surfaces.surface)];
-  const passes = (rgb: Rgb, text: Rgb) => contrast(rgb, bg) >= 3 && contrast(rgb, surface) >= 3 && contrast(rgb, text) >= 4.5;
-  for (const textHex of [ink, paper]) {
-    const text = parseHex(textHex);
-    for (const chroma of [1, 0.8, 0.6, 0.4, 0.2]) {
-      // Outward from the accent's own lightness, so the nearest passing one wins.
-      for (let step = 0; step <= 200; step += 1) {
-        for (const sign of step === 0 ? [1] : [-1, 1]) {
-          const l = start.l + sign * step * 0.0025;
-          if (l <= 0.05 || l >= 0.97) continue;
-          const lch: Lch = fitChroma({ l, c: start.c * chroma, h: start.h });
-          const rgb = lchToRgb(lch);
-          if (passes(rgb, text)) return { accent: hex(rgb), accentContrast: textHex };
-        }
+  const [bg, surface, text] = [parseHex(surfaces.bg), parseHex(surfaces.surface), parseHex(ink)];
+  const passes = (rgb: Rgb) => contrast(rgb, bg) >= 3 && contrast(rgb, surface) >= 3 && contrast(rgb, text) >= 4.5;
+  // Down to no chroma at all, a grey of the right lightness, which always passes.
+  for (const chroma of [1, 0.8, 0.6, 0.4, 0.2, 0]) {
+    // Outward from the accent's own lightness, so the nearest passing one wins.
+    for (let step = 0; step <= 400; step += 1) {
+      for (const sign of step === 0 ? [1] : [-1, 1]) {
+        const l = start.l + sign * step * 0.0025;
+        if (l <= 0.05 || l >= 0.97) continue;
+        const lch: Lch = fitChroma({ l, c: start.c * chroma, h: start.h });
+        const rgb = lchToRgb(lch);
+        if (passes(rgb)) return { accent: hex(rgb), accentContrast: ink };
       }
     }
   }
-  return { accent: DEFAULT_ACCENT, accentContrast: ink };
+  // Unreachable for the families in families.ts (generate.test.ts sweeps them); a new family that broke it fails there.
+  throw new Error(`No accent near ${accent} passes AA on ${surfaces.bg}.`);
 }
 
 /** A whole theme for an accent from the image, or the default for none. */
@@ -190,11 +196,10 @@ export function themeFor(accent: string | null): Theme {
   const source = accent ?? DEFAULT_ACCENT;
   // The text on the accent is the light mode's ink in both modes, as the kit's is.
   const ink = family.light.text;
-  const paper = family.light.bg;
   const mode = (surfaces: Surfaces): ModeTokens => {
     // The kit's own orange on the kit's own surfaces stays exactly as decided, even where it misses 3:1 on oatmeal.
     if (!accent && family === PAPER) return { ...surfaces, accent: DEFAULT_ACCENT, accentContrast: ink };
-    return { ...surfaces, ...fitAccent(source, surfaces, ink, paper) };
+    return { ...surfaces, ...fitAccent(source, surfaces, ink) };
   };
   return { family: family.id, source, light: mode(family.light), dark: mode(family.dark) };
 }

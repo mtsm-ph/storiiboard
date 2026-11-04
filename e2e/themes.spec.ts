@@ -15,11 +15,11 @@ const FIXTURES: (string | null)[] = [
   '#7F8F1F', // Olive
   '#2E8B57', // Sage
   '#0F8C8C', // Teal
-  '#5B6F8A', // Slate
+  '#2E6A8A', // Slate, by its hue
   '#1E6BD6', // Navy
   '#7A3FB5', // Violet
   '#9C2F7A', // Plum
-  '#8C8F94', // grey: Slate
+  '#8C8F94', // grey: Slate, by the grey rule
   '#39FF14', // neon
 ];
 
@@ -53,7 +53,19 @@ function applyTheme(page: Page, accent: string | null, mode: 'light' | 'dark') {
 }
 
 test('reads a logo’s accent in a Web Worker', async ({ page }) => {
-  const accents = await page.evaluate(async () => {
+  const { accents, workers, answers } = await page.evaluate(async () => {
+    // Counted, so the test fails if the page's own fallback did the work instead of the worker.
+    const Real = window.Worker;
+    const seen = { workers: 0, answers: 0 };
+    window.Worker = class extends Real {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        seen.workers += 1;
+        this.addEventListener('message', () => {
+          seen.answers += 1;
+        });
+      }
+    };
     const canvas = new OffscreenCanvas(120, 120);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('no 2d context');
@@ -65,8 +77,13 @@ test('reads a logo’s accent in a Web Worker', async ({ page }) => {
     ctx.fill();
     const url = '/src/ui/theme/generator/extract.ts';
     const { extractAccents } = (await import(/* @vite-ignore */ url)) as typeof import('../src/ui/theme/generator/extract');
-    return extractAccents(await canvas.convertToBlob({ type: 'image/png' }));
+    try {
+      return { accents: await extractAccents(await canvas.convertToBlob({ type: 'image/png' })), ...seen };
+    } finally {
+      window.Worker = Real;
+    }
   });
+  expect({ workers, answers }).toEqual({ workers: 1, answers: 1 });
   expect(accents).toHaveLength(1);
   // A red, as drawn.
   expect(accents[0]).toMatch(/^#[C-F][0-9A-F]/);
