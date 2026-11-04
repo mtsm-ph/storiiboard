@@ -2,10 +2,10 @@ import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
-import { customFieldNames, customFieldsOf, withField, withoutField } from '../../core/model/customFields';
+import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { addPictures } from './addPictures';
-import { setSceneNumber } from './board';
+import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
 import { ProjectPictures } from './ProjectPictures';
@@ -36,9 +36,10 @@ export function InspectorTile() {
   const shotRecord = shotId ? records[shotId] : undefined;
   const shot =
     shotRecord?.type === 'shot' && shotRecord.trashedAt === null && shotRecord.parentId === scene?.id ? shotRecord : undefined;
-  const otherSceneNumbers = Object.values(records)
-    .filter((r) => r.type === 'scene' && r.trashedAt === null && r.id !== scene?.id && r.parentId === project.projectId)
-    .map((r) => sceneFields(r.props).number);
+  // Trashed scenes count, as + Scene counts them, so a restored scene never shares its number with one renumbered since.
+  const others = Object.values(records).filter((r) => r.type === 'scene' && r.id !== scene?.id && r.parentId === project.projectId);
+  const otherSceneNumbers = others.filter((r) => r.trashedAt === null).map((r) => sceneFields(r.props).number);
+  const trashedSceneNumbers = others.filter((r) => r.trashedAt !== null).map((r) => sceneFields(r.props).number);
 
   const update = (id: string, { set, unset }: FieldChange) => {
     void apply([{ kind: 'update', id, ...(set ? { set } : {}), ...(unset ? { unset } : {}) }]);
@@ -61,6 +62,7 @@ export function InspectorTile() {
         scene={scene ? { id: scene.id, fields: sceneFields(scene.props) } : null}
         shot={shot ? { id: shot.id, fields: shotFields(shot.props) } : null}
         otherSceneNumbers={otherSceneNumbers}
+        trashedSceneNumbers={trashedSceneNumbers}
         onShotChange={(change) => {
           if (shot) update(shot.id, change);
         }}
@@ -95,14 +97,11 @@ export function InspectorTile() {
         }}
         customFields={shot ? customFieldsOf(shot.props) : {}}
         customNames={customFieldNames(records)}
-        onCustomChange={(name, value) => {
+        customHidden={shot ? hiddenFieldNames(shot.props) : []}
+        onCustomChange={async (name, value) => {
           if (!shot) return;
           // Worked out when it lands, so two fields added quickly both stay.
-          void projectStore.getState().applyWith((now) => {
-            const props = now[shot.id]?.props;
-            if (!props) return { changes: [] };
-            return { changes: [{ kind: 'update', id: shot.id, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }] };
-          });
+          await projectStore.getState().applyWith((now) => ({ changes: setCustomField(now, shot.id, name, value) }));
         }}
       />
     </ProjectPictures>

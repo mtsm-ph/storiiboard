@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
-import { addShot } from '../../features/storyboard/board';
+import { addShot, setCustomField } from '../../features/storyboard/board';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
-import { customFieldNames, customFieldsOf, fieldName, MAX_FIELD_NAME, withField, withoutField } from './customFields';
+import { customFieldNames, customFieldsOf, customValue, fieldName, MAX_FIELD_NAME, withField, withoutField } from './customFields';
 import type { SbdRecord } from './record';
 
 const shot = (id: string, custom: unknown, trashed = false): SbdRecord =>
@@ -17,24 +17,47 @@ describe('custom fields', () => {
     expect(customFieldsOf({})).toEqual({});
   });
 
-  it('lists the names the project’s live shots use, once each whatever the case, in the spelling met first', () => {
+  it('lists the names the project’s live shots use, once each whatever the case, in the spelling most of them use', () => {
     const records = {
-      a: shot('a', { VFX: 'plate', Drone: '' }),
-      b: shot('b', { vfx: 'clean', Budget: '$' }),
+      a: shot('a', { vfx: 'plate', Drone: '' }),
+      b: shot('b', { VFX: 'clean', Budget: '$' }),
+      d: shot('d', { VFX: 'sky' }),
       c: shot('c', { Gone: 'x' }, true),
     };
     expect(customFieldNames(records)).toEqual(['Budget', 'Drone', 'VFX']);
+    // A tie goes the same way whichever shot comes first, so editing one never flips a column.
+    expect(customFieldNames({ a: shot('a', { vfx: '' }), b: shot('b', { VFX: '' }) })).toEqual(['VFX']);
+    expect(customFieldNames({ b: shot('b', { VFX: '' }), a: shot('a', { vfx: '' }) })).toEqual(['VFX']);
   });
 
-  it('tidies a typed name and takes the project’s spelling of one it already has', () => {
-    expect(fieldName('  drone   shot ', ['Drone shot'])).toBe('Drone shot');
-    expect(fieldName('Budget', [])).toBe('Budget');
-    expect(fieldName('   ', [])).toBeNull();
-    expect(fieldName('x'.repeat(MAX_FIELD_NAME + 1), [])).toBeNull();
+  it('reads a frame’s value for the project’s field whatever case the frame spells it in', () => {
+    expect(customValue({ vfx: 'clean' }, 'VFX')).toBe('clean');
+    expect(customValue({ Drone: 'yes' }, 'VFX')).toBe('');
   });
 
-  it('sets one field and keeps the rest; taking off the last one takes the prop off too', () => {
+  it('tidies a typed name, takes the project’s spelling of one it already has, and refuses the frame’s own fields', () => {
+    expect(fieldName('  drone   shot ', ['Drone shot'])).toEqual({ ok: true, name: 'Drone shot' });
+    expect(fieldName('Budget', [])).toEqual({ ok: true, name: 'Budget' });
+    // Names an object already has are names like any other.
+    expect(fieldName('constructor', [])).toEqual({ ok: true, name: 'constructor' });
+    expect(fieldName('   ', [])).toMatchObject({ ok: false });
+    expect(fieldName('x'.repeat(MAX_FIELD_NAME + 1), [])).toMatchObject({ ok: false });
+    expect(fieldName('takes', [], ['Takes'])).toEqual({ ok: false, problem: 'This frame keeps something under takes that this version can’t show. Choose another name.' });
+    for (const builtIn of ['Status', 'status', 'Lens (mm)', 'Dialogue', 'New field']) {
+      expect(fieldName(builtIn, [])).toEqual({ ok: false, problem: `${builtIn} is one of the frame’s own fields. Choose another name.` });
+    }
+  });
+
+  it('sets one field in the frame’s own spelling and keeps the rest, text or not; taking off the last one takes the prop off', () => {
     expect(withField({ custom: { Drone: 'yes' } }, 'VFX', 'plate')).toEqual({ set: { custom: { Drone: 'yes', VFX: 'plate' } } });
+    expect(withField({ custom: { vfx: 'plate' } }, 'VFX', 'clean')).toEqual({ set: { custom: { vfx: 'clean' } } });
+    // A later version or a hand edit may keep more than text there; an edit never drops it.
+    expect(withField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone', 'y')).toEqual({ set: { custom: { Takes: 3, Drone: 'y' } } });
+    expect(withoutField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone')).toEqual({ set: { custom: { Takes: 3 } } });
+    expect(withField({ custom: { Takes: 3 } }, 'takes', '')).toEqual({ set: { custom: { Takes: 3, takes: '' } } });
+    // The inspector's edit never writes over (or takes off) something it can't show.
+    expect(setCustomField({ a: shot('a', { Takes: 3 }) }, 'a', 'Takes', '')).toEqual([]);
+    expect(setCustomField({ a: shot('a', { Takes: 3 }) }, 'a', 'takes', null)).toEqual([]);
     expect(withoutField({ custom: { Drone: 'yes', VFX: 'plate' } }, 'Drone')).toEqual({ set: { custom: { VFX: 'plate' } } });
     expect(withoutField({ custom: { Drone: 'yes' } }, 'Drone')).toEqual({ unset: ['custom'] });
   });
@@ -61,11 +84,8 @@ describe('custom fields in a project', () => {
     folder.remove();
   });
 
-  const set = (name: string, value: string | null) =>
-    store.getState().applyWith((now) => {
-      const props = now[shotId]?.props ?? {};
-      return { changes: [{ kind: 'update', id: shotId, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }] };
-    });
+  // As the inspector does it: worked out from the records the edit lands on.
+  const set = (name: string, value: string | null) => store.getState().applyWith((now) => ({ changes: setCustomField(now, shotId, name, value) }));
   const fields = () => customFieldsOf(store.getState().records[shotId]?.props ?? {});
 
   it('keeps two fields added quickly, each an edit of its own that undo takes back in turn', async () => {
@@ -77,5 +97,7 @@ describe('custom fields in a project', () => {
     expect(store.getState().records[shotId]?.props).not.toHaveProperty('custom');
     await store.getState().undo();
     expect(fields()).toEqual({ Drone: 'Mavic 3' });
+    await store.getState().redo();
+    expect(store.getState().records[shotId]?.props).not.toHaveProperty('custom');
   });
 });

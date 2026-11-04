@@ -21,7 +21,7 @@ import {
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
+import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
@@ -58,6 +58,8 @@ export interface InspectorViewProps {
   shot: { id: string; fields: ShotFields } | null;
   /** Other scenes' numbers, so a duplicate is refused. */
   otherSceneNumbers: readonly string[];
+  /** Numbers of scenes in the Trash, taken too until it's emptied. */
+  trashedSceneNumbers?: readonly string[];
   onShotChange: (change: FieldChange) => void;
   onSceneChange: (change: FieldChange) => void;
   onSceneNumberChange: (number: string) => void;
@@ -79,8 +81,11 @@ export interface InspectorViewProps {
   customFields?: Readonly<Record<string, string>>;
   /** Every field name the project's frames use. */
   customNames?: readonly string[];
+  /** Names the frame keeps something other than text under, which a new field can't take. */
+  customHidden?: readonly string[];
   /** A value to set, or null to take the field off the frame. */
-  onCustomChange?: (name: string, value: string | null) => void;
+  /** Settles once the edit has landed, so focus can go to what it made. */
+  onCustomChange?: (name: string, value: string | null) => Promise<void>;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -193,37 +198,64 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
 function CustomFields({
   fields,
   known,
+  hidden,
   onChange,
 }: {
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
   known: readonly string[];
-  /** A value to set, or null to take the field off this frame. */
-  onChange: (name: string, value: string | null) => void;
+  /** Names this frame keeps something other than text under. */
+  hidden: readonly string[];
+  /** A value to set, or null to take the field off this frame; settles once it has landed. */
+  onChange: (name: string, value: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const listId = useId();
   const errorId = useId();
   const rows = useRef<HTMLDivElement>(null);
-  const focusField = (field: string) => {
+  const newField = useRef<HTMLInputElement>(null);
+  // After the edit lands and the row is drawn (or gone), so the focus finds it: a desktop write takes a few frames.
+  // Only if the focus is still where the person left it (`from`, or nowhere): someone who has moved on isn't pulled back.
+  const focusField = (field: string | null, from: Element | null) => {
     requestAnimationFrame(() => {
-      rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`)?.focus();
+      const now = document.activeElement;
+      if (now !== from && now !== document.body && now !== null) return;
+      const input = field === null ? null : rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`);
+      (input ?? newField.current)?.focus();
     });
   };
   const add = () => {
-    const tidy = fieldName(name, known);
-    if (!tidy) {
-      setError(`A name of 1 to ${String(MAX_FIELD_NAME)} characters.`);
+    const tidy = fieldName(name, known, hidden);
+    if (!tidy.ok) {
+      setError(tidy.problem);
       return;
     }
     setError(null);
+    // Add field turns off as the name clears; the name's own field keeps the focus until the new one is there.
+    if (document.activeElement !== newField.current) newField.current?.focus();
     setName('');
-    // Already on this frame: go to it rather than add it twice.
-    if (!(tidy in fields)) onChange(tidy, '');
-    focusField(tidy);
+    // Already on this frame, in any case: go to it rather than add it twice.
+    const existing = fieldKey(fields, tidy.name);
+    if (existing !== null) {
+      focusField(existing, newField.current);
+      return;
+    }
+    void onChange(tidy.name, '').then(() => {
+      focusField(tidy.name, newField.current);
+    });
   };
-  const offered = known.filter((k) => !(k in fields));
+  const remove = (field: string) => {
+    // Focus goes to the field below, or above, or New field when it was the last.
+    const names = Object.keys(fields);
+    const at = names.indexOf(field);
+    const next = names[at + 1] ?? names[at - 1] ?? null;
+    const from = document.activeElement;
+    void onChange(field, null).then(() => {
+      focusField(next, from);
+    });
+  };
+  const offered = known.filter((k) => fieldKey(fields, k) === null);
   return (
     <>
       <div ref={rows} className="flex flex-col gap-3">
@@ -234,7 +266,7 @@ function CustomFields({
                 label={field}
                 value={value}
                 onCommit={(text) => {
-                  onChange(field, text);
+                  void onChange(field, text);
                   return null;
                 }}
               />
@@ -242,7 +274,7 @@ function CustomFields({
             <IconButton
               label={`Remove ${field} from this frame`}
               onClick={() => {
-                onChange(field, null);
+                remove(field);
               }}
             >
               <CloseGlyph />
@@ -254,6 +286,7 @@ function CustomFields({
         <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
             <TextField
+              ref={newField}
               label="New field"
               value={name}
               list={listId}
@@ -304,6 +337,7 @@ export function InspectorView({
   scene,
   shot,
   otherSceneNumbers,
+  trashedSceneNumbers = [],
   onShotChange,
   onSceneChange,
   onSceneNumberChange,
@@ -318,6 +352,7 @@ export function InspectorView({
   strokeCount = 0,
   customFields = {},
   customNames = [],
+  customHidden = [],
   onCustomChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
@@ -528,7 +563,7 @@ export function InspectorView({
 
           {onCustomChange && (
             <Section title="Custom fields">
-              <CustomFields key={shot.id} fields={customFields} known={customNames} onChange={onCustomChange} />
+              <CustomFields key={shot.id} fields={customFields} known={customNames} hidden={customHidden} onChange={onCustomChange} />
             </Section>
           )}
         </>
@@ -544,6 +579,7 @@ export function InspectorView({
               const number = text.trim().toUpperCase();
               if (!isSceneNumber(number)) return 'Scene numbers look like 4, 4A or A1.';
               if (otherSceneNumbers.includes(number)) return `There's already a scene ${number}.`;
+              if (trashedSceneNumbers.includes(number)) return `Scene ${number} is in the Trash. Restore it, or choose another number.`;
               onSceneNumberChange(number);
               return null;
             }}

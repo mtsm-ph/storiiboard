@@ -27,8 +27,11 @@ export function TrashTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [kind, setKind] = useState<TrashKind | ''>('');
-  const [sceneId, setSceneId] = useState('');
+  const [chosenScene, setSceneId] = useState('');
   const list = useRef<HTMLTableSectionElement>(null);
+  const empty = useRef<HTMLParagraphElement>(null);
+  // One restore at a time: a double click, or a click on the row that slid under the pointer, never restores a second.
+  const restoring = useRef(false);
   const captionId = useId();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
@@ -36,6 +39,8 @@ export function TrashTile() {
   const scenes = [...new Map(all.filter((i) => i.sceneId !== null).map((i) => [i.sceneId ?? '', i.sceneName ?? ''])).entries()].sort((a, b) =>
     a[1].localeCompare(b[1], undefined, { numeric: true }),
   );
+  // A scene whose last item was restored leaves the filter: it shows every scene again rather than nothing.
+  const sceneId = scenes.some(([id]) => id === chosenScene) ? chosenScene : '';
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
   const emptyAll = async (count: number) => {
@@ -51,18 +56,29 @@ export function TrashTile() {
   };
 
   const restore = (id: string, name: string, index: number) => {
+    if (restoring.current) return;
+    restoring.current = true;
+    let restored = false;
     void projectStore
       .getState()
-      .applyWith((now) => ({ changes: restoreChanges(now, project.projectId, id) }))
+      .applyWith((now) => {
+        const changes = restoreChanges(now, project.projectId, id);
+        restored = changes.length > 0;
+        return { changes };
+      })
       .then((written) => {
-        if (!written) return;
+        if (!written || !restored) return;
         showInfo(`Restored ${name}.`);
-        // Focus stays in the list: on the row that took this one's place, or the one before at the end.
+        // Focus stays in the list: on the row that took this one's place, or the one before at the end, or on the
+        // message that the list is empty now.
         requestAnimationFrame(() => {
           const buttons = list.current?.querySelectorAll<HTMLButtonElement>('button[data-restore]');
           const next = buttons?.[Math.min(index, (buttons.length || 1) - 1)];
-          if (next) next.focus();
+          (next ?? empty.current)?.focus();
         });
+      })
+      .finally(() => {
+        restoring.current = false;
       });
   };
 
@@ -85,6 +101,7 @@ export function TrashTile() {
         </Select>
         <Select
           label="Scene"
+          mono
           value={sceneId}
           onChange={(event) => {
             setSceneId(event.currentTarget.value);
@@ -103,9 +120,13 @@ export function TrashTile() {
         </Button>
       </div>
       {all.length === 0 ? (
-        <p className="p-3 text-[13px] text-text-muted">The Trash is empty. Frames, notes and pictures you delete wait here until it’s emptied.</p>
+        <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
+          The Trash is empty. Frames, notes and pictures you delete wait here until it’s emptied.
+        </p>
       ) : shown.length === 0 ? (
-        <p className="p-3 text-[13px] text-text-muted">Nothing in the Trash matches these filters.</p>
+        <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
+          Nothing in the Trash matches these filters.
+        </p>
       ) : (
         <table className="w-full border-collapse text-[12px]" aria-describedby={captionId}>
           <caption id={captionId} className="sr-only">
@@ -124,14 +145,28 @@ export function TrashTile() {
             {shown.map((item, index) => (
               <tr key={item.id} className="border-b border-border">
                 <td className="sb-label px-2 py-1.5 whitespace-nowrap">{TRASH_KIND_LABEL[item.kind]}</td>
-                <td className={item.mono ? 'px-2 py-1.5 font-mono font-bold' : 'px-2 py-1.5'}>{item.name}</td>
+                <td className="px-2 py-1.5">
+                  {item.parts.map((part, i) =>
+                    part.mono ? (
+                      <span key={i} className="font-mono font-bold">
+                        {part.text}
+                      </span>
+                    ) : (
+                      <span key={i} className="whitespace-pre-wrap">
+                        {part.text}
+                      </span>
+                    ),
+                  )}
+                </td>
                 <td className="px-2 py-1.5 font-mono whitespace-nowrap">{item.sceneName ?? '—'}</td>
                 <td className="px-2 py-1.5 font-mono whitespace-nowrap">{when(item.trashedAt)}</td>
                 <td className="px-2 py-1 text-right">
                   <Button
                     data-restore=""
                     aria-label={`Restore ${TRASH_KIND_LABEL[item.kind].toLowerCase()} ${item.name}`}
-                    onClick={() => {
+                    onClick={(event) => {
+                      // The second click of a double click lands on the row that took this one's place.
+                      if (event.detail > 1) return;
                       restore(item.id, item.name, index);
                     }}
                   >

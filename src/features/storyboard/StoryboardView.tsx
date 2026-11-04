@@ -1,4 +1,5 @@
 import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { customValue } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
 import { pageLabel, sceneLabel, SHOT_SIZE_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
@@ -606,8 +607,13 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
         <caption className="sr-only">Shot list</caption>
         <thead>
           <tr className="border-b border-border">
-            {['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments', ...customNames].map((name) => (
+            {['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments'].map((name) => (
               <th key={name} scope="col" className={head}>
+                {name}
+              </th>
+            ))}
+            {customNames.map((name) => (
+              <th key={`custom:${name}`} scope="col" className={head}>
                 {name}
               </th>
             ))}
@@ -671,9 +677,10 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                       : f.departments.map(departmentName).join(', ')}
                   </td>
                   {customNames.map((name) => {
-                    const value = frame.custom?.[name] ?? '';
+                    // The frame may spell the name in another case; it's the same field.
+                    const value = customValue(frame.custom ?? {}, name);
                     return (
-                      <td key={name} className={cx(cell, 'max-w-[24ch]', value === '' && quiet)}>
+                      <td key={`custom:${name}`} className={cx(cell, 'max-w-[24ch]', value === '' && quiet)}>
                         {dash(value)}
                       </td>
                     );

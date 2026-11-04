@@ -11,7 +11,7 @@ async function read(name: string, bytes: ArrayBuffer): Promise<Script> {
   const head = new Uint8Array(bytes.slice(0, 5));
   if (name.toLowerCase().endsWith('.pdf') || String.fromCharCode(...head) === '%PDF-') {
     const { readPdfText } = await import('./readPdf');
-    return parseScreenplayPdf(await readPdfText(bytes));
+    return parseScreenplayPdf(await readPdfText(bytes, name));
   }
   return parseScript(new TextDecoder('utf-8').decode(bytes));
 }
