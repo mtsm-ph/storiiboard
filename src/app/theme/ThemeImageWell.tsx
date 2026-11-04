@@ -16,9 +16,11 @@ interface ThemeImageWellProps {
   onFiles: (files: PictureFile[]) => void;
   /** A modal (onboarding) takes any drop while it's open, wherever it lands. */
   takeAnyDrop?: boolean;
+  /** While an image is being read, another isn't taken. */
+  disabled?: boolean;
 }
 
-export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false }: ThemeImageWellProps) {
+export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false, disabled = false }: ThemeImageWellProps) {
   const well = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
   // Read by the window listener registered once.
@@ -32,8 +34,8 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false }: Them
     let stop: (() => void) | null = null;
     let live = true;
     void onWindowDrop((files, at) => {
-      const box = well.current?.getBoundingClientRect();
-      const inside = box && at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom;
+      // What's on top at that point, so a well behind a modal (Settings → Theme under onboarding) never takes it too.
+      const inside = well.current?.contains(document.elementFromPoint(at.x, at.y)) === true;
       if (files.length > 0 && (takeAnyDrop || inside)) latest.current(files);
     }).then((unlisten) => {
       if (live) stop = unlisten;
@@ -45,10 +47,12 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false }: Them
     };
   }, [takeAnyDrop]);
 
-  // The browser build's drops and any paste, on the well itself; registered once, reading the latest handler.
+  // The browser build's drops on the well, and a paste anywhere in the dialog or tile around it (the well itself
+  // can't take focus); registered once, reading the latest handler.
   useEffect(() => {
     const element = well.current;
     if (!element) return;
+    const around = element.closest<HTMLElement>('dialog, [data-theme-tile]') ?? element;
     const take = (list: FileList | null | undefined) => {
       const files = [...(list ?? [])].map(fromFile);
       if (files.length > 0) latest.current(files.slice(0, 1));
@@ -76,12 +80,12 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false }: Them
     element.addEventListener('dragover', over);
     element.addEventListener('dragleave', leave);
     element.addEventListener('drop', dropped);
-    element.addEventListener('paste', pasted);
+    around.addEventListener('paste', pasted);
     return () => {
       element.removeEventListener('dragover', over);
       element.removeEventListener('dragleave', leave);
       element.removeEventListener('drop', dropped);
-      element.removeEventListener('paste', pasted);
+      around.removeEventListener('paste', pasted);
     };
   }, []);
 
@@ -104,6 +108,7 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false }: Them
         <span className="flex flex-col gap-1">
           {name && <span className="truncate font-mono text-[11px] text-text-muted">{name}</span>}
           <Button
+            disabled={disabled}
             onClick={() => {
               choosePictures(false)
                 .then((files) => {

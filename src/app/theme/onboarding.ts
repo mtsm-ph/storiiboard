@@ -1,17 +1,18 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 
-// Whether the new project's onboarding is showing (1.16): New project opens it once the project exists, and Create or
-// Skip closes it. It's never saved; a project opened later goes straight to its board.
+// Which new project's onboarding is showing (1.16): New project opens it once the project exists, and Create or Skip
+// closes it. It belongs to that project alone: if another one opens meanwhile, it never shows for that one. Never
+// saved; a project opened later goes straight to its board.
 
-export const onboardingStore = createStore<{ open: boolean }>()(() => ({ open: false }));
+export const onboardingStore = createStore<{ projectId: string | null }>()(() => ({ projectId: null }));
 
-export const openOnboarding = (): void => {
-  onboardingStore.setState({ open: true });
+export const openOnboarding = (projectId: string): void => {
+  onboardingStore.setState({ projectId });
 };
 
 export const closeOnboarding = (): void => {
-  onboardingStore.setState({ open: false });
+  onboardingStore.setState({ projectId: null });
 };
 
-export const useOnboardingOpen = (): boolean => useStore(onboardingStore, (s) => s.open);
+export const useOnboardingProject = (): string | null => useStore(onboardingStore, (s) => s.projectId);

@@ -633,7 +633,13 @@ switch light and dark at once while the colours ease; left as is.
   default, sends the old one to the Trash in the same op group, as a frame's picture does.
 - With no image and no accent, picking a mode stores a `default` theme: the kit's colours with that mode.
 - While any modal dialog is open (onboarding, the sketch editor), the board takes no drops or pastes, and in the
-  browser build a file dropped there never opens in the tab.
+  browser build a file dropped there never opens in the tab. A picture pasted anywhere on the dialog, or anywhere in
+  Settings → Theme, is the image.
+- Every change is worked out from the project as it is when the edit lands, so quick changes (two Replaces, an
+  image still being read when Dark is picked) never undo each other. An image still being read when the project
+  switches is dropped, and onboarding belongs to the project it opened for.
+- `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
+  Reset trash a frame's picture.
 - Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
   Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
   its own, without becoming the theme again.

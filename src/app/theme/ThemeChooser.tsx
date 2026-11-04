@@ -56,7 +56,10 @@ export function ThemeChooser({ candidates, choice, onChange, image, busy = false
   const groupId = useId();
   const theme = themeFor(choice.accent);
   // The kit's orange is always there to go back to.
-  const options: (string | null)[] = [null, ...candidates.filter((c) => c.toUpperCase() !== DEFAULT_ACCENT)];
+  const offered = candidates.map((c) => c.toUpperCase()).filter((c) => c !== DEFAULT_ACCENT);
+  // An accent typed in by hand (Settings → Theme) is one of the choices too, so the group says which is picked.
+  const typed = choice.accent?.toUpperCase();
+  const options: (string | null)[] = [null, ...offered, ...(typed && typed !== DEFAULT_ACCENT && !offered.includes(typed) ? [typed] : [])];
   const current = options.findIndex((o) => (o ?? DEFAULT_ACCENT).toUpperCase() === (choice.accent ?? DEFAULT_ACCENT).toUpperCase());
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
