@@ -1,3 +1,4 @@
+import { withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneNumberBetween, shotNumbers } from '../../core/model/shotNumbers';
 import { projectStoryboard, sceneFields, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
@@ -187,6 +188,13 @@ export function addShots(
 }
 
 /** Sends a frame to the Trash, and closes up its scene's letters unless they're locked. */
+/** Sets one of a frame's custom fields (1.19), or takes it off with null; from the records it lands on, so quick edits all stay. */
+export function setCustomField(records: Records, shotId: string, name: string, value: string | null): Change[] {
+  const props = records[shotId]?.props;
+  if (!props) return [];
+  return [{ kind: 'update', id: shotId, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }];
+}
+
 export function trashShot(records: Records, projectId: string, shotId: string): Change[] {
   const shot = records[shotId];
   if (!shot?.parentId) return [];

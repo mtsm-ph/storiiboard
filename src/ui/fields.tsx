@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes } from 'react';
 import { cx } from './cx';
 import { ChevronGlyph } from './glyphs';
 
@@ -6,6 +6,7 @@ interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'cl
   label: string;
   /** Technical values (shot 4B, 35mm, T2.0, 06:30) are always mono. */
   mono?: boolean;
+  ref?: Ref<HTMLInputElement>;
 }
 
 export function TextField({ label, mono = false, type = 'text', ...rest }: TextFieldProps) {
