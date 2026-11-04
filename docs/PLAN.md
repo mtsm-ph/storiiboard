@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.23 done, 1.24 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.24 done, 1.25 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.23 merged) |
+| Last updated | Nov 4, 2026 (1.24 merged) |
 
 | Phase | State |
 |---|---|
@@ -58,7 +58,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
 | 1.22 History tile: every step in words, restore a point, an item's old values | #41 | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #42 | Done |
-| 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | | Done |
+| 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #43 | Done |
 | 1.25 PDF storyboard | | Not started |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
