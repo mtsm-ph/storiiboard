@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
+import { useOpeningVersion } from '../../app/openingVersion';
 import { openVersion } from '../../app/projects/actions';
 import { showInfo, showNotice } from '../../app/notice';
 import { isMac } from '../../app/shell/undoShortcuts';
@@ -41,12 +42,16 @@ function LineText({ line }: { line: Line }) {
   );
 }
 
-/** Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. */
-export function RestoreStatus({ restoring }: { restoring: boolean }) {
+/**
+ * Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. Or that
+ * Open version is copying the project (1.23): with gigabytes of pictures that takes many seconds, and without a word
+ * someone may quit mid-copy. One line for the tile, so a screen reader hears one at a time.
+ */
+export function RestoreStatus({ restoring, opening = null }: { restoring: boolean; opening?: string | null }) {
   // Always there, empty when idle, so a screen reader hears it start.
   return (
     <p role="status" className="text-[13px]">
-      {restoring ? 'Restoring the project…' : ''}
+      {restoring ? 'Restoring the project…' : opening !== null ? `Copying “${opening}”…` : ''}
     </p>
   );
 }
@@ -58,6 +63,7 @@ export function HistoryTile() {
   // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
   const deletedForGood = useProject((s) => s.deletedForGood);
   const restoring = useProject((s) => s.restoring);
+  const opening = useOpeningVersion();
   const shotId = useSelection((s) => s.shotId);
   const noteId = useSelection((s) => s.noteId);
   const sceneId = useSelection((s) => s.sceneId);
@@ -268,7 +274,7 @@ export function HistoryTile() {
 
   return (
     <div className="flex min-h-full flex-col" aria-busy={restoring}>
-      <section aria-labelledby={versionsId} className="flex flex-col gap-2 border-b border-border p-3">
+      <section aria-labelledby={versionsId} aria-busy={opening !== null} className="flex flex-col gap-2 border-b border-border p-3">
         <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
           Named versions
         </h3>
@@ -303,6 +309,8 @@ export function HistoryTile() {
                 </div>
                 <Button
                   aria-label={`Open version ${version.name}`}
+                  // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                  aria-disabled={opening !== null || undefined}
                   onClick={() => {
                     void openVersion(version);
                   }}
@@ -324,7 +332,7 @@ export function HistoryTile() {
       </section>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
         <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
-        <RestoreStatus restoring={restoring} />
+        <RestoreStatus restoring={restoring} opening={opening} />
       </div>
       {filtered && named ? (
         itemOps?.id === item.id ? (

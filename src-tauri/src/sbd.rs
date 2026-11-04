@@ -157,17 +157,13 @@ impl SbdFile {
         check_extension(dest)?;
         self.check_unchanged()?;
         let dest_text = dest.to_str().ok_or("The copy's path isn't valid text.")?;
-        // create_new fails on any file already there, in one step; VACUUM INTO accepts an empty file.
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(dest)
-            .map_err(|error| match error.kind() {
-                std::io::ErrorKind::AlreadyExists => {
-                    "A file already exists at that path.".to_string()
-                }
-                _ => text(error),
-            })?;
+        // create_new fails on any file already there, in one step; VACUUM INTO accepts an empty file. Hidden, as a
+        // draft: the leading dot hides it on a Mac, the attribute on Windows (as for lock files), so one a crash
+        // leaves behind isn't there in Explorer to be opened and edited as if it were the version.
+        create_draft(dest).map_err(|error| match error.kind() {
+            std::io::ErrorKind::AlreadyExists => "A file already exists at that path.".to_string(),
+            _ => text(error),
+        })?;
         let copied = self
             .conn
             .execute("VACUUM INTO ?1", [dest_text])
@@ -621,6 +617,64 @@ fn to_json(value: ValueRef<'_>) -> Result<Json, String> {
     }
 }
 
+/// A new, empty file for save_copy, refused if anything is already there; hidden on Windows.
+#[cfg(windows)]
+fn create_draft(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_HIDDEN)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn create_draft(path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+
+/// Clears Windows' hidden attribute. std can set attributes only when creating a file, so this calls the system
+/// directly (kernel32, which every Windows program links already) rather than adding a crate.
+#[cfg(windows)]
+fn unhide(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetFileAttributesW(name: *const u16, attributes: u32) -> i32;
+    }
+    let attributes = fs::metadata(path)?.file_attributes();
+    let next = attributes & !FILE_ATTRIBUTE_HIDDEN;
+    if next == attributes {
+        return Ok(());
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // No attributes at all is spelled NORMAL.
+    let next = if next == 0 {
+        FILE_ATTRIBUTE_NORMAL
+    } else {
+        next
+    };
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call, which only reads it.
+    if unsafe { SetFileAttributesW(wide.as_ptr(), next) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Only Windows has a hidden attribute; elsewhere the leading dot of a draft's name hides it.
+#[cfg(not(windows))]
+fn unhide(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -682,6 +736,8 @@ impl OpenFiles {
         if dest.exists() {
             return Err("A file already exists at that path.".into());
         }
+        // Shown before it takes the version's name, so a copy is never kept under it hidden.
+        unhide(draft).map_err(text)?;
         fs::rename(draft, dest).map_err(text)?;
         files.drafts.remove(draft);
         Ok(())
@@ -1395,6 +1451,38 @@ mod tests {
         files.drop_copy(&failed).unwrap();
         assert!(!failed.exists());
         assert!(other.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hides_a_draft_on_windows_until_it_is_kept() {
+        use std::os::windows::fs::MetadataExt;
+        let hidden = |path: &Path| {
+            fs::metadata(path).unwrap().file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+        };
+        let dir = temp_dir("drafts-hidden");
+        let files = OpenFiles::default();
+        let handle = files.add(new_file(&dir, "Bey County.sbd")).unwrap();
+        let draft = dir.join(".Bey County (Board sent to client) 0a1b2c3d.sbd");
+        files.save_copy(handle, &draft).unwrap();
+        // Hidden while it's made and restored: one a crash leaves behind stays out of Explorer.
+        assert!(hidden(&draft));
+        // It still opens and takes writes as the restore needs, hidden as it is.
+        let mut copy = SbdFile::open(&draft).unwrap();
+        copy.tx(&[statement(
+            "INSERT INTO shots VALUES (?1, ?2)",
+            vec![Json::from("4A"), Json::from(35)],
+        )])
+        .unwrap();
+        drop(copy);
+        assert!(hidden(&draft));
+        // Kept under the version's name, it's shown like any project.
+        let kept = dir.join("Bey County (Board sent to client).sbd");
+        files.keep_copy(&draft, &kept).unwrap();
+        assert!(!hidden(&kept));
+        assert!(SbdFile::open(&kept).is_ok());
+        // The project itself was never hidden.
+        assert!(!hidden(&dir.join("Bey County.sbd")));
     }
 
     #[test]

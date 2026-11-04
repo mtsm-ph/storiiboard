@@ -10,6 +10,7 @@ import { fileStem } from '../../core/storage/paths';
 import { clearNotice, showInfo, showNotice } from '../notice';
 import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
 import { openVersionCopy } from '../openVersion';
+import { whileOpening } from '../openingVersion';
 import { projectStore } from '../projectStore';
 import { openOnboarding } from '../theme/onboarding';
 import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
@@ -128,28 +129,25 @@ export async function openBackup(path: string, projectPath: string): Promise<voi
   if (worked) announceBackupCopy(copy);
 }
 
-let openingVersion = false;
-
 /** Open version (1.23, src/app/openVersion.ts): a copy restored to the version's step, opened as a separate project. */
 export async function openVersion(version: NamedVersion): Promise<void> {
-  // One at a time: a double-click would otherwise make two copies.
-  if (!projectStore.getState().project || openingVersion) return;
-  openingVersion = true;
+  if (!projectStore.getState().project) return;
   // An object, so the check after the closure sees what the closure set.
-  const made: { copy: { path: string; opened: boolean } | null } = { copy: null };
-  const worked = await attempt(async () => {
-    try {
-      made.copy = await openVersionCopy(version, files);
-    } catch (error) {
-      // A sync replaced the open file: nothing was copied, and the newer version is reopened as after a refused edit.
-      if (error instanceof Error && error.message === CHANGED_ON_DISK) projectStore.setState({ changedOnDisk: true });
-      else throw error;
-    }
-  }).finally(() => {
-    openingVersion = false;
+  const made: { copy: { path: string; opened: boolean } | null; worked: boolean } = { copy: null, worked: false };
+  // One at a time (a double-click would otherwise make two copies), and History says which one is being copied.
+  const ran = await whileOpening(version.name, async () => {
+    made.worked = await attempt(async () => {
+      try {
+        made.copy = await openVersionCopy(version, files);
+      } catch (error) {
+        // A sync replaced the open file: nothing was copied, and the newer version is reopened as after a refused edit.
+        if (error instanceof Error && error.message === CHANGED_ON_DISK) projectStore.setState({ changedOnDisk: true });
+        else throw error;
+      }
+    });
   });
   const copy = made.copy;
-  if (!worked || !copy) return;
+  if (!ran || !made.worked || !copy) return;
   showInfo(
     copy.opened
       ? `Opened version “${version.name}” as a separate project, “${fileStem(copy.path)}”. The original is unchanged.`

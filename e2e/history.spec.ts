@@ -145,10 +145,21 @@ test('a named version opens as a copy at that point, and the original keeps ever
 
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(frames(page)).toHaveCount(4);
+  // The tile says which version it's copying while the copy is made, and stops once it opens.
+  const status = history(page).getByRole('status');
+  await expect(status).toHaveText('');
+  await status.evaluate((line) => {
+    const said: string[] = [];
+    Object.assign(window, { openSaid: said });
+    new MutationObserver(() => said.push(line.textContent)).observe(line, { subtree: true, childList: true, characterData: true });
+  });
   await history(page).getByRole('button', { name: 'Open version Board sent to client' }).click();
   // The copy shares the project's title; the notice names its file.
   await expect(page.getByRole('status').getByText(/Opened version “Board sent to client” as a separate project, “Bey County \(Board sent to client\)”/)).toBeVisible();
   await expect(frames(page)).toHaveCount(3);
+  await expect(history(page).getByRole('status')).toHaveText('');
+  await expect(history(page).locator('[aria-busy="true"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { openSaid: string[] }).openSaid)).toContain('Copying “Board sent to client”…');
 
   // The original, from the switcher: all four frames.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Project: / }).click();

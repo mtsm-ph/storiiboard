@@ -293,16 +293,22 @@ src/app/openVersion.ts):
   drafts the app made can be renamed or deleted. The version's name is shortened where a file name or a Windows path
   would be too long: the copy's own, and its scheduled and pre-upgrade backups' (a copy whose upgrade backup can't be
   written won't open after the next schema change). Naming a version and Open version each run one at a time, so a double press makes one.
+  While the copy is made the tile says `Copying “Board sent to client”…` and the Open version buttons take no clicks.
+  The draft is hidden on Windows too (the hidden attribute, cleared just before the rename), as lock files are.
   Naming or deleting a version that's refused because a sync replaced the file reopens the newer version, as a
   refused edit does (src/features/history/versionWrites.ts). After Delete…, focus moves to the version that took its
   place, else the one before it, else the Named versions heading.
 - Clean up old pictures keeps every picture a named version's step shows, until the version is deleted, so Open
   version never comes back with "Picture missing" because of it (Empty Trash still takes what it deletes, as before).
+  Settings → Storage asks after every edit, so it stays quick however many versions there are: only media records
+  are looked at, each version's point through the ops_by_record index, and which media records the log has is read
+  once per open file and then only from the newest writes (Clean up itself reads the whole log again before deleting).
 - Tests: Open version itself (src/core/storage/versions.test.ts): the copy is at the point and its restore undoes,
   it lasts a restart and the original keeps every frame and step; Cancel at the lock question leaves the original
   as it was; a restore that fails partway leaves no file; a file a sync replaced isn't copied; 80 Japanese characters
   fit, and so do the copy's backups' names and Windows paths; a v3 project upgrades to v4. Clean up leaves a
-  version's picture and Open version shows it, and takes it once the version is deleted (purge.test.ts). The drafts' guards in Rust (sbd.rs) and in the Node and memory drivers. End to
+  version's picture and Open version shows it, and takes it once the version is deleted, and stays within a few ms
+  with 60k ops and 30 versions (purge.test.ts). The drafts' guards in Rust (sbd.rs) and in the Node and memory drivers. End to
   end: Delete… asks and every step stays; two Enters in one moment name one version; two clicks on Open version make
   one copy; two versions sharing a name on one step both show; Delete… from the keyboard keeps focus in the tile.
   Naming and deleting on a file a sync replaced flag it for reopening (versionWrites.test.ts).
