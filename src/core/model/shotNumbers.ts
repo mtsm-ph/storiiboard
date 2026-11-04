@@ -78,7 +78,7 @@ export function shotNumbers(
     locked: boolean;
     /**
      * Numbers a locked scene's next free letter skips: every number on the board and every slate number of any scene,
-     * so 4C made in a scene since renumbered 9 is never made again in scene 4.
+     * so 4C made in a scene since renumbered 9 is never made again in a locked scene 4.
      */
     taken?: ReadonlySet<string> | undefined;
     /** This scene's own slate numbers: frames deleted for good still count towards its highest letter. */

@@ -237,8 +237,14 @@ never given out again, even after Empty Trash deletes the frame that had it (src
   not a restore, not Empty Trash. They're kept apart from the records for that reason: History stores whole records,
   so a list in a scene's props would go back with any undo of an older change to the scene.
 - A locked scene's next free letter comes after the highest it has used (its frames, live or in the Trash, and its
-  rows here), and skips every number on the board and every scene's rows, so a frame numbered 4C in a scene since
-  renumbered 9 is never made again in scene 4.
+  rows here), and skips every number on the board and every scene's rows, so 4C, made in a scene since renumbered 9
+  or deleted for good, is never made again in a locked scene 4.
+- An unlocked scene's letters can repeat another scene's numbers (a new scene 4 boarded after the old one was
+  deleted reads 4A, 4B again): they aren't on a slate yet. Locking keeps each frame's number unless it's another
+  scene's row here or a live frame's number in another scene; such a frame takes the next free letter, so the moment
+  numbers go onto slates, none is on two.
+- A locked scene restored from the Trash under a new number (its own was taken meanwhile) numbers its frames afresh
+  in board order, skipping the same numbers, and stays locked.
 - The migration replays the log to find every number a shot had while its scene was locked, live, trashed or only in
   History (made and then undone). Frames an Empty Trash deleted before schema 5 can't be found, since it cleared their
   steps; the scenes that were locked when one ran are listed in `meta` under `slate_numbers_unknown` (a JSON array of
@@ -356,7 +362,7 @@ aspect ratio changes. src/core/media/crop.ts does the arithmetic.
 O unless the project allows them, then AA, AB. While a scene is unlocked, its numbers follow the board, so adding,
 moving or deleting a frame renumbers the scene in the same op group. Locked, every shot keeps its number, even if the
 scene is renumbered; a new frame takes the next letter after the highest ever used, trashed frames and the scene's
-slate numbers included (schema 5, above), so no number is given out twice. Unlocking renumbers the scene to follow
+slate numbers included (schema 5, above), so no number in a locked scene is given out twice. Unlocking renumbers the scene to follow
 the board again.
 
 ### theme

@@ -13,23 +13,28 @@ export const SLATE_NUMBERS_UNKNOWN = 'slate_numbers_unknown';
 
 /** A UUID v4 made inside SQLite, one per row an INSERT … SELECT writes. */
 const UUID_V4 = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' ||
-  substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
+  substr('89ab', 1 + (random() & 3), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
+
+const KEPT = `sh.type = 'shot' AND sc.type = 'scene' AND json_extract(sc.props, '$.numbers_locked') = 1
+  AND typeof(json_extract(sh.props, '$.number')) = 'text' AND json_extract(sh.props, '$.number') <> ''`;
 
 /**
  * Records the number of every shot in a locked scene among `ids`, which can name shots or scenes (a scene names all of
  * its shots, for the moment it's locked). Runs in an edit's own transaction, after its records are written, so what
- * it reads is the edit's result. Numbers already recorded stay as they are.
+ * it reads is the edit's result. Numbers already recorded stay as they are. Null with no shot or scene to look at.
+ * Each half starts from the ids, through the primary key and records_by_parent, so a write never scans every shot.
  */
-export function recordSlateNumbers(ids: readonly string[], at: string): Statement {
+export function recordSlateNumbers(ids: readonly string[], at: string): Statement | null {
+  if (ids.length === 0) return null;
   const list = JSON.stringify(ids);
   return {
     sql: `INSERT INTO slate_numbers (id, scene_id, number, created_at, updated_at)
       SELECT ${UUID_V4}, scene_id, number, ?, ? FROM (
-        SELECT DISTINCT sc.id AS scene_id, json_extract(sh.props, '$.number') AS number
-          FROM records sh JOIN records sc ON sc.id = sh.parent_id
-          WHERE sh.type = 'shot' AND sc.type = 'scene' AND json_extract(sc.props, '$.numbers_locked') = 1
-            AND typeof(json_extract(sh.props, '$.number')) = 'text' AND json_extract(sh.props, '$.number') <> ''
-            AND (sh.id IN (SELECT value FROM json_each(?)) OR sc.id IN (SELECT value FROM json_each(?)))
+        SELECT sc.id AS scene_id, json_extract(sh.props, '$.number') AS number
+          FROM json_each(?) j JOIN records sh ON sh.id = j.value JOIN records sc ON sc.id = sh.parent_id WHERE ${KEPT}
+        UNION
+        SELECT sc.id, json_extract(sh.props, '$.number')
+          FROM json_each(?) j JOIN records sc ON sc.id = j.value JOIN records sh ON sh.parent_id = sc.id WHERE ${KEPT}
       ) WHERE true
       ON CONFLICT (scene_id, number) DO NOTHING`,
     params: [at, at, list, list],

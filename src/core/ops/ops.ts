@@ -194,6 +194,8 @@ interface GroupRow extends Tops {
   stackBelow: string | null;
 }
 
+const isNumbered = (record: SbdRecord | null) => record?.type === 'shot' || record?.type === 'scene';
+
 /** Writes the records, the op rows and the group row in one transaction. Nothing already in the log is touched. */
 async function commit(
   file: ProjectFile,
@@ -210,12 +212,16 @@ async function commit(
   const firstSeq = Number(top?.op ?? 0) + 1;
   const records = new Map<string, SbdRecord | null>();
   for (const op of ops) records.set(op.recordId, op.after);
+  // Any number this group gives a shot in a locked scene, or a scene as it's locked, joins its slate numbers (1.26).
+  // Undo, redo and restores write through here too, and never take a number out.
+  const numbered = recordSlateNumbers(
+    [...new Set(ops.filter((op) => isNumbered(op.after ?? op.before)).map((op) => op.recordId))],
+    at,
+  );
   await file.tx([
     ...alsoWrite,
     ...[...records].map(([id, record]) => write(id, record)),
-    // Any number this group gives a shot in a locked scene, or a scene as it's locked, joins its slate numbers (1.26).
-    // Undo, redo and restores write through here too, and never take a number out.
-    recordSlateNumbers([...records.keys()], at),
+    ...(numbered ? [numbered] : []),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
         timestamp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

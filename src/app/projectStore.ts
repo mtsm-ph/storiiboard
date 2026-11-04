@@ -90,9 +90,20 @@ export function createProjectStore(): StoreApi<ProjectState> {
   return createStore<ProjectState>()((set, get) => {
     const merge = async (project: Project, touched: Touched | null) => {
       if (touched === null) return;
-      const records = Object.fromEntries(Object.entries(get().records).filter(([id]) => !touched.has(id)));
+      const before = get().records;
+      // Only a group that touched a shot or a scene can have added slate numbers (1.26).
+      const numbered = [...touched].some(([id, record]) => {
+        const type = (record ?? before[id])?.type;
+        return type === 'shot' || type === 'scene';
+      });
+      const records = Object.fromEntries(Object.entries(before).filter(([id]) => !touched.has(id)));
       for (const [id, record] of touched) if (record) records[id] = record;
-      set({ records, slateNumbers: await loadSlateNumbers(project.file), ...(await history(project.file)), error: null });
+      set({
+        records,
+        ...(numbered ? { slateNumbers: await loadSlateNumbers(project.file) } : {}),
+        ...(await history(project.file)),
+        error: null,
+      });
     };
 
     const edit = (run: (project: Project) => Promise<Touched | null>) => {

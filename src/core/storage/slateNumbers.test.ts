@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addScene, addShot, board, setNumbersLocked, setSceneNumber, trashShot } from '../../features/storyboard/board';
-import { emptyTrashMessage } from '../../features/trash/trash';
+import { emptyTrashMessage, restoreChanges } from '../../features/trash/trash';
 import { log } from '../ops/ops';
 import { backupFileName } from './backups';
 import { nodeDriver } from './nodeDriver';
@@ -37,7 +37,11 @@ const scene = (id: string, number: string, sortKey: string) =>
 const frame = (sceneId: string) =>
   store.getState().applyWith((now, slate) => addShot(now, project.projectId, sceneId, null, {}, slate));
 const lock = (sceneId: string, locked = true) =>
-  store.getState().applyWith((now) => ({ changes: setNumbersLocked(now, project.projectId, sceneId, locked) }));
+  store.getState().applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, sceneId, locked, slate) }));
+const renumberScene = (sceneId: string, number: string) =>
+  store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, sceneId, number) }));
+const trashScene = (sceneId: string) =>
+  store.getState().apply([{ kind: 'trash', id: sceneId }, ...shotsIn(sceneId).map((s) => ({ kind: 'trash' as const, id: s.record.id }))]);
 const shotsIn = (sceneId: string) => board(records(), project.projectId).find((s) => s.record.id === sceneId)?.shots ?? [];
 const numbers = (sceneId = 'sc4') => shotsIn(sceneId).map((s) => s.fields.number);
 const trashLast = (sceneId = 'sc4') => {
@@ -124,6 +128,52 @@ describe('slate numbers', () => {
     expect(numbers(added)).toEqual(['4D']);
   });
 
+  it('renumbers, as it locks, a frame boarded unlocked onto a number a deleted scene already put on a slate', async () => {
+    await lock('sc4');
+    await trashScene('sc4');
+    await store.getState().emptyTrash();
+    // Scene 4 again, as a script revision brings it back; boarded unlocked, its letters follow the board.
+    await scene('sc4b', '4', 'W');
+    await frame('sc4b');
+    await frame('sc4b');
+    expect(numbers('sc4b')).toEqual(['4A', '4B']);
+    expect(await stored('sc4b')).toEqual([]);
+    // Locked, they go onto slates: 4A and 4B are on footage from the old scene 4, so they take the next free letters.
+    await lock('sc4b');
+    expect(numbers('sc4b')).toEqual(['4D', '4E']);
+    expect(await stored('sc4b')).toEqual(['4D', '4E']);
+    await frame('sc4b');
+    expect(numbers('sc4b')).toEqual(['4D', '4E', '4F']);
+  });
+
+  it('renumbers, as it locks, a frame holding the number of a live frame in a scene renumbered while locked', async () => {
+    await lock('sc4');
+    await renumberScene('sc4', '9');
+    await scene('sc4b', '4', 'W');
+    await frame('sc4b');
+    expect(numbers('sc4b')).toEqual(['4A']);
+    await lock('sc4b');
+    expect(numbers('sc4b')).toEqual(['4D']);
+    expect(numbers()).toEqual(['4A', '4B', '4C']);
+  });
+
+  it('numbers a locked scene restored under a new number past every slate number', async () => {
+    // A locked scene A4 shot A4A, then was deleted for good.
+    await scene('sc0', 'A4', 'U');
+    await frame('sc0');
+    await lock('sc0');
+    await trashScene('sc0');
+    await store.getState().emptyTrash();
+    // Scene 4, locked, goes to the Trash, and a new scene 4 takes its number.
+    await lock('sc4');
+    await trashScene('sc4');
+    await scene('sc4b', '4', 'W');
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, project.projectId, 'sc4', slate) }));
+    expect(records().sc4?.props.number).toBe('A4');
+    expect(records().sc4?.props.numbers_locked).toBe(true);
+    expect(numbers()).toEqual(['A4B', 'A4C', 'A4D']);
+  });
+
   it('goes into named version copies and backups, which are copies of the whole file', async () => {
     await lock('sc4');
     await frame('sc4');
@@ -177,6 +227,29 @@ describe('the schema 5 migration', () => {
     expect(store.getState().slateUnknown.size).toBe(0);
     await frame('sc4');
     expect(numbers()).toEqual(['4A', '4B', '4E']);
+  });
+
+  it('finds a number a frame had when its scene was locked, though the frame is now only in History', async () => {
+    await lock('sc4');
+    const firstLock = await newest();
+    await lock('sc4', false);
+    await frame('sc4'); // 4D, boarded unlocked
+    await lock('sc4'); // now on a slate
+    expect(await store.getState().restoreTo(firstLock)).toBe(true);
+    expect(numbers()).toEqual(['4A', '4B', '4C']);
+    await asV4ThenReopen();
+    expect(await stored()).toEqual(['4A', '4B', '4C', '4D']);
+  });
+
+  it('counts a scene as unknown when it was unlocked as Empty Trash ran but had been locked before', async () => {
+    await lock('sc4');
+    await trashLast(); // 4C, trashed while locked, keeps its number
+    await lock('sc4', false);
+    await store.getState().emptyTrash();
+    await lock('sc4');
+    await asV4ThenReopen();
+    expect(await stored()).toEqual(['4A', '4B']);
+    expect([...store.getState().slateUnknown]).toEqual(['sc4']);
   });
 
   it('lists the scenes that were locked when an earlier Empty Trash ran, and the confirm warns about those only', async () => {

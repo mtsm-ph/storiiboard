@@ -8,6 +8,7 @@ export function ScenesTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const apply = useProject((s) => s.apply);
+  const applyWith = useProject((s) => s.applyWith);
   const activeSceneId = useSelection((s) => s.sceneId);
   const selectScene = useSelection((s) => s.selectScene);
   const scenes = project ? board(records, project.projectId) : [];
@@ -25,7 +26,8 @@ export function ScenesTile() {
       canAdd={project !== null}
       onSelect={selectScene}
       onToggleLock={(id, locked) => {
-        if (project) void apply(setNumbersLocked(records, project.projectId, id, locked));
+        // From the records and slate numbers as they are at its turn: locking may renumber a frame (1.26).
+        if (project) void applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, id, locked, slate) }));
       }}
       onImport={() => {
         void chooseScriptToImport();
