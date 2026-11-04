@@ -177,6 +177,11 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
 - Deleting a frame, shot, scene, note or media item is a `trash` op. It sets `trashed_at` and `trashed_by`, and undo
   clears them. Restoring from the Trash is a `restore` op, so a restore can be undone too.
 - Trashing a scene trashes its shots in the same op group, so one restore brings the whole scene back.
+- Restore (1.20, src/features/trash/trash.ts) brings back what an item needs to be seen again, in its op group: a
+  frame or a note's scene when that's in the Trash too, and the frame's scene's numbers (unless locked). A frame's
+  old picture comes back as the frame's picture, sending the one it has now to the Trash. A scene comes back with
+  the frames and notes trashed in its op group (same `trashed_at` and `trashed_by`), not ones trashed before it.
+  Erased sketch strokes aren't listed in the Trash; undo brings them back.
 - A deletion approved from a change file is the same `trash` op, with the approver as `trashed_by`. Its op group also
   marks the suggestion approved, so undoing the approval undoes both.
 - Views, rollups, call sheets, checks and MCP reads skip records with `trashed_at` set unless the caller asks for them.

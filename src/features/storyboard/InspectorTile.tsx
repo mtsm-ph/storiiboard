@@ -36,9 +36,10 @@ export function InspectorTile() {
   const shotRecord = shotId ? records[shotId] : undefined;
   const shot =
     shotRecord?.type === 'shot' && shotRecord.trashedAt === null && shotRecord.parentId === scene?.id ? shotRecord : undefined;
-  const otherSceneNumbers = Object.values(records)
-    .filter((r) => r.type === 'scene' && r.trashedAt === null && r.id !== scene?.id && r.parentId === project.projectId)
-    .map((r) => sceneFields(r.props).number);
+  // Trashed scenes count, as + Scene counts them, so a restored scene never shares its number with one renumbered since.
+  const others = Object.values(records).filter((r) => r.type === 'scene' && r.id !== scene?.id && r.parentId === project.projectId);
+  const otherSceneNumbers = others.filter((r) => r.trashedAt === null).map((r) => sceneFields(r.props).number);
+  const trashedSceneNumbers = others.filter((r) => r.trashedAt !== null).map((r) => sceneFields(r.props).number);
 
   const update = (id: string, { set, unset }: FieldChange) => {
     void apply([{ kind: 'update', id, ...(set ? { set } : {}), ...(unset ? { unset } : {}) }]);
@@ -61,6 +62,7 @@ export function InspectorTile() {
         scene={scene ? { id: scene.id, fields: sceneFields(scene.props) } : null}
         shot={shot ? { id: shot.id, fields: shotFields(shot.props) } : null}
         otherSceneNumbers={otherSceneNumbers}
+        trashedSceneNumbers={trashedSceneNumbers}
         onShotChange={(change) => {
           if (shot) update(shot.id, change);
         }}
