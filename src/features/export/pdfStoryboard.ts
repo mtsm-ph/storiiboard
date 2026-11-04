@@ -152,12 +152,13 @@ const BOTTOM = MARGIN + 18;
 const CELL_WIDTH = (PAGE.width - 2 * MARGIN - (COLUMNS - 1) * GAP) / COLUMNS;
 
 /**
- * A frame's size in its cell: the cell's width, unless that makes a row taller than a page has room for under a
- * heading. A 9:16 frame a cell wide is 412pt tall, its row 498pt, and only 472pt fits: every row went to a page of
- * its own, its heading left alone on the page before, and ran off the foot. Capped, a tall frame is narrower instead.
+ * A frame's size in its cell: the cell's width, unless that makes a row too tall for two rows to fit on a page under
+ * a heading. A 9:16 frame a cell wide is 412pt tall and its row ran off the foot; a 4:3 one fits but makes a row of
+ * 260pt, so a 4:3, 1:1 or 4:5 board went out a row a page, twice the pages of a 16:9 one. Capped at 150pt, a taller
+ * frame is narrower instead, and every aspect prints six frames a page.
  */
 export function frameBox(aspect: number): { width: number; height: number } {
-  const most = TOP - BOTTOM - HEADING - CAPTION_HEIGHT - GAP;
+  const most = (TOP - BOTTOM - HEADING) / 2 - CAPTION_HEIGHT - GAP;
   const height = Math.min(CELL_WIDTH / aspect, most);
   return { width: height * aspect, height };
 }

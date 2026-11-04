@@ -258,7 +258,7 @@ fn target_of(chosen: &Chosen, header: &WriteHeader) -> Result<Target, String> {
 
 fn write_to(target: &Target, bytes: &[u8]) -> Result<(), String> {
     match target {
-        Target::Chosen(path) => fs::write(path, bytes).map_err(|error| error.to_string()),
+        Target::Chosen(path) => replace(path, |file| file.write_all(bytes)),
         Target::New(path) => {
             // create_new checks and makes the file in one step, so nothing can slip in between, and it fails on a
             // link already there rather than writing wherever the link points. Names in one export are unique, so a
@@ -281,6 +281,47 @@ fn write_to(target: &Target, bytes: &[u8]) -> Result<(), String> {
             })
         }
     }
+}
+
+/// Writes the file the Save dialog picked by filling a new file beside it and renaming that over it once it is whole.
+/// Truncated first, as fs::write does, a write that failed partway (a full disk) lost the file the person had agreed
+/// to replace and left a cut-short one in its place. The new file is made with create_new, so a name already there,
+/// a link included, is never written through; on any failure it is removed and the chosen file is as it was.
+fn replace(
+    path: &Path,
+    fill: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<(), String> {
+    let folder = path.parent().unwrap_or(Path::new(""));
+    let name = path
+        .file_name()
+        .ok_or("That isn't a name an export can have.")?
+        .to_string_lossy();
+    let mut made = None;
+    for attempt in 1..=99 {
+        let temp = folder.join(format!(".{name}.{}-{attempt}.part", std::process::id()));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
+            Ok(file) => {
+                made = Some((temp, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    let (temp, mut file) = made.ok_or("There are many unfinished exports in that folder.")?;
+    let written = fill(&mut file).and_then(|()| file.sync_all());
+    // Closed before the rename: Windows won't move a file that is still open.
+    drop(file);
+    written
+        .and_then(|()| fs::rename(&temp, path))
+        .map_err(|error| {
+            let _ = fs::remove_file(&temp);
+            error.to_string()
+        })
 }
 
 #[cfg(test)]
@@ -461,6 +502,66 @@ mod tests {
         std::os::unix::fs::symlink(&outside, made.join("SC004_4A.png")).unwrap();
         assert!(write_to(&Target::New(made.join("SC004_4A.png")), &[1]).is_err());
         assert_eq!(fs::read(&outside).unwrap(), [9]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// What is in `dir`, by name, sorted.
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_chosen_file_is_replaced_only_once_the_new_one_is_whole() {
+        let dir = temp("replace");
+        let pdf = dir.join("Bey County storyboard.pdf");
+        fs::write(&pdf, b"%PDF old").unwrap();
+
+        // Half the new PDF goes out, then the disk is full: the old one is still there, and nothing else is.
+        let failed = replace(&pdf, |file| {
+            file.write_all(b"%PDF new, half")?;
+            Err(std::io::Error::other("disk full"))
+        });
+        assert!(failed.unwrap_err().contains("disk full"));
+        assert_eq!(fs::read(&pdf).unwrap(), b"%PDF old");
+        assert_eq!(names_in(&dir), ["Bey County storyboard.pdf"]);
+
+        // A file already at the first temporary name is someone else's: left as it was, the next name is used.
+        let taken = dir.join(format!(
+            ".Bey County storyboard.pdf.{}-1.part",
+            std::process::id()
+        ));
+        fs::write(&taken, b"not ours").unwrap();
+        let chosen = Chosen::default();
+        remember(&chosen.files, &pdf);
+        let target = target_of(&chosen, &header(&pdf, None)).unwrap();
+        write_to(&target, b"%PDF new").unwrap();
+        assert_eq!(fs::read(&pdf).unwrap(), b"%PDF new");
+        assert_eq!(fs::read(&taken).unwrap(), b"not ours");
+        fs::remove_file(&taken).unwrap();
+        assert_eq!(names_in(&dir), ["Bey County storyboard.pdf"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_the_temporary_name_is_never_followed() {
+        let dir = temp("replace-link");
+        let outside = dir.join("outside.pdf");
+        fs::write(&outside, b"kept").unwrap();
+        let pdf = dir.join("Bey County storyboard.pdf");
+        let link = dir.join(format!(
+            ".Bey County storyboard.pdf.{}-1.part",
+            std::process::id()
+        ));
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        replace(&pdf, |file| file.write_all(b"%PDF new")).unwrap();
+        assert_eq!(fs::read(&pdf).unwrap(), b"%PDF new");
+        assert_eq!(fs::read(&outside).unwrap(), b"kept");
         fs::remove_dir_all(&dir).unwrap();
     }
 

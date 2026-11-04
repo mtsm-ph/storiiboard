@@ -303,6 +303,10 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Fixed in second review (Nov 4): line breaks and tabs typed into Action and Dialogue print as spaces, not as ? with
   the emoji warning; a stopped export says what it actually wrote, so a stopped PDF says nothing was written; the
   repo keeps LF line endings (.gitattributes).
+- Fixed in third review (Nov 4): a frame is capped at 150pt tall so two rows always fit a page under a heading, and
+  every aspect prints six frames a page (a 4:3, 1:1 or 4:5 board went out a row a page; a 9:16 frame is now 84pt
+  wide); a file picked in the Save dialog is written beside it under a temporary name and renamed over it only once
+  it is whole, so a write that fails partway (a full disk) leaves the old file as it was.
 
 **As built in 1.24 (Nov 3): export** (src/features/export, src/core/storage/exportFiles.ts, src-tauri/src/export.rs):
 - Export Project… in the project menu: a format from the registry (each one file plus one line in registry.ts), the

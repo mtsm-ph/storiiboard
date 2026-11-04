@@ -7,6 +7,7 @@ import { createProjectStore } from '../../app/projectStore';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
+import { ASPECT_RATIOS } from '../../core/model/storyboard';
 import { addShot } from '../storyboard/board';
 import { frameBox, localDate, MARGIN, PAGE, storyboardPdf, watermarkPlacement, wrap, type PdfFonts } from './pdfStoryboard';
 import { watermarkOutline } from './renderFrame';
@@ -386,22 +387,40 @@ describe('the PDF storyboard', () => {
     frame: () => Promise.resolve({ jpeg }),
   });
 
-  it('fits a 9:16 row under its heading, so a tall board pages as a wide one does', async () => {
-    await scene('sc4', '4', 6);
+  it('fits two 9:16 rows under its heading, so a tall board pages as a wide one does', async () => {
+    await scene('sc4', '4', 12);
     const box = frameBox(9 / 16);
     expect(box.width / box.height).toBeCloseTo(9 / 16, 6);
     const { bytes } = await storyboardPdf(board(9 / 16));
-    // A row a page: SC 04's heading with its first row, then the second carried on; never a heading on its own.
+    // Two rows a page: SC 04's heading with its first six frames, then the next six carried on; never a heading alone.
     const texts = await pageTexts(bytes);
     expect(texts).toHaveLength(2);
-    expect(texts[0]).toContain('4A');
+    expect(texts[0]).toContain('4F');
+    expect(texts[0]).not.toContain('4G');
     expect(texts[0]).not.toContain('(continued)');
     expect(texts[1]).toContain('INT. DINER — NIGHT (continued)');
-    expect(texts[1]).toContain('4D');
+    expect(texts[1]).toContain('4L');
     // And every caption stays above the footer's band.
     for (const n of [1, 2]) {
       const items = (await pageItems(bytes, n)).filter((i) => i.str.trim() !== '' && !/^\d+ \/ \d+$|^\d{4}-\d{2}-\d{2}$/.test(i.str));
       expect(Math.min(...items.map((i) => i.y))).toBeGreaterThan(MARGIN + 18);
+    }
+  });
+
+  it('prints six frames a page in every aspect a project can have', async () => {
+    // A 4:3, 1:1 or 4:5 frame a cell wide made a row too tall for two to fit: 30 frames went out on 10 pages, not 5.
+    await scene('sc4', '4', 30);
+    for (const { id, ratio } of ASPECT_RATIOS) {
+      const box = frameBox(ratio);
+      expect(box.width / box.height, id).toBeCloseTo(ratio, 6);
+      expect(box.width, id).toBeLessThanOrEqual((PAGE.width - 2 * MARGIN - 2 * 12) / 3 + 1e-9);
+      const { bytes } = await storyboardPdf(board(ratio));
+      const texts = await pageTexts(bytes);
+      expect(texts, id).toHaveLength(5);
+      expect(texts[0], id).toContain('4F');
+      expect(texts[0], id).not.toContain('4G');
+      const items = (await pageItems(bytes, 1)).filter((i) => i.str.trim() !== '' && !/^\d+ \/ \d+$|^\d{4}-\d{2}-\d{2}$/.test(i.str));
+      expect(Math.min(...items.map((i) => i.y)), id).toBeGreaterThan(MARGIN + 18);
     }
   });
 
