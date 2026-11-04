@@ -1,7 +1,8 @@
 import type { ProjectState } from '../../core/model/project';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { appDataDir } from '@tauri-apps/api/path';
-import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
+import { copyBackup, copyBeside, folderOfPath } from '../../core/storage/openBackup';
+import { freshFileId, type NamedVersion } from '../../core/storage/versions';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
 import { appData, appDriver, isTauriApp } from '../fileAccess';
@@ -122,6 +123,31 @@ export async function openBackup(path: string, projectPath: string): Promise<voi
     await openProjectFile(copy, files);
   });
   if (worked) announceBackupCopy(copy);
+}
+
+/**
+ * Open version (1.23, docs/PLAN.md: History, versions and backups): copies the open project beside it, named after
+ * the version, gives the copy a file id of its own, opens it as a separate project, and restores the copy to the
+ * version's step. The original is never touched.
+ */
+export async function openVersion(version: NamedVersion): Promise<void> {
+  const open = projectStore.getState().project;
+  if (!open) return;
+  // A version's name may hold what a file name can't.
+  const label = version.name.replace(/[/\\:*?"<>|]+/g, ' ').trim() || 'version';
+  let copy = '';
+  const worked = await attempt(async () => {
+    copy = await copyBeside(open.file.path, label, appDriver);
+    const file = await appDriver.open(copy);
+    try {
+      await freshFileId(file);
+    } finally {
+      await file.close();
+    }
+    await openProjectFile(copy, files);
+    await projectStore.getState().restoreTo(version.opGroupId);
+  });
+  if (worked) showInfo(`Opened version “${version.name}” as a separate project, “${fileStem(copy)}”. The original is unchanged.`);
 }
 
 /** A backup's copy keeps the project's title, so the notice says which file is open and that the original is safe. */

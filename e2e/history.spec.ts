@@ -69,6 +69,30 @@ test('one frame’s own changes, field by field, with an old value to put back',
   await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
 });
 
+test('a named version opens as a copy at that point, and the original keeps every frame', async ({ page }) => {
+  await openHistory(page);
+  await history(page).getByLabel('Name this point').fill('Board sent to client');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toContainText('Board sent to client');
+  await expect(steps(page).first()).toContainText('Board sent to client');
+
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(frames(page)).toHaveCount(4);
+  await history(page).getByRole('button', { name: 'Open version Board sent to client' }).click();
+  await expect(page.getByRole('banner')).toContainText('Bey County (Board sent to client)');
+  await expect(frames(page)).toHaveCount(3);
+
+  // The original, from the switcher: all four frames.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Project: / }).click();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County$/ }).click();
+  await expect(frames(page)).toHaveCount(4);
+
+  // Deleting the version asks first, and leaves the steps.
+  page.once('dialog', (dialog) => void dialog.accept());
+  await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).click();
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`History passes axe (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });

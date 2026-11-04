@@ -1,18 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
+import { openVersion } from '../../app/projects/actions';
 import { showInfo, showNotice } from '../../app/notice';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { projectStore, useProject } from '../../app/projectStore';
 import type { JsonValue } from '../../core/model/record';
 import { shotFields } from '../../core/model/storyboard';
 import { log, opsOfGroups, opsOfRecord, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { deleteVersion, listVersions, nameVersion, versionName, type NamedVersion } from '../../core/storage/versions';
 import { Button } from '../../ui/Button';
-import { Toggle } from '../../ui/fields';
+import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { changedProps, describeGroup, fieldLabel, valueLabel } from './summary';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
-// did, who and when, and Restore to here. Filtered to the selected frame, every change to it, field by field, with
+// did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects. Filtered to the selected frame, every change to it, field by field, with
 // its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
 
 /** Steps shown at a time; older ones load on asking, so a long project opens its History at once. */
@@ -22,6 +25,11 @@ interface Loaded {
   steps: { group: OpGroup; line: string }[];
   /** More steps before the oldest shown. */
   more: boolean;
+  /** The newest step: what a version named now includes. */
+  newest: string | null;
+  versions: NamedVersion[];
+  /** Each version's step, in words. */
+  versionLines: Map<string, string>;
 }
 
 const who = (author: string) => (author === 'local' ? 'You' : author);
@@ -30,15 +38,23 @@ async function loadSteps(file: Parameters<typeof log>[0], count: number): Promis
   const groups = await log(file);
   const shown = groups.slice(-count);
   // Undo, redo and restore name the step they point at, which may be older than the page.
+  const versions = await listVersions(file);
   const wanted = new Set(shown.map((g) => g.id));
   for (const g of shown) for (const id of [g.targetGroupId, g.restoreTo]) if (id) wanted.add(id);
+  for (const v of versions) wanted.add(v.opGroupId);
   const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
   const byGroup = new Map<string, LoggedOp[]>();
   for (const op of ops) byGroup.set(op.groupId, [...(byGroup.get(op.groupId) ?? []), op]);
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, string>();
   for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored));
-  return { steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? 'a step' })), more: groups.length > count };
+  return {
+    steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? 'a step' })),
+    more: groups.length > count,
+    newest: groups.at(-1)?.id ?? null,
+    versions,
+    versionLines: new Map(versions.map((v) => [v.id, titles.get(v.opGroupId) ?? 'a step'])),
+  };
 }
 
 export function HistoryTile() {
@@ -50,6 +66,10 @@ export function HistoryTile() {
   const [onlyFrame, setOnlyFrame] = useState(false);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [frameOps, setFrameOps] = useState<LoggedOp[] | null>(null);
+  const [naming, setNaming] = useState('');
+  const versionsId = useId();
+  // Bumped after naming or deleting a version, which changes no record, so History is read again.
+  const [generation, setGeneration] = useState(0);
   const shot = shotId ? records[shotId] : undefined;
   const frame = shot?.type === 'shot' && shot.trashedAt === null ? shot : undefined;
   const filtered = onlyFrame && frame !== undefined;
@@ -66,7 +86,7 @@ export function HistoryTile() {
     return () => {
       live = false;
     };
-  }, [project, records, canUndo, count]);
+  }, [project, records, canUndo, count, generation]);
 
   useEffect(() => {
     if (!project || !filtered) return;
@@ -100,8 +120,81 @@ export function HistoryTile() {
   };
 
   const frameName = frame ? shotFields(frame.props).number : '';
+  const named = versionName(naming);
+  const saveVersion = () => {
+    if (!named || !loaded?.newest) return;
+    void nameVersion(project.file, { name: named, opGroupId: loaded.newest })
+      .then(() => {
+        setNaming('');
+        setGeneration((n) => n + 1);
+        showInfo(`Named this point “${named}”.`);
+      })
+      .catch(showNotice);
+  };
+  const removeVersion = async (version: NamedVersion) => {
+    const sure = await confirmForGood(
+      'Delete version?',
+      `The name “${version.name}” will be deleted. The steps stay in History; only the name goes, and it can’t be undone.`,
+      'Delete version',
+    );
+    if (!sure) return;
+    await deleteVersion(project.file, version.id).catch(showNotice);
+    setGeneration((n) => n + 1);
+  };
+  const versionsAt = new Map<string, string[]>();
+  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v.name]);
+
   return (
     <div className="flex min-h-full flex-col">
+      <section aria-labelledby={versionsId} className="flex flex-col gap-2 border-b border-border p-3">
+        <h3 id={versionsId} className="sb-label">
+          Named versions
+        </h3>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <TextField
+              label="Name this point"
+              value={naming}
+              placeholder="Board sent to client"
+              maxLength={80}
+              onChange={(event) => {
+                setNaming(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') saveVersion();
+              }}
+            />
+          </div>
+          <Button disabled={!named || !loaded?.newest} onClick={saveVersion}>
+            Name version
+          </Button>
+        </div>
+        {(loaded?.versions.length ?? 0) > 0 && (
+          <ul aria-label="Named versions" className="flex flex-col">
+            {loaded?.versions.map((version) => (
+              <li key={version.id} className="flex items-center gap-3 border-t border-border py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold">{version.name}</p>
+                  <p className="text-[11px] text-text-muted">
+                    After “{loaded.versionLines.get(version.id)}” · <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>
+                  </p>
+                </div>
+                <Button
+                  aria-label={`Open version ${version.name}`}
+                  onClick={() => {
+                    void openVersion(version);
+                  }}
+                >
+                  Open version
+                </Button>
+                <Button variant="warning" aria-label={`Delete version ${version.name}`} onClick={() => void removeVersion(version)}>
+                  Delete…
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
         <Toggle label={frame ? `Only frame ${frameName}` : 'Only the selected frame'} checked={filtered} disabled={!frame} onChange={setOnlyFrame} />
       </div>
@@ -118,7 +211,14 @@ export function HistoryTile() {
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px]">{line}</p>
+                    <p className="text-[13px]">
+                      {line}
+                      {(versionsAt.get(group.id) ?? []).map((name) => (
+                        <span key={name} className="sb-label ml-2 border border-text px-1">
+                          {name}
+                        </span>
+                      ))}
+                    </p>
                     <p className="font-mono text-[11px] text-text-muted">
                       {who(group.author)} · {localDateTime(new Date(group.timestamp))}
                     </p>
