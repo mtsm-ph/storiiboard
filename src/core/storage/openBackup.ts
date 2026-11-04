@@ -1,3 +1,4 @@
+import { backupFileName, migrationBackupName } from './backups';
 import type { SqlDriver } from './driver';
 import { fileStem } from './paths';
 
@@ -82,20 +83,45 @@ const MAX_WINDOWS_PATH = 259;
 
 const isWindowsPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
 
+const nameFits = (name: string) => new TextEncoder().encode(name).length <= MAX_NAME && name.length <= MAX_NAME;
+
 /** Whether a project file at `path`, its journal and its lock file all have names and paths the disk can hold. */
 function fits(path: string): boolean {
   const name = path.slice(lastSeparator(path) + 1);
-  const names = [`${name}-journal`, `.${name}.lock`];
-  const bytes = (text: string) => new TextEncoder().encode(text).length;
-  if (!names.every((n) => bytes(n) <= MAX_NAME && n.length <= MAX_NAME)) return false;
+  if (![`${name}-journal`, `.${name}.lock`].every(nameFits)) return false;
   return !isWindowsPath(path) || `${path}-journal`.length <= MAX_WINDOWS_PATH;
+}
+
+/** Any time: the stamp in a backup's name is always the same length. */
+const ANY_TIME = new Date(2026, 10, 4, 9, 0);
+/** A two-digit schema, so a copy made now can still be upgraded for years. */
+const LATER_SCHEMA = 99;
+
+/**
+ * Whether the backups a project at `path` will need can be written too, as SQLite writes them, each under its name
+ * with `.partial` added until it's complete (src-tauri/src/backup.rs): its scheduled backups in `Backups/` beside it,
+ * and the copy made before a schema upgrade, beside it, without which the upgrade refuses to run and the project
+ * won't open. A synced project's backups go to a folder on this computer instead, whose path isn't known here; their
+ * names are the same, so the name check covers them.
+ */
+function backupsFit(path: string): boolean {
+  const folder = folderOf(path);
+  const separator = path[lastSeparator(path)] ?? '/';
+  const name = path.slice(lastSeparator(path) + 1);
+  const scheduled = `${backupFileName(fileStem(path), ANY_TIME)}.partial`;
+  const migration = `${migrationBackupName(name, LATER_SCHEMA, ANY_TIME)}.partial`;
+  if (![scheduled, migration].every(nameFits)) return false;
+  if (!isWindowsPath(path)) return true;
+  const paths = [`${folder}${separator}Backups${separator}${scheduled}`, `${folder}${separator}${migration}`];
+  return paths.every((p) => p.length <= MAX_WINDOWS_PATH);
 }
 
 /**
  * Open version's copy (1.23): beside the project, named after the version, `Bey County (Board sent to client).sbd`
  * (then `(Board sent to client 2)`), and the draft it's made and restored in first, `.Bey County (Board sent to
  * client) 0a1b2c3d.sbd`, hidden on a Mac. A version's name can be 80 characters, which in Japanese or Chinese is about
- * 240 bytes, so a name that would make a file name or a path too long for the disk or SQLite is shortened to fit.
+ * 240 bytes, so a name that would make a file name or a path too long for the disk or SQLite is shortened to fit: the
+ * copy's own, and those of the backups it will need, scheduled and before an upgrade.
  */
 export function versionCopyPaths(source: string, versionName: string, draftId: string): { draft: string; path: (attempt: number) => string } {
   const folder = folderOf(source);
@@ -112,7 +138,8 @@ export function versionCopyPaths(source: string, versionName: string, draftId: s
       draft: `${folder}${separator}.${stem} (${label}) ${draftId}.sbd`,
       path: (attempt: number) => copyPath(source, label, attempt),
     };
-    if (fits(paths.draft) && fits(paths.path(MAX_COPIES))) return paths;
+    // The draft is never backed up or upgraded: it's renamed or deleted in the same Open version.
+    if (fits(paths.draft) && fits(paths.path(MAX_COPIES)) && backupsFit(paths.path(MAX_COPIES))) return paths;
   }
   throw new Error('This project’s folder path is too long to put a copy beside it. Move the project to a folder with a shorter path, then open the version again.');
 }

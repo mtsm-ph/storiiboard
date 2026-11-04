@@ -4,6 +4,7 @@ import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, board } from '../../features/storyboard/board';
 import { apply, log } from '../ops/ops';
+import { backupFileName, migrationBackupName } from './backups';
 import type { SqlDriver } from './driver';
 import { migrate } from './migrate';
 import { MIGRATIONS, SCHEMA_VERSION } from './migrations';
@@ -227,6 +228,19 @@ describe('Open version', () => {
 
 describe('Open version’s file names', () => {
   const longest = (paths: ReturnType<typeof versionCopyPaths>) => [paths.draft, paths.path(50)];
+  const at = new Date(2026, 11, 31, 23, 59);
+  const nameOf = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+  /** The copy's scheduled backup and its pre-upgrade backup, as SQLite writes them (`.partial` until complete). */
+  const backupsOf = (path: string) => {
+    const name = nameOf(path);
+    const folder = path.slice(0, path.length - name.length);
+    const separator = folder.at(-1) ?? '/';
+    return [
+      `${folder}Backups${separator}${backupFileName(name.slice(0, -'.sbd'.length), at)}.partial`,
+      `${folder}${migrationBackupName(name, 99, at)}.partial`,
+    ];
+  };
+  const bytes = (text: string) => new TextEncoder().encode(text).length;
 
   it('keeps every file name it makes within 255 bytes, journal and lock file included', () => {
     const paths = versionCopyPaths('/Films/Bey County.sbd', '絵コンテ'.repeat(20), '0a1b2c3d');
@@ -248,6 +262,28 @@ describe('Open version’s file names', () => {
     const mac = versionCopyPaths(`${folderPath.replace(/\\/g, '/').slice(2)}/Bey County.sbd`, 'Board sent to client after the second recce', '0a1b2c3d');
     expect(mac.path(1).endsWith('(Board sent to client after the second recce).sbd')).toBe(true);
     expect(() => versionCopyPaths(`C:\\${'x'.repeat(240)}\\Bey County.sbd`, 'Board', '0a1b2c3d')).toThrow(/folder path is too long/);
+  });
+
+  it('leaves room for the copy’s backups: scheduled ones and the one made before a schema upgrade', () => {
+    for (const attempt of [1, 50]) {
+      const copy = versionCopyPaths('/Users/k/Films/Bey County.sbd', '絵コンテ'.repeat(20), '0a1b2c3d').path(attempt);
+      for (const backup of backupsOf(copy)) {
+        expect(bytes(nameOf(backup))).toBeLessThanOrEqual(255);
+        expect(nameOf(backup).length).toBeLessThanOrEqual(255);
+      }
+    }
+    // A short name is still left whole.
+    expect(versionCopyPaths('/Films/Bey County.sbd', 'Board sent to client', '0a1b2c3d').path(1)).toBe('/Films/Bey County (Board sent to client).sbd');
+  });
+
+  it('keeps the copy’s backups’ Windows paths within what SQLite opens there', () => {
+    const folderPath = `C:\\Users\\kevma\\Documents\\${'Shoot\\'.repeat(25)}Spring`;
+    const version = 'Board sent to client after the second recce, with notes';
+    for (const attempt of [1, 50]) {
+      const copy = versionCopyPaths(`${folderPath}\\Bey County.sbd`, version, '0a1b2c3d').path(attempt);
+      for (const backup of backupsOf(copy)) expect(backup.length).toBeLessThanOrEqual(259);
+    }
+    expect(versionCopyPaths(`${folderPath}\\Bey County.sbd`, version, '0a1b2c3d').path(1).startsWith(`${folderPath}\\Bey County (Board`)).toBe(true);
   });
 
   it('leaves out what a file name can’t hold', () => {

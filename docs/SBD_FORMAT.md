@@ -114,8 +114,8 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
-deletes the bytes of pictures only History uses (1.21); the steps stay, and a frame they name such a picture on reads
-"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
+deletes the bytes of pictures only History uses (1.21), never one a named version shows (1.23); the steps stay, and
+a frame they name such a picture on reads "Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
 is gone from the file itself, though the file doesn't shrink: SQLite reuses the space for new pictures. Space freed
 before 1.21 wasn't zeroed, so a file edited with an earlier build can still hold older versions of some text in its
 free space.
@@ -156,8 +156,8 @@ and after each edit, never copies a picture.
   record pointing at nothing. Only the person deleting them on purpose can (below).
 - Bytes stay when the record using them is undone, trashed or given another picture, so undo, a History restore or a
   named version can bring an old picture back. They're deleted only by Empty Trash (bytes nothing left in the file
-  refers to) and Clean up old pictures (bytes only History refers to), both after a confirm (1.21). A frame or step
-  that then names a deleted picture shows "Picture missing".
+  refers to) and Clean up old pictures (bytes only History refers to, and no named version shows), both after a
+  confirm (1.21). A frame or step that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
 
@@ -193,7 +193,9 @@ opens it as a separate project, as Open backup does. The original is never chang
 
 Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
 the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
-opened later lacks what it deleted.
+opened later lacks what it deleted. Clean up old pictures keeps every picture a version's step shows (read as a
+restore to it reads it: for each record changed since, the `before` of its first op after the step), until the version
+is deleted.
 
 How Open version makes its copy (src/app/openVersion.ts), so the original is never touched and a copy that fails
 partway never looks finished:
@@ -208,7 +210,10 @@ partway never looks finished:
 
 The version's name in the file name loses what a file name can't hold (`/ \ : * ? " < > |`), and is shortened so the
 file name, its journal and its lock file stay within 255 bytes, and on Windows the path and its journal's within
-SQLite's 259 characters.
+SQLite's 259 characters. The names of the backups the copy will need fit too, as they're written (`.partial` until
+complete): a scheduled backup in `Backups/` beside it, and the copy made before a schema upgrade (room is left for a
+two-digit schema), without which the upgrade refuses to run. A synced project's backups go to a folder on this
+computer; their names fit, but that folder's path isn't checked.
 
 ## Trash
 
@@ -236,8 +241,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that
   sat under a deleted parent at that point stays where it is.
 - Clean up old pictures (1.21, Settings → Storage, after a confirm) deletes stored pictures no record uses, live or
-  in the Trash, though older ops may (a picture added and undone). The log is unchanged; a step that brings such a
-  record back shows its picture as removed.
+  in the Trash, though older ops may (a picture added and undone), and no named version's step shows (1.23). The log
+  is unchanged; a step that brings such a record back shows its picture as removed.
 
 ## Project record props
 

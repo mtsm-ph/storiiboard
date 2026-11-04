@@ -9,7 +9,8 @@ import { projectStore, useProject } from '../projectStore';
 
 // Settings → Storage (1.21): what the project's pictures take, and the two ways to give space back, each after a
 // confirm that says it can't be undone. Empty Trash deletes the Trash for good. Clean up old pictures deletes pictures
-// only History still uses (one added and then undone, say); the steps that used them then show "picture removed".
+// only History still uses (one added and then undone, say), never one a named version shows; the steps that used them
+// then show "picture removed".
 
 export function StorageTile() {
   const project = useProject((s) => s.project);
@@ -85,13 +86,13 @@ export function StorageTile() {
           {old === null
             ? 'Counting…'
             : old.count === 0
-              ? 'None. Every stored picture is on the board or in the Trash.'
+              ? 'None. Every stored picture is on the board, in the Trash or in a named version.'
               : `${String(old.count)} ${old.count === 1 ? 'picture' : 'pictures'}, `}
           {old !== null && old.count > 0 && <span className="font-mono">{sizeLabel(old.bytes)}</span>}
         </p>
         <p className="text-[12px] text-text-muted">
-          Pictures that no frame shows, even from the Trash, but an older step in History does: one added and then undone,
-          for example. Once deleted, the space they took inside the project is used for new pictures; the file itself
+          Pictures that no frame shows, even from the Trash or a named version, but an older step in History does: one
+          added and then undone, for example. Once deleted, the space they took inside the project is used for new pictures; the file itself
           doesn’t get smaller.
         </p>
         <Button

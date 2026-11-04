@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, moveItem, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
@@ -10,6 +11,7 @@ import { shotFields } from '../model/storyboard';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, openProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
+import { deleteVersion, listVersions, nameVersion } from '../storage/versions';
 import { historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
 
 function picture(seed: number): FramePicture {
@@ -356,6 +358,37 @@ describe('Clean up old pictures', () => {
     await reopen();
     expect(shotFields(records()[shot]?.props ?? {}).mediaId).toBe(mediaId);
     expect(await readOriginal(project.file, sha)).toBeNull();
+  });
+
+  it('keeps a picture a named version shows until the version is deleted, so Open version still has it', async () => {
+    const shot = await frame();
+    const sent = await withPicture(shot, 10);
+    await nameVersion(project.file, { name: 'Board sent to client', opGroupId: (await log(project.file)).at(-1)?.id ?? '' });
+    // Taken back off the frame, so no record shows it: only History and the version do.
+    await store.getState().undo();
+    // One no version shows, which Clean up still takes.
+    const tried = await withPicture(shot, 11);
+    await store.getState().undo();
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([tried]);
+    expect((await store.getState().cleanUpPictures())?.removed).toBe(1);
+    expect(await readOriginal(project.file, sent)).not.toBeNull();
+
+    // Deleting the version leaves the picture to History alone.
+    const [version] = await listVersions(project.file);
+    if (!version) throw new Error('no version');
+    const other = await nameVersion(project.file, { name: 'Spare', opGroupId: version.opGroupId });
+    await deleteVersion(project.file, other);
+    expect(await historyOnlyPictures(project.file)).toEqual([]);
+
+    await openVersionCopy(version, { store, driver: nodeDriver });
+    const copy = store.getState().project;
+    const mediaId = shotFields(records()[shot]?.props ?? {}).mediaId ?? '';
+    expect(records()[mediaId]?.props.file).toBe(sent);
+    expect(await readOriginal(copy?.file ?? project.file, sent)).not.toBeNull();
+
+    await reopen();
+    await deleteVersion(project.file, version.id);
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([sent]);
   });
 
   it('deletes nothing when the write dies halfway', async () => {

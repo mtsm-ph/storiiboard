@@ -467,8 +467,11 @@ export interface StoredPicture {
 }
 
 /**
- * Stored pictures nothing uses once `without` records are gone: no record's props name them, and (when `historyToo`)
- * no op of a remaining record does either.
+ * Stored pictures nothing uses once `without` records are gone: no record's props name them, and either (when
+ * `historyToo`) no op of a remaining record does, or no named version's point does. A version is kept until someone
+ * deletes it (CLAUDE.md: Going back in time), so Clean up never takes a picture Open version would show. Its point is
+ * read as restoreTo reads it: a record touched after the point was, at the point, the `before` of its first op after
+ * it; one untouched since is as it is now, and so is already counted.
  */
 async function unusedPictures(file: ProjectFile, without: readonly string[], historyToo: boolean): Promise<StoredPicture[]> {
   const fromOps = historyToo
@@ -476,9 +479,20 @@ async function unusedPictures(file: ProjectFile, without: readonly string[], his
          WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
        UNION SELECT json_extract(after, '$.props.file') FROM ops
          WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
-    : '';
+    : `UNION SELECT json_extract(o.before, '$.props.file') FROM ops o
+         JOIN (SELECT min(x.seq) AS first FROM points p JOIN ops x ON x.seq > p.last GROUP BY p.last, x.record_id) f
+           ON o.seq = f.first
+         WHERE json_extract(o.before, '$.type') = 'media' AND o.record_id NOT IN (SELECT id FROM gone)`;
+  // Each version's point as restoreTo finds it: the last op of its group or any group before it.
+  const points = historyToo
+    ? ''
+    : `points(last) AS (
+        SELECT DISTINCT (SELECT coalesce(max(o.seq), 0) FROM ops o JOIN op_groups e ON e.id = o.group_id WHERE e.seq <= g.seq)
+          FROM versions v JOIN op_groups g ON g.id = v.op_group_id
+      ),`;
   const rows = await file.query(
     `WITH gone(id) AS (SELECT value FROM json_each(?)),
+      ${points}
       used(sha) AS (
         SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
         ${fromOps}
@@ -547,7 +561,8 @@ export async function emptyTrash(
 /**
  * Pictures only History still uses (1.21): no record in the project, live or in the Trash, shows them, but an older
  * step does (a picture added and undone, say). Clean up old pictures deletes them for good; those steps then show
- * "picture removed".
+ * "picture removed". A picture a named version's point shows isn't one of them (1.23): it stays until the version is
+ * deleted.
  */
 export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]> {
   return unusedPictures(file, [], false);
