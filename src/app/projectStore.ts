@@ -271,12 +271,11 @@ export function createProjectStore(): StoreApi<ProjectState> {
         try {
           // In the queue like an edit: nothing is written while the file is rewritten.
           await edit(async (project) => {
-            const done = await compactProject(project.file, { schedule: project.backups });
+            result = await compactProject(project.file, { schedule: project.backups });
             // Compacting may renumber the table's rows, so the slate numbers are read again from the start.
             const slate = await slateNumbersAfter(project.file, 0);
             slateRead = slate.last;
             set({ slateNumbers: slate.rows, error: null });
-            result = done;
             return null;
           });
         } finally {

@@ -283,6 +283,8 @@ impl SbdFile {
             return Err("A backup of this project is being made. Try again when it's done.".into());
         }
         self.check_unchanged()?;
+        // Fresh, so the lock reads as held for as long as possible while the file is half rewritten.
+        let _ = self.refresh_lock();
         let before = self.fingerprint.id;
         let result = self.conn.execute_batch("VACUUM").map_err(text);
         self.fingerprint = fingerprint(&self.path)?;

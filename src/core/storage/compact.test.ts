@@ -176,11 +176,24 @@ describe('Compact project', () => {
     await store.getState().applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, 'sc4', true, slate) }));
     const slate = store.getState().slateNumbers.map((row) => `${row.number} ${row.shotId}`).sort();
     expect(slate).toHaveLength(3);
+    const order: string[] = [];
+    const file = project.file;
+    const compactFile = file.compact.bind(file);
+    Object.assign(file, {
+      compact: async () => {
+        await compactFile();
+        order.push('compacted');
+      },
+    });
     const [done] = await Promise.all([
       store.getState().compact(),
       // Queued behind it, so it lands on the compacted file.
-      store.getState().applyWith((now, numbered) => addShot(now, project.projectId, 'sc4', null, {}, numbered)),
+      store.getState().applyWith((now, numbered) => {
+        order.push('edit');
+        return addShot(now, project.projectId, 'sc4', null, {}, numbered);
+      }),
     ]);
+    expect(order).toEqual(['compacted', 'edit']);
     expect(done?.after).toBeGreaterThan(0);
     expect(numbers()).toEqual(['4A', '4B', '4C', '4D']);
     expect(store.getState().slateNumbers.map((row) => `${row.number} ${row.shotId}`).sort()).toEqual(

@@ -415,7 +415,8 @@ the board again.
 
 - Every 5 minutes while a project is open, and only if it changed since the last backup, a copy is written to
   `Backups/<Project> YYYY-MM-DD HH-mm.sbd` in the folder that holds the .sbd. `<Project>` is the .sbd's file name and
-  the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`.
+  the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`. A second backup in the same minute (Back
+  up now, Compact project) takes the next free minute's name, so a name can run a minute or two ahead of the clock.
 - A project in a synced folder (iCloud Drive, Dropbox, Google Drive, OneDrive) keeps them in the app's data folder on
   this computer instead (1.4), so a full copy doesn't upload every 5 minutes or sync into conflicts. The folder is
   `Backups/<Project> <key>/` there; Files next to a project, below, has the key. Settings → Backups can keep them next
@@ -551,15 +552,18 @@ project file; the backup made first keeps them until it's pruned. Nothing compac
    the file is still being made. It's one write through the rollback journal, so a crash or a kill partway leaves the
    file as it was, rolled back the next time it's opened on this computer (`survives_a_kill_mid_compact` in sbd.rs
    kills it partway through the rewrite, with the file's pages already overwritten, and at moments across the run). A
-   sync that replaced the file while it ran sends the app to the newer file, as for any replaced file. It needs free
-   disk space of about the project's size for SQLite's temporary copy, and a journal beside the file; short of space,
-   it fails with nothing changed.
+   sync that replaced the file while it ran sends the app to the newer file, as for any replaced file. It can need up
+   to twice the project's size in free disk space: SQLite's temporary copy in the system's temp folder (on a Mac, the
+   system volume, even for a project on another drive) and a journal beside the file; short of space, it fails with
+   nothing changed.
 3. The format, the records, History and every other table are unchanged. The store reads the slate numbers again
    afterwards, since VACUUM may renumber a table's rowids.
 
-Edits wait while it runs; on a large project that's a while. A project in a synced folder uploads again in full
-afterwards, and is half rewritten while it runs, so another computer shouldn't open it until it's done. A Mac backup
-clone made before stops sharing space with the project.
+Everything that reads or writes project files waits while it runs (one lock covers them), edits and pictures
+included; on a large project that's a while, so don't quit meanwhile. A project in a synced folder uploads again in
+full afterwards, and is half rewritten while it runs, so another computer shouldn't open it until it's done; the lock
+file is refreshed just before, and goes stale after 5 minutes. A Mac backup clone made before stops sharing space with
+the project.
 
 ## Safety while a project is open (1.2)
 

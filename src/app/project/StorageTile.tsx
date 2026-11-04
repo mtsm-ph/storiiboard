@@ -6,6 +6,8 @@ import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
 import { cleanUpConfirmed, emptyTrashConfirmed } from '../deleteForGood';
 import { SWITCHED_MESSAGE, type ForGood } from '../forGood';
+
+const COMPACT_SWITCHED = 'Another project opened first, so nothing was compacted.';
 import { showInfo, showNotice } from '../notice';
 import { projectStore, useProject } from '../projectStore';
 
@@ -96,11 +98,13 @@ export function StorageTile() {
       const state = projectStore.getState();
       if (done) {
         showInfo(`Compacted the project: ${sizeLabel(done.before)} to ${sizeLabel(done.after)}. Backed up first as “${done.backup}”.`);
+        // The line it focuses says the new size: measured here, before focus moves to it.
+        setSpace(await fileSpace(state.project?.file ?? madeIn.file));
         requestAnimationFrame(() => {
           fileStatus.current?.focus();
         });
       } else if (state.project !== madeIn) {
-        showInfo(SWITCHED_MESSAGE);
+        showInfo(COMPACT_SWITCHED);
       } else if (!state.changedOnDisk) {
         // Focus stays on the button, to try again.
         showNotice(new Error(state.error ?? 'The project couldn’t be compacted.'));
@@ -186,8 +190,8 @@ export function StorageTile() {
         <p className="text-[12px] text-text-muted">
           Space freed inside the project, by Empty Trash or Clean up old pictures, is used again for new work, but the file
           doesn’t get smaller. Compact project rewrites the file without it. It makes a backup first (Settings → Backups).
-          On a large project it takes a while, and edits wait until it’s done; a project in a synced folder uploads again
-          in full afterwards.
+          On a large project it takes a while: edits and pictures wait until it’s done, so don’t quit meanwhile. A project
+          in a synced folder uploads again in full afterwards.
         </p>
         {/* aria-disabled while it runs, so focus stays on the button; the handler ignores a second click. */}
         <Button
