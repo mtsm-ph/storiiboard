@@ -56,13 +56,22 @@ themes). One PR per milestone, each into `v2`.
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Done |
-| 1.22 History tile: every step in words, restore a point, a frame's old values | | Done |
+| 1.22 History tile: every step in words, restore a point, an item's old values | | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | | Done |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
+
+Before the gate (Kevin, Nov 4): a checkpoint for all of Phase 1 (the smoke set on Linux and in WebKit on the CI Mac,
+both installers), Kevin tests 1.11 to 1.25 as one batch, then a polish step, which turns the screenshot tests back on
+with fresh baselines. Phase 2 waits for the gate.
+
+Testing from Nov 4: every PR runs quick checks on Linux (lint, types, unit tests, Rust tests, the Rust data-safety
+tests among them), and a newer push cancels the outdated run. The end-to-end smoke set (create, open, add a scene and
+frames, undo, save and reopen; e2e/smoke.spec.ts) and the installers run at checkpoints (checkpoint.yml). The deeper
+end-to-end specs run locally before each merge. A failing functional or data-safety test gets fixed, never skipped.
 
 ### Phase 0 milestones
 
@@ -288,18 +297,26 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Restore to here brings the project back to just after that step, as a new step that ⌘Z takes back (a restore
   never brings back what Empty Trash deleted). Steps load 100 at a time.
 - Only frame 4A lists every change to the selected frame, newest first, field by field (change, before, after, who,
-  when): undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
+  when); with no frame selected, Only this note and Only scene SC 05 do the same for the selected note or the active
+  scene. Before and after show in full, wrapped with their line breaks kept (a step's line cuts a long text to one
+  short line), and Put back's label names the whole value. Undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
   by field ("lens, restored", "Restore to here: out of the Trash"), and renumbers show too. Put back sets an old value
   again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
-  dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
-  Put back isn't offered where the frame already has that value. A new selection shows only its own changes.
+  dialogue, departments, custom fields; a scene's name, INT/EXT, time of day and length; a note's text). A custom field goes back on its own, leaving the frame's others as they are;
+  Put back isn't offered where the frame already has that value, and values that both read "—" (an empty text or no
+  departments ticked, and one never set) count as the same, as do the same departments in another order. Values read
+  as the board names them ("Grip & electric", "Need to shoot", "INS"), not as they're stored. A new selection shows
+  only its own changes.
 - Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
-- A step whose picture was cleaned up (1.21) says "(picture removed)". Values kept by id never show as ids: a
-  scene's location reads by its name as it was then ("SC 05: location — → Dock"), and a frame's picture as "picture
-  set", "picture replaced" or "picture removed".
+- A step whose picture was cleaned up (1.21) says "(picture removed)", at once when History is open beside
+  Settings → Storage. Values kept by id never show as ids: a scene's location reads by its name as it was then
+  ("SC 05: location — → Dock"), and a frame's picture as "picture set", "picture replaced" or "picture removed".
 - One restore or Put back at a time: a second click while one writes, or within half a second of its rows being read
-  again, is dropped, so a double click never lands on the row that moved under the pointer. Restore to here on a
-  point the project is already at says so (and, past an Empty Trash, that what it deleted can't come back).
+  again, is dropped, so a double click never lands on the row that moved under the pointer. If those rows stop being
+  read (Only frame turned off, the frame deselected or trashed, a read that failed), clicks count again from then, and
+  in any case 5 seconds after the write. Restore to here on a
+  point the project is already at says so. Past an Empty Trash, the notice adds that what it deleted can't come back,
+  whether or not the restore changed anything.
 - A frame's own history finds its strokes and picture in the log, so an undone sketch, or one Restore to here took
   away, still shows ("Sketched", "Undid: Sketched").
 - Tests: a restore and its undo, a restore after a restart (and undone after another), a restore whose write dies
@@ -310,15 +327,31 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
   marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
   are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.
+  The item filter takes the most particular selection (a frame, else a note, else the active scene), so a scene's
+  own history shows once no frame or note is selected in it. Locations and characters get theirs when they have a
+  selection of their own (Phase 3); until then their changes show as steps. A scene's location, number and number
+  lock aren't put back on their own (Restore to here is the way back); its location reads by its name as it is now.
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
   Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
   runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
-- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection), so what's deleted is gone
-  from the file itself and from backups made after. The file doesn't shrink; the space is used for new pictures.
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection from 1.21 on), so what's
+  deleted is gone from the file itself and from backups made after. The file doesn't shrink; the space is used for new
+  pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
+  record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
+  aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
+  of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
-  gone stays as it is now, and so does whatever it sits under.
+  gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
+  that scene as it is now, so no two frames share a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
+- Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
+  Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
+  erased from a frame still on the board stays, with its History.
+- Open, for Kevin: a locked scene reserves a trashed frame's letter by keeping the frame, so once Empty Trash deletes
+  it, a new frame can be given that letter again (it may be on a slate). The confirm says so when it can happen.
+  Keeping the reservation needs a scene prop for the highest letter used, a format change.
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
@@ -331,8 +364,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
-- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
-  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame anywhere has
+  taken it since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
   its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
   scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
@@ -340,7 +373,7 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
   goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
   its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
-  frame comes back on its old letter, as its locked neighbours keep theirs; a restored scene that needs a new number
+  frame comes back on its old letter, as its locked neighbours keep theirs, unless a live frame anywhere has it; a restored scene that needs a new number
   stays where it was on the board, so in an old file it can read out of order (4, 4B, 4A); a picture whose frame went
   to the Trash with its scene brings the scene back with that one frame.
 
@@ -768,8 +801,10 @@ switch light and dark at once while the colours ease; left as is.
 - `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
   Reset trash a frame's picture.
 - Kevin, Nov 3: the screenshot tests (e2e/visual.spec.ts, 8 of them) are suppressed until the UI is ready to test
-  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (CI's baseline update run sets
-  it). The behaviour tests and unit tests run as before.
+  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (the checkpoint workflow's
+  baseline update run sets it). The behaviour tests and unit tests run as before.
+- Kevin, Nov 4: they stay off, locally and in CI, until the polish step before the Bey County gate. There they come
+  back with fresh baselines (Mac and Linux), made once the UI is final.
 - Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
   Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
   its own, without becoming the theme again.

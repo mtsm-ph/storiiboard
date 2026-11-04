@@ -1,6 +1,8 @@
 import { mediaFields } from '../../core/media/store';
+import { DEPARTMENT_LABELS } from '../../core/model/department';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
-import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
+import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
+import { pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields } from '../../core/model/storyboard';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
@@ -57,8 +59,33 @@ export const fieldLabel = (prop: string): string => FIELD[prop] ?? prop.replace(
 /** Whether a field's values are technical ones, shown in mono. */
 export const isMono = (prop: string): boolean => MONO.has(prop);
 
-/** A value as a line of History shows it: short, and `—` for nothing. */
+/** A stored code by the word the board and the inspector show for it ("hmu" → "HMU", "need" → "Need to shoot"). */
+const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  departments: DEPARTMENT_LABELS,
+  status: SHOT_STATUS_LABELS,
+  size: SHOT_SIZE_LABEL,
+};
+/** Support, height and move are words already; the inspector's menus start them with a capital. */
+const CAPITALISED = new Set(['support', 'height', 'move']);
+const choiceLabel = (prop: string, value: string): string => {
+  const table = CHOICE[prop];
+  if (table && Object.hasOwn(table, value)) return table[value] ?? value;
+  return CAPITALISED.has(prop) ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+};
+
+/** A value as a step's line shows it: in the board's words, `—` for nothing, and a long text cut to one short line. */
 export function valueLabel(prop: string, value: JsonValue | undefined): string {
+  const text = valueText(prop, value);
+  if (typeof value !== 'string' && typeof value !== 'number') return text;
+  const line = text.replace(/\s+/g, ' ');
+  return line.length > 40 ? `${line.slice(0, 39)}…` : line;
+}
+
+/**
+ * A value in full, line breaks and all: what an item's own history shows, since that's where a person reads an old
+ * action or dialogue before putting it back over the one there now.
+ */
+export function valueText(prop: string, value: JsonValue | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
   // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
   // picture change reads as set, removed or replaced (pictureChange).
@@ -66,11 +93,12 @@ export function valueLabel(prop: string, value: JsonValue | undefined): string {
   if (prop === 'media_id') return 'a picture';
   if (prop === 'lens_mm' && typeof value === 'number') return `${String(value)}mm`;
   if (prop === 't_stop' && typeof value === 'number') return `T${String(value)}`;
-  if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ');
+  // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
+  if (prop === 'page_eighths' && typeof value === 'number') return pageLabel(value);
+  if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
   if (typeof value === 'object') return prop === 'custom' ? Object.keys(value).join(', ') || '—' : 'changed';
   if (typeof value === 'boolean') return value ? 'on' : 'off';
-  const text = String(value).replace(/\s+/g, ' ');
-  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+  return typeof value === 'string' ? choiceLabel(prop, value) : String(value);
 }
 
 const valuePart = (prop: string, value: JsonValue | undefined): Part => {
@@ -127,6 +155,9 @@ export const changeLabel = (change: FieldChange): string => change.key ?? fieldL
  */
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
   change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? 'no field' : valueLabel('', value);
+/** A change's value in full, for an item's own history and its Put back: never cut short. */
+export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
+  change.key === undefined ? valueText(change.prop, value) : value === undefined ? 'no field' : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
 

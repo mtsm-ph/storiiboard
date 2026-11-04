@@ -24,8 +24,14 @@ export function imageUrl(file: ProjectFile, sha256: string, size: ImageSize = 't
   let url = urls.get(key);
   if (!url) {
     url = (size === 'thumbnail' ? readThumbnail(file, sha256) : readOriginal(file, sha256)).then(toUrl);
-    // A failed read isn't kept, so the next look tries again.
-    url.catch(() => urls.delete(key));
+    // Neither a failed read nor a missing picture is kept, so the next look reads the file again: a picture deleted for
+    // good can be added back (the same photo chosen again), and the frame then shows it.
+    url.then(
+      (made) => {
+        if (made === null) urls.delete(key);
+      },
+      () => urls.delete(key),
+    );
     urls.set(key, url);
   }
   return url;
