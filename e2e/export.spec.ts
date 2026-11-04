@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Download, type Page } from '@playwright/test';
+import { PDFDocument } from 'pdf-lib';
 import { skipOnboarding } from './onboarding';
 
-// Export (1.24) in the memory build, where each file downloads: the shot list CSV's text, the PNG frames' names and
-// sizes, and the watermark set in Watermark Settings.
+// Export (1.24, 1.25) in the memory build, where each file downloads: the PDF storyboard, the shot list CSV's text, the
+// PNG frames' names and sizes, and the watermark set in Watermark Settings.
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -33,9 +34,23 @@ function pngSize(path: string): { width: number; height: number } {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
+test('exports a scene as a PDF storyboard, the format the dialog starts on', async ({ page }) => {
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByLabel('Storyboard (PDF)')).toBeChecked();
+  await dialog(page, 'Export').getByRole('combobox', { name: /^Scenes/ }).selectOption({ index: 1 });
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toBe('Bey County SC 01 storyboard.pdf');
+  const pdf = await PDFDocument.load(readFileSync(await file.path()));
+  expect(pdf.getPageCount()).toBe(1);
+  expect(pdf.getTitle()).toBe('Bey County storyboard');
+  await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County SC 01 storyboard.pdf”.')).toBeVisible();
+});
+
 test('exports the shot list as CSV, one row per frame', async ({ page }) => {
   await projectMenu(page, 'Export Project…');
-  await expect(dialog(page, 'Export')).toBeVisible();
+  await dialog(page, 'Export').getByLabel('Shot list (CSV)').check();
   const downloaded = page.waitForEvent('download');
   await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
   const file = await downloaded;
@@ -58,7 +73,7 @@ test('exports each frame as a PNG named as on the slate, at full HD', async ({ p
   for (const file of files) expect(pngSize(await file.path())).toEqual({ width: 1920, height: 1080 });
 });
 
-test('Watermark Settings saves one edit, and the Export dialog says the PNGs carry it', async ({ page }) => {
+test('Watermark Settings saves one edit, and the Export dialog says the PDF and PNGs carry it', async ({ page }) => {
   await projectMenu(page, 'Watermark Settings');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
@@ -67,6 +82,7 @@ test('Watermark Settings saves one edit, and the Export dialog says the PNGs car
   await expect(settings).toHaveCount(0);
 
   await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
   await dialog(page, 'Export').getByLabel('Frames (PNG)').check();
   await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
   // The CSV is a report: it carries none.

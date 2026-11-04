@@ -36,6 +36,7 @@ describe('export names', () => {
 
   it('registers each format once, with a file or a folder', () => {
     expect(FORMATS.map((f) => [f.id, f.output])).toEqual([
+      ['pdf-storyboard', 'file'],
       ['shot-list-csv', 'file'],
       ['png-frames', 'folder'],
     ]);

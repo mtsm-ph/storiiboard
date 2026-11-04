@@ -1,6 +1,7 @@
 import type { SbdRecord } from '../../core/model/record';
 import type { ExportTarget } from '../../core/storage/exportFiles';
 import type { ProjectFile } from '../../core/storage/driver';
+import { pdfStoryboard } from './pdfStoryboardFormat';
 import { pngFrames } from './pngFrames';
 import type { ExportScope } from './scope';
 import type { WatermarkUse } from './watermark';
@@ -36,4 +37,4 @@ export interface ExportFormat {
   run: (context: ExportContext) => Promise<string>;
 }
 
-export const FORMATS: readonly ExportFormat[] = [shotListCsvFormat, pngFrames];
+export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames];
