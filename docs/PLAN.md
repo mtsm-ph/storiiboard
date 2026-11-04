@@ -292,7 +292,9 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
   dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
   Put back isn't offered where the frame already has that value, and values that both read "—" (an empty text or no
-  departments ticked, and one never set) count as the same. A new selection shows only its own changes.
+  departments ticked, and one never set) count as the same, as do the same departments in another order. Values read
+  as the board names them ("Grip & electric", "Need to shoot", "INS"), not as they're stored. A new selection shows
+  only its own changes.
 - Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
 - A step whose picture was cleaned up (1.21) says "(picture removed)", at once when History is open beside
   Settings → Storage. Values kept by id never show as ids: a scene's location reads by its name as it was then

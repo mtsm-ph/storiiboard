@@ -234,10 +234,10 @@ describe('Put back', () => {
     await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['camera'] } }]);
     await store.getState().apply([{ kind: 'update', id: a, set: { departments: [] } }]);
     const rows = frameRows(await opsOfRecord(project.file, a), a).flatMap((r) => (r.field?.prop === 'departments' ? [r.field] : []));
-    // Newest first: the untick (camera → —), then the tick (— → camera), whose old value reads as the frame does now.
+    // Newest first: the untick (Camera → —), then the tick (— → Camera), whose old value reads as the frame does now.
     expect(rows.map((f) => [changeValue(f, f.before), changeValue(f, f.after)])).toEqual([
-      ['camera', '—'],
-      ['—', 'camera'],
+      ['Camera', '—'],
+      ['—', 'Camera'],
     ]);
     const [untick, tick] = rows;
     if (!untick || !tick) throw new Error('no department rows');
@@ -248,6 +248,26 @@ describe('Put back', () => {
     // The untick's old value is a real one, and goes back.
     expect(await putBack(a, untick)).toBe(true);
     expect(records()[a]?.props.departments).toEqual(['camera']);
+  });
+
+  it('counts the same departments in another order as the same, so it isn’t offered to put back', async () => {
+    const a = await frame();
+    // As the inspector ticks them: each one ticked goes on the end of the list.
+    for (const departments of [['camera'], ['camera', 'grip-electric'], ['grip-electric'], ['grip-electric', 'camera']]) {
+      await store.getState().apply([{ kind: 'update', id: a, set: { departments } }]);
+    }
+    const untick = (await opsOfRecord(project.file, a))
+      .flatMap((op) => (op.before && op.after ? fieldChanges(op.before, op.after) : []))
+      .find((f) => f.prop === 'departments' && JSON.stringify(f.after) === JSON.stringify(['grip-electric']));
+    if (!untick) throw new Error('no untick');
+    expect(untick.before).toEqual(['camera', 'grip-electric']);
+    expect(putBackChange(records()[a], untick)).toBeNull();
+    const steps = await stepCount();
+    expect(await putBack(a, untick)).toBe(false);
+    expect(await stepCount()).toBe(steps);
+    // Another set of departments still goes back.
+    expect(await putBack(a, await lastChange(a, 'departments'))).toBe(true);
+    expect(records()[a]?.props.departments).toEqual(['grip-electric']);
   });
 
   it('takes a custom field off again when it wasn’t on the frame, even emptied', async () => {
@@ -298,6 +318,27 @@ describe('a frame’s own history', () => {
       ['Undid: Restore to here', null, null],
       ['number, undone', '4C', '4A'],
     ]);
+  });
+
+  it('names departments, status, size and move in the board’s words, never their stored codes', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['camera', 'grip-electric', 'hmu'] } }]);
+    // A new frame is one still to shoot.
+    await store.getState().apply([{ kind: 'update', id: a, set: { status: 'have' } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { size: 'INSERT' } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { move: 'push in' } }]);
+    expect((await lines()).slice(-4)).toEqual([
+      '4A: departments — → Camera, Grip & electric, HMU',
+      '4A: status Need to shoot → Have',
+      '4A: size — → INS',
+      '4A: move — → Push in',
+    ]);
+    // The frame's own rows, and so its Put back labels, read the same words.
+    const status = await lastChange(a, 'status');
+    expect([changeValue(status, status.before), changeValue(status, status.after)]).toEqual(['Need to shoot', 'Have']);
+    // A value this version doesn't know is shown as it's stored.
+    await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['camera', 'stunts'] } }]);
+    expect((await lines()).at(-1)).toBe('4A: departments Camera, Grip & electric, HMU → Camera, stunts');
   });
 
   it('says who made each change', async () => {

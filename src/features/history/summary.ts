@@ -1,6 +1,8 @@
 import { mediaFields } from '../../core/media/store';
+import { DEPARTMENT_LABELS } from '../../core/model/department';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
-import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
+import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
+import { sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields } from '../../core/model/storyboard';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
@@ -57,7 +59,21 @@ export const fieldLabel = (prop: string): string => FIELD[prop] ?? prop.replace(
 /** Whether a field's values are technical ones, shown in mono. */
 export const isMono = (prop: string): boolean => MONO.has(prop);
 
-/** A value as a line of History shows it: short, and `—` for nothing. */
+/** A stored code by the word the board and the inspector show for it ("hmu" → "HMU", "need" → "Need to shoot"). */
+const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  departments: DEPARTMENT_LABELS,
+  status: SHOT_STATUS_LABELS,
+  size: SHOT_SIZE_LABEL,
+};
+/** Support, height and move are words already; the inspector's menus start them with a capital. */
+const CAPITALISED = new Set(['support', 'height', 'move']);
+const choiceLabel = (prop: string, value: string): string => {
+  const table = CHOICE[prop];
+  if (table && Object.hasOwn(table, value)) return table[value] ?? value;
+  return CAPITALISED.has(prop) ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+};
+
+/** A value as a line of History shows it: short, in the board's words, and `—` for nothing. */
 export function valueLabel(prop: string, value: JsonValue | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
   // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
@@ -66,10 +82,10 @@ export function valueLabel(prop: string, value: JsonValue | undefined): string {
   if (prop === 'media_id') return 'a picture';
   if (prop === 'lens_mm' && typeof value === 'number') return `${String(value)}mm`;
   if (prop === 't_stop' && typeof value === 'number') return `T${String(value)}`;
-  if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ');
+  if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
   if (typeof value === 'object') return prop === 'custom' ? Object.keys(value).join(', ') || '—' : 'changed';
   if (typeof value === 'boolean') return value ? 'on' : 'off';
-  const text = String(value).replace(/\s+/g, ' ');
+  const text = (typeof value === 'string' ? choiceLabel(prop, value) : String(value)).replace(/\s+/g, ' ');
   return text.length > 40 ? `${text.slice(0, 39)}…` : text;
 }
 
