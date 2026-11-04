@@ -276,8 +276,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
-- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
-  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame anywhere has
+  taken it since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
   its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
   scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
@@ -285,7 +285,7 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
   goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
   its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
-  frame comes back on its old letter, as its locked neighbours keep theirs; a restored scene that needs a new number
+  frame comes back on its old letter, as its locked neighbours keep theirs, unless a live frame anywhere has it; a restored scene that needs a new number
   stays where it was on the board, so in an old file it can read out of order (4, 4B, 4A); a picture whose frame went
   to the Trash with its scene brings the scene back with that one frame.
 

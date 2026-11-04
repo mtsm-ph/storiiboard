@@ -245,14 +245,17 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
     }
   }
   for (const id of back) changes.push({ kind: 'restore', id });
+  // Every number on the board once this lands: live frames in live scenes, and in this one.
   const liveNumbers = new Set(
-    sceneShots(records, sceneId)
-      .filter((s) => s.trashedAt === null)
+    Object.values(records)
+      .filter((s) => s.type === 'shot' && s.trashedAt === null && s.parentId !== null)
+      .filter((s) => s.parentId === sceneId || (s.parentId !== null && records[s.parentId]?.trashedAt === null))
       .map((s) => shotFields(s.props).number),
   );
   const order = sceneShots(records, sceneId).map((s) => {
     if (!coming.has(s.id)) return s;
-    // In a locked scene a frame keeps its letter, but never one a live frame has taken since: it takes the next free one.
+    // In a locked scene a frame keeps its letter, but never one a live frame anywhere has taken since (a new scene 4
+    // has its own 4C): then it takes the next free one.
     return { ...s, trashedAt: null, props: liveNumbers.has(shotFields(s.props).number) ? { ...s.props, number: '' } : s.props };
   });
   return [...changes, ...renumber(records, projectId, sceneId, order, props)];

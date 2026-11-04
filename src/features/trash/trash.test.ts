@@ -139,6 +139,22 @@ describe('the Trash', () => {
     expect(numbers()).toEqual(['4A', '4C', '4B']);
   });
 
+  it('never brings a frame back on a number a live frame in another scene has', async () => {
+    const [, , frameC = ''] = shots;
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await trash(frameC);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.slice(0, 2).map((id) => ({ kind: 'trash' as const, id }))]);
+    // A new scene 4 with its own 4A to 4C, from an older file.
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc4b', type: 'scene', parentId: project.projectId, sortKey: 'W', props: { number: '4', name: 'Road' } } },
+    ]);
+    for (let i = 0; i < 3; i += 1) await store.getState().apply(addShot(records(), project.projectId, 'sc4b').changes);
+    await restore('sc4');
+    await restore(frameC);
+    const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
+    expect(all).toEqual(['A4A', 'A4B', 'A4C', '4A', '4B', '4C']);
+  });
+
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {
     // Locked too: its frames still take letters under the new number, or two scenes would share 4A.
     await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
