@@ -4,8 +4,13 @@ export type ResolvedTheme = 'light' | 'dark';
 
 export const DARK_QUERY = '(prefers-color-scheme: dark)';
 
-export function resolveTheme(preference: ThemePreference, osPrefersDark: boolean): ResolvedTheme {
-  if (preference === 'system') return osPrefersDark ? 'dark' : 'light';
+/**
+ * Light or dark, from the person's Appearance setting. Follow project takes the open project's own mode, and the
+ * OS's while no project (or one without a theme) is open.
+ */
+export function resolveTheme(preference: ThemePreference, osPrefersDark: boolean, projectMode: ResolvedTheme | null = null): ResolvedTheme {
+  if (preference === 'project' && projectMode) return projectMode;
+  if (preference === 'system' || preference === 'project') return osPrefersDark ? 'dark' : 'light';
   return preference;
 }
 

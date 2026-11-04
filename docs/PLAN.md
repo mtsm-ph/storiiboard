@@ -49,7 +49,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.12 Drag to reorder; "/" menu | | Not started |
 | 1.13 Sketching | | Not started |
 | 1.14 Theme generator: 12 families, OKLab accents, AA fit, in a Web Worker | #31 | Done |
-| 1.15 Theme switching, Follow project | | Not started |
+| 1.15 Theme switching (200ms ease), Follow project, window background | #32 | Done |
 | 1.16 Onboarding and Settings → Theme | | Not started |
 | 1.17 Script import: Fountain and FDX | | Not started |
 | 1.18 Script import: PDF | | Not started |
@@ -582,6 +582,14 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
   oatmeal wells (`surface-raised`). With ink text on the accent, as in the kit, that can't be met in light mode: ink
   needs a light accent, oatmeal a dark one. The kit's own #DF5E27 is 2.1:1 on oatmeal too. The one place the accent
   meets oatmeal is the selected row's 3px marker, which the ink-filled row already carries.
+
+**As built in 1.15 (Nov 3):** the ten tokens are registered with `@property` as colours and transition on `:root`
+over 200ms, so every class that reads them eases with no per-element transitions; reduced motion turns it off. The
+open project's stored tokens go on `<html>` as inline variables, and come off for a project without a theme. The
+desktop window's own background follows `--bg` (permission `core:window:allow-set-background-color`). Follow project
+is the new default Appearance and the first option in the status bar. Decided while building, to review:
+`theme-boot.js` doesn't apply a cached project theme before first paint, as planned, because the app opens on the
+Projects screen with no project; a project opened at launch eases from the kit into its own colours.
 
 **Stored** in the project record's `theme` prop (docs/SBD_FORMAT.md).
 

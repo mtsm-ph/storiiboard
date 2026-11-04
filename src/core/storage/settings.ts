@@ -5,7 +5,8 @@ import { DEFAULT_KEEP, type BackupKeep } from './backups';
 // read the theme synchronously before first paint, which a file behind a Rust command can't offer. Lists that other
 // tools may read, like the recent projects, go in app data files instead (appData.ts).
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+/** `project`, Follow project (the default since 1.15): the open project's own mode, or the OS with none open. */
+export type ThemePreference = 'project' | 'system' | 'light' | 'dark';
 
 export interface Settings {
   theme: ThemePreference;
@@ -34,7 +35,7 @@ function keepValue(value: unknown, field: keyof BackupKeep): number {
 export const SETTINGS_KEY = 'storiiboard.settings';
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system',
+  theme: 'project',
   backups: { ...DEFAULT_KEEP },
   syncNoted: [],
   backupsNextToProject: false,
@@ -53,7 +54,7 @@ function browserStorage(): Storage | undefined {
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'system' || value === 'light' || value === 'dark';
+  return value === 'project' || value === 'system' || value === 'light' || value === 'dark';
 }
 
 export function loadSettings(storage: Reader | undefined = browserStorage()): Settings {

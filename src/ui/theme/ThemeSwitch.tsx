@@ -3,6 +3,7 @@ import { SegmentedControl, type SegmentOption } from '../SegmentedControl';
 import { useTheme } from './ThemeProvider';
 
 const OPTIONS: readonly SegmentOption<ThemePreference>[] = [
+  { value: 'project', label: 'Project' },
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },

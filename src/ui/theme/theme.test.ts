@@ -31,19 +31,19 @@ describe('backup settings', () => {
 });
 
 describe('settings', () => {
-  it('defaults to following the OS', () => {
-    expect(loadSettings(memoryStorage()).theme).toBe('system');
+  it('defaults to following the project (1.15), which follows the OS until a project opens', () => {
+    expect(loadSettings(memoryStorage()).theme).toBe('project');
   });
 
   it('ignores corrupt or unknown values instead of failing', () => {
-    expect(loadSettings(memoryStorage('{not json')).theme).toBe('system');
-    expect(loadSettings(memoryStorage('{"theme":"sepia"}')).theme).toBe('system');
+    expect(loadSettings(memoryStorage('{not json')).theme).toBe('project');
+    expect(loadSettings(memoryStorage('{"theme":"sepia"}')).theme).toBe('project');
     const throwing = {
       getItem: () => {
         throw new Error('blocked');
       },
     };
-    expect(loadSettings(throwing).theme).toBe('system');
+    expect(loadSettings(throwing).theme).toBe('project');
   });
 
   it('saves and reloads the theme', () => {
@@ -59,6 +59,14 @@ describe('resolveTheme', () => {
     expect(resolveTheme('system', false)).toBe('light');
     expect(resolveTheme('light', true)).toBe('light');
     expect(resolveTheme('dark', false)).toBe('dark');
+  });
+
+  it('follows the project’s own mode on Follow project, and the OS while none is open', () => {
+    expect(resolveTheme('project', false, 'dark')).toBe('dark');
+    expect(resolveTheme('project', true, 'light')).toBe('light');
+    expect(resolveTheme('project', true, null)).toBe('dark');
+    // A fixed choice wins over the project's.
+    expect(resolveTheme('light', false, 'dark')).toBe('light');
   });
 });
 
@@ -85,7 +93,8 @@ describe('theme-boot.js', () => {
     return applied;
   }
 
-  const stored = [null, '{"theme":"system"}', '{"theme":"light"}', '{"theme":"dark"}', '{broken'];
+  // No project is open before first paint, so Follow project boots as the OS does.
+  const stored = [null, '{"theme":"project"}', '{"theme":"system"}', '{"theme":"light"}', '{"theme":"dark"}', '{broken'];
   it.each(stored.flatMap((value) => [true, false].map((osDark) => [value, osDark] as const)))(
     'stored %s, OS dark %s',
     (value, osDark) => {
