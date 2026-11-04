@@ -5,8 +5,8 @@ import type { Migration } from '../migrate';
 // the History, which keeps whole records before and after each edit, never copies an image.
 //
 // Files are content-addressed by the SHA-256 of their bytes: the same picture used twice is stored once, a file is
-// never changed after it's written, and undo or a restore can always find the picture an older record points to.
-// Only Empty Trash removes a file, once nothing in the History refers to it.
+// never changed after it's written, and undo or a restore finds the picture an older record points to, until the
+// person deletes it: Empty Trash and Clean up old pictures (1.21) remove files, after a confirm.
 //
 // The migration also adds the record types `note`, `character` and `stroke`. They need no table, but an older app
 // would refuse a record type it doesn't know, so the schema version rises with them.

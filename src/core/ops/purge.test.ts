@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, moveItem, trashShot } from '../../features/storyboard/board';
@@ -55,14 +56,21 @@ const withPicture = async (shotId: string, seed: number) => {
   return picture(seed).image.original.sha256;
 };
 const trash = (id: string) => store.getState().applyWith((now) => ({ changes: trashShot(now, project.projectId, id) }));
-/** Breaks the next write part way through, as a crash between its statements would. */
+/**
+ * Breaks the next write after its last statement, as a crash before it commits would: every statement before it has
+ * run, so anything not rolled back with the rest would show.
+ */
 const failNextWrite = () => {
   const write = project.file.tx.bind(project.file);
   project.file.tx = (statements) => {
     project.file.tx = write;
-    const half = Math.ceil(statements.length / 2);
-    return write([...statements.slice(0, half), { sql: 'INSERT INTO no_such_table VALUES (1)' }, ...statements.slice(half)]);
+    return write([...statements, { sql: 'INSERT INTO no_such_table VALUES (1)' }]);
   };
+};
+/** Whether the project file on disk still holds a picture's bytes anywhere, free pages included. */
+const fileHolds = (seed: number) => {
+  const bytes = Buffer.from(picture(seed).image.original.bytes.slice(1000, 1200));
+  return readFileSync(folder.path('Bey County.sbd')).includes(bytes);
 };
 
 describe('Empty Trash', () => {
@@ -91,7 +99,11 @@ describe('Empty Trash', () => {
   it('can’t be undone: the stacks end at it, it’s in History as purges, and older steps lose those records’ data', async () => {
     const shot = await frame();
     await trash(shot);
+    // Something to redo, so the redo stack really is ended by it.
+    await frame();
+    await store.getState().undo();
     expect(store.getState().canUndo).toBe(true);
+    expect(store.getState().canRedo).toBe(true);
     await store.getState().emptyTrash();
     expect(store.getState().canUndo).toBe(false);
     expect(store.getState().canRedo).toBe(false);
@@ -115,11 +127,50 @@ describe('Empty Trash', () => {
     await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
     await store.getState().emptyTrash();
 
+    await reopen();
     await restoreTo(project.file, before);
     await reopen();
     expect(records().sc4).toBeUndefined();
-    // Its place at that point was under scene 4, which is gone: it stays in scene 5.
+    // Its place at that point was under scene 4, which is gone: it stays in scene 5, as it is there, number and all.
     expect(records()[moved]?.parentId).toBe('sc5');
+    expect(shotFields(records()[moved]?.props ?? {}).number).toBe('5A');
+  });
+
+  it('restores a point from before a scene that a frame moved into, keeping both, when the frame’s first scene is gone', async () => {
+    const moved = await frame('sc4');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc6', type: 'scene', parentId: project.projectId, sortKey: 'X', props: { number: '6' } } },
+    ]);
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, 'sc6', null) }));
+    await store.getState().apply([{ kind: 'update', id: 'sc5', set: { name: 'Road' } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    // Scene 6 came after the point, but the frame stays in it, so it stays too; the rest goes back.
+    expect(await restoreTo(project.file, before)).not.toBeNull();
+    await reopen();
+    expect(records().sc6).toBeDefined();
+    expect(records()[moved]?.parentId).toBe('sc6');
+    expect(records().sc5?.props.name).toBeUndefined();
+  });
+
+  it('restores a point whose frame and sketch were undone and then deleted for good with their scene: both stay away', async () => {
+    const shot = await frame('sc4');
+    await store.getState().apply([addStroke(records(), shot, { tool: 'pen', points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null })]);
+    const point = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().undo();
+    await store.getState().undo();
+    await store.getState().apply([{ kind: 'update', id: 'sc5', set: { name: 'Road' } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    expect(await restoreTo(project.file, point)).not.toBeNull();
+    await reopen();
+    expect(records()[shot]).toBeUndefined();
+    expect(Object.values(records()).filter((r) => r.type === 'stroke')).toEqual([]);
+    // What could come back did: scene 5's name from before the point.
+    expect(records().sc5?.props.name).toBeUndefined();
   });
 
   it('is still done after the project is closed and opened again, and edits go on as before', async () => {
@@ -142,12 +193,16 @@ describe('Empty Trash', () => {
     expect(await store.getState().emptyTrash()).toBeNull();
     expect(store.getState().error).not.toBeNull();
     await reopen();
+    expect(records()[shot]).toBeDefined();
     expect(records()[shot]?.trashedAt).not.toBeNull();
+    expect(Object.values(records()).filter((r) => r.parentId === shot)).not.toEqual([]);
     expect(await readOriginal(project.file, sha)).not.toBeNull();
     expect((await log(project.file)).some((g) => g.kind === 'empty_trash')).toBe(false);
-    // And it works once the file is well again.
+    // And it works once the file is well again, and the picture's bytes are gone from the file itself.
+    expect(fileHolds(3)).toBe(true);
     await store.getState().emptyTrash();
     expect(records()[shot]).toBeUndefined();
+    expect(fileHolds(3)).toBe(false);
   });
 });
 
@@ -167,6 +222,21 @@ describe('Clean up old pictures', () => {
     expect(await readOriginal(project.file, onBoard)).not.toBeNull();
     expect(await readOriginal(project.file, inTrash)).not.toBeNull();
     expect(await historyOnlyPictures(project.file)).toEqual([]);
+    expect(fileHolds(6)).toBe(false);
+    expect(fileHolds(4)).toBe(true);
+  });
+
+  it('lets History restore a point where the picture showed: the frame names it again, and it reads as missing', async () => {
+    const shot = await frame();
+    const sha = await withPicture(shot, 9);
+    const point = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().undo();
+    await store.getState().cleanUpPictures();
+    await reopen();
+    expect(await restoreTo(project.file, point)).not.toBeNull();
+    await reopen();
+    expect(shotFields(records()[shot]?.props ?? {}).mediaId).not.toBeNull();
+    expect(await readOriginal(project.file, sha)).toBeNull();
   });
 
   it('leaves redo working: the step comes back with its picture shown as removed, and it all lasts a restart', async () => {

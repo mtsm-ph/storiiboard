@@ -31,6 +31,25 @@ export function imageUrl(file: ProjectFile, sha256: string, size: ImageSize = 't
   return url;
 }
 
+/**
+ * Frees the URLs of pictures deleted for good (Empty Trash, Clean up), so a frame that names one again (redo, a History
+ * restore) reads the file and says the picture is missing, rather than showing what's gone.
+ */
+export async function forgetImageUrls(file: ProjectFile, sha256s: readonly string[]): Promise<void> {
+  const urls = cache.get(file);
+  if (!urls) return;
+  const made: Promise<string | null>[] = [];
+  for (const sha of sha256s) {
+    for (const size of ['thumbnail', 'original'] as const) {
+      const url = urls.get(`${size}:${sha}`);
+      if (!url) continue;
+      urls.delete(`${size}:${sha}`);
+      made.push(url);
+    }
+  }
+  for (const result of await Promise.allSettled(made)) if (result.status === 'fulfilled' && result.value) URL.revokeObjectURL(result.value);
+}
+
 /** Frees every URL made for this file. The project store calls it on close. */
 export async function releaseImageUrls(file: ProjectFile): Promise<void> {
   const urls = cache.get(file);

@@ -273,12 +273,18 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
-  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went and
-  the space freed. How each changes the file is in docs/SBD_FORMAT.md (Trash).
-- Tests for both: undo can't reach past them, they last a restart, and a write that dies halfway changes nothing.
+  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
+  runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection), so what's deleted is gone
+  from the file itself and from backups made after. The file doesn't shrink; the space is used for new pictures.
+- A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
+  gone stays as it is now, and so does whatever it sits under.
+- Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
+  restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
   Trash. A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
-  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now shows as removed.
+  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
+  missing". The file isn't compacted; a Compact project command could come later.
 
 **As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and

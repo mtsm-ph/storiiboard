@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
-import { releaseImageUrls } from '../core/media/urls';
+import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
@@ -137,6 +137,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           const done = await emptyTrash(project.file);
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
+          await forgetImageUrls(project.file, done.pictures);
           return done.touched;
         });
         return result;
@@ -145,7 +146,9 @@ export function createProjectStore(): StoreApi<ProjectState> {
         let result: { removed: number; freed: number } | null = null;
         // In the queue like an edit, so no edit lands between reading what's unused and deleting it.
         await edit(async (project) => {
-          result = await cleanUpPictures(project.file);
+          const done = await cleanUpPictures(project.file);
+          result = { removed: done.removed, freed: done.freed };
+          await forgetImageUrls(project.file, done.pictures);
           return null;
         });
         return result;
