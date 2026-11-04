@@ -57,9 +57,12 @@ const placeOf = (scene: ScriptScene) => (scene.intExt !== null && scene.location
 /** A scene as the board would match it: INT/EXT and the place, whatever the case. */
 const sceneKey = (intExt: string | null, name: string) => `${intExt ?? ''}|${name.trim().replace(/\s+/g, ' ').toLowerCase()}`;
 
-/** A printed number as the slate has it (`1-a` and `4 A` are 1A and 4A); null for one that can't be a scene number. */
+/**
+ * A printed number as the slate has it: a space or dash between its digits and letters goes (`1-a` and `4 A` are 1A
+ * and 4A), but not between two numbers (`12-14`, scenes combined, isn't 1214). Null for one that can't be a number.
+ */
 function slateNumber(printed: string | null): string | null {
-  const tidy = printed?.toUpperCase().replace(/[\s-]/g, '') ?? '';
+  const tidy = (printed ?? '').toUpperCase().trim().replace(/(\d)[\s-]+([A-Z])/g, '$1$2').replace(/([A-Z])[\s-]+(\d)/g, '$1$2');
   return isSceneNumber(tidy) ? tidy : null;
 }
 
@@ -82,28 +85,33 @@ export function planImport(records: Records, projectId: string, script: Script):
   const planned: PlannedScene[] = [];
   script.scenes.forEach((scene, index) => {
     const own = printed[index] ?? null;
+    const key = sceneKey(scene.intExt, sceneName(scene));
     let number: string;
     let note: string | null = null;
+    let status: PlannedStatus;
     if (own !== null && first.get(own) === index) {
+      // A printed number is the slate's: kept, and never moved to make room.
       number = own;
+      const there = board.get(number);
+      status = !there ? 'new' : there.trashed ? 'trashed' : there.key === key ? 'same' : 'taken';
     } else {
       // Numbered as the script would be: after the scene before it and before the next number it prints (1, then 1A
       // before a printed 2), so importing the same draft again finds its scenes on the board.
       const before = planned.at(-1)?.number ?? null;
       const after = printed.slice(index + 1).find((n): n is string => n !== null && first.has(n)) ?? null;
-      number = sceneNumberBetween(before, after, [...scriptNumbers, ...planned.map((p) => p.number)]);
+      const scriptTaken = [...scriptNumbers, ...planned.map((p) => p.number)];
+      number = sceneNumberBetween(before, after, scriptTaken);
+      const there = board.get(number);
+      if (there && !there.trashed && there.key === key) status = 'same';
+      else {
+        // No slate number to keep: a number the board has for another scene (or in the Trash) is passed over.
+        if (there) number = sceneNumberBetween(before, after, [...scriptTaken, ...board.keys()]);
+        status = 'new';
+      }
       if (scene.number !== null) {
         note = own === null ? `The script’s number “${scene.number}” isn’t a scene number` : `The script prints ${own} twice`;
       }
     }
-    const there = board.get(number);
-    const status: PlannedStatus = !there
-      ? 'new'
-      : there.trashed
-        ? 'trashed'
-        : there.key === sceneKey(scene.intExt, sceneName(scene))
-          ? 'same'
-          : 'taken';
     planned.push({ scene, number, status, note });
   });
 

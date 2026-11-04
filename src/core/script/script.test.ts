@@ -123,6 +123,12 @@ describe('a Fountain script', () => {
   it('keeps a speaker over a note on a line of its own, and counts wrapped action as one paragraph', () => {
     const script = parseFountain('INT. A - DAY\n\nMARY\n[[ louder? ]]\nHello.\n');
     expect(script.scenes[0]?.characters).toEqual(['MARY']);
+    // A note that starts a line of text is only that note: nothing after it goes with it.
+    const notes = parseFountain('INT. A - DAY\n\n[[draft]] Mary waits.\n\nINT. B - NIGHT\n\nTOM\nHi. [[louder]]\n');
+    expect(notes.scenes.map((s) => [s.location, s.characters])).toEqual([
+      ['A', []],
+      ['B', ['TOM']],
+    ]);
     const wrapped = `INT. HALL - DAY\n\n${Array.from({ length: 53 }, (_, i) => `Step ${String(i)}.`).join('\n')}\n`;
     // 53 lines of one paragraph and one blank, not 106: about an eighth under a page.
     expect(parseFountain(wrapped).scenes[0]?.eighths).toBe(8);

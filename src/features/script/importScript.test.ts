@@ -93,21 +93,23 @@ describe('a script import', () => {
     ]);
     await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc1', 'Diner') }));
     const plan = planImport(records(), project.projectId, SCRIPT);
-    // The board's scene 1 is another scene (its own name), so the script's 1 is left out, not renumbered.
+    // The board's scene 1 is another scene (its own name). The script prints no numbers, so its scenes are numbered
+    // around the board's instead of being left out.
     expect(plan.scenes.map((s) => [s.number, s.status])).toEqual([
-      ['1', 'taken'],
       ['2', 'new'],
       ['3', 'new'],
       ['4', 'new'],
+      ['5', 'new'],
     ]);
     expect(plan.locations).toEqual({ created: ['COUNTY ROAD'], linked: ['Diner'] });
     await runImport();
-    // The board's own scene 1 is left as it was; the rest follow it.
+    // The board's own scene 1 is left as it was; the script's follow it.
     expect(scenes().map((s) => [s.number, s.name])).toEqual([
       ['1', 'Cold open'],
-      ['2', 'COUNTY ROAD'],
-      ['3', 'DINER — MOMENTS LATER'],
-      ['4', 'FLASHBACK - THE BRIDGE'],
+      ['2', 'DINER'],
+      ['3', 'COUNTY ROAD'],
+      ['4', 'DINER — MOMENTS LATER'],
+      ['5', 'FLASHBACK - THE BRIDGE'],
     ]);
     expect(named('location')).toEqual(['COUNTY ROAD', 'Diner']);
   });
@@ -139,8 +141,28 @@ describe('a script import', () => {
     await store.getState().apply([
       { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1' } } },
     ]);
-    // Scene 1 is the person's own: the script's 1 is left out, the rest come in with the script's numbers.
-    expect(planImport(records(), project.projectId, SCRIPT).scenes.map((s) => s.status)).toEqual(['taken', 'new', 'new', 'new']);
+    // Scene 1 is the person's own: every scene of the script comes in, numbered around it.
+    expect(planImport(records(), project.projectId, SCRIPT).scenes.map((s) => [s.number, s.status])).toEqual([
+      ['2', 'new'],
+      ['3', 'new'],
+      ['4', 'new'],
+      ['5', 'new'],
+    ]);
+  });
+
+  it('leaves out a printed number the board has for another scene, rather than move it off the slate', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4' } } },
+    ]);
+    const script = parseFountain('INT. A - DAY #4#\n\nINT. B - DAY #5#\n\nINT. C - DAY #12-14#\n');
+    const plan = planImport(records(), project.projectId, script).scenes;
+    expect(plan.map((s) => [s.number, s.status])).toEqual([
+      ['4', 'taken'],
+      ['5', 'new'],
+      ['6', 'new'],
+    ]);
+    // Combined scenes aren't one number: numbered, with the reason.
+    expect(plan[2]?.note).toBe('The script’s number “12-14” isn’t a scene number');
   });
 
   it('reuses a character the project has, whatever its case, and adds scenes after a trashed last one', async () => {
@@ -173,6 +195,9 @@ describe('a script import', () => {
       { kind: 'create', record: { id: 'old', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1' } } },
     ]);
     await store.getState().apply([{ kind: 'trash', id: 'old' }]);
-    expect(planImport(records(), project.projectId, SCRIPT).scenes[0]).toMatchObject({ number: '1', status: 'trashed' });
+    // A printed number in the Trash is left out; an unnumbered scene passes over it.
+    expect(planImport(records(), project.projectId, SCRIPT).scenes[0]).toMatchObject({ number: '2', status: 'new' });
+    const printed = parseFountain('INT. DINER - NIGHT #1#\n');
+    expect(planImport(records(), project.projectId, printed).scenes[0]).toMatchObject({ number: '1', status: 'trashed' });
   });
 });

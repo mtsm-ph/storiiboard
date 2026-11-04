@@ -65,7 +65,9 @@ function elements(body: string): Element[] {
     // Sections (#), synopses (=), page breaks (===), lyrics (~) and centred text (> <) aren't scenes or speech.
     if (/^(#|=|~)/.test(line) || /^>.*<$/.test(line)) continue;
     if (line.startsWith('!')) {
-      out.push({ kind: 'action', text: line.slice(1) });
+      const last = out.at(-1);
+      if (!before && last?.kind === 'action') last.text += `\n${line.slice(1)}`;
+      else out.push({ kind: 'action', text: line.slice(1) });
       continue;
     }
     const forcedHeading = /^\.[^.]/.test(line);
@@ -123,7 +125,8 @@ export function parseFountain(source: string): Script {
     // The boneyard and notes are never part of the script.
     .replace(/\/\*[\s\S]*?\*\//g, '')
     // A note on a line of its own goes with its line, so it never splits a cue from its dialogue.
-    .replace(/^[ \t]*\[\[[\s\S]*?\]\][ \t]*\n/gm, '')
+    // (Up to its own ]] only: a note that starts a line of text isn't a whole line.)
+    .replace(/^[ \t]*\[\[(?:(?!\]\])[\s\S])*\]\][ \t]*\n/gm, '')
     .replace(/\[\[[\s\S]*?\]\]/g, '');
   const { title, body } = splitTitlePage(text);
   const scenes: ScriptScene[] = [];
