@@ -1,4 +1,4 @@
-import { withField, withoutField } from '../../core/model/customFields';
+import { hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneNumberBetween, shotNumbers } from '../../core/model/shotNumbers';
 import { projectStoryboard, sceneFields, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
@@ -190,7 +190,8 @@ export function addShots(
 /** Sets one of a frame's custom fields (1.19), or takes it off with null; from the records it lands on, so quick edits all stay. */
 export function setCustomField(records: Records, shotId: string, name: string, value: string | null): Change[] {
   const props = records[shotId]?.props;
-  if (!props) return [];
+  // Something other than text under that name is never written over (or taken off) from here.
+  if (!props || hiddenFieldNames(props).some((h) => h.toLowerCase() === name.toLowerCase())) return [];
   return [{ kind: 'update', id: shotId, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }];
 }
 

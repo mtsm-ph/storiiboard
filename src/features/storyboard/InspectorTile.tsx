@@ -2,7 +2,7 @@ import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
-import { customFieldNames, customFieldsOf } from '../../core/model/customFields';
+import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { addPictures } from './addPictures';
 import { setCustomField, setSceneNumber } from './board';
@@ -97,6 +97,7 @@ export function InspectorTile() {
         }}
         customFields={shot ? customFieldsOf(shot.props) : {}}
         customNames={customFieldNames(records)}
+        customHidden={shot ? hiddenFieldNames(shot.props) : []}
         onCustomChange={async (name, value) => {
           if (!shot) return;
           // Worked out when it lands, so two fields added quickly both stay.

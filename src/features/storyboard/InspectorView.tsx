@@ -81,6 +81,8 @@ export interface InspectorViewProps {
   customFields?: Readonly<Record<string, string>>;
   /** Every field name the project's frames use. */
   customNames?: readonly string[];
+  /** Names the frame keeps something other than text under, which a new field can't take. */
+  customHidden?: readonly string[];
   /** A value to set, or null to take the field off the frame. */
   /** Settles once the edit has landed, so focus can go to what it made. */
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
@@ -196,11 +198,14 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
 function CustomFields({
   fields,
   known,
+  hidden,
   onChange,
 }: {
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
   known: readonly string[];
+  /** Names this frame keeps something other than text under. */
+  hidden: readonly string[];
   /** A value to set, or null to take the field off this frame; settles once it has landed. */
   onChange: (name: string, value: string | null) => Promise<void>;
 }) {
@@ -211,14 +216,17 @@ function CustomFields({
   const rows = useRef<HTMLDivElement>(null);
   const newField = useRef<HTMLInputElement>(null);
   // After the edit lands and the row is drawn (or gone), so the focus finds it: a desktop write takes a few frames.
-  const focusField = (field: string | null) => {
+  // Only if the focus is still where the person left it (`from`, or nowhere): someone who has moved on isn't pulled back.
+  const focusField = (field: string | null, from: Element | null) => {
     requestAnimationFrame(() => {
+      const now = document.activeElement;
+      if (now !== from && now !== document.body && now !== null) return;
       const input = field === null ? null : rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`);
       (input ?? newField.current)?.focus();
     });
   };
   const add = () => {
-    const tidy = fieldName(name, known);
+    const tidy = fieldName(name, known, hidden);
     if (!tidy.ok) {
       setError(tidy.problem);
       return;
@@ -230,11 +238,11 @@ function CustomFields({
     // Already on this frame, in any case: go to it rather than add it twice.
     const existing = fieldKey(fields, tidy.name);
     if (existing !== null) {
-      focusField(existing);
+      focusField(existing, newField.current);
       return;
     }
     void onChange(tidy.name, '').then(() => {
-      focusField(tidy.name);
+      focusField(tidy.name, newField.current);
     });
   };
   const remove = (field: string) => {
@@ -242,8 +250,9 @@ function CustomFields({
     const names = Object.keys(fields);
     const at = names.indexOf(field);
     const next = names[at + 1] ?? names[at - 1] ?? null;
+    const from = document.activeElement;
     void onChange(field, null).then(() => {
-      focusField(next);
+      focusField(next, from);
     });
   };
   const offered = known.filter((k) => fieldKey(fields, k) === null);
@@ -343,6 +352,7 @@ export function InspectorView({
   strokeCount = 0,
   customFields = {},
   customNames = [],
+  customHidden = [],
   onCustomChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
@@ -553,7 +563,7 @@ export function InspectorView({
 
           {onCustomChange && (
             <Section title="Custom fields">
-              <CustomFields key={shot.id} fields={customFields} known={customNames} onChange={onCustomChange} />
+              <CustomFields key={shot.id} fields={customFields} known={customNames} hidden={customHidden} onChange={onCustomChange} />
             </Section>
           )}
         </>
