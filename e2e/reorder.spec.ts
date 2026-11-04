@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // Dragging frames and notes to a new place, and the "/" menu (1.12), on real projects in the memory build.
 
@@ -12,6 +13,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   const newScene = page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' });
   await newScene.click();
   await newScene.click();

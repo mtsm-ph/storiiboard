@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // Baselines are per browser and per OS (fonts render differently), so each platform keeps its own set.
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -25,6 +26,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.reload();
     page.once('dialog', (dialog) => void dialog.accept('Bey County'));
     await page.getByRole('button', { name: 'New project…' }).click();
+    await skipOnboarding(page);
     const scenes = page.getByRole('region', { name: 'Scenes', exact: true });
     await scenes.getByRole('button', { name: '+ New scene' }).click();
     await scenes.getByRole('button', { name: '+ New scene' }).click();

@@ -7,6 +7,7 @@ import { reopenChangedProject, setProjectState, syncRecentState } from '../proje
 import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { noteIfSynced } from '../projects/synced';
 import { projectStore, useProject } from '../projectStore';
+import { OnboardingHost } from '../theme/OnboardingDialog';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
 import { useSelection } from '../../features/storyboard/selection';
@@ -160,6 +161,7 @@ export function AppShell() {
         <SketchHost />
       </div>
       <StatusBar workspace={workspace} />
+      <OnboardingHost />
     </div>
   );
 }

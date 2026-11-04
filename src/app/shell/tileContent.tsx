@@ -4,6 +4,7 @@ import { InspectorTile } from '../../features/storyboard/InspectorTile';
 import { ScenesTile } from '../../features/storyboard/ScenesTile';
 import { StoryboardTile } from '../../features/storyboard/StoryboardTile';
 import { ProjectHome } from '../project/ProjectHome';
+import { ThemeTile } from '../theme/ThemeTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -13,4 +14,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   inspector: InspectorTile,
   project: ProjectHome,
   backups: BackupsPanel,
+  theme: ThemeTile,
 };

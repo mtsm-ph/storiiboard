@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // A project's own theme (1.15): its tokens go on <html> and ease in over 200ms with no reload, Follow project takes its
 // mode, reduced motion switches at once, and a project without one shows the kit. Onboarding and Settings → Theme
@@ -7,6 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function newProject(page: Page, name: string) {
   page.once('dialog', (dialog) => void dialog.accept(name));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await expect(page.getByRole('region', { name: 'Storyboard workspace' })).toBeVisible();
 }
 

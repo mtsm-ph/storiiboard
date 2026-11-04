@@ -268,7 +268,7 @@ number is given out twice. Unlocking renumbers the scene to follow the board aga
 |---|---|
 | version | 1 |
 | source | `default` (no image: the kit's theme), `image` (from the logo or key image) or `manual` (accent typed in) |
-| image_id | The `media` record of the logo or key image; null for `default` |
+| image_id | The `media` record of the logo or key image, a child of the project; null for `default`. Replacing the image, or Reset to default, trashes that record in the same op group (1.16) |
 | mode | `light` or `dark`: the project's preferred mode. A person's Appearance setting can override it |
 | candidates | The extracted accents, most saturated first, usually 3 or 4 |
 | accent_picked | The accent the person chose or typed, before the contrast adjustment |

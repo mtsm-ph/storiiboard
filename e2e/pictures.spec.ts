@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // Pictures in frames (1.11) on real projects in the memory build: chosen, dropped and pasted, framed in the inspector,
 // undone, and still there after a reload. In the desktop app the files come through Rust instead
@@ -19,6 +20,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
 });

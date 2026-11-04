@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // The theme generator (1.14) in the engines the app ships on: an image's accents are read in a Web Worker, and every
 // family's theme, light and dark, passes axe on a real board. Switching themes in the UI arrives in 1.15; here the
@@ -32,6 +33,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   const board = page.getByRole('region', { name: 'Storyboard', exact: true });
   for (let i = 0; i < 2; i += 1) await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
