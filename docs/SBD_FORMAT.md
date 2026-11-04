@@ -113,7 +113,10 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
 
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
-image back. Only Empty Trash removes data from it.
+image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
+deletes the bytes of pictures only History uses (1.21); the steps stay, and a frame they name such a picture on reads
+"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`), so what's deleted is gone from the file
+itself, though the file doesn't shrink: SQLite reuses the space for new pictures.
 
 ## Schema v3: pictures (1.10)
 
@@ -148,10 +151,11 @@ and after each edit, never copies a picture.
   colour; sRGB pictures lose nothing, since sRGB fits inside P3; other profiles, such as Adobe RGB, are converted. An
   engine that can't draw in P3 stores sRGB, and `color_space` says which.
 - A picture's bytes are written in the same transaction as the op that first uses them, so a crash never leaves a
-  record pointing at nothing.
+  record pointing at nothing. Only the person deleting them on purpose can (below).
 - Bytes stay when the record using them is undone, trashed or given another picture, so undo, a History restore or a
-  named version can bring an old picture back. Only Empty Trash deletes bytes, and only bytes nothing left in the file
-  refers to (1.21).
+  named version can bring an old picture back. They're deleted only by Empty Trash (bytes nothing left in the file
+  refers to) and Clean up old pictures (bytes only History refers to), both after a confirm (1.21). A frame or step
+  that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
 

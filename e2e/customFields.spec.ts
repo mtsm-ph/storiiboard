@@ -70,6 +70,29 @@ test('a second frame takes the project’s spelling of a field, and Remove takes
   await expect(inspector(page).getByRole('textbox', { name: 'Drone', exact: true })).toHaveValue('FPV');
 });
 
+test('from the keyboard, Add field puts the focus in the new field, and Remove moves it on, then to New field', async ({ page }) => {
+  await frames(page).nth(0).click();
+  await inspector(page).getByLabel('New field').fill('Drone');
+  await page.keyboard.press('Tab');
+  await expect(inspector(page).getByRole('button', { name: 'Add field' })).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(inspector(page).getByRole('textbox', { name: 'Drone', exact: true })).toBeFocused();
+  await addField(page, 'VFX', 'Sky replace');
+
+  await inspector(page).getByRole('button', { name: 'Remove Drone from this frame' }).click();
+  await expect(inspector(page).getByRole('textbox', { name: 'VFX', exact: true })).toBeFocused();
+  await inspector(page).getByRole('button', { name: 'Remove VFX from this frame' }).click();
+  await expect(inspector(page).getByLabel('New field')).toBeFocused();
+});
+
+test('refuses the name of one of the frame’s own fields', async ({ page }) => {
+  await frames(page).nth(0).click();
+  await inspector(page).getByLabel('New field').fill('status');
+  await inspector(page).getByLabel('New field').press('Enter');
+  await expect(inspector(page).getByRole('alert')).toHaveText('status is one of the frame’s own fields. Choose another name.');
+  await expect(inspector(page).getByRole('button', { name: /^Remove .* from this frame$/ })).toHaveCount(0);
+});
+
 test('refuses a name that’s only spaces', async ({ page }) => {
   await frames(page).nth(0).click();
   await expect(inspector(page).getByRole('button', { name: 'Add field' })).toBeDisabled();

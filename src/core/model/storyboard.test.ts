@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSceneNumber, pageLabel, parsePages, projectStoryboard, sceneFields, sceneLabel, shotFields, specLine, tStopLabel } from './storyboard';
+import { isSceneNumber, pageLabel, sceneNumberProblem, parsePages, projectStoryboard, sceneFields, sceneLabel, shotFields, specLine, tStopLabel } from './storyboard';
 
 describe('storyboard props', () => {
   it('read page counts as a breakdown sheet writes them', () => {
@@ -51,5 +51,12 @@ describe('storyboard props', () => {
   it('take scene numbers as scripts write them', () => {
     for (const ok of ['4', '12', '4A', 'A1', '12BC']) expect(isSceneNumber(ok)).toBe(true);
     for (const bad of ['', 'A', '4-A', 'SC 4', '4a']) expect(isSceneNumber(bad)).toBe(false);
+  });
+
+  it('refuse a scene number another scene has, in the Trash too', () => {
+    expect(sceneNumberProblem('5', ['4'], ['6'])).toBeNull();
+    expect(sceneNumberProblem('4', ['4'], [])).toBe("There's already a scene 4.");
+    expect(sceneNumberProblem('6', ['4'], ['6'])).toBe('Scene 6 is in the Trash. Restore it, or choose another number.');
+    expect(sceneNumberProblem('4-A', [], [])).toBe('Scene numbers look like 4, 4A or A1.');
   });
 });

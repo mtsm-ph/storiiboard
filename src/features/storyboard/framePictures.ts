@@ -68,6 +68,8 @@ function currentMedia(records: Records, shotId: string): SbdRecord | null {
 /** What a view draws for a frame: its live picture's address and shape, and the crop; null for an empty frame. */
 export function pictureView(records: Records, fields: ShotFields): FramePictureView | null {
   const media = fields.mediaId ? records[fields.mediaId] : undefined;
+  // A picture Empty Trash deleted for good, named again by a History restore: the frame says it's missing, plainly.
+  if (fields.mediaId && !media) return { sha256: '', aspect: 1, crop: fields.crop };
   const picture = media && media.trashedAt === null ? mediaFields(media.props) : null;
   return picture ? { sha256: picture.sha256, aspect: picture.width / picture.height, crop: fields.crop } : null;
 }

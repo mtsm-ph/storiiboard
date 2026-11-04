@@ -355,20 +355,39 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     const after = fromSnapshot(row.before);
     if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
   }
-  // Empty Trash deleted some records for good, and their data in the log with them: a record from then never comes
-  // back half made (its ops say nothing), and one that sat under a deleted parent stays where it is now.
-  const coming = new Set(found.filter((op) => op.after !== null).map((op) => op.recordId));
-  const ops: PendingOp[] = [];
-  for (const op of found) {
-    const parentId = op.after?.parentId ?? null;
-    if (op.after && parentId !== null && !coming.has(parentId) && (await getRecord(file, parentId)) === null) {
-      if (op.before === null) continue;
-      const kept = { ...op.after, parentId: op.before.parentId, sortKey: op.before.sortKey };
-      if (snapshot(kept) !== snapshot(op.before)) ops.push({ ...op, after: kept });
-      continue;
+  // Empty Trash deleted some records for good, and their data in the log with them, so the point can't always be
+  // reached exactly. A record that would go back under a parent that won't be there stays as it is now (or stays away,
+  // if it isn't there now), and a record that stays where it is keeps its parent from being deleted. Each step only
+  // moves a record back to how it is now, so this ends, and every record written sits under one that exists.
+  const final = new Map(found.map((op) => [op.recordId, op.after]));
+  const byId = new Map(found.map((op) => [op.recordId, op]));
+  const existsNow = new Map<string, boolean>();
+  const exists = async (id: string): Promise<boolean> => {
+    if (final.has(id)) return final.get(id) !== null;
+    if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
+    return existsNow.get(id) === true;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [id, record] of final) {
+      const parentId = record?.parentId ?? null;
+      if (!record || parentId === null || (await exists(parentId))) continue;
+      const op = byId.get(id);
+      const parent = byId.get(parentId);
+      if (record !== op?.before) {
+        final.set(id, op?.before ?? null);
+        changed = true;
+      } else if (parent?.before && final.get(parentId) !== parent.before) {
+        // As it is now, under a parent this restore would delete: the parent stays as it is now too.
+        final.set(parentId, parent.before);
+        changed = true;
+      }
     }
-    ops.push(op);
   }
+  const ops = found.flatMap((op) => {
+    const after = final.get(op.recordId) ?? null;
+    return snapshot(after) === snapshot(op.before) ? [] : [{ ...op, after }];
+  });
   if (ops.length === 0) return null;
   const { undoTop } = await tops(file);
   await commit(
@@ -443,7 +462,7 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 export async function emptyTrash(
   file: ProjectFile,
   options: OpOptions = {},
-): Promise<{ touched: Touched; removed: number; freed: number } | null> {
+): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
   const { author = 'local', now = () => new Date() } = options;
   const ids = purgeIds(await loadRecords(file));
   if (ids.length === 0) return null;
@@ -470,7 +489,12 @@ export async function emptyTrash(
     })),
     ...deletePictures(pictures),
   ]);
-  return { touched: new Map(ids.map((id) => [id, null])), removed: ids.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
+  return {
+    touched: new Map(ids.map((id) => [id, null])),
+    removed: ids.length,
+    freed: pictures.reduce((sum, p) => sum + p.bytes, 0),
+    pictures: pictures.map((p) => p.sha256),
+  };
 }
 
 /**
@@ -483,10 +507,10 @@ export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]>
 }
 
 /** Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged. */
-export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number }> {
+export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number; pictures: string[] }> {
   const pictures = await historyOnlyPictures(file);
   if (pictures.length > 0) await file.tx(deletePictures(pictures));
-  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
+  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }
 
 export async function history(file: ProjectFile): Promise<{ canUndo: boolean; canRedo: boolean }> {
@@ -496,7 +520,13 @@ export async function history(file: ProjectFile): Promise<{ canUndo: boolean; ca
 
 /** One write in the log, as the History tile reads it. */
 export interface LoggedOp {
+  /** The op's own id: what keeps a row of History the same row when newer steps arrive above it. */
+  id: string;
+  /** Its place in the log. */
+  seq: number;
   groupId: string;
+  /** The group's kind: an undo's ops keep the kind they reverse, so this is what tells an undone add from an add. */
+  groupKind: GroupKind;
   recordId: string;
   kind: OpKind;
   before: SbdRecord | null;
@@ -506,7 +536,10 @@ export interface LoggedOp {
 }
 
 const loggedOp = (row: Row): LoggedOp => ({
+  id: String(row.id),
+  seq: Number(row.seq),
   groupId: String(row.group_id),
+  groupKind: String(row.group_kind) as GroupKind,
   recordId: String(row.record_id),
   kind: String(row.kind) as OpKind,
   before: fromSnapshot(row.before),
@@ -515,23 +548,62 @@ const loggedOp = (row: Row): LoggedOp => ({
   timestamp: String(row.timestamp),
 });
 
+const LOGGED_COLUMNS = 'o.id, o.seq, o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp';
+
 /** The ops of some groups, in log order, for the History tile's page of steps. */
 export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]): Promise<LoggedOp[]> {
   if (groupIds.length === 0) return [];
   const rows = await file.query(
-    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE group_id IN (SELECT value FROM json_each(?)) ORDER BY seq',
+    `SELECT ${LOGGED_COLUMNS} FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.group_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
     [JSON.stringify(groupIds)],
   );
   return rows.map(loggedOp);
 }
 
 /** Every write to one record, oldest first (ops_by_record): an item's own history. */
-export async function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
+export function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
+  return opsOfRecords(file, [recordId]);
+}
+
+/** Every write to some records, oldest first: a frame's history with its sketch and picture. */
+export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[]): Promise<LoggedOp[]> {
+  if (recordIds.length === 0) return [];
   const rows = await file.query(
-    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE record_id = ? ORDER BY seq',
-    [recordId],
+    `SELECT ${LOGGED_COLUMNS} FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
+    [JSON.stringify(recordIds)],
   );
   return rows.map(loggedOp);
+}
+
+/**
+ * Every record the log ever put under `parentId` (a frame's strokes and picture), from both sides of its writes: a
+ * sketch that was undone, or taken away by Restore to here, has no record any more, but its steps are still the
+ * frame's. Not those Empty Trash deleted for good, whose writes no longer say where they were.
+ */
+export async function childrenInLog(file: ProjectFile, parentId: string): Promise<string[]> {
+  const rows = await file.query(
+    `SELECT DISTINCT record_id FROM ops WHERE record_id <> ?
+      AND (json_extract(before, '$.parent_id') = ? OR json_extract(after, '$.parent_id') = ?)`,
+    [parentId, parentId, parentId],
+  );
+  return rows.map((row) => String(row.record_id));
+}
+
+/**
+ * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
+ * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.
+ */
+export async function recordsBefore(file: ProjectFile, asks: readonly { id: string; seq: number }[]): Promise<(SbdRecord | null)[]> {
+  if (asks.length === 0) return [];
+  const rows = await file.query(
+    `SELECT j.key AS i, (SELECT o.after FROM ops o WHERE o.record_id = json_extract(j.value, '$.id')
+        AND o.seq < json_extract(j.value, '$.seq') ORDER BY o.seq DESC LIMIT 1) AS after
+      FROM json_each(?) j ORDER BY j.key`,
+    [JSON.stringify(asks)],
+  );
+  return rows.map((row) => fromSnapshot(row.after));
 }
 
 /** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */

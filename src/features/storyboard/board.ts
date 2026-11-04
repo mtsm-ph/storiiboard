@@ -1,3 +1,4 @@
+import { hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneNumberBetween, shotNumbers } from '../../core/model/shotNumbers';
 import { projectStoryboard, sceneFields, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
@@ -186,6 +187,14 @@ export function addShots(
   };
 }
 
+/** Sets one of a frame's custom fields (1.19), or takes it off with null; from the records it lands on, so quick edits all stay. */
+export function setCustomField(records: Records, shotId: string, name: string, value: string | null): Change[] {
+  const props = records[shotId]?.props;
+  // Something other than text under that name is never written over (or taken off) from here.
+  if (!props || hiddenFieldNames(props).some((h) => h.toLowerCase() === name.toLowerCase())) return [];
+  return [{ kind: 'update', id: shotId, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }];
+}
+
 /** Sends a frame to the Trash, and closes up its scene's letters unless they're locked. */
 export function trashShot(records: Records, projectId: string, shotId: string): Change[] {
   const shot = records[shotId];
@@ -196,18 +205,57 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
 
 /**
  * Brings a frame back from the Trash to where it was (1.20), with its scene when that's in the Trash too; the scene's
- * letters follow the board again unless they're locked, where it keeps its own.
+ * letters follow the board again unless they're locked, where it keeps its own unless a live frame has taken it since.
  */
 export function restoreShot(records: Records, projectId: string, shotId: string): Change[] {
   const shot = records[shotId];
   if (!shot?.parentId || shot.trashedAt === null) return [];
-  const scene = records[shot.parentId];
-  const order = sceneShots(records, shot.parentId).map((s) => (s.id === shotId ? { ...s, trashedAt: null } : s));
-  return [
-    ...(scene && scene.trashedAt !== null ? [{ kind: 'restore' as const, id: scene.id }] : []),
-    { kind: 'restore', id: shotId },
-    ...renumber(records, projectId, shot.parentId, order),
-  ];
+  return restoredScene(records, projectId, shot.parentId, [shotId]);
+}
+
+/**
+ * Brings `back` (frames and notes in one scene) out of the Trash, so that slate numbers stay unique (1.20): the scene
+ * comes back too if it's in the Trash, with a new number if a live scene has taken its own meanwhile, and its frames
+ * renumber as the board numbers them now (the project's I and O setting included).
+ */
+export function restoredScene(records: Records, projectId: string, sceneId: string, back: readonly string[]): Change[] {
+  const scene = records[sceneId];
+  if (!scene) return [];
+  const changes: Change[] = [];
+  let props = scene.props;
+  const coming = new Set(back);
+  if (scene.trashedAt !== null) {
+    changes.push({ kind: 'restore', id: sceneId });
+    const fields = sceneFields(scene.props);
+    const all = childrenOf(records, projectId, 'scene', true);
+    const live = all.filter((s) => s.trashedAt === null);
+    if (live.some((s) => sceneFields(s.props).number === fields.number)) {
+      // Between the live scenes either side of where it sits on the board.
+      const before = live.filter((s) => s.sortKey < scene.sortKey).at(-1);
+      const after = live.find((s) => s.sortKey > scene.sortKey);
+      const number = sceneNumberBetween(
+        before ? sceneFields(before.props).number : null,
+        after ? sceneFields(after.props).number : null,
+        all.map((s) => sceneFields(s.props).number),
+      );
+      changes.push({ kind: 'update', id: sceneId, set: { number } });
+      // Its frames' letters were under the old number, so they're numbered afresh under the new one, in board order,
+      // even in a locked scene (the lock itself stays): otherwise two scenes would share 4A.
+      props = { ...props, number, numbers_locked: false };
+    }
+  }
+  for (const id of back) changes.push({ kind: 'restore', id });
+  const liveNumbers = new Set(
+    sceneShots(records, sceneId)
+      .filter((s) => s.trashedAt === null)
+      .map((s) => shotFields(s.props).number),
+  );
+  const order = sceneShots(records, sceneId).map((s) => {
+    if (!coming.has(s.id)) return s;
+    // In a locked scene a frame keeps its letter, but never one a live frame has taken since: it takes the next free one.
+    return { ...s, trashedAt: null, props: liveNumbers.has(shotFields(s.props).number) ? { ...s.props, number: '' } : s.props };
+  });
+  return [...changes, ...renumber(records, projectId, sceneId, order, props)];
 }
 
 /**

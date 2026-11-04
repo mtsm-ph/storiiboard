@@ -171,6 +171,10 @@ impl SbdFile {
         conn.pragma_update(None, "fullfsync", "ON").map_err(text)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(text)?;
+        // Deleted rows are overwritten with zeros, so what Empty Trash and Clean up delete is gone from the file itself
+        // (and from every backup and pack made after), not left in its free pages.
+        conn.pragma_update(None, "secure_delete", "ON")
+            .map_err(text)?;
         Ok(Self {
             copying: None,
             fingerprint: fingerprint(path)?,
@@ -1203,6 +1207,7 @@ mod tests {
         assert_eq!(row("PRAGMA journal_mode")["journal_mode"], "delete");
         assert_eq!(row("PRAGMA synchronous")["synchronous"], 2);
         assert_eq!(row("PRAGMA foreign_keys")["foreign_keys"], 1);
+        assert_eq!(row("PRAGMA secure_delete")["secure_delete"], 1);
     }
 
     #[test]
@@ -1718,6 +1723,8 @@ mod tests {
                 waits[waits.len() - 1]
             );
         }
+        // Closed first: Windows won't delete a file SQLite still has open.
+        drop(files);
         fs::remove_dir_all(&dir).unwrap();
     }
 

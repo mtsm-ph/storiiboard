@@ -133,12 +133,22 @@ test('reads a screenplay PDF by its layout: headings, scene numbers in the margi
   await expect(preview(page).getByRole('heading', { name: 'Import BEY COUNTY' })).toBeVisible();
   const rows = preview(page).getByRole('table', { name: 'Scenes in the script' }).locator('tbody tr');
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toContainText('4');
+  // The scene number from the margins, in its own column.
+  await expect(rows.nth(0).getByRole('cell').first()).toHaveText('4');
+  await expect(rows.nth(1).getByRole('cell').first()).toHaveText('5');
   await expect(rows.nth(0)).toContainText('INT. DINER — NIGHT');
   await expect(rows.nth(0)).toContainText('MARY, TOM');
   await expect(rows.nth(1)).toContainText('EXT. COUNTY ROAD — DAY');
   await preview(page).getByRole('button', { name: 'Import 2 scenes' }).click();
   await expect(scenesTile(page).getByText('INT. DINER — NIGHT')).toBeVisible();
+});
+
+test('a PDF that can’t be read says so, naming the file', async ({ page }) => {
+  const chooser = page.waitForEvent('filechooser');
+  await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
+  await (await chooser).setFiles({ name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nnot really a pdf\n') });
+  await expect(page.getByRole('alert')).toContainText('broken.pdf');
+  await expect(preview(page)).toHaveCount(0);
 });
 
 test('a PDF with no text, such as a scan, says so', async ({ page }) => {

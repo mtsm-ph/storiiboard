@@ -2,7 +2,7 @@ import { mediaFields } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
-import { restoreShot } from '../storyboard/board';
+import { restoredScene, restoreShot } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -20,13 +20,18 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = {
   picture: 'Picture',
 };
 
+export interface NamePart {
+  text: string;
+  mono: boolean;
+}
+
 export interface TrashItem {
   id: string;
   kind: TrashKind;
   /** What it was, as the board names it: `1A`, `SC 04 INT. DINER — NIGHT`, a note's first words, a picture's file. */
   name: string;
-  /** Technical names (shot and scene numbers) are set in mono. */
-  mono: boolean;
+  /** The name in pieces, the shot and scene numbers in it marked to be set in mono. */
+  parts: readonly NamePart[];
   /** The scene it belongs to, for the filter, and how that reads: `SC 04`. Null for the project's own image. */
   sceneId: string | null;
   sceneName: string | null;
@@ -52,23 +57,27 @@ function kindOf(record: SbdRecord): TrashKind | null {
   return null;
 }
 
-function nameOf(records: Records, record: SbdRecord, kind: TrashKind): { name: string; mono: boolean } {
+const mono = (text: string): NamePart => ({ text, mono: true });
+const plain = (text: string): NamePart => ({ text, mono: false });
+
+function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart[] {
   switch (kind) {
     case 'scene': {
       const fields = sceneFields(record.props);
-      return { name: `${sceneLabel(fields.number)}  ${headingOf(fields)}`, mono: false };
+      return [mono(sceneLabel(fields.number)), plain(`  ${headingOf(fields)}`)];
     }
-    case 'frame':
-      return { name: shotFields(record.props).number || 'Unnumbered frame', mono: true };
+    case 'frame': {
+      const number = shotFields(record.props).number;
+      return [number ? mono(number) : plain('Unnumbered frame')];
+    }
     case 'note': {
       const text = typeof record.props.text === 'string' ? record.props.text.trim().replace(/\s+/g, ' ') : '';
-      return { name: text === '' ? 'Empty note' : text.length > 60 ? `${text.slice(0, 59)}…` : text, mono: false };
+      return [plain(text === '' ? 'Empty note' : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
     }
     case 'picture': {
-      const file = mediaFields(record.props)?.sourceName ?? '';
+      const file = plain(mediaFields(record.props)?.sourceName || 'Pasted picture');
       const parent = record.parentId ? records[record.parentId] : undefined;
-      const of = parent?.type === 'shot' ? ` of ${shotFields(parent.props).number}` : ' (logo or key image)';
-      return { name: `${file || 'Pasted picture'}${of}`, mono: false };
+      return parent?.type === 'shot' ? [file, plain(' of '), mono(shotFields(parent.props).number)] : [file, plain(' (logo or key image)')];
     }
   }
 }
@@ -84,6 +93,13 @@ function trashedWith(records: Records, scene: SbdRecord): SbdRecord[] {
   return Object.values(records).filter((r) => r.parentId === scene.id && (r.type === 'shot' || r.type === 'note') && trashedWithParent(records, r));
 }
 
+/** What an item is called now, as the list names it: after a restore, under the number it came back with. */
+export function restoredName(records: Records, id: string): string | null {
+  const record = records[id];
+  const kind = record ? kindOf(record) : null;
+  return record && kind ? partsOf(records, record, kind).map((p) => p.text).join('') : null;
+}
+
 /** Everything in the project's Trash, the most recently deleted first; a scene's frames deleted with it are in its row. */
 export function trashItems(records: Records, projectId: string): TrashItem[] {
   const items: TrashItem[] = [];
@@ -96,13 +112,13 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     let top: SbdRecord | undefined = record;
     while (top?.parentId) top = records[top.parentId];
     if (top?.id !== projectId) continue;
-    const named = nameOf(records, record, kind);
     const inside = kind === 'scene' ? trashedWith(records, record).filter((r) => r.type === 'shot').length : 0;
+    const parts = [...partsOf(records, record, kind), ...(inside > 0 ? [plain(` (with ${String(inside)} ${inside === 1 ? 'frame' : 'frames'})`)] : [])];
     items.push({
       id: record.id,
       kind,
-      ...named,
-      name: inside > 0 ? `${named.name} (with ${String(inside)} ${inside === 1 ? 'frame' : 'frames'})` : named.name,
+      name: parts.map((p) => p.text).join(''),
+      parts,
       sceneId: scene?.id ?? null,
       sceneName: scene ? sceneLabel(sceneFields(scene.props).number) : null,
       trashedAt: record.trashedAt,
@@ -126,7 +142,7 @@ export function restoreChanges(records: Records, projectId: string, id: string):
     case 'shot':
       return restoreShot(records, projectId, id);
     case 'note':
-      return [...(parent?.type === 'scene' && parent.trashedAt !== null ? [{ kind: 'restore' as const, id: parent.id }] : []), { kind: 'restore', id }];
+      return parent?.type === 'scene' ? restoredScene(records, projectId, parent.id, [id]) : [{ kind: 'restore', id }];
     case 'media': {
       if (parent?.type !== 'shot') return [{ kind: 'restore', id }];
       const current = shotFields(parent.props).mediaId;
@@ -140,7 +156,8 @@ export function restoreChanges(records: Records, projectId: string, id: string):
     }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.
-      return [{ kind: 'restore', id }, ...trashedWith(records, record).map((r) => ({ kind: 'restore' as const, id: r.id }))];
+      // With a new number if a live scene has taken its own; its frames are numbered the board's way.
+      return restoredScene(records, projectId, id, trashedWith(records, record).map((r) => r.id));
     default:
       return [{ kind: 'restore', id }];
   }

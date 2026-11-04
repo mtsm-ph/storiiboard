@@ -28,6 +28,8 @@ function configure(db: DatabaseSync): void {
   db.exec('PRAGMA synchronous = FULL');
   db.exec('PRAGMA fullfsync = ON');
   db.exec('PRAGMA foreign_keys = ON');
+  // As the app does: deleted rows are overwritten, so what Empty Trash deletes is gone from the file itself.
+  db.exec('PRAGMA secure_delete = ON');
 }
 
 function toRow(row: Record<string, unknown>): Row {
