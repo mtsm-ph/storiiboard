@@ -1,3 +1,5 @@
+import type { StoreApi } from 'zustand/vanilla';
+import type { ProjectState } from '../../app/projectStore';
 import type { JsonValue, Props } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 
@@ -61,6 +63,32 @@ export function watermarkChange(projectId: string, props: Props | undefined, dra
   const next = watermarkProp({ ...draft, text });
   if (stored !== null && JSON.stringify(watermarkProp(stored)) === JSON.stringify(next)) return null;
   return { kind: 'update', id: projectId, set: { watermark: next } };
+}
+
+/**
+ * Watermark Settings' Save: writes the draft as one edit, worked out from the project as it is when the edit's turn
+ * comes, and calls `close` only once it's written. A refused write leaves the dialog open with its draft, to try
+ * again; the store has the reason in `error`. A second press while one is saving (a double click) is the same Save,
+ * not a second step to undo. Resolves to whether it was written.
+ */
+export function watermarkSave(store: StoreApi<ProjectState>, projectId: string, close: () => void): (draft: Watermark) => Promise<boolean> {
+  let saving: Promise<boolean> | null = null;
+  return (draft) => {
+    saving ??= store
+      .getState()
+      .applyWith((records) => {
+        const change = watermarkChange(projectId, records[projectId]?.props, draft);
+        return { changes: change ? [change] : [] };
+      })
+      .then((written) => {
+        if (written) close();
+        return written;
+      })
+      .finally(() => {
+        saving = null;
+      });
+    return saving;
+  };
 }
 
 /** The watermark an export of this kind carries, if any. */

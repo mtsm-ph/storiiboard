@@ -189,6 +189,18 @@ describe('undo shortcuts', () => {
     const input = { tagName: 'INPUT', type: 'text', isContentEditable: false } as unknown as EventTarget;
     expect(undoCommandFor(key('z', { metaKey: true }, input), true)).toBeNull();
   });
+
+  it('do nothing from inside a modal dialog, unless its work is project edits (the sketch editor)', () => {
+    // A control inside an open dialog: what closest('dialog[open]') finds for it.
+    const inside = (dialog: { hasAttribute: (name: string) => boolean } | null) =>
+      ({ tagName: 'INPUT', type: 'range', isContentEditable: false, closest: () => dialog }) as unknown as EventTarget;
+    const watermark = { hasAttribute: () => false };
+    const sketch = { hasAttribute: (name: string) => name === 'data-project-undo' };
+    expect(undoCommandFor(key('z', { ctrlKey: true }, inside(watermark)), false)).toBeNull();
+    expect(undoCommandFor(key('Z', { metaKey: true, shiftKey: true }, inside(watermark)), true)).toBeNull();
+    expect(undoCommandFor(key('z', { ctrlKey: true }, inside(sketch)), false)).toBe('undo');
+    expect(undoCommandFor(key('z', { ctrlKey: true }, inside(null)), false)).toBe('undo');
+  });
 });
 
 it('shows a failed edit as an alert', async () => {

@@ -357,9 +357,11 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
   const undoKey = mac ? '⌘Z' : 'Ctrl+Z';
 
   return (
-    // The native dialog: modal, with Escape (its cancel) closing it and focus kept inside.
+    // The native dialog: modal, with Escape (its cancel) closing it and focus kept inside. Its strokes are project
+    // edits, so the app's ⌘Z still reaches them from here (inModalDialog in src/app/shell/workspaces.ts).
     <dialog
       ref={dialog}
+      data-project-undo=""
       aria-labelledby={titleId}
       aria-describedby={hintId}
       onCancel={(event) => {

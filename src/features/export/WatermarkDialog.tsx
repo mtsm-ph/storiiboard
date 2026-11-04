@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { closeExportDialog } from './exportStore';
 import { Modal } from './ExportDialog';
-import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkChange, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
+import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkSave, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
 
 // Watermark Settings (1.24, the project menu): the text, where it sits, how strong, and which exports carry it. Saved
 // as one edit to the project record, so it undoes like any other and every export reads the same watermark.
@@ -28,17 +27,19 @@ export function WatermarkDialog() {
   const records = useProject((s) => s.records);
   const stored = project ? readWatermark(records[project.projectId]?.props) : null;
   const [draft, setDraft] = useState<Watermark>(stored ?? DEFAULT_WATERMARK);
-  if (!project) return null;
+  // One for the dialog's life (it's keyed by project), so a second click while the first saves is ignored.
+  const [save] = useState(() => (project ? watermarkSave(projectStore, project.projectId, closeExportDialog) : null));
+  // Set only by a refused Save, so an earlier edit's error never shows here.
+  const [refused, setRefused] = useState(false);
+  const error = useProject((s) => s.error);
+  if (!project || !save) return null;
   const strength = Math.round(draft.opacity * 100);
 
-  const save = () => {
-    const change = watermarkChange(project.projectId, projectStore.getState().records[project.projectId]?.props, draft);
-    if (change === null) {
-      closeExportDialog();
-      return;
-    }
-    // Not written (an error, shown as a notice): the dialog stays, with the settings, to try again.
-    void projectStore.getState().apply([change]).then(closeExportDialog, showNotice);
+  const onSave = () => {
+    // Not written: the dialog stays, with the settings, and says why, to try again.
+    void save(draft).then((written) => {
+      setRefused(!written);
+    });
   };
 
   return (
@@ -100,9 +101,14 @@ export function WatermarkDialog() {
         ))}
       </fieldset>
       <p className="text-[12px] text-text-muted">Leave the text empty for no watermark.</p>
+      {refused && (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {error ?? 'Not saved: the project file changed on disk.'}
+        </p>
+      )}
       <div className="flex justify-end gap-2">
         <Button onClick={closeExportDialog}>Cancel</Button>
-        <Button variant="primary" onClick={save}>
+        <Button variant="primary" onClick={onSave}>
           Save
         </Button>
       </div>

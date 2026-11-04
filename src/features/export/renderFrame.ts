@@ -112,7 +112,10 @@ export function watermarkOutline(size: number): number {
   return Math.max(1.5, size / 6);
 }
 
-/** Said on a frame whose picture the file no longer holds, as the board says it, so a blank frame isn't mistaken for one. */
+/**
+ * Said on a frame whose picture the file no longer holds, or holds too damaged to decode, as the board says it, so a
+ * blank frame isn't mistaken for one.
+ */
 function drawPictureMissing(ctx: Canvas2D, width: number, height: number) {
   ctx.save();
   ctx.fillStyle = INK;
@@ -162,21 +165,39 @@ export async function renderFrame(
   ctx.fillRect(0, 0, width, height);
 
   const { strokes, picture } = await frameContent(records, file, shot);
-  if (picture === 'missing') drawPictureMissing(ctx, width, height);
-  else if (picture) {
-    const bitmap = await createImageBitmap(new Blob([picture.bytes as Uint8Array<ArrayBuffer>], { type: picture.mime }));
-    try {
-      const box = cropBox(picture.crop, bitmap.width / bitmap.height, width / height);
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(bitmap, (box.left / 100) * width, (box.top / 100) * height, (box.width / 100) * width, (box.height / 100) * height);
-    } finally {
-      bitmap.close();
-    }
-  }
+  const pictureMissing = picture === 'missing' || (picture !== null && !(await drawPicture(ctx, picture, width, height)));
+  if (pictureMissing) drawPictureMissing(ctx, width, height);
 
   ctx.strokeStyle = INK;
   ctx.fillStyle = INK;
   for (const stroke of strokes) drawStroke(ctx, stroke, width, height);
   if (watermark) drawWatermark(ctx, watermark, width, height);
-  return { canvas, pictureMissing: picture === 'missing' };
+  return { canvas, pictureMissing };
+}
+
+/**
+ * Draws the picture with the person's crop; false when its stored bytes won't decode (a truncated or damaged blob in
+ * an old or damaged file). That frame then goes out marked like a lost picture, and the export goes on: thrown, one
+ * bad picture ended the whole export there, with no word of which frame it was.
+ */
+async function drawPicture(
+  ctx: Canvas2D,
+  picture: { bytes: Uint8Array; mime: string; crop: Crop },
+  width: number,
+  height: number,
+): Promise<boolean> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([picture.bytes as Uint8Array<ArrayBuffer>], { type: picture.mime }));
+  } catch {
+    return false;
+  }
+  try {
+    const box = cropBox(picture.crop, bitmap.width / bitmap.height, width / height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, (box.left / 100) * width, (box.top / 100) * height, (box.width / 100) * width, (box.height / 100) * height);
+    return true;
+  } finally {
+    bitmap.close();
+  }
 }

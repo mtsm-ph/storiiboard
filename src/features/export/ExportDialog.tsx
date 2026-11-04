@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -73,13 +73,33 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
+const CHOOSING = 'Choosing where…';
+
+/**
+ * Why an export failed, for the dialog. A set of files says how far it got and where, since what it wrote stays: the
+ * person needs to know which frames to find, or to clear, before they try again. Counted in files written, not frames
+ * drawn: a PDF draws every frame before it writes its one file, so one that failed had written nothing.
+ */
+function failureMessage(error: unknown, written: number, total: number, label: string): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (label === '') return `Not exported: ${reason}`;
+  if (written === 0) return `Not exported to “${label}”: ${reason}`;
+  return `Stopped with ${String(written)} of ${String(total)} written to “${label}”: ${reason}`;
+}
+
 function ExportDialog() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [formatId, setFormatId] = useState(FORMATS[0]?.id ?? '');
   const [sceneId, setSceneId] = useState('');
   const [running, setRunning] = useState<string | null>(null);
+  // Why the last run failed, said here: the shell's notice sits under the modal's backdrop, inert and unannounced.
+  const [failed, setFailed] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
+  // One export at a time. A ref, not state: a second click can land before React re-renders the button disabled
+  // (a double click while the native dialog is still on its way), and a second run would take over `stopper`, so
+  // Stop would end the wrong one while the other kept writing.
+  const busy = useRef(false);
   // The dialog gone for any reason (another project opened in place) stops what it was running.
   useEffect(
     () => () => {
@@ -87,9 +107,13 @@ function ExportDialog() {
     },
     [],
   );
+  // Worked out once per change to the records, not on every render: a PNG export re-renders the dialog after each
+  // frame to say how far it got, and on a feature-size board this was a second or more of work per frame, on the
+  // main thread, which Stop and Escape had to wait behind. The dialog is modal, so the records hold still meanwhile.
+  const projectId = project?.projectId ?? null;
+  const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
   if (!project) return null;
   const format = FORMATS.find((f) => f.id === formatId) ?? FORMATS[0];
-  const scenes = board(records, project.projectId);
   const scene = scenes.find((s) => s.record.id === sceneId) ?? null;
   const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
   const props = records[project.projectId]?.props;
@@ -104,7 +128,8 @@ function ExportDialog() {
   };
 
   const run = async () => {
-    if (!format) return;
+    if (!format || busy.current) return;
+    busy.current = true;
     const name = format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
@@ -113,6 +138,9 @@ function ExportDialog() {
     let written = 0;
     let total = 0;
     let label = '';
+    // The button goes disabled from the first click, while the Save or folder dialog is still coming up.
+    setRunning(CHOOSING);
+    setFailed(null);
     try {
       const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
       if (!chosen || controller.signal.aborted) return;
@@ -148,9 +176,10 @@ function ExportDialog() {
         showInfo(
           written === 0 ? 'Export stopped. Nothing was written.' : `Export stopped: ${String(written)} of ${String(total)} written to “${label}”.`,
         );
-      } else showNotice(error);
+      } else setFailed(failureMessage(error, written, total, label));
     } finally {
       if (stopper.current === controller) stopper.current = null;
+      busy.current = false;
       setRunning(null);
     }
   };
@@ -183,13 +212,18 @@ function ExportDialog() {
         <span className="font-mono">{String(frames)}</span> {frames === 1 ? 'frame' : 'frames'}, leaving out the Trash.{' '}
         {carries ? `Watermark “${watermark.text}”, ${POSITION_LABEL[watermark.position].toLowerCase()}.` : 'No watermark.'}
       </p>
+      {failed !== null && (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {failed}
+        </p>
+      )}
       {running !== null && (
         <p role="status" className="font-mono text-[12px]">
           {running}
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button onClick={stop}>{running === null ? 'Cancel' : 'Stop'}</Button>
+        <Button onClick={stop}>{running === null || running === CHOOSING ? 'Cancel' : 'Stop'}</Button>
         <Button variant="primary" disabled={running !== null || frames === 0} onClick={() => void run()}>
           {format?.output === 'folder' ? 'Choose folder…' : 'Save…'}
         </Button>
