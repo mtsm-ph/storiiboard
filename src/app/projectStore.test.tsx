@@ -119,6 +119,17 @@ describe('the project store', () => {
     expect(store.getState().error).toBe('That item no longer exists.');
     await store.getState().close();
   });
+
+  it('says whether an edit worked out in the queue was written', async () => {
+    const store = createProjectStore();
+    const project = await open();
+    await store.getState().open(project);
+    expect(await store.getState().applyWith(() => ({ changes: [{ kind: 'update', id: project.projectId, set: { notes: 'Day 1' } }] }))).toBe(true);
+    expect(await store.getState().applyWith(() => ({ changes: [{ kind: 'update', id: 'missing', set: {} }] }))).toBe(false);
+    // Nothing to write is no failure.
+    expect(await store.getState().applyWith(() => ({ changes: [] }))).toBe(true);
+    await store.getState().close();
+  });
 });
 
 describe('the project home', () => {

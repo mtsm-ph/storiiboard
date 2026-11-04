@@ -8,6 +8,8 @@ import { setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
 import { ProjectPictures } from './ProjectPictures';
+import { openSketch } from './sketch/sketchStore';
+import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
 
 /** Escape from the inspector: focus goes back to the frame (or the scene) it was showing. */
@@ -47,6 +49,11 @@ export function InspectorTile() {
   const picture: InspectorPicture | null =
     view && media ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath } : null;
 
+  const locationId = scene ? sceneFields(scene.props).locationId : null;
+  const location = locationId ? records[locationId] : undefined;
+  const locationName =
+    location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : null;
+
   return (
     <ProjectPictures>
       <InspectorView
@@ -67,6 +74,11 @@ export function InspectorTile() {
           focusBoard(shot?.id ?? null, scene?.id ?? null);
         }}
         picture={picture}
+        locationName={locationName}
+        strokeCount={shot ? strokesOf(records, shot.id).length : 0}
+        onSketch={() => {
+          if (shot) openSketch(shot.id);
+        }}
         frameAspect={aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio)}
         onChoosePicture={() => {
           if (!shot) return;

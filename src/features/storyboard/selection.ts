@@ -8,20 +8,29 @@ import { createStore } from 'zustand/vanilla';
 interface SelectionState {
   sceneId: string | null;
   shotId: string | null;
+  /** A note the keys are on: it keeps the board's Tab stop, though the inspector shows its scene. */
+  noteId: string | null;
   /** Picking a scene elsewhere (sidebar, Scenes tile) keeps the frame only if it's in that scene. */
   selectScene: (sceneId: string | null) => void;
   /** Picking a frame makes its scene the active one. */
   selectShot: (shotId: string | null, sceneId: string | null) => void;
+  /** Picking a note makes its scene the active one, with no frame selected. */
+  selectNote: (noteId: string | null, sceneId: string | null) => void;
 }
 
 export const selectionStore = createStore<SelectionState>()((set, get) => ({
   sceneId: null,
   shotId: null,
+  noteId: null,
   selectScene: (sceneId) => {
-    set({ sceneId, shotId: sceneId === get().sceneId ? get().shotId : null });
+    const same = sceneId === get().sceneId;
+    set({ sceneId, shotId: same ? get().shotId : null, noteId: same ? get().noteId : null });
   },
   selectShot: (shotId, sceneId) => {
-    set({ shotId, sceneId: sceneId ?? get().sceneId });
+    set({ shotId, noteId: null, sceneId: sceneId ?? get().sceneId });
+  },
+  selectNote: (noteId, sceneId) => {
+    set({ noteId, shotId: null, sceneId: sceneId ?? get().sceneId });
   },
 }));
 

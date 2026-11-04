@@ -28,9 +28,10 @@ export interface ProjectState {
   apply: (changes: readonly Change[], options?: Pick<OpOptions, 'alsoWrite'>) => Promise<void>;
   /**
    * An edit worked out from the records as they are when its turn comes, after every edit queued before it. For edits
-   * that take a while to prepare (pictures), so two of them never number frames from the same records.
+   * that take a while to prepare (pictures), so two of them never number frames from the same records. Resolves to
+   * whether it was written; a refusal has set `error` (or `changedOnDisk`) already.
    */
-  applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<void>;
+  applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<boolean>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 }
@@ -38,7 +39,7 @@ export interface ProjectState {
 export function createProjectStore(): StoreApi<ProjectState> {
   // Edits run one at a time, in the order they were made: each reads the records the previous one wrote.
   let queue: Promise<unknown> = Promise.resolve();
-  const enqueue = (work: () => Promise<void>) => {
+  const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
     const next = queue.then(work, work);
     queue = next.catch(() => undefined);
     return next;
@@ -58,13 +59,15 @@ export function createProjectStore(): StoreApi<ProjectState> {
       const madeIn = get().project;
       return enqueue(async () => {
         const { project } = get();
-        if (!project || project !== madeIn) return;
+        if (!project || project !== madeIn) return false;
         try {
           await merge(project, await run(project));
+          return true;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (message === CHANGED_ON_DISK) set({ changedOnDisk: true });
           else set({ error: message });
+          return false;
         }
       });
     };
@@ -106,14 +109,20 @@ export function createProjectStore(): StoreApi<ProjectState> {
           }
           set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
-      apply: (changes, options) => edit((project) => apply(project.file, changes, options)),
+      apply: async (changes, options) => {
+        await edit((project) => apply(project.file, changes, options));
+      },
       applyWith: (build) =>
         edit(async (project) => {
           const { changes, alsoWrite } = build(get().records);
           return changes.length === 0 ? null : apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
         }),
-      undo: () => edit((project) => undo(project.file)),
-      redo: () => edit((project) => redo(project.file)),
+      undo: async () => {
+        await edit((project) => undo(project.file));
+      },
+      redo: async () => {
+        await edit((project) => redo(project.file));
+      },
     };
   });
 }
