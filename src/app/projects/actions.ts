@@ -96,7 +96,7 @@ export async function newProject(): Promise<void> {
     await createProjectFile(path, files);
     // The new project's first step: its look, which can be skipped (docs/PLAN.md B).
     const created = projectStore.getState().project;
-    if (created?.file.path === path) openOnboarding(created.projectId);
+    if (created?.file.path === path) openOnboarding({ projectId: created.projectId, path });
   });
 }
 

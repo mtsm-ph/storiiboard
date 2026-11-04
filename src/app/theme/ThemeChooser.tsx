@@ -54,7 +54,8 @@ function Preview({ tokens, label }: { tokens: ModeTokens; label: string }) {
 
 export function ThemeChooser({ candidates, choice, onChange, image, busy = false }: ThemeChooserProps) {
   const groupId = useId();
-  const theme = themeFor(choice.accent);
+  // The kit's orange is the kit's exact look, as it's stored.
+  const theme = themeFor(choice.accent?.toUpperCase() === DEFAULT_ACCENT ? null : choice.accent);
   // The kit's orange is always there to go back to.
   const offered = candidates.map((c) => c.toUpperCase()).filter((c) => c !== DEFAULT_ACCENT);
   // An accent typed in by hand (Settings → Theme) is one of the choices too, so the group says which is picked.

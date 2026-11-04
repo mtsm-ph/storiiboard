@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../ui/Button';
-import { cssVariables, themeFor } from '../../ui/theme/generator/generate';
+import { cssVariables, DEFAULT_ACCENT, themeFor } from '../../ui/theme/generator/generate';
 import { useTheme } from '../../ui/theme/ThemeProvider';
 import { showNotice } from '../notice';
 import { fromFile, type PictureFile } from '../pictures';
@@ -17,9 +17,14 @@ import { ThemeImageWell } from './ThemeImageWell';
 export function OnboardingHost() {
   const forProject = useOnboardingProject();
   const project = useProject((s) => s.project);
-  // Only for the project it was opened for: another one opened meanwhile (a double-click in Finder) never gets it.
-  if (!forProject || project?.projectId !== forProject) return null;
-  return <OnboardingDialog key={project.projectId} name={project.name} />;
+  const mine = forProject !== null && project?.projectId === forProject.projectId && project.file.path === forProject.path;
+  // Only for the file it was opened for: another one opened meanwhile (a double-click in Finder) ends it, so coming
+  // back to the new project later doesn't bring it up again.
+  useEffect(() => {
+    if (forProject && project && !mine) closeOnboarding();
+  }, [forProject, project, mine]);
+  if (!mine) return null;
+  return <OnboardingDialog key={project.file.path} name={project.name} />;
 }
 
 function OnboardingDialog({ name }: { name: string }) {
@@ -135,11 +140,14 @@ function OnboardingDialog({ name }: { name: string }) {
   };
 
   // The dialog itself wears the theme being chosen, in the mode picked, as the plan has it: a live preview.
-  const preview = cssVariables(themeFor(choice.accent)[choice.mode]);
+  // The kit's orange is the kit's exact look, as Create stores it.
+  const preview = cssVariables(themeFor(choice.accent?.toUpperCase() === DEFAULT_ACCENT ? null : choice.accent)[choice.mode]);
 
   return (
     <dialog
       ref={dialog}
+      // Focusable by script only: a click that leaves focus nowhere puts it here, so a paste still finds the image.
+      tabIndex={-1}
       aria-labelledby={titleId}
       data-theme={choice.mode}
       style={preview}

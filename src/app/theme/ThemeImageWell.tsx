@@ -80,8 +80,17 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false, disabl
     element.addEventListener('dragover', over);
     element.addEventListener('dragleave', leave);
     element.addEventListener('drop', dropped);
+    // WebKit doesn't focus a clicked button, so after a click focus may be nowhere; it comes here instead, where a
+    // paste reaches this listener rather than the board's.
+    const clicked = () => {
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body && around.isConnected) around.focus({ preventScroll: true });
+      });
+    };
     around.addEventListener('paste', pasted);
+    around.addEventListener('pointerdown', clicked);
     return () => {
+      around.removeEventListener('pointerdown', clicked);
       element.removeEventListener('dragover', over);
       element.removeEventListener('dragleave', leave);
       element.removeEventListener('drop', dropped);

@@ -54,8 +54,11 @@ jobs:
       - name: npm run e2e
         if: ${{ !inputs.update_visual_baselines }}
         run: npm run e2e
+      # The screenshot tests are suppressed in every other run (e2e/visual.spec.ts) until the UI settles.
       - name: Regenerate the Linux visual baselines
         if: ${{ inputs.update_visual_baselines }}
+        env:
+          SB_VISUAL: '1'
         run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
       # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
       # workflow's own token starts no CI run, so the new baselines would go unchecked.
