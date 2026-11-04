@@ -32,6 +32,12 @@ export interface ProjectState {
    * state, yet older steps in History now read "(picture removed)", so the History tile reads its steps again on this.
    */
   deletedForGood: number;
+  /**
+   * True from a Restore to here's click until it lands or fails (1.22). On a long project it rewrites thousands of
+   * records, which takes a while: the History tile says so and takes no more clicks meanwhile, even if it was closed
+   * and opened again, since it's kept here rather than in the tile.
+   */
+  restoring: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -66,6 +72,8 @@ export function createProjectStore(): StoreApi<ProjectState> {
     queue = next.catch(() => undefined);
     return next;
   };
+
+  let restoresInFlight = 0;
 
   return createStore<ProjectState>()((set, get) => {
     const merge = async (project: Project, touched: Touched | null) => {
@@ -103,6 +111,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       changedOnDisk: false,
       picturesWritten: 0,
       deletedForGood: 0,
+      restoring: false,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
@@ -169,11 +178,19 @@ export function createProjectStore(): StoreApi<ProjectState> {
       },
       restoreTo: async (groupId) => {
         let changed = false;
-        await edit(async (project) => {
-          const touched = await restoreTo(project.file, groupId);
-          changed = touched !== null;
-          return touched;
-        });
+        // Counted, so a second restore queued behind the first doesn't clear it while that one still runs.
+        restoresInFlight += 1;
+        set({ restoring: true });
+        try {
+          await edit(async (project) => {
+            const touched = await restoreTo(project.file, groupId);
+            changed = touched !== null;
+            return touched;
+          });
+        } finally {
+          restoresInFlight -= 1;
+          if (restoresInFlight === 0) set({ restoring: false });
+        }
         return changed;
       },
       cleanUpPictures: async (only) => {

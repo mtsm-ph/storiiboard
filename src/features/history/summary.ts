@@ -394,6 +394,21 @@ function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], 
 }
 
 /**
+ * Ops by the step they're in, each step's in the order given. Pushed onto, never copied: one step can be tens of
+ * thousands of ops (a Restore to here, an Empty Trash, a big erase), and copying a step's list for every op in it takes
+ * seconds there, on the UI thread, every time History is read again.
+ */
+export function byStep(ops: readonly LoggedOp[]): Map<string, LoggedOp[]> {
+  const steps = new Map<string, LoggedOp[]>();
+  for (const op of ops) {
+    const list = steps.get(op.groupId);
+    if (list) list.push(op);
+    else steps.set(op.groupId, [op]);
+  }
+  return steps;
+}
+
+/**
  * Every change to one item, newest first, field by field. Its number is listed too, though the board keeps it in
  * step and it isn't put back on its own, so an editor matching a slate can see when a frame was renumbered.
  *
@@ -404,13 +419,9 @@ function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], 
  */
 export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] {
   const ownGroups = new Set(ops.filter((op) => op.recordId === itemId).map((op) => op.groupId));
-  const children = new Map<string, LoggedOp[]>();
-  for (const op of ops) {
-    if (op.recordId === itemId) continue;
-    const type = (op.after ?? op.before)?.type;
-    if (type === 'media' && ownGroups.has(op.groupId)) continue;
-    children.set(op.groupId, [...(children.get(op.groupId) ?? []), op]);
-  }
+  const children = byStep(
+    ops.filter((op) => op.recordId !== itemId && !((op.after ?? op.before)?.type === 'media' && ownGroups.has(op.groupId))),
+  );
   const listed = new Set<string>();
   return [...ops].reverse().flatMap((op): FrameRow[] => {
     if (op.recordId !== itemId) {

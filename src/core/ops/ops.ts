@@ -659,6 +659,29 @@ export async function childrenInLog(file: ProjectFile, parentId: string): Promis
   return rows.map((row) => String(row.record_id));
 }
 
+/** The newest op's seq, 0 for an empty log: where a later read of one item's new writes starts (opsSince). */
+export async function lastOpSeq(file: ProjectFile): Promise<number> {
+  const rows = await file.query('SELECT coalesce(max(seq), 0) AS seq FROM ops');
+  return Number(rows[0]?.seq ?? 0);
+}
+
+/**
+ * The writes after `seq` to some records, or to what they put under `parentId`, oldest first: an item's new history
+ * since it was last read. Only the ops after `seq` are looked at (seq is indexed), so it costs what the new steps
+ * wrote, not the whole log, as childrenInLog does.
+ */
+export async function opsSince(file: ProjectFile, seq: number, recordIds: readonly string[], parentId: string | null): Promise<LoggedOp[]> {
+  const rows = await file.query(
+    `SELECT ${LOGGED_COLUMNS} FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ?
+      AND (o.record_id IN (SELECT value FROM json_each(?))
+        OR json_extract(o.before, '$.parent_id') = ? OR json_extract(o.after, '$.parent_id') = ?)
+      ORDER BY o.seq`,
+    [seq, JSON.stringify(recordIds), parentId, parentId],
+  );
+  return rows.map(loggedOp);
+}
+
 /**
  * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
  * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.

@@ -44,10 +44,20 @@ test('lists every step in words, newest first, and Restore to here is a step und
   await expect(steps(page).first()).toContainText('Added frame 1C');
   await expect(steps(page).nth(3)).toContainText('Added scene SC 01');
 
-  // Back to just after the first frame: two frames go, as one new step.
+  // Back to just after the first frame: two frames go, as one new step. The tile says it's restoring meanwhile.
+  const status = history(page).getByRole('status');
+  await expect(status).toHaveText('');
+  await status.evaluate((line) => {
+    const said: string[] = [];
+    Object.assign(window, { restoreSaid: said });
+    new MutationObserver(() => said.push(line.textContent)).observe(line, { subtree: true, childList: true, characterData: true });
+  });
   await steps(page).nth(2).getByRole('button', { name: /^Restore to here/ }).click();
   await expect(frames(page)).toHaveCount(1);
   await expect(steps(page).first()).toContainText('Restored the project to: Added frame 1A');
+  await expect(status).toHaveText('');
+  await expect(history(page).locator('[aria-busy="true"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { restoreSaid: string[] }).restoreSaid)).toContain('Restoring the project…');
 
   await frames(page).first().click();
   await page.keyboard.press(await undoKey(page));
