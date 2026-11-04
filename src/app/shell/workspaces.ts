@@ -33,6 +33,7 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
   people: { title: 'Cast and crew', note: 'People by department, characters, contacts. Phase 3.' },
   project: { title: 'Project', note: 'Title and notes.' },
   backups: { title: 'Backups', note: 'How many copies to keep, and Open backup.' },
+  theme: { title: 'Theme', note: 'The logo or key image, accent and mode the project’s colours come from.' },
   // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
   calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
   notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
@@ -130,8 +131,8 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
     id: 'settings',
     label: 'Settings',
     phase: null,
-    order: ['project', 'backups'],
-    defaultLayout: () => layout(split('row', [stack(['project']), stack(['backups'])], [760, 656])),
+    order: ['project', 'theme', 'backups'],
+    defaultLayout: () => layout(split('row', [stack(['project']), stack(['theme']), stack(['backups'])], [440, 560, 416])),
   },
 ];
 

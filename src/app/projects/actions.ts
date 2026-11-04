@@ -9,6 +9,7 @@ import { fileStem } from '../../core/storage/paths';
 import { clearNotice, showInfo, showNotice } from '../notice';
 import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
 import { projectStore } from '../projectStore';
+import { openOnboarding } from '../theme/onboarding';
 import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
 import { createRecentStore } from './recentStore';
 import { projectsFolderForNew } from './synced';
@@ -91,7 +92,11 @@ async function attempt(action: () => Promise<void>): Promise<boolean> {
 export async function newProject(): Promise<void> {
   await attempt(async () => {
     const path = await pickNewProjectPath();
-    if (path !== null) await createProjectFile(path, files);
+    if (path === null) return;
+    await createProjectFile(path, files);
+    // The new project's first step: its look, which can be skipped (docs/PLAN.md B).
+    const created = projectStore.getState().project;
+    if (created?.file.path === path) openOnboarding({ projectId: created.projectId, path });
   });
 }
 

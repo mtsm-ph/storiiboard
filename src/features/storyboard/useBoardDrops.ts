@@ -24,6 +24,14 @@ function targetOf(element: Element | null): PictureTarget | null {
 
 const targetAt = (point: PagePoint) => targetOf(document.elementFromPoint(point.x, point.y));
 
+/**
+ * Whether a drop or a paste is someone else's: anything while a modal dialog is open (onboarding, the sketch editor),
+ * or one on Settings → Theme, which takes a picture as the project's image.
+ */
+function takenElsewhere(element: Element | null): boolean {
+  return document.querySelector('dialog[open]') !== null || element?.closest('[data-theme-well], [data-theme-tile]') != null;
+}
+
 function hoverOf(target: PictureTarget | null): DropHover {
   if (!target) return null;
   return target.kind === 'frame' ? { shotId: target.shotId } : { sceneId: target.sceneId };
@@ -51,7 +59,7 @@ function onPaste(event: ClipboardEvent) {
   const files = [...(event.clipboardData?.files ?? [])];
   if (files.length === 0) return;
   // A text field pastes text as it always does.
-  if (typing(document.activeElement)) return;
+  if (typing(document.activeElement) || takenElsewhere(document.activeElement)) return;
   event.preventDefault();
   const { shotId, sceneId } = selectionStore.getState();
   const { project, records } = projectStore.getState();
@@ -84,11 +92,11 @@ export function useBoardDrops(enabled: boolean, onHover: (hover: DropHover) => v
       let stops: (() => void)[] = [];
       void Promise.all([
         onWindowDrag((at) => {
-          setHover(at ? hoverOf(targetAt(at)) : null);
+          setHover(at && !takenElsewhere(document.elementFromPoint(at.x, at.y)) ? hoverOf(targetAt(at)) : null);
         }),
         onWindowDrop((files, at) => {
           setHover(null);
-          drop(files, targetAt(at));
+          if (!takenElsewhere(document.elementFromPoint(at.x, at.y))) drop(files, targetAt(at));
         }),
       ]).then((unlisten) => {
         if (live) stops = unlisten;
@@ -104,8 +112,12 @@ export function useBoardDrops(enabled: boolean, onHover: (hover: DropHover) => v
     const carriesFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') === true;
     const over = (event: DragEvent) => {
       if (!carriesFiles(event)) return;
-      // Without this the browser opens the file in place of the app.
+      // Without this the browser opens the file in place of the app, even over a drop that's someone else's.
       event.preventDefault();
+      if (takenElsewhere(event.target instanceof Element ? event.target : null)) {
+        setHover(null);
+        return;
+      }
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
       setHover(hoverOf(targetOf(event.target instanceof Element ? event.target : null)));
     };
@@ -116,6 +128,7 @@ export function useBoardDrops(enabled: boolean, onHover: (hover: DropHover) => v
       if (!carriesFiles(event)) return;
       event.preventDefault();
       setHover(null);
+      if (takenElsewhere(event.target instanceof Element ? event.target : null)) return;
       drop([...(event.dataTransfer?.files ?? [])].map(fromFile), targetOf(event.target instanceof Element ? event.target : null));
     };
     document.addEventListener('dragover', over);

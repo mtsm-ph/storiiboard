@@ -50,7 +50,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.13 Sketching: stroke records, Konva editor, SVG on cards | #30 | Done |
 | 1.14 Theme generator: 12 families, OKLab accents, AA fit, in a Web Worker | #31 | Done |
 | 1.15 Theme switching (200ms ease), Follow project, window background | #32 | Done |
-| 1.16 Onboarding and Settings → Theme | | Not started |
+| 1.16 Onboarding and Settings → Theme | #33 | Done |
 | 1.17 Script import: Fountain and FDX | | Not started |
 | 1.18 Script import: PDF | | Not started |
 | 1.19 Custom fields on shots | | Not started |
@@ -620,6 +620,32 @@ switch light and dark at once while the colours ease; left as is.
   - A manual accent: a hex field and a picker, put through the same AA adjustment, with "picked → used" shown.
   - Regenerate, and Reset to default.
 - 0.7 ships New project with name and folder only; the image steps come with the theme milestones.
+
+**As built in 1.16 (Nov 3)** (src/app/theme):
+- New project, once the file exists, opens "Set up <Project>": the image well (Choose image…, or drop or paste
+  anywhere on the dialog), the accents as swatches with their hex (the kit's orange always first, arrow keys move),
+  Light or Dark, and two small shells in the theme. The dialog itself wears the theme being chosen. Create writes the
+  image and the theme in one op group; Skip or Escape writes nothing. Focus then goes to the workspace's section.
+- Settings → Theme is a tile in Settings' default layout, between Project and Backups: the same controls, Replace
+  image, a hex field (six digits or three) and a colour picker with "picked → used light, used dark", Use this accent
+  (or Enter), Regenerate, and Reset to default. Each change is one op group.
+- The image is a `media` record under the project, named by the theme's `image_id`. Replacing it, or Reset to
+  default, sends the old one to the Trash in the same op group, as a frame's picture does.
+- With no image and no accent, picking a mode stores a `default` theme: the kit's colours with that mode.
+- While any modal dialog is open (onboarding, the sketch editor), the board takes no drops or pastes, and in the
+  browser build a file dropped there never opens in the tab. A picture pasted anywhere on the dialog, or anywhere in
+  Settings → Theme, is the image.
+- Every change is worked out from the project as it is when the edit lands, so quick changes (two Replaces, an
+  image still being read when Dark is picked) never undo each other. An image still being read when the project
+  switches is dropped, and onboarding belongs to the project it opened for.
+- `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
+  Reset trash a frame's picture.
+- Kevin, Nov 3: the screenshot tests (e2e/visual.spec.ts, 8 of them) are suppressed until the UI is ready to test
+  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (CI's baseline update run sets
+  it). The behaviour tests and unit tests run as before.
+- Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
+  Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
+  its own, without becoming the theme again.
 
 ### C · Navigation
 

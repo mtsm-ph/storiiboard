@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // The storyboard on real projects (the memory build, as in projects.spec.ts).
 test.beforeEach(async ({ page }) => {
@@ -11,6 +12,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await expect(page.getByRole('region', { name: 'Storyboard workspace' })).toBeVisible();
 });
 

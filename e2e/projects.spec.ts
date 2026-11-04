@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // Real projects in a browser: `?files=memory` swaps the desktop driver for the memory one (src/app/fileAccess.ts), so
 // these tests create, edit, reload and reopen projects through the same storage and ops code the app uses. A
@@ -24,6 +25,7 @@ async function undoKey(page: Page): Promise<string> {
 async function newProject(page: Page, name: string) {
   page.once('dialog', (dialog) => void dialog.accept(name));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await expect(sidebar(page).getByRole('button', { name: `Project: ${name}` })).toBeVisible();
 }
 

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { skipOnboarding } from './onboarding';
 
 // Sketching a frame (1.13) in the memory build: the editor draws with Konva, the cards with SVG; strokes are records,
 // so undo, the eraser and a reload all go through the same path as every other edit.
@@ -13,6 +14,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
   await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(frame(page)).toBeFocused();
