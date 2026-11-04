@@ -348,10 +348,21 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     'SELECT record_id, before FROM ops WHERE seq IN (SELECT min(seq) FROM ops WHERE seq > ? GROUP BY record_id) ORDER BY seq',
     [lastSeq],
   );
+  // Each record as it is now, read in one query rather than one a record (each is a round trip in the desktop app).
+  const current = new Map(
+    (
+      await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [
+        JSON.stringify(rows.map((row) => String(row.record_id))),
+      ])
+    ).map((row) => {
+      const record = fromRow(row);
+      return [record.id, record] as const;
+    }),
+  );
   const found: PendingOp[] = [];
   for (const row of rows) {
     const recordId = String(row.record_id);
-    const before = await getRecord(file, recordId);
+    const before = current.get(recordId) ?? null;
     const after = fromSnapshot(row.before);
     if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
   }
@@ -367,51 +378,79 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
     return existsNow.get(id) === true;
   };
+  // Looked up once, so each record kept as it is now is handled once, however large the restore.
+  const under = new Map<string, string[]>();
+  const framesOf = new Map<string, string[]>();
+  const add = (map: Map<string, string[]>, key: string | null | undefined, id: string) => {
+    if (key) map.set(key, [...(map.get(key) ?? []), id]);
+  };
+  for (const op of found) {
+    add(under, op.before?.parentId, op.recordId);
+    const isShot = op.before?.type === 'shot' || op.after?.type === 'shot';
+    if (isShot) for (const parentId of new Set([op.before?.parentId, op.after?.parentId])) add(framesOf, parentId, op.recordId);
+  }
+  let keptAny = false;
+  const waiting: string[] = [];
   const keepAsNow = (id: string): boolean => {
     const before = byId.get(id)?.before ?? null;
     if (final.get(id) === before) return false;
     final.set(id, before);
+    keptAny = true;
+    waiting.push(id);
     return true;
+  };
+  /**
+   * What a record kept as it is now holds on to, as it is now too:
+   * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
+   *   back to the point, a newer one would be deleted from under a record that still shows it;
+   * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
+   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number.
+   */
+  const settleKept = () => {
+    for (let id = waiting.pop(); id !== undefined; id = waiting.pop()) {
+      const kept = final.get(id);
+      if (!kept) continue;
+      for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
+      for (const child of under.get(id) ?? []) keepAsNow(child);
+      if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
+        if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
+        for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);
+      }
+    }
+  };
+  // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
+  // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
+  // alike, so this always settles. Read only when needed, since it takes every record.
+  let everything: Map<string, SbdRecord> | null = null;
+  const keepNumbersUnique = async (): Promise<boolean> => {
+    if (!keptAny) return false;
+    everything ??= new Map((await loadRecords(file)).map((r) => [r.id, r]));
+    const now = everything;
+    const groups = new Map<string, string[]>();
+    for (const id of new Set([...now.keys(), ...final.keys()])) {
+      const record = final.has(id) ? final.get(id) : now.get(id);
+      if (!record || record.trashedAt !== null || (record.type !== 'scene' && record.type !== 'shot')) continue;
+      const number = record.props.number;
+      if (typeof number === 'string' && number !== '') add(groups, `${record.type}:${number}`, id);
+    }
+    let moved = false;
+    for (const same of groups.values()) if (same.length > 1) for (const id of same) if (byId.has(id)) moved = keepAsNow(id) || moved;
+    return moved;
   };
   for (let changed = true; changed; ) {
     changed = false;
-    // A record kept as it is now keeps what's under it and the picture it names as they are now too: sent back to
-    // the point, a newer picture or sketch would be deleted from under a frame that still shows it.
-    for (const [id, op] of byId) {
-      const kept = final.get(id);
-      if (!kept || kept !== op.before) continue;
-      const mediaId = typeof kept.props.media_id === 'string' ? kept.props.media_id : null;
-      if (mediaId !== null && byId.has(mediaId)) changed = keepAsNow(mediaId) || changed;
-      for (const [other, otherOp] of byId) if (otherOp.before?.parentId === id) changed = keepAsNow(other) || changed;
-    }
-    // A frame kept as it is now in a scene it wasn't in at the point keeps the number it has there, so that scene
-    // and every frame in it or going back into it stay as they are now too: otherwise two frames could share a slate
-    // number (the board as it is now has none).
-    for (const [id, op] of byId) {
-      const kept = final.get(id);
-      if (!kept || kept !== op.before || kept.type !== 'shot' || kept.parentId === op.after?.parentId) continue;
-      const sceneId = kept.parentId;
-      if (sceneId !== null && byId.has(sceneId)) changed = keepAsNow(sceneId) || changed;
-      for (const [other, otherOp] of byId) {
-        const isShot = otherOp.before?.type === 'shot' || otherOp.after?.type === 'shot';
-        const there = otherOp.before?.parentId === sceneId || final.get(other)?.parentId === sceneId;
-        if (isShot && there) changed = keepAsNow(other) || changed;
-      }
-    }
+    settleKept();
     for (const [id, record] of final) {
       const parentId = record?.parentId ?? null;
       if (!record || parentId === null || (await exists(parentId))) continue;
       const op = byId.get(id);
       const parent = byId.get(parentId);
-      if (record !== op?.before) {
-        final.set(id, op?.before ?? null);
-        changed = true;
-      } else if (parent?.before && final.get(parentId) !== parent.before) {
-        // As it is now, under a parent this restore would delete: the parent stays as it is now too.
-        final.set(parentId, parent.before);
-        changed = true;
-      }
+      if (record !== op?.before) changed = keepAsNow(id) || changed;
+      // As it is now, under a parent this restore would delete: the parent stays as it is now too.
+      else if (parent?.before) changed = keepAsNow(parentId) || changed;
     }
+    if (waiting.length > 0) changed = true;
+    else if (await keepNumbersUnique()) changed = true;
   }
   const ops = found.flatMap((op) => {
     const after = final.get(op.recordId) ?? null;
@@ -441,13 +480,25 @@ export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
 }
 
+/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, the theme's image. */
+function namedBy(record: SbdRecord): string[] {
+  const { props } = record;
+  const theme = props.theme && typeof props.theme === 'object' && !Array.isArray(props.theme) ? (props.theme as Record<string, unknown>) : null;
+  return [props.media_id, props.location_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
+}
+
 /**
  * Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. With `only`,
  * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
  */
 export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {
   const children = new Map<string, SbdRecord[]>();
-  for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
+  for (const record of records) {
+    if (!record.parentId) continue;
+    const list = children.get(record.parentId);
+    if (list) list.push(record);
+    else children.set(record.parentId, [record]);
+  }
   const ids = new Set<string>();
   const add = (record: SbdRecord) => {
     if (ids.has(record.id)) return;
@@ -476,9 +527,16 @@ async function unusedPictures(file: ProjectFile, without: readonly string[], his
          WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
        UNION SELECT json_extract(after, '$.props.file') FROM ops
          WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
-    : '';
+    : // Clean up keeps what one ⌘Z can still bring back: the pictures any step on the undo stack had before it ran
+      // (a frame a History restore took away, say). Only the redo stack's are History's alone.
+      `UNION SELECT json_extract(o.before, '$.props.file') FROM ops o
+         WHERE json_extract(o.before, '$.type') = 'media' AND o.group_id IN (SELECT id FROM undoable)`;
   const rows = await file.query(
-    `WITH gone(id) AS (SELECT value FROM json_each(?)),
+    `WITH RECURSIVE gone(id) AS (SELECT value FROM json_each(?)),
+      undoable(id) AS (
+        SELECT undo_top FROM op_groups WHERE seq = (SELECT max(seq) FROM op_groups) AND undo_top IS NOT NULL
+        UNION SELECT g.stack_below FROM op_groups g JOIN undoable u ON g.id = u.id WHERE g.stack_below IS NOT NULL
+      ),
       used(sha) AS (
         SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
         ${fromOps}
@@ -488,6 +546,40 @@ async function unusedPictures(file: ProjectFile, without: readonly string[], his
     [JSON.stringify(without)],
   );
   return rows.map((row) => ({ sha256: String(row.sha256), bytes: Number(row.size) }));
+}
+
+/**
+ * Records that exist only in History (made and then undone, say) and could only ever come back under what Empty
+ * Trash is deleting: every parent they had in any step is going, was deleted by an earlier Empty Trash (no step of it
+ * holds data any more), or is one of these. A restore never brings a record back under a parent that's gone, so their
+ * data in the log would stay in the file for good; Empty Trash clears it with the rest.
+ */
+async function onlyInHistoryUnder(file: ProjectFile, live: readonly SbdRecord[], deleting: readonly string[]): Promise<string[]> {
+  const rows = await file.query(
+    `SELECT record_id, before, after FROM ops WHERE record_id NOT IN (SELECT id FROM records)
+      AND (before IS NOT NULL OR after IS NOT NULL) ORDER BY seq`,
+  );
+  const parents = new Map<string, Set<string | null>>();
+  for (const row of rows) {
+    const id = String(row.record_id);
+    const seen = parents.get(id) ?? new Set<string | null>();
+    for (const snap of [fromSnapshot(row.before), fromSnapshot(row.after)]) if (snap) seen.add(snap.parentId);
+    parents.set(id, seen);
+  }
+  const exists = new Set(live.map((r) => r.id));
+  const gone = new Set(deleting);
+  const isGone = (id: string | null) => id !== null && (gone.has(id) || (!exists.has(id) && !parents.has(id)));
+  const found: string[] = [];
+  for (let more = true; more; ) {
+    more = false;
+    for (const [id, had] of parents) {
+      if (gone.has(id) || had.size === 0 || ![...had].every(isGone)) continue;
+      gone.add(id);
+      found.push(id);
+      more = true;
+    }
+  }
+  return found;
 }
 
 function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
@@ -513,10 +605,11 @@ export async function emptyTrash(
   const all = await loadRecords(file);
   const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
-  const pictures = await unusedPictures(file, ids, true);
+  const unreachable = await onlyInHistoryUnder(file, all, ids);
+  const pictures = await unusedPictures(file, [...ids, ...unreachable], true);
   const at = now().toISOString();
   const groupId = crypto.randomUUID();
-  const gone = JSON.stringify(ids);
+  const gone = JSON.stringify([...ids, ...unreachable]);
   const [top] = await file.query(
     'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
   );

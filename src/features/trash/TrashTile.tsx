@@ -1,12 +1,12 @@
 import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
-import { forGood, SWITCHED_MESSAGE } from '../../app/forGood';
-import { trashedRoots } from '../../core/ops/ops';
+import { emptyTrashConfirmed } from '../../app/deleteForGood';
+import { SWITCHED_MESSAGE } from '../../app/forGood';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { emptyTrashMessage, restoreChanges, restoredName, rowsGone, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
+import { restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
@@ -49,30 +49,16 @@ export function TrashTile() {
   if (chosenScene !== '' && sceneId === '') setSceneId('');
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
-  const emptyAll = async (count: number, hidden: number) => {
-    const shownFor = project;
-    // What the confirm is about: anything trashed while it's up stays in the Trash.
-    const confirmed = new Set(trashedRoots(Object.values(records)));
-    const done = await forGood(
-      emptying,
-      () =>
-        confirmForGood(
-          'Empty Trash?',
-          emptyTrashMessage(records, count, hidden),
-          'Empty Trash',
-        ),
-      () => projectStore.getState().project === shownFor,
-      () => projectStore.getState().emptyTrash(confirmed),
-    );
+  const emptyAll = async (hidden: number) => {
+    const done = await emptyTrashConfirmed(projectStore, emptying, (text) => confirmForGood('Empty Trash?', text, 'Empty Trash'), hidden);
     if (!done.ran) {
       if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
       return;
     }
-    // Rows as the Trash listed them (a frame's sketch and picture go with it, unlisted).
     if (!done.result) return;
-    const items = rowsGone(projectStore.getState().records, all);
+    const { items, freed } = done.result;
     showInfo(
-      `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${done.result.freed > 0 ? `, with ${sizeLabel(done.result.freed)} of pictures` : ''}.`,
+      `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${freed > 0 ? `, with ${sizeLabel(freed)} of pictures` : ''}.`,
     );
     // The button turns off with nothing left; focus goes to the message that says so.
     requestAnimationFrame(() => {
@@ -141,7 +127,7 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
-        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length, all.length - shown.length)}>
+        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length - shown.length)}>
           Empty Trash…
         </Button>
       </div>

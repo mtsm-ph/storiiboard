@@ -206,7 +206,8 @@ export function HistoryTile() {
     return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
   };
   return (
-    <div className="flex min-h-full flex-col" aria-busy={restoring}>
+    // Busy is on the list and the table, not round the status line, which a screen reader may hold back while busy.
+    <div className="flex min-h-full flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
         <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
         <RestoreStatus restoring={restoring} />
@@ -224,7 +225,7 @@ export function HistoryTile() {
           ) : loaded.steps.length === 0 ? (
             <p className="p-3 text-[13px] text-text-muted">No steps yet. Every change you make shows here.</p>
           ) : (
-            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" className="flex flex-col">
+            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" aria-busy={restoring} className="flex flex-col">
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">
