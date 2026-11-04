@@ -36,6 +36,7 @@ describe('the Scenes tile', () => {
         onSelect={noop}
         onToggleLock={noop}
         onAdd={noop}
+        onImport={noop}
       />,
     );
     expect(html.split('bg-accent').length - 1).toBe(1);

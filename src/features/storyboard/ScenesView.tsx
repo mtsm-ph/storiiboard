@@ -24,6 +24,8 @@ export interface ScenesViewProps {
   onSelect: (id: string) => void;
   onToggleLock: (id: string, locked: boolean) => void;
   onAdd: () => void;
+  /** Import script… (1.17): Fountain or Final Draft, previewed before anything is written. */
+  onImport: () => void;
 }
 
 /** "INT. PENN STATION — DAY", as a scene heading reads; just the name until INT/EXT or DAY/NIGHT is set. */
@@ -53,7 +55,7 @@ function onRowKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
   rows[next]?.focus();
 }
 
-export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onAdd }: ScenesViewProps) {
+export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onAdd, onImport }: ScenesViewProps) {
   const totalEighths = scenes.reduce<number | null>(
     (sum, s) => (s.fields.pageEighths === null ? sum : (sum ?? 0) + s.fields.pageEighths),
     null,
@@ -67,7 +69,7 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
       </p>
       {scenes.length === 0 ? (
         <p className="p-3 text-[13px] text-text-muted">
-          {canAdd ? 'No scenes yet. Add one, or import a script (later in Phase 1).' : 'No project open.'}
+          {canAdd ? 'No scenes yet. Add one, or import a script.' : 'No project open.'}
         </p>
       ) : (
         <ul aria-label="Scenes" className="flex-1">
@@ -118,9 +120,14 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
           Film coverage
           <span className="ml-auto font-mono">{coverage === null ? '—' : `${String(coverage)}%`}</span>
         </p>
-        <Button disabled={!canAdd} onClick={onAdd} className="self-start">
-          + New scene
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!canAdd} onClick={onAdd}>
+            + New scene
+          </Button>
+          <Button disabled={!canAdd} onClick={onImport}>
+            Import script…
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
 import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
+import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 
 export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
@@ -162,6 +163,7 @@ export function AppShell() {
       </div>
       <StatusBar workspace={workspace} />
       <OnboardingHost />
+      <ImportScriptHost />
     </div>
   );
 }

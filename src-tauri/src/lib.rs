@@ -50,6 +50,7 @@ pub fn run() {
             synced::projects_folder_for_new,
             pictures::pictures_choose,
             pictures::pictures_read,
+            pictures::script_choose,
         ])
         // Files dragged over the window, and dropped as pictures the page may read (pictures.rs).
         .on_window_event(|window, event| {

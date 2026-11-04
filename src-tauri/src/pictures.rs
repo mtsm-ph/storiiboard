@@ -1,6 +1,6 @@
-//! Pictures from files on disk, for frames (1.11). The page never names a file for Rust to read on its own: it can read
-//! only files the person dropped on the window or picked in the Open dialog shown from here, so a bug or a script
-//! slipped into the page can't read anything else on the computer.
+//! Pictures from files on disk, for frames (1.11), and scripts to import (1.17). The page never names a file for Rust
+//! to read on its own: it can read only files the person dropped on the window or picked in an Open dialog shown from
+//! here, so a bug or a script slipped into the page can't read anything else on the computer.
 
 use std::collections::HashSet;
 use std::fs;
@@ -19,6 +19,8 @@ const MAX_BYTES: u64 = 200 * 1024 * 1024;
 const EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff", "gif", "bmp",
 ];
+/// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt) and Final Draft.
+const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx"];
 
 /// The files the person has handed the app this session, by drop or by the Open dialog, and whether the dialog is
 /// open now.
@@ -111,6 +113,32 @@ pub fn dragged(window: &Window, event: &DragDropEvent) {
 /// Shows the Open dialog for pictures and returns what was picked, now readable; empty if the dialog was cancelled.
 #[tauri::command]
 pub async fn pictures_choose(app: AppHandle, multiple: bool) -> Result<Vec<String>, String> {
+    let title = if multiple {
+        "Choose pictures"
+    } else {
+        "Choose a picture"
+    };
+    choose(app, title, ("Pictures", EXTENSIONS), multiple).await
+}
+
+/// The Open dialog for a script to import; the file picked becomes readable through `pictures_read`.
+#[tauri::command]
+pub async fn script_choose(app: AppHandle) -> Result<Vec<String>, String> {
+    choose(
+        app,
+        "Import a script",
+        ("Scripts", SCRIPT_EXTENSIONS),
+        false,
+    )
+    .await
+}
+
+async fn choose(
+    app: AppHandle,
+    title: &'static str,
+    (kind, extensions): (&'static str, &'static [&'static str]),
+    multiple: bool,
+) -> Result<Vec<String>, String> {
     // One dialog at a time: a second press while it's open does nothing.
     if app.state::<Offered>().choosing.swap(true, Ordering::SeqCst) {
         return Ok(Vec::new());
@@ -121,12 +149,8 @@ pub async fn pictures_choose(app: AppHandle, multiple: bool) -> Result<Vec<Strin
         let mut builder = dialog
             .dialog()
             .file()
-            .set_title(if multiple {
-                "Choose pictures"
-            } else {
-                "Choose a picture"
-            })
-            .add_filter("Pictures", EXTENSIONS);
+            .set_title(title)
+            .add_filter(kind, extensions);
         // Attached to the window, so it's a sheet on a Mac and modal on Windows.
         if let Some(window) = dialog.get_webview_window("main") {
             builder = builder.set_parent(&window);
@@ -150,7 +174,7 @@ pub async fn pictures_choose(app: AppHandle, multiple: bool) -> Result<Vec<Strin
     Ok(app.state::<Offered>().offer(&paths))
 }
 
-/// The bytes of a file the person dropped or picked.
+/// The bytes of a file the person dropped or picked: a picture, or a script to import.
 #[tauri::command]
 pub async fn pictures_read(app: AppHandle, path: String) -> Result<Response, String> {
     // Off the async runtime: a 200 MB file takes a moment to read.
@@ -163,14 +187,14 @@ pub async fn pictures_read(app: AppHandle, path: String) -> Result<Response, Str
 
 fn read(offered: &Offered, path: &Path) -> Result<Vec<u8>, String> {
     if !offered.has(path) {
-        return Err("Storiiboard reads only the pictures you drop on it or choose.".into());
+        return Err("Storiiboard reads only the files you drop on it or choose.".into());
     }
     let meta = fs::metadata(path).map_err(|_| "That file isn't there any more.".to_string())?;
     if !meta.is_file() {
-        return Err("That's a folder, not a picture.".into());
+        return Err("That's a folder, not a file.".into());
     }
     if meta.len() > MAX_BYTES {
-        return Err("That file is too large to be a picture for the board.".into());
+        return Err("That file is too large to open.".into());
     }
     fs::read(path).map_err(|error| error.to_string())
 }

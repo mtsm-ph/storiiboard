@@ -1,4 +1,5 @@
 import { useProject } from '../../app/projectStore';
+import { chooseScriptToImport } from '../script/chooseAndRead';
 import { addScene, board, coverage, setNumbersLocked } from './board';
 import { ScenesView } from './ScenesView';
 import { useSelection } from './selection';
@@ -25,6 +26,9 @@ export function ScenesTile() {
       onSelect={selectScene}
       onToggleLock={(id, locked) => {
         if (project) void apply(setNumbersLocked(records, project.projectId, id, locked));
+      }}
+      onImport={() => {
+        void chooseScriptToImport();
       }}
       onAdd={() => {
         if (!project) return;
