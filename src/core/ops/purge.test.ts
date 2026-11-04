@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
-import { addShot, moveItem, trashShot } from '../../features/storyboard/board';
+import { addScene, addShot, moveItem, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../../features/storyboard/sketch/strokes';
 import { readOriginal, readThumbnail, type PreparedImage } from '../media/store';
@@ -189,6 +189,30 @@ describe('Empty Trash', () => {
     const number = (id: string) => shotFields(records()[id]?.props ?? {}).number;
     expect([number(moved), number(stays)]).toEqual(['5A', '5B']);
     expect(records().sc5?.props.name).toBe('Road');
+  });
+
+  it('never puts a scene back on a number a scene kept as it is now has taken, nor its frames on one slate number', async () => {
+    const moved = await frame('sc4');
+    const other = await frame('sc5');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    // Scene 5 becomes 9; a new scene takes 5, and the frame from scene 4 moves into it as 5A.
+    await store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, 'sc5', '9') }));
+    const added = addScene(records(), project.projectId);
+    await store.getState().apply([added]);
+    await store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, added.record.id, '5') }));
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, added.record.id, null) }));
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const live = Object.values(records()).filter((r) => r.trashedAt === null);
+    const scenes = live.filter((r) => r.type === 'scene').map((r) => r.props.number);
+    const frames = live.filter((r) => r.type === 'shot').map((r) => shotFields(r.props).number);
+    expect(new Set(scenes).size).toBe(scenes.length);
+    expect(new Set(frames).size).toBe(frames.length);
+    expect(records()[moved]?.parentId).toBe(added.record.id);
+    expect(records()[other]?.parentId).toBe('sc5');
   });
 
   it('keeps a frame kept as it is now with its newer picture and sketch, so nothing it shows is deleted', async () => {

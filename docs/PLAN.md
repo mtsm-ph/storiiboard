@@ -292,7 +292,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
   gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
-  that scene as it is now, so no two frames share a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  that scene as it is now, and a scene or frame that would go back onto a number another one holds stays as it is
+  now too, so no two scenes share a number and no two frames a slate number. Letters can be left with a gap (4A, 4C, when 4B
   was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
 - Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
   Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke

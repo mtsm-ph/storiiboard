@@ -367,11 +367,35 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
     return existsNow.get(id) === true;
   };
+  let keptAny = false;
   const keepAsNow = (id: string): boolean => {
     const before = byId.get(id)?.before ?? null;
     if (final.get(id) === before) return false;
     final.set(id, before);
+    keptAny = true;
     return true;
+  };
+  // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
+  // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
+  // alike, so this always settles. Read only when needed, since it takes every record.
+  let everything: SbdRecord[] | null = null;
+  const keepNumbersUnique = async (): Promise<boolean> => {
+    if (!keptAny) return false;
+    everything ??= await loadRecords(file);
+    const ids = new Set([...everything.map((r) => r.id), ...final.keys()]);
+    const now = new Map(everything.map((r) => [r.id, r]));
+    const groups = new Map<string, string[]>();
+    for (const id of ids) {
+      const record = final.has(id) ? final.get(id) : now.get(id);
+      if (!record || record.trashedAt !== null || (record.type !== 'scene' && record.type !== 'shot')) continue;
+      const number = record.props.number;
+      if (typeof number !== 'string' || number === '') continue;
+      const key = `${record.type}:${number}`;
+      groups.set(key, [...(groups.get(key) ?? []), id]);
+    }
+    let moved = false;
+    for (const same of groups.values()) if (same.length > 1) for (const id of same) if (byId.has(id)) moved = keepAsNow(id) || moved;
+    return moved;
   };
   for (let changed = true; changed; ) {
     changed = false;
@@ -405,13 +429,14 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
       const parent = byId.get(parentId);
       if (record !== op?.before) {
         final.set(id, op?.before ?? null);
-        changed = true;
+        changed = keptAny = true;
       } else if (parent?.before && final.get(parentId) !== parent.before) {
         // As it is now, under a parent this restore would delete: the parent stays as it is now too.
         final.set(parentId, parent.before);
-        changed = true;
+        changed = keptAny = true;
       }
     }
+    if (!changed) changed = await keepNumbersUnique();
   }
   const ops = found.flatMap((op) => {
     const after = final.get(op.recordId) ?? null;
