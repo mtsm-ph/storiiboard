@@ -55,19 +55,45 @@ function drawStroke(ctx: OffscreenCanvasRenderingContext2D, stroke: Stroke, widt
   ctx.stroke();
 }
 
-/** Where the watermark goes, its size from the frame's height, inside a margin of 3% of the frame. */
-function drawWatermark(ctx: OffscreenCanvasRenderingContext2D, watermark: Watermark, width: number, height: number) {
-  const size = Math.max(10, Math.round(height * 0.045));
+const WATERMARK_FONT = (size: number) => `600 ${String(size)}px "Inter Tight", "Helvetica Neue", Arial, sans-serif`;
+
+/**
+ * The watermark's type size: 4.5% of the frame's short edge, so a tall frame gets the size a wide one does, then
+ * smaller still until the text fits between the margins. Without the second step a long line, or any line on a 9:16
+ * frame, ran off the picture and the watermark lost its point.
+ */
+export function watermarkSize(measure: (font: string) => number, width: number, height: number): number {
   const margin = Math.round(Math.min(width, height) * 0.03);
+  const room = width - 2 * margin;
+  let size = Math.max(10, Math.round(Math.min(width, height) * 0.045));
+  const measured = measure(WATERMARK_FONT(size));
+  if (measured > room) size = Math.max(1, Math.floor((size * room) / measured));
+  // Text width isn't quite proportional to size (hinting, rounding): step down until it truly fits.
+  while (size > 1 && measure(WATERMARK_FONT(size)) > room) size -= 1;
+  return size;
+}
+
+/** Where the watermark goes, inside a margin of 3% of the frame's short edge. */
+function drawWatermark(ctx: OffscreenCanvasRenderingContext2D, watermark: Watermark, width: number, height: number) {
+  const margin = Math.round(Math.min(width, height) * 0.03);
+  const size = watermarkSize(
+    (font) => {
+      ctx.font = font;
+      return ctx.measureText(watermark.text).width;
+    },
+    width,
+    height,
+  );
   ctx.save();
   ctx.globalAlpha = watermark.opacity;
   ctx.fillStyle = INK;
-  ctx.font = `600 ${String(size)}px "Inter Tight", "Helvetica Neue", Arial, sans-serif`;
+  ctx.font = WATERMARK_FONT(size);
   ctx.textBaseline = watermark.position === 'center' ? 'middle' : watermark.position.startsWith('top') ? 'top' : 'bottom';
   const x = watermark.position === 'center' ? width / 2 : watermark.position.endsWith('left') ? margin : width - margin;
   const y = watermark.position === 'center' ? height / 2 : watermark.position.startsWith('top') ? margin : height - margin;
   ctx.textAlign = watermark.position === 'center' ? 'center' : watermark.position.endsWith('left') ? 'left' : 'right';
-  ctx.fillText(watermark.text, x, y);
+  // maxWidth too, as a last guard: the canvas squeezes the line rather than cut it.
+  ctx.fillText(watermark.text, x, y, width - 2 * margin);
   ctx.restore();
 }
 

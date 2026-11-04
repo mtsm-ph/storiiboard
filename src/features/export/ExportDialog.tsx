@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -16,7 +16,7 @@ import { WatermarkDialog } from './WatermarkDialog';
 
 // Export Project (1.24, the project menu): a format from the registry, the whole project or one scene, then where it
 // goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash. The watermark, when the format
-// carries one, is shown here and set in Watermark Settings.
+// carries one, is shown here and set in Watermark Settings. A running export can be stopped; what it wrote stays.
 
 export function ExportHost() {
   const open = useExportDialog();
@@ -29,11 +29,27 @@ export function ExportHost() {
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const latest = useRef(onClose);
+  useLayoutEffect(() => {
+    latest.current = onClose;
+  });
   useLayoutEffect(() => {
     const element = dialog.current;
-    if (element && !element.open) element.showModal();
+    if (!element) return;
+    // Chromium (so WebView2) closes a modal dialog on a second Escape without a cancel event the page can stop, so a
+    // page can't trap people in one. The close event comes either way: without it the store would still think the
+    // dialog open, and the project menu couldn't open it again.
+    const closed = () => {
+      // The event comes a moment after the close. Open again by then (Strict Mode runs this effect twice, closing
+      // the dialog in between), it's a close that no longer stands.
+      if (!element.open) latest.current();
+    };
+    element.addEventListener('close', closed);
+    if (!element.open) element.showModal();
     return () => {
-      if (element?.open) element.close();
+      // Going because the store said so: no close event back to it, which may have opened another dialog by then.
+      element.removeEventListener('close', closed);
+      if (element.open) element.close();
     };
   }, []);
   return (
@@ -62,7 +78,15 @@ function ExportDialog() {
   const [formatId, setFormatId] = useState(FORMATS[0]?.id ?? '');
   const [sceneId, setSceneId] = useState('');
   const [running, setRunning] = useState<string | null>(null);
+  const stopper = useRef<AbortController | null>(null);
   const groupId = useId();
+  // The dialog gone for any reason (another project opened in place) stops what it was running.
+  useEffect(
+    () => () => {
+      stopper.current?.abort();
+    },
+    [],
+  );
   if (!project) return null;
   const format = FORMATS.find((f) => f.id === formatId) ?? FORMATS[0];
   const scenes = board(records, project.projectId);
@@ -74,12 +98,23 @@ function ExportDialog() {
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
 
+  const stop = () => {
+    stopper.current?.abort();
+    closeExportDialog();
+  };
+
   const run = async () => {
     if (!format) return;
     const name = format.name(title, scene?.fields.number ?? null);
+    const controller = new AbortController();
+    stopper.current = controller;
+    let done = 0;
+    let total = 0;
+    let label = '';
     try {
       const target = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
-      if (!target) return;
+      if (!target || controller.signal.aborted) return;
+      label = target.label;
       setRunning('Exporting…');
       const what = await format.run({
         records,
@@ -88,23 +123,27 @@ function ExportDialog() {
         scope,
         file: project.file,
         target,
-        progress: (done, total) => {
-          setRunning(`Exporting ${String(done)} of ${String(total)}…`);
+        progress: (written, of) => {
+          done = written;
+          total = of;
+          setRunning(`Exporting ${String(written)} of ${String(of)}…`);
         },
+        signal: controller.signal,
       });
       closeExportDialog();
       showInfo(`Exported ${what} to “${target.label}”.`);
     } catch (error) {
-      showNotice(error);
+      if (controller.signal.aborted) {
+        showInfo(total === 0 ? 'Export stopped.' : `Export stopped: ${String(done)} of ${String(total)} written to “${label}”.`);
+      } else showNotice(error);
     } finally {
+      if (stopper.current === controller) stopper.current = null;
       setRunning(null);
     }
   };
 
   return (
-    <Modal title="Export" onClose={() => {
-      if (running === null) closeExportDialog();
-    }}>
+    <Modal title="Export" onClose={stop}>
       <div role="radiogroup" aria-labelledby={groupId} className="flex flex-col gap-2">
         <span id={groupId} className="sb-label">
           Format
@@ -158,9 +197,7 @@ function ExportDialog() {
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button disabled={running !== null} onClick={closeExportDialog}>
-          Cancel
-        </Button>
+        <Button onClick={stop}>{running === null ? 'Cancel' : 'Stop'}</Button>
         <Button variant="primary" disabled={running !== null || frames === 0} onClick={() => void run()}>
           {format?.output === 'folder' ? 'Choose folder…' : 'Save…'}
         </Button>

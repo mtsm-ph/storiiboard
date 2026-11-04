@@ -276,15 +276,24 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   whole project or one scene, then the Save dialog for a file or the folder dialog for a set. The Trash never goes
   out. Rust shows the dialogs and writes only where the person chose; a set of files goes into a new folder made
   inside the one picked (`Bey County frames`, then `Bey County frames 2`), so nothing there is ever overwritten.
+  A file from the Save dialog is written once; in the new folder each file is made with create_new, never over a
+  file or a link already there; a name is one plain part (no folders, no `:`), and must land right inside the folder.
 - Shot list (CSV): one row per frame in board order, with scene, heading, length, location, specs, status, action,
-  dialogue, departments and the custom fields; RFC 4180 quoting, CRLF and a byte-order mark, and a leading
-  apostrophe on a cell that starts like a formula. A report: the lossless JSON and CSV export is Phase 2's.
+  dialogue, departments and the custom fields (matched whatever case a frame spells them in); RFC 4180 quoting, CRLF
+  and a byte-order mark, and a leading apostrophe on a cell that starts like a formula. A report: the lossless JSON
+  and CSV export is Phase 2's.
 - Frames (PNG): one per frame at 1920 on the long edge, the picture framed as on the board from the full-size stored
-  picture, the sketch over it, on white, named `SC004_4A.png`.
+  picture, the sketch over it, on white, named `SC004_4A.png`. The scene's digits are padded so plain scene numbers
+  line up (SC004 before SC012); a name sort isn't board order otherwise (12A files before 12, 4AA before 4B).
 - Watermark Settings (project menu): text, position, strength and which exports carry it (PDF and PNG; the web review
-  copy in Phase 9), one undoable edit to the project record.
+  copy in Phase 9), one undoable edit to the project record; Save with nothing changed makes no edit. On a frame the
+  watermark is sized from the short edge and shrinks until it fits between the margins.
+- A running export can be stopped (Stop, or Escape); what it wrote stays in its new folder.
 - Decided while building, to review: frames print on white in the kit's ink rather than on paper; an empty frame
   exports as a blank image so the sequence has no gaps; the browser build downloads each file.
+- Decided in review (Nov 4), to review: names keep the slate's numbers and the sort claim was corrected, rather than
+  adding a sequence number to every file; a name given twice in one export (two live scenes numbered 4, from an old
+  file) gets ` (2)` before the extension, as the Finder and Explorer do; a stopped export keeps the frames it wrote.
 
 **As built in 1.23 (Nov 3): named versions** (schema 4, src/core/storage/versions.ts):
 - In the History tile: Name this point names the newest step; versions are listed with their step, and each step

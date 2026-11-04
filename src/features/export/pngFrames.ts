@@ -1,5 +1,5 @@
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
-import { exportName, frameFileName } from './names';
+import { exportName, frameFileName, uniqueNames } from './names';
 import type { ExportFormat } from './registry';
 import { renderFrame } from './renderFrame';
 import { scenesIn } from './scope';
@@ -21,16 +21,23 @@ export const pngFrames: ExportFormat = {
   output: 'folder',
   watermark: 'png',
   name: (title, scene) => exportName(title, scene, 'frames'),
-  run: async ({ records, projectId, scope, file, target, progress }) => {
+  run: async ({ records, projectId, scope, file, target, progress, signal }) => {
     const props = records[projectId]?.props;
     const size = pngSize(aspectRatioValue(projectStoryboard(props).aspectRatio));
     const watermark = watermarkFor(props, 'png');
     const frames = scenesIn(records, projectId, scope).flatMap((scene) => scene.shots.map((shot) => ({ scene, shot })));
+    const unique = uniqueNames();
     let done = 0;
+    progress(done, frames.length);
     for (const { scene, shot } of frames) {
+      // Stopped: the frames written so far stay, in the export's own new folder.
+      signal.throwIfAborted();
       const canvas = await renderFrame(records, file, shot.record, size, watermark);
       const blob = await canvas.convertToBlob({ type: 'image/png' });
-      await target.write(frameFileName(scene.fields.number, shot.fields.number || String(done + 1)), new Uint8Array(await blob.arrayBuffer()));
+      // And once drawn: a frame being drawn when the person pressed Stop isn't written after it.
+      signal.throwIfAborted();
+      const name = unique(frameFileName(scene.fields.number, shot.fields.number || String(done + 1)));
+      await target.write(name, new Uint8Array(await blob.arrayBuffer()));
       done += 1;
       progress(done, frames.length);
     }

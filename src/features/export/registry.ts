@@ -20,6 +20,8 @@ export interface ExportContext {
   target: ExportTarget;
   /** Called as work goes, for a progress line: done so far, of all. */
   progress: (done: number, total: number) => void;
+  /** Aborted when the person stops the export: a format checks it between files and stops there. */
+  signal: AbortSignal;
 }
 
 export interface ExportFormat {

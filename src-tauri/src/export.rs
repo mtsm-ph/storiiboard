@@ -1,9 +1,11 @@
 //! Exports (1.24): the Save dialog for one file and the folder dialog for a set of files open from here, so the page
-//! never names a place on disk to write. A write goes only to a file the person chose, or into a new folder made
+//! never names a place on disk to write. A write goes only to a file the person chose, once, or into a new folder made
 //! inside the folder they chose, so an export never overwrites anything already there.
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
@@ -32,18 +34,38 @@ fn has(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
     set.lock().is_ok_and(|paths| paths.contains(path))
 }
 
-/// A plain file name with an export extension: no folders, no way up.
+/// Takes `path` out of the set, saying whether it was there. A file from the Save dialog is written once: kept for
+/// the session, the page could write over it again long after the person had moved on to other work in it.
+fn take(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
+    set.lock().is_ok_and(|mut paths| paths.remove(path))
+}
+
+/// One plain name for a file or folder inside another: no folders, no way up, nothing hidden. A colon is refused
+/// too: on Windows `D:evil.png` joined onto a folder is a path on drive D, and `a.png:b` names a stream of `a.png`.
+fn plain_part(name: &str) -> bool {
+    if name.is_empty() || name.contains(['/', '\\', ':', '\0']) || name.starts_with('.') {
+        return false;
+    }
+    let mut parts = Path::new(name).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(Component::Normal(part)), None) if part == OsStr::new(name)
+    )
+}
+
+/// A plain file name with an export extension.
 fn plain_name(name: &str) -> bool {
     let extension = Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
-    !name.is_empty()
-        && !name.contains(['/', '\\', '\0'])
-        && name != "."
-        && name != ".."
-        && !name.starts_with('.')
-        && extension.is_some_and(|e| EXTENSIONS.contains(&e.as_str()))
+    plain_part(name) && extension.is_some_and(|e| EXTENSIONS.contains(&e.as_str()))
+}
+
+/// `folder/name`, only when that lands right inside `folder`: the name check and the path agree, or nothing.
+fn inside(folder: &Path, name: &str) -> Option<PathBuf> {
+    let joined = folder.join(name);
+    (plain_part(name) && joined.parent() == Some(folder)).then_some(joined)
 }
 
 /// Runs one dialog at a time, on a thread of its own since it waits for the person.
@@ -62,7 +84,7 @@ async fn dialog<T: Send + 'static>(
     picked.map_err(|error| error.to_string())
 }
 
-/// The Save dialog for one export file, suggesting `name`. The path picked can then be written.
+/// The Save dialog for one export file, suggesting `name`. The path picked can then be written, once.
 #[tauri::command]
 pub async fn export_choose_file(app: AppHandle, name: String) -> Result<Option<String>, String> {
     if !plain_name(&name) {
@@ -99,7 +121,7 @@ pub async fn export_choose_folder(
     app: AppHandle,
     folder: String,
 ) -> Result<Option<String>, String> {
-    if folder.is_empty() || folder.contains(['/', '\\', '\0']) || folder.starts_with('.') {
+    if !plain_part(&folder) {
         return Err("That isn't a name an export folder can have.".into());
     }
     let picked = dialog(&app, |handle| {
@@ -118,14 +140,16 @@ pub async fn export_choose_folder(
     Ok(made.to_str().map(str::to_owned))
 }
 
-/// `parent/name`, or `parent/name 2` and so on when that's taken: always a folder that wasn't there.
+/// `parent/name`, or `parent/name 2` and so on when that's taken: always a folder that wasn't there, right inside
+/// `parent`.
 fn new_folder(parent: &Path, name: &str) -> Result<PathBuf, String> {
     for attempt in 1..=99 {
         let candidate = if attempt == 1 {
-            parent.join(name)
+            inside(parent, name)
         } else {
-            parent.join(format!("{name} {attempt}"))
-        };
+            inside(parent, &format!("{name} {attempt}"))
+        }
+        .ok_or("That isn't a name an export folder can have.")?;
         match fs::create_dir(&candidate) {
             Ok(()) => return Ok(candidate),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -153,10 +177,9 @@ pub async fn export_write(app: AppHandle, request: tauri::ipc::Request<'_>) -> R
     let (header, bytes) = split_body(body)?;
     let target = target_of(&app.state::<Chosen>(), &header)?;
     let bytes = bytes.to_vec();
-    tauri::async_runtime::spawn_blocking(move || fs::write(&target, bytes))
+    tauri::async_runtime::spawn_blocking(move || write_to(&target, &bytes))
         .await
         .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
 }
 
 fn split_body(body: &[u8]) -> Result<(WriteHeader, &[u8]), String> {
@@ -167,25 +190,59 @@ fn split_body(body: &[u8]) -> Result<(WriteHeader, &[u8]), String> {
             .try_into()
             .map_err(|_| bad())?,
     ) as usize;
-    let header = body.get(4..4 + length).ok_or_else(bad)?;
-    let header: WriteHeader = serde_json::from_slice(header).map_err(|error| error.to_string())?;
-    Ok((header, &body[4 + length..]))
+    // Checked, so a length near the top of the range can't wrap round on a 32-bit build.
+    let end = length.checked_add(4).ok_or_else(bad)?;
+    let header = body.get(4..end).ok_or_else(bad)?;
+    let header: WriteHeader = serde_json::from_slice(header).map_err(|_| bad())?;
+    Ok((header, &body[end..]))
 }
 
-/// Where a write goes, if it may go anywhere: the chosen file itself, or a plain new name in a folder made for it.
-fn target_of(chosen: &Chosen, header: &WriteHeader) -> Result<PathBuf, String> {
+/// Where a write goes.
+#[derive(Debug, PartialEq)]
+enum Target {
+    /// The file picked in the Save dialog, which asked the person before replacing one there.
+    Chosen(PathBuf),
+    /// A new file in a folder made for the export: never one already there.
+    New(PathBuf),
+}
+
+/// Where a write goes, if it may go anywhere: the chosen file itself, once, or a plain new name in a folder made for
+/// it.
+fn target_of(chosen: &Chosen, header: &WriteHeader) -> Result<Target, String> {
     let path = PathBuf::from(&header.path);
     match &header.name {
-        None if has(&chosen.files, &path) => Ok(path),
-        Some(name) if has(&chosen.folders, &path) && plain_name(name) => {
-            let file = path.join(name);
-            // Never over a file already there: names in one export are unique, so this is a second write by mistake.
-            if file.exists() {
-                return Err(format!("{name} is in that folder already."));
-            }
-            Ok(file)
-        }
+        None if take(&chosen.files, &path) => Ok(Target::Chosen(path)),
+        Some(name) if has(&chosen.folders, &path) && plain_name(name) => inside(&path, name)
+            .map(Target::New)
+            .ok_or_else(|| "That isn't a name an export can have.".into()),
         _ => Err("Storiiboard writes exports only where you choose.".into()),
+    }
+}
+
+fn write_to(target: &Target, bytes: &[u8]) -> Result<(), String> {
+    match target {
+        Target::Chosen(path) => fs::write(path, bytes).map_err(|error| error.to_string()),
+        Target::New(path) => {
+            // create_new checks and makes the file in one step, so nothing can slip in between, and it fails on a
+            // link already there rather than writing wherever the link points. Names in one export are unique, so a
+            // file there means a second write by mistake.
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .map_err(|error| match error.kind() {
+                    std::io::ErrorKind::AlreadyExists => format!(
+                        "{} is in that folder already.",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                    _ => error.to_string(),
+                })?;
+            file.write_all(bytes).map_err(|error| {
+                // Made a moment ago and ours alone: a half-written frame helps no one.
+                let _ = fs::remove_file(path);
+                error.to_string()
+            })
+        }
     }
 }
 
@@ -193,15 +250,31 @@ fn target_of(chosen: &Chosen, header: &WriteHeader) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn writes_only_where_chosen_and_never_over_a_file() {
-        let dir = std::env::temp_dir().join(format!("sbd-export-{}", std::process::id()));
+    fn temp(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sbd-export-{label}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let chosen = Chosen::default();
-        let header = |path: &Path, name: Option<&str>| WriteHeader {
+        dir
+    }
+
+    fn header(path: &Path, name: Option<&str>) -> WriteHeader {
+        WriteHeader {
             path: path.to_str().unwrap().to_owned(),
             name: name.map(str::to_owned),
-        };
+        }
+    }
+
+    fn body(header: &[u8], bytes: &[u8]) -> Vec<u8> {
+        let mut body = (header.len() as u32).to_be_bytes().to_vec();
+        body.extend_from_slice(header);
+        body.extend_from_slice(bytes);
+        body
+    }
+
+    #[test]
+    fn writes_only_where_chosen_and_never_over_a_file() {
+        let dir = temp("chosen");
+        let chosen = Chosen::default();
 
         let file = dir.join("Bey County shot list.csv");
         assert!(
@@ -209,9 +282,16 @@ mod tests {
             "nothing chosen yet"
         );
         remember(&chosen.files, &file);
-        assert_eq!(target_of(&chosen, &header(&file, None)).unwrap(), file);
         // A chosen file isn't a folder to write other names into.
         assert!(target_of(&chosen, &header(&file, Some("x.png"))).is_err());
+        assert_eq!(
+            target_of(&chosen, &header(&file, None)).unwrap(),
+            Target::Chosen(file.clone())
+        );
+        assert!(
+            target_of(&chosen, &header(&file, None)).is_err(),
+            "written once, the file is no longer the page's to write"
+        );
 
         let made = new_folder(&dir, "Bey County frames").unwrap();
         assert_eq!(
@@ -219,13 +299,12 @@ mod tests {
             dir.join("Bey County frames 2")
         );
         remember(&chosen.folders, &made);
-        assert_eq!(
-            target_of(&chosen, &header(&made, Some("SC004_4A.png"))).unwrap(),
-            made.join("SC004_4A.png")
-        );
+        let frame = target_of(&chosen, &header(&made, Some("SC004_4A.png"))).unwrap();
+        assert_eq!(frame, Target::New(made.join("SC004_4A.png")));
         for bad in [
             "../SC004_4A.png",
             "sub/SC004_4A.png",
+            "sub\\SC004_4A.png",
             ".hidden.png",
             "notes.txt",
             "",
@@ -235,13 +314,79 @@ mod tests {
                 "{bad}"
             );
         }
-        fs::write(made.join("SC004_4A.png"), [1]).unwrap();
+        write_to(&frame, &[1]).unwrap();
         assert!(
-            target_of(&chosen, &header(&made, Some("SC004_4A.png"))).is_err(),
-            "already there"
+            write_to(&frame, &[2]).unwrap_err().contains("already"),
+            "never over a file already there"
         );
+        assert_eq!(fs::read(made.join("SC004_4A.png")).unwrap(), [1]);
         // The folder picked, not the one made inside it, can't be written into.
         assert!(target_of(&chosen, &header(&dir, Some("SC004_4B.png"))).is_err());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_name_with_a_drive_or_a_stream_never_leaves_the_folder() {
+        let dir = temp("drive");
+        let chosen = Chosen::default();
+        let made = new_folder(&dir, "Bey County frames").unwrap();
+        remember(&chosen.folders, &made);
+        for bad in [
+            "D:evil.png",
+            "C:\\Windows\\evil.png",
+            "\\\\server\\share\\evil.png",
+            "/etc/evil.png",
+            "SC004_4A.png:hidden.png",
+            "D:",
+        ] {
+            assert!(!plain_name(bad), "{bad}");
+            assert!(
+                target_of(&chosen, &header(&made, Some(bad))).is_err(),
+                "{bad}"
+            );
+        }
+        for bad in ["D:evil", "..", ".", "a/b", "C:\\x", ""] {
+            assert!(new_folder(&dir, bad).is_err(), "folder {bad}");
+        }
+        assert!(plain_part("Bey County SC 04 frames"));
+        assert!(plain_name("SC012A_12AA.png"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_the_folder_is_never_followed() {
+        let dir = temp("link");
+        let outside = dir.join("outside.png");
+        fs::write(&outside, [9]).unwrap();
+        let made = new_folder(&dir, "frames").unwrap();
+        std::os::unix::fs::symlink(&outside, made.join("SC004_4A.png")).unwrap();
+        assert!(write_to(&Target::New(made.join("SC004_4A.png")), &[1]).is_err());
+        assert_eq!(fs::read(&outside).unwrap(), [9]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_malformed_body_is_refused() {
+        let good = br#"{"path":"/x","name":"SC004_4A.png"}"#;
+        let whole = body(good, &[1, 2, 3]);
+        let (parsed, bytes) = split_body(&whole).unwrap();
+        assert_eq!(parsed.name.as_deref(), Some("SC004_4A.png"));
+        assert_eq!(bytes, [1, 2, 3]);
+
+        let mut long = body(good, &[]);
+        long[..4].copy_from_slice(&(good.len() as u32 + 1).to_be_bytes());
+        let mut huge = body(good, &[]);
+        huge[..4].copy_from_slice(&u32::MAX.to_be_bytes());
+        for bad in [
+            Vec::new(),
+            vec![0, 0],
+            long,
+            huge,
+            body(b"not json", &[1]),
+            body(br#"{"name":"SC004_4A.png"}"#, &[1]),
+        ] {
+            assert!(split_body(&bad).is_err(), "{bad:?}");
+        }
     }
 }

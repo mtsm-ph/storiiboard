@@ -1,4 +1,5 @@
 import type { JsonValue, Props } from '../../core/model/record';
+import type { Change } from '../../core/ops/ops';
 
 // The watermark (1.24, Watermark Settings in the project menu): text, where it goes, how strong, and which exports
 // carry it. Stored as the project record's `watermark` prop (docs/SBD_FORMAT.md), so every export, and from Phase 9
@@ -39,8 +40,27 @@ export function readWatermark(props: Props | undefined): Watermark | null {
   return { text, position, opacity, appliesTo };
 }
 
+/** As stored: `applies_to` always in one order, so ticking a box off and on again stores what was there. */
 export function watermarkProp(watermark: Watermark): Record<string, JsonValue> {
-  return { text: watermark.text.trim(), position: watermark.position, opacity: watermark.opacity, applies_to: [...watermark.appliesTo] };
+  return {
+    text: watermark.text.trim(),
+    position: watermark.position,
+    opacity: watermark.opacity,
+    applies_to: APPLIES.filter((use) => watermark.appliesTo.includes(use)),
+  };
+}
+
+/**
+ * The one edit Watermark Settings' Save makes, or null when it would change nothing the exports read, so Save on
+ * settings as they were doesn't leave a step to undo that undoes nothing.
+ */
+export function watermarkChange(projectId: string, props: Props | undefined, draft: Watermark): Change | null {
+  const stored = readWatermark(props);
+  const text = draft.text.trim();
+  if (text === '') return stored === null ? null : { kind: 'update', id: projectId, unset: ['watermark'] };
+  const next = watermarkProp({ ...draft, text });
+  if (stored !== null && JSON.stringify(watermarkProp(stored)) === JSON.stringify(next)) return null;
+  return { kind: 'update', id: projectId, set: { watermark: next } };
 }
 
 /** The watermark an export of this kind carries, if any. */

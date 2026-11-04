@@ -1,4 +1,4 @@
-import { customFieldNames, customFieldsOf } from '../../core/model/customFields';
+import { customFieldNames, customFieldsOf, customValue } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -50,7 +50,8 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
         f.action,
         f.dialogue,
         f.departments.map((d) => DEPARTMENT_LABELS[d as Department] as string | undefined ?? d).join(', '),
-        ...custom.map((name) => own[name] ?? ''),
+        // The column has the spelling most frames use; a frame that spells it `drone` still fills `Drone`.
+        ...custom.map((name) => customValue(own, name)),
       ]);
     }
   }
@@ -63,9 +64,10 @@ export const shotListCsvFormat: ExportFormat = {
   description: 'One row per frame, with its scene, specs, status and custom fields, for a spreadsheet.',
   output: 'file',
   name: (title, scene) => exportName(title, scene, 'shot list', 'csv'),
-  run: async ({ records, projectId, scope, target, title }) => {
+  run: async ({ records, projectId, scope, target, title, signal }) => {
     const frames = scenesIn(records, projectId, scope).reduce((n, s) => n + s.shots.length, 0);
     const scene = scope.kind === 'scene' ? (scenesIn(records, projectId, scope)[0]?.fields.number ?? null) : null;
+    signal.throwIfAborted();
     await target.write(exportName(title, scene, 'shot list', 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope)));
     return `${String(frames)} ${frames === 1 ? 'frame' : 'frames'}`;
   },

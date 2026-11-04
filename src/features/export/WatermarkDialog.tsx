@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select, TextField } from '../../ui/fields';
 import { closeExportDialog } from './exportStore';
 import { Modal } from './ExportDialog';
-import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkProp, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
+import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkChange, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
 
 // Watermark Settings (1.24, the project menu): the text, where it sits, how strong, and which exports carry it. Saved
 // as one edit to the project record, so it undoes like any other and every export reads the same watermark.
@@ -23,15 +24,13 @@ export function WatermarkDialog() {
   if (!project) return null;
 
   const save = () => {
-    const text = draft.text.trim();
-    void projectStore
-      .getState()
-      .apply([
-        text === ''
-          ? { kind: 'update', id: project.projectId, unset: ['watermark'] }
-          : { kind: 'update', id: project.projectId, set: { watermark: watermarkProp({ ...draft, text }) } },
-      ])
-      .then(closeExportDialog);
+    const change = watermarkChange(project.projectId, projectStore.getState().records[project.projectId]?.props, draft);
+    if (change === null) {
+      closeExportDialog();
+      return;
+    }
+    // Not written (an error, shown as a notice): the dialog stays, with the settings, to try again.
+    void projectStore.getState().apply([change]).then(closeExportDialog, showNotice);
   };
 
   return (

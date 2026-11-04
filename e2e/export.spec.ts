@@ -73,3 +73,75 @@ test('Watermark Settings saves one edit, and the Export dialog says the PNGs car
   await dialog(page, 'Export').getByLabel('Shot list (CSV)').check();
   await expect(dialog(page, 'Export')).toContainText('No watermark.');
 });
+
+test('the dialogs take focus, close on Escape and give it back to the project menu', async ({ page }) => {
+  const menuButton = page.getByRole('button', { name: 'Project', exact: true });
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByLabel('Shot list (CSV)')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  await expect(menuButton).toBeFocused();
+
+  await projectMenu(page, 'Watermark Settings');
+  await expect(dialog(page, 'Watermark Settings').getByLabel('Text')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog(page, 'Watermark Settings')).toHaveCount(0);
+  await expect(menuButton).toBeFocused();
+});
+
+test('a dialog the browser closes by itself opens again from the menu', async ({ page }) => {
+  // What WebView2 does on a second Escape the page can't stop: the dialog closes without a cancel.
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export')).toBeVisible();
+  await page.evaluate(() => {
+    document.querySelector('dialog')?.close();
+  });
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export')).toBeVisible();
+});
+
+test('Watermark Save with nothing changed leaves no step to undo', async ({ page }) => {
+  const undo = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+z' : 'Control+z';
+  const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
+  await expect(frames).toHaveCount(2);
+  await projectMenu(page, 'Watermark Settings');
+  await dialog(page, 'Watermark Settings').getByRole('button', { name: 'Save' }).click();
+  await expect(dialog(page, 'Watermark Settings')).toHaveCount(0);
+  // Undo reaches the last real edit, the second frame, not an empty watermark step.
+  await page.keyboard.press(undo);
+  await expect(frames).toHaveCount(1);
+});
+
+test('Stop ends a running export between frames, and says what it wrote', async ({ page }) => {
+  // The second frame waits to be encoded until the test lets it go, so Stop lands mid-export every time.
+  await page.evaluate(() => {
+    const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
+      this: OffscreenCanvas,
+      options?: ImageEncodeOptions,
+    ) => Promise<Blob>;
+    let calls = 0;
+    const w = window as unknown as { releaseFrame?: () => void };
+    const held = new Promise<void>((resolve) => {
+      w.releaseFrame = resolve;
+    });
+    OffscreenCanvas.prototype.convertToBlob = async function (this: OffscreenCanvas, options) {
+      calls += 1;
+      if (calls === 2) await held;
+      return encode.call(this, options);
+    };
+  });
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByLabel('Frames (PNG)').check();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
+  });
+  await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
+  expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
+});
