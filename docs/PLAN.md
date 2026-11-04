@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.21 done, 1.22 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.22 done, 1.23 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.21 merged; testing and CI rules) |
+| Last updated | Nov 4, 2026 (1.22 merged) |
 
 | Phase | State |
 |---|---|
@@ -56,7 +56,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
-| 1.22 History tile | | Not started |
+| 1.22 History tile: every step in words, restore a point, an item's old values | #41 | Done |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
@@ -279,6 +279,48 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.22 (Nov 3): the History tile** (src/features/history):
+- History in the project menu opens it in the workspace on screen. Every step is listed newest first, undos, redos,
+  restores and Empty Trash included, in the board's words ("Added frame 4C", "4A: lens 35mm → 50mm", "Moved 4B",
+  "Undid: …"), with who and when. A drag that renumbers a scene is one step.
+- Restore to here brings the project back to just after that step, as a new step that ⌘Z takes back (a restore
+  never brings back what Empty Trash deleted). Steps load 100 at a time.
+- Only frame 4A lists every change to the selected frame, newest first, field by field (change, before, after, who,
+  when); with no frame selected, Only this note and Only scene SC 05 do the same for the selected note or the active
+  scene. Before and after show in full, wrapped with their line breaks kept (a step's line cuts a long text to one
+  short line), and Put back's label names the whole value. Undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
+  by field ("lens, restored", "Restore to here: out of the Trash"), and renumbers show too. Put back sets an old value
+  again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
+  dialogue, departments, custom fields; a scene's name, INT/EXT, time of day and length; a note's text). A custom field goes back on its own, leaving the frame's others as they are;
+  Put back isn't offered where the frame already has that value, and values that both read "—" (an empty text or no
+  departments ticked, and one never set) count as the same, as do the same departments in another order. Values read
+  as the board names them ("Grip & electric", "Need to shoot", "INS"), not as they're stored. A new selection shows
+  only its own changes.
+- Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
+- A step whose picture was cleaned up (1.21) says "(picture removed)", at once when History is open beside
+  Settings → Storage. Values kept by id never show as ids: a scene's location reads by its name as it was then
+  ("SC 05: location — → Dock"), and a frame's picture as "picture set", "picture replaced" or "picture removed".
+- One restore or Put back at a time: a second click while one writes, or within half a second of its rows being read
+  again, is dropped, so a double click never lands on the row that moved under the pointer. If those rows stop being
+  read (Only frame turned off, the frame deselected or trashed, a read that failed), clicks count again from then, and
+  in any case 5 seconds after the write. Restore to here on a
+  point the project is already at says so. Past an Empty Trash, the notice adds that what it deleted can't come back,
+  whether or not the restore changed anything.
+- A frame's own history finds its strokes and picture in the log, so an undone sketch, or one Restore to here took
+  away, still shows ("Sketched", "Undid: Sketched").
+- Tests: a restore and its undo, a restore after a restart (and undone after another), a restore whose write dies
+  halfway changing nothing, a restore after Empty Trash (src/core/ops/purge.test.ts), a frame's Trash state and the
+  board's order brought back, Put back on custom fields and the action, no empty step, and paging.
+- Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
+  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9). A
+  custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
+  marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
+  are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.
+  The item filter takes the most particular selection (a frame, else a note, else the active scene), so a scene's
+  own history shows once no frame or note is selected in it. Locations and characters get theirs when they have a
+  selection of their own (Phase 3); until then their changes show as steps. A scene's location, number and number
+  lock aren't put back on their own (Restore to here is the way back); its location reads by its name as it is now.
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside

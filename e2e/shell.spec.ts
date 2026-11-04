@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-test('app shell loads with its heading and bundled fonts', async ({ page }) => {
-  // Fonts must come from the bundle, never a CDN, so the app reads the same on set with no signal.
+test('app shell loads with its heading and bundled fonts', async ({ page, baseURL }) => {
+  // Fonts must come from the bundle, never a CDN, so the app reads the same on set with no signal. Matched to the
+  // server the run uses, which needn't be on the dev port.
+  const origin = new URL(baseURL ?? 'http://localhost:1420').origin;
   const external: string[] = [];
   page.on('request', (request) => {
-    if (!request.url().startsWith('http://localhost:1420')) external.push(request.url());
+    if (new URL(request.url()).origin !== origin) external.push(request.url());
   });
 
   await page.goto('/');

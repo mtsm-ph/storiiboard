@@ -4,6 +4,8 @@ import { projectStateOf } from '../../core/model/project';
 import { ComingItem, Menu, menuItemClass } from '../../ui/Menu';
 import { setProjectState } from '../projects/actions';
 import { useProject } from '../projectStore';
+import { openTile } from './docking/layout';
+import { layoutStore } from './docking/layoutStore';
 import { LayoutMenu } from './docking/LayoutMenu';
 import type { Workspace } from './workspaces';
 
@@ -16,6 +18,7 @@ interface TopBarProps {
 // Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name and the menus.
 export function TopBar({ projectName, workspace }: TopBarProps) {
   const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
+  const open = useProject((s) => s.project !== null);
   return (
     <header className="flex h-topbar shrink-0 items-center border-b border-border-top">
       <h1 className="sr-only">Storiiboard</h1>
@@ -40,7 +43,19 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
         >
           {(close) => (
             <>
-              <ComingItem label="History" phase="Phase 1" />
+              {/* History is a tile (1.22): it opens in the workspace on screen, beside what's there. */}
+              <button
+                type="button"
+                className={menuItemClass}
+                disabled={!open}
+                onClick={() => {
+                  close();
+                  const { layouts, change } = layoutStore.getState();
+                  change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+                }}
+              >
+                History
+              </button>
               <ComingItem label="Watermark Settings" phase="Phase 1" />
               <ComingItem label="Export Project" phase="Phase 1" />
               {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}

@@ -74,14 +74,14 @@ test('Alt+1 to Alt+7 jump to a section, and focus follows from the tiles', async
 test('the project menu and switcher show what each command waits for', async ({ page }) => {
   await page.getByRole('button', { name: 'Project', exact: true }).click();
   for (const [name, phase] of [
-    ['History', 'Phase 1'],
     ['Watermark Settings', 'Phase 1'],
     ['Export Project', 'Phase 1'],
   ] as const) {
     await expect(page.getByRole('button', { name: `${name} ${phase}` })).toHaveAttribute('aria-disabled', 'true');
   }
-  // Archive Project is built; with no project open there's nothing to archive.
+  // Archive Project and History are built; with no project open there's nothing to archive or look back on.
   await expect(page.getByRole('button', { name: 'Archive Project' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'History', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Project', exact: true })).toBeFocused();
 

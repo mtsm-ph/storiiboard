@@ -6,6 +6,7 @@ import { StoryboardTile } from '../../features/storyboard/StoryboardTile';
 import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
+import { HistoryTile } from '../../features/history/HistoryTile';
 import { TrashTile } from '../../features/trash/TrashTile';
 import type { TileId } from './docking/layout';
 
@@ -19,4 +20,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   theme: ThemeTile,
   trash: TrashTile,
   storage: StorageTile,
+  history: HistoryTile,
 };

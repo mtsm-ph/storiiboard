@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
 
@@ -27,6 +27,17 @@ export interface ProjectState {
    * again when it changes, so the same photo added back shows on every frame that names it.
    */
   picturesWritten: number;
+  /**
+   * Counts Empty Trash and Clean up old pictures runs that deleted something. Clean up changes no record and no undo
+   * state, yet older steps in History now read "(picture removed)", so the History tile reads its steps again on this.
+   */
+  deletedForGood: number;
+  /**
+   * True from a Restore to here's click until it lands or fails (1.22). On a long project it rewrites thousands of
+   * records, which takes a while: the History tile says so and takes no more clicks meanwhile, even if it was closed
+   * and opened again, since it's kept here rather than in the tile.
+   */
+  restoring: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -44,6 +55,11 @@ export interface ProjectState {
    * when nothing did (an empty Trash, or a refusal, which has set `error`).
    */
   emptyTrash: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
+  /**
+   * Restores the project to how it was right after a step in History (1.22), or as created with null, as one new op
+   * group that undo takes back. Resolves to whether it changed anything.
+   */
+  restoreTo: (groupId: string | null) => Promise<boolean>;
   /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
   cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
 }
@@ -56,6 +72,8 @@ export function createProjectStore(): StoreApi<ProjectState> {
     queue = next.catch(() => undefined);
     return next;
   };
+
+  let restoresInFlight = 0;
 
   return createStore<ProjectState>()((set, get) => {
     const merge = async (project: Project, touched: Touched | null) => {
@@ -92,6 +110,8 @@ export function createProjectStore(): StoreApi<ProjectState> {
       error: null,
       changedOnDisk: false,
       picturesWritten: 0,
+      deletedForGood: 0,
+      restoring: false,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
@@ -151,9 +171,27 @@ export function createProjectStore(): StoreApi<ProjectState> {
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return done.touched;
         });
         return result;
+      },
+      restoreTo: async (groupId) => {
+        let changed = false;
+        // Counted, so a second restore queued behind the first doesn't clear it while that one still runs.
+        restoresInFlight += 1;
+        set({ restoring: true });
+        try {
+          await edit(async (project) => {
+            const touched = await restoreTo(project.file, groupId);
+            changed = touched !== null;
+            return touched;
+          });
+        } finally {
+          restoresInFlight -= 1;
+          if (restoresInFlight === 0) set({ restoring: false });
+        }
+        return changed;
       },
       cleanUpPictures: async (only) => {
         let result: { removed: number; freed: number } | null = null;
@@ -162,6 +200,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           const done = await cleanUpPictures(project.file, only);
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          if (done.removed > 0) set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return null;
         });
         return result;

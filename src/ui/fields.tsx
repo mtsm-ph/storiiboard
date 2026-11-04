@@ -157,7 +157,8 @@ export function BarGauge({ label, value, max = 100 }: BarGaugeProps) {
 }
 
 interface ToggleProps {
-  label: string;
+  /** A node so a technical value in it (a shot number) can be set in mono. */
+  label: ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;

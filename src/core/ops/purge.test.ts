@@ -368,6 +368,25 @@ describe('Clean up old pictures', () => {
     expect(fileHolds(4)).toBe(true);
   });
 
+  it('tells History it ran, though it changes no record and no undo state, so older steps say the picture went', async () => {
+    const shot = await frame();
+    await withPicture(shot, 3);
+    await store.getState().undo();
+    const before = store.getState();
+    expect((await store.getState().cleanUpPictures())?.removed).toBe(1);
+    const after = store.getState();
+    expect(after.records).toBe(before.records);
+    expect([after.canUndo, after.canRedo]).toEqual([before.canUndo, before.canRedo]);
+    expect(after.deletedForGood).toBe(before.deletedForGood + 1);
+    // Nothing left to clean up: nothing to read again.
+    await store.getState().cleanUpPictures();
+    expect(store.getState().deletedForGood).toBe(after.deletedForGood);
+    // Empty Trash says so too.
+    await trash(shot);
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(store.getState().deletedForGood).toBe(after.deletedForGood + 1);
+  });
+
   it('keeps a picture one ⌘Z can bring back: the frame a History restore took away', async () => {
     const point = (await log(project.file)).at(-1)?.id ?? null;
     const shot = await frame();
