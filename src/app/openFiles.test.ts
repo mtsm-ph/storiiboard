@@ -1,9 +1,9 @@
-import { renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LockHolder } from '../core/storage/driver';
 import { nodeDriver, nodeDriverFor } from '../core/storage/nodeDriver';
 import { createProject } from '../core/storage/project';
-import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
+import { arriveFromSync, makeTestFolder, type TestFolder } from '../core/storage/testFolder';
 import { createProjectFile, OpenFileError, openProjectFile, reopenProjectFile, type LockedChoice } from './openFiles';
 import { createProjectStore } from './projectStore';
 
@@ -142,10 +142,13 @@ describe('a sync replacing the file while it is open', () => {
     await openProjectFile(path, { store, driver: nodeDriver });
     const projectId = store.getState().project?.projectId ?? '';
 
-    // The other computer's version, renamed over this one as sync services do.
-    const theirs = await createProject(folder.path('theirs.sbd'), { driver: nodeDriver, backups: false });
-    await theirs.close();
-    renameSync(folder.path('theirs.sbd'), path);
+    // The other computer's version of the same project, with an edit of its own, arriving as sync services deliver it.
+    copyFileSync(path, folder.path('theirs.sbd'));
+    const elsewhere = createProjectStore();
+    await openProjectFile(folder.path('theirs.sbd'), { store: elsewhere, driver: nodeDriver });
+    await elsewhere.getState().apply([{ kind: 'update', id: projectId, set: { title: 'Bey County (their cut)' } }]);
+    await elsewhere.getState().close();
+    arriveFromSync(folder.path('theirs.sbd'), path);
 
     await store.getState().apply([{ kind: 'update', id: projectId, set: { notes: 'Golden hour on 4A' } }]);
     expect(store.getState().changedOnDisk).toBe(true);
@@ -154,8 +157,9 @@ describe('a sync replacing the file while it is open', () => {
     expect(await reopenProjectFile(path, { store, driver: nodeDriver })).toBe(true);
     expect(store.getState().changedOnDisk).toBe(false);
     expect(openPath()).toBe(path);
-    // The newer file has its own project record; the refused note was never written anywhere.
-    const notes = Object.values(store.getState().records).map((r) => r.props.notes);
-    expect(notes).toEqual(['']);
+    // The newer file has the other computer's edit; the refused note was never written anywhere.
+    const records = Object.values(store.getState().records);
+    expect(records.map((r) => r.props.title)).toEqual(['Bey County (their cut)']);
+    expect(records.map((r) => r.props.notes)).toEqual(['']);
   });
 });

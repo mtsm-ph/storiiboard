@@ -1,24 +1,20 @@
 name: CI
 
-# Every pull request runs the Linux checks and builds the Mac and Windows installers, so a green pull request means all
-# three passed on its last commit (Kevin, Nov 3). Every push runs the Linux checks as well, so the last commit of each
-# push is checked on its own; the installers build on a push only to v2. A pull request's paths filter looks at all of its changes, so
-# a docs-only last commit still runs everything when the pull request touches code. Changes to docs alone skip CI.
+# Quick checks on Linux for every pull request (Kevin, Nov 4): lint, types, unit tests and the Rust tests, the Rust
+# data-safety tests among them. A push to v2 runs them once more on the merged result. The end-to-end smoke set and
+# the installers run at a checkpoint instead (checkpoint.yml), and the deeper end-to-end specs run locally before each
+# merge (`npm run e2e`). Changes to docs alone skip CI.
 on:
   push:
+    branches: [v2]
     paths-ignore: ['docs/**', '*.md', '*.pdf']
   pull_request:
     paths-ignore: ['docs/**', '*.md', '*.pdf']
   workflow_dispatch:
-    inputs:
-      update_visual_baselines:
-        description: Regenerate the Linux visual baselines and upload them as an artifact to commit
-        type: boolean
-        default: false
 
 concurrency:
-  # A newer push replaces the run still in progress for the same branch or pull request.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to a pull request cancels the run its last push started.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -27,7 +23,6 @@ permissions:
 jobs:
   checks:
     name: Checks (Linux)
-    # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -47,94 +42,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
-      - name: Install Playwright's browsers
-        run: npx playwright install --with-deps chromium webkit
+      # tsc, eslint, cargo fmt and clippy.
       - run: npm run lint
+      # Vitest, then cargo test.
       - run: npm test
-      - name: npm run e2e
-        if: ${{ !inputs.update_visual_baselines }}
-        run: npm run e2e
-      # The screenshot tests are suppressed in every other run (e2e/visual.spec.ts) until the UI settles.
-      - name: Regenerate the Linux visual baselines
-        if: ${{ inputs.update_visual_baselines }}
-        env:
-          SB_VISUAL: '1'
-        run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
-      # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
-      # workflow's own token starts no CI run, so the new baselines would go unchecked.
-      - name: Look for new or changed Linux baselines
-        id: baselines
-        if: ${{ !cancelled() }}
-        run: echo "count=$(git status --porcelain --untracked-files=all -- 'e2e/*-snapshots/*-linux.png' | wc -l)" >> "$GITHUB_OUTPUT"
-      - name: Upload the Linux baselines to commit
-        if: ${{ !cancelled() && steps.baselines.outputs.count != '0' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: visual-baselines-linux
-          path: e2e/*-snapshots/*-linux.png
-          retention-days: 7
-      - name: Upload the Playwright results
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-results
-          path: test-results/
-          retention-days: 7
-
-  installers:
-    name: Installer (${{ matrix.name }})
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/v2')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macOS
-            os: macos-latest
-            bundles: src-tauri/target/release/bundle/dmg/*.dmg
-          - name: Windows
-            os: windows-latest
-            bundles: |
-              src-tauri/target/release/bundle/msi/*.msi
-              src-tauri/target/release/bundle/nsis/*.exe
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
-      - run: npm ci
-      # The Rust tests here too: clones and private sizes exist only on a Mac, and on Windows the step-by-step copy is
-      # the only backup path, so Linux alone never runs them.
-      - name: Rust tests
-        run: cargo test --lib --manifest-path src-tauri/Cargo.toml
-      # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
-      # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
-      - uses: tauri-apps/tauri-action@v1
-      # Double-clicking a .sbd opens Storiiboard (0.6). The association lives in what the bundler writes, so check
-      # it there rather than trust the config.
-      - name: Check the .sbd file association (macOS)
-        if: matrix.name == 'macOS'
-        run: |
-          plist=src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/Info.plist
-          plutil -extract CFBundleDocumentTypes json -o - "$plist" | grep -q '"CFBundleTypeExtensions":\["sbd"\]'
-          plutil -extract UTExportedTypeDeclarations json -o - "$plist" | grep -q '"UTTypeIdentifier":"app.storiiboard.project"'
-      - name: Check the .sbd file association (Windows)
-        if: matrix.name == 'Windows'
-        shell: pwsh
-        run: |
-          $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
-          if (-not $found) { throw 'Neither installer registers .sbd files.' }
-          $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
-      # Kept a week: a private repo on the free plan has 500 MB of artifact storage.
-      - uses: actions/upload-artifact@v7
-        with:
-          name: storiiboard-${{ matrix.name }}
-          path: ${{ matrix.bundles }}
-          if-no-files-found: error
-          retention-days: 7

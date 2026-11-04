@@ -35,7 +35,10 @@
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
   (sql.js, dev only, src/app/fileAccess.ts), so end-to-end tests can create, edit, reload and reopen projects.
-- CI: GitHub Actions builds Mac and Windows installers on every PR.
+- CI (Kevin, Nov 4): every PR runs quick checks on Linux (lint, types, unit tests, Rust tests); a newer push cancels
+  the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
+  (e2e/smoke.spec.ts) on Linux and in WebKit on a Mac, and the Mac and Windows installers.
+- A failing functional or data-safety test gets fixed, never skipped.
 
 ## Repo layout
 - src/app: screens and routing.
@@ -247,6 +250,8 @@
 - Start each phase in plan mode and wait for Kevin's approval.
 - One PR per milestone, small enough to review in 15 minutes.
 - Every PR adds or updates tests for the flow it touches.
-- Before saying done: `npm run lint && npm test && npm run e2e`.
+- Before saying done: `npm run lint && npm test && npm run e2e`. On Windows, run the end-to-end tests with
+  `--project=chromium` (WebView2's engine): Playwright's Windows WebKit lacks OffscreenCanvas, which Safari has, so
+  WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.
 - Update the status in docs/PLAN.md at the end of each PR.
