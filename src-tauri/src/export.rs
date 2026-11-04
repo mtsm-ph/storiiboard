@@ -125,8 +125,9 @@ fn as_export(picked: PathBuf, extension: &str) -> Result<PathBuf, String> {
         .file_name()
         .and_then(OsStr::to_str)
         .ok_or("That isn't a name an export can have.")?;
-    // `Bey County.sbd:x.csv` on Windows is a stream inside the project file, whatever its extension says.
-    if name.contains(':') {
+    // `Bey County.sbd:x.csv` on Windows is a stream inside the project file, whatever its extension says. Elsewhere a
+    // colon is a plain letter: a Mac Save panel hands a `/` typed in the name over as `:`.
+    if cfg!(windows) && name.contains(':') {
         return Err("That isn't a name an export can have.".into());
     }
     let ends_right = picked
@@ -419,7 +420,6 @@ mod tests {
         assert!(as_export(project.clone(), "csv")
             .unwrap_err()
             .contains("there already"));
-        assert!(as_export(dir.join("Bey County.sbd:x.csv"), "csv").is_err());
 
         // The whole way through: the remembered path is the CSV, and the project is untouched.
         let chosen = Chosen::default();
@@ -430,6 +430,24 @@ mod tests {
         write_to(&target, b"Scene,Shot\r\n").unwrap();
         assert_eq!(fs::read(&project).unwrap(), b"SQLite format 3\0");
         assert!(EXTENSIONS.iter().all(|e| !["sbd", "lock"].contains(e)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_save_dialog_pick_of_a_stream_is_refused() {
+        let dir = temp("stream");
+        assert!(as_export(dir.join("Bey County.sbd:x.csv"), "csv").is_err());
+        assert!(as_export(dir.join("Bey County 11:04.csv"), "csv").is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_colon_in_a_save_dialog_pick_is_a_plain_letter_off_windows() {
+        let dir = temp("colon");
+        let picked = dir.join("Bey County 11:04.csv");
+        assert_eq!(as_export(picked.clone(), "csv").unwrap(), picked);
         fs::remove_dir_all(&dir).unwrap();
     }
 

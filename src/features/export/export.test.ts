@@ -10,7 +10,7 @@ import { pngSize } from './pngFrames';
 import { watermarkSize } from './renderFrame';
 import { FORMATS } from './registry';
 import { csvCell, shotListCsv } from './shotListCsv';
-import { readWatermark, watermarkChange, watermarkFor, watermarkProp, type Watermark } from './watermark';
+import { readWatermark, watermarkChange, watermarkFor, watermarkProp, watermarkSave, type Watermark } from './watermark';
 
 describe('export names', () => {
   it('pads the scene number, and keeps the scene and shot numbers exactly as on the slate', () => {
@@ -151,6 +151,39 @@ describe('the shot list CSV', () => {
     expect(watermarkChange(project.projectId, store.getState().records[project.projectId]?.props, draft)).toBeNull();
     await store.getState().undo();
     expect(readWatermark(store.getState().records[project.projectId]?.props)).toBeNull();
+    expect(store.getState().canUndo).toBe(false);
+  });
+
+  it('keeps Watermark Settings open, with the draft, when the write is refused', async () => {
+    let closed = 0;
+    const save = watermarkSave(store, project.projectId, () => (closed += 1));
+    const draft: Watermark = { text: 'DRAFT', position: 'top-left', opacity: 0.3, appliesTo: ['pdf', 'png'] };
+    const write = project.file.tx.bind(project.file);
+    project.file.tx = () => Promise.reject(new Error('The disk is full.'));
+    expect(await save(draft)).toBe(false);
+    expect(closed).toBe(0);
+    expect(store.getState().error).toBe('The disk is full.');
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toBeNull();
+    // The same draft, saved again once the disk takes it.
+    project.file.tx = write;
+    expect(await save(draft)).toBe(true);
+    expect(closed).toBe(1);
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toEqual(draft);
+  });
+
+  it('makes one step of a double click on Watermark Save', async () => {
+    let closed = 0;
+    const save = watermarkSave(store, project.projectId, () => (closed += 1));
+    const draft: Watermark = { text: 'DRAFT', position: 'center', opacity: 0.5, appliesTo: ['png'] };
+    expect(await Promise.all([save(draft), save(draft)])).toEqual([true, true]);
+    expect(closed).toBe(1);
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toEqual(draft);
+    await store.getState().undo();
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toBeNull();
+    expect(store.getState().canUndo).toBe(false);
+    // Nothing to change: it closes, and leaves no step.
+    expect(await save({ ...draft, text: '' })).toBe(true);
+    expect(closed).toBe(2);
     expect(store.getState().canUndo).toBe(false);
   });
 

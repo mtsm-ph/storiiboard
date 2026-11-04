@@ -190,6 +190,28 @@ test('Watermark Settings saves one edit, and the Export dialog says the PNGs car
   await expect(dialog(page, 'Export')).toContainText('No watermark.');
 });
 
+test('a double click on Watermark Save makes one step to undo', async ({ page }) => {
+  const undo = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+z' : 'Control+z';
+  const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
+  await expect(frames).toHaveCount(2);
+  await projectMenu(page, 'Watermark Settings');
+  await dialog(page, 'Watermark Settings').getByLabel('Text').fill('DRAFT');
+  // Both clicks in one go, as a fast double click lands before the first write is done.
+  await dialog(page, 'Watermark Settings')
+    .getByRole('button', { name: 'Save' })
+    .evaluate((save: HTMLElement) => {
+      save.click();
+      save.click();
+    });
+  await expect(dialog(page, 'Watermark Settings')).toHaveCount(0);
+  // One undo takes the watermark back, and the frames stay.
+  await page.keyboard.press(undo);
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+  await expect(dialog(page, 'Export')).toContainText('No watermark.');
+  await expect(frames).toHaveCount(2);
+});
+
 test('the dialogs take focus, close on Escape and give it back to the project menu', async ({ page }) => {
   const menuButton = page.getByRole('button', { name: 'Project', exact: true });
   await projectMenu(page, 'Export Project…');
