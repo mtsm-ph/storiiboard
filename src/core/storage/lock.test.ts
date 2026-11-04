@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CHANGED_ON_DISK } from './driver';
 import { migrate } from './migrate';
 import { nodeDriverFor } from './nodeDriver';
 import { createProject, openProject } from './project';
-import { makeTestFolder, type TestFolder } from './testFolder';
+import { arriveFromSync, makeTestFolder, type TestFolder } from './testFolder';
 
 // Two computers sharing a synced folder, as two Node drivers with their own machine ids.
 const studio = nodeDriverFor({ id: 'studio', name: 'Studio iMac' });
@@ -66,7 +66,7 @@ describe('the check before every write', () => {
     const incoming = await laptop.create(folder.path('incoming.sbd'));
     await migrate(incoming, { isNew: true });
     await incoming.close();
-    renameSync(folder.path('incoming.sbd'), path);
+    arriveFromSync(folder.path('incoming.sbd'), path);
 
     const write = file.tx([{ sql: "INSERT INTO meta (id, key, value, created_at, updated_at) VALUES ('b', 'k2', 'v', 't', 't')" }]);
     await expect(write).rejects.toThrow(CHANGED_ON_DISK);
@@ -89,7 +89,7 @@ describe('the check before every write', () => {
 describe('backups of a project in a synced folder', () => {
   it('stay in a folder on this computer, one per file, unless the setting keeps them next to the project', async () => {
     const local = folder.path('app data', 'Backups');
-    const synced = (path: string) => path.includes('/Dropbox/');
+    const synced = (path: string) => /[\\/]Dropbox[\\/]/.test(path);
     const here = nodeDriverFor({ id: 'laptop', name: 'Laptop', synced, localBackups: local });
     mkdirSync(folder.path('Dropbox'));
     mkdirSync(folder.path('Films'));
