@@ -157,6 +157,7 @@ describe('the project home', () => {
     expect(html).toContain('value="Bey County"');
     expect(html).toContain('Shoot day 1: dock');
     expect(html).toMatch(/<label[^>]*for="[^"]+"[^>]*>Notes<\/label>/);
+    await store.getState().close();
   });
 });
 
