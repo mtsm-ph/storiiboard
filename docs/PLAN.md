@@ -451,10 +451,11 @@ src/app/openVersion.ts):
   aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
   of the whole file. Kevin, Nov 4: no automatic one; the polish step adds Compact project to Settings → Storage.
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
-  gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
-  that scene as it is now, and a scene or frame that would go back onto a number another one holds stays as it is
-  now too, so no two scenes share a number and no two frames a slate number. Letters can be left with a gap (4A, 4C, when 4B
-  was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
+  gone stays as it is now, and so does whatever it sits under. A frame kept as it is now keeps its scene as it is now,
+  and a scene kept as it is now keeps every frame in it or going back into it (1.26, so a scene never comes back
+  locked around numbers that were never on its slates); a scene or frame that would go back onto a number another one
+  holds stays as it is now too, so no two scenes share a number and no number lands twice. Letters can be left with a
+  gap (4A, 4C, when 4B was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
 - Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
   Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
   erased from a frame still on the board stays, with its History.

@@ -362,9 +362,35 @@ describe('slate numbers', () => {
     await store.getState().restoreTo(point);
     // R's scene is gone, so R stays in scene U, which keeps the number 4; scene 4 can't go back to 4, so it stays as it
     // is now, locked and numbered 6, and Z doesn't come back into it holding W's 4D.
-    const zNow = records()[z];
-    expect(zNow?.trashedAt === null && zNow.parentId === 'sc4' && zNow.props.number === '4D').toBe(false);
+    expect(records()[z]).toBeUndefined();
+    expect(records().sc4?.props).toMatchObject({ number: '6', numbers_locked: true });
     expect(await stored()).toContain('4D');
+  });
+
+  it('never lets a History restore lock a scene again around frames numbered while it was unlocked', async () => {
+    await scene('sc9', '9', 'U');
+    await frame('sc9');
+    await frame('sc9');
+    await lock('sc9'); // 9A, 9B on slates
+    await trashScene('sc9');
+    await store.getState().emptyTrash();
+    await lock('sc4');
+    await renumberScene('sc4', '9'); // locked: 4A, 4B, 4C stay
+    await scene('scN', '4', 'W');
+    for (let i = 0; i < 3; i += 1) await frame('scN'); // unlocked: 4A, 4B, 4C as well
+    await scene('scX', '8', 'X');
+    await frame('scX');
+    const r = shotsIn('scX')[0]?.record.id ?? '';
+    const point = await newest();
+    await lock('sc4', false); // 9A, 9B, 9C
+    await store.getState().applyWith((now, slate) => ({ changes: moveItem(now, project.projectId, r, 'scN', null, slate) }));
+    await store.getState().apply([{ kind: 'trash', id: 'scX' }]);
+    await store.getState().emptyTrash();
+    await store.getState().restoreTo(point);
+    const locked = records().sc4?.props.numbers_locked === true;
+    // Either it stays unlocked as it is now, or it's back locked with its own 4A, 4B, 4C: never locked reading 9A, 9B.
+    expect(locked ? numbers() : ['4A', '4B', '4C']).toEqual(['4A', '4B', '4C']);
+    expect((await loadSlateNumbers(project.file)).filter((row) => row.number === '9A').map((row) => row.sceneId)).toEqual(['sc9']);
   });
 
   it('goes into named version copies and backups, which are copies of the whole file', async () => {
@@ -525,7 +551,20 @@ describe('the schema 5 migration', () => {
     expect(records().f?.props.number).toBe('4D');
   });
 
-  it('keeps the shot each number went to first', async () => {
+  it('never gives a v4 number to a frame that took it only while the scene was unlocked', async () => {
+    const c = idOf('sc4', '4C');
+    await lockAsV4('sc4'); // c on the slate as 4C
+    await lock('sc4', false);
+    await trashLast(); // c in the Trash, still 4C
+    await frame('sc4'); // d, unlocked: 4C as well
+    const d = idOf('sc4', '4C');
+    await asV4ThenReopen();
+    expect((await loadSlateNumbers(project.file)).find((row) => row.number === '4C')?.shotId).toBe(c);
+    await lock('sc4');
+    expect(records()[d]?.props.number).toBe('4D');
+  });
+
+  it('keeps the shot each number was slated with', async () => {
     await lock('sc4');
     const owners = (await loadSlateNumbers(project.file)).map((row) => `${row.number} ${row.shotId}`).sort();
     await asV4ThenReopen();

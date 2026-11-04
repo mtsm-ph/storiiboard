@@ -59,7 +59,7 @@ export interface NumberedShot {
   trashed: boolean;
 }
 
-/** A shot number a scene gave out while locked, and the shot it went to first (schema 5, 1.26). */
+/** A shot number a scene gave out while locked, and the shot slated with it (schema 5, 1.26). */
 export interface SlateNumber {
   sceneId: string;
   number: string;

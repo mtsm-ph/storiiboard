@@ -413,8 +413,8 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
    * What a record kept as it is now holds on to, as it is now too:
    * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
    *   back to the point, a newer one would be deleted from under a record that still shows it;
-   * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
-   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number;
+   * - for a frame, its scene as it is now; for one in a scene it wasn't in at the point, every frame in it or going
+   *   back into it too: the frame keeps the number it has there, alongside the scene's numbers as they are now;
    * - for a scene, every frame in it or going back into it: a scene kept as it is now may be locked now when it
    *   wasn't at the point, and a frame going back into it would land on a number from the point, which another shot
    *   may have been slated with since (1.26).
@@ -426,15 +426,19 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
       for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
       for (const child of under.get(id) ?? []) keepAsNow(child);
       if (kept.type === 'scene') for (const frame of framesOf.get(id) ?? []) keepAsNow(frame);
+      // Its scene too, even one it was in at the point: a scene going back to the point could come back locked
+      // around a frame whose number is from now, never on a slate there (1.26). The scene then keeps its frames.
+      if (kept.type === 'shot' && kept.parentId !== null && byId.has(kept.parentId)) keepAsNow(kept.parentId);
       if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
-        if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
         for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);
       }
     }
   };
   // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
-  // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
-  // alike, so this always settles. Read only when needed, since it takes every record.
+  // on one number. One going back onto a number another holds stays as it is now. This always settles: each step only
+  // moves a record to how it is now, once. (Two frames can share a number as the board is now, a locked scene
+  // renumbered 9 keeping 4A beside a new scene 4's 4A; they stay as they are now, with their scenes.) Read only when
+  // needed, since it takes every record.
   let everything: Map<string, SbdRecord> | null = null;
   const keepNumbersUnique = async (): Promise<boolean> => {
     if (!keptAny) return false;

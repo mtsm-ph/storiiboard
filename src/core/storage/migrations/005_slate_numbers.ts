@@ -31,14 +31,16 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   );
   const state = new Map<string, Known>();
   const children = new Map<string, Set<string>>();
-  // Scene, then number, then the shot it went to first.
-  const found = new Map<string, Map<string, string>>();
+  // Scene, then number, then the shots seen holding it while the scene was locked, the first one first.
+  const found = new Map<string, Map<string, string[]>>();
   let unknown = false;
 
   const add = (sceneId: string, number: string, shotId: string) => {
     if (number === '') return;
-    const numbers = found.get(sceneId) ?? new Map<string, string>();
-    if (!numbers.has(number)) numbers.set(number, shotId);
+    const numbers = found.get(sceneId) ?? new Map<string, string[]>();
+    const seen = numbers.get(number) ?? [];
+    if (!seen.includes(shotId)) seen.push(shotId);
+    numbers.set(number, seen);
     found.set(sceneId, numbers);
   };
   // What a group gave out is what it left behind, as the app records it: a frame moved from an unlocked scene into a
@@ -98,8 +100,9 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   settle();
 
   // A v4 locked scene could give one number to two shots (an undone frame's letter given out again, or letters closed
-  // up by an unlock and kept by a relock). The one on footage is the one holding it now, so that one owns it; the
-  // first shot seen only when none does.
+  // up by an unlock and kept by a relock). Of the shots seen holding it while locked, the one holding it now is the
+  // one on footage, so it owns the number; otherwise the first seen. A shot holding it now that was never seen with it
+  // while locked (a frame added after an unlock) never owns it: it wasn't on a slate.
   const holders = new Map<string, string>();
   for (const trashed of [true, false]) {
     for (const [id, record] of state) {
@@ -110,8 +113,9 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   }
   const statements: Statement[] = [];
   for (const [sceneId, numbers] of found) {
-    for (const [number, first] of numbers) {
-      const shotId = holders.get(`${sceneId} ${number}`) ?? first;
+    for (const [number, seen] of numbers) {
+      const holder = holders.get(`${sceneId} ${number}`);
+      const shotId = holder !== undefined && seen.includes(holder) ? holder : (seen[0] ?? '');
       statements.push({
         sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT (scene_id, number) DO NOTHING`,
