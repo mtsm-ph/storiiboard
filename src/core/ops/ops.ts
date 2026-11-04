@@ -517,31 +517,24 @@ export interface StoredPicture {
   bytes: number;
 }
 
+/** Each stored picture's space, with its thumbnails. */
+const PICTURE_SIZE = `f.byte_size + coalesce((SELECT sum(length(t.bytes)) FROM thumbnails t WHERE t.sha256 = f.sha256), 0)`;
+
 /**
- * Stored pictures nothing uses once `without` records are gone: no record's props name them, and (when `historyToo`)
- * no op of a remaining record does either.
+ * Stored pictures nothing uses once `without` records are gone: no record's props name them, and no op of a remaining
+ * record does. What Empty Trash may delete with the records.
  */
-async function unusedPictures(file: ProjectFile, without: readonly string[], historyToo: boolean): Promise<StoredPicture[]> {
-  const fromOps = historyToo
-    ? `UNION SELECT json_extract(before, '$.props.file') FROM ops
-         WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
-       UNION SELECT json_extract(after, '$.props.file') FROM ops
-         WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
-    : // Clean up keeps what one ⌘Z can still bring back: the pictures any step on the undo stack had before it ran
-      // (a frame a History restore took away, say). Only the redo stack's are History's alone.
-      `UNION SELECT json_extract(o.before, '$.props.file') FROM ops o
-         WHERE json_extract(o.before, '$.type') = 'media' AND o.group_id IN (SELECT id FROM undoable)`;
+async function unusedPictures(file: ProjectFile, without: readonly string[]): Promise<StoredPicture[]> {
   const rows = await file.query(
-    `WITH RECURSIVE gone(id) AS (SELECT value FROM json_each(?)),
-      undoable(id) AS (
-        SELECT undo_top FROM op_groups WHERE seq = (SELECT max(seq) FROM op_groups) AND undo_top IS NOT NULL
-        UNION SELECT g.stack_below FROM op_groups g JOIN undoable u ON g.id = u.id WHERE g.stack_below IS NOT NULL
-      ),
+    `WITH gone(id) AS (SELECT value FROM json_each(?)),
       used(sha) AS (
         SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
-        ${fromOps}
+        UNION SELECT json_extract(before, '$.props.file') FROM ops
+          WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
+        UNION SELECT json_extract(after, '$.props.file') FROM ops
+          WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
       )
-    SELECT f.sha256, f.byte_size + coalesce((SELECT sum(length(t.bytes)) FROM thumbnails t WHERE t.sha256 = f.sha256), 0) AS size
+    SELECT f.sha256, ${PICTURE_SIZE} AS size
       FROM media_files f WHERE f.sha256 NOT IN (SELECT sha FROM used WHERE sha IS NOT NULL)`,
     [JSON.stringify(without)],
   );
@@ -606,7 +599,7 @@ export async function emptyTrash(
   const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
   const unreachable = await onlyInHistoryUnder(file, all, ids);
-  const pictures = await unusedPictures(file, [...ids, ...unreachable], true);
+  const pictures = await unusedPictures(file, [...ids, ...unreachable]);
   const at = now().toISOString();
   const groupId = crypto.randomUUID();
   const gone = JSON.stringify([...ids, ...unreachable]);
@@ -640,10 +633,104 @@ export async function emptyTrash(
 /**
  * Pictures only History still uses (1.21): no record in the project, live or in the Trash, shows them, but an older
  * step does (a picture added and undone, say). Clean up old pictures deletes them for good; those steps then show
- * "picture removed".
+ * "picture removed". A picture a named version's point shows isn't one of them (1.23): it stays until the version is
+ * deleted (CLAUDE.md: Going back in time), so Clean up never takes a picture Open version would show.
+ *
+ * Settings → Storage reads this after every edit, and on the desktop each query holds the file, so its cost must not
+ * grow with versions times the log. It narrows in steps: the pictures no record shows (usually none, and then it's
+ * done), the versions' points, the media records the log names with one of those pictures (mediaInLog), and for each
+ * point and each such record the first op after the point, through the ops_by_record (record_id, seq) index.
+ *
+ * `fresh` reads the whole log again rather than trusting what an earlier call took in: for Clean up itself, which
+ * deletes what this finds.
  */
-export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]> {
-  return unusedPictures(file, [], false);
+export async function historyOnlyPictures(file: ProjectFile, options: { fresh?: boolean } = {}): Promise<StoredPicture[]> {
+  const loose = (
+    await file.query(
+      `SELECT f.sha256, ${PICTURE_SIZE} AS size FROM media_files f
+        WHERE f.sha256 NOT IN (
+          SELECT json_extract(props, '$.file') AS sha FROM records WHERE type = 'media' AND sha IS NOT NULL
+        )`,
+    )
+  ).map((row): StoredPicture => ({ sha256: String(row.sha256), bytes: Number(row.size) }));
+  if (loose.length === 0) return [];
+  // Only a media record some op's `before` shows with a loose picture can keep one, through undo or a version.
+  const naming = await mediaInLog(file, options.fresh ?? false);
+  const media = [...new Set(loose.flatMap((p) => [...(naming.get(p.sha256) ?? [])]))];
+  if (media.length === 0) return loose;
+  // What one ⌘Z can still bring back stays (1.21): the pictures any step on the undo stack had before it ran (a frame
+  // a History restore took away, say). Only the redo stack's are History's alone.
+  const undoable = await file.query(
+    `WITH RECURSIVE undoable(id) AS (
+        SELECT undo_top FROM op_groups WHERE seq = (SELECT max(seq) FROM op_groups) AND undo_top IS NOT NULL
+        UNION SELECT g.stack_below FROM op_groups g JOIN undoable u ON g.id = u.id WHERE g.stack_below IS NOT NULL
+      )
+      SELECT DISTINCT json_extract(o.before, '$.props.file') AS sha FROM json_each(?) m
+        JOIN ops o ON o.record_id = m.value WHERE o.group_id IN (SELECT id FROM undoable)`,
+    [JSON.stringify(media)],
+  );
+  const kept = new Set(undoable.map((row) => row.sha).filter((sha) => sha !== null && sha !== undefined).map(String));
+  // Each version's point as restoreTo finds it: the last op of its group or any group before it. Ops and groups are
+  // numbered together, each write appending both (commit, emptyTrash, the v2 backfill), so that's the last op of the
+  // nearest group at or before it that has any: found by walking back from the group, not by reading every op before.
+  const points = (
+    await file.query(
+      `SELECT DISTINCT coalesce((
+          SELECT max(o.seq) FROM ops o WHERE o.group_id = (
+            SELECT e.id FROM op_groups e WHERE e.seq <= g.seq AND EXISTS (SELECT 1 FROM ops x WHERE x.group_id = e.id)
+              ORDER BY e.seq DESC LIMIT 1)
+        ), 0) AS last
+        FROM versions v JOIN op_groups g ON g.id = v.op_group_id`,
+    )
+  ).map((row) => Number(row.last));
+  if (points.length === 0) return loose.filter((p) => !kept.has(p.sha256));
+  // A record touched after a point was, at the point, the `before` of its first op after it; one untouched since is as
+  // it is now, and so already counted above.
+  const shown = await file.query(
+    `SELECT DISTINCT json_extract(
+        (SELECT o.before FROM ops o WHERE o.record_id = m.value AND o.seq > p.value ORDER BY o.seq LIMIT 1), '$.props.file'
+      ) AS sha
+      FROM json_each(?) p, json_each(?) m`,
+    [JSON.stringify(points), JSON.stringify(media)],
+  );
+  for (const row of shown) if (row.sha !== null && row.sha !== undefined) kept.add(String(row.sha));
+  return loose.filter((p) => !kept.has(p.sha256));
+}
+
+/** Per open file: the media records each picture appears in as some op's `before`, read up to op `through`. */
+const mediaRead = new WeakMap<ProjectFile, { through: number; naming: Map<string, Set<string>> }>();
+
+/**
+ * Which media records the log shows with which picture. The log has no index by record type, so finding them reads
+ * every op; that's done once per open file, and each later call reads only the ops written since. Ops are only ever
+ * appended, each above the last; Empty Trash empties old ones, which leaves a name here whose op now shows nothing.
+ */
+async function mediaInLog(file: ProjectFile, fresh: boolean): Promise<Map<string, Set<string>>> {
+  const known = fresh ? undefined : mediaRead.get(file);
+  // One statement, so the newest seq and the ops read up to it are the same moment of the log.
+  const rows = await file.query(
+    `WITH top(seq) AS (SELECT coalesce(max(seq), 0) FROM ops)
+      SELECT top.seq AS through, o.record_id, json_extract(o.before, '$.props.file') AS sha
+        FROM top LEFT JOIN ops o ON o.seq > ? AND o.seq <= top.seq
+          -- instr first: a plain text search skips the sketch and other writes that make up most of a log before the
+          -- slower JSON read, which alone decides. A media record's JSON always holds the word; nothing escapes letters.
+          AND instr(o.before, 'media') > 0 AND json_extract(o.before, '$.type') = 'media'`,
+    [known?.through ?? 0],
+  );
+  const naming = known?.naming ?? new Map<string, Set<string>>();
+  let through = known?.through ?? 0;
+  for (const row of rows) {
+    through = Math.max(through, Number(row.through));
+    if (typeof row.sha !== 'string' || row.record_id === null || row.record_id === undefined) continue;
+    const ids = naming.get(row.sha) ?? new Set<string>();
+    ids.add(String(row.record_id));
+    naming.set(row.sha, ids);
+  }
+  const now = mediaRead.get(file);
+  // Calls can overlap; what each took in is true of the log, so it's all kept, as far as the furthest read went.
+  if (now && now.naming !== naming) for (const [sha, ids] of now.naming) naming.set(sha, new Set([...(naming.get(sha) ?? []), ...ids]));
+  mediaRead.set(file, { through: Math.max(through, now?.through ?? 0), naming });
+  return naming;
 }
 
 /**
@@ -654,7 +741,7 @@ export async function cleanUpPictures(
   file: ProjectFile,
   only?: ReadonlySet<string>,
 ): Promise<{ removed: number; freed: number; pictures: string[] }> {
-  const pictures = (await historyOnlyPictures(file)).filter((p) => !only || only.has(p.sha256));
+  const pictures = (await historyOnlyPictures(file, { fresh: true })).filter((p) => !only || only.has(p.sha256));
   if (pictures.length > 0) await file.tx(deletePictures(pictures));
   return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }

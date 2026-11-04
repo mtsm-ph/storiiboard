@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addScene, addShot, moveItem, setSceneLocation, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
@@ -10,6 +11,7 @@ import { shotFields } from '../model/storyboard';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, openProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
+import { deleteVersion, listVersions, nameVersion } from '../storage/versions';
 import { historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
 
 function picture(seed: number): FramePicture {
@@ -448,6 +450,52 @@ describe('Clean up old pictures', () => {
     expect(await readOriginal(project.file, sha)).toBeNull();
   });
 
+  it('keeps a picture a named version shows until the version is deleted, so Open version still has it', async () => {
+    const shot = await frame();
+    const sent = await withPicture(shot, 10);
+    await nameVersion(project.file, { name: 'Board sent to client', opGroupId: (await log(project.file)).at(-1)?.id ?? '' });
+    // Taken back off the frame, so no record shows it: only History and the version do.
+    await store.getState().undo();
+    // One no version shows, which Clean up still takes.
+    const tried = await withPicture(shot, 11);
+    await store.getState().undo();
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([tried]);
+    expect((await store.getState().cleanUpPictures())?.removed).toBe(1);
+    expect(await readOriginal(project.file, sent)).not.toBeNull();
+
+    // Deleting the version leaves the picture to History alone.
+    const [version] = await listVersions(project.file);
+    if (!version) throw new Error('no version');
+    const other = await nameVersion(project.file, { name: 'Spare', opGroupId: version.opGroupId });
+    await deleteVersion(project.file, other);
+    expect(await historyOnlyPictures(project.file)).toEqual([]);
+
+    await openVersionCopy(version, { store, driver: nodeDriver });
+    const copy = store.getState().project;
+    const mediaId = shotFields(records()[shot]?.props ?? {}).mediaId ?? '';
+    expect(records()[mediaId]?.props.file).toBe(sent);
+    expect(await readOriginal(copy?.file ?? project.file, sent)).not.toBeNull();
+
+    await reopen();
+    await deleteVersion(project.file, version.id);
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([sent]);
+  });
+
+  it('keeps a picture a version names after an earlier read took in the log', async () => {
+    const shot = await frame();
+    const tried = await withPicture(shot, 14);
+    await store.getState().undo();
+    await nameVersion(project.file, { name: 'Before', opGroupId: (await log(project.file)).at(-1)?.id ?? '' });
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([tried]);
+    // Written after that read: only the new writes are read next time, and they still count.
+    const sent = await withPicture(shot, 15);
+    await nameVersion(project.file, { name: 'Board sent to client', opGroupId: (await log(project.file)).at(-1)?.id ?? '' });
+    await store.getState().undo();
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([tried]);
+    expect((await store.getState().cleanUpPictures())?.removed).toBe(1);
+    expect(await readOriginal(project.file, sent)).not.toBeNull();
+  });
+
   it('deletes nothing when the write dies halfway', async () => {
     const shot = await frame();
     const sha = await withPicture(shot, 8);
@@ -458,5 +506,67 @@ describe('Clean up old pictures', () => {
     await reopen();
     expect(await readOriginal(project.file, sha)).not.toBeNull();
     expect(await readThumbnail(project.file, sha)).not.toBeNull();
+  });
+});
+
+describe('Clean up old pictures on a long project', () => {
+  /**
+   * `groups` steps of `perGroup` sketch edits each, appended to the log as commit writes them: built in SQL, since
+   * writing 60k ops through the store takes minutes, and what's tested is how Clean up reads them.
+   */
+  const longLog = async (groups: number, perGroup: number): Promise<string[]> => {
+    const [top] = await project.file.query(
+      'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
+    );
+    const [op, grp] = [Number(top?.op ?? 0), Number(top?.grp ?? 0)];
+    const at = '2026-11-04T09:00:00.000Z';
+    const stroke = (n: string) =>
+      `json_object('id', 'stroke-' || ${n}, 'type', 'stroke', 'parentId', 'sc4', 'sortKey', 'a', 'props', json_object('tool', 'pen', 'width', ${n}), 'trashedAt', NULL, 'trashedBy', NULL, 'createdAt', '${at}', 'updatedAt', '${at}')`;
+    await project.file.tx([
+      {
+        sql: `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+          INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
+            timestamp, created_at, updated_at)
+          SELECT 'long-' || i, ? + i, 'edit', NULL, NULL, NULL, 'long-' || i, NULL, 'local', ?, ?, ? FROM n`,
+        params: [groups, grp, at, at, at],
+      },
+      {
+        sql: `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+          INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at, updated_at)
+          SELECT 'long-op-' || i, ? + i, 'long-' || ((i - 1) / CAST(? AS INTEGER) + 1), 'stroke-' || (i % 500), 'update',
+            ${stroke('(i - 1)')}, ${stroke('i')}, 'local', ?, ?, ? FROM n`,
+        params: [groups * perGroup, op, perGroup, at, at, at],
+      },
+    ]);
+    return Array.from({ length: groups }, (_, i) => `long-${String(i + 1)}`);
+  };
+
+  it('stays quick with 60k ops and 30 named versions, so Settings → Storage keeps up with every edit', async () => {
+    const shot = await frame();
+    const sent = await withPicture(shot, 12);
+    await nameVersion(project.file, { name: 'Board sent to client', opGroupId: (await log(project.file)).at(-1)?.id ?? '' });
+    await store.getState().undo();
+    const tried = await withPicture(shot, 13);
+    await store.getState().undo();
+    const steps = await longLog(6000, 10);
+    for (let i = 1; i < 30; i += 1) await nameVersion(project.file, { name: `Cut ${String(i)}`, opGroupId: steps[i * 200] ?? '' });
+    // The first read takes in the whole log once.
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([tried]);
+
+    // Then the reads after each edit, as the tile makes them. One shows the version's picture again on another frame,
+    // and is undone, so the log's newest writes name it: they're read too.
+    const other = await frame();
+    await withPicture(other, 12);
+    await store.getState().undo();
+    const start = performance.now();
+    const found = (await historyOnlyPictures(project.file)).map((p) => p.sha256);
+    const ms = performance.now() - start;
+    // Still right: the version keeps the picture it shows, and the one no version shows is History's alone.
+    expect(found).toEqual([tried]);
+    expect(found).not.toContain(sent);
+    expect((await historyOnlyPictures(project.file, { fresh: true })).map((p) => p.sha256)).toEqual([tried]);
+    // Reading only the new writes and then through the indexes takes a few ms; joining every op after every point
+    // took over a second, and reading the whole log each time about a tenth. Generous for a slow machine.
+    expect(ms).toBeLessThan(40);
   });
 });

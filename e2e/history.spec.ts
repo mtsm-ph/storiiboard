@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 
 // The History tile (1.22) in the memory build: every step in words, newest first; Restore to here as a step of its
-// own; and one frame's own changes, field by field, with an old value to put back.
+// own; one frame's own changes, field by field, with an old value to put back; and named versions (1.23).
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -136,6 +136,131 @@ test('one frame’s own changes, field by field, with an old value to put back',
   await expect(changes.getByRole('row').nth(1)).toContainText('50mm');
   await changes.getByRole('button', { name: 'Put back lens 35mm' }).click();
   await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
+});
+
+test('a named version opens as a copy at that point, and the original keeps every frame', async ({ page }) => {
+  await openHistory(page);
+  await history(page).getByLabel('Name this point').fill('Board sent to client');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toContainText('Board sent to client');
+  await expect(steps(page).first()).toContainText('Board sent to client');
+
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(frames(page)).toHaveCount(4);
+  // The tile says which version it's copying while the copy is made, and stops once it opens.
+  const status = history(page).getByRole('status');
+  await expect(status).toHaveText('');
+  await status.evaluate((line) => {
+    const said: string[] = [];
+    Object.assign(window, { openSaid: said });
+    new MutationObserver(() => said.push(line.textContent)).observe(line, { subtree: true, childList: true, characterData: true });
+  });
+  await history(page).getByRole('button', { name: 'Open version Board sent to client' }).click();
+  // The copy shares the project's title; the notice names its file.
+  await expect(page.getByRole('status').getByText(/Opened version “Board sent to client” as a separate project, “Bey County \(Board sent to client\)”/)).toBeVisible();
+  await expect(frames(page)).toHaveCount(3);
+  await expect(history(page).getByRole('status')).toHaveText('');
+  await expect(history(page).locator('[aria-busy="true"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { openSaid: string[] }).openSaid)).toContain('Copying “Board sent to client”…');
+
+  // The original, from the switcher: all four frames.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Project: / }).click();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County$/ }).click();
+  await expect(frames(page)).toHaveCount(4);
+
+  // Deleting the version asks first, and leaves the steps: every one of them is still listed, only the name goes.
+  const before = await steps(page).allTextContents();
+  const asked: string[] = [];
+  page.once('dialog', (dialog) => {
+    asked.push(dialog.message());
+    void dialog.accept();
+  });
+  await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).click();
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
+  expect(asked).toEqual([expect.stringContaining('Delete version?')]);
+  await expect(steps(page)).toHaveCount(before.length);
+  expect(await steps(page).allTextContents()).toEqual(before.map((text) => text.replace('Board sent to client', '')));
+});
+
+test('naming a version twice in a row, before the first is written, names it once', async ({ page }) => {
+  await openHistory(page);
+  const field = history(page).getByLabel('Name this point');
+  await field.fill('Board sent to client');
+  // Two Enters in the same moment, as a double press sends them: the second lands before the first name is written.
+  await field.evaluate((input) => {
+    for (let i = 0; i < 2; i += 1) input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await expect(history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem')).toHaveCount(1);
+  await expect(field).toHaveValue('');
+  await expect(history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem')).toHaveCount(1);
+});
+
+/** The project files the memory build holds (src/core/storage/memoryDriver.ts), drafts included. */
+const memoryFiles = (page: Page) =>
+  page.evaluate(() => Object.keys(JSON.parse(window.localStorage.getItem('storiiboard.memory-files') ?? '{}') as Record<string, string>).sort());
+
+test('Open version pressed twice in a row makes one copy', async ({ page }) => {
+  await openHistory(page);
+  await history(page).getByLabel('Name this point').fill('Board sent to client');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  const open = history(page).getByRole('button', { name: 'Open version Board sent to client' });
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  // Two clicks in the same moment, as a double press sends them: the second lands while the first copy is made.
+  await open.evaluate((button: HTMLElement) => {
+    button.click();
+    button.click();
+  });
+  await expect(page.getByRole('status').getByText(/Opened version “Board sent to client”/)).toBeVisible();
+  await expect(frames(page)).toHaveCount(3);
+  const copies = (await memoryFiles(page)).filter((path) => path.includes('(Board sent to client'));
+  expect(copies.map((path) => path.slice(path.lastIndexOf('/') + 1))).toEqual(['Bey County (Board sent to client).sbd']);
+});
+
+test('two versions with the same name on one step are both shown, each its own', async ({ page }) => {
+  const duplicateKeys: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' && message.text().includes('same key')) duplicateKeys.push(message.text());
+  });
+  await openHistory(page);
+  for (let i = 0; i < 2; i += 1) {
+    await history(page).getByLabel('Name this point').fill('Locked for shoot');
+    await history(page).getByRole('button', { name: 'Name version' }).click();
+    await expect(history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem')).toHaveCount(i + 1);
+  }
+  await expect(steps(page).first().getByText('Locked for shoot', { exact: true })).toHaveCount(2);
+  // Deleting one leaves the other, in the list and on its step.
+  page.once('dialog', (dialog) => void dialog.accept());
+  await history(page).getByRole('button', { name: 'Delete version Locked for shoot' }).first().click();
+  await expect(history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem')).toHaveCount(1);
+  await expect(steps(page).first().getByText('Locked for shoot', { exact: true })).toHaveCount(1);
+  expect(duplicateKeys).toEqual([]);
+});
+
+test('Delete… from the keyboard moves focus to the next version, then to the heading once none are left', async ({ page }) => {
+  await openHistory(page);
+  const versions = history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem');
+  const field = history(page).getByLabel('Name this point');
+  await field.fill('Locked for shoot');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(versions).toHaveCount(1);
+  // A step between, so the two are listed in a known order: newest first.
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await field.fill('Board sent to client');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(versions).toHaveCount(2);
+  await expect(versions.first()).toContainText('Board sent to client');
+
+  page.on('dialog', (dialog) => void dialog.accept());
+  await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(versions).toHaveCount(1);
+  // The row that took its place: Enter again deletes the next one, as in a list of files.
+  await expect(history(page).getByRole('button', { name: 'Delete version Locked for shoot' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
+  await expect(history(page).getByRole('heading', { name: 'Named versions' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(field).toBeFocused();
 });
 
 test('a Put back from the keyboard keeps focus in the table, so the next Tab reaches the rows again', async ({ page }) => {

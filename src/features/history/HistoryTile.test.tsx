@@ -49,3 +49,12 @@ describe('the History tile while a restore runs', () => {
     expect(table(false)).not.toContain('aria-disabled="');
   });
 });
+
+describe('the History tile while Open version copies', () => {
+  it('says which version it is copying, and says nothing once the copy opens or fails', () => {
+    expect(renderToString(<RestoreStatus restoring={false} opening="Board sent to client" />)).toBe(
+      '<p role="status" class="text-[13px]">Copying “Board sent to client”…</p>',
+    );
+    expect(renderToString(<RestoreStatus restoring={false} opening={null} />)).toBe('<p role="status" class="text-[13px]"></p>');
+  });
+});

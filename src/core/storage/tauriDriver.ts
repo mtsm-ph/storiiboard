@@ -67,6 +67,7 @@ function tauriFile(handle: number, path: string): ProjectFile {
     placeBackups: (nextToProject) => command<string>('sbd_place_backups', { handle, nextToProject }),
     backupsFolder: () => command<string>('sbd_backups_folder', { handle }),
     showBackups: () => command('sbd_show_backups', { handle }),
+    saveCopy: (dest) => command('sbd_save_copy', { handle, dest }),
     refreshLock: () => command('sbd_lock_refresh', { handle }),
     close: () => command('sbd_close', { handle }),
   };
@@ -77,5 +78,7 @@ export const tauriDriver: SqlDriver = {
   create: async (path) => tauriFile(await command<number>('sbd_create', { path }), path),
   open: async (path) => tauriFile(await command<number>('sbd_open', { path }), path),
   copy: (source, dest) => command('sbd_copy', { source, dest }),
+  keepCopy: (draft, dest) => command('sbd_keep_copy', { draft, dest }),
+  dropCopy: (draft) => command('sbd_drop_copy', { draft }),
   lockHolder: (path) => command<LockHolder | null>('sbd_lock_holder', { path }),
 };

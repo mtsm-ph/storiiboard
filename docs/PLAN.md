@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.22 done, 1.23 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.23 done, 1.24 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.22 merged) |
+| Last updated | Nov 4, 2026 (1.23 merged) |
 
 | Phase | State |
 |---|---|
@@ -57,7 +57,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
 | 1.22 History tile: every step in words, restore a point, an item's old values | #41 | Done |
-| 1.23 Named versions (schema 4) and Open version | | Not started |
+| 1.23 Named versions (schema 4): name a point, Open version as a copy | #42 | Done |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
 
@@ -279,6 +279,44 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.23 (Nov 3, review fixes Nov 4): named versions** (schema 4, src/core/storage/versions.ts,
+src/app/openVersion.ts):
+- In the History tile: Name this point names the newest step; versions are listed with their step, and each step
+  shows the names on it. Open version copies the project beside it (`Bey County (Board sent to client).sbd`), gives
+  the copy its own file id, restores it to the version's step, then opens it in place; the original isn't touched.
+  Delete… asks first; the steps stay.
+- The copy is made through the open project's own connection (no second connection holding the file, and the same
+  on-disk check as a write), into a hidden draft that's restored on its own connection and renamed only once it's
+  ready, so the original never runs the restore, even when the open is cancelled at "open on another computer"
+  (the notice then says the copy was saved and not opened). A failure partway deletes the draft and says why; only
+  drafts the app made can be renamed or deleted. The version's name is shortened where a file name or a Windows path
+  would be too long: the copy's own, and its scheduled and pre-upgrade backups' (a copy whose upgrade backup can't be
+  written won't open after the next schema change). Naming a version and Open version each run one at a time, so a double press makes one.
+  While the copy is made the tile says `Copying “Board sent to client”…` and the Open version buttons take no clicks.
+  The draft is hidden on Windows too (the hidden attribute, cleared just before the rename), as lock files are.
+  Naming or deleting a version that's refused because a sync replaced the file reopens the newer version, as a
+  refused edit does (src/features/history/versionWrites.ts). After Delete…, focus moves to the version that took its
+  place, else the one before it, else the Named versions heading.
+- Clean up old pictures keeps every picture a named version's step shows, until the version is deleted, so Open
+  version never comes back with "Picture missing" because of it (Empty Trash still takes what it deletes, as before).
+  Settings → Storage asks after every edit, so it stays quick however many versions there are: only media records
+  are looked at, each version's point through the ops_by_record index, and which media records the log has is read
+  once per open file and then only from the newest writes (Clean up itself reads the whole log again before deleting).
+- Tests: Open version itself (src/core/storage/versions.test.ts): the copy is at the point and its restore undoes,
+  it lasts a restart and the original keeps every frame and step; Cancel at the lock question leaves the original
+  as it was; a restore that fails partway leaves no file; a file a sync replaced isn't copied; 80 Japanese characters
+  fit, and so do the copy's backups' names and Windows paths; a v3 project upgrades to v4. Clean up leaves a
+  version's picture and Open version shows it, and takes it once the version is deleted, and stays within a few ms
+  with 60k ops and 30 versions (purge.test.ts). The drafts' guards in Rust (sbd.rs) and in the Node and memory drivers. End to
+  end: Delete… asks and every step stays; two Enters in one moment name one version; two clicks on Open version make
+  one copy; two versions sharing a name on one step both show; Delete… from the keyboard keeps focus in the tile.
+  Naming and deleting on a file a sync replaced flag it for reopening (versionWrites.test.ts).
+- Decided while building, to review: a version names the newest step only (name it right after the step you mean);
+  renaming waits for a later milestone; Open backup's copy still keeps the original's file id, as before; two
+  versions may share a name; a draft a crash cuts off stays beside the project, hidden, until the person deletes it;
+  the name check leaves room for a two-digit schema, and a synced project's local backup folder isn't measured (its
+  path isn't known when the copy is named).
 
 **As built in 1.22 (Nov 3): the History tile** (src/features/history):
 - History in the project menu opens it in the workspace on screen. Every step is listed newest first, undos, redos,

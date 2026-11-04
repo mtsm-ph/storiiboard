@@ -114,10 +114,10 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
 
   answer(page, asked, true);
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
-  await expect(storage(page).getByText('None. Every stored picture is on the board or in the Trash.')).toBeVisible();
+  await expect(storage(page).getByText('None. Every stored picture is on the board, in the Trash or in a named version.')).toBeVisible();
   expect(asked).toHaveLength(2);
   await expect(storage(page).getByRole('button', { name: 'Clean up old pictures…' })).toBeDisabled();
-  await expect(storage(page).getByText('None. Every stored picture is on the board or in the Trash.')).toBeFocused();
+  await expect(storage(page).getByText('None. Every stored picture is on the board, in the Trash or in a named version.')).toBeFocused();
 
   // Redo names the picture again: the frame says it's missing rather than showing what was deleted.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
@@ -151,7 +151,7 @@ test('a theme image deleted by Clean up reads as missing, and shows again when c
   await page.getByRole('tab', { name: 'Storage' }).click();
   answer(page, [], true);
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
-  await expect(storage(page).getByText('None. Every stored picture is on the board or in the Trash.')).toBeVisible();
+  await expect(storage(page).getByText('None. Every stored picture is on the board, in the Trash or in a named version.')).toBeVisible();
 
   // Redo names it again: the well says it's missing, as a frame does; chosen again, it shows.
   await page.keyboard.press(await redoKey(page));

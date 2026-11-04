@@ -1,24 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
+import { useOpeningVersion } from '../../app/openingVersion';
+import { openVersion } from '../../app/projects/actions';
 import { showInfo, showNotice } from '../../app/notice';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { LoggedOp, OpGroup } from '../../core/ops/ops';
+import { versionName, type NamedVersion } from '../../core/storage/versions';
 import { Button } from '../../ui/Button';
-import { Toggle } from '../../ui/fields';
+import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { ItemHistory } from './ItemHistory';
 import { putBackChange } from './putBack';
 import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
 import { lineText, who, type FieldChange, type Line } from './summary';
+import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
-// did, who and when, and Restore to here. Filtered to the selected item (a frame, else a note, else the active scene),
-// every change to it, field by field, with its old value to put back. A restore and an old value are each a new op
-// group, so ⌘Z takes them back.
+// did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects.
+// Filtered to the selected item (a frame, else a note, else the active scene), every change to it, field by field,
+// with its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
 
 /** A step's line, its technical values in mono. */
 function LineText({ line }: { line: Line }) {
@@ -37,12 +42,16 @@ function LineText({ line }: { line: Line }) {
   );
 }
 
-/** Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. */
-export function RestoreStatus({ restoring }: { restoring: boolean }) {
+/**
+ * Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. Or that
+ * Open version is copying the project (1.23): with gigabytes of pictures that takes many seconds, and without a word
+ * someone may quit mid-copy. One line for the tile, so a screen reader hears one at a time.
+ */
+export function RestoreStatus({ restoring, opening = null }: { restoring: boolean; opening?: string | null }) {
   // Always there, empty when idle, so a screen reader hears it start.
   return (
     <p role="status" className="text-[13px]">
-      {restoring ? 'Restoring the project…' : ''}
+      {restoring ? 'Restoring the project…' : opening !== null ? `Copying “${opening}”…` : ''}
     </p>
   );
 }
@@ -54,6 +63,7 @@ export function HistoryTile() {
   // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
   const deletedForGood = useProject((s) => s.deletedForGood);
   const restoring = useProject((s) => s.restoring);
+  const opening = useOpeningVersion();
   const shotId = useSelection((s) => s.shotId);
   const noteId = useSelection((s) => s.noteId);
   const sceneId = useSelection((s) => s.sceneId);
@@ -64,6 +74,18 @@ export function HistoryTile() {
   // Kept with the item they were read for: a new selection shows nothing until its own are read, so a Put back
   // can never land on the item selected before.
   const [itemOps, setItemOps] = useState<{ id: string; ops: LoggedOp[]; readFor: number } | null>(null);
+  const [naming, setNaming] = useState('');
+  // Set at once, not on the next render: a second Enter or click while the name is written would name it twice.
+  const savingVersion = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const versionsId = useId();
+  const versionsHeading = useRef<HTMLHeadingElement>(null);
+  const versionsList = useRef<HTMLUListElement>(null);
+  // After Delete…, where focus goes once its row is gone, so a keyboard user stays in the tile: the version that took
+  // its place in the list, else the one before it, else the Named versions heading.
+  const focusAfterDelete = useRef<{ gone: string; next: string | null } | null>(null);
+  // Bumped after naming or deleting a version, which changes no record, so History is read again.
+  const [generation, setGeneration] = useState(0);
   // What the selection is on, most particular first: a frame or a note is picked inside the active scene.
   const liveRecord = (id: string | null, type: SbdRecord['type']) => {
     const record = id ? records[id] : undefined;
@@ -97,7 +119,7 @@ export function HistoryTile() {
     return () => {
       live = false;
     };
-  }, [gate, project, records, canUndo, deletedForGood, count]);
+  }, [gate, project, records, canUndo, deletedForGood, count, generation]);
 
   useEffect(() => {
     if (loaded) gate.read('steps', loaded.readFor);
@@ -111,6 +133,16 @@ export function HistoryTile() {
     if (!olderAsked.current || loaded?.more !== false) return;
     olderAsked.current = false;
     if (document.activeElement === document.body || document.activeElement === null) list.current?.focus();
+  }, [loaded]);
+
+  useEffect(() => {
+    const pending = focusAfterDelete.current;
+    if (!pending || !loaded || loaded.versions.some((v) => v.id === pending.gone)) return;
+    focusAfterDelete.current = null;
+    // Only when focus fell out with the row: a click elsewhere since then keeps its focus.
+    if (document.activeElement !== document.body && document.activeElement !== null) return;
+    const next = pending.next === null ? null : versionsList.current?.querySelector<HTMLElement>(`[data-delete-version="${pending.next}"]`);
+    (next ?? versionsHeading.current)?.focus();
   }, [loaded]);
 
   useEffect(() => {
@@ -205,12 +237,104 @@ export function HistoryTile() {
     const place = records[id];
     return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
   };
+  const versionNamed = versionName(naming);
+  const saveVersion = () => {
+    if (!versionNamed || !loaded?.newest || savingVersion.current) return;
+    savingVersion.current = true;
+    setSaving(true);
+    void nameThisPoint(projectStore, versionNamed, loaded.newest)
+      .then((named) => {
+        if (!named) return;
+        setNaming('');
+        setGeneration((n) => n + 1);
+        showInfo(`Named this point “${versionNamed}”.`);
+      })
+      .finally(() => {
+        savingVersion.current = false;
+        setSaving(false);
+      });
+  };
+  const removeVersion = async (version: NamedVersion) => {
+    const sure = await confirmForGood(
+      'Delete version?',
+      `The name “${version.name}” will be deleted. The steps stay in History; only the name goes, and it can’t be undone.`,
+      'Delete version',
+    );
+    if (!sure) return;
+    // Worked out as pressed: the row below takes this one's place, so the next Delete… is where focus already was.
+    const shown = loaded?.versions ?? [];
+    const at = shown.findIndex((v) => v.id === version.id);
+    const next = shown[at + 1] ?? (at > 0 ? shown[at - 1] : undefined);
+    if (await removeNamedVersion(projectStore, version.id)) focusAfterDelete.current = { gone: version.id, next: next?.id ?? null };
+    setGeneration((n) => n + 1);
+  };
+  // Two versions can share a name, so each is told apart by its id.
+  const versionsAt = new Map<string, NamedVersion[]>();
+  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v]);
+
   return (
     // Busy is on the list and the table, not round the status line, which a screen reader may hold back while busy.
     <div className="flex min-h-full flex-col">
+      <section aria-labelledby={versionsId} aria-busy={opening !== null} className="flex flex-col gap-2 border-b border-border p-3">
+        <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
+          Named versions
+        </h3>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <TextField
+              label="Name this point"
+              value={naming}
+              placeholder="Board sent to client"
+              maxLength={80}
+              onChange={(event) => {
+                setNaming(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                // Not the Enter that ends an IME composition (Japanese or Chinese input): that one confirms the text.
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) saveVersion();
+              }}
+            />
+          </div>
+          <Button disabled={!versionNamed || !loaded?.newest || saving} onClick={saveVersion}>
+            Name version
+          </Button>
+        </div>
+        {(loaded?.versions.length ?? 0) > 0 && (
+          <ul ref={versionsList} aria-label="Named versions" className="flex flex-col">
+            {loaded?.versions.map((version) => (
+              <li key={version.id} className="flex items-center gap-3 border-t border-border py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold">{version.name}</p>
+                  <p className="text-[11px] text-text-muted">
+                    After “<LineText line={loaded.versionLines.get(version.id) ?? []} />” · <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>
+                  </p>
+                </div>
+                <Button
+                  aria-label={`Open version ${version.name}`}
+                  // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                  aria-disabled={opening !== null || undefined}
+                  onClick={() => {
+                    void openVersion(version);
+                  }}
+                >
+                  Open version
+                </Button>
+                <Button
+                  variant="warning"
+                  aria-label={`Delete version ${version.name}`}
+                  data-delete-version={version.id}
+                  onClick={() => void removeVersion(version)}
+                >
+                  Delete…
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
         <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
-        <RestoreStatus restoring={restoring} />
+        <RestoreStatus restoring={restoring} opening={opening} />
       </div>
       {filtered && named ? (
         itemOps?.id === item.id ? (
@@ -231,6 +355,11 @@ export function HistoryTile() {
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px]">
                       <LineText line={line} />
+                      {(versionsAt.get(group.id) ?? []).map((version) => (
+                        <span key={version.id} className="sb-label ml-2 border border-text px-1">
+                          {version.name}
+                        </span>
+                      ))}
                     </p>
                     <p className="font-mono text-[11px] text-text-muted">
                       {who(group.author)} · {localDateTime(new Date(group.timestamp))}

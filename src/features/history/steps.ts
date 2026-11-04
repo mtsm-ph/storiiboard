@@ -1,6 +1,7 @@
 import type { SbdRecord } from '../../core/model/record';
 import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
+import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, type Line } from './summary';
 
 /** Steps shown at a time; older ones load on asking (Show older steps), so a long project opens its History at once. */
@@ -11,17 +12,24 @@ export interface Steps {
   steps: { group: OpGroup; line: Line }[];
   /** More steps before the oldest shown. */
   more: boolean;
+  /** The newest step: what a version named now includes. */
+  newest: string | null;
+  /** Named versions (1.23), newest first. */
+  versions: NamedVersion[];
+  /** Each version's step, in words, by version id. */
+  versionLines: Map<string, Line>;
 }
 
-/** The newest `count` steps, each with its line. */
+/** The newest `count` steps, each with its line, and the named versions with theirs. */
 export async function loadSteps(file: ProjectFile, count: number): Promise<Steps> {
-  const groups = await log(file);
+  const [groups, versions] = await Promise.all([log(file), listVersions(file)]);
   const shown = groups.slice(-count);
   // Undo, redo and restore name the step they point at, which may be older than the page, and may itself point at
   // another (an undone restore names its point): followed until every line has what it names.
   const byId = new Map(groups.map((g) => [g.id, g]));
   const wanted = new Set<string>();
-  const pending: (string | null)[] = shown.map((g) => g.id);
+  // A version's step may be older than the page too.
+  const pending: (string | null)[] = [...shown.map((g) => g.id), ...versions.map((v) => v.opGroupId)];
   while (pending.length > 0) {
     const id = pending.pop() ?? null;
     const group = id === null ? undefined : byId.get(id);
@@ -36,7 +44,13 @@ export async function loadSteps(file: ProjectFile, count: number): Promise<Steps
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
   for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id)));
-  return { steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? ['a step'] })), more: groups.length > count };
+  return {
+    steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? ['a step'] })),
+    more: groups.length > count,
+    newest: groups.at(-1)?.id ?? null,
+    versions,
+    versionLines: new Map(versions.map((v) => [v.id, titles.get(v.opGroupId) ?? ['a step']])),
+  };
 }
 
 /**

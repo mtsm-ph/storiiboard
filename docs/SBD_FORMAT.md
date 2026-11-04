@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v3 (milestone 1.10); sections marked planned aren't built yet. Every
+**Status:** schema v4 (milestone 1.23); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -114,9 +114,9 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
-deletes the bytes of pictures only History uses (1.21: no record shows them, live or in the Trash, and no
-step on the undo stack had them); the steps stay, and a frame they name such a picture on reads
-"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
+deletes the bytes of pictures only History uses (1.21: no record shows them, live or in the Trash, and no step on the
+undo stack had them), never one a named version shows (1.23); the steps stay, and a frame they name such a picture on
+reads "Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
 is gone from the file itself, though the file doesn't shrink: SQLite reuses the space for new pictures. Space freed
 before 1.21 wasn't zeroed, so a file edited with an earlier build can still hold older versions of some text in its
 free space.
@@ -157,8 +157,8 @@ and after each edit, never copies a picture.
   record pointing at nothing. Only the person deleting them on purpose can (below).
 - Bytes stay when the record using them is undone, trashed or given another picture, so undo, a History restore or a
   named version can bring an old picture back. They're deleted only by Empty Trash (bytes nothing left in the file
-  refers to) and Clean up old pictures (bytes only History refers to), both after a confirm (1.21). A frame or step
-  that then names a deleted picture shows "Picture missing".
+  refers to) and Clean up old pictures (bytes only History refers to, and no named version shows), both after a
+  confirm (1.21). A frame or step that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
 
@@ -175,6 +175,46 @@ and after each edit, never copies a picture.
 Schema 3 also adds three record types: `note` (a note card on the board, 1.12), `character` (from script import, 1.17)
 and `stroke` (one sketch stroke under its shot, 1.13). They need no table, but they come with the schema number: an
 older app refuses a file at schema 3 ("Update Storiiboard"), so it never meets a record type it doesn't know.
+
+## Schema v4: named versions (1.23)
+
+A named version is a named point in History, not a copy (src/core/storage/versions.ts). Open version copies the
+project, gives the copy a `file_id` of its own, restores the copy to that point (a `restore` group in the copy), and
+opens it as a separate project, as Open backup does. The original is never changed.
+
+`versions`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| name | text | "Board sent to client"; up to 80 characters |
+| note | text, null | |
+| op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
+| created_by | text | `local` for now |
+
+Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
+the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
+opened later lacks what it deleted. Clean up old pictures keeps every picture a version's step shows (read as a
+restore to it reads it: for each record changed since, the `before` of its first op after the step), until the version
+is deleted.
+
+How Open version makes its copy (src/app/openVersion.ts), so the original is never touched and a copy that fails
+partway never looks finished:
+
+1. A consistent copy of the open project is written through its own connection with VACUUM INTO, after the same
+   on-disk check as a write, to a hidden draft beside it: `.<Project> (<version>) <8 hex digits>.sbd`.
+2. The draft is opened on a connection of its own, given its `file_id` and restored to the version's step, then
+   closed.
+3. It's renamed to `<Project> (<version>).sbd` (`(<version> 2)` when that's taken; nothing is overwritten), and opened.
+   A failure before the rename deletes the draft. Only drafts the app made this session can be renamed or deleted this
+   way (src-tauri/src/sbd.rs).
+
+The version's name in the file name loses what a file name can't hold (`/ \ : * ? " < > |`), and is shortened so the
+file name, its journal and its lock file stay within 255 bytes, and on Windows the path and its journal's within
+SQLite's 259 characters. The names of the backups the copy will need fit too, as they're written (`.partial` until
+complete): a scheduled backup in `Backups/` beside it, and the copy made before a schema upgrade (room is left for a
+two-digit schema), without which the upgrade refuses to run. A synced project's backups go to a folder on this
+computer; their names fit, but that folder's path isn't checked.
 
 ## Trash
 
@@ -204,8 +244,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that
   sat under a deleted parent at that point stays where it is.
 - Clean up old pictures (1.21, Settings → Storage, after a confirm) deletes stored pictures no record uses, live or
-  in the Trash, though older ops may (a picture added and undone). The log is unchanged; a step that brings such a
-  record back shows its picture as removed.
+  in the Trash, though older ops may (a picture added and undone), and no named version's step shows (1.23). The log
+  is unchanged; a step that brings such a record back shows its picture as removed.
 
 ## Project record props
 
@@ -467,27 +507,13 @@ merge a database, so two guards sit around every open project:
 | `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
 | `.<Project>.sbd.lock` | While the project is open: which computer has it open. JSON: `app`, `computer` (its name), `machine` (a random id per install), `session`, `opened_at` and `refreshed_at` (ms since the epoch). Hidden: a leading dot on Mac, the hidden attribute on Windows | 1.2 | Deleted on close; rewritten every minute while open; stale after 5 minutes |
 | `<Project> (copy).sbd` | Open a copy, chosen when another computer has the project open. A separate project | 1.2 | Like any project |
+| `<Project> (<version>).sbd` | Open version: a copy restored to a named version's step, a separate project. A second copy of the same version is `(<version> 2)` | 1.23 | Like any project |
+| `.<Project> (<version>) <8 hex digits>.sbd` | Open version's draft while it's copied and restored, renamed to the copy's name once it's ready. Hidden: a leading dot on Mac, the hidden attribute on Windows (cleared before the rename) | 1.23 | Deleted if Open version fails. One a crash cuts off stays, hidden, until the person deletes it: the app never deletes a project-shaped file it didn't just make |
 | `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
 
 ## Planned changes
-
-### Schema 4: named versions (Phase 1, History)
-
-A named version is a named point in History, not a copy. Open version copies the project, restores the copy to that
-point, and opens the copy as a separate project, as Open backup does.
-
-`versions`
-
-| Column | Type | Notes |
-|---|---|---|
-| name | text | "Board sent to client" |
-| note | text, null | |
-| op_group_id | text | The last op group included (op_groups.id) |
-| created_by | text | |
-
-Versions are kept until someone deletes them.
 
 ### Schema 5: notification read state (Phase 3)
 
@@ -522,7 +548,7 @@ is each person's read state, in two tables.
 | 1 | 0.4 | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
 | 2 | 0.5b | Append-only History: `op_groups`; `ops.state` and `meta.undo_cursor` removed. Each v1 `undone` or `discarded` mark becomes an `undo` group where that undo must have happened, and `ops.seq` is renumbered to follow the groups |
 | 3 | 1.10 | Pictures: `media_files` and `thumbnails`, addressed by SHA-256; record types `note`, `character` and `stroke` |
-| 4 | Phase 1 (planned) | Named versions: `versions` |
+| 4 | 1.23 | Named versions: `versions` |
 | 5 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
