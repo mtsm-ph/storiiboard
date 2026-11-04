@@ -2,7 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { releaseImageUrls } from '../core/media/urls';
-import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
 
@@ -39,6 +39,11 @@ export interface ProjectState {
    * when nothing did (an empty Trash, or a refusal, which has set `error`).
    */
   emptyTrash: () => Promise<{ removed: number; freed: number } | null>;
+  /**
+   * Restores the project to how it was right after a step in History (1.22), or as created with null, as one new op
+   * group that undo takes back. Resolves to whether it changed anything.
+   */
+  restoreTo: (groupId: string | null) => Promise<boolean>;
   /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
   cleanUpPictures: () => Promise<{ removed: number; freed: number } | null>;
 }
@@ -140,6 +145,15 @@ export function createProjectStore(): StoreApi<ProjectState> {
           return done.touched;
         });
         return result;
+      },
+      restoreTo: async (groupId) => {
+        let changed = false;
+        await edit(async (project) => {
+          const touched = await restoreTo(project.file, groupId);
+          changed = touched !== null;
+          return touched;
+        });
+        return changed;
       },
       cleanUpPictures: async () => {
         let result: { removed: number; freed: number } | null = null;

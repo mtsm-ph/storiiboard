@@ -38,6 +38,7 @@ export const TILES: Readonly<Record<TileId, TileInfo>> = {
   // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
   calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
   notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
+  history: { title: 'History', note: 'Every step, who and when; restore any point, or one frame’s old value.' },
   trash: { title: 'Trash', note: 'Deleted frames, notes and pictures, restorable.' },
 };
 

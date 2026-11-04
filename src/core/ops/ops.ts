@@ -494,6 +494,51 @@ export async function history(file: ProjectFile): Promise<{ canUndo: boolean; ca
   return { canUndo: undoTop !== null, canRedo: redoTop !== null };
 }
 
+/** One write in the log, as the History tile reads it. */
+export interface LoggedOp {
+  groupId: string;
+  recordId: string;
+  kind: OpKind;
+  before: SbdRecord | null;
+  after: SbdRecord | null;
+  author: string;
+  timestamp: string;
+}
+
+const loggedOp = (row: Row): LoggedOp => ({
+  groupId: String(row.group_id),
+  recordId: String(row.record_id),
+  kind: String(row.kind) as OpKind,
+  before: fromSnapshot(row.before),
+  after: fromSnapshot(row.after),
+  author: String(row.author),
+  timestamp: String(row.timestamp),
+});
+
+/** The ops of some groups, in log order, for the History tile's page of steps. */
+export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]): Promise<LoggedOp[]> {
+  if (groupIds.length === 0) return [];
+  const rows = await file.query(
+    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE group_id IN (SELECT value FROM json_each(?)) ORDER BY seq',
+    [JSON.stringify(groupIds)],
+  );
+  return rows.map(loggedOp);
+}
+
+/** Every write to one record, oldest first (ops_by_record): an item's own history. */
+export async function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
+  const rows = await file.query(
+    'SELECT group_id, record_id, kind, before, after, author, timestamp FROM ops WHERE record_id = ? ORDER BY seq',
+    [recordId],
+  );
+  return rows.map(loggedOp);
+}
+
+/** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */
+export async function storedPictures(file: ProjectFile): Promise<Set<string>> {
+  return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));
+}
+
 /** Every op group, oldest first, undos, redos and restores included: what the History panel lists. */
 export async function log(file: ProjectFile): Promise<OpGroup[]> {
   const rows = await file.query(
