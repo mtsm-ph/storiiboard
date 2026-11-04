@@ -367,31 +367,60 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
     return existsNow.get(id) === true;
   };
+  // Looked up once, so each record kept as it is now is handled once, however large the restore.
+  const under = new Map<string, string[]>();
+  const framesOf = new Map<string, string[]>();
+  const add = (map: Map<string, string[]>, key: string | null | undefined, id: string) => {
+    if (key) map.set(key, [...(map.get(key) ?? []), id]);
+  };
+  for (const op of found) {
+    add(under, op.before?.parentId, op.recordId);
+    const isShot = op.before?.type === 'shot' || op.after?.type === 'shot';
+    if (isShot) for (const parentId of new Set([op.before?.parentId, op.after?.parentId])) add(framesOf, parentId, op.recordId);
+  }
   let keptAny = false;
+  const waiting: string[] = [];
   const keepAsNow = (id: string): boolean => {
     const before = byId.get(id)?.before ?? null;
     if (final.get(id) === before) return false;
     final.set(id, before);
     keptAny = true;
+    waiting.push(id);
     return true;
+  };
+  /**
+   * What a record kept as it is now holds on to, as it is now too:
+   * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
+   *   back to the point, a newer one would be deleted from under a record that still shows it;
+   * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
+   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number.
+   */
+  const settleKept = () => {
+    for (let id = waiting.pop(); id !== undefined; id = waiting.pop()) {
+      const kept = final.get(id);
+      if (!kept) continue;
+      for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
+      for (const child of under.get(id) ?? []) keepAsNow(child);
+      if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
+        if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
+        for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);
+      }
+    }
   };
   // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
   // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
   // alike, so this always settles. Read only when needed, since it takes every record.
-  let everything: SbdRecord[] | null = null;
+  let everything: Map<string, SbdRecord> | null = null;
   const keepNumbersUnique = async (): Promise<boolean> => {
     if (!keptAny) return false;
-    everything ??= await loadRecords(file);
-    const ids = new Set([...everything.map((r) => r.id), ...final.keys()]);
-    const now = new Map(everything.map((r) => [r.id, r]));
+    everything ??= new Map((await loadRecords(file)).map((r) => [r.id, r]));
+    const now = everything;
     const groups = new Map<string, string[]>();
-    for (const id of ids) {
+    for (const id of new Set([...now.keys(), ...final.keys()])) {
       const record = final.has(id) ? final.get(id) : now.get(id);
       if (!record || record.trashedAt !== null || (record.type !== 'scene' && record.type !== 'shot')) continue;
       const number = record.props.number;
-      if (typeof number !== 'string' || number === '') continue;
-      const key = `${record.type}:${number}`;
-      groups.set(key, [...(groups.get(key) ?? []), id]);
+      if (typeof number === 'string' && number !== '') add(groups, `${record.type}:${number}`, id);
     }
     let moved = false;
     for (const same of groups.values()) if (same.length > 1) for (const id of same) if (byId.has(id)) moved = keepAsNow(id) || moved;
@@ -399,44 +428,18 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
   };
   for (let changed = true; changed; ) {
     changed = false;
-    // A record kept as it is now keeps what's under it and the picture it names as they are now too: sent back to
-    // the point, a newer picture or sketch would be deleted from under a frame that still shows it.
-    for (const [id, op] of byId) {
-      const kept = final.get(id);
-      if (!kept || kept !== op.before) continue;
-      const mediaId = typeof kept.props.media_id === 'string' ? kept.props.media_id : null;
-      if (mediaId !== null && byId.has(mediaId)) changed = keepAsNow(mediaId) || changed;
-      for (const [other, otherOp] of byId) if (otherOp.before?.parentId === id) changed = keepAsNow(other) || changed;
-    }
-    // A frame kept as it is now in a scene it wasn't in at the point keeps the number it has there, so that scene
-    // and every frame in it or going back into it stay as they are now too: otherwise two frames could share a slate
-    // number (the board as it is now has none).
-    for (const [id, op] of byId) {
-      const kept = final.get(id);
-      if (!kept || kept !== op.before || kept.type !== 'shot' || kept.parentId === op.after?.parentId) continue;
-      const sceneId = kept.parentId;
-      if (sceneId !== null && byId.has(sceneId)) changed = keepAsNow(sceneId) || changed;
-      for (const [other, otherOp] of byId) {
-        const isShot = otherOp.before?.type === 'shot' || otherOp.after?.type === 'shot';
-        const there = otherOp.before?.parentId === sceneId || final.get(other)?.parentId === sceneId;
-        if (isShot && there) changed = keepAsNow(other) || changed;
-      }
-    }
+    settleKept();
     for (const [id, record] of final) {
       const parentId = record?.parentId ?? null;
       if (!record || parentId === null || (await exists(parentId))) continue;
       const op = byId.get(id);
       const parent = byId.get(parentId);
-      if (record !== op?.before) {
-        final.set(id, op?.before ?? null);
-        changed = keptAny = true;
-      } else if (parent?.before && final.get(parentId) !== parent.before) {
-        // As it is now, under a parent this restore would delete: the parent stays as it is now too.
-        final.set(parentId, parent.before);
-        changed = keptAny = true;
-      }
+      if (record !== op?.before) changed = keepAsNow(id) || changed;
+      // As it is now, under a parent this restore would delete: the parent stays as it is now too.
+      else if (parent?.before) changed = keepAsNow(parentId) || changed;
     }
-    if (!changed) changed = await keepNumbersUnique();
+    if (waiting.length > 0) changed = true;
+    else if (await keepNumbersUnique()) changed = true;
   }
   const ops = found.flatMap((op) => {
     const after = final.get(op.recordId) ?? null;
@@ -464,6 +467,13 @@ const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note',
 /** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
 export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
+}
+
+/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, the theme's image. */
+function namedBy(record: SbdRecord): string[] {
+  const { props } = record;
+  const theme = props.theme && typeof props.theme === 'object' && !Array.isArray(props.theme) ? (props.theme as Record<string, unknown>) : null;
+  return [props.media_id, props.location_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
 }
 
 /**

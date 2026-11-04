@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
-import { addScene, addShot, moveItem, setSceneNumber, trashShot } from '../../features/storyboard/board';
+import { addScene, addShot, moveItem, setSceneLocation, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../../features/storyboard/sketch/strokes';
 import { readOriginal, readThumbnail, type PreparedImage } from '../media/store';
@@ -243,6 +243,21 @@ describe('Empty Trash', () => {
     expect(new Set(frames).size).toBe(frames.length);
     expect(records()[moved]?.parentId).toBe(added.record.id);
     expect(records()[other]?.parentId).toBe('sc5');
+  });
+
+  it('keeps a scene kept as it is now with the location it names, so its location is never deleted from under it', async () => {
+    const moved = await frame('sc4');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, 'sc5', null) }));
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc5', 'Diner') }));
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const locationId = records().sc5?.props.location_id;
+    expect(typeof locationId).toBe('string');
+    expect(typeof locationId === 'string' ? records()[locationId]?.props.name : null).toBe('Diner');
   });
 
   it('keeps a frame kept as it is now with its newer picture and sketch, so nothing it shows is deleted', async () => {
