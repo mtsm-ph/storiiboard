@@ -19,8 +19,8 @@ const MAX_BYTES: u64 = 200 * 1024 * 1024;
 const EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "heic", "heif", "tif", "tiff", "gif", "bmp",
 ];
-/// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt) and Final Draft.
-const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx"];
+/// What the Open dialog offers for a script: Fountain (and its older .spmd and plain .txt), Final Draft and PDF.
+const SCRIPT_EXTENSIONS: &[&str] = &["fountain", "spmd", "txt", "fdx", "pdf"];
 
 /// The files the person has handed the app this session, by drop or by the Open dialog, and whether the dialog is
 /// open now.

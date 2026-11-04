@@ -1,8 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { screenplayPdf } from './fixtures/screenplayPdf';
 import { skipOnboarding } from './onboarding';
 
-// Script import (1.17) in the memory build: a Fountain or Final Draft file, previewed, then imported as scene shells
+// Script import (1.17, 1.18) in the memory build: a Fountain, Final Draft or PDF file, previewed, then imported as scene shells
 // in one step that one undo takes back.
 
 test.beforeEach(async ({ page }) => {
@@ -102,6 +103,49 @@ test('reads a Final Draft file with its own scene numbers and lengths', async ({
   await expect(row).toContainText('1 3/8 pg');
   await preview(page).getByRole('button', { name: 'Import 1 scene' }).click();
   await expect(scenesTile(page).getByText('EXT. BRIDGE — DUSK')).toBeVisible();
+});
+
+test('reads a screenplay PDF by its layout: headings, scene numbers in the margins, speakers', async ({ page }) => {
+  const pdf = screenplayPdf([
+    [
+      { row: 20, x: 250, text: 'BEY COUNTY' },
+      { row: 23, x: 266, text: 'Written by Kevin Matos' },
+    ],
+    [
+      { row: 0, x: 540, text: '2.' },
+      { row: 2, x: 72, text: '4' },
+      { row: 2, x: 108, text: 'INT. DINER - NIGHT' },
+      { row: 2, x: 540, text: '4' },
+      { row: 4, x: 108, text: 'Rain on the windows.' },
+      { row: 6, x: 252, text: 'MARY' },
+      { row: 7, x: 180, text: "We're closed." },
+      { row: 9, x: 252, text: 'TOM (O.S.)' },
+      { row: 10, x: 180, text: 'Door was open.' },
+      { row: 12, x: 72, text: '5' },
+      { row: 12, x: 108, text: 'EXT. COUNTY ROAD - DAY' },
+      { row: 12, x: 540, text: '5' },
+      { row: 14, x: 108, text: 'BANG! A truck backfires.' },
+    ],
+  ]);
+  const chooser = page.waitForEvent('filechooser');
+  await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
+  await (await chooser).setFiles({ name: 'Bey County.pdf', mimeType: 'application/pdf', buffer: pdf });
+  await expect(preview(page).getByRole('heading', { name: 'Import BEY COUNTY' })).toBeVisible();
+  const rows = preview(page).getByRole('table', { name: 'Scenes in the script' }).locator('tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('4');
+  await expect(rows.nth(0)).toContainText('INT. DINER — NIGHT');
+  await expect(rows.nth(0)).toContainText('MARY, TOM');
+  await expect(rows.nth(1)).toContainText('EXT. COUNTY ROAD — DAY');
+  await preview(page).getByRole('button', { name: 'Import 2 scenes' }).click();
+  await expect(scenesTile(page).getByText('INT. DINER — NIGHT')).toBeVisible();
+});
+
+test('a PDF with no text, such as a scan, says so', async ({ page }) => {
+  const chooser = page.waitForEvent('filechooser');
+  await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
+  await (await chooser).setFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: screenplayPdf([[]]) });
+  await expect(page.getByRole('alert')).toContainText('A scanned PDF has no text to read');
 });
 
 test('a file with no scene headings says what a heading looks like', async ({ page }) => {

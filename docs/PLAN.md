@@ -52,7 +52,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.15 Theme switching (200ms ease), Follow project, window background | #32 | Done |
 | 1.16 Onboarding and Settings → Theme | #33 | Done |
 | 1.17 Script import: Fountain and FDX, with a preview | #34 | Done |
-| 1.18 Script import: PDF | | Not started |
+| 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots | | Not started |
 | 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
@@ -267,6 +267,19 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.18 (Nov 3): script import from PDF** (src/core/script/pdfLayout.ts, src/features/script/readPdf.ts):
+- pdf.js (pdfjs-dist 5.7.284, Apache-2.0) gives each page's text with its position; nothing is drawn, no fonts load,
+  and it loads only when a PDF is imported. 5.7.284 is the last release built for Safari 16.4 (macOS 13's webview);
+  6.x needs Safari 18. Its optional `@napi-rs/canvas` (MIT) is for rendering in Node and isn't used. The CSP names
+  `worker-src 'self'` for pdf.js's worker.
+- A screenplay PDF is read by its layout, Courier 12 on fixed margins: a line at the action margin that starts like a
+  heading is a heading; a capitals line about two inches in with dialogue under it is a character cue. Scene numbers
+  are the numbers printed outside the margins; page numbers (`2.`), (MORE) and CONTINUED are left out. Length comes
+  from the lines a scene fills, blank ones included.
+- A PDF with no text (a scan) imports nothing and says to export the script as a PDF from the writing app.
+- Decided while building, to review: the title is the first line on the first page before any scene, which is the
+  title page's title in a standard layout.
 
 ### Web companion
 
