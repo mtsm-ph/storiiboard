@@ -86,13 +86,14 @@ export function renumber(
   sceneId: string,
   shots: readonly SbdRecord[],
   sceneProps?: SbdRecord['props'],
+  taken?: ReadonlySet<string>,
 ): Change[] {
   const scene = records[sceneId];
   if (!scene) return [];
   const fields = sceneFields(sceneProps ?? scene.props);
   const { skipIO } = projectStoryboard(records[projectId]?.props);
   const numbered = shots.map((shot) => ({ id: shot.id, number: shotFields(shot.props).number, trashed: shot.trashedAt !== null }));
-  const changed = shotNumbers(fields.number, numbered, { locked: fields.numbersLocked, skipIO });
+  const changed = shotNumbers(fields.number, numbered, { locked: fields.numbersLocked, skipIO, taken });
   return [...changed].map(([id, number]): Change => ({ kind: 'update', id, set: { number } }));
 }
 
@@ -245,17 +246,21 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
     }
   }
   for (const id of back) changes.push({ kind: 'restore', id });
+  // Every number on the board once this lands: live frames in live scenes, and in this one.
   const liveNumbers = new Set(
-    sceneShots(records, sceneId)
-      .filter((s) => s.trashedAt === null)
+    Object.values(records)
+      .filter((s) => s.type === 'shot' && s.trashedAt === null && s.parentId !== null)
+      .filter((s) => s.parentId === sceneId || (s.parentId !== null && records[s.parentId]?.trashedAt === null))
       .map((s) => shotFields(s.props).number),
   );
   const order = sceneShots(records, sceneId).map((s) => {
     if (!coming.has(s.id)) return s;
-    // In a locked scene a frame keeps its letter, but never one a live frame has taken since: it takes the next free one.
+    // In a locked scene a frame keeps its letter, but never one a live frame anywhere has taken since (a new scene 4
+    // has its own 4C): then it takes the next free one.
     return { ...s, trashedAt: null, props: liveNumbers.has(shotFields(s.props).number) ? { ...s.props, number: '' } : s.props };
   });
-  return [...changes, ...renumber(records, projectId, sceneId, order, props)];
+  // The next free letter skips those numbers too: the scene's highest letter may be the very one taken.
+  return [...changes, ...renumber(records, projectId, sceneId, order, props, liveNumbers)];
 }
 
 /**

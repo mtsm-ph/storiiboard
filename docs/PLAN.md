@@ -64,6 +64,15 @@ themes). One PR per milestone, each into `v2`.
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
 
+Before the gate (Kevin, Nov 4): a checkpoint for all of Phase 1 (the smoke set on Linux and in WebKit on the CI Mac,
+both installers), Kevin tests 1.11 to 1.25 as one batch, then a polish step, which turns the screenshot tests back on
+with fresh baselines. Phase 2 waits for the gate.
+
+Testing from Nov 4: every PR runs quick checks on Linux (lint, types, unit tests, Rust tests, the Rust data-safety
+tests among them), and a newer push cancels the outdated run. The end-to-end smoke set (create, open, add a scene and
+frames, undo, save and reopen; e2e/smoke.spec.ts) and the installers run at checkpoints (checkpoint.yml). The deeper
+end-to-end specs run locally before each merge. A failing functional or data-safety test gets fixed, never skipped.
+
 ### Phase 0 milestones
 
 One PR per milestone, each into `v2`.
@@ -305,10 +314,22 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
   Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
   runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
-- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection), so what's deleted is gone
-  from the file itself and from backups made after. The file doesn't shrink; the space is used for new pictures.
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection from 1.21 on), so what's
+  deleted is gone from the file itself and from backups made after. The file doesn't shrink; the space is used for new
+  pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
+  record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
+  aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
+  of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
-  gone stays as it is now, and so does whatever it sits under.
+  gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
+  that scene as it is now, so no two frames share a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
+- Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
+  Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
+  erased from a frame still on the board stays, with its History.
+- Open, for Kevin: a locked scene reserves a trashed frame's letter by keeping the frame, so once Empty Trash deletes
+  it, a new frame can be given that letter again (it may be on a slate). The confirm says so when it can happen.
+  Keeping the reservation needs a scene prop for the highest letter used, a format change.
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
@@ -321,8 +342,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
-- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
-  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame anywhere has
+  taken it since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
   its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
   scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
@@ -330,7 +351,7 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
   goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
   its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
-  frame comes back on its old letter, as its locked neighbours keep theirs; a restored scene that needs a new number
+  frame comes back on its old letter, as its locked neighbours keep theirs, unless a live frame anywhere has it; a restored scene that needs a new number
   stays where it was on the board, so in an old file it can read out of order (4, 4B, 4A); a picture whose frame went
   to the Trash with its scene brings the scene back with that one frame.
 
@@ -758,8 +779,10 @@ switch light and dark at once while the colours ease; left as is.
 - `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
   Reset trash a frame's picture.
 - Kevin, Nov 3: the screenshot tests (e2e/visual.spec.ts, 8 of them) are suppressed until the UI is ready to test
-  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (CI's baseline update run sets
-  it). The behaviour tests and unit tests run as before.
+  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (the checkpoint workflow's
+  baseline update run sets it). The behaviour tests and unit tests run as before.
+- Kevin, Nov 4: they stay off, locally and in CI, until the polish step before the Bey County gate. There they come
+  back with fresh baselines (Mac and Linux), made once the UI is final.
 - Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
   Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
   its own, without becoming the theme again.

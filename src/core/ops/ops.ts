@@ -367,8 +367,37 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
     return existsNow.get(id) === true;
   };
+  const keepAsNow = (id: string): boolean => {
+    const before = byId.get(id)?.before ?? null;
+    if (final.get(id) === before) return false;
+    final.set(id, before);
+    return true;
+  };
   for (let changed = true; changed; ) {
     changed = false;
+    // A record kept as it is now keeps what's under it and the picture it names as they are now too: sent back to
+    // the point, a newer picture or sketch would be deleted from under a frame that still shows it.
+    for (const [id, op] of byId) {
+      const kept = final.get(id);
+      if (!kept || kept !== op.before) continue;
+      const mediaId = typeof kept.props.media_id === 'string' ? kept.props.media_id : null;
+      if (mediaId !== null && byId.has(mediaId)) changed = keepAsNow(mediaId) || changed;
+      for (const [other, otherOp] of byId) if (otherOp.before?.parentId === id) changed = keepAsNow(other) || changed;
+    }
+    // A frame kept as it is now in a scene it wasn't in at the point keeps the number it has there, so that scene
+    // and every frame in it or going back into it stay as they are now too: otherwise two frames could share a slate
+    // number (the board as it is now has none).
+    for (const [id, op] of byId) {
+      const kept = final.get(id);
+      if (!kept || kept !== op.before || kept.type !== 'shot' || kept.parentId === op.after?.parentId) continue;
+      const sceneId = kept.parentId;
+      if (sceneId !== null && byId.has(sceneId)) changed = keepAsNow(sceneId) || changed;
+      for (const [other, otherOp] of byId) {
+        const isShot = otherOp.before?.type === 'shot' || otherOp.after?.type === 'shot';
+        const there = otherOp.before?.parentId === sceneId || final.get(other)?.parentId === sceneId;
+        if (isShot && there) changed = keepAsNow(other) || changed;
+      }
+    }
     for (const [id, record] of final) {
       const parentId = record?.parentId ?? null;
       if (!record || parentId === null || (await exists(parentId))) continue;
@@ -400,8 +429,23 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
   return touchedBy(ops);
 }
 
-/** Every record Empty Trash deletes: each trashed one (never the project) and everything under it. */
-export function purgeIds(records: readonly SbdRecord[]): string[] {
+/**
+ * The kinds a person deletes to the Trash, and so the kinds Empty Trash deletes for good. An erased sketch stroke is
+ * trashed too but isn't in the Trash (1.13, 1.20): it goes only with its frame, so a frame still on the board keeps
+ * its sketch's History.
+ */
+const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media']);
+
+/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
+export function trashedRoots(records: readonly SbdRecord[]): string[] {
+  return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
+}
+
+/**
+ * Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. With `only`,
+ * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
+ */
+export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {
   const children = new Map<string, SbdRecord[]>();
   for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
   const ids = new Set<string>();
@@ -410,7 +454,9 @@ export function purgeIds(records: readonly SbdRecord[]): string[] {
     ids.add(record.id);
     for (const child of children.get(record.id) ?? []) add(child);
   };
-  for (const record of records) if (record.trashedAt !== null && record.type !== 'project') add(record);
+  for (const record of records) {
+    if (record.trashedAt !== null && TRASHED_BY_PEOPLE.has(record.type) && (!only || only.has(record.id))) add(record);
+  }
   return [...ids];
 }
 
@@ -461,10 +507,11 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
  */
 export async function emptyTrash(
   file: ProjectFile,
-  options: OpOptions = {},
+  options: OpOptions & { only?: ReadonlySet<string> } = {},
 ): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
-  const { author = 'local', now = () => new Date() } = options;
-  const ids = purgeIds(await loadRecords(file));
+  const { author = 'local', now = () => new Date(), only } = options;
+  const all = await loadRecords(file);
+  const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
   const pictures = await unusedPictures(file, ids, true);
   const at = now().toISOString();
@@ -506,9 +553,15 @@ export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]>
   return unusedPictures(file, [], false);
 }
 
-/** Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged. */
-export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number; pictures: string[] }> {
-  const pictures = await historyOnlyPictures(file);
+/**
+ * Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged.
+ * With `only`, just those of them the person confirmed.
+ */
+export async function cleanUpPictures(
+  file: ProjectFile,
+  only?: ReadonlySet<string>,
+): Promise<{ removed: number; freed: number; pictures: string[] }> {
+  const pictures = (await historyOnlyPictures(file)).filter((p) => !only || only.has(p.sha256));
   if (pictures.length > 0) await file.tx(deletePictures(pictures));
   return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }

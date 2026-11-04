@@ -9,7 +9,7 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board, trashShot } from '../storyboard/board';
 import { setPicture, type FramePicture } from '../storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
-import { restoreChanges, trashItems } from './trash';
+import { emptyTrashMessage, restoreChanges, rowsGone, trashItems } from './trash';
 
 function picture(seed: number, name: string): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -137,6 +137,67 @@ describe('the Trash', () => {
     await trash(frameA);
     await restore(frameA);
     expect(numbers()).toEqual(['4A', '4C', '4B']);
+  });
+
+  it('never brings a frame back on a number a live frame in another scene has', async () => {
+    const [, , frameC = ''] = shots;
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await trash(frameC);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.slice(0, 2).map((id) => ({ kind: 'trash' as const, id }))]);
+    // A new scene 4 with its own 4A to 4C, from an older file.
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc4b', type: 'scene', parentId: project.projectId, sortKey: 'W', props: { number: '4', name: 'Road' } } },
+    ]);
+    for (let i = 0; i < 3; i += 1) await store.getState().apply(addShot(records(), project.projectId, 'sc4b').changes);
+    await restore('sc4');
+    await restore(frameC);
+    const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
+    expect(all).toEqual(['A4A', 'A4B', 'A4C', '4A', '4B', '4C']);
+  });
+
+  /** A live, locked scene 9 whose frames still carry scene 4's letters (renumbered in an older file). */
+  async function sceneNineWith(...letters: string[]) {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc9', type: 'scene', parentId: project.projectId, sortKey: 'X', props: { number: '9', name: 'Dock', numbers_locked: true } } },
+    ]);
+    for (const number of letters) {
+      const added = addShot(records(), project.projectId, 'sc9');
+      await store.getState().apply([...added.changes, { kind: 'update', id: added.shotId, set: { number } }]);
+    }
+  }
+
+  it('in a locked scene, skips a taken number even when it was the scene’s highest letter', async () => {
+    const [, , frameC = ''] = shots;
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await trash(frameC);
+    await sceneNineWith('4C');
+    await restore(frameC);
+    expect(numbers()).toEqual(['4A', '4B', '4D']);
+  });
+
+  it('brings a locked scene back with its frames on numbers no live frame has', async () => {
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
+    await sceneNineWith('4A', '4B', '4C');
+    await restore('sc4');
+    const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
+    expect(all).toEqual(['4D', '4E', '4F', '4A', '4B', '4C']);
+  });
+
+  it('counts what Empty Trash deleted as the Trash listed it: a scene deleted with its frames is one', async () => {
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
+    const rows = trashItems(records(), project.projectId);
+    expect(rows).toHaveLength(1);
+    await store.getState().emptyTrash();
+    expect(rowsGone(records(), rows)).toBe(1);
+  });
+
+  it('warns in the Empty Trash confirm that a locked scene can give a deleted frame’s letter out again', async () => {
+    await trash(a());
+    expect(emptyTrashMessage(records(), 1)).not.toContain('locked scene');
+    expect(emptyTrashMessage(records(), 3, 2)).toContain('3 items (2 hidden by the filters)');
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    expect(emptyTrashMessage(records(), 1)).toContain('In a locked scene, a new frame can then be given a deleted frame’s letter.');
   });
 
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {

@@ -59,6 +59,8 @@ test('Empty Trash asks first; Cancel keeps everything, and agreeing deletes it f
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toContain('can’t be undone');
   await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(1);
+  // The button stays where the keys left it, so Enter asks again.
+  await expect(trashTile(page).getByRole('button', { name: 'Empty Trash…' })).toBeFocused();
 
   answer(page, asked, true);
   await trashTile(page).getByRole('button', { name: 'Empty Trash…' }).click();
@@ -106,7 +108,9 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toContain('can’t be undone');
+  expect(asked[0]).toContain('1 picture only History uses');
   await expect(storage(page).getByText(/^1 picture,/)).toBeVisible();
+  await expect(storage(page).getByRole('button', { name: 'Clean up old pictures…' })).toBeFocused();
 
   answer(page, asked, true);
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
@@ -120,4 +124,12 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
   await board(page).locator('[data-shot-id]').first().click();
   await page.keyboard.press(await redoKey(page));
   await expect(board(page).locator('[data-shot-id]').first().getByText('Picture missing')).toBeVisible();
+
+  // The same photo chosen again, on the other frame, is stored again, and both frames show it.
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  const again = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Choose picture…' }).click();
+  await (await again).setFiles(fixture);
+  await expect(board(page).locator('[data-shot-id]').nth(1).locator('img[data-frame-image]')).toBeVisible();
+  await expect(board(page).locator('[data-shot-id]').first().locator('img[data-frame-image]')).toBeVisible();
 });

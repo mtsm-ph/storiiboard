@@ -115,8 +115,10 @@ The ops and op_groups tables are the project's History. It's kept for the life o
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
 deletes the bytes of pictures only History uses (1.21); the steps stay, and a frame they name such a picture on reads
-"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`), so what's deleted is gone from the file
-itself, though the file doesn't shrink: SQLite reuses the space for new pictures.
+"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
+is gone from the file itself, though the file doesn't shrink: SQLite reuses the space for new pictures. Space freed
+before 1.21 wasn't zeroed, so a file edited with an earlier build can still hold older versions of some text in its
+free space.
 
 ## Schema v3: pictures (1.10)
 
@@ -192,8 +194,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
 - Empty Trash, after a confirm, deletes the trashed records, their children and their media bytes for good. Older ops
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
   them until they're pruned.
-- As built in 1.21 (src/core/ops/ops.ts, `emptyTrash`), in one transaction: every trashed record (never the project)
-  and everything under it is deleted; their ops keep their rows but `before` and `after` become null; an
+- As built in 1.21 (src/core/ops/ops.ts, `emptyTrash`), in one transaction: every trashed scene, shot, note and media
+  record and everything under it is deleted (an erased stroke on a frame still on the board stays, with its ops); their ops keep their rows but `before` and `after` become null; an
   `empty_trash` group of `purge` ops (one per deleted record) is written with `undo_top` and `redo_top` null, so
   neither stack reaches past it; and stored pictures nothing left refers to (no record's props, no remaining op) are
   deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that

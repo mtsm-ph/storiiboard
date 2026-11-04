@@ -48,8 +48,15 @@ export function InspectorTile() {
   const fields = shot ? shotFields(shot.props) : null;
   const view = fields ? pictureView(records, fields) : null;
   const media = view && fields?.mediaId ? mediaFields(records[fields.mediaId]?.props ?? {}) : null;
-  const picture: InspectorPicture | null =
-    view && media ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath } : null;
+  // A picture deleted for good and named again by a restore (sha256 '') shows as missing here too, as on the board,
+  // with Remove to clear it.
+  const picture: InspectorPicture | null = !view
+    ? null
+    : media
+      ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath }
+      : view.sha256 === ''
+        ? { view, sourceName: '', sourcePath: '' }
+        : null;
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
   const location = locationId ? records[locationId] : undefined;

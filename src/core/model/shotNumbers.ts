@@ -66,7 +66,11 @@ export interface NumberedShot {
 export function shotNumbers(
   sceneNumber: string,
   shots: readonly NumberedShot[],
-  { locked, ...options }: LetterOptions & { locked: boolean },
+  { locked, taken, ...options }: LetterOptions & {
+    locked: boolean;
+    /** Numbers held elsewhere on the board, which a locked scene's next free letter skips (a restore uses it). */
+    taken?: ReadonlySet<string> | undefined;
+  },
 ): Map<string, string> {
   const changed = new Map<string, string>();
   const live = shots.filter((shot) => !shot.trashed);
@@ -87,7 +91,8 @@ export function shotNumbers(
   }
   for (const shot of live) {
     if (shot.number !== '') continue;
-    highest += 1;
+    do highest += 1;
+    while (taken?.has(`${sceneNumber}${letterFor(highest, options)}`));
     changed.set(shot.id, `${sceneNumber}${letterFor(highest, options)}`);
   }
   return changed;

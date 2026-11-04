@@ -162,3 +162,26 @@ export function restoreChanges(records: Records, projectId: string, id: string):
       return [{ kind: 'restore', id }];
   }
 }
+
+/** How many of these Trash rows are gone from the project: what an Empty Trash deleted, counted as the Trash lists it. */
+export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
+  return rows.filter((row) => !records[row.id]).length;
+}
+
+/**
+ * The Empty Trash confirm, the same in the Trash tile and Settings → Storage. `hidden` counts items the Trash tile's
+ * filters hide, since it empties them too.
+ */
+export function emptyTrashMessage(records: Records, count: number, hidden = 0): string {
+  const what = `${String(count)} ${count === 1 ? 'item' : 'items'}${hidden > 0 ? ` (${String(hidden)} hidden by the filters)` : ''}`;
+  // A locked scene reserves a trashed frame's letter by keeping the frame; once it's deleted for good, a new frame can
+  // be given that letter again (a fix needs a format change, for Kevin to decide). Said only when it can happen.
+  const lockedLetters = Object.values(records).some(
+    (r) => r.type === 'shot' && r.trashedAt !== null && r.parentId !== null && sceneFields(records[r.parentId]?.props ?? {}).numbersLocked,
+  );
+  return [
+    `${what} will be deleted for good, with their sketches and pictures.`,
+    'This can’t be undone, History can’t bring them back, and Undo won’t go back past it.',
+    ...(lockedLetters ? ['In a locked scene, a new frame can then be given a deleted frame’s letter.'] : []),
+  ].join(' ');
+}
