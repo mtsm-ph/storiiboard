@@ -420,7 +420,14 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
   return touchedBy(ops);
 }
 
-/** Every record Empty Trash deletes: each trashed one (never the project) and everything under it. */
+/**
+ * The kinds a person deletes to the Trash, and so the kinds Empty Trash deletes for good. An erased sketch stroke is
+ * trashed too but isn't in the Trash (1.13, 1.20): it goes only with its frame, so a frame still on the board keeps
+ * its sketch's History.
+ */
+const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media']);
+
+/** Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. */
 export function purgeIds(records: readonly SbdRecord[]): string[] {
   const children = new Map<string, SbdRecord[]>();
   for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
@@ -430,7 +437,7 @@ export function purgeIds(records: readonly SbdRecord[]): string[] {
     ids.add(record.id);
     for (const child of children.get(record.id) ?? []) add(child);
   };
-  for (const record of records) if (record.trashedAt !== null && record.type !== 'project') add(record);
+  for (const record of records) if (record.trashedAt !== null && TRASHED_BY_PEOPLE.has(record.type)) add(record);
   return [...ids];
 }
 

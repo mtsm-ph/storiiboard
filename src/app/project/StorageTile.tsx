@@ -96,7 +96,7 @@ export function StorageTile() {
           onClick={() =>
             void run(
               'Clean up old pictures?',
-              `${String(old?.count ?? 0)} ${old?.count === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone; those steps in History will show “picture removed”.`,
+              `${String(old?.count ?? 0)} ${old?.count === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone: a redo or a History restore that brings one back shows “Picture missing”.`,
               'Clean up',
               () => projectStore.getState().cleanUpPictures(),
               'Cleaned up old pictures',
@@ -120,7 +120,7 @@ export function StorageTile() {
           onClick={() =>
             void run(
               'Empty Trash?',
-              `${String(inTrash)} ${inTrash === 1 ? 'item' : 'items'} will be deleted for good, with their pictures. This can’t be undone, and History can’t bring them back.`,
+              `${String(inTrash)} ${inTrash === 1 ? 'item' : 'items'} will be deleted for good, with their sketches and pictures. This can’t be undone, History can’t bring them back, and Undo won’t go back past it.`,
               'Empty Trash',
               () => projectStore.getState().emptyTrash(),
               'Emptied the Trash',

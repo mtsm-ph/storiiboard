@@ -48,14 +48,16 @@ export function TrashTile() {
   if (chosenScene !== '' && sceneId === '') setSceneId('');
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
-  const emptyAll = async (count: number) => {
+  const emptyAll = async (count: number, hidden: number) => {
     const shownFor = project;
+    // It empties the whole Trash, so items the filters hide are named too.
+    const what = `${String(count)} ${count === 1 ? 'item' : 'items'}${hidden > 0 ? ` (${String(hidden)} hidden by the filters)` : ''}`;
     const done = await forGood(
       emptying,
       () =>
         confirmForGood(
           'Empty Trash?',
-          `${String(count)} ${count === 1 ? 'item' : 'items'} will be deleted for good, with their pictures. This can’t be undone, and History can’t bring them back.`,
+          `${what} will be deleted for good, with their sketches and pictures. This can’t be undone, History can’t bring them back, and Undo won’t go back past it.`,
           'Empty Trash',
         ),
       () => projectStore.getState().project === shownFor,
@@ -137,7 +139,7 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
-        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length)}>
+        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length, all.length - shown.length)}>
           Empty Trash…
         </Button>
       </div>

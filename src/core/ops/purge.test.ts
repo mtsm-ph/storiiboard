@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, moveItem, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
-import { addStroke } from '../../features/storyboard/sketch/strokes';
+import { addStroke, eraseStrokes } from '../../features/storyboard/sketch/strokes';
 import { readOriginal, readThumbnail, type PreparedImage } from '../media/store';
 import { shotFields } from '../model/storyboard';
 import { nodeDriver } from '../storage/nodeDriver';
@@ -94,6 +94,24 @@ describe('Empty Trash', () => {
     expect(await readThumbnail(project.file, own)).toBeNull();
     expect(await readOriginal(project.file, shared)).not.toBeNull();
     expect(shotFields(records()[kept]?.props ?? {}).number).toBe('4A');
+  });
+
+  it('leaves a stroke erased from a frame still on the board, so History can bring the sketch back', async () => {
+    const [kept, gone] = [await frame(), await frame()];
+    const stroke = addStroke(records(), kept, { tool: 'pen', points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null });
+    await store.getState().apply([stroke]);
+    const strokeId = stroke.record.id ?? '';
+    const drawn = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().apply(eraseStrokes([strokeId]));
+    await trash(gone);
+
+    // The person was told about one item: the frame. The erased stroke isn't in the Trash, so it isn't deleted.
+    expect((await store.getState().emptyTrash())?.removed).toBe(1);
+    expect(records()[strokeId]?.trashedAt).not.toBeNull();
+    await restoreTo(project.file, drawn);
+    await reopen();
+    expect(records()[strokeId]?.trashedAt).toBeNull();
+    expect(records()[strokeId]?.parentId).toBe(kept);
   });
 
   it('can’t be undone: the stacks end at it, it’s in History as purges, and older steps lose those records’ data', async () => {

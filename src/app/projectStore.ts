@@ -22,6 +22,11 @@ export interface ProjectState {
    * reopens the newer version and this goes back to false.
    */
   changedOnDisk: boolean;
+  /**
+   * Counts edits that stored a picture's bytes. A frame that read a picture as missing (deleted for good, 1.21) looks
+   * again when it changes, so the same photo added back shows on every frame that names it.
+   */
+  picturesWritten: number;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -86,6 +91,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       canRedo: false,
       error: null,
       changedOnDisk: false,
+      picturesWritten: 0,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
@@ -121,12 +127,19 @@ export function createProjectStore(): StoreApi<ProjectState> {
           }
         }),
       apply: async (changes, options) => {
-        await edit((project) => apply(project.file, changes, options));
+        await edit(async (project) => {
+          const touched = await apply(project.file, changes, options);
+          if (options?.alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
+          return touched;
+        });
       },
       applyWith: (build) =>
         edit(async (project) => {
           const { changes, alsoWrite } = build(get().records);
-          return changes.length === 0 ? null : apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+          if (changes.length === 0) return null;
+          const touched = await apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+          if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
+          return touched;
         }),
       undo: async () => {
         await edit((project) => undo(project.file));

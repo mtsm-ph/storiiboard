@@ -124,4 +124,12 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
   await board(page).locator('[data-shot-id]').first().click();
   await page.keyboard.press(await redoKey(page));
   await expect(board(page).locator('[data-shot-id]').first().getByText('Picture missing')).toBeVisible();
+
+  // The same photo chosen again, on the other frame, is stored again, and both frames show it.
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  const again = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Choose picture…' }).click();
+  await (await again).setFiles(fixture);
+  await expect(board(page).locator('[data-shot-id]').nth(1).locator('img[data-frame-image]')).toBeVisible();
+  await expect(board(page).locator('[data-shot-id]').first().locator('img[data-frame-image]')).toBeVisible();
 });
