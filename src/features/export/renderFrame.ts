@@ -1,8 +1,10 @@
 import { makeCanvas, type AnyCanvas, type Canvas2D } from '../../core/media/canvas';
-import { cropBox, readCrop } from '../../core/media/crop';
-import { mediaFields, readOriginal } from '../../core/media/store';
+import { cropBox, type Crop } from '../../core/media/crop';
+import { readOriginal } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
+import { shotFields } from '../../core/model/storyboard';
 import type { ProjectFile } from '../../core/storage/driver';
+import { pictureView } from '../storyboard/framePictures';
 import { arrowHead, pressureOutline, strokesOf, type Stroke } from '../storyboard/sketch/strokes';
 import type { Watermark } from './watermark';
 
@@ -88,15 +90,61 @@ function drawWatermark(ctx: Canvas2D, watermark: Watermark, width: number, heigh
   );
   ctx.save();
   ctx.globalAlpha = watermark.opacity;
-  ctx.fillStyle = INK;
   ctx.font = WATERMARK_FONT(size);
   ctx.textBaseline = watermark.position === 'center' ? 'middle' : watermark.position.startsWith('top') ? 'top' : 'bottom';
   const x = watermark.position === 'center' ? width / 2 : watermark.position.endsWith('left') ? margin : width - margin;
   const y = watermark.position === 'center' ? height / 2 : watermark.position.startsWith('top') ? margin : height - margin;
   ctx.textAlign = watermark.position === 'center' ? 'center' : watermark.position.endsWith('left') ? 'left' : 'right';
-  // maxWidth too, as a last guard: the canvas squeezes the line rather than cut it.
+  // Ink with a paper outline, so it reads over a night exterior as well as on white: ink alone over a dark picture
+  // all but vanished, and the frame went out unmarked. maxWidth too, as a last guard: the canvas squeezes the line
+  // rather than cut it.
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = watermarkOutline(size);
+  ctx.strokeStyle = PAPER;
+  ctx.strokeText(watermark.text, x, y, width - 2 * margin);
+  ctx.fillStyle = INK;
   ctx.fillText(watermark.text, x, y, width - 2 * margin);
   ctx.restore();
+}
+
+/** The paper outline round the watermark's letters: a sixth of the type size, never under a pixel and a half. */
+export function watermarkOutline(size: number): number {
+  return Math.max(1.5, size / 6);
+}
+
+/** Said on a frame whose picture the file no longer holds, as the board says it, so a blank frame isn't mistaken for one. */
+function drawPictureMissing(ctx: Canvas2D, width: number, height: number) {
+  ctx.save();
+  ctx.fillStyle = INK;
+  ctx.font = `600 ${String(Math.max(10, Math.round(Math.min(width, height) * 0.04)))}px "JetBrains Mono", Menlo, Consolas, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PICTURE MISSING', width / 2, height / 2, width * 0.9);
+  ctx.restore();
+}
+
+/**
+ * What a frame's export draws, as the board shows it: its live strokes, and its live picture's full-size bytes with
+ * the crop; 'missing' when the frame has a picture the file no longer holds (an old or damaged file), null for a
+ * frame with none. Trashed strokes and pictures never go out.
+ */
+export interface FrameContent {
+  strokes: Stroke[];
+  picture: { bytes: Uint8Array; mime: string; crop: Crop } | 'missing' | null;
+}
+
+export async function frameContent(records: Records, file: ProjectFile, shot: SbdRecord): Promise<FrameContent> {
+  const strokes = strokesOf(records, shot.id);
+  const view = pictureView(records, shotFields(shot.props));
+  if (!view) return { strokes, picture: null };
+  const original = await readOriginal(file, view.sha256);
+  return { strokes, picture: original ? { ...original, crop: view.crop } : 'missing' };
+}
+
+/** A drawn frame, and whether its picture was missing, so the export can name those frames when it's done. */
+export interface RenderedFrame {
+  canvas: AnyCanvas;
+  pictureMissing: boolean;
 }
 
 /** One frame as an image `width` by `height`, ready to encode. */
@@ -106,21 +154,19 @@ export async function renderFrame(
   shot: SbdRecord,
   size: { width: number; height: number },
   watermark: Watermark | null,
-): Promise<AnyCanvas> {
+): Promise<RenderedFrame> {
   const { width, height } = size;
   const { canvas, ctx } = makeCanvas(width, height);
   if (!ctx) throw new Error('This computer can’t draw the frames for export.');
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, width, height);
 
-  const mediaId = typeof shot.props.media_id === 'string' ? shot.props.media_id : null;
-  const media = mediaId ? records[mediaId] : undefined;
-  const fields = media && media.trashedAt === null ? mediaFields(media.props) : null;
-  const original = fields ? await readOriginal(file, fields.sha256) : null;
-  if (fields && original) {
-    const bitmap = await createImageBitmap(new Blob([original.bytes as Uint8Array<ArrayBuffer>], { type: original.mime }));
+  const { strokes, picture } = await frameContent(records, file, shot);
+  if (picture === 'missing') drawPictureMissing(ctx, width, height);
+  else if (picture) {
+    const bitmap = await createImageBitmap(new Blob([picture.bytes as Uint8Array<ArrayBuffer>], { type: picture.mime }));
     try {
-      const box = cropBox(readCrop(shot.props), bitmap.width / bitmap.height, width / height);
+      const box = cropBox(picture.crop, bitmap.width / bitmap.height, width / height);
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(bitmap, (box.left / 100) * width, (box.top / 100) * height, (box.width / 100) * width, (box.height / 100) * height);
     } finally {
@@ -130,7 +176,7 @@ export async function renderFrame(
 
   ctx.strokeStyle = INK;
   ctx.fillStyle = INK;
-  for (const stroke of strokesOf(records, shot.id)) drawStroke(ctx, stroke, width, height);
+  for (const stroke of strokes) drawStroke(ctx, stroke, width, height);
   if (watermark) drawWatermark(ctx, watermark, width, height);
-  return canvas;
+  return { canvas, pictureMissing: picture === 'missing' };
 }

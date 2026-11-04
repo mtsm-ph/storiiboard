@@ -294,6 +294,13 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Decided in review (Nov 4), to review: names keep the slate's numbers and the sort claim was corrected, rather than
   adding a sequence number to every file; a name given twice in one export (two live scenes numbered 4, from an old
   file) gets ` (2)` before the extension, as the Finder and Explorer do; a stopped export keeps the frames it wrote.
+- Decided in the second review (Nov 4), to review: the watermark is ink with a paper outline (a sixth of the type
+  size) at the chosen strength, so it reads over a dark picture, rather than picking ink or paper from the picture
+  under it; a frame whose stored picture is gone still exports, with PICTURE MISSING across it, and the export ends
+  on a warning that names those frames by file name (the first ten, then a count); Strength runs 5 to 100% in steps
+  of 5, the floor a stored watermark already has, on the kit's ruled range as the inspector's Zoom (not the tick
+  Slider, whose 20 labels would crowd the dialog); the format is the kit's segmented control, the chosen format's
+  description shown under it, and the On choices are the kit's switches.
 
 **As built in 1.23 (Nov 3): named versions** (schema 4, src/core/storage/versions.ts):
 - In the History tile: Name this point names the newest step; versions are listed with their step, and each step

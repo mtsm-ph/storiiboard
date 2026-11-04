@@ -69,6 +69,6 @@ export const shotListCsvFormat: ExportFormat = {
     const scene = scope.kind === 'scene' ? (scenesIn(records, projectId, scope)[0]?.fields.number ?? null) : null;
     signal.throwIfAborted();
     await target.write(exportName(title, scene, 'shot list', 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope)));
-    return `${String(frames)} ${frames === 1 ? 'frame' : 'frames'}`;
+    return { what: `${String(frames)} ${frames === 1 ? 'frame' : 'frames'}` };
   },
 };

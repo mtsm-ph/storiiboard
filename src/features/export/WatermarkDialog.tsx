@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
-import { Select, TextField } from '../../ui/fields';
+import { Select, TextField, Toggle } from '../../ui/fields';
 import { closeExportDialog } from './exportStore';
 import { Modal } from './ExportDialog';
 import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkChange, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
@@ -10,11 +10,18 @@ import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkC
 // Watermark Settings (1.24, the project menu): the text, where it sits, how strong, and which exports carry it. Saved
 // as one edit to the project record, so it undoes like any other and every export reads the same watermark.
 
-const USES: readonly { use: WatermarkUse; label: string; later?: string }[] = [
+const USES: readonly { use: WatermarkUse; label: string }[] = [
   { use: 'pdf', label: 'PDF storyboard' },
   { use: 'png', label: 'PNG frames' },
-  { use: 'review', label: 'Web review copy', later: 'Phase 9' },
+  { use: 'review', label: 'Web review copy (Phase 9)' },
 ];
+
+/**
+ * Strength, in percent: the same floor readWatermark keeps a stored one to (docs/SBD_FORMAT.md), so a file's 5% shows
+ * as 5% and can be set again. A slider with a floor of its own pinned a fainter stored one there, under a label that
+ * said otherwise.
+ */
+export const STRENGTH_MIN = 5;
 
 export function WatermarkDialog() {
   const project = useProject((s) => s.project);
@@ -22,6 +29,7 @@ export function WatermarkDialog() {
   const stored = project ? readWatermark(records[project.projectId]?.props) : null;
   const [draft, setDraft] = useState<Watermark>(stored ?? DEFAULT_WATERMARK);
   if (!project) return null;
+  const strength = Math.round(draft.opacity * 100);
 
   const save = () => {
     const change = watermarkChange(project.projectId, projectStore.getState().records[project.projectId]?.props, draft);
@@ -58,41 +66,37 @@ export function WatermarkDialog() {
             </option>
           ))}
         </Select>
-        <label className="flex flex-col gap-[5px]">
+        <label className="flex min-w-[180px] flex-1 flex-col gap-[5px]">
           <span className="sb-label">Strength</span>
-          <span className="flex items-center gap-2">
+          <span className="flex h-[30px] items-center gap-2">
+            {/* The kit's ruled range, as the frame inspector's Zoom: square thumb, no radius in either webview. */}
             <input
               type="range"
-              min={10}
+              min={STRENGTH_MIN}
               max={100}
               step={5}
-              value={Math.round(draft.opacity * 100)}
-              aria-valuetext={`${String(Math.round(draft.opacity * 100))}%`}
+              value={strength}
+              aria-valuetext={`${String(strength)}%`}
               onChange={(event) => {
                 setDraft({ ...draft, opacity: Number(event.currentTarget.value) / 100 });
               }}
-              className="accent-text"
+              className="sb-range min-w-0 flex-1"
             />
-            <span className="font-mono text-[12px]">{`${String(Math.round(draft.opacity * 100))}%`}</span>
+            <span className="w-[4ch] text-right font-mono text-[12px]">{`${String(strength)}%`}</span>
           </span>
         </label>
       </div>
-      <fieldset className="flex flex-col gap-1.5">
+      <fieldset className="flex flex-col gap-2">
         <legend className="sb-label mb-1">On</legend>
-        {USES.map(({ use, label, later }) => (
-          <label key={use} className="flex items-center gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              checked={draft.appliesTo.includes(use)}
-              onChange={(event) => {
-                const on = event.currentTarget.checked;
-                setDraft({ ...draft, appliesTo: on ? [...draft.appliesTo, use] : draft.appliesTo.filter((u) => u !== use) });
-              }}
-              className="accent-text"
-            />
-            {label}
-            {later && <span className="sb-label text-text-muted">{later}</span>}
-          </label>
+        {USES.map(({ use, label }) => (
+          <Toggle
+            key={use}
+            label={label}
+            checked={draft.appliesTo.includes(use)}
+            onChange={(on) => {
+              setDraft({ ...draft, appliesTo: on ? [...draft.appliesTo, use] : draft.appliesTo.filter((u) => u !== use) });
+            }}
+          />
         ))}
       </fieldset>
       <p className="text-[12px] text-text-muted">Leave the text empty for no watermark.</p>

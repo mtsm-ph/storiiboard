@@ -34,8 +34,15 @@ export interface ExportFormat {
   watermark?: WatermarkUse;
   /** The file's name, or the new folder's, for this scope. */
   name: (title: string, sceneNumber: string | null) => string;
-  /** Resolves to what it wrote, in words: "12 frames". */
-  run: (context: ExportContext) => Promise<string>;
+  /** Resolves to what it wrote. */
+  run: (context: ExportContext) => Promise<ExportResult>;
+}
+
+export interface ExportResult {
+  /** In words: "12 frames". */
+  what: string;
+  /** What went out short, for the person to see: frames whose picture the file no longer holds. */
+  warning?: string;
 }
 
 export const FORMATS: readonly ExportFormat[] = [shotListCsvFormat, pngFrames];

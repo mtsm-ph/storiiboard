@@ -6,6 +6,7 @@ import { sceneLabel } from '../../core/model/storyboard';
 import { chooseExportFile, chooseExportFolder } from '../../core/storage/exportFiles';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
+import { SegmentedControl } from '../../ui/SegmentedControl';
 import { board } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { closeExportDialog, useExportDialog } from './exportStore';
@@ -79,7 +80,6 @@ function ExportDialog() {
   const [sceneId, setSceneId] = useState('');
   const [running, setRunning] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
-  const groupId = useId();
   // The dialog gone for any reason (another project opened in place) stops what it was running.
   useEffect(
     () => () => {
@@ -116,7 +116,7 @@ function ExportDialog() {
       if (!target || controller.signal.aborted) return;
       label = target.label;
       setRunning('Exporting…');
-      const what = await format.run({
+      const { what, warning } = await format.run({
         records,
         projectId: project.projectId,
         title,
@@ -131,7 +131,10 @@ function ExportDialog() {
         signal: controller.signal,
       });
       closeExportDialog();
-      showInfo(`Exported ${what} to “${target.label}”.`);
+      const said = `Exported ${what} to “${target.label}”.`;
+      // Something went out short: a warning, so it reads as one and stays until it's dismissed.
+      if (warning) showNotice(`${said} ${warning}`);
+      else showInfo(said);
     } catch (error) {
       if (controller.signal.aborted) {
         showInfo(total === 0 ? 'Export stopped.' : `Export stopped: ${String(done)} of ${String(total)} written to “${label}”.`);
@@ -144,35 +147,14 @@ function ExportDialog() {
 
   return (
     <Modal title="Export" onClose={stop}>
-      <div role="radiogroup" aria-labelledby={groupId} className="flex flex-col gap-2">
-        <span id={groupId} className="sb-label">
-          Format
-        </span>
-        {FORMATS.map((f) => (
-          <div key={f.id} className="flex items-start gap-2 text-[13px]">
-            <input
-              id={`${groupId}-${f.id}`}
-              type="radio"
-              name="export-format"
-              value={f.id}
-              checked={f.id === format?.id}
-              aria-describedby={`${groupId}-${f.id}-about`}
-              onChange={() => {
-                setFormatId(f.id);
-              }}
-              className="mt-[3px] accent-text"
-            />
-            <div>
-              <label htmlFor={`${groupId}-${f.id}`} className="font-semibold">
-                {f.label}
-              </label>
-              <p id={`${groupId}-${f.id}-about`} className="text-[12px] text-text-muted">
-                {f.description}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* The kit's segmented control, square and ink-filled, rather than the webview's round radio dots. */}
+      <SegmentedControl
+        label="Format"
+        options={FORMATS.map((f) => ({ value: f.id, label: f.label, hint: f.description }))}
+        value={format?.id ?? ''}
+        onChange={setFormatId}
+      />
+      {format && <p className="-mt-2 text-[12px] text-text-muted">{format.description}</p>}
       <Select
         label="Scenes"
         value={sceneId}
