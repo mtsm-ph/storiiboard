@@ -67,6 +67,12 @@ export interface InspectorViewProps {
   onChoosePicture?: () => void;
   onRemovePicture?: () => void;
   onCropChange?: (crop: Crop) => void;
+  /** Opens the frame's sketch in the editor. */
+  onSketch?: () => void;
+  /** Strokes in the frame's sketch, for the Sketch button's name. */
+  strokeCount?: number;
+  /** The scene's location, set from the "/" menu; null when it has none. */
+  locationName?: string | null;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -200,6 +206,9 @@ export function InspectorView({
   onChoosePicture,
   onRemovePicture,
   onCropChange,
+  locationName = null,
+  onSketch,
+  strokeCount = 0,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -269,6 +278,7 @@ export function InspectorView({
               <Button data-choose-picture="" onClick={onChoosePicture}>
                 {picture ? 'Replace…' : 'Choose picture…'}
               </Button>
+              <Button onClick={onSketch}>{strokeCount > 0 ? 'Edit sketch' : 'Sketch'}</Button>
               {picture && (
                 <Button
                   onClick={(event) => {
@@ -471,8 +481,16 @@ export function InspectorView({
 
       <Section title="Links">
         <ul className="flex flex-col gap-1.5 text-[13px]">
+          <li className="flex justify-between gap-3">
+            <span>Location</span>
+            {/* Linked from the board's "/" menu; addresses, contacts and parking arrive in Phase 3. */}
+            {locationName ? (
+              <span className="truncate font-semibold">{locationName}</span>
+            ) : (
+              <span className="sb-label text-text-muted">/ on the board</span>
+            )}
+          </li>
           {[
-            ['Location', 'Phase 3'],
             ['Shoot day', 'Phase 3'],
             ["Bird's-eye setup", 'Phase 5'],
           ].map(([name, phase]) => (
