@@ -160,9 +160,9 @@ function ExportDialog() {
         scope,
         file: project.file,
         target,
-        progress: (done, of) => {
+        progress: (done, of, doing) => {
           total = of;
-          setRunning(`Exporting ${String(done)} of ${String(of)}…`);
+          setRunning(doing ?? `Exporting ${String(done)} of ${String(of)}…`);
         },
         signal: controller.signal,
       });

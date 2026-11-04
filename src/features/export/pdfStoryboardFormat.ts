@@ -10,8 +10,15 @@ import { watermarkFor } from './watermark';
 // The PDF storyboard in the registry (1.25). pdf-lib and the fonts load only when a PDF is exported; the layout is in
 // pdfStoryboard.ts.
 
-/** Frames go into the PDF at this width: sharp in print at the page's three-a-row size. */
-const FRAME_WIDTH = 1200;
+/**
+ * Pixels per point a frame goes into the PDF at: three is 216 ppi, sharp in print at its size on the page. A fixed
+ * 1200 px was 370 ppi and about 190 KB a frame, so a feature's 1500 frames made a PDF of over 200 MB, too big to send
+ * crew and held several times over in the webview's memory while it was written.
+ */
+export const FRAME_PIXELS_PER_POINT = 3;
+
+/** The status while the PDF is put together and written, after the last frame: seconds for a long board. */
+export const WRITING_STATUS = 'Writing the PDF…';
 
 /** Said when some text printed as ?, so a blank in the PDF isn't taken for a lost word. */
 export const REPLACED_WARNING = 'Characters its fonts don’t have (emoji; Chinese, Japanese or Korean) print as ?.';
@@ -29,7 +36,7 @@ export const pdfStoryboard: ExportFormat = {
   watermark: 'pdf',
   name: (title, scene) => exportName(title, scene, 'storyboard', 'pdf'),
   run: async ({ records, projectId, scope, file, target, title, progress, signal }) => {
-    const [{ storyboardPdf }, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
+    const [{ storyboardPdf, frameBox }, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
       import('./pdfStoryboard'),
       fontBytes(() => import('./fonts/InterTight-Regular.ttf?url')),
       fontBytes(() => import('./fonts/InterTight-SemiBold.ttf?url')),
@@ -41,6 +48,8 @@ export const pdfStoryboard: ExportFormat = {
     const aspect = aspectRatioValue(projectStoryboard(props).aspectRatio);
     const scenes = scenesIn(records, projectId, scope);
     const total = scenes.reduce((n, s) => n + s.shots.length, 0);
+    const box = frameBox(aspect);
+    const size = { width: Math.round(box.width * FRAME_PIXELS_PER_POINT), height: Math.round(box.height * FRAME_PIXELS_PER_POINT) };
     let done = 0;
     progress(done, total);
     const pdf = await storyboardPdf({
@@ -54,16 +63,18 @@ export const pdfStoryboard: ExportFormat = {
         const shot = scenes[sceneIndex]?.shots[shotIndex];
         if (!shot) return null;
         try {
-          const { canvas, pictureMissing } = await renderFrame(records, file, shot.record, { width: FRAME_WIDTH, height: Math.round(FRAME_WIDTH / aspect) }, null);
+          const { canvas, pictureMissing } = await renderFrame(records, file, shot.record, size, null);
           const blob = await canvasBlob(canvas, 'image/jpeg', 0.88);
           return blob ? { jpeg: new Uint8Array(await blob.arrayBuffer()), pictureMissing } : null;
         } finally {
           done += 1;
-          progress(done, total);
+          progress(done, total, done === total ? WRITING_STATUS : undefined);
         }
       },
     });
     const scene = scope.kind === 'scene' ? (scenes[0]?.fields.number ?? null) : null;
+    // A Stop pressed while the PDF was saved: nothing goes to disk, so a file chosen to be replaced is left as it was.
+    signal.throwIfAborted();
     await target.write(exportName(title, scene, 'storyboard', 'pdf'), pdf.bytes);
     const warnings = [pdf.missing.length > 0 ? missingWarning(pdf.missing) : '', pdf.replaced ? REPLACED_WARNING : ''].filter((w) => w !== '');
     const what = `${String(total)} ${total === 1 ? 'frame' : 'frames'}`;

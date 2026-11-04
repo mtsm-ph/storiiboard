@@ -278,7 +278,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   Title and STORYBOARD at the top of every page, the date and "2 / 5" at the foot, and the watermark when it applies
   to PDFs.
 - Real text and lines from pdf-lib, so the file is small and searchable (an editor can find "4B"); each frame goes in
-  as a JPEG drawn the way the PNG export draws it, 1200 pixels wide. Inter Tight and JetBrains Mono are embedded as
+  as a JPEG drawn the way the PNG export draws it, at three pixels per point of its printed size (216 ppi; about
+  700 pixels wide), so a feature-length board stays small enough to send. Inter Tight and JetBrains Mono are embedded as
   subsets, from static copies of the bundled fonts made by scripts/static-fonts.py (fontTools, run once by hand; not
   a dependency). pdf-lib and the fonts load only when a PDF is exported.
 - Dependencies, as approved: pdf-lib 1.17.1 and @pdf-lib/fontkit 1.1.1, both MIT.

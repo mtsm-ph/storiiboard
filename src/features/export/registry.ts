@@ -19,8 +19,8 @@ export interface ExportContext {
   scope: ExportScope;
   file: ProjectFile;
   target: ExportTarget;
-  /** Called as work goes, for a progress line: done so far, of all. */
-  progress: (done: number, total: number) => void;
+  /** Called as work goes, for a progress line: done so far, of all, or what it's doing instead when it says. */
+  progress: (done: number, total: number, doing?: string) => void;
   /** Aborted when the person stops the export: a format checks it between files and stops there. */
   signal: AbortSignal;
 }

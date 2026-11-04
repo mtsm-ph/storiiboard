@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Download, type Page } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { skipOnboarding } from './onboarding';
 
@@ -50,6 +50,53 @@ test('exports a scene as a PDF storyboard, the format the dialog starts on', asy
   expect(pdf.getPageCount()).toBe(1);
   expect(pdf.getTitle()).toBe('Bey County storyboard');
   await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County SC 01 storyboard.pdf”.')).toBeVisible();
+});
+
+/** The width and height of each picture in an exported PDF. */
+function pdfImageSizes(pdf: PDFDocument): { width: number; height: number }[] {
+  const sizes: { width: number; height: number }[] = [];
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream) || !(object.dict instanceof PDFDict)) continue;
+    if (object.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
+    const width = object.dict.get(PDFName.of('Width'));
+    const height = object.dict.get(PDFName.of('Height'));
+    if (width instanceof PDFNumber && height instanceof PDFNumber) sizes.push({ width: width.asNumber(), height: height.asNumber() });
+  }
+  return sizes;
+}
+
+test('the PDF’s frames go in at their printed size, not the 1200 px that made a feature’s PDF 200 MB', async ({ page }) => {
+  await projectMenu(page, 'Export Project…');
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const sizes = pdfImageSizes(await PDFDocument.load(readFileSync(await (await downloaded).path())));
+  // 16:9 frames a third of a Letter page wide, at three pixels a point: 216 ppi.
+  expect(sizes).toHaveLength(2);
+  for (const size of sizes) {
+    expect(size.width).toBeGreaterThan(600);
+    expect(size.width).toBeLessThanOrEqual(720);
+    expect(Math.abs(size.width / size.height - 16 / 9)).toBeLessThan(0.01);
+  }
+});
+
+test('the dialog says it is writing the PDF after the last frame, not still on it', async ({ page }) => {
+  // The memory build's write is over in a moment: every status the dialog shows is kept as it shows, to read after.
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { statuses?: string[] }).statuses = seen;
+    new MutationObserver(() => {
+      const text = document.querySelector('dialog [role="status"]')?.textContent ?? '';
+      if (text !== '' && seen.at(-1) !== text) seen.push(text);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  await projectMenu(page, 'Export Project…');
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await downloaded;
+  await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County storyboard.pdf”.')).toBeVisible();
+  const statuses = await page.evaluate(() => (window as unknown as { statuses?: string[] }).statuses ?? []);
+  expect(statuses.at(-1)).toBe('Writing the PDF…');
+  expect(statuses).not.toContain('Exporting 2 of 2…');
 });
 
 /** Each page's text in an exported PDF, as a reader finds it. */
