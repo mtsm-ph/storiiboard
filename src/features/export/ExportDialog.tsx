@@ -77,13 +77,14 @@ const CHOOSING = 'Choosing where…';
 
 /**
  * Why an export failed, for the dialog. A set of files says how far it got and where, since what it wrote stays: the
- * person needs to know which frames to find, or to clear, before they try again.
+ * person needs to know which frames to find, or to clear, before they try again. Counted in files written, not frames
+ * drawn: a PDF draws every frame before it writes its one file, so one that failed had written nothing.
  */
-function failureMessage(error: unknown, done: number, total: number, label: string): string {
+function failureMessage(error: unknown, written: number, total: number, label: string): string {
   const reason = error instanceof Error ? error.message : String(error);
   if (label === '') return `Not exported: ${reason}`;
-  if (total === 0) return `Not exported to “${label}”: ${reason}`;
-  return `Stopped with ${String(done)} of ${String(total)} written to “${label}”: ${reason}`;
+  if (written === 0) return `Not exported to “${label}”: ${reason}`;
+  return `Stopped with ${String(written)} of ${String(total)} written to “${label}”: ${reason}`;
 }
 
 function ExportDialog() {
@@ -132,16 +133,25 @@ function ExportDialog() {
     const name = format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
-    let done = 0;
+    // Files actually written, not frames drawn: the PDF draws every frame before it writes its one file, so a PDF
+    // stopped at frame 2 of 2 had written nothing, and saying "2 of 2 written" told people a file was there.
+    let written = 0;
     let total = 0;
     let label = '';
     // The button goes disabled from the first click, while the Save or folder dialog is still coming up.
     setRunning(CHOOSING);
     setFailed(null);
     try {
-      const target = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
-      if (!target || controller.signal.aborted) return;
-      label = target.label;
+      const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
+      if (!chosen || controller.signal.aborted) return;
+      label = chosen.label;
+      const target = {
+        label: chosen.label,
+        write: async (file: string, bytes: Uint8Array) => {
+          await chosen.write(file, bytes);
+          written += 1;
+        },
+      };
       setRunning('Exporting…');
       const { what, warning } = await format.run({
         records,
@@ -150,10 +160,9 @@ function ExportDialog() {
         scope,
         file: project.file,
         target,
-        progress: (written, of) => {
-          done = written;
+        progress: (done, of, doing) => {
           total = of;
-          setRunning(`Exporting ${String(written)} of ${String(of)}…`);
+          setRunning(doing ?? `Exporting ${String(done)} of ${String(of)}…`);
         },
         signal: controller.signal,
       });
@@ -164,8 +173,10 @@ function ExportDialog() {
       else showInfo(said);
     } catch (error) {
       if (controller.signal.aborted) {
-        showInfo(total === 0 ? 'Export stopped.' : `Export stopped: ${String(done)} of ${String(total)} written to “${label}”.`);
-      } else setFailed(failureMessage(error, done, total, label));
+        showInfo(
+          written === 0 ? 'Export stopped. Nothing was written.' : `Export stopped: ${String(written)} of ${String(total)} written to “${label}”.`,
+        );
+      } else setFailed(failureMessage(error, written, total, label));
     } finally {
       if (stopper.current === controller) stopper.current = null;
       busy.current = false;

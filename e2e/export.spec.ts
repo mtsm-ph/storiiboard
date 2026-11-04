@@ -2,10 +2,12 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Download, type Page } from '@playwright/test';
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { skipOnboarding } from './onboarding';
 
-// Export (1.24) in the memory build, where each file downloads: the shot list CSV's text, the PNG frames' names and
-// sizes, and the watermark set in Watermark Settings.
+// Export (1.24, 1.25) in the memory build, where each file downloads: the PDF storyboard, the shot list CSV's text, the
+// PNG frames' names and sizes, and the watermark set in Watermark Settings.
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -36,9 +38,116 @@ function pngSize(path: string): { width: number; height: number } {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
+test('exports a scene as a PDF storyboard, the format the dialog starts on', async ({ page }) => {
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+  await dialog(page, 'Export').getByRole('combobox', { name: /^Scenes/ }).selectOption({ index: 1 });
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toBe('Bey County SC 01 storyboard.pdf');
+  const pdf = await PDFDocument.load(readFileSync(await file.path()));
+  expect(pdf.getPageCount()).toBe(1);
+  expect(pdf.getTitle()).toBe('Bey County storyboard');
+  await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County SC 01 storyboard.pdf”.')).toBeVisible();
+});
+
+/** The width and height of each picture in an exported PDF. */
+function pdfImageSizes(pdf: PDFDocument): { width: number; height: number }[] {
+  const sizes: { width: number; height: number }[] = [];
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream) || !(object.dict instanceof PDFDict)) continue;
+    if (object.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
+    const width = object.dict.get(PDFName.of('Width'));
+    const height = object.dict.get(PDFName.of('Height'));
+    if (width instanceof PDFNumber && height instanceof PDFNumber) sizes.push({ width: width.asNumber(), height: height.asNumber() });
+  }
+  return sizes;
+}
+
+test('the PDF’s frames go in at their printed size, not the 1200 px that made a feature’s PDF 200 MB', async ({ page }) => {
+  await projectMenu(page, 'Export Project…');
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const sizes = pdfImageSizes(await PDFDocument.load(readFileSync(await (await downloaded).path())));
+  // 16:9 frames a third of a Letter page wide, at three pixels a point: 216 ppi.
+  expect(sizes).toHaveLength(2);
+  for (const size of sizes) {
+    expect(size.width).toBeGreaterThan(600);
+    expect(size.width).toBeLessThanOrEqual(720);
+    expect(Math.abs(size.width / size.height - 16 / 9)).toBeLessThan(0.01);
+  }
+});
+
+test('the dialog says it is writing the PDF after the last frame, not still on it', async ({ page }) => {
+  // The memory build's write is over in a moment: every status the dialog shows is kept as it shows, to read after.
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { statuses?: string[] }).statuses = seen;
+    new MutationObserver(() => {
+      const text = document.querySelector('dialog [role="status"]')?.textContent ?? '';
+      if (text !== '' && seen.at(-1) !== text) seen.push(text);
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  await projectMenu(page, 'Export Project…');
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await downloaded;
+  await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County storyboard.pdf”.')).toBeVisible();
+  const statuses = await page.evaluate(() => (window as unknown as { statuses?: string[] }).statuses ?? []);
+  expect(statuses.at(-1)).toBe('Writing the PDF…');
+  expect(statuses).not.toContain('Exporting 2 of 2…');
+});
+
+/** Each page's text in an exported PDF, as a reader finds it. */
+async function pdfPageTexts(path: string): Promise<string[]> {
+  const pdf = await getDocument({ data: new Uint8Array(readFileSync(path)), disableFontFace: true, useSystemFonts: false }).promise;
+  const texts: string[] = [];
+  for (let n = 1; n <= pdf.numPages; n += 1) {
+    const content = await (await pdf.getPage(n)).getTextContent();
+    texts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+  }
+  await pdf.destroy();
+  return texts;
+}
+
+test('the PDF carries the watermark on every page, and none once Applies to leaves PDF out', async ({ page }) => {
+  // Enough frames for a second page, so it's checked too.
+  for (let i = 0; i < 11; i += 1) await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]')).toHaveCount(13);
+  await projectMenu(page, 'Watermark Settings');
+  const settings = dialog(page, 'Watermark Settings');
+  await settings.getByLabel('Text').fill('DRAFT');
+  await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'true');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await expect(settings).toHaveCount(0);
+
+  const exportPdf = async () => {
+    await projectMenu(page, 'Export Project…');
+    await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+    const downloaded = page.waitForEvent('download');
+    await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+    const texts = await pdfPageTexts(await (await downloaded).path());
+    await expect(dialog(page, 'Export')).toHaveCount(0);
+    return texts;
+  };
+  const marked = await exportPdf();
+  expect(marked.length).toBeGreaterThan(1);
+  for (const text of marked) expect(text).toContain('DRAFT');
+
+  await projectMenu(page, 'Watermark Settings');
+  await settings.getByRole('switch', { name: 'PDF storyboard' }).click();
+  await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'false');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await expect(settings).toHaveCount(0);
+  const unmarked = await exportPdf();
+  expect(unmarked.length).toBeGreaterThan(1);
+  for (const text of unmarked) expect(text).not.toContain('DRAFT');
+});
+
 test('exports the shot list as CSV, one row per frame', async ({ page }) => {
   await projectMenu(page, 'Export Project…');
-  await expect(dialog(page, 'Export')).toBeVisible();
+  await dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' }).check();
   const downloaded = page.waitForEvent('download');
   await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
   const file = await downloaded;
@@ -228,7 +337,7 @@ test('a stored picture that won’t decode goes out marked and named, and the ex
   expect(marked.marked[0], 'PICTURE MISSING').toBeGreaterThan(0);
 });
 
-test('Watermark Settings saves one edit, and the Export dialog says the PNGs carry it', async ({ page }) => {
+test('Watermark Settings saves one edit, and the Export dialog says the PDF and PNGs carry it', async ({ page }) => {
   await projectMenu(page, 'Watermark Settings');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
@@ -237,6 +346,7 @@ test('Watermark Settings saves one edit, and the Export dialog says the PNGs car
   await expect(settings).toHaveCount(0);
 
   await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
   await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
   await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
   // The CSV is a report: it carries none.
@@ -283,7 +393,7 @@ test('undo and the workspace keys do nothing inside the export dialogs, to the b
   await expect(frames).toHaveCount(2);
 
   await projectMenu(page, 'Export Project…');
-  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' })).toBeFocused();
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeFocused();
   await page.keyboard.press(undo);
   await dialog(page, 'Export').getByRole('button', { name: 'Cancel' }).focus();
   await page.keyboard.press(undo);
@@ -298,7 +408,7 @@ test('undo and the workspace keys do nothing inside the export dialogs, to the b
 test('the dialogs take focus, close on Escape and give it back to the project menu', async ({ page }) => {
   const menuButton = page.getByRole('button', { name: 'Project', exact: true });
   await projectMenu(page, 'Export Project…');
-  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' })).toBeFocused();
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog(page, 'Export')).toHaveCount(0);
   await expect(menuButton).toBeFocused();
@@ -430,6 +540,28 @@ for (const offscreen of [true, false]) {
   });
 }
 
+async function releaseFrame(page: Page) {
+  await page.evaluate(() => {
+    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
+  });
+}
+
+test('Stop on a PDF, which writes its one file at the end, says nothing was written', async ({ page }) => {
+  await holdFrames(page, 2, true);
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  // Let the held frame finish: its drawing counted as done made the old message say "2 of 2 written".
+  await releaseFrame(page);
+  await expect(page.getByRole('status').getByText('Export stopped. Nothing was written.')).toBeVisible();
+  expect(files).toEqual([]);
+});
+
 /**
  * Makes every export write from the `from`th on fail as a full disk would, until window.clearDisk(). At the memory
  * build's write, the download: a typeless Blob is only ever an export's (pictures carry their type).
@@ -469,6 +601,7 @@ test('a frame that fails to write stops the export, and the dialog says how far 
 test('a shot list that fails to write says why inside the dialog, and a new try clears it', async ({ page }) => {
   await failWrites(page, 1);
   await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' }).check();
   await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
   await expect(dialog(page, 'Export').getByRole('alert')).toHaveText('Not exported to “Bey County shot list.csv”: Disk is full.');
   await expect(page.getByText(/Disk is full/)).toHaveCount(1);
@@ -481,6 +614,14 @@ test('a shot list that fails to write says why inside the dialog, and a new try 
   expect((await downloaded).suggestedFilename()).toBe('Bey County shot list.csv');
   await expect(dialog(page, 'Export')).toHaveCount(0);
   await expect(page.getByText(/Disk is full/)).toHaveCount(0);
+});
+
+test('a PDF that fails to write says it went nowhere, not how many frames it drew', async ({ page }) => {
+  await failWrites(page, 1);
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await expect(dialog(page, 'Export').getByRole('alert')).toHaveText('Not exported to “Bey County storyboard.pdf”: Disk is full.');
 });
 
 /**
