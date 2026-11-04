@@ -1,8 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
-import { releaseImageUrls } from '../core/media/urls';
-import { apply, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
+import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
 
@@ -22,6 +22,11 @@ export interface ProjectState {
    * reopens the newer version and this goes back to false.
    */
   changedOnDisk: boolean;
+  /**
+   * Counts edits that stored a picture's bytes. A frame that read a picture as missing (deleted for good, 1.21) looks
+   * again when it changes, so the same photo added back shows on every frame that names it.
+   */
+  picturesWritten: number;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -34,6 +39,13 @@ export interface ProjectState {
   applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<boolean>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
+  /**
+   * Empty Trash (1.21): deletes the Trash for good, after the person has confirmed it. Resolves to what went, or null
+   * when nothing did (an empty Trash, or a refusal, which has set `error`).
+   */
+  emptyTrash: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
+  /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
+  cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
 }
 
 export function createProjectStore(): StoreApi<ProjectState> {
@@ -79,6 +91,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       canRedo: false,
       error: null,
       changedOnDisk: false,
+      picturesWritten: 0,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
@@ -114,15 +127,44 @@ export function createProjectStore(): StoreApi<ProjectState> {
           }
         }),
       apply: async (changes, options) => {
-        await edit((project) => apply(project.file, changes, options));
+        await edit(async (project) => {
+          const touched = await apply(project.file, changes, options);
+          if (options?.alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
+          return touched;
+        });
       },
       applyWith: (build) =>
         edit(async (project) => {
           const { changes, alsoWrite } = build(get().records);
-          return changes.length === 0 ? null : apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+          if (changes.length === 0) return null;
+          const touched = await apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+          if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
+          return touched;
         }),
       undo: async () => {
         await edit((project) => undo(project.file));
+      },
+      emptyTrash: async (only) => {
+        let result: { removed: number; freed: number } | null = null;
+        await edit(async (project) => {
+          const done = await emptyTrash(project.file, only ? { only } : {});
+          if (!done) return null;
+          result = { removed: done.removed, freed: done.freed };
+          await forgetImageUrls(project.file, done.pictures);
+          return done.touched;
+        });
+        return result;
+      },
+      cleanUpPictures: async (only) => {
+        let result: { removed: number; freed: number } | null = null;
+        // In the queue like an edit, so no edit lands between reading what's unused and deleting it.
+        await edit(async (project) => {
+          const done = await cleanUpPictures(project.file, only);
+          result = { removed: done.removed, freed: done.freed };
+          await forgetImageUrls(project.file, done.pictures);
+          return null;
+        });
+        return result;
       },
       redo: async () => {
         await edit((project) => redo(project.file));

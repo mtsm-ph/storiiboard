@@ -24,11 +24,36 @@ export function imageUrl(file: ProjectFile, sha256: string, size: ImageSize = 't
   let url = urls.get(key);
   if (!url) {
     url = (size === 'thumbnail' ? readThumbnail(file, sha256) : readOriginal(file, sha256)).then(toUrl);
-    // A failed read isn't kept, so the next look tries again.
-    url.catch(() => urls.delete(key));
+    // Neither a failed read nor a missing picture is kept, so the next look reads the file again: a picture deleted for
+    // good can be added back (the same photo chosen again), and the frame then shows it.
+    url.then(
+      (made) => {
+        if (made === null) urls.delete(key);
+      },
+      () => urls.delete(key),
+    );
     urls.set(key, url);
   }
   return url;
+}
+
+/**
+ * Frees the URLs of pictures deleted for good (Empty Trash, Clean up), so a frame that names one again (redo, a History
+ * restore) reads the file and says the picture is missing, rather than showing what's gone.
+ */
+export async function forgetImageUrls(file: ProjectFile, sha256s: readonly string[]): Promise<void> {
+  const urls = cache.get(file);
+  if (!urls) return;
+  const made: Promise<string | null>[] = [];
+  for (const sha of sha256s) {
+    for (const size of ['thumbnail', 'original'] as const) {
+      const url = urls.get(`${size}:${sha}`);
+      if (!url) continue;
+      urls.delete(`${size}:${sha}`);
+      made.push(url);
+    }
+  }
+  for (const result of await Promise.allSettled(made)) if (result.status === 'fulfilled' && result.value) URL.revokeObjectURL(result.value);
 }
 
 /** Frees every URL made for this file. The project store calls it on close. */

@@ -34,6 +34,8 @@ export function ThemeTile() {
   const current = project ? currentTheme(records, project.projectId, resolved === 'dark') : null;
   const sha256 = current?.sha256 ?? null;
   const file = project?.file ?? null;
+  // Read again once a picture is stored, so the same image chosen again after Clean up shows.
+  const written = useProject((s) => s.picturesWritten);
   useEffect(() => {
     if (!file || !sha256) return;
     let live = true;
@@ -43,7 +45,7 @@ export function ThemeTile() {
     return () => {
       live = false;
     };
-  }, [file, sha256]);
+  }, [file, sha256, written]);
   // Only the URL of the image the theme names now: a replaced one never shows while the new one loads.
   const url = loaded && loaded.sha256 === sha256 ? loaded.url : null;
 
@@ -103,7 +105,15 @@ export function ThemeTile() {
           // Only what changed, so it never puts back an accent or a mode from before an edit still landing.
           void save(choice.mode !== current.choice.mode ? { mode: choice.mode } : { accent: choice.accent });
         }}
-        image={<ThemeImageWell url={url} name={imageName} onFiles={onFiles} disabled={busy} />}
+        image={
+          <ThemeImageWell
+            url={url}
+            missing={loaded !== null && loaded.sha256 === sha256 && loaded.url === null}
+            name={imageName}
+            onFiles={onFiles}
+            disabled={busy}
+          />
+        }
       />
 
       <section className="flex flex-col gap-2 border-t border-border pt-4">

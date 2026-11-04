@@ -202,6 +202,18 @@ describe('an append-only history', () => {
     }
   });
 
+  it('reads the records a restore touches in a handful of queries, however many there are', async () => {
+    await apply(project.file, [scene('sc4', '4')]);
+    const point = (await log(project.file)).at(-1)?.id ?? null;
+    await apply(project.file, Array.from({ length: 200 }, (_, i) => shot(`s${String(i)}`, 'sc4')));
+    let queries = 0;
+    const counted = { ...project.file, query: (...args: Parameters<typeof project.file.query>) => (queries++, project.file.query(...args)) };
+    await restoreTo(counted, point);
+    // Each query is a round trip to the desktop app's Rust side; one a record would be 200 here.
+    expect(queries).toBeLessThan(20);
+    expect((await loadRecords(project.file)).filter((r) => r.type === 'shot')).toEqual([]);
+  });
+
   it('restores work that was undone and then edited over', async () => {
     await apply(project.file, [scene('sc4', '4')]);
     await apply(project.file, [shot('4A', 'sc4', { size: 'CU', lens_mm: 85 }), { kind: 'update', id: 'sc4', set: { number: '4X' } }]);

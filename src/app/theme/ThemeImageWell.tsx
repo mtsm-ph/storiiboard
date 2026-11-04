@@ -12,6 +12,8 @@ import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../pic
 interface ThemeImageWellProps {
   /** The image shown, as a URL, or null before one is picked. */
   url: string | null;
+  /** The theme names an image whose bytes are gone (deleted for good, 1.21): it says so, as a frame does. */
+  missing?: boolean;
   name: string | null;
   onFiles: (files: PictureFile[]) => void;
   /** A modal (onboarding) takes any drop while it's open, wherever it lands. */
@@ -20,7 +22,7 @@ interface ThemeImageWellProps {
   disabled?: boolean;
 }
 
-export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false, disabled = false }: ThemeImageWellProps) {
+export function ThemeImageWell({ url, missing = false, name, onFiles, takeAnyDrop = false, disabled = false }: ThemeImageWellProps) {
   const well = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
   // Read by the window listener registered once.
@@ -112,7 +114,7 @@ export function ThemeImageWell({ url, name, onFiles, takeAnyDrop = false, disabl
         {url ? (
           <img src={url} alt="" className="block max-h-[80px] max-w-[160px] object-contain" />
         ) : (
-          <span className="sb-label text-text-muted">No image</span>
+          <span className="sb-label text-text-muted">{missing ? 'Picture missing' : 'No image'}</span>
         )}
         <span className="flex flex-col gap-1">
           {name && <span className="truncate font-mono text-[11px] text-text-muted">{name}</span>}

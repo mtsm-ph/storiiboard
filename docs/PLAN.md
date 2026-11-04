@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.13 done, 1.14 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.21 done, 1.22 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 2, 2026 (synced-folder decisions) |
+| Last updated | Nov 4, 2026 (1.21 merged; testing and CI rules) |
 
 | Phase | State |
 |---|---|
@@ -55,7 +55,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
-| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
@@ -279,6 +279,35 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
+- Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
+  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
+  runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection from 1.21 on), so what's
+  deleted is gone from the file itself and from backups made after. The file doesn't shrink; the space is used for new
+  pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
+  record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
+  aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
+  of the whole file, for Kevin to decide (REPORT.local.md).
+- A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
+  gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
+  that scene as it is now, and a scene or frame that would go back onto a number another one holds stays as it is
+  now too, so no two scenes share a number and no two frames a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
+- Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
+  Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
+  erased from a frame still on the board stays, with its History.
+- Open, for Kevin: a locked scene reserves a trashed frame's letter by keeping the frame, so once Empty Trash deletes
+  it, a new frame can be given that letter again (it may be on a slate). The confirm says so when it can happen.
+  Keeping the reservation needs a scene prop for the highest letter used, a format change.
+- Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
+  restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
+- Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
+  Trash, and no step on the undo stack had (so one ⌘Z, such as undoing a History restore, never brings back a frame
+  whose picture is gone; only redo can). A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
+  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
+  missing". The file isn't compacted; a Compact project command could come later.
 
 **As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and

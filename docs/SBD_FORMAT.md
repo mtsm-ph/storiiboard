@@ -66,7 +66,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | seq | integer, unique | Order of the log, which UUIDs can't give. It follows the order of the groups: every op in a group has a higher seq than every op in earlier groups |
 | group_id | text | The op group it belongs to (op_groups.id) |
 | record_id | text | |
-| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), or `revert` (set back by a restore group). An undo or redo group's ops keep the kind of the op they reverse or replay |
+| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
 | author | text | `local` for now |
 | timestamp | text | When the edit happened |
@@ -80,7 +80,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | Column | Type | Notes |
 |---|---|---|
 | seq | integer, unique | Order of the groups |
-| kind | text | `edit`, `undo`, `redo` or `restore` |
+| kind | text | `edit`, `undo`, `redo`, `restore` or `empty_trash` (1.21) |
 | target_group_id | text, null | For `undo` and `redo`: the group undone or redone |
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
@@ -113,7 +113,13 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
 
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
-image back. Only Empty Trash removes data from it.
+image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
+deletes the bytes of pictures only History uses (1.21: no record shows them, live or in the Trash, and no
+step on the undo stack had them); the steps stay, and a frame they name such a picture on reads
+"Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
+is gone from the file itself, though the file doesn't shrink: SQLite reuses the space for new pictures. Space freed
+before 1.21 wasn't zeroed, so a file edited with an earlier build can still hold older versions of some text in its
+free space.
 
 ## Schema v3: pictures (1.10)
 
@@ -148,10 +154,11 @@ and after each edit, never copies a picture.
   colour; sRGB pictures lose nothing, since sRGB fits inside P3; other profiles, such as Adobe RGB, are converted. An
   engine that can't draw in P3 stores sRGB, and `color_space` says which.
 - A picture's bytes are written in the same transaction as the op that first uses them, so a crash never leaves a
-  record pointing at nothing.
+  record pointing at nothing. Only the person deleting them on purpose can (below).
 - Bytes stay when the record using them is undone, trashed or given another picture, so undo, a History restore or a
-  named version can bring an old picture back. Only Empty Trash deletes bytes, and only bytes nothing left in the file
-  refers to (1.21).
+  named version can bring an old picture back. They're deleted only by Empty Trash (bytes nothing left in the file
+  refers to) and Clean up old pictures (bytes only History refers to), both after a confirm (1.21). A frame or step
+  that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
 
@@ -188,6 +195,17 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
 - Empty Trash, after a confirm, deletes the trashed records, their children and their media bytes for good. Older ops
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
   them until they're pruned.
+- As built in 1.21 (src/core/ops/ops.ts, `emptyTrash`), in one transaction: every trashed scene, shot, note and media
+  record and everything under it is deleted (an erased stroke on a frame still on the board stays, with its ops),
+  and so are records that exist only in History and could only come back under what's deleted (a note made and
+  undone in a deleted scene: every parent they ever had is gone); their ops keep their rows but `before` and `after` become null; an
+  `empty_trash` group of `purge` ops (one per deleted record) is written with `undo_top` and `redo_top` null, so
+  neither stack reaches past it; and stored pictures nothing left refers to (no record's props, no remaining op) are
+  deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that
+  sat under a deleted parent at that point stays where it is.
+- Clean up old pictures (1.21, Settings → Storage, after a confirm) deletes stored pictures no record uses, live or
+  in the Trash, though older ops may (a picture added and undone). The log is unchanged; a step that brings such a
+  record back shows its picture as removed.
 
 ## Project record props
 

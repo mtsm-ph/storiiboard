@@ -11,10 +11,10 @@ import type { ProjectFile, Row, Statement } from '../storage/driver';
 // restoreTo can bring back the project as it was after any group.
 
 /** `revert` is a record set back to an earlier point by restoreTo. Undo and redo rows keep the kind they reverse. */
-export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert';
+export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert' | 'purge';
 
 /** What one op group was: an edit, or one of the three ways of going back and forth through the log. */
-export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore';
+export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore' | 'empty_trash';
 
 export interface OpGroup {
   id: string;
@@ -348,13 +348,114 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     'SELECT record_id, before FROM ops WHERE seq IN (SELECT min(seq) FROM ops WHERE seq > ? GROUP BY record_id) ORDER BY seq',
     [lastSeq],
   );
-  const ops: PendingOp[] = [];
+  // Each record as it is now, read in one query rather than one a record (each is a round trip in the desktop app).
+  const current = new Map(
+    (
+      await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [
+        JSON.stringify(rows.map((row) => String(row.record_id))),
+      ])
+    ).map((row) => {
+      const record = fromRow(row);
+      return [record.id, record] as const;
+    }),
+  );
+  const found: PendingOp[] = [];
   for (const row of rows) {
     const recordId = String(row.record_id);
-    const before = await getRecord(file, recordId);
+    const before = current.get(recordId) ?? null;
     const after = fromSnapshot(row.before);
-    if (snapshot(before) !== snapshot(after)) ops.push({ recordId, kind: 'revert', before, after });
+    if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
   }
+  // Empty Trash deleted some records for good, and their data in the log with them, so the point can't always be
+  // reached exactly. A record that would go back under a parent that won't be there stays as it is now (or stays away,
+  // if it isn't there now), and a record that stays where it is keeps its parent from being deleted. Each step only
+  // moves a record back to how it is now, so this ends, and every record written sits under one that exists.
+  const final = new Map(found.map((op) => [op.recordId, op.after]));
+  const byId = new Map(found.map((op) => [op.recordId, op]));
+  const existsNow = new Map<string, boolean>();
+  const exists = async (id: string): Promise<boolean> => {
+    if (final.has(id)) return final.get(id) !== null;
+    if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
+    return existsNow.get(id) === true;
+  };
+  // Looked up once, so each record kept as it is now is handled once, however large the restore.
+  const under = new Map<string, string[]>();
+  const framesOf = new Map<string, string[]>();
+  const add = (map: Map<string, string[]>, key: string | null | undefined, id: string) => {
+    if (key) map.set(key, [...(map.get(key) ?? []), id]);
+  };
+  for (const op of found) {
+    add(under, op.before?.parentId, op.recordId);
+    const isShot = op.before?.type === 'shot' || op.after?.type === 'shot';
+    if (isShot) for (const parentId of new Set([op.before?.parentId, op.after?.parentId])) add(framesOf, parentId, op.recordId);
+  }
+  let keptAny = false;
+  const waiting: string[] = [];
+  const keepAsNow = (id: string): boolean => {
+    const before = byId.get(id)?.before ?? null;
+    if (final.get(id) === before) return false;
+    final.set(id, before);
+    keptAny = true;
+    waiting.push(id);
+    return true;
+  };
+  /**
+   * What a record kept as it is now holds on to, as it is now too:
+   * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
+   *   back to the point, a newer one would be deleted from under a record that still shows it;
+   * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
+   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number.
+   */
+  const settleKept = () => {
+    for (let id = waiting.pop(); id !== undefined; id = waiting.pop()) {
+      const kept = final.get(id);
+      if (!kept) continue;
+      for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
+      for (const child of under.get(id) ?? []) keepAsNow(child);
+      if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
+        if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
+        for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);
+      }
+    }
+  };
+  // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
+  // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
+  // alike, so this always settles. Read only when needed, since it takes every record.
+  let everything: Map<string, SbdRecord> | null = null;
+  const keepNumbersUnique = async (): Promise<boolean> => {
+    if (!keptAny) return false;
+    everything ??= new Map((await loadRecords(file)).map((r) => [r.id, r]));
+    const now = everything;
+    const groups = new Map<string, string[]>();
+    for (const id of new Set([...now.keys(), ...final.keys()])) {
+      const record = final.has(id) ? final.get(id) : now.get(id);
+      if (!record || record.trashedAt !== null || (record.type !== 'scene' && record.type !== 'shot')) continue;
+      const number = record.props.number;
+      if (typeof number === 'string' && number !== '') add(groups, `${record.type}:${number}`, id);
+    }
+    let moved = false;
+    for (const same of groups.values()) if (same.length > 1) for (const id of same) if (byId.has(id)) moved = keepAsNow(id) || moved;
+    return moved;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    settleKept();
+    for (const [id, record] of final) {
+      const parentId = record?.parentId ?? null;
+      if (!record || parentId === null || (await exists(parentId))) continue;
+      const op = byId.get(id);
+      const parent = byId.get(parentId);
+      if (record !== op?.before) changed = keepAsNow(id) || changed;
+      // As it is now, under a parent this restore would delete: the parent stays as it is now too.
+      else if (parent?.before) changed = keepAsNow(parentId) || changed;
+    }
+    if (waiting.length > 0) changed = true;
+    else if (await keepNumbersUnique()) changed = true;
+  }
+  const ops = found.flatMap((op) => {
+    const after = final.get(op.recordId) ?? null;
+    return snapshot(after) === snapshot(op.before) ? [] : [{ ...op, after }];
+  });
   if (ops.length === 0) return null;
   const { undoTop } = await tops(file);
   await commit(
@@ -365,6 +466,192 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     now().toISOString(),
   );
   return touchedBy(ops);
+}
+
+/**
+ * The kinds a person deletes to the Trash, and so the kinds Empty Trash deletes for good. An erased sketch stroke is
+ * trashed too but isn't in the Trash (1.13, 1.20): it goes only with its frame, so a frame still on the board keeps
+ * its sketch's History.
+ */
+const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media']);
+
+/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
+export function trashedRoots(records: readonly SbdRecord[]): string[] {
+  return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
+}
+
+/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, the theme's image. */
+function namedBy(record: SbdRecord): string[] {
+  const { props } = record;
+  const theme = props.theme && typeof props.theme === 'object' && !Array.isArray(props.theme) ? (props.theme as Record<string, unknown>) : null;
+  return [props.media_id, props.location_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
+}
+
+/**
+ * Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. With `only`,
+ * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
+ */
+export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {
+  const children = new Map<string, SbdRecord[]>();
+  for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
+  const ids = new Set<string>();
+  const add = (record: SbdRecord) => {
+    if (ids.has(record.id)) return;
+    ids.add(record.id);
+    for (const child of children.get(record.id) ?? []) add(child);
+  };
+  for (const record of records) {
+    if (record.trashedAt !== null && TRASHED_BY_PEOPLE.has(record.type) && (!only || only.has(record.id))) add(record);
+  }
+  return [...ids];
+}
+
+/** A stored picture: its address, and the space it takes with its thumbnails. */
+export interface StoredPicture {
+  sha256: string;
+  bytes: number;
+}
+
+/**
+ * Stored pictures nothing uses once `without` records are gone: no record's props name them, and (when `historyToo`)
+ * no op of a remaining record does either.
+ */
+async function unusedPictures(file: ProjectFile, without: readonly string[], historyToo: boolean): Promise<StoredPicture[]> {
+  const fromOps = historyToo
+    ? `UNION SELECT json_extract(before, '$.props.file') FROM ops
+         WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
+       UNION SELECT json_extract(after, '$.props.file') FROM ops
+         WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
+    : // Clean up keeps what one ⌘Z can still bring back: the pictures any step on the undo stack had before it ran
+      // (a frame a History restore took away, say). Only the redo stack's are History's alone.
+      `UNION SELECT json_extract(o.before, '$.props.file') FROM ops o
+         WHERE json_extract(o.before, '$.type') = 'media' AND o.group_id IN (SELECT id FROM undoable)`;
+  const rows = await file.query(
+    `WITH RECURSIVE gone(id) AS (SELECT value FROM json_each(?)),
+      undoable(id) AS (
+        SELECT undo_top FROM op_groups WHERE seq = (SELECT max(seq) FROM op_groups) AND undo_top IS NOT NULL
+        UNION SELECT g.stack_below FROM op_groups g JOIN undoable u ON g.id = u.id WHERE g.stack_below IS NOT NULL
+      ),
+      used(sha) AS (
+        SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
+        ${fromOps}
+      )
+    SELECT f.sha256, f.byte_size + coalesce((SELECT sum(length(t.bytes)) FROM thumbnails t WHERE t.sha256 = f.sha256), 0) AS size
+      FROM media_files f WHERE f.sha256 NOT IN (SELECT sha FROM used WHERE sha IS NOT NULL)`,
+    [JSON.stringify(without)],
+  );
+  return rows.map((row) => ({ sha256: String(row.sha256), bytes: Number(row.size) }));
+}
+
+/**
+ * Records that exist only in History (made and then undone, say) and could only ever come back under what Empty
+ * Trash is deleting: every parent they had in any step is going, was deleted by an earlier Empty Trash (no step of it
+ * holds data any more), or is one of these. A restore never brings a record back under a parent that's gone, so their
+ * data in the log would stay in the file for good; Empty Trash clears it with the rest.
+ */
+async function onlyInHistoryUnder(file: ProjectFile, live: readonly SbdRecord[], deleting: readonly string[]): Promise<string[]> {
+  const rows = await file.query(
+    `SELECT record_id, before, after FROM ops WHERE record_id NOT IN (SELECT id FROM records)
+      AND (before IS NOT NULL OR after IS NOT NULL) ORDER BY seq`,
+  );
+  const parents = new Map<string, Set<string | null>>();
+  for (const row of rows) {
+    const id = String(row.record_id);
+    const seen = parents.get(id) ?? new Set<string | null>();
+    for (const snap of [fromSnapshot(row.before), fromSnapshot(row.after)]) if (snap) seen.add(snap.parentId);
+    parents.set(id, seen);
+  }
+  const exists = new Set(live.map((r) => r.id));
+  const gone = new Set(deleting);
+  const isGone = (id: string | null) => id !== null && (gone.has(id) || (!exists.has(id) && !parents.has(id)));
+  const found: string[] = [];
+  for (let more = true; more; ) {
+    more = false;
+    for (const [id, had] of parents) {
+      if (gone.has(id) || had.size === 0 || ![...had].every(isGone)) continue;
+      gone.add(id);
+      found.push(id);
+      more = true;
+    }
+  }
+  return found;
+}
+
+function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
+  const list = JSON.stringify(pictures.map((p) => p.sha256));
+  // Thumbnails first: they point at the file.
+  return [
+    { sql: 'DELETE FROM thumbnails WHERE sha256 IN (SELECT value FROM json_each(?))', params: [list] },
+    { sql: 'DELETE FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', params: [list] },
+  ];
+}
+
+/**
+ * Empty Trash (1.21, docs/SBD_FORMAT.md): deletes every trashed record and everything under it for good, in one
+ * transaction. Their data goes from older ops too, so neither undo nor a History restore can bring back half of one;
+ * the purge is recorded as an `empty_trash` group of `purge` ops, and the undo and redo stacks end there. Stored
+ * pictures nothing left refers to are deleted with them. Null when the Trash is empty.
+ */
+export async function emptyTrash(
+  file: ProjectFile,
+  options: OpOptions & { only?: ReadonlySet<string> } = {},
+): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
+  const { author = 'local', now = () => new Date(), only } = options;
+  const all = await loadRecords(file);
+  const ids = purgeIds(all, only);
+  if (ids.length === 0) return null;
+  const unreachable = await onlyInHistoryUnder(file, all, ids);
+  const pictures = await unusedPictures(file, [...ids, ...unreachable], true);
+  const at = now().toISOString();
+  const groupId = crypto.randomUUID();
+  const gone = JSON.stringify([...ids, ...unreachable]);
+  const [top] = await file.query(
+    'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
+  );
+  const firstSeq = Number(top?.op ?? 0) + 1;
+  await file.tx([
+    { sql: 'UPDATE ops SET before = NULL, after = NULL WHERE record_id IN (SELECT value FROM json_each(?))', params: [gone] },
+    { sql: 'DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))', params: [gone] },
+    {
+      sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
+        timestamp, created_at, updated_at) VALUES (?, ?, 'empty_trash', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+      params: [groupId, Number(top?.grp ?? 0) + 1, author, at, at, at],
+    },
+    ...ids.map((id, i) => ({
+      sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at,
+        updated_at) VALUES (?, ?, ?, ?, 'purge', NULL, NULL, ?, ?, ?, ?)`,
+      params: [crypto.randomUUID(), firstSeq + i, groupId, id, author, at, at, at],
+    })),
+    ...deletePictures(pictures),
+  ]);
+  return {
+    touched: new Map(ids.map((id) => [id, null])),
+    removed: ids.length,
+    freed: pictures.reduce((sum, p) => sum + p.bytes, 0),
+    pictures: pictures.map((p) => p.sha256),
+  };
+}
+
+/**
+ * Pictures only History still uses (1.21): no record in the project, live or in the Trash, shows them, but an older
+ * step does (a picture added and undone, say). Clean up old pictures deletes them for good; those steps then show
+ * "picture removed".
+ */
+export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]> {
+  return unusedPictures(file, [], false);
+}
+
+/**
+ * Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged.
+ * With `only`, just those of them the person confirmed.
+ */
+export async function cleanUpPictures(
+  file: ProjectFile,
+  only?: ReadonlySet<string>,
+): Promise<{ removed: number; freed: number; pictures: string[] }> {
+  const pictures = (await historyOnlyPictures(file)).filter((p) => !only || only.has(p.sha256));
+  if (pictures.length > 0) await file.tx(deletePictures(pictures));
+  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }
 
 export async function history(file: ProjectFile): Promise<{ canUndo: boolean; canRedo: boolean }> {

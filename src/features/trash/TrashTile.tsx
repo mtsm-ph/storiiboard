@@ -1,4 +1,7 @@
 import { useId, useRef, useState } from 'react';
+import { confirmForGood, sizeLabel } from '../../app/confirm';
+import { emptyTrashConfirmed } from '../../app/deleteForGood';
+import { SWITCHED_MESSAGE } from '../../app/forGood';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
@@ -6,8 +9,8 @@ import { Select } from '../../ui/fields';
 import { restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
-// click as one undoable edit. Empty Trash, which deletes for good after a confirm, comes in 1.21. Any workspace can
-// open it from the Layout menu; it's in no default layout (CLAUDE.md).
+// click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
+// undone. Any workspace can open it from the Layout menu; it's in no default layout (CLAUDE.md).
 
 const KINDS: readonly TrashKind[] = ['scene', 'frame', 'note', 'picture'];
 
@@ -31,6 +34,8 @@ export function TrashTile() {
   const empty = useRef<HTMLParagraphElement>(null);
   // One restore at a time: a double click, or a click on the row that slid under the pointer, never restores a second.
   const restoring = useRef(false);
+  // One Empty Trash at a time, held in a ref so the button stays enabled (and focused) while the confirm is up.
+  const emptying = useRef(false);
   const captionId = useId();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
@@ -43,6 +48,23 @@ export function TrashTile() {
   // And lets go of it (React redraws at once), so a later delete in that scene doesn't bring the filter back by itself.
   if (chosenScene !== '' && sceneId === '') setSceneId('');
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
+
+  const emptyAll = async (hidden: number) => {
+    const done = await emptyTrashConfirmed(projectStore, emptying, (text) => confirmForGood('Empty Trash?', text, 'Empty Trash'), hidden);
+    if (!done.ran) {
+      if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
+      return;
+    }
+    if (!done.result) return;
+    const { items, freed } = done.result;
+    showInfo(
+      `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${freed > 0 ? `, with ${sizeLabel(freed)} of pictures` : ''}.`,
+    );
+    // The button turns off with nothing left; focus goes to the message that says so.
+    requestAnimationFrame(() => {
+      empty.current?.focus();
+    });
+  };
 
   const restore = (id: string, name: string, index: number) => {
     if (restoring.current) return;
@@ -105,6 +127,9 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
+        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length - shown.length)}>
+          Empty Trash…
+        </Button>
       </div>
       {all.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
