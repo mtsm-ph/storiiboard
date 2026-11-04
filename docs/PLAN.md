@@ -53,7 +53,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.16 Onboarding and Settings → Theme | #33 | Done |
 | 1.17 Script import: Fountain and FDX, with a preview | #34 | Done |
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
-| 1.19 Custom fields on shots | | Not started |
+| 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
 | 1.22 History tile | | Not started |
@@ -269,6 +269,16 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.19 (Nov 3): custom fields on shots** (src/core/model/customFields.ts):
+- The inspector has a Custom fields section: each of the frame's fields saves like the others (on leaving it or
+  Enter), with Remove beside it; New field takes a name (offering the names the project's frames use, and taking the
+  project's spelling of one it has) and focuses the new field for its value.
+- The shot list shows a column per field name the project's frames use.
+- A shot keeps its fields in one prop, `custom`, of text by name (docs/SBD_FORMAT.md); the list of names is worked out
+  from the shots, never stored, so a field lasts as long as one frame has it.
+- Decided while building, to review: values are text only (no number or date types yet), names are up to 40
+  characters, and fields are on shots only; locations and people get theirs with their tools in Phase 3.
 
 **As built in 1.18 (Nov 3): script import from PDF** (src/core/script/pdfLayout.ts, src/features/script/readPdf.ts):
 - pdf.js (pdfjs-dist 5.7.284, Apache-2.0) gives each page's text with its position; nothing is drawn, no fonts load,
