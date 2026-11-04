@@ -40,18 +40,63 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
-  it('switches from one open project to another without a moment with none', async () => {
+  it('switches from one open project to another without a moment with none, then closes the first', async () => {
     const store = createProjectStore();
     const first = await open('Bey County.sbd');
     const second = await open('Bey County Pilot.sbd');
     await store.getState().open(first);
+    const closeFirst = first.close.bind(first);
+    let firstClosed = 0;
+    first.close = async () => {
+      // Closed only once the second is the one on screen.
+      expect(store.getState().project).toBe(second);
+      firstClosed += 1;
+      await closeFirst();
+    };
     const seen: (string | null)[] = [];
     const stop = store.subscribe((s) => seen.push(s.project?.projectId ?? null));
     await store.getState().open(second);
     stop();
     expect(seen).not.toContain(null);
+    expect(firstClosed).toBe(1);
     expect(store.getState().project?.projectId).toBe(second.projectId);
     expect(store.getState().records[first.projectId]).toBeUndefined();
+    await store.getState().close();
+  });
+
+  it('drops an edit made in one project if a switch replaced it before the edit’s turn', async () => {
+    const store = createProjectStore();
+    const first = await open('Bey County.sbd');
+    const second = await open('Bey County Pilot.sbd');
+    await store.getState().open(first);
+    const switching = store.getState().open(second);
+    // Made while the first is still on screen, queued behind the switch.
+    const edit = store.getState().apply([{ kind: 'update', id: first.projectId, set: { title: 'Bey County: Pilot' } }]);
+    await Promise.all([switching, edit]);
+    expect(store.getState().project).toBe(second);
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().canUndo).toBe(false);
+    await store.getState().close();
+  });
+
+  it('keeps the open project when another can’t be read, and closes the one that failed', async () => {
+    const store = createProjectStore();
+    const first = await open('Bey County.sbd');
+    const broken = await open('Broken.sbd');
+    await store.getState().open(first);
+    // Its file is gone from under it, as a failed read would leave it.
+    await broken.file.close();
+    let brokenClosed = 0;
+    const closeBroken = broken.close.bind(broken);
+    broken.close = async () => {
+      brokenClosed += 1;
+      await closeBroken().catch(() => undefined);
+    };
+    await expect(store.getState().open(broken)).rejects.toThrow();
+    expect(brokenClosed).toBe(1);
+    expect(store.getState().project).toBe(first);
+    await store.getState().apply([{ kind: 'update', id: first.projectId, set: { title: 'Still open' } }]);
+    expect(store.getState().records[first.projectId]?.props.title).toBe('Still open');
     await store.getState().close();
   });
 

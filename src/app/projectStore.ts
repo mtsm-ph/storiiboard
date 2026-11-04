@@ -52,10 +52,13 @@ export function createProjectStore(): StoreApi<ProjectState> {
       set({ records, ...(await history(project.file)), error: null });
     };
 
-    const edit = (run: (project: Project) => Promise<Touched | null>) =>
-      enqueue(async () => {
+    const edit = (run: (project: Project) => Promise<Touched | null>) => {
+      // The project the edit was made in. If a switch replaced it before the edit's turn, the edit is dropped: it
+      // never lands in the other project.
+      const madeIn = get().project;
+      return enqueue(async () => {
         const { project } = get();
-        if (!project) return;
+        if (!project || project !== madeIn) return;
         try {
           await merge(project, await run(project));
         } catch (error) {
@@ -64,6 +67,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           else set({ error: message });
         }
       });
+    };
 
     return {
       project: null,
@@ -74,15 +78,24 @@ export function createProjectStore(): StoreApi<ProjectState> {
       changedOnDisk: false,
       open: (project) =>
         enqueue(async () => {
-          const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
-          const undoState = await history(project.file);
-          // A project already open (a switch) is closed only now, so there's never a moment with none.
+          let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
+          try {
+            const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
+            loaded = { records, ...(await history(project.file)) };
+          } catch (error) {
+            // It can't be read: it closes again (its lock with it), and the project open now stays as it was.
+            await project.close().catch(() => undefined);
+            throw error;
+          }
+          // A project already open (a switch) closes only after the new one is on screen, so there's never a
+          // moment with none, and nothing on screen reads a closed file.
           const before = get().project;
+          set({ project, ...loaded, error: null, changedOnDisk: false });
           if (before && before !== project) {
-            await before.close();
+            // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
+            await before.close().catch(() => undefined);
             await releaseImageUrls(before.file);
           }
-          set({ project, records, ...undoState, error: null, changedOnDisk: false });
         }),
       close: () =>
         enqueue(async () => {

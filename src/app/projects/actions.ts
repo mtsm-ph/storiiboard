@@ -53,6 +53,8 @@ export async function reopenChangedProject(): Promise<void> {
         'Your last change wasn’t saved; please make it again.',
     );
   } catch (error) {
+    // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says why.
+    await projectStore.getState().close();
     showNotice(error);
   } finally {
     reopening = false;
