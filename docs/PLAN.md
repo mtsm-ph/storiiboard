@@ -304,7 +304,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
-  Trash. A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
+  Trash, and no step on the undo stack had (so one ⌘Z, such as undoing a History restore, never brings back a frame
+  whose picture is gone; only redo can). A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
   Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
   missing". The file isn't compacted; a Compact project command could come later.
 

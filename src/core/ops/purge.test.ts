@@ -368,6 +368,27 @@ describe('Clean up old pictures', () => {
     expect(fileHolds(4)).toBe(true);
   });
 
+  it('keeps a picture one ⌘Z can bring back: the frame a History restore took away', async () => {
+    const point = (await log(project.file)).at(-1)?.id ?? null;
+    const shot = await frame();
+    const sha = await withPicture(shot, 12);
+    await restoreTo(project.file, point);
+    await reopen();
+    expect(await historyOnlyPictures(project.file)).toEqual([]);
+    await store.getState().cleanUpPictures();
+    await store.getState().undo();
+    expect(await readOriginal(project.file, sha)).not.toBeNull();
+    expect(shotFields(records()[shot]?.props ?? {}).mediaId).toBeTruthy();
+  });
+
+  it('still cleans up a picture added and then undone, once a new edit has cleared redo', async () => {
+    const shot = await frame();
+    const sha = await withPicture(shot, 13);
+    await store.getState().undo();
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { name: 'Road' } }]);
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([sha]);
+  });
+
   it('deletes only the pictures the confirm counted', async () => {
     const [one, two] = [await frame(), await frame()];
     const counted = await withPicture(one, 8);

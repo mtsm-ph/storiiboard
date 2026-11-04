@@ -114,7 +114,8 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old
 image back, until the person deletes it: Empty Trash removes trashed records' data from it, and Clean up old pictures
-deletes the bytes of pictures only History uses (1.21); the steps stay, and a frame they name such a picture on reads
+deletes the bytes of pictures only History uses (1.21: no record shows them, live or in the Trash, and no
+step on the undo stack had them); the steps stay, and a frame they name such a picture on reads
 "Picture missing". Deleted rows are overwritten with zeros (`secure_delete`, on every connection from 1.21 on), so what's deleted
 is gone from the file itself, though the file doesn't shrink: SQLite reuses the space for new pictures. Space freed
 before 1.21 wasn't zeroed, so a file edited with an earlier build can still hold older versions of some text in its

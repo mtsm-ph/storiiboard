@@ -348,10 +348,21 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     'SELECT record_id, before FROM ops WHERE seq IN (SELECT min(seq) FROM ops WHERE seq > ? GROUP BY record_id) ORDER BY seq',
     [lastSeq],
   );
+  // Each record as it is now, read in one query rather than one a record (each is a round trip in the desktop app).
+  const current = new Map(
+    (
+      await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [
+        JSON.stringify(rows.map((row) => String(row.record_id))),
+      ])
+    ).map((row) => {
+      const record = fromRow(row);
+      return [record.id, record] as const;
+    }),
+  );
   const found: PendingOp[] = [];
   for (const row of rows) {
     const recordId = String(row.record_id);
-    const before = await getRecord(file, recordId);
+    const before = current.get(recordId) ?? null;
     const after = fromSnapshot(row.before);
     if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
   }
@@ -511,9 +522,16 @@ async function unusedPictures(file: ProjectFile, without: readonly string[], his
          WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
        UNION SELECT json_extract(after, '$.props.file') FROM ops
          WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
-    : '';
+    : // Clean up keeps what one ⌘Z can still bring back: the pictures any step on the undo stack had before it ran
+      // (a frame a History restore took away, say). Only the redo stack's are History's alone.
+      `UNION SELECT json_extract(o.before, '$.props.file') FROM ops o
+         WHERE json_extract(o.before, '$.type') = 'media' AND o.group_id IN (SELECT id FROM undoable)`;
   const rows = await file.query(
-    `WITH gone(id) AS (SELECT value FROM json_each(?)),
+    `WITH RECURSIVE gone(id) AS (SELECT value FROM json_each(?)),
+      undoable(id) AS (
+        SELECT undo_top FROM op_groups WHERE seq = (SELECT max(seq) FROM op_groups) AND undo_top IS NOT NULL
+        UNION SELECT g.stack_below FROM op_groups g JOIN undoable u ON g.id = u.id WHERE g.stack_below IS NOT NULL
+      ),
       used(sha) AS (
         SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
         ${fromOps}
