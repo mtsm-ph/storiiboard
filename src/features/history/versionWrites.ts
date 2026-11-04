@@ -20,6 +20,8 @@ export async function nameThisPoint(store: StoreApi<ProjectState>, name: string,
   if (!project) return false;
   try {
     await nameVersion(project.file, { name, opGroupId });
+    // Pictures the new version's point shows aren't History's alone any more: Settings → Storage counts again.
+    store.setState((s) => ({ deletedForGood: s.deletedForGood + 1 }));
     return true;
   } catch (error) {
     return failed(store, error);

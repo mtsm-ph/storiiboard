@@ -41,7 +41,10 @@ async function syncReplacesFile(): Promise<void> {
 
 describe('naming and deleting a version', () => {
   it('names and deletes one on the file that is open', async () => {
+    const before = store.getState().deletedForGood;
     expect(await nameThisPoint(store, 'Board sent to client', await newest())).toBe(true);
+    // Settings → Storage counts again: the version keeps the pictures its point shows.
+    expect(store.getState().deletedForGood).toBe(before + 1);
     const [version] = await listVersions(project.file);
     expect(version?.name).toBe('Board sent to client');
     const counted = store.getState().deletedForGood;

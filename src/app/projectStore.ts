@@ -28,7 +28,7 @@ export interface ProjectState {
    */
   picturesWritten: number;
   /**
-   * Counts Empty Trash and Clean up old pictures runs that deleted something, and named versions deleted (1.23). These
+   * Counts Empty Trash and Clean up old pictures runs that deleted something, and named versions made or deleted (1.23). These
    * change no record and no undo state, yet older steps in History now read "(picture removed)" and Settings → Storage's
    * count changes, so both read again on this.
    */
