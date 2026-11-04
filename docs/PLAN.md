@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.25 built; Kevin tests the batch; 1.26 (locked scenes keep their letters) next; then the polish step and the gate |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.26 built; Kevin tests the batch; Compact project, then the polish step and the gate |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.25 merged; Phase 1 checkpoint; Kevin's Nov 4 decisions) |
+| Last updated | Nov 4, 2026 (1.26 merged: slate numbers, schema 5) |
 
 | Phase | State |
 |---|---|
@@ -60,7 +60,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #42 | Done |
 | 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #43 | Done |
 | 1.25 PDF storyboard | #44 | Done |
-| 1.26 Locked scenes keep every letter they've used, after Empty Trash too (schema 5) | | Next |
+| 1.26 Locked scenes keep every letter they've used, after Empty Trash too (schema 5) | #46 | Done |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
