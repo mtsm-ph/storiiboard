@@ -42,6 +42,7 @@ describe('custom fields', () => {
     expect(fieldName('constructor', [])).toEqual({ ok: true, name: 'constructor' });
     expect(fieldName('   ', [])).toMatchObject({ ok: false });
     expect(fieldName('x'.repeat(MAX_FIELD_NAME + 1), [])).toMatchObject({ ok: false });
+    expect(fieldName('takes', [], ['Takes'])).toEqual({ ok: false, problem: 'This frame keeps something under takes that this version can’t show. Choose another name.' });
     for (const builtIn of ['Status', 'status', 'Lens (mm)', 'Dialogue', 'New field']) {
       expect(fieldName(builtIn, [])).toEqual({ ok: false, problem: `${builtIn} is one of the frame’s own fields. Choose another name.` });
     }
@@ -54,6 +55,9 @@ describe('custom fields', () => {
     expect(withField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone', 'y')).toEqual({ set: { custom: { Takes: 3, Drone: 'y' } } });
     expect(withoutField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone')).toEqual({ set: { custom: { Takes: 3 } } });
     expect(withField({ custom: { Takes: 3 } }, 'takes', '')).toEqual({ set: { custom: { Takes: 3, takes: '' } } });
+    // The inspector's edit never writes over (or takes off) something it can't show.
+    expect(setCustomField({ a: shot('a', { Takes: 3 }) }, 'a', 'Takes', '')).toEqual([]);
+    expect(setCustomField({ a: shot('a', { Takes: 3 }) }, 'a', 'takes', null)).toEqual([]);
     expect(withoutField({ custom: { Drone: 'yes', VFX: 'plate' } }, 'Drone')).toEqual({ set: { custom: { VFX: 'plate' } } });
     expect(withoutField({ custom: { Drone: 'yes' } }, 'Drone')).toEqual({ unset: ['custom'] });
   });

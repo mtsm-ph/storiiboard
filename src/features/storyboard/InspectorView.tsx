@@ -79,6 +79,8 @@ export interface InspectorViewProps {
   customFields?: Readonly<Record<string, string>>;
   /** Every field name the project's frames use. */
   customNames?: readonly string[];
+  /** Names the frame keeps something other than text under, which a new field can't take. */
+  customHidden?: readonly string[];
   /** A value to set, or null to take the field off the frame. */
   /** Settles once the edit has landed, so focus can go to what it made. */
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
@@ -194,11 +196,14 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
 function CustomFields({
   fields,
   known,
+  hidden,
   onChange,
 }: {
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
   known: readonly string[];
+  /** Names this frame keeps something other than text under. */
+  hidden: readonly string[];
   /** A value to set, or null to take the field off this frame; settles once it has landed. */
   onChange: (name: string, value: string | null) => Promise<void>;
 }) {
@@ -219,7 +224,7 @@ function CustomFields({
     });
   };
   const add = () => {
-    const tidy = fieldName(name, known);
+    const tidy = fieldName(name, known, hidden);
     if (!tidy.ok) {
       setError(tidy.problem);
       return;
@@ -344,6 +349,7 @@ export function InspectorView({
   strokeCount = 0,
   customFields = {},
   customNames = [],
+  customHidden = [],
   onCustomChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
@@ -554,7 +560,7 @@ export function InspectorView({
 
           {onCustomChange && (
             <Section title="Custom fields">
-              <CustomFields key={shot.id} fields={customFields} known={customNames} onChange={onCustomChange} />
+              <CustomFields key={shot.id} fields={customFields} known={customNames} hidden={customHidden} onChange={onCustomChange} />
             </Section>
           )}
         </>
