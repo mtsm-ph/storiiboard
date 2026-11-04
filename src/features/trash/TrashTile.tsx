@@ -6,7 +6,7 @@ import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { emptyTrashMessage, restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
+import { emptyTrashMessage, restoreChanges, restoredName, rowsGone, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
@@ -68,9 +68,9 @@ export function TrashTile() {
       if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
       return;
     }
-    // Items as the Trash lists them (a frame's sketch and picture go with it, unlisted).
+    // Rows as the Trash listed them (a frame's sketch and picture go with it, unlisted).
     if (!done.result) return;
-    const { items } = done.result;
+    const items = rowsGone(projectStore.getState().records, all);
     showInfo(
       `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${done.result.freed > 0 ? `, with ${sizeLabel(done.result.freed)} of pictures` : ''}.`,
     );

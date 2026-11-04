@@ -101,7 +101,7 @@ describe('Empty Trash', () => {
     await trash(first);
     const confirmed = new Set(trashedRoots(Object.values(records())));
     await trash(second);
-    expect((await store.getState().emptyTrash(confirmed))?.items).toBe(1);
+    expect(await store.getState().emptyTrash(confirmed)).not.toBeNull();
     expect(records()[first]).toBeUndefined();
     expect(records()[second]?.trashedAt).not.toBeNull();
   });
@@ -189,6 +189,24 @@ describe('Empty Trash', () => {
     const number = (id: string) => shotFields(records()[id]?.props ?? {}).number;
     expect([number(moved), number(stays)]).toEqual(['5A', '5B']);
     expect(records().sc5?.props.name).toBe('Road');
+  });
+
+  it('keeps a frame kept as it is now with its newer picture and sketch, so nothing it shows is deleted', async () => {
+    const moved = await frame('sc4');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, 'sc5', null) }));
+    const sha = await withPicture(moved, 10);
+    await store.getState().apply([addStroke(records(), moved, { tool: 'pen', points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null })]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const mediaId = shotFields(records()[moved]?.props ?? {}).mediaId ?? '';
+    expect(records()[mediaId]?.trashedAt).toBeNull();
+    expect(Object.values(records()).filter((r) => r.type === 'stroke' && r.parentId === moved && r.trashedAt === null)).toHaveLength(1);
+    expect(await historyOnlyPictures(project.file)).toEqual([]);
+    expect(await readOriginal(project.file, sha)).not.toBeNull();
   });
 
   it('restores a point from before a scene that a frame moved into, keeping both, when the frame’s first scene is gone', async () => {

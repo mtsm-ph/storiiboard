@@ -9,7 +9,7 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board, trashShot } from '../storyboard/board';
 import { setPicture, type FramePicture } from '../storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
-import { emptyTrashMessage, restoreChanges, trashItems } from './trash';
+import { emptyTrashMessage, restoreChanges, rowsGone, trashItems } from './trash';
 
 function picture(seed: number, name: string): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -182,6 +182,14 @@ describe('the Trash', () => {
     await restore('sc4');
     const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
     expect(all).toEqual(['4D', '4E', '4F', '4A', '4B', '4C']);
+  });
+
+  it('counts what Empty Trash deleted as the Trash listed it: a scene deleted with its frames is one', async () => {
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
+    const rows = trashItems(records(), project.projectId);
+    expect(rows).toHaveLength(1);
+    await store.getState().emptyTrash();
+    expect(rowsGone(records(), rows)).toBe(1);
   });
 
   it('warns in the Empty Trash confirm that a locked scene can give a deleted frame’s letter out again', async () => {

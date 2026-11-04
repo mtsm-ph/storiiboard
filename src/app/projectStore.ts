@@ -43,7 +43,7 @@ export interface ProjectState {
    * Empty Trash (1.21): deletes the Trash for good, after the person has confirmed it. Resolves to what went, or null
    * when nothing did (an empty Trash, or a refusal, which has set `error`).
    */
-  emptyTrash: (only?: ReadonlySet<string>) => Promise<{ items: number; removed: number; freed: number } | null>;
+  emptyTrash: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
   /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
   cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
 }
@@ -145,11 +145,11 @@ export function createProjectStore(): StoreApi<ProjectState> {
         await edit((project) => undo(project.file));
       },
       emptyTrash: async (only) => {
-        let result: { items: number; removed: number; freed: number } | null = null;
+        let result: { removed: number; freed: number } | null = null;
         await edit(async (project) => {
           const done = await emptyTrash(project.file, only ? { only } : {});
           if (!done) return null;
-          result = { items: done.items, removed: done.removed, freed: done.freed };
+          result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
           return done.touched;
         });

@@ -375,6 +375,15 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
   };
   for (let changed = true; changed; ) {
     changed = false;
+    // A record kept as it is now keeps what's under it and the picture it names as they are now too: sent back to
+    // the point, a newer picture or sketch would be deleted from under a frame that still shows it.
+    for (const [id, op] of byId) {
+      const kept = final.get(id);
+      if (!kept || kept !== op.before) continue;
+      const mediaId = typeof kept.props.media_id === 'string' ? kept.props.media_id : null;
+      if (mediaId !== null && byId.has(mediaId)) changed = keepAsNow(mediaId) || changed;
+      for (const [other, otherOp] of byId) if (otherOp.before?.parentId === id) changed = keepAsNow(other) || changed;
+    }
     // A frame kept as it is now in a scene it wasn't in at the point keeps the number it has there, so that scene
     // and every frame in it or going back into it stay as they are now too: otherwise two frames could share a slate
     // number (the board as it is now has none).
@@ -499,14 +508,11 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 export async function emptyTrash(
   file: ProjectFile,
   options: OpOptions & { only?: ReadonlySet<string> } = {},
-): Promise<{ touched: Touched; items: number; removed: number; freed: number; pictures: string[] } | null> {
+): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
   const { author = 'local', now = () => new Date(), only } = options;
   const all = await loadRecords(file);
   const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
-  const going = new Set(ids);
-  // Items as the Trash lists them, for the message.
-  const items = trashedRoots(all).filter((id) => going.has(id)).length;
   const pictures = await unusedPictures(file, ids, true);
   const at = now().toISOString();
   const groupId = crypto.randomUUID();
@@ -532,7 +538,6 @@ export async function emptyTrash(
   ]);
   return {
     touched: new Map(ids.map((id) => [id, null])),
-    items,
     removed: ids.length,
     freed: pictures.reduce((sum, p) => sum + p.bytes, 0),
     pictures: pictures.map((p) => p.sha256),

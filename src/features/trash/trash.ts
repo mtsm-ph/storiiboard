@@ -163,6 +163,11 @@ export function restoreChanges(records: Records, projectId: string, id: string):
   }
 }
 
+/** How many of these Trash rows are gone from the project: what an Empty Trash deleted, counted as the Trash lists it. */
+export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
+  return rows.filter((row) => !records[row.id]).length;
+}
+
 /**
  * The Empty Trash confirm, the same in the Trash tile and Settings → Storage. `hidden` counts items the Trash tile's
  * filters hide, since it empties them too.
