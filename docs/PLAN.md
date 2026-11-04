@@ -64,6 +64,15 @@ themes). One PR per milestone, each into `v2`.
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
 
+Before the gate (Kevin, Nov 4): a checkpoint for all of Phase 1 (the smoke set on Linux and in WebKit on the CI Mac,
+both installers), Kevin tests 1.11 to 1.25 as one batch, then a polish step, which turns the screenshot tests back on
+with fresh baselines. Phase 2 waits for the gate.
+
+Testing from Nov 4: every PR runs quick checks on Linux (lint, types, unit tests, Rust tests, the Rust data-safety
+tests among them), and a newer push cancels the outdated run. The end-to-end smoke set (create, open, add a scene and
+frames, undo, save and reopen; e2e/smoke.spec.ts) and the installers run at checkpoints (checkpoint.yml). The deeper
+end-to-end specs run locally before each merge. A failing functional or data-safety test gets fixed, never skipped.
+
 ### Phase 0 milestones
 
 One PR per milestone, each into `v2`.
@@ -695,8 +704,10 @@ switch light and dark at once while the colours ease; left as is.
 - `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
   Reset trash a frame's picture.
 - Kevin, Nov 3: the screenshot tests (e2e/visual.spec.ts, 8 of them) are suppressed until the UI is ready to test
-  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (CI's baseline update run sets
-  it). The behaviour tests and unit tests run as before.
+  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (the checkpoint workflow's
+  baseline update run sets it). The behaviour tests and unit tests run as before.
+- Kevin, Nov 4: they stay off, locally and in CI, until the polish step before the Bey County gate. There they come
+  back with fresh baselines (Mac and Linux), made once the UI is final.
 - Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
   Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
   its own, without becoming the theme again.
