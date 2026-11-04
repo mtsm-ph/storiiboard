@@ -1,5 +1,5 @@
 import { accentCandidates } from './generate';
-import { samplePixels } from './extract';
+import { samplePixels } from './sample';
 
 // The Web Worker side of extract.ts: one image in, its accents out.
 self.onmessage = (event: MessageEvent<Blob>) => {

@@ -571,8 +571,12 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
 - e2e: switching projects swaps the tokens in about 200ms without a reload, and reduced motion switches instantly.
 
 **As built in 1.14 (Nov 3)** (src/ui/theme/generator):
-- Images are read at 96px in a Web Worker and clustered with seeded k-means (8 clusters) in OKLab. A colour that fills
-  most of the edge (see-through places included) is the background and is left out.
+- Images are read at 96px in a Web Worker and clustered with seeded k-means (8 clusters) in OKLab. A grey or white
+  that fills most of the edge (see-through places included) is the background and is left out; a colour filling the
+  edge stays, so a solid red image or a white mark on a red square offers red. The same image gives the same accents
+  on one engine; WebKit and WebView2 shrink images slightly differently, which the stored tokens make harmless.
+- The accent's lightness may move across the whole range, so even black or white gets an accent; the text on it is
+  always ink. A worker that fails, can't start or takes over 15 s hands the work to the page.
 - Up to 4 accents are offered, with chroma of at least 0.05 and at least 1.5% of the image, at least 0.09 apart in
   OKLab, the most saturated first. A grey image offers none and keeps the kit.
 - Accents snap by OKLCH hue: Rose 10°, Clay 32°, Paper 48° (the kit's orange is at 41°), Ochre 78°, Sand 95°, Olive
@@ -581,7 +585,7 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
 - Decided while building, to review: the fitted accent reaches 3:1 on the background and the tiles, but not on
   oatmeal wells (`surface-raised`). With ink text on the accent, as in the kit, that can't be met in light mode: ink
   needs a light accent, oatmeal a dark one. The kit's own #DF5E27 is 2.1:1 on oatmeal too. The one place the accent
-  meets oatmeal is the selected row's 3px marker, which the ink-filled row already carries.
+  meets oatmeal is the selected row's 3px marker; the row's ink number chip carries the selection without it.
 
 **As built in 1.15 (Nov 3):** the ten tokens are registered with `@property` as colours and transition on `:root`
 over 200ms, so every class that reads them eases with no per-element transitions; reduced motion turns it off. The
