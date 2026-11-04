@@ -47,7 +47,16 @@ export async function reopenChangedProject(): Promise<void> {
   if (!path || reopening) return;
   reopening = true;
   try {
-    await reopenProjectFile(path, files);
+    if (!(await reopenProjectFile(path, files))) {
+      // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved to,
+      // so it closes rather than refuse every edit without a word.
+      await projectStore.getState().close();
+      showNotice(
+        'This project changed on disk, most likely from another computer, and wasn’t opened again. Storiiboard ' +
+          'closed the old version, which can’t be saved to. Your last change wasn’t saved.',
+      );
+      return;
+    }
     showNotice(
       'This project changed on disk, most likely from another computer, so Storiiboard opened the newest version. ' +
         'Your last change wasn’t saved; please make it again.',

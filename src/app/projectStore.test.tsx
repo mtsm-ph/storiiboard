@@ -79,6 +79,19 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
+  it('counts a project closed even when closing its file fails', async () => {
+    const store = createProjectStore();
+    const project = await open();
+    await store.getState().open(project);
+    const closeFile = project.close.bind(project);
+    project.close = async () => {
+      await closeFile();
+      throw new Error('poisoned');
+    };
+    await expect(store.getState().close()).rejects.toThrow('poisoned');
+    expect(store.getState().project).toBeNull();
+  });
+
   it('keeps the open project when another can’t be read, and closes the one that failed', async () => {
     const store = createProjectStore();
     const first = await open('Bey County.sbd');
