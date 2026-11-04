@@ -16,6 +16,9 @@ const VARIANT: Record<ButtonVariant, string> = {
 // Disabled controls are exempt from AA contrast, which is what lets the kit's oatmeal-and-muted style stand.
 const DISABLED =
   'disabled:border disabled:border-dashed disabled:border-text-muted disabled:bg-surface-raised disabled:text-text-muted disabled:no-underline';
+// aria-disabled keeps a pressed button focused while it waits (a running restore), and looks the same as disabled.
+const ARIA_DISABLED =
+  'aria-disabled:border aria-disabled:border-dashed aria-disabled:border-text-muted aria-disabled:bg-surface-raised aria-disabled:text-text-muted aria-disabled:no-underline';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -43,6 +46,7 @@ export function Button({
         // One padding class only: cx joins without merging, so two would be settled by CSS order, not intent.
         variant === 'ghost' ? 'px-1.5' : mono ? 'px-2.5' : 'px-3.5',
         DISABLED,
+        ARIA_DISABLED,
         className,
       )}
       {...rest}

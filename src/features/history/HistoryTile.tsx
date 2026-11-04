@@ -11,7 +11,7 @@ import { Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { ItemHistory } from './ItemHistory';
 import { putBackChange } from './putBack';
-import { itemOps as readItemOps, loadSteps, PAGE, restoreNotice, type Steps } from './steps';
+import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
 import { lineText, who, type FieldChange, type Line } from './summary';
 import { createWriteGate } from './writeGate';
 
@@ -37,12 +37,23 @@ function LineText({ line }: { line: Line }) {
   );
 }
 
+/** Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. */
+export function RestoreStatus({ restoring }: { restoring: boolean }) {
+  // Always there, empty when idle, so a screen reader hears it start.
+  return (
+    <p role="status" className="text-[13px]">
+      {restoring ? 'Restoring the project…' : ''}
+    </p>
+  );
+}
+
 export function HistoryTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const canUndo = useProject((s) => s.canUndo);
   // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
   const deletedForGood = useProject((s) => s.deletedForGood);
+  const restoring = useProject((s) => s.restoring);
   const shotId = useSelection((s) => s.shotId);
   const noteId = useSelection((s) => s.noteId);
   const sceneId = useSelection((s) => s.sceneId);
@@ -64,6 +75,10 @@ export function HistoryTile() {
   const olderAsked = useRef(false);
   // One restore or Put back at a time (writeGate.ts): a click on a row that just moved under the pointer is dropped.
   const [gate] = useState(() => createWriteGate());
+  // The item's history as last read, for the next read to take only the new writes: finding a frame's strokes afresh
+  // looks through the whole log. With what it was read in, since Empty Trash and Clean up take data from older
+  // writes, and another project's file is another log.
+  const itemRead = useRef<{ file: object; deletedForGood: number; log: ItemLog } | null>(null);
 
   // Read again after every edit, undo and restore (each is a new step), and after anything is deleted for good.
   useEffect(() => {
@@ -103,11 +118,19 @@ export function HistoryTile() {
     let live = true;
     const id = item.id;
     const readFor = gate.versionOf(records);
+    const file = project.file;
+    const known = itemRead.current;
     // A frame's strokes and picture too, from the log: sketching writes only the stroke, never the frame, and an
     // undone sketch has no record left to find them by.
-    readItemOps(project.file, item)
-      .then((ops) => {
-        if (live) setItemOps({ id, ops, readFor });
+    const reading =
+      known && known.file === file && known.deletedForGood === deletedForGood && known.log.itemId === id
+        ? moreItemLog(file, item, known.log)
+        : readItemLog(file, item);
+    reading
+      .then((next) => {
+        if (!live) return;
+        itemRead.current = { file, deletedForGood, log: next };
+        setItemOps({ id, ops: next.ops, readFor });
       })
       .catch((error: unknown) => {
         if (live) gate.gone('item');
@@ -116,7 +139,7 @@ export function HistoryTile() {
     return () => {
       live = false;
     };
-  }, [gate, project, filtered, item, records]);
+  }, [gate, project, filtered, item, records, deletedForGood]);
   // The item's rows are off screen (the filter turned off, the item deselected or trashed): a Put back waiting for
   // them to be read again lets go.
   useEffect(() => {
@@ -127,7 +150,8 @@ export function HistoryTile() {
   const undoKey = isMac() ? '⌘Z' : 'Ctrl+Z';
 
   const restore = (group: OpGroup) => {
-    if (!gate.take('steps', projectStore.getState().records)) return;
+    // A restore still running (from this tile, or from before it was closed and opened again) takes no more clicks.
+    if (projectStore.getState().restoring || !gate.take('steps', projectStore.getState().records)) return;
     // The list as clicked: the notice names the step that was pressed, not what moved into its place.
     const shown = loaded?.steps ?? [];
     void projectStore
@@ -147,7 +171,7 @@ export function HistoryTile() {
   };
 
   const putBack = async (recordId: string, field: FieldChange): Promise<boolean> => {
-    if (!gate.take('item', projectStore.getState().records)) return false;
+    if (projectStore.getState().restoring || !gate.take('item', projectStore.getState().records)) return false;
     let changed = false;
     try {
       // Worked out from the item as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
@@ -182,13 +206,14 @@ export function HistoryTile() {
     return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
   };
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex min-h-full flex-col" aria-busy={restoring}>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
         <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
+        <RestoreStatus restoring={restoring} />
       </div>
       {filtered && named ? (
         itemOps?.id === item.id ? (
-          <ItemHistory item={item} title={named.title} ops={itemOps.ops} places={places} onPutBack={putBack} />
+          <ItemHistory item={item} title={named.title} ops={itemOps.ops} places={places} busy={restoring} onPutBack={putBack} />
         ) : (
           <p className="p-3 text-[13px] text-text-muted">Reading History…</p>
         )
@@ -214,6 +239,8 @@ export function HistoryTile() {
                   {index > 0 && group.kind !== 'empty_trash' && (
                     <Button
                       aria-label={`Restore to here: after “${lineText(line)}”`}
+                      // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                      aria-disabled={restoring || undefined}
                       onClick={() => {
                         restore(group);
                       }}

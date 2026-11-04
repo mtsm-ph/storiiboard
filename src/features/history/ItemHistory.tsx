@@ -20,12 +20,15 @@ export function ItemHistory({
   title,
   ops,
   places,
+  busy = false,
   onPutBack,
 }: {
   item: SbdRecord;
   title: string;
   ops: readonly LoggedOp[];
   places: (id: string) => string | null;
+  /** A Restore to here is running: Put back takes no clicks until it lands (the tile ignores them too). */
+  busy?: boolean;
   onPutBack: (recordId: string, field: FieldChange) => Promise<boolean>;
 }) {
   const table = useRef<HTMLTableElement>(null);
@@ -72,6 +75,7 @@ export function ItemHistory({
                 {offered && (
                   <Button
                     aria-label={`Put back ${changeLabel(field)} ${value(field, field.before)}`}
+                    aria-disabled={busy || undefined}
                     onClick={() => {
                       putBack(op.recordId, field);
                     }}

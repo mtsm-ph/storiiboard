@@ -1,7 +1,7 @@
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, log, opsOfGroups, opsOfRecords, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
-import { describeGroup, lineText, type Line } from './summary';
+import { byStep, describeGroup, lineText, type Line } from './summary';
 
 /** Steps shown at a time; older ones load on asking (Show older steps), so a long project opens its History at once. */
 export const PAGE = 100;
@@ -30,8 +30,7 @@ export async function loadSteps(file: ProjectFile, count: number): Promise<Steps
     pending.push(group.targetGroupId, group.restoreTo);
   }
   const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
-  const byGroup = new Map<string, LoggedOp[]>();
-  for (const op of ops) byGroup.set(op.groupId, [...(byGroup.get(op.groupId) ?? []), op]);
+  const byGroup = byStep(ops);
   // Only an edit's line names its own records; undo, redo and restore name the step they point at.
   const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => byId.get(id)?.kind === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
@@ -46,14 +45,15 @@ export async function loadSteps(file: ProjectFile, count: number): Promise<Steps
  * scene keeps by id. As they were then, not now, so a step's number or name matches the board's at the time, as every
  * other line's does.
  */
-async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<string, readonly LoggedOp[]>): Promise<Map<string, Map<string, SbdRecord>>> {
+export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<string, readonly LoggedOp[]>): Promise<Map<string, Map<string, SbdRecord>>> {
   const asks: { group: string; id: string; seq: number }[] = [];
   for (const [group, ops] of byGroup) {
     const stroke = ops.find((op) => (op.after ?? op.before)?.type === 'stroke');
     const shotId = stroke ? (stroke.after ?? stroke.before)?.parentId : null;
     if (stroke && shotId && !ops.some((op) => op.recordId === shotId)) asks.push({ group, id: shotId, seq: stroke.seq });
     // As the step left it: a location picked by a new name is made in the same step.
-    const end = Math.max(...ops.map((op) => op.seq)) + 1;
+    // Not Math.max(...seqs), which throws past about 125k arguments: a Restore to here can be a step that big.
+    const end = ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1;
     const places = new Set(ops.flatMap((op) => [op.before?.props.location_id, op.after?.props.location_id]));
     for (const id of places) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
   }
@@ -80,6 +80,38 @@ export async function frameOps(file: ProjectFile, frameId: string): Promise<Logg
  */
 export async function itemOps(file: ProjectFile, item: SbdRecord): Promise<LoggedOp[]> {
   return item.type === 'shot' ? frameOps(file, item.id) : opsOfRecords(file, [item.id]);
+}
+
+/** An item's writes as last read (itemOps), and how far into the log that read went. */
+export interface ItemLog {
+  itemId: string;
+  ops: LoggedOp[];
+  /** The newest op's seq when the read began: writes after it are the next read's. */
+  through: number;
+}
+
+/** An item's whole history, read afresh: when it's first shown, or after Empty Trash took data from older writes. */
+export async function readItemLog(file: ProjectFile, item: SbdRecord): Promise<ItemLog> {
+  // Taken first, so a write landing during the read is read again next time rather than missed (kept once, by id).
+  const through = await lastOpSeq(file);
+  return { itemId: item.id, ops: await itemOps(file, item), through };
+}
+
+/**
+ * The same history after more steps: only the writes since `known` are read, to the item, to what it already had
+ * under it, or to anything the new steps put under it. Finding a frame's strokes afresh looks through every write in
+ * the log, which on a long project is too slow to do after every edit while the History tile shows one frame.
+ */
+export async function moreItemLog(file: ProjectFile, item: SbdRecord, known: ItemLog): Promise<ItemLog> {
+  if (known.itemId !== item.id) return readItemLog(file, item);
+  const through = await lastOpSeq(file);
+  const ids = [...new Set([item.id, ...known.ops.map((op) => op.recordId)])];
+  // Only a frame's history takes in what's under it (itemOps); a scene's frames and notes have their own.
+  const since = await opsSince(file, known.through, ids, item.type === 'shot' ? item.id : null);
+  const have = new Set(known.ops.map((op) => op.id));
+  const added = since.filter((op) => !have.has(op.id));
+  if (added.length === 0) return { ...known, through: Math.max(known.through, through) };
+  return { itemId: item.id, ops: [...known.ops, ...added].sort((a, b) => a.seq - b.seq), through: Math.max(known.through, through) };
 }
 
 /**
