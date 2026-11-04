@@ -264,8 +264,9 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     board would give it there: between a printed 1 and 2 it's 1A, after the last it's the next whole number. A
     number printed twice, or one that can't be a scene number, is numbered the same way, and the preview says why.
   - A scene counts as "On the board" only when the board's scene with its number has the same INT/EXT and place, so
-    importing the same draft again adds nothing. A different scene with that number ("Number taken on the board"),
-    or one in the Trash ("Number in the Trash"), is left out rather than renumbered off the slate. A revised script's
+    importing the same draft again adds nothing. A printed number the board has for a different scene ("Number taken
+    on the board"), or one in the Trash ("Number in the Trash"), is left out rather than renumbered off the slate. A
+    scene the script doesn't number has no slate number to keep, so it's numbered around the board's instead. A revised script's
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
