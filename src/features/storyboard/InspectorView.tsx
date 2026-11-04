@@ -21,7 +21,7 @@ import {
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
+import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
@@ -80,7 +80,8 @@ export interface InspectorViewProps {
   /** Every field name the project's frames use. */
   customNames?: readonly string[];
   /** A value to set, or null to take the field off the frame. */
-  onCustomChange?: (name: string, value: string | null) => void;
+  /** Settles once the edit has landed, so focus can go to what it made. */
+  onCustomChange?: (name: string, value: string | null) => Promise<void>;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -198,32 +199,52 @@ function CustomFields({
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
   known: readonly string[];
-  /** A value to set, or null to take the field off this frame. */
-  onChange: (name: string, value: string | null) => void;
+  /** A value to set, or null to take the field off this frame; settles once it has landed. */
+  onChange: (name: string, value: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const listId = useId();
   const errorId = useId();
   const rows = useRef<HTMLDivElement>(null);
-  const focusField = (field: string) => {
+  const newField = useRef<HTMLInputElement>(null);
+  // After the edit lands and the row is drawn (or gone), so the focus finds it: a desktop write takes a few frames.
+  const focusField = (field: string | null) => {
     requestAnimationFrame(() => {
-      rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`)?.focus();
+      const input = field === null ? null : rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`);
+      (input ?? newField.current)?.focus();
     });
   };
   const add = () => {
     const tidy = fieldName(name, known);
-    if (!tidy) {
-      setError(`A name of 1 to ${String(MAX_FIELD_NAME)} characters.`);
+    if (!tidy.ok) {
+      setError(tidy.problem);
       return;
     }
     setError(null);
+    // Add field turns off as the name clears; the name's own field keeps the focus until the new one is there.
+    if (document.activeElement !== newField.current) newField.current?.focus();
     setName('');
-    // Already on this frame: go to it rather than add it twice.
-    if (!(tidy in fields)) onChange(tidy, '');
-    focusField(tidy);
+    // Already on this frame, in any case: go to it rather than add it twice.
+    const existing = fieldKey(fields, tidy.name);
+    if (existing !== null) {
+      focusField(existing);
+      return;
+    }
+    void onChange(tidy.name, '').then(() => {
+      focusField(tidy.name);
+    });
   };
-  const offered = known.filter((k) => !(k in fields));
+  const remove = (field: string) => {
+    // Focus goes to the field below, or above, or New field when it was the last.
+    const names = Object.keys(fields);
+    const at = names.indexOf(field);
+    const next = names[at + 1] ?? names[at - 1] ?? null;
+    void onChange(field, null).then(() => {
+      focusField(next);
+    });
+  };
+  const offered = known.filter((k) => fieldKey(fields, k) === null);
   return (
     <>
       <div ref={rows} className="flex flex-col gap-3">
@@ -234,7 +255,7 @@ function CustomFields({
                 label={field}
                 value={value}
                 onCommit={(text) => {
-                  onChange(field, text);
+                  void onChange(field, text);
                   return null;
                 }}
               />
@@ -242,7 +263,7 @@ function CustomFields({
             <IconButton
               label={`Remove ${field} from this frame`}
               onClick={() => {
-                onChange(field, null);
+                remove(field);
               }}
             >
               <CloseGlyph />
@@ -254,6 +275,7 @@ function CustomFields({
         <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
             <TextField
+              ref={newField}
               label="New field"
               value={name}
               list={listId}
