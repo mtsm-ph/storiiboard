@@ -79,7 +79,8 @@ test('a named version opens as a copy at that point, and the original keeps ever
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(frames(page)).toHaveCount(4);
   await history(page).getByRole('button', { name: 'Open version Board sent to client' }).click();
-  await expect(page.getByRole('banner')).toContainText('Bey County (Board sent to client)');
+  // The copy shares the project's title; the notice names its file.
+  await expect(page.getByRole('status').getByText(/Opened version “Board sent to client” as a separate project, “Bey County \(Board sent to client\)”/)).toBeVisible();
   await expect(frames(page)).toHaveCount(3);
 
   // The original, from the switcher: all four frames.

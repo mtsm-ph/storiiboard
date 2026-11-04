@@ -57,7 +57,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
 | 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
-| 1.23 Named versions (schema 4) and Open version | | Not started |
+| 1.23 Named versions (schema 4): name a point, Open version as a copy | #40 | Done |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
 
@@ -269,6 +269,16 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.23 (Nov 3): named versions** (schema 4, src/core/storage/versions.ts):
+- In the History tile: Name this point names the newest step; versions are listed with their step, and each step
+  shows the names on it. Open version copies the project beside it (`Bey County (Board sent to client).sbd`), gives
+  the copy its own file id, opens it in place and restores it to the version's step; the original isn't touched.
+  Delete… asks first; the steps stay.
+- Tests: the copy is at the point and its restore undoes; it lasts a restart, and the original keeps everything; a
+  name whose write dies halfway leaves nothing.
+- Decided while building, to review: a version names the newest step only (name it right after the step you mean);
+  renaming waits for a later milestone; Open backup's copy still keeps the original's file id, as before.
 
 **As built in 1.22 (Nov 3): the History tile** (src/features/history):
 - History in the project menu opens it in the workspace on screen. Every step is listed newest first, undos, redos,

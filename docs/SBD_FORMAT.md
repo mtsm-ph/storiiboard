@@ -464,21 +464,25 @@ merge a database, so two guards sit around every open project:
 
 ## Planned changes
 
-### Schema 4: named versions (Phase 1, History)
+### Schema 4: named versions (1.23, src/core/storage/versions.ts)
 
-A named version is a named point in History, not a copy. Open version copies the project, restores the copy to that
-point, and opens the copy as a separate project, as Open backup does.
+A named version is a named point in History, not a copy. Open version copies the project, gives the copy a `file_id`
+of its own, restores the copy to that point (a `restore` group in the copy), and opens it as a separate project, as
+Open backup does. The original is never changed.
 
 `versions`
 
 | Column | Type | Notes |
 |---|---|---|
-| name | text | "Board sent to client" |
+| id, created_at, updated_at | | As every table |
+| name | text | "Board sent to client"; up to 80 characters |
 | note | text, null | |
-| op_group_id | text | The last op group included (op_groups.id) |
-| created_by | text | |
+| op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
+| created_by | text | `local` for now |
 
-Versions are kept until someone deletes them.
+Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
+the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
+opened later lacks what it deleted.
 
 ### Schema 5: notification read state (Phase 3)
 
@@ -513,7 +517,7 @@ is each person's read state, in two tables.
 | 1 | 0.4 | First schema: meta, records (with `trashed_at` and `trashed_by`), ops |
 | 2 | 0.5b | Append-only History: `op_groups`; `ops.state` and `meta.undo_cursor` removed. Each v1 `undone` or `discarded` mark becomes an `undo` group where that undo must have happened, and `ops.seq` is renumbered to follow the groups |
 | 3 | 1.10 | Pictures: `media_files` and `thumbnails`, addressed by SHA-256; record types `note`, `character` and `stroke` |
-| 4 | Phase 1 (planned) | Named versions: `versions` |
+| 4 | 1.23 | Named versions: `versions` |
 | 5 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
