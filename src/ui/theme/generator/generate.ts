@@ -1,4 +1,4 @@
-import { contrast, deltaE, fitChroma, hex, labToLch, lchToRgb, parseHex, rgbToLab, rgbToLch, type Lab, type Lch, type Rgb } from './color';
+import { contrast, deltaE, fitChroma, hex, labToLch, labToRgb, lchToRgb, parseHex, rgbToLab, rgbToLch, type Lab, type Lch, type Rgb } from './color';
 import { FAMILIES, PAPER, type Family, type Surfaces } from './families';
 
 // A project's theme from its logo or key image (1.14, docs/PLAN.md A), worked out on the device with no network:
@@ -87,9 +87,14 @@ export function clusters(points: readonly Lab[], k: number, seed = 1): { center:
 /**
  * The pixels worth reading from an RGBA image: opaque ones, without a logo's flat background. A grey or white that
  * fills most of the edge is taken for the background and left out, so a red mark on white offers red, not white. A
- * colour filling the edge stays: a white mark on a red square, or a solid red image, offers red.
+ * colour filling the edge stays: a white mark on a red square, or a solid red image, offers red. The background found,
+ * if any, comes back too.
  */
-export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width: number, height: number): Lab[] {
+export function colourPixels(
+  rgba: Uint8ClampedArray | readonly number[],
+  width: number,
+  height: number,
+): { pixels: Lab[]; background: Lab | null } {
   const at = (x: number, y: number): Rgb | null => {
     const i = (y * width + x) * 4;
     if ((rgba[i + 3] ?? 0) < 128) return null;
@@ -124,7 +129,25 @@ export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width:
       out.push(lab);
     }
   }
-  return out;
+  return { pixels: out, background };
+}
+
+/** How far, per sRGB channel, a colour may sit off the straight mix of two and still count as their mix. */
+const BLEND_TOLERANCE = 16;
+
+/**
+ * Whether a colour is only the soft edge between an accent and the background: a mix of the two in sRGB, as
+ * anti-aliasing and shrinking make them. A red dot on white offers red, not the pink of its rim.
+ */
+export function isBlend(colour: Rgb, accent: Rgb, background: Rgb): boolean {
+  const channels = [0, 1, 2] as const;
+  // How much of the accent is in the mix, read on the channel where the two differ most.
+  const axis = channels.reduce((best, i) => (Math.abs(accent[i] - background[i]) > Math.abs(accent[best] - background[best]) ? i : best), 0);
+  const span = accent[axis] - background[axis];
+  if (Math.abs(span) < 1) return false;
+  const t = (colour[axis] - background[axis]) / span;
+  if (t <= 0 || t >= 1) return false;
+  return channels.every((i) => Math.abs(background[i] + t * (accent[i] - background[i]) - colour[i]) <= BLEND_TOLERANCE);
 }
 
 /**
@@ -133,7 +156,9 @@ export function colourPixels(rgba: Uint8ClampedArray | readonly number[], width:
  */
 export function accentCandidates(rgba: Uint8ClampedArray | readonly number[], width: number, height: number): string[] {
   // Judged as the hex it will be stored as, so an accent offered is never one the family table reads as grey.
-  const found = clusters(colourPixels(rgba, width, height), CLUSTERS)
+  const { pixels, background } = colourPixels(rgba, width, height);
+  const ground = background ? labToRgb(background) : null;
+  const found = clusters(pixels, CLUSTERS)
     .map(({ center, share }) => {
       const value = hex(lchToRgb(labToLch(center)));
       return { center, share, value, lch: rgbToLch(parseHex(value)) };
@@ -142,7 +167,9 @@ export function accentCandidates(rgba: Uint8ClampedArray | readonly number[], wi
     .sort((a, b) => b.lch.c * Math.sqrt(b.share) - a.lch.c * Math.sqrt(a.share));
   const kept: typeof found = [];
   for (const candidate of found) {
-    if (kept.every((k) => deltaE(k.center, candidate.center) >= APART)) kept.push(candidate);
+    const apart = kept.every((k) => deltaE(k.center, candidate.center) >= APART);
+    const rim = ground !== null && kept.some((k) => isBlend(parseHex(candidate.value), parseHex(k.value), ground));
+    if (apart && !rim) kept.push(candidate);
     if (kept.length === 4) break;
   }
   // The default is the most saturated; the rest follow in rank.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { contrast, hex, lchToRgb, parseHex, rgbToLch } from './color';
 import { FAMILIES, PAPER, type Surfaces } from './families';
-import { accentCandidates, DEFAULT_ACCENT, familyFor, themeFor, type ModeTokens } from './generate';
+import { accentCandidates, DEFAULT_ACCENT, familyFor, isBlend, themeFor, type ModeTokens } from './generate';
 
 /** An RGBA image drawn by a function of x and y. */
 function image(width: number, height: number, pixel: (x: number, y: number) => [number, number, number, number]) {
@@ -113,6 +113,25 @@ describe('accents from an image', () => {
     const logo = image(48, 48, (x, y) => (Math.hypot(x - 24, y - 24) < 12 ? [200, 30, 40, 255] : [255, 255, 255, 255]));
     const [accent] = accentCandidates(logo.data, logo.width, logo.height);
     expect(rgbToLch(parseHex(accent ?? '#000000')).h).toBeLessThan(35);
+  });
+
+  it('leaves out the soft rim between a mark and its background, which is only a mix of the two', () => {
+    // A red dot on white with an anti-aliased rim, as a shrunk logo has.
+    const [red, white] = [
+      [200, 30, 40],
+      [255, 255, 255],
+    ] as const;
+    const mix = (t: number) => red.map((c, i) => Math.round(c * t + (white[i] ?? 0) * (1 - t)));
+    const logo = image(48, 48, (x, y) => {
+      const d = Math.hypot(x - 24, y - 24);
+      if (d < 10) return [...red, 255];
+      if (d < 15) return [...mix(1 - (d - 10) / 5), 255] as [number, number, number, number];
+      return [...white, 255];
+    });
+    expect(accentCandidates(logo.data, logo.width, logo.height)).toHaveLength(1);
+    expect(isBlend([228, 144, 149], [200, 30, 40], [255, 255, 255])).toBe(true);
+    // A colour of its own, not on the way from red to white.
+    expect(isBlend([30, 90, 200], [200, 30, 40], [255, 255, 255])).toBe(false);
   });
 
   it('reads a mark that reaches the edge of a transparent logo', () => {
