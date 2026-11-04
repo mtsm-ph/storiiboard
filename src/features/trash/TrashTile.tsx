@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react';
+import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
@@ -6,8 +7,8 @@ import { Select } from '../../ui/fields';
 import { restoreChanges, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
-// click as one undoable edit. Empty Trash, which deletes for good after a confirm, comes in 1.21. Any workspace can
-// open it from the Layout menu; it's in no default layout (CLAUDE.md).
+// click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
+// undone. Any workspace can open it from the Layout menu; it's in no default layout (CLAUDE.md).
 
 const KINDS: readonly TrashKind[] = ['scene', 'frame', 'note', 'picture'];
 
@@ -36,6 +37,18 @@ export function TrashTile() {
     a[1].localeCompare(b[1], undefined, { numeric: true }),
   );
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
+
+  const emptyAll = async (count: number) => {
+    const sure = await confirmForGood(
+      'Empty Trash?',
+      `${String(count)} ${count === 1 ? 'item' : 'items'} will be deleted for good, with their pictures. This can’t be undone, and History can’t bring them back.`,
+      'Empty Trash',
+    );
+    if (!sure) return;
+    const done = await projectStore.getState().emptyTrash();
+    // The count the person saw (a frame's sketch and picture go with it, unlisted).
+    if (done) showInfo(`Emptied the Trash: ${String(count)} ${count === 1 ? 'item' : 'items'} deleted for good${done.freed > 0 ? `, ${sizeLabel(done.freed)} freed` : ''}.`);
+  };
 
   const restore = (id: string, name: string, index: number) => {
     void projectStore
@@ -85,6 +98,9 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
+        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length)}>
+          Empty Trash…
+        </Button>
       </div>
       {all.length === 0 ? (
         <p className="p-3 text-[13px] text-text-muted">The Trash is empty. Frames, notes and pictures you delete wait here until it’s emptied.</p>

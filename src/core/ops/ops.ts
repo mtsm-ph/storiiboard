@@ -11,10 +11,10 @@ import type { ProjectFile, Row, Statement } from '../storage/driver';
 // restoreTo can bring back the project as it was after any group.
 
 /** `revert` is a record set back to an earlier point by restoreTo. Undo and redo rows keep the kind they reverse. */
-export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert';
+export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert' | 'purge';
 
 /** What one op group was: an edit, or one of the three ways of going back and forth through the log. */
-export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore';
+export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore' | 'empty_trash';
 
 export interface OpGroup {
   id: string;
@@ -348,12 +348,26 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     'SELECT record_id, before FROM ops WHERE seq IN (SELECT min(seq) FROM ops WHERE seq > ? GROUP BY record_id) ORDER BY seq',
     [lastSeq],
   );
-  const ops: PendingOp[] = [];
+  const found: PendingOp[] = [];
   for (const row of rows) {
     const recordId = String(row.record_id);
     const before = await getRecord(file, recordId);
     const after = fromSnapshot(row.before);
-    if (snapshot(before) !== snapshot(after)) ops.push({ recordId, kind: 'revert', before, after });
+    if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
+  }
+  // Empty Trash deleted some records for good, and their data in the log with them: a record from then never comes
+  // back half made (its ops say nothing), and one that sat under a deleted parent stays where it is now.
+  const coming = new Set(found.filter((op) => op.after !== null).map((op) => op.recordId));
+  const ops: PendingOp[] = [];
+  for (const op of found) {
+    const parentId = op.after?.parentId ?? null;
+    if (op.after && parentId !== null && !coming.has(parentId) && (await getRecord(file, parentId)) === null) {
+      if (op.before === null) continue;
+      const kept = { ...op.after, parentId: op.before.parentId, sortKey: op.before.sortKey };
+      if (snapshot(kept) !== snapshot(op.before)) ops.push({ ...op, after: kept });
+      continue;
+    }
+    ops.push(op);
   }
   if (ops.length === 0) return null;
   const { undoTop } = await tops(file);
@@ -365,6 +379,114 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     now().toISOString(),
   );
   return touchedBy(ops);
+}
+
+/** Every record Empty Trash deletes: each trashed one (never the project) and everything under it. */
+export function purgeIds(records: readonly SbdRecord[]): string[] {
+  const children = new Map<string, SbdRecord[]>();
+  for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
+  const ids = new Set<string>();
+  const add = (record: SbdRecord) => {
+    if (ids.has(record.id)) return;
+    ids.add(record.id);
+    for (const child of children.get(record.id) ?? []) add(child);
+  };
+  for (const record of records) if (record.trashedAt !== null && record.type !== 'project') add(record);
+  return [...ids];
+}
+
+/** A stored picture: its address, and the space it takes with its thumbnails. */
+export interface StoredPicture {
+  sha256: string;
+  bytes: number;
+}
+
+/**
+ * Stored pictures nothing uses once `without` records are gone: no record's props name them, and (when `historyToo`)
+ * no op of a remaining record does either.
+ */
+async function unusedPictures(file: ProjectFile, without: readonly string[], historyToo: boolean): Promise<StoredPicture[]> {
+  const fromOps = historyToo
+    ? `UNION SELECT json_extract(before, '$.props.file') FROM ops
+         WHERE json_extract(before, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)
+       UNION SELECT json_extract(after, '$.props.file') FROM ops
+         WHERE json_extract(after, '$.type') = 'media' AND record_id NOT IN (SELECT id FROM gone)`
+    : '';
+  const rows = await file.query(
+    `WITH gone(id) AS (SELECT value FROM json_each(?)),
+      used(sha) AS (
+        SELECT json_extract(props, '$.file') FROM records WHERE type = 'media' AND id NOT IN (SELECT id FROM gone)
+        ${fromOps}
+      )
+    SELECT f.sha256, f.byte_size + coalesce((SELECT sum(length(t.bytes)) FROM thumbnails t WHERE t.sha256 = f.sha256), 0) AS size
+      FROM media_files f WHERE f.sha256 NOT IN (SELECT sha FROM used WHERE sha IS NOT NULL)`,
+    [JSON.stringify(without)],
+  );
+  return rows.map((row) => ({ sha256: String(row.sha256), bytes: Number(row.size) }));
+}
+
+function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
+  const list = JSON.stringify(pictures.map((p) => p.sha256));
+  // Thumbnails first: they point at the file.
+  return [
+    { sql: 'DELETE FROM thumbnails WHERE sha256 IN (SELECT value FROM json_each(?))', params: [list] },
+    { sql: 'DELETE FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', params: [list] },
+  ];
+}
+
+/**
+ * Empty Trash (1.21, docs/SBD_FORMAT.md): deletes every trashed record and everything under it for good, in one
+ * transaction. Their data goes from older ops too, so neither undo nor a History restore can bring back half of one;
+ * the purge is recorded as an `empty_trash` group of `purge` ops, and the undo and redo stacks end there. Stored
+ * pictures nothing left refers to are deleted with them. Null when the Trash is empty.
+ */
+export async function emptyTrash(
+  file: ProjectFile,
+  options: OpOptions = {},
+): Promise<{ touched: Touched; removed: number; freed: number } | null> {
+  const { author = 'local', now = () => new Date() } = options;
+  const ids = purgeIds(await loadRecords(file));
+  if (ids.length === 0) return null;
+  const pictures = await unusedPictures(file, ids, true);
+  const at = now().toISOString();
+  const groupId = crypto.randomUUID();
+  const gone = JSON.stringify(ids);
+  const [top] = await file.query(
+    'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
+  );
+  const firstSeq = Number(top?.op ?? 0) + 1;
+  await file.tx([
+    { sql: 'UPDATE ops SET before = NULL, after = NULL WHERE record_id IN (SELECT value FROM json_each(?))', params: [gone] },
+    { sql: 'DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))', params: [gone] },
+    {
+      sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
+        timestamp, created_at, updated_at) VALUES (?, ?, 'empty_trash', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+      params: [groupId, Number(top?.grp ?? 0) + 1, author, at, at, at],
+    },
+    ...ids.map((id, i) => ({
+      sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at,
+        updated_at) VALUES (?, ?, ?, ?, 'purge', NULL, NULL, ?, ?, ?, ?)`,
+      params: [crypto.randomUUID(), firstSeq + i, groupId, id, author, at, at, at],
+    })),
+    ...deletePictures(pictures),
+  ]);
+  return { touched: new Map(ids.map((id) => [id, null])), removed: ids.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
+}
+
+/**
+ * Pictures only History still uses (1.21): no record in the project, live or in the Trash, shows them, but an older
+ * step does (a picture added and undone, say). Clean up old pictures deletes them for good; those steps then show
+ * "picture removed".
+ */
+export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]> {
+  return unusedPictures(file, [], false);
+}
+
+/** Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged. */
+export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number }> {
+  const pictures = await historyOnlyPictures(file);
+  if (pictures.length > 0) await file.tx(deletePictures(pictures));
+  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
 }
 
 export async function history(file: ProjectFile): Promise<{ canUndo: boolean; canRedo: boolean }> {
