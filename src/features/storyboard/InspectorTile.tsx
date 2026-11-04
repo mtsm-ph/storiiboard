@@ -2,10 +2,10 @@ import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
-import { customFieldNames, customFieldsOf, withField, withoutField } from '../../core/model/customFields';
+import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { addPictures } from './addPictures';
-import { setSceneNumber } from './board';
+import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
 import { ProjectPictures } from './ProjectPictures';
@@ -95,14 +95,11 @@ export function InspectorTile() {
         }}
         customFields={shot ? customFieldsOf(shot.props) : {}}
         customNames={customFieldNames(records)}
-        onCustomChange={(name, value) => {
+        customHidden={shot ? hiddenFieldNames(shot.props) : []}
+        onCustomChange={async (name, value) => {
           if (!shot) return;
           // Worked out when it lands, so two fields added quickly both stay.
-          void projectStore.getState().applyWith((now) => {
-            const props = now[shot.id]?.props;
-            if (!props) return { changes: [] };
-            return { changes: [{ kind: 'update', id: shot.id, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }] };
-          });
+          await projectStore.getState().applyWith((now) => ({ changes: setCustomField(now, shot.id, name, value) }));
         }}
       />
     </ProjectPictures>
