@@ -520,6 +520,10 @@ export async function history(file: ProjectFile): Promise<{ canUndo: boolean; ca
 
 /** One write in the log, as the History tile reads it. */
 export interface LoggedOp {
+  /** The op's own id: what keeps a row of History the same row when newer steps arrive above it. */
+  id: string;
+  /** Its place in the log. */
+  seq: number;
   groupId: string;
   /** The group's kind: an undo's ops keep the kind they reverse, so this is what tells an undone add from an add. */
   groupKind: GroupKind;
@@ -532,6 +536,8 @@ export interface LoggedOp {
 }
 
 const loggedOp = (row: Row): LoggedOp => ({
+  id: String(row.id),
+  seq: Number(row.seq),
   groupId: String(row.group_id),
   groupKind: String(row.group_kind) as GroupKind,
   recordId: String(row.record_id),
@@ -542,11 +548,13 @@ const loggedOp = (row: Row): LoggedOp => ({
   timestamp: String(row.timestamp),
 });
 
+const LOGGED_COLUMNS = 'o.id, o.seq, o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp';
+
 /** The ops of some groups, in log order, for the History tile's page of steps. */
 export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]): Promise<LoggedOp[]> {
   if (groupIds.length === 0) return [];
   const rows = await file.query(
-    `SELECT o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp FROM ops o
+    `SELECT ${LOGGED_COLUMNS} FROM ops o
       JOIN op_groups g ON g.id = o.group_id WHERE o.group_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
     [JSON.stringify(groupIds)],
   );
@@ -554,13 +562,34 @@ export async function opsOfGroups(file: ProjectFile, groupIds: readonly string[]
 }
 
 /** Every write to one record, oldest first (ops_by_record): an item's own history. */
-export async function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
+export function opsOfRecord(file: ProjectFile, recordId: string): Promise<LoggedOp[]> {
+  return opsOfRecords(file, [recordId]);
+}
+
+/** Every write to some records, oldest first: a frame's history with its sketch and picture. */
+export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[]): Promise<LoggedOp[]> {
+  if (recordIds.length === 0) return [];
   const rows = await file.query(
-    `SELECT o.group_id, g.kind AS group_kind, o.record_id, o.kind, o.before, o.after, o.author, o.timestamp FROM ops o
-      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id = ? ORDER BY o.seq`,
-    [recordId],
+    `SELECT ${LOGGED_COLUMNS} FROM ops o
+      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
+    [JSON.stringify(recordIds)],
   );
   return rows.map(loggedOp);
+}
+
+/**
+ * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
+ * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.
+ */
+export async function recordsBefore(file: ProjectFile, asks: readonly { id: string; seq: number }[]): Promise<(SbdRecord | null)[]> {
+  if (asks.length === 0) return [];
+  const rows = await file.query(
+    `SELECT j.key AS i, (SELECT o.after FROM ops o WHERE o.record_id = json_extract(j.value, '$.id')
+        AND o.seq < json_extract(j.value, '$.seq') ORDER BY o.seq DESC LIMIT 1) AS after
+      FROM json_each(?) j ORDER BY j.key`,
+    [JSON.stringify(asks)],
+  );
+  return rows.map((row) => fromSnapshot(row.after));
 }
 
 /** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */

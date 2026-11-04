@@ -69,6 +69,55 @@ test('one frame’s own changes, field by field, with an old value to put back',
   await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
 });
 
+test('a Put back from the keyboard keeps focus in the table, so the next Tab reaches the rows again', async ({ page }) => {
+  await frames(page).first().click();
+  await setLens(page, '35');
+  await setLens(page, '50');
+  await openHistory(page);
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  await changes.getByRole('button', { name: 'Put back lens 35mm' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
+  await expect(changes.getByRole('row').nth(1)).toContainText(/lens\s*50mm\s*35mm/);
+  await expect(changes).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(changes.getByRole('button', { name: /^Put back/ }).first()).toBeFocused();
+});
+
+test('Show older steps keeps focus in the list once the last page is in', async ({ page }) => {
+  await frames(page).first().click();
+  // Four steps so far; this many more puts the oldest past the first page of 100.
+  for (let i = 0; i < 97; i += 1) await setLens(page, String(20 + i));
+  await openHistory(page);
+  await expect(steps(page)).toHaveCount(100);
+  const older = history(page).getByRole('button', { name: 'Show older steps' });
+  await older.focus();
+  await page.keyboard.press('Enter');
+  await expect(steps(page)).toHaveCount(101);
+  await expect(older).toHaveCount(0);
+  await expect(history(page).getByRole('list', { name: 'Steps, newest first' })).toBeFocused();
+});
+
+test('a sketch names its frame in the steps, and shows in the frame’s own history', async ({ page }) => {
+  await frames(page).first().click();
+  await page.keyboard.press('s');
+  const editor = page.getByRole('dialog', { name: 'Sketch 1A' });
+  const box = await editor.locator('[data-sketch-frame]').boundingBox();
+  if (!box) throw new Error('no frame');
+  await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.3);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i += 1) await page.mouse.move(box.x + box.width * (0.2 + 0.1 * i), box.y + box.height * (0.3 + 0.05 * i));
+  await page.mouse.up();
+  await page.keyboard.press('Escape');
+  await expect(editor).toHaveCount(0);
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('Sketched on 1A');
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  await expect(changes.getByRole('row').nth(1)).toContainText(/Sketched\s*You/);
+});
+
 async function addField(page: Page, name: string, value: string) {
   await inspector(page).getByLabel('New field').fill(name);
   await inspector(page).getByRole('button', { name: 'Add field' }).click();

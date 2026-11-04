@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { localDateTime } from '../../app/format';
 import { showInfo, showNotice } from '../../app/notice';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { shotFields } from '../../core/model/storyboard';
-import { opsOfRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { opsOfRecords, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Toggle } from '../../ui/fields';
@@ -49,6 +49,8 @@ export function HistoryTile() {
   const shot = shotId ? records[shotId] : undefined;
   const frame = shot?.type === 'shot' && shot.trashedAt === null ? shot : undefined;
   const filtered = onlyFrame && frame !== undefined;
+  const list = useRef<HTMLOListElement>(null);
+  const olderAsked = useRef(false);
 
   // Read again after every edit, undo and restore: each is a new step.
   useEffect(() => {
@@ -64,11 +66,22 @@ export function HistoryTile() {
     };
   }, [project, records, canUndo, count]);
 
+  // Show older steps goes once the last page is in: focus stays in the list rather than falling out of the window.
+  useEffect(() => {
+    if (!olderAsked.current || loaded?.more !== false) return;
+    olderAsked.current = false;
+    if (document.activeElement === document.body || document.activeElement === null) list.current?.focus();
+  }, [loaded]);
+
   useEffect(() => {
     if (!project || !filtered) return;
     let live = true;
     const id = frame.id;
-    opsOfRecord(project.file, id)
+    // Its strokes and picture too, trashed ones included: sketching writes only the stroke, never the frame.
+    const children = Object.values(records)
+      .filter((r) => r.parentId === id)
+      .map((r) => r.id);
+    opsOfRecords(project.file, [id, ...children])
       .then((ops) => {
         if (live) setFrameOps({ id, ops });
       })
@@ -90,13 +103,12 @@ export function HistoryTile() {
       });
   };
 
-  const putBack = (recordId: string, field: FieldChange) => {
+  const putBack = (recordId: string, field: FieldChange) =>
     // Worked out from the frame as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
-    void projectStore.getState().applyWith((now) => {
+    projectStore.getState().applyWith((now) => {
       const change = putBackChange(now[recordId], field);
       return { changes: change ? [change] : [] };
     });
-  };
 
   const frameName = frame ? shotFields(frame.props).number : '';
   const label = frame ? (
@@ -124,7 +136,7 @@ export function HistoryTile() {
           ) : loaded.steps.length === 0 ? (
             <p className="p-3 text-[13px] text-text-muted">No steps yet. Every change you make shows here.</p>
           ) : (
-            <ol aria-label="Steps, newest first" className="flex flex-col">
+            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" className="flex flex-col">
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">
@@ -154,6 +166,7 @@ export function HistoryTile() {
             <div className="p-3">
               <Button
                 onClick={() => {
+                  olderAsked.current = true;
                   setCount((n) => n + PAGE);
                 }}
               >
@@ -177,12 +190,22 @@ function FrameHistory({
   frame: SbdRecord;
   name: string;
   ops: readonly LoggedOp[];
-  onPutBack: (recordId: string, field: FieldChange) => void;
+  onPutBack: (recordId: string, field: FieldChange) => Promise<boolean>;
 }) {
-  const rows = frameRows(ops);
+  const table = useRef<HTMLTableElement>(null);
+  const rows = frameRows(ops, frame.id);
   if (rows.length === 0) return <p className="p-3 text-[13px] text-text-muted">No changes to {name} yet.</p>;
+  const putBack = (recordId: string, field: FieldChange) => {
+    void onPutBack(recordId, field).then(() => {
+      // The pressed button goes once its value is back: focus stays on the table rather than falling out of the
+      // window, so the next Tab reaches the rows again.
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body || document.activeElement === null) table.current?.focus();
+      });
+    });
+  };
   return (
-    <table className="w-full border-collapse text-[12px]">
+    <table ref={table} tabIndex={-1} className="w-full border-collapse text-[12px]">
       <caption className="sr-only">Changes to frame {name}, newest first</caption>
       <thead>
         <tr className="border-b border-border">
@@ -210,7 +233,7 @@ function FrameHistory({
                   <Button
                     aria-label={`Put back ${changeLabel(field)} ${changeValue(field, field.before)}`}
                     onClick={() => {
-                      onPutBack(op.recordId, field);
+                      putBack(op.recordId, field);
                     }}
                   >
                     Put back

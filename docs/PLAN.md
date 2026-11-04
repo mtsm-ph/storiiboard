@@ -55,8 +55,8 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
-| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
-| 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Done |
+| 1.22 History tile: every step in words, restore a point, a frame's old values | | Done |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |

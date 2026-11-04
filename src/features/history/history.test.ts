@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { shotFields } from '../../core/model/storyboard';
-import { log, opsOfRecord, type OpGroup } from '../../core/ops/ops';
+import { log, opsOfRecord, opsOfRecords, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board, moveItem, setCustomField, trashShot } from '../storyboard/board';
+import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { putBackChange } from './putBack';
 import { loadSteps, PAGE } from './steps';
 import { changeValue, fieldChanges, frameRows, lineText, type FieldChange } from './summary';
@@ -201,7 +202,7 @@ describe('Put back', () => {
     await store.getState().apply(setCustomField(records(), a, 'VFX', ''));
     await store.getState().apply(setCustomField(records(), a, 'VFX', 'Sky replace'));
     expect((await lines()).slice(-2)).toEqual(['4A: added the field VFX', '4A: VFX — → Sky replace']);
-    const rows = frameRows(await opsOfRecord(project.file, a)).flatMap((r) => (r.field ? [[changeValue(r.field, r.field.before), changeValue(r.field, r.field.after)]] : []));
+    const rows = frameRows(await opsOfRecord(project.file, a), a).flatMap((r) => (r.field ? [[changeValue(r.field, r.field.before), changeValue(r.field, r.field.after)]] : []));
     expect(rows).toEqual([
       ['—', 'Sky replace'],
       ['no field', '—'],
@@ -243,7 +244,7 @@ describe('Put back', () => {
 });
 
 describe('a frame’s own history', () => {
-  const rows = async (id: string) => frameRows(await opsOfRecord(project.file, id)).map((r) => [r.change, r.field?.before ?? null, r.field?.after ?? null]);
+  const rows = async (id: string) => frameRows(await opsOfRecord(project.file, id), id).map((r) => [r.change, r.field?.before ?? null, r.field?.after ?? null]);
 
   it('tells an undone add, and a delete and its undo, apart from the edits they reverse', async () => {
     const a = await frame();
@@ -280,7 +281,7 @@ describe('a frame’s own history', () => {
 
   it('says who made each change', async () => {
     const a = await frame();
-    expect(frameRows(await opsOfRecord(project.file, a)).map((r) => r.op.author)).toEqual(['local']);
+    expect(frameRows(await opsOfRecord(project.file, a), a).map((r) => r.op.author)).toEqual(['local']);
   });
 
   it('sets slate and camera values in mono in a step’s line, and never a count', async () => {
@@ -325,5 +326,68 @@ describe('Show older steps', () => {
     await store.getState().restoreTo(point.id);
     await store.getState().undo();
     expect(lineText((await loadSteps(project.file, 1)).steps[0]?.line ?? [])).toBe('Undid: Restored the project to: Added frame 4A');
+  });
+});
+
+describe('after Empty Trash', () => {
+  it('words a step whose records are gone for good by what it did, never as an edit of the frames it renumbered', async () => {
+    const [a] = [await frame(), await frame(), await frame()];
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 50 } }]);
+    await store.getState().apply(trashShot(records(), project.projectId, a));
+    expect((await lines()).at(-1)).toBe('Deleted frame 4A');
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toEqual([
+      'Added scene SC 04',
+      'Added an item, since deleted for good',
+      'Added frame 4B',
+      'Added frame 4C',
+      'Changed an item, since deleted for good',
+      'Deleted an item, since deleted for good',
+      'Emptied the Trash: 1 item deleted for good',
+    ]);
+  });
+});
+
+const pen = { tool: 'pen' as const, points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null };
+/** A frame's own history as the tile reads it: the frame, and its strokes and picture. */
+const withChildren = async (id: string) => {
+  const children = Object.values(records())
+    .filter((r) => r.parentId === id)
+    .map((r) => r.id);
+  return frameRows(await opsOfRecords(project.file, [id, ...children]), id);
+};
+
+describe('sketching in History', () => {
+  it('names the frame a sketch or an erase was on, by its number then', async () => {
+    const [a, b] = [await frame(), await frame()];
+    await store.getState().apply([addStroke(records(), b, pen)]);
+    await store.getState().apply([addStroke(records(), b, pen)]);
+    const strokes = Object.values(records()).filter((r) => r.type === 'stroke').map((r) => r.id);
+    await store.getState().apply(eraseStrokes(strokes));
+    // 4A goes, so 4B is 4A now; the steps keep the number the frame had when it was drawn on.
+    await store.getState().apply(trashShot(records(), project.projectId, a));
+    expect(numberOf(b)).toBe('4A');
+    expect((await lines()).slice(-4)).toEqual(['Sketched on 4B', 'Sketched on 4B', 'Erased 2 strokes on 4B', 'Deleted frame 4A']);
+  });
+
+  it('lists a frame’s sketching in its own history, one row a step, undos included', async () => {
+    const a = await frame();
+    await store.getState().apply([addStroke(records(), a, pen)]);
+    await store.getState().apply([addStroke(records(), a, pen)]);
+    const strokes = Object.values(records()).filter((r) => r.type === 'stroke').map((r) => r.id);
+    await store.getState().apply(eraseStrokes(strokes));
+    await store.getState().undo();
+    expect((await withChildren(a)).map((r) => r.change)).toEqual(['Undid: Erased 2 strokes', 'Erased 2 strokes', 'Sketched', 'Sketched', 'Added']);
+  });
+
+  it('keeps a row’s key when a newer step arrives above it, so focus and the row stay together', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 35 } }]);
+    await store.getState().apply([addStroke(records(), a, pen)]);
+    const before = (await withChildren(a)).map((r) => r.key);
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 50 } }]);
+    const after = (await withChildren(a)).map((r) => r.key);
+    expect(after.slice(1)).toEqual(before);
+    expect(new Set(after).size).toBe(after.length);
   });
 });

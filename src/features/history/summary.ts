@@ -157,11 +157,22 @@ const NOUN: Readonly<Partial<Record<SbdRecord['type'], string>>> = {
   media: 'picture',
 };
 
-/** One line for an edit group, from its ops. `stored` holds the pictures still in the file. */
-export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<string>): Line {
+/**
+ * An op whose record Empty Trash deleted for good: it keeps its kind, but not the record before and after (1.21), so
+ * neither its type nor its name is known any more.
+ */
+const purged = (op: LoggedOp) => op.kind !== 'purge' && op.before === null && op.after === null;
+
+/**
+ * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
+ * names without writing them (a sketch's frame), as they were then.
+ */
+export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
   if (ops.length === 0) return ['No change'];
   const record = (op: LoggedOp) => op.after ?? op.before;
   const of = (kind: LoggedOp['kind'], type?: SbdRecord['type']) => ops.filter((op) => op.kind === kind && (!type || record(op)?.type === type));
+  const since = ', since deleted for good';
+  const items = (n: number) => (n === 1 ? 'an item' : plural(n, 'item'));
   const removed = ops.some((op) => {
     const media = record(op);
     const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
@@ -189,19 +200,31 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
         return [`${what} `, nameOf(shot ? record(shot) : null), tag];
       }
       if (type === 'stroke') {
-        const shot = found[0]?.after?.parentId ?? found[0]?.before?.parentId;
-        const target = ops.find((op) => op.recordId === shot);
-        return kind === 'create' ? ['Sketched on ', target ? nameOf(record(target)) : 'a frame'] : [`${kind === 'trash' ? 'Erased' : 'Restored'} ${plural(found.length, 'stroke')}`];
+        // A stroke is all a sketch writes, so its frame is named from the frame as it was then (`around`).
+        const shotId = found[0]?.after?.parentId ?? found[0]?.before?.parentId ?? null;
+        const written = ops.find((op) => op.recordId === shotId);
+        const shot = written ? record(written) : shotId === null ? null : (around.get(shotId) ?? null);
+        const frame = shot ? nameOf(shot) : 'a frame';
+        return kind === 'create' ? ['Sketched on ', frame] : [`${kind === 'trash' ? 'Erased' : 'Restored'} ${plural(found.length, 'stroke')} on `, frame];
       }
       const first = found[0];
       if (found.length > 1 || !first) return [`${verb} ${plural(found.length, noun)}`];
       return type === 'note' ? [`${verb} a note`] : [`${verb} ${noun} `, nameOf(record(first))];
     }
+    // Checked before the moves and updates below: a delete renumbers the frames after it in the same step, and once
+    // the deleted frame is gone for good those renumbers are all that's left to read, so it would pass for an edit.
+    const lost = ops.filter((op) => op.kind === kind && purged(op));
+    if (lost.length > 0) return [`${verb} ${items(lost.length)}${since}${tag}`];
   }
   const moves = of('move');
   const moved = moves[0];
-  if (moved) return moves.length === 1 ? ['Moved ', nameOf(record(moved))] : [`Moved ${plural(moves.length, 'item')}`];
+  if (moved) {
+    if (moves.length > 1) return [`Moved ${plural(moves.length, 'item')}`];
+    return purged(moved) ? [`Moved an item${since}`] : ['Moved ', nameOf(record(moved))];
+  }
   const updates = ops.filter((op) => op.kind === 'update' && op.before && op.after);
+  const lostUpdates = ops.filter((op) => op.kind === 'update' && purged(op));
+  if (updates.length === 0 && lostUpdates.length > 0) return [`Changed ${items(new Set(lostUpdates.map((op) => op.recordId)).size)}${since}${tag}`];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
     const op = updates[0];
     if (op?.before && op.after) {
@@ -228,10 +251,16 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
  * A step's line. Undo and redo say what they took back or did again; a restore, the point it went back to; Empty
  * Trash, how many items it deleted for good.
  */
-export function describeGroup(group: OpGroup, ops: readonly LoggedOp[], titles: ReadonlyMap<string, Line>, stored: ReadonlySet<string>): Line {
+export function describeGroup(
+  group: OpGroup,
+  ops: readonly LoggedOp[],
+  titles: ReadonlyMap<string, Line>,
+  stored: ReadonlySet<string>,
+  around: ReadonlyMap<string, SbdRecord> = new Map(),
+): Line {
   switch (group.kind) {
     case 'edit':
-      return describeEdit(ops, stored);
+      return describeEdit(ops, stored, around);
     case 'undo':
       return ['Undid: ', ...(titles.get(group.targetGroupId ?? '') ?? ['a step'])];
     case 'redo':
@@ -297,22 +326,67 @@ function stepLine(op: LoggedOp): string | null {
   return op.groupKind === 'undo' ? `Undid: ${base}` : op.groupKind === 'redo' ? `Redid: ${base}` : base;
 }
 
+/** What a step did to a frame's sketch or picture, which are records of their own under it. */
+function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], n: number): string {
+  if (type === 'media') {
+    const what: Partial<Record<LoggedOp['kind'], string>> = { create: 'Set the picture', trash: 'Removed the picture', restore: 'Restored the picture' };
+    return what[kind] ?? (kind === 'revert' ? 'Restore to here: the picture' : 'Changed the picture');
+  }
+  switch (kind) {
+    case 'create':
+      return n === 1 ? 'Sketched' : `Sketched ${plural(n, 'stroke')}`;
+    case 'trash':
+      return `Erased ${plural(n, 'stroke')}`;
+    case 'restore':
+      return `Restored ${plural(n, 'stroke')}`;
+    case 'revert':
+      return 'Restore to here: the sketch';
+    default:
+      return 'Changed the sketch';
+  }
+}
+
 /**
  * Every change to one item, newest first, field by field. Its number is listed too, though the board keeps it in
  * step and it isn't put back on its own, so an editor matching a slate can see when a frame was renumbered.
+ *
+ * `ops` may hold its children's ops too (a frame's strokes and picture): each step's are one whole-step row,
+ * "Sketched" or "Erased 2 strokes", since sketching writes only the stroke and would otherwise never show here. A
+ * picture's own ops are left out where the frame's `picture` row already says it. Rows are keyed by op, so a new
+ * step above them never makes them other rows.
  */
-export function frameRows(ops: readonly LoggedOp[]): FrameRow[] {
-  return [...ops].reverse().flatMap((op, index): FrameRow[] => {
+export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] {
+  const ownGroups = new Set(ops.filter((op) => op.recordId === itemId).map((op) => op.groupId));
+  const children = new Map<string, LoggedOp[]>();
+  for (const op of ops) {
+    if (op.recordId === itemId) continue;
+    const type = (op.after ?? op.before)?.type;
+    if (type === 'media' && ownGroups.has(op.groupId)) continue;
+    children.set(op.groupId, [...(children.get(op.groupId) ?? []), op]);
+  }
+  const listed = new Set<string>();
+  return [...ops].reverse().flatMap((op): FrameRow[] => {
+    if (op.recordId !== itemId) {
+      const group = children.get(op.groupId);
+      if (!group || listed.has(op.groupId)) return [];
+      listed.add(op.groupId);
+      const first = group[0] ?? op;
+      const type = (first.after ?? first.before)?.type;
+      const same = group.filter((o) => o.kind === first.kind && (o.after ?? o.before)?.type === type).length;
+      const base = childLine(type, first.kind, same);
+      const how = op.groupKind === 'undo' ? 'Undid: ' : op.groupKind === 'redo' ? 'Redid: ' : '';
+      return [{ key: `${op.groupId}:children`, op, change: `${how}${base}`, field: null }];
+    }
     const rows: FrameRow[] = [];
     const line = stepLine(op);
-    if (line !== null) rows.push({ key: String(index), op, change: line, field: null });
+    if (line !== null) rows.push({ key: op.id, op, change: line, field: null });
     if (op.before && op.after) {
       for (const field of fieldChanges(op.before, op.after)) {
-        rows.push({ key: `${String(index)}:${field.prop}:${field.key ?? ''}`, op, change: `${changeLabel(field)}${FIELD_HOW[op.groupKind]}`, field });
+        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: `${changeLabel(field)}${FIELD_HOW[op.groupKind]}`, field });
       }
     }
     // An update that changed nothing a person sees still happened: say so rather than drop it.
-    if (rows.length === 0) rows.push({ key: String(index), op, change: KIND_LINE[op.kind], field: null });
+    if (rows.length === 0) rows.push({ key: op.id, op, change: KIND_LINE[op.kind], field: null });
     return rows;
   });
 }
