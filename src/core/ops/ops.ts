@@ -1,5 +1,6 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
 import type { ProjectFile, Row, Statement } from '../storage/driver';
+import { recordSlateNumbers } from '../storage/slateNumbers';
 
 // Every change to a project is an operation (CLAUDE.md, Edits, undo and autosave). One user action is one op group:
 // its record changes, its op rows and its group row commit in a single transaction, which is the autosave. Each op
@@ -212,6 +213,9 @@ async function commit(
   await file.tx([
     ...alsoWrite,
     ...[...records].map(([id, record]) => write(id, record)),
+    // Any number this group gives a shot in a locked scene, or a scene as it's locked, joins its slate numbers (1.26).
+    // Undo, redo and restores write through here too, and never take a number out.
+    recordSlateNumbers([...records.keys()], at),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
         timestamp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

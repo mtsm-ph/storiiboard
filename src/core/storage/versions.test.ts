@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, board } from '../../features/storyboard/board';
-import { apply, log } from '../ops/ops';
+import { log } from '../ops/ops';
 import { backupFileName, migrationBackupName } from './backups';
 import type { SqlDriver } from './driver';
 import { migrate } from './migrate';
@@ -97,13 +97,20 @@ describe('named versions', () => {
     const path = folder.path('Pilot.sbd');
     const v3 = await nodeDriver.create(path);
     await migrate(v3, { isNew: true, migrations: MIGRATIONS.slice(0, 3), now: () => new Date(2026, 10, 2, 14, 5) });
-    await apply(v3, [{ kind: 'create', record: { id: 'sc1', type: 'scene', parentId: null, sortKey: 'V', props: { number: '1' } } }]);
+    // As a v3 build wrote it; today's apply also writes the v5 slate numbers, which a v3 file has no table for.
+    await v3.tx([
+      {
+        sql: `INSERT INTO records (id, type, parent_id, sort_key, props, created_at, updated_at)
+          VALUES ('sc1', 'scene', NULL, 'V', '{"number":"1"}', '2026-11-02', '2026-11-02')`,
+      },
+    ]);
     await v3.close();
 
     project = await openProject(path, { driver: nodeDriver, backups: false, now: () => new Date(2026, 10, 3, 9, 0) });
     expect(project.migration).toEqual({ from: 3, to: SCHEMA_VERSION, backup: 'Pilot.sbd.bak-v3-2026-11-03 09-00' });
     await store.getState().open(project);
     expect(store.getState().records.sc1?.props.number).toBe('1');
+    await store.getState().apply([{ kind: 'update', id: 'sc1', set: { name: 'Diner' } }]);
     await nameVersion(project.file, { name: 'Before the upgrade', opGroupId: await newest() });
     expect((await listVersions(project.file)).map((v) => v.name)).toEqual(['Before the upgrade']);
   });

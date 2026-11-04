@@ -1,6 +1,6 @@
 import { hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
-import { sceneNumberBetween, shotNumbers } from '../../core/model/shotNumbers';
+import { NO_SLATE_NUMBERS, sceneNumberBetween, shotNumbers, type SlateNumbers } from '../../core/model/shotNumbers';
 import { projectStoryboard, sceneFields, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import type { Change } from '../../core/ops/ops';
@@ -75,25 +75,51 @@ export function coverage(scenes: readonly BoardScene[]): number | null {
   return Math.round((have / total) * 100);
 }
 
+/** Every live frame's number on the board: frames in live scenes, and in `alsoIn` (a scene coming back with them). */
+function boardNumbers(records: Records, alsoIn?: string): Set<string> {
+  return new Set(
+    Object.values(records)
+      .filter((s) => s.type === 'shot' && s.trashedAt === null && s.parentId !== null)
+      .filter((s) => s.parentId === alsoIn || (s.parentId !== null && records[s.parentId]?.trashedAt === null))
+      .map((s) => shotFields(s.props).number),
+  );
+}
+
+interface RenumberOptions {
+  /** Stands in for the scene's props mid-change, as when its own number or lock is changing in the same group. */
+  sceneProps?: SbdRecord['props'] | undefined;
+  /** Numbers a locked scene's next free letter skips besides the board's and the slate numbers. */
+  taken?: ReadonlySet<string> | undefined;
+  /** Every scene's slate numbers (1.26). */
+  slate?: SlateNumbers | undefined;
+}
+
 /**
  * The updates that bring a scene's shot numbers in line, given the scene's shots after a change (`shots`, in order,
- * trashed ones included so a locked scene never reuses their letters). `sceneProps` can stand in for the scene's
- * props mid-change, as when its own number or lock is changing in the same group.
+ * trashed ones included so a locked scene never reuses their letters). A locked scene's next free letter also comes
+ * after its own slate numbers, and skips every number on the board and every scene's slate numbers (1.26), so a
+ * number that has been on a slate is never given out twice.
  */
 export function renumber(
   records: Records,
   projectId: string,
   sceneId: string,
   shots: readonly SbdRecord[],
-  sceneProps?: SbdRecord['props'],
-  taken?: ReadonlySet<string>,
+  { sceneProps, taken, slate = NO_SLATE_NUMBERS }: RenumberOptions = {},
 ): Change[] {
   const scene = records[sceneId];
   if (!scene) return [];
   const fields = sceneFields(sceneProps ?? scene.props);
   const { skipIO } = projectStoryboard(records[projectId]?.props);
   const numbered = shots.map((shot) => ({ id: shot.id, number: shotFields(shot.props).number, trashed: shot.trashedAt !== null }));
-  const changed = shotNumbers(fields.number, numbered, { locked: fields.numbersLocked, skipIO, taken });
+  let changed: Map<string, string>;
+  if (fields.numbersLocked) {
+    const skip = new Set([...boardNumbers(records), ...(taken ?? [])]);
+    for (const numbers of slate.values()) for (const number of numbers) skip.add(number);
+    changed = shotNumbers(fields.number, numbered, { locked: true, skipIO, taken: skip, used: slate.get(sceneId) });
+  } else {
+    changed = shotNumbers(fields.number, numbered, { locked: false, skipIO });
+  }
   return [...changed].map(([id, number]): Change => ({ kind: 'update', id, set: { number } }));
 }
 
@@ -126,8 +152,9 @@ export function addShot(
   sceneId: string,
   afterShotId: string | null = null,
   props: SbdRecord['props'] = {},
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
 ): { changes: Change[]; shotId: string } {
-  const { changes, shotIds } = addShots(records, projectId, sceneId, afterShotId, [props]);
+  const { changes, shotIds } = addShots(records, projectId, sceneId, afterShotId, [props], slate);
   return { changes, shotId: shotIds[0] ?? '' };
 }
 
@@ -141,6 +168,7 @@ export function addShots(
   sceneId: string,
   afterShotId: string | null,
   props: readonly SbdRecord['props'][],
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
 ): { changes: Change[]; shotIds: string[] } {
   const slot = slotAfter(records, sceneId, afterShotId);
   let before = slot.before;
@@ -160,7 +188,7 @@ export function addShots(
     };
   });
   const order = [...sceneShots(records, sceneId), ...created].sort(bySortKey);
-  const numbers = renumber(records, projectId, sceneId, order);
+  const numbers = renumber(records, projectId, sceneId, order, { slate });
   const isNew = new Set(created.map((shot) => shot.id));
   const numberOf = (id: string) => {
     const own = numbers.find((c) => c.kind === 'update' && c.id === id);
@@ -208,10 +236,10 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
  * Brings a frame back from the Trash to where it was (1.20), with its scene when that's in the Trash too; the scene's
  * letters follow the board again unless they're locked, where it keeps its own unless a live frame has taken it since.
  */
-export function restoreShot(records: Records, projectId: string, shotId: string): Change[] {
+export function restoreShot(records: Records, projectId: string, shotId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
   const shot = records[shotId];
   if (!shot?.parentId || shot.trashedAt === null) return [];
-  return restoredScene(records, projectId, shot.parentId, [shotId]);
+  return restoredScene(records, projectId, shot.parentId, [shotId], slate);
 }
 
 /**
@@ -219,7 +247,13 @@ export function restoreShot(records: Records, projectId: string, shotId: string)
  * comes back too if it's in the Trash, with a new number if a live scene has taken its own meanwhile, and its frames
  * renumber as the board numbers them now (the project's I and O setting included).
  */
-export function restoredScene(records: Records, projectId: string, sceneId: string, back: readonly string[]): Change[] {
+export function restoredScene(
+  records: Records,
+  projectId: string,
+  sceneId: string,
+  back: readonly string[],
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
+): Change[] {
   const scene = records[sceneId];
   if (!scene) return [];
   const changes: Change[] = [];
@@ -247,12 +281,7 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
   }
   for (const id of back) changes.push({ kind: 'restore', id });
   // Every number on the board once this lands: live frames in live scenes, and in this one.
-  const liveNumbers = new Set(
-    Object.values(records)
-      .filter((s) => s.type === 'shot' && s.trashedAt === null && s.parentId !== null)
-      .filter((s) => s.parentId === sceneId || (s.parentId !== null && records[s.parentId]?.trashedAt === null))
-      .map((s) => shotFields(s.props).number),
-  );
+  const liveNumbers = boardNumbers(records, sceneId);
   const order = sceneShots(records, sceneId).map((s) => {
     if (!coming.has(s.id)) return s;
     // In a locked scene a frame keeps its letter, but never one a live frame anywhere has taken since (a new scene 4
@@ -260,7 +289,7 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
     return { ...s, trashedAt: null, props: liveNumbers.has(shotFields(s.props).number) ? { ...s.props, number: '' } : s.props };
   });
   // The next free letter skips those numbers too: the scene's highest letter may be the very one taken.
-  return [...changes, ...renumber(records, projectId, sceneId, order, props, liveNumbers)];
+  return [...changes, ...renumber(records, projectId, sceneId, order, { sceneProps: props, taken: liveNumbers, slate })];
 }
 
 /**
@@ -274,6 +303,7 @@ export function moveItem(
   id: string,
   targetSceneId: string,
   beforeId: string | null,
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
 ): Change[] {
   const item = records[id];
   const sourceSceneId = item?.parentId;
@@ -295,7 +325,7 @@ export function moveItem(
   };
   return [
     move,
-    ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved)),
+    ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved), { slate }),
     ...(changesScene
       ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id))
       : []),
@@ -367,7 +397,7 @@ export function setNumbersLocked(records: Records, projectId: string, sceneId: s
   const props = { ...scene.props, numbers_locked: locked };
   return [
     { kind: 'update', id: sceneId, set: { numbers_locked: locked } },
-    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), props),
+    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), { sceneProps: props }),
   ];
 }
 
@@ -381,7 +411,7 @@ export function setSceneNumber(records: Records, projectId: string, sceneId: str
   const props = { ...scene.props, number };
   return [
     { kind: 'update', id: sceneId, set: { number } },
-    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), props),
+    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), { sceneProps: props }),
   ];
 }
 

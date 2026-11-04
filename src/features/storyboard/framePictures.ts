@@ -1,6 +1,7 @@
 import { cropProp, isDefaultCrop, type Crop } from '../../core/media/crop';
 import { imageStatements, mediaFields, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
+import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import { shotFields, type ShotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
@@ -121,6 +122,7 @@ export function addFramesWithPictures(
   afterShotId: string | null,
   pictures: readonly FramePicture[],
   projectPath: string,
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
   now = new Date(),
 ): PictureEdit & { shotIds: string[] } {
   if (pictures.length === 0) return { changes: [], alsoWrite: [], shotIds: [] };
@@ -131,6 +133,7 @@ export function addFramesWithPictures(
     sceneId,
     afterShotId,
     mediaIds.map((id) => ({ media_id: id })),
+    slate,
   );
   const media = pictures.map((picture, i): Change => {
     const create = mediaCreate(shotIds[i] ?? '', keyBetween(null, null), picture, projectPath);
@@ -169,19 +172,20 @@ export function placePictures(
   target: PictureTarget,
   pictures: readonly FramePicture[],
   projectPath: string,
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
   now = new Date(),
 ): PictureEdit & { selectShotId: string | null; sceneId: string | null } {
   const [first, ...rest] = pictures;
   if (!first || !canPlace(records, projectId, target)) return { changes: [], alsoWrite: [], selectShotId: null, sceneId: null };
   if (target.kind === 'scene') {
-    const added = addFramesWithPictures(records, projectId, target.sceneId, target.afterShotId, pictures, projectPath, now);
+    const added = addFramesWithPictures(records, projectId, target.sceneId, target.afterShotId, pictures, projectPath, slate, now);
     return { ...added, selectShotId: added.shotIds[0] ?? null, sceneId: target.sceneId };
   }
   const shot = records[target.shotId];
   const sceneId = shot?.parentId ?? null;
   if (!shot || !sceneId) return { changes: [], alsoWrite: [], selectShotId: null, sceneId: null };
   const own = setPicture(records, target.shotId, first, projectPath, now);
-  const more = addFramesWithPictures(records, projectId, sceneId, target.shotId, rest, projectPath, now);
+  const more = addFramesWithPictures(records, projectId, sceneId, target.shotId, rest, projectPath, slate, now);
   return {
     changes: [...own.changes, ...more.changes],
     // Made once for all of them, so a picture dropped twice isn't sent twice.

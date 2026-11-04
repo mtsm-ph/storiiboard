@@ -192,12 +192,19 @@ describe('the Trash', () => {
     expect(rowsGone(records(), rows)).toBe(1);
   });
 
-  it('warns in the Empty Trash confirm that a locked scene can give a deleted frame’s letter out again', async () => {
+  it('warns in the Empty Trash confirm only about locked scenes whose earlier letters schema 5 couldn’t recover', async () => {
     await trash(a());
-    expect(emptyTrashMessage(records(), 1)).not.toContain('locked scene');
     expect(emptyTrashMessage(records(), 3, 2)).toContain('3 items (2 hidden by the filters)');
+    // A locked scene keeps every letter it has given out (1.26): emptying the Trash frees none, so nothing to say.
     await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
-    expect(emptyTrashMessage(records(), 1)).toContain('In a locked scene, a new frame can then be given a deleted frame’s letter.');
+    expect(emptyTrashMessage(records(), 1)).not.toContain('locked');
+    // One the migration listed (locked when an earlier Empty Trash ran) is named, while it's locked and live.
+    const unknown = new Set(['sc4']);
+    expect(emptyTrashMessage(records(), 1, 0, unknown)).toContain(
+      'SC 04 is locked, and frames an earlier Empty Trash deleted there may have had letters Storiiboard no longer knows',
+    );
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: false } }]);
+    expect(emptyTrashMessage(records(), 1, 0, unknown)).not.toContain('locked');
   });
 
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {

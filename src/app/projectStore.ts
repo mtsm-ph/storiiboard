@@ -1,10 +1,12 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
+import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
+import { loadSlateNumbers, slateNumbersUnknown } from '../core/storage/slateNumbers';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -13,6 +15,10 @@ export interface ProjectState {
   project: Project | null;
   /** Every record by id, trashed ones included; views filter. */
   records: Record<string, SbdRecord>;
+  /** Every scene's slate numbers (1.26): what a locked scene has given out, read again after every write. */
+  slateNumbers: SlateNumbers;
+  /** Scenes whose numbers before schema 5 aren't all known (an Empty Trash had run); the Empty Trash confirm says so. */
+  slateUnknown: ReadonlySet<string>;
   canUndo: boolean;
   canRedo: boolean;
   /** The last edit that failed, in words a person can read. */
@@ -48,7 +54,12 @@ export interface ProjectState {
    * that take a while to prepare (pictures), so two of them never number frames from the same records. Resolves to
    * whether it was written; a refusal has set `error` (or `changedOnDisk`) already.
    */
-  applyWith: (build: (records: Readonly<Record<string, SbdRecord>>) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] }) => Promise<boolean>;
+  applyWith: (
+    build: (
+      records: Readonly<Record<string, SbdRecord>>,
+      slateNumbers: SlateNumbers,
+    ) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] },
+  ) => Promise<boolean>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   /**
@@ -81,7 +92,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       if (touched === null) return;
       const records = Object.fromEntries(Object.entries(get().records).filter(([id]) => !touched.has(id)));
       for (const [id, record] of touched) if (record) records[id] = record;
-      set({ records, ...(await history(project.file)), error: null });
+      set({ records, slateNumbers: await loadSlateNumbers(project.file), ...(await history(project.file)), error: null });
     };
 
     const edit = (run: (project: Project) => Promise<Touched | null>) => {
@@ -106,6 +117,8 @@ export function createProjectStore(): StoreApi<ProjectState> {
     return {
       project: null,
       records: {},
+      slateNumbers: NO_SLATE_NUMBERS,
+      slateUnknown: new Set(),
       canUndo: false,
       canRedo: false,
       error: null,
@@ -115,10 +128,15 @@ export function createProjectStore(): StoreApi<ProjectState> {
       restoring: false,
       open: (project) =>
         enqueue(async () => {
-          let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
+          let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'canUndo' | 'canRedo'>;
           try {
             const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
-            loaded = { records, ...(await history(project.file)) };
+            loaded = {
+              records,
+              slateNumbers: await loadSlateNumbers(project.file),
+              slateUnknown: await slateNumbersUnknown(project.file),
+              ...(await history(project.file)),
+            };
           } catch (error) {
             // It can't be read: it closes again (its lock with it), and the project open now stays as it was.
             await project.close().catch(() => undefined);
@@ -144,7 +162,16 @@ export function createProjectStore(): StoreApi<ProjectState> {
             }
           } finally {
             // Closed or not, it's no longer the open project.
-            set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
+            set({
+              project: null,
+              records: {},
+              slateNumbers: NO_SLATE_NUMBERS,
+              slateUnknown: new Set(),
+              canUndo: false,
+              canRedo: false,
+              error: null,
+              changedOnDisk: false,
+            });
           }
         }),
       apply: async (changes, options) => {
@@ -156,7 +183,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       },
       applyWith: (build) =>
         edit(async (project) => {
-          const { changes, alsoWrite } = build(get().records);
+          const { changes, alsoWrite } = build(get().records, get().slateNumbers);
           if (changes.length === 0) return null;
           const touched = await apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
           if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));

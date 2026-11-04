@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v4 (milestone 1.23); sections marked planned aren't built yet. Every
+**Status:** schema v5 (milestone 1.26); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -216,6 +216,36 @@ complete): a scheduled backup in `Backups/` beside it, and the copy made before 
 two-digit schema), without which the upgrade refuses to run. A synced project's backups go to a folder on this
 computer; their names fit, but that folder's path isn't checked.
 
+## Schema v5: slate numbers (1.26)
+
+A locked scene remembers every shot number it has given out (Kevin, Nov 4), so a letter that has been on a slate is
+never given out again, even after Empty Trash deletes the frame that had it (src/core/storage/slateNumbers.ts).
+
+`slate_numbers`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| scene_id | text | The scene that gave the number out. No reference to records: a scene Empty Trash deletes keeps its rows |
+| number | text | The shot number as on the slate: `4C`. Unique with scene_id |
+
+- Only numbers given out while the scene is locked are kept. An unlocked scene's letters follow the board and close up,
+  so boarding never leaves gaps; locking a scene keeps the numbers its frames have at that moment, those in the Trash
+  included, and every number a frame gets there afterwards.
+- Every op group writes its rows in its own transaction, after its records: a frame added to a locked scene, a scene
+  as it's locked, and anything undo, redo or a History restore writes. Nothing ever deletes or changes a row: not undo,
+  not a restore, not Empty Trash. They're kept apart from the records for that reason: History stores whole records,
+  so a list in a scene's props would go back with any undo of an older change to the scene.
+- A locked scene's next free letter comes after the highest it has used (its frames, live or in the Trash, and its
+  rows here), and skips every number on the board and every scene's rows, so a frame numbered 4C in a scene since
+  renumbered 9 is never made again in scene 4.
+- The migration replays the log to find every number a shot had while its scene was locked, live, trashed or only in
+  History (made and then undone). Frames an Empty Trash deleted before schema 5 can't be found, since it cleared their
+  steps; the scenes that were locked when one ran are listed in `meta` under `slate_numbers_unknown` (a JSON array of
+  scene ids), and the Empty Trash confirm names those that are still locked.
+- They're part of the file, so backups and Open version copies carry them. The JSON export (Phase 2) must carry them
+  too.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project
@@ -325,8 +355,9 @@ aspect ratio changes. src/core/media/crop.ts does the arithmetic.
 **Shot numbers** (src/core/model/shotNumbers.ts). A shot is its scene's number plus a letter: A to Z, skipping I and
 O unless the project allows them, then AA, AB. While a scene is unlocked, its numbers follow the board, so adding,
 moving or deleting a frame renumbers the scene in the same op group. Locked, every shot keeps its number, even if the
-scene is renumbered; a new frame takes the next letter after the highest ever used, trashed frames included, so no
-number is given out twice. Unlocking renumbers the scene to follow the board again.
+scene is renumbered; a new frame takes the next letter after the highest ever used, trashed frames and the scene's
+slate numbers included (schema 5, above), so no number is given out twice. Unlocking renumbers the scene to follow
+the board again.
 
 ### theme
 
@@ -515,7 +546,7 @@ merge a database, so two guards sit around every open project:
 
 ## Planned changes
 
-### Schema 5: notification read state (Phase 3)
+### Schema 6: notification read state (Phase 3)
 
 The notification feed isn't stored: like every rollup, it's computed from ops, suggestions and comments. What is stored
 is each person's read state, in two tables.
@@ -549,7 +580,8 @@ is each person's read state, in two tables.
 | 2 | 0.5b | Append-only History: `op_groups`; `ops.state` and `meta.undo_cursor` removed. Each v1 `undone` or `discarded` mark becomes an `undo` group where that undo must have happened, and `ops.seq` is renumbered to follow the groups |
 | 3 | 1.10 | Pictures: `media_files` and `thumbnails`, addressed by SHA-256; record types `note`, `character` and `stroke` |
 | 4 | 1.23 | Named versions: `versions` |
-| 5 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
+| 5 | 1.26 | Slate numbers: `slate_numbers`; `meta.slate_numbers_unknown` |
+| 6 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

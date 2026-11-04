@@ -45,8 +45,8 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
     let placed: ReturnType<typeof placePictures> | null = null;
     // Worked out in the edit queue, after any edit still landing: two drops close together never number frames from
     // the same records.
-    await projectStore.getState().applyWith((records) => {
-      placed = placePictures(records, project.projectId, target, prepared, project.file.path);
+    await projectStore.getState().applyWith((records, slate) => {
+      placed = placePictures(records, project.projectId, target, prepared, project.file.path, slate);
       return placed;
     });
     const result = placed as ReturnType<typeof placePictures> | null;
