@@ -136,6 +136,23 @@ describe('Empty Trash', () => {
     expect(shotFields(records()[moved]?.props ?? {}).number).toBe('5A');
   });
 
+  it('keeps the scene a frame stays in as it is now, so no two frames share a slate number', async () => {
+    const stays = await frame('sc5');
+    const moved = await frame('sc4');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    // Moved to the front of scene 5: it's 5A there now, and the frame that was 5A is 5B.
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, 'sc5', stays) }));
+    await store.getState().apply([{ kind: 'update', id: 'sc5', set: { name: 'Road' } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const number = (id: string) => shotFields(records()[id]?.props ?? {}).number;
+    expect([number(moved), number(stays)]).toEqual(['5A', '5B']);
+    expect(records().sc5?.props.name).toBe('Road');
+  });
+
   it('restores a point from before a scene that a frame moved into, keeping both, when the frame’s first scene is gone', async () => {
     const moved = await frame('sc4');
     const before = (await log(project.file)).at(-1)?.id ?? null;

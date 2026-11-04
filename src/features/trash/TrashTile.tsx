@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
+import { forGood, SWITCHED_MESSAGE } from '../../app/forGood';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
@@ -32,7 +33,8 @@ export function TrashTile() {
   const empty = useRef<HTMLParagraphElement>(null);
   // One restore at a time: a double click, or a click on the row that slid under the pointer, never restores a second.
   const restoring = useRef(false);
-  const [emptying, setEmptying] = useState(false);
+  // One Empty Trash at a time, held in a ref so the button stays enabled (and focused) while the confirm is up.
+  const emptying = useRef(false);
   const captionId = useId();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
@@ -47,32 +49,31 @@ export function TrashTile() {
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
   const emptyAll = async (count: number) => {
-    // One at a time; and only for the project the confirm was about, if another opened while it was up.
-    if (emptying) return;
     const shownFor = project;
-    setEmptying(true);
-    try {
-      const sure = await confirmForGood(
-        'Empty Trash?',
-        `${String(count)} ${count === 1 ? 'item' : 'items'} will be deleted for good, with their pictures. This can’t be undone, and History can’t bring them back.`,
-        'Empty Trash',
-      );
-      if (!sure) return;
-      if (projectStore.getState().project !== shownFor) {
-        showInfo('Another project opened while you were deciding, so nothing was deleted.');
-        return;
-      }
-      const done = await projectStore.getState().emptyTrash();
-      // The count the person saw (a frame's sketch and picture go with it, unlisted).
-      if (!done) return;
-      showInfo(`Emptied the Trash: ${String(count)} ${count === 1 ? 'item' : 'items'} deleted for good${done.freed > 0 ? `, with ${sizeLabel(done.freed)} of pictures` : ''}.`);
-      // The button turns off with nothing left; focus goes to the message that says so.
-      requestAnimationFrame(() => {
-        empty.current?.focus();
-      });
-    } finally {
-      setEmptying(false);
+    const done = await forGood(
+      emptying,
+      () =>
+        confirmForGood(
+          'Empty Trash?',
+          `${String(count)} ${count === 1 ? 'item' : 'items'} will be deleted for good, with their pictures. This can’t be undone, and History can’t bring them back.`,
+          'Empty Trash',
+        ),
+      () => projectStore.getState().project === shownFor,
+      () => projectStore.getState().emptyTrash(),
+    );
+    if (!done.ran) {
+      if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
+      return;
     }
+    // The count the person saw (a frame's sketch and picture go with it, unlisted).
+    if (!done.result) return;
+    showInfo(
+      `Emptied the Trash: ${String(count)} ${count === 1 ? 'item' : 'items'} deleted for good${done.result.freed > 0 ? `, with ${sizeLabel(done.result.freed)} of pictures` : ''}.`,
+    );
+    // The button turns off with nothing left; focus goes to the message that says so.
+    requestAnimationFrame(() => {
+      empty.current?.focus();
+    });
   };
 
   const restore = (id: string, name: string, index: number) => {
@@ -136,7 +137,7 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
-        <Button variant="warning" disabled={all.length === 0 || emptying} onClick={() => void emptyAll(all.length)}>
+        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length)}>
           Empty Trash…
         </Button>
       </div>

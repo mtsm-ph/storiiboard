@@ -3,6 +3,7 @@ import { historyOnlyPictures } from '../../core/ops/ops';
 import { trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
+import { forGood, SWITCHED_MESSAGE } from '../forGood';
 import { showInfo, showNotice } from '../notice';
 import { projectStore, useProject } from '../projectStore';
 
@@ -14,7 +15,8 @@ export function StorageTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [old, setOld] = useState<{ count: number; bytes: number } | null>(null);
-  const [busy, setBusy] = useState(false);
+  // One run at a time, held in a ref so the buttons stay enabled (and focused) while the confirm is up.
+  const running = useRef(false);
   // Bumped after Clean up, which changes no record, so the count is read again.
   const [generation, setGeneration] = useState(0);
   const pictureStatus = useRef<HTMLParagraphElement>(null);
@@ -43,27 +45,29 @@ export function StorageTile() {
     text: string,
     action: string,
     work: () => Promise<{ removed: number; freed: number } | null>,
-    done: string,
+    doneMessage: string,
     status: RefObject<HTMLParagraphElement | null>,
   ) => {
-    if (busy) return;
     // Only for the project the confirm was about, if another opened while it was up.
     const shownFor = project;
-    setBusy(true);
     try {
-      if (!(await confirmForGood(title, text, action))) return;
-      if (projectStore.getState().project !== shownFor) {
-        showInfo('Another project opened while you were deciding, so nothing was deleted.');
+      const done = await forGood(
+        running,
+        () => confirmForGood(title, text, action),
+        () => projectStore.getState().project === shownFor,
+        work,
+      );
+      if (!done.ran) {
+        if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
         return;
       }
-      const result = await work();
-      if (result) showInfo(`${done}${result.freed > 0 ? `: ${sizeLabel(result.freed)} of pictures deleted for good` : ''}.`);
+      const result = done.result;
+      if (result) showInfo(`${doneMessage}${result.freed > 0 ? `: ${sizeLabel(result.freed)} of pictures deleted for good` : ''}.`);
       // The button turns off with nothing left to do; focus goes to the line that says what's left.
       requestAnimationFrame(() => {
         status.current?.focus();
       });
     } finally {
-      setBusy(false);
       setGeneration((n) => n + 1);
     }
   };
@@ -88,11 +92,11 @@ export function StorageTile() {
         <Button
           variant="warning"
           className="self-start"
-          disabled={busy || old === null || old.count === 0}
+          disabled={old === null || old.count === 0}
           onClick={() =>
             void run(
               'Clean up old pictures?',
-              `${String(old?.count ?? 0)} pictures only History uses will be deleted for good. This can’t be undone; those steps in History will show “picture removed”.`,
+              `${String(old?.count ?? 0)} ${old?.count === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone; those steps in History will show “picture removed”.`,
               'Clean up',
               () => projectStore.getState().cleanUpPictures(),
               'Cleaned up old pictures',
@@ -112,7 +116,7 @@ export function StorageTile() {
         <Button
           variant="warning"
           className="self-start"
-          disabled={busy || inTrash === 0}
+          disabled={inTrash === 0}
           onClick={() =>
             void run(
               'Empty Trash?',

@@ -367,8 +367,28 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
     return existsNow.get(id) === true;
   };
+  const keepAsNow = (id: string): boolean => {
+    const before = byId.get(id)?.before ?? null;
+    if (final.get(id) === before) return false;
+    final.set(id, before);
+    return true;
+  };
   for (let changed = true; changed; ) {
     changed = false;
+    // A frame kept as it is now in a scene it wasn't in at the point keeps the number it has there, so that scene
+    // and every frame in it or going back into it stay as they are now too: otherwise two frames could share a slate
+    // number (the board as it is now has none).
+    for (const [id, op] of byId) {
+      const kept = final.get(id);
+      if (!kept || kept !== op.before || kept.type !== 'shot' || kept.parentId === op.after?.parentId) continue;
+      const sceneId = kept.parentId;
+      if (sceneId !== null && byId.has(sceneId)) changed = keepAsNow(sceneId) || changed;
+      for (const [other, otherOp] of byId) {
+        const isShot = otherOp.before?.type === 'shot' || otherOp.after?.type === 'shot';
+        const there = otherOp.before?.parentId === sceneId || final.get(other)?.parentId === sceneId;
+        if (isShot && there) changed = keepAsNow(other) || changed;
+      }
+    }
     for (const [id, record] of final) {
       const parentId = record?.parentId ?? null;
       if (!record || parentId === null || (await exists(parentId))) continue;

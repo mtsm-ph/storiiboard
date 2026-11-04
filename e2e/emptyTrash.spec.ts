@@ -59,6 +59,8 @@ test('Empty Trash asks first; Cancel keeps everything, and agreeing deletes it f
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toContain('can’t be undone');
   await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(1);
+  // The button stays where the keys left it, so Enter asks again.
+  await expect(trashTile(page).getByRole('button', { name: 'Empty Trash…' })).toBeFocused();
 
   answer(page, asked, true);
   await trashTile(page).getByRole('button', { name: 'Empty Trash…' }).click();
@@ -106,7 +108,9 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toContain('can’t be undone');
+  expect(asked[0]).toContain('1 picture only History uses');
   await expect(storage(page).getByText(/^1 picture,/)).toBeVisible();
+  await expect(storage(page).getByRole('button', { name: 'Clean up old pictures…' })).toBeFocused();
 
   answer(page, asked, true);
   await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();

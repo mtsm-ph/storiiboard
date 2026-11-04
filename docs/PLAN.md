@@ -284,8 +284,12 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
   Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
   runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
-- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection), so what's deleted is gone
-  from the file itself and from backups made after. The file doesn't shrink; the space is used for new pictures.
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection from 1.21 on), so what's
+  deleted is gone from the file itself and from backups made after. The file doesn't shrink; the space is used for new
+  pictures. Space freed before 1.21 wasn't zeroed: in a project edited with an earlier build, an older version of a
+  record's text (a note or name changed since) can still sit in the file's free space after Empty Trash. Pictures
+  aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
+  of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
   gone stays as it is now, and so does whatever it sits under.
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
