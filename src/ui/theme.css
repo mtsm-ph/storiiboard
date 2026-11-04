@@ -16,6 +16,71 @@
  *
  * Components paint only with the Tailwind names in @theme, never with hex values or the kit's --sb-* names.
  */
+/* Project themes (1.15): the ten tokens are registered as colours, so a change of theme (another project, light and
+   dark, Follow project) eases over 200ms by itself, with no reload and no per-element transitions. A webview without
+   @property switches at once, as reduced motion does. The initial values are the kit's light ones. */
+@property --bg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #eee9df;
+}
+@property --surface {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #eee9df;
+}
+@property --surface-raised {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #c9c1b1;
+}
+@property --border {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #16150f;
+}
+@property --border-top {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #16150f;
+}
+@property --text {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #16150f;
+}
+@property --text-muted {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #5e5a52;
+}
+@property --text-inverse {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #eee9df;
+}
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #df5e27;
+}
+@property --accent-contrast {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #16150f;
+}
+
+:root {
+  transition:
+    --bg 200ms ease, --surface 200ms ease, --surface-raised 200ms ease, --border 200ms ease, --border-top 200ms ease, --text 200ms ease, --text-muted 200ms ease, --text-inverse 200ms ease, --accent 200ms ease, --accent-contrast 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    transition: none;
+  }
+}
+
 :root {
   --bg: var(--sb-paper);
   --surface: var(--sb-panel);

@@ -310,8 +310,9 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
       const pressures = tidy.points.length > 4 ? tidy.pressures : null;
       const made = { tool: stroke.tool, points: tidy.points, pressures, width: WIDTHS[latest.current.widthName] };
       // Ordered after whatever strokes landed before it, even ones drawn faster than they're saved.
-      void applyWith((records) => ({ changes: [addStroke(records, shotId, made)] }));
-      setSaid(`${TOOLS.find((t) => t.value === stroke.tool)?.label ?? 'Stroke'} drawn.`);
+      void applyWith((records) => ({ changes: [addStroke(records, shotId, made)] })).then((written) => {
+        if (written) setSaid(`${TOOLS.find((t) => t.value === stroke.tool)?.label ?? 'Stroke'} drawn.`);
+      });
     };
     const cancel = () => {
       drawing.current = null;

@@ -43,7 +43,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   Text on the accent is always ink. Never use it as a large fill inside the app, and always pair it with a second cue.
 - **Brand: Signal Orange #E0612B**, a fixed token for the logo's dots and bars only. It never follows a project theme.
 - **Project themes:** a project can take its colours from its logo or key image. The accent and the surfaces change;
-  type, rules, grain, layout, the logo, warning, golden hour and the department colours don't.
+  type, rules, grain, layout, the logo, warning, golden hour and the department colours don't. Opening another project,
+  or switching light and dark, eases every colour over 200ms (instant with reduced motion). The status bar's Theme
+  switch reads Project, System, Light, Dark: Project, the default, follows the open project's own mode, and the OS
+  while none is open.
 - **Tokens in code** (src/ui/theme.css):
   - **Semantic, set by a project theme:** `bg`, `surface`, `surface-raised`, `border`, `border-top`, `text`, `text-muted`, `text-inverse`, `accent`, `accent-contrast`. Classes read `bg-surface`, `text-text-muted`, `border-border`.
   - **Fixed, the same in every project:** `brand`, `warning`, `highlight`, the `dept-*` tags, and `paper-fixed` and `ink-fixed` for text on tags and chips.

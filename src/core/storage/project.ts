@@ -71,14 +71,21 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     throw error;
   }
 
-  if (recent) {
-    // The Recent list is a convenience: failing to update it must never stop a project from opening.
-    const state = await readState(file, projectId);
-    await rememberRecent(recent, { path, name, openedAt: now().toISOString(), state }).catch(() => undefined);
+  let schedule: Awaited<ReturnType<typeof startBackups>> | null = null;
+  try {
+    if (recent) {
+      // The Recent list is a convenience: failing to update it must never stop a project from opening.
+      const state = await readState(file, projectId);
+      await rememberRecent(recent, { path, name, openedAt: now().toISOString(), state }).catch(() => undefined);
+    }
+    // Where backups go is settled before the first one: a synced project keeps them on this computer.
+    await file.placeBackups(backupsNextToProject);
+    schedule = backups === false ? null : await startBackups(file, { now, ...backups });
+  } catch (error) {
+    // Not opened after all: the file closes again, its lock with it.
+    await file.close().catch(() => undefined);
+    throw error;
   }
-  // Where backups go is settled before the first one: a synced project keeps them on this computer.
-  await file.placeBackups(backupsNextToProject);
-  const schedule = backups === false ? null : await startBackups(file, { now, ...backups });
   // A missed refresh only risks a later warning on another computer, never the project, so failures are ignored.
   const lockTimer = setInterval(() => {
     file.refreshLock().catch(() => undefined);

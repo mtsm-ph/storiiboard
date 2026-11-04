@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { loadSettings, saveSettings, type ThemePreference } from '../../core/storage/settings';
+import { applyTokens, type ProjectTheme } from './projectTheme';
 import { applyTheme, DARK_QUERY, resolveTheme, type ResolvedTheme } from './theme';
 
 interface ThemeState {
@@ -31,22 +32,33 @@ function subscribeToOs(onChange: () => void): () => void {
   };
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+interface ThemeProviderProps {
+  children: ReactNode;
+  /** The open project's own theme (1.15): its mode and colours; null for none open, or one with neither. */
+  projectTheme?: ProjectTheme | null;
+  /** Told the background colour each time it changes, for the window behind the page (the desktop app). */
+  onBackground?: (colour: string | null) => void;
+}
+
+export function ThemeProvider({ children, projectTheme = null, onBackground }: ThemeProviderProps) {
   const [preference, setPreferenceState] = useState<ThemePreference>(() => loadSettings().theme);
   // Follow the OS live, so "System" tracks a Mac switching to dark at sunset. useSyncExternalStore re-reads the
   // OS after subscribing, so a switch between the first render and the subscription is not lost. Server renders
   // (the unit tests) have no OS to ask and render light.
   const osDark = useSyncExternalStore(subscribeToOs, osPrefersDark, () => false);
 
-  const resolved = resolveTheme(preference, osDark);
+  const resolved = resolveTheme(preference, osDark, projectTheme?.mode ?? null);
+  const tokens = projectTheme?.tokens?.[resolved] ?? null;
 
   useEffect(() => {
     applyTheme(resolved);
-  }, [resolved]);
+    applyTokens(tokens);
+    onBackground?.(tokens?.bg ?? null);
+  }, [resolved, tokens, onBackground]);
 
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
-    saveSettings({ theme: next });
+    saveSettings({ theme: next, themeChosen: true });
   }, []);
 
   const value = useMemo(() => ({ preference, resolved, setPreference }), [preference, resolved, setPreference]);

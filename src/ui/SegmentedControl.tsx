@@ -5,6 +5,8 @@ import { roveFocus } from './roving';
 export interface SegmentOption<T extends string> {
   value: T;
   label: string;
+  /** Read after the label (aria-describedby) and shown on hover, when the label alone doesn't say what it does. */
+  hint?: string;
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -45,6 +47,8 @@ export function SegmentedControl<T extends string>({
               type="button"
               role="radio"
               aria-checked={selected}
+              title={option.hint}
+              aria-describedby={option.hint ? `${labelId}-${option.value}` : undefined}
               tabIndex={tabStop ? 0 : -1}
               onClick={() => {
                 onChange(option.value);
@@ -69,6 +73,15 @@ export function SegmentedControl<T extends string>({
           );
         })}
       </div>
+      {/* Hints for screen readers, outside the group so they're never read as one of its radios. */}
+      {options.map(
+        (option) =>
+          option.hint && (
+            <span key={option.value} id={`${labelId}-${option.value}`} className="sr-only">
+              {option.hint}
+            </span>
+          ),
+      )}
     </div>
   );
 }

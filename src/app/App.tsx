@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { ThemeProvider } from '../ui/theme/ThemeProvider';
+import { ProjectAppearance } from './projectAppearance';
 import { AppShell } from './shell/AppShell';
 
 // The UI catalogue is a dev-only page. import.meta.env.DEV is false in production builds, so the bundler drops
@@ -14,7 +14,7 @@ function wantsCatalogue(): boolean {
 
 export function App() {
   return (
-    <ThemeProvider>
+    <ProjectAppearance>
       {Catalogue && wantsCatalogue() ? (
         <Suspense fallback={null}>
           <Catalogue />
@@ -22,6 +22,6 @@ export function App() {
       ) : (
         <AppShell />
       )}
-    </ThemeProvider>
+    </ProjectAppearance>
   );
 }

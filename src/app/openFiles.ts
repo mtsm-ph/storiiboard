@@ -52,14 +52,15 @@ export async function openProjectFile(path: string, options: OpenFileOptions): P
  * Opens the project at `path` again, even though it's the one open: after a sync replaced the file, this loads the
  * newer version. The old connection, still on the replaced file, closes once the new one is open.
  */
-export async function reopenProjectFile(path: string, options: OpenFileOptions): Promise<void> {
-  await openChecked(path, options);
+export async function reopenProjectFile(path: string, options: OpenFileOptions): Promise<boolean> {
+  return openChecked(path, options);
 }
 
-async function openChecked(path: string, options: OpenFileOptions): Promise<void> {
+/** Whether it opened: Cancel at the "open on another computer" question opens nothing. */
+async function openChecked(path: string, options: OpenFileOptions): Promise<boolean> {
   const holder = options.askWhenLocked ? await options.driver.lockHolder(path) : null;
   const choice = holder && options.askWhenLocked ? await options.askWhenLocked(holder, path) : 'anyway';
-  if (choice === 'cancel') return;
+  if (choice === 'cancel') return false;
   let target = path;
   if (choice === 'copy') {
     try {
@@ -69,6 +70,7 @@ async function openChecked(path: string, options: OpenFileOptions): Promise<void
     }
   }
   await replaceWith(target, options, openProject);
+  return true;
 }
 
 /** Makes a new project at `path` and opens it in place of the open one. It never overwrites an existing file. */
@@ -92,6 +94,11 @@ async function replaceWith(
   } catch (error) {
     throw new OpenFileError(path, error);
   }
-  await store.getState().close();
-  await store.getState().open(project);
+  // Open replaces the project in place: the one open now closes once the new one's records are in, so the window
+  // never shows "no project" (the Projects screen and the kit's colours) in between.
+  try {
+    await store.getState().open(project);
+  } catch (error) {
+    throw new OpenFileError(path, error);
+  }
 }

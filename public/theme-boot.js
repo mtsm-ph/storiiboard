@@ -1,6 +1,7 @@
 // Runs before the first paint so the window never flashes the wrong theme. A plain file, not inline, because
 // the app's CSP blocks inline scripts. Mirrors loadSettings (src/core/storage/settings.ts) and resolveTheme
-// (src/ui/theme/theme.ts); theme.test.ts checks they agree.
+// (src/ui/theme/theme.ts); theme.test.ts checks they agree. No project is open yet at first paint, so Follow project
+// (the default) boots like System; the project's own colours ease in once it opens.
 (function () {
   var preference = 'system';
   try {

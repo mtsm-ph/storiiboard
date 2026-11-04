@@ -184,7 +184,9 @@ export function StoryboardTile() {
 
   return (
     <ProjectPictures>
+      {/* Keyed by project, so a menu or a drag open when the project switches never acts on the new one. */}
       <StoryboardView
+        key={projectId}
         scenes={groups}
         view={view}
         onViewChange={(next) => {
@@ -240,7 +242,9 @@ export function StoryboardTile() {
             // A key held down can ask twice; the second finds it in the Trash already.
             if (!item || item.trashedAt !== null) return { changes: [] };
             return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id) };
-          }).then(() => {
+          }).then((written) => {
+            // Refused or dropped (a project switched in between): nothing moved, so neither does the selection.
+            if (!written) return;
             if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
             else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
             // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it, and focus goes

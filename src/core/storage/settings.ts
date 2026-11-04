@@ -5,10 +5,16 @@ import { DEFAULT_KEEP, type BackupKeep } from './backups';
 // read the theme synchronously before first paint, which a file behind a Rust command can't offer. Lists that other
 // tools may read, like the recent projects, go in app data files instead (appData.ts).
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+/** `project`, Follow project (the default since 1.15): the open project's own mode, or the OS with none open. */
+export type ThemePreference = 'project' | 'system' | 'light' | 'dark';
 
 export interface Settings {
   theme: ThemePreference;
+  /**
+   * The theme was picked in the app (since 1.15). Before then every save wrote `system` along with whatever else
+   * changed, so a `system` without this was the old default, not a choice, and reads as the new one.
+   */
+  themeChosen: boolean;
   /** How many backups to keep (CLAUDE.md: both numbers are in Settings). */
   backups: BackupKeep;
   /** Projects already told they're in a synced folder: the note shows once per project (src/app/projects/synced.ts). */
@@ -34,7 +40,8 @@ function keepValue(value: unknown, field: keyof BackupKeep): number {
 export const SETTINGS_KEY = 'storiiboard.settings';
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system',
+  theme: 'project',
+  themeChosen: false,
   backups: { ...DEFAULT_KEEP },
   syncNoted: [],
   backupsNextToProject: false,
@@ -53,7 +60,7 @@ function browserStorage(): Storage | undefined {
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'system' || value === 'light' || value === 'dark';
+  return value === 'project' || value === 'system' || value === 'light' || value === 'dark';
 }
 
 export function loadSettings(storage: Reader | undefined = browserStorage()): Settings {
@@ -63,8 +70,11 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
     const parsed: unknown = JSON.parse(raw);
     const saved = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
     const backups = typeof saved.backups === 'object' && saved.backups !== null ? (saved.backups as Record<string, unknown>) : {};
+    const themeChosen = saved.themeChosen === true;
+    const theme = isThemePreference(saved.theme) && (saved.theme !== 'system' || themeChosen) ? saved.theme : DEFAULT_SETTINGS.theme;
     return {
-      theme: isThemePreference(saved.theme) ? saved.theme : DEFAULT_SETTINGS.theme,
+      theme,
+      themeChosen,
       // Each number falls back on its own, so one bad value never costs the other.
       backups: { recent: keepValue(backups.recent, 'recent'), days: keepValue(backups.days, 'days') },
       syncNoted: Array.isArray(saved.syncNoted)
