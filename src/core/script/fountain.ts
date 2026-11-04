@@ -125,9 +125,10 @@ export function parseFountain(source: string): Script {
     // The boneyard and notes are never part of the script.
     .replace(/\/\*[\s\S]*?\*\//g, '')
     // A note on a line of its own goes with its line, so it never splits a cue from its dialogue.
-    // (Up to its own ]] only: a note that starts a line of text isn't a whole line.)
-    .replace(/^[ \t]*\[\[(?:(?!\]\])[\s\S])*\]\][ \t]*\n/gm, '')
-    .replace(/\[\[[\s\S]*?\]\]/g, '');
+    // (Up to its own ]] only: a note that starts a line of text isn't a whole line; several notes can be.)
+    // A note holds no blank line (Fountain: two spaces keep one), so a stray [[ never swallows the scenes after it.
+    .replace(/^[ \t]*(?:\[\[(?:(?!\]\]|\n[ \t]*\n)[\s\S])*\]\][ \t]*)+\n/gm, '')
+    .replace(/\[\[(?:(?!\]\]|\n[ \t]*\n)[\s\S])*\]\]/g, '');
   const { title, body } = splitTitlePage(text);
   const scenes: ScriptScene[] = [];
   let current: (ScriptScene & { lines: number }) | null = null;
