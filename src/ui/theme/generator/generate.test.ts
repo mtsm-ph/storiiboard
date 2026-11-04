@@ -23,6 +23,7 @@ function expectReadable(s: Surfaces, where: string) {
 
 /** The accent stands 3:1 on paper and tiles, and the text on it is the family's ink at 4.5:1 (CLAUDE.md, Design). */
 function expectAccentReadable(t: ModeTokens, ink: string, where: string) {
+  expect(ratio(t.accent, t.text), `${where}: accent apart from the text`).toBeGreaterThanOrEqual(1.5);
   expect(ratio(t.accent, t.bg), `${where}: accent on paper`).toBeGreaterThanOrEqual(3);
   expect(ratio(t.accent, t.surface), `${where}: accent on a tile`).toBeGreaterThanOrEqual(3);
   expect(t.accentContrast, `${where}: ink on the accent`).toBe(ink);
@@ -132,6 +133,28 @@ describe('accents from an image', () => {
     expect(isBlend([228, 144, 149], [200, 30, 40], [255, 255, 255])).toBe(true);
     // A colour of its own, not on the way from red to white.
     expect(isBlend([30, 90, 200], [200, 30, 40], [255, 255, 255])).toBe(false);
+  });
+
+  it('takes a pale or barely tinted ground for paper, and reads a rim against a coloured one', () => {
+    const cream: [number, number, number, number] = [255, 253, 208, 255];
+    const wordmark = image(48, 48, (x, y) => (y > 20 && y < 28 && x > 8 && x < 40 ? [20, 20, 20, 255] : cream));
+    expect(accentCandidates(wordmark.data, wordmark.width, wordmark.height)).toEqual([]);
+    const dot = (ground: [number, number, number]) =>
+      image(48, 48, (x, y) => {
+        const d = Math.hypot(x - 24, y - 24);
+        const red = [200, 30, 40];
+        if (d < 10) return [200, 30, 40, 255];
+        const t = 1 - (d - 10) / 5;
+        if (d < 15) return [...red.map((c, i) => Math.round(c * t + (ground[i] ?? 0) * (1 - t))), 255] as [number, number, number, number];
+        return [...ground, 255];
+      });
+    const onCream = dot([255, 253, 208]);
+    expect(accentCandidates(onCream.data, onCream.width, onCream.height)).toHaveLength(1);
+    // A navy ground is a colour of the logo, offered after the red; the rim between them isn't.
+    const onNavy = dot([30, 58, 138]);
+    const accents = accentCandidates(onNavy.data, onNavy.width, onNavy.height);
+    expect(accents).toHaveLength(2);
+    expect(accents.map((a) => familyFor(a).name).sort()).toEqual(['Clay', 'Navy']);
   });
 
   it('reads a mark that reaches the edge of a transparent logo', () => {

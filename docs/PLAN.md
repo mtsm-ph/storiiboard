@@ -571,12 +571,14 @@ Appearance setting gains "Follow project", the new default, next to System, Ligh
 - e2e: switching projects swaps the tokens in about 200ms without a reload, and reduced motion switches instantly.
 
 **As built in 1.14 (Nov 3)** (src/ui/theme/generator):
-- Images are read at 96px in a Web Worker and clustered with seeded k-means (8 clusters) in OKLab. A grey or white
-  that fills most of the edge (see-through places included) is the background and is left out; a colour filling the
-  edge stays, so a solid red image or a white mark on a red square offers red. The same image gives the same accents
+- Images are read at 96px in a Web Worker and clustered with seeded k-means (8 clusters) in OKLab. A colour that
+  fills most of the edge (see-through places included) is the ground. A quiet one (chroma under 0.08, or very light:
+  white, grey, cream) is left out; a clearly coloured one stays, so a solid red image or a white mark on a red square
+  offers red. A candidate that's a straight sRGB mix of a kept accent and the ground is a soft rim and isn't offered;
+  so a lighter or darker tint of the same hue next to the mark is left out too (decided while building, to review). The same image gives the same accents
   on one engine; WebKit and WebView2 shrink images slightly differently, which the stored tokens make harmless.
 - The accent's lightness may move across the whole range, so even black or white gets an accent; the text on it is
-  always ink. A worker that fails, can't start or takes over 15 s hands the work to the page.
+  always ink, and the accent stays at least 1.5:1 from the mode's own text so it never reads as text. A worker that fails, can't start or takes over 15 s hands the work to the page.
 - Up to 4 accents are offered, with chroma of at least 0.05 and at least 1.5% of the image, at least 0.09 apart in
   OKLab, the most saturated first. A grey image offers none and keeps the kit.
 - Accents snap by OKLCH hue: Rose 10°, Clay 32°, Paper 48° (the kit's orange is at 41°), Ochre 78°, Sand 95°, Olive
