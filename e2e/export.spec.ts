@@ -284,6 +284,46 @@ test('Stop ends a running export between frames, and says what it wrote', async 
   expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
 });
 
+test('a double click starts one export, and Stop ends it', async ({ page }) => {
+  // Every frame after the first waits to be encoded until the test lets it go. Two clicks land in one task, before
+  // React can disable the button: a second run would take over Stop, and the first would go on writing.
+  await page.evaluate(() => {
+    const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
+      this: OffscreenCanvas,
+      options?: ImageEncodeOptions,
+    ) => Promise<Blob>;
+    let calls = 0;
+    const w = window as unknown as { releaseFrame?: () => void };
+    const held = new Promise<void>((resolve) => {
+      w.releaseFrame = resolve;
+    });
+    OffscreenCanvas.prototype.convertToBlob = async function (this: OffscreenCanvas, options) {
+      calls += 1;
+      if (calls >= 2) await held;
+      return encode.call(this, options);
+    };
+  });
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export')
+    .getByRole('button', { name: 'Choose folder…' })
+    .evaluate((button: HTMLElement) => {
+      button.click();
+      button.click();
+    });
+  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
+  });
+  await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
+  expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
+  await expect(page.getByText(/^Exported /)).toHaveCount(0);
+});
+
 /**
  * A night exterior, as a PNG made in the page: a red band across the top fifth and near-black below it. Square, so a
  * 16:9 frame crops it, and the band says which part of it the frame shows.

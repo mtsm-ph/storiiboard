@@ -73,6 +73,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
+const CHOOSING = 'Choosing where…';
+
 function ExportDialog() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
@@ -80,6 +82,10 @@ function ExportDialog() {
   const [sceneId, setSceneId] = useState('');
   const [running, setRunning] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
+  // One export at a time. A ref, not state: a second click can land before React re-renders the button disabled
+  // (a double click while the native dialog is still on its way), and a second run would take over `stopper`, so
+  // Stop would end the wrong one while the other kept writing.
+  const busy = useRef(false);
   // The dialog gone for any reason (another project opened in place) stops what it was running.
   useEffect(
     () => () => {
@@ -104,13 +110,16 @@ function ExportDialog() {
   };
 
   const run = async () => {
-    if (!format) return;
+    if (!format || busy.current) return;
+    busy.current = true;
     const name = format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
     let done = 0;
     let total = 0;
     let label = '';
+    // The button goes disabled from the first click, while the Save or folder dialog is still coming up.
+    setRunning(CHOOSING);
     try {
       const target = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
       if (!target || controller.signal.aborted) return;
@@ -141,6 +150,7 @@ function ExportDialog() {
       } else showNotice(error);
     } finally {
       if (stopper.current === controller) stopper.current = null;
+      busy.current = false;
       setRunning(null);
     }
   };
@@ -179,7 +189,7 @@ function ExportDialog() {
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button onClick={stop}>{running === null ? 'Cancel' : 'Stop'}</Button>
+        <Button onClick={stop}>{running === null || running === CHOOSING ? 'Cancel' : 'Stop'}</Button>
         <Button variant="primary" disabled={running !== null || frames === 0} onClick={() => void run()}>
           {format?.output === 'folder' ? 'Choose folder…' : 'Save…'}
         </Button>
