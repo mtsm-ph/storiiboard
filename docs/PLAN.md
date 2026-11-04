@@ -56,7 +56,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Done |
-| 1.22 History tile: every step in words, restore a point, a frame's old values | | Done |
+| 1.22 History tile: every step in words, restore a point, an item's old values | | Done |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
@@ -287,10 +287,12 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Restore to here brings the project back to just after that step, as a new step that ⌘Z takes back (a restore
   never brings back what Empty Trash deleted). Steps load 100 at a time.
 - Only frame 4A lists every change to the selected frame, newest first, field by field (change, before, after, who,
-  when): undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
+  when); with no frame selected, Only this note and Only scene SC 05 do the same for the selected note or the active
+  scene. Before and after show in full, wrapped with their line breaks kept (a step's line cuts a long text to one
+  short line), and Put back's label names the whole value. Undone and redone steps say so ("Undid: Added", "lens, undone"), Restore to here's changes are listed field
   by field ("lens, restored", "Restore to here: out of the Trash"), and renumbers show too. Put back sets an old value
   again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
-  dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
+  dialogue, departments, custom fields; a scene's name, INT/EXT, time of day and length; a note's text). A custom field goes back on its own, leaving the frame's others as they are;
   Put back isn't offered where the frame already has that value, and values that both read "—" (an empty text or no
   departments ticked, and one never set) count as the same, as do the same departments in another order. Values read
   as the board names them ("Grip & electric", "Need to shoot", "INS"), not as they're stored. A new selection shows
@@ -303,7 +305,8 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   again, is dropped, so a double click never lands on the row that moved under the pointer. If those rows stop being
   read (Only frame turned off, the frame deselected or trashed, a read that failed), clicks count again from then, and
   in any case 5 seconds after the write. Restore to here on a
-  point the project is already at says so (and, past an Empty Trash, that what it deleted can't come back).
+  point the project is already at says so. Past an Empty Trash, the notice adds that what it deleted can't come back,
+  whether or not the restore changed anything.
 - A frame's own history finds its strokes and picture in the log, so an undone sketch, or one Restore to here took
   away, still shows ("Sketched", "Undid: Sketched").
 - Tests: a restore and its undo, a restore after a restart (and undone after another), a restore whose write dies
@@ -314,6 +317,10 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
   marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
   are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.
+  The item filter takes the most particular selection (a frame, else a note, else the active scene), so a scene's
+  own history shows once no frame or note is selected in it. Locations and characters get theirs when they have a
+  selection of their own (Phase 3); until then their changes show as steps. A scene's location, number and number
+  lock aren't put back on their own (Restore to here is the way back); its location reads by its name as it is now.
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside

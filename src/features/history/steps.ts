@@ -75,16 +75,23 @@ export async function frameOps(file: ProjectFile, frameId: string): Promise<Logg
 }
 
 /**
+ * Every write to an item, oldest first, for its own history. A frame's sketch and picture are part of it (frameOps);
+ * a scene's frames and notes are items of their own, with histories of their own, so a scene's lists only its writes.
+ */
+export async function itemOps(file: ProjectFile, item: SbdRecord): Promise<LoggedOp[]> {
+  return item.type === 'shot' ? frameOps(file, item.id) : opsOfRecords(file, [item.id]);
+}
+
+/**
  * What the tile says after Restore to here: what it did, or, when the project is already as it was then, that nothing
- * changed, rather than a button press with no effect. Past an Empty Trash, what it deleted is why the point looks
- * the same: it can't come back.
+ * changed, rather than a button press with no effect. Past an Empty Trash, what it deleted can't come back, so the
+ * project isn't quite as it was then: said either way, so no one takes a frame still missing for a failed restore.
  */
 export function restoreNotice(steps: Steps['steps'], groupId: string, changed: boolean, undoKey: string): string {
   const index = steps.findIndex((step) => step.group.id === groupId);
   const said = lineText(steps[index]?.line ?? ['that step']);
-  if (changed) return `Restored the project to after “${said}”. ${undoKey} takes it back.`;
   const emptied = steps.slice(0, Math.max(index, 0)).some((step) => step.group.kind === 'empty_trash');
-  return emptied
-    ? `Nothing to restore: the project is already as it was after “${said}”. What Empty Trash deleted can’t come back.`
-    : `Nothing to restore: the project is already as it was after “${said}”.`;
+  const lost = emptied ? ' What Empty Trash deleted can’t come back.' : '';
+  if (changed) return `Restored the project to after “${said}”.${lost} ${undoKey} takes it back.`;
+  return `Nothing to restore: the project is already as it was after “${said}”.${lost}`;
 }

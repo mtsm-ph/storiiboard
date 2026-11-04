@@ -5,11 +5,11 @@ import { log, opsOfRecord, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
+import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { putBackChange } from './putBack';
-import { frameOps, loadSteps, PAGE, restoreNotice } from './steps';
-import { changeValue, fieldChanges, frameRows, lineText, type FieldChange } from './summary';
+import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
+import { changeText, changeValue, fieldChanges, frameRows, lineText, type FieldChange } from './summary';
 
 let folder: TestFolder;
 let project: Project;
@@ -521,5 +521,81 @@ describe('Restore to here’s notice', () => {
       'Nothing to restore: the project is already as it was after “Deleted an item, since deleted for good”. What Empty Trash deleted can’t come back.',
     );
     expect(records()[b]).toBeDefined();
+  });
+});
+
+describe('Restore to here’s notice past an Empty Trash', () => {
+  it('says what Empty Trash deleted can’t come back when the restore changed things too', async () => {
+    const [a, b] = [await frame(), await frame()];
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 35 } }]);
+    const point = await lastGroup();
+    await store.getState().apply(trashShot(records(), project.projectId, b));
+    await store.getState().emptyTrash();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 50 } }]);
+    const steps = (await loadSteps(project.file, PAGE)).steps;
+    expect(await store.getState().restoreTo(point.id)).toBe(true);
+    expect(shotFields(records()[a]?.props ?? {}).lensMm).toBe(35);
+    // 4B is gone for good, so the project isn't as it was after that step: the notice says why.
+    expect(records()[b]).toBeUndefined();
+    expect(restoreNotice(steps, point.id, true, 'Ctrl+Z')).toBe(
+      'Restored the project to after “4A: lens — → 35mm”. What Empty Trash deleted can’t come back. Ctrl+Z takes it back.',
+    );
+  });
+});
+
+describe('a long value in an item’s own history', () => {
+  const action = 'INT. KITCHEN - she turns from the window,\nsees him at the door, drops the cup.';
+
+  it('is shown in full, line breaks kept, though a step’s line cuts it short', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { action } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { action: 'x' } }]);
+    const field = await lastChange(a, 'action');
+    expect(changeText(field, field.before)).toBe(action);
+    expect(changeValue(field, field.before)).toBe('INT. KITCHEN - she turns from the windo…');
+    expect((await lines()).at(-1)).toBe('4A: action INT. KITCHEN - she turns from the windo… → x');
+  });
+});
+
+describe('a scene’s and a note’s own history', () => {
+  it('lists a scene’s own changes field by field, never its frames’, and puts back its name and time of day', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { name: 'Penn Station', int_ext: 'INT', day_night: 'DAY' } }]);
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { name: 'Dock', int_ext: 'EXT', day_night: 'NIGHT' } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 35 } }]);
+    const scene = records().sc4;
+    if (!scene) throw new Error('no scene');
+    const ops = await itemOps(project.file, scene);
+    expect(ops.every((op) => op.recordId === 'sc4')).toBe(true);
+    const rows = frameRows(ops, 'sc4').map((r) => [r.change, r.field ? changeText(r.field, r.field.before) : null, r.field ? changeText(r.field, r.field.after) : null]);
+    expect(rows.slice(0, 3)).toEqual([
+      ['name', 'Penn Station', 'Dock'],
+      ['INT/EXT', 'INT', 'EXT'],
+      ['time of day', 'DAY', 'NIGHT'],
+    ]);
+    expect(await putBack('sc4', await lastChange('sc4', 'name'))).toBe(true);
+    expect(await putBack('sc4', await lastChange('sc4', 'day_night'))).toBe(true);
+    expect(records().sc4?.props).toMatchObject({ name: 'Penn Station', int_ext: 'EXT', day_night: 'DAY' });
+    // The number the board keeps in step, and a location kept by id, go back only with Restore to here.
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { number: '5' } }]);
+    expect(putBackChange(records().sc4, await lastChange('sc4', 'number'))).toBeNull();
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc4', 'Dock') }));
+    expect(putBackChange(records().sc4, await lastChange('sc4', 'location_id'))).toBeNull();
+  });
+
+  it('puts back a note’s old text, in full', async () => {
+    const note = addNote(records(), 'sc4', null, 'Wait for the ferry horn,\nthen roll.');
+    await store.getState().apply([note]);
+    await store.getState().apply([{ kind: 'update', id: note.record.id, set: { text: 'Roll' } }]);
+    const field = await lastChange(note.record.id, 'text');
+    expect(changeText(field, field.before)).toBe('Wait for the ferry horn,\nthen roll.');
+    expect(await putBack(note.record.id, field)).toBe(true);
+    expect(records()[note.record.id]?.props.text).toBe('Wait for the ferry horn,\nthen roll.');
+  });
+
+  it('reads a scene’s length as a breakdown sheet does', async () => {
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { page_eighths: 11 } }]);
+    const field = await lastChange('sc4', 'page_eighths');
+    expect(changeText(field, field.after)).toBe('1 3/8 pg');
   });
 });

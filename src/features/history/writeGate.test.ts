@@ -27,11 +27,11 @@ describe('one restore or Put back at a time', () => {
     let clock = 0;
     const gate = createWriteGate(() => clock);
     const before = {};
-    expect(gate.take('frame', before)).toBe(true);
-    gate.read('frame', gate.versionOf({}));
+    expect(gate.take('item', before)).toBe(true);
+    gate.read('item', gate.versionOf({}));
     gate.written(true);
     clock += SETTLE_MS;
-    expect(gate.take('frame', before)).toBe(true);
+    expect(gate.take('item', before)).toBe(true);
     gate.written(false);
     expect(gate.take('steps', before)).toBe(true);
   });
@@ -39,27 +39,27 @@ describe('one restore or Put back at a time', () => {
   it('waits for the view the click was in: a Put back waits for the frame’s rows, not the steps', () => {
     let clock = 0;
     const gate = createWriteGate(() => clock);
-    expect(gate.take('frame', {})).toBe(true);
+    expect(gate.take('item', {})).toBe(true);
     gate.written(true);
     gate.read('steps', gate.versionOf({}));
     clock += SETTLE_MS * 4;
-    expect(gate.take('frame', {})).toBe(false);
+    expect(gate.take('item', {})).toBe(false);
   });
 
   it('lets go when the view the click came from stops being read, before or after the write is done', () => {
     let clock = 0;
     const gate = createWriteGate(() => clock);
-    // Put back, then Only frame turned off: the frame's rows won't be read again.
-    expect(gate.take('frame', {})).toBe(true);
+    // Put back, then the item filter turned off: the item's rows won't be read again.
+    expect(gate.take('item', {})).toBe(true);
     gate.written(true);
-    gate.gone('frame');
+    gate.gone('item');
     clock += SETTLE_MS;
     expect(gate.take('steps', {})).toBe(true);
     gate.written(false);
     // Gone while the write was still going: it lets go once the write is done.
-    expect(gate.take('frame', {})).toBe(true);
-    gate.gone('frame');
-    expect(gate.take('frame', {})).toBe(false);
+    expect(gate.take('item', {})).toBe(true);
+    gate.gone('item');
+    expect(gate.take('item', {})).toBe(false);
     gate.written(true);
     clock += SETTLE_MS;
     expect(gate.take('steps', {})).toBe(true);
@@ -70,7 +70,7 @@ describe('one restore or Put back at a time', () => {
     const gate = createWriteGate(() => clock);
     expect(gate.take('steps', {})).toBe(true);
     gate.written(true);
-    gate.gone('frame');
+    gate.gone('item');
     clock += SETTLE_MS;
     expect(gate.take('steps', {})).toBe(false);
   });
@@ -89,11 +89,11 @@ describe('one restore or Put back at a time', () => {
   it('never stays shut for good: a few seconds after a write, a click counts again whatever its rows did', () => {
     let clock = 0;
     const gate = createWriteGate(() => clock);
-    expect(gate.take('frame', {})).toBe(true);
+    expect(gate.take('item', {})).toBe(true);
     gate.written(true);
     clock += GIVE_UP_MS - 1;
-    expect(gate.take('frame', {})).toBe(false);
+    expect(gate.take('item', {})).toBe(false);
     clock += 1;
-    expect(gate.take('frame', {})).toBe(true);
+    expect(gate.take('item', {})).toBe(true);
   });
 });

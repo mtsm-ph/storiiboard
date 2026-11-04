@@ -5,10 +5,15 @@ import type { FieldChange } from './summary';
 
 // Put back (1.22): an old value from an item's own history set again, as one step. Only the fields a person sets by
 // hand go back on their own; numbers, pictures and framing the board keeps in step, so Restore to here is the way
-// back for those.
+// back for those. A scene's location is kept by id, and the location it named may be in the Trash or gone for good
+// since, so it goes back only with Restore to here too.
 
-/** Fields a person sets by hand, so an old value can go back on its own without leaving the board inconsistent. */
-const PUTTABLE = new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'departments', 'custom']);
+/** Fields a person sets by hand, by kind of item, so an old value can go back on its own without leaving the board inconsistent. */
+const PUTTABLE: Readonly<Partial<Record<SbdRecord['type'], ReadonlySet<string>>>> = {
+  shot: new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'departments', 'custom']),
+  scene: new Set(['name', 'int_ext', 'day_night', 'page_eighths']),
+  note: new Set(['text']),
+};
 
 // A frame's own empty and unset fields read the same in the inspector and in History (`—`), so neither is put back
 // over the other: an empty text, or no departments ticked (an empty list, once a department was ticked and unticked).
@@ -21,9 +26,9 @@ const same = (prop: string, a: JsonValue | undefined, b: JsonValue | undefined) 
   return JSON.stringify(x) === JSON.stringify(y);
 };
 
-/** Whether this change's old value can be put back by hand. A custom field holding more than text never is (1.19). */
-export function canPutBack(field: FieldChange): boolean {
-  if (!PUTTABLE.has(field.prop)) return false;
+/** Whether this change's old value can be put back by hand on this kind of item. A custom field holding more than text never is (1.19). */
+export function canPutBack(type: SbdRecord['type'], field: FieldChange): boolean {
+  if (!PUTTABLE[type]?.has(field.prop)) return false;
   return field.key === undefined || field.before === undefined || typeof field.before === 'string';
 }
 
@@ -33,7 +38,7 @@ export function canPutBack(field: FieldChange): boolean {
  * back on its own, so the frame's other custom fields stay as they are now.
  */
 export function putBackChange(record: SbdRecord | undefined, field: FieldChange): Change | null {
-  if (!record || !canPutBack(field)) return null;
+  if (!record || !canPutBack(record.type, field)) return null;
   const { key, before } = field;
   if (key !== undefined) {
     // Something this version can't show sits under that name now: never written over (1.19).

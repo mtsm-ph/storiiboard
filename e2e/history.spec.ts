@@ -233,6 +233,42 @@ test('a new selection never shows the frame selected before, so Put back can’t
   expect(seen.filter((text) => text.includes('Only frame 1B') && text.includes('35mm'))).toEqual([]);
 });
 
+test('a long, multi-line old action reads in full in the frame’s own history, and Put back brings all of it', async ({ page }) => {
+  const action = 'INT. KITCHEN - she turns from the window,\nsees him at the door, drops the cup.';
+  await frames(page).first().click();
+  const area = inspector(page).getByLabel('Action');
+  await area.fill(action);
+  await area.blur();
+  await area.fill('x');
+  await area.blur();
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('1A: action INT. KITCHEN - she turns from the windo… → x');
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  const before = changes.getByRole('row').nth(1).getByRole('cell').nth(1);
+  await expect(before).toContainText('drops the cup.');
+  expect(await before.evaluate((cell) => (cell as HTMLElement).innerText)).toBe(action);
+  await changes.getByRole('button', { name: /^Put back action INT\. KITCHEN .*drops the cup\.$/ }).click();
+  await expect(inspector(page).getByLabel('Action')).toHaveValue(action);
+});
+
+test('a scene’s own changes, field by field, with its old name to put back', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  const name = inspector(page).getByLabel('Name');
+  await name.fill('Penn Station');
+  await name.press('Enter');
+  await name.fill('Dock');
+  await name.press('Enter');
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('SC 02: name Penn Station → Dock');
+  await history(page).getByRole('switch', { name: 'Only scene SC 02' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to scene SC 02, newest first' });
+  await expect(changes.getByRole('row').nth(1)).toContainText(/name\s*Penn Station\s*Dock/);
+  await changes.getByRole('button', { name: 'Put back name Penn Station' }).click();
+  await expect(inspector(page).getByLabel('Name')).toHaveValue('Penn Station');
+  await expect(changes.getByRole('row').nth(1)).toContainText(/name\s*Dock\s*Penn Station/);
+});
+
 test('shot numbers, lens and T-stop are set in mono, in the steps and the frame’s toggle', async ({ page }) => {
   await frames(page).first().click();
   await setLens(page, '50');
