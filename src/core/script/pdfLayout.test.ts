@@ -64,6 +64,57 @@ describe('a screenplay PDF', () => {
     expect(parseScreenplayPdf([]).scenes).toEqual([]);
   });
 
+  it('leaves out revision marks, (MORE) and CONTINUED, and reads past a page that’s all dialogue', () => {
+    const revised: PdfText[] = [
+      at(1, 2, 108, 'INT. DINER - CONTINUOUS'),
+      at(1, 2, 560, '*'),
+      at(1, 4, 108, 'Rain.'),
+      at(1, 6, 252, 'MARY'),
+      at(1, 6, 560, '*'),
+      at(1, 7, 180, 'Again.'),
+      at(1, 9, 252, '(MORE)'),
+      at(1, 10, 108, 'CONTINUED:'),
+      // A page of dialogue alone: few of its lines start at the action margin.
+      ...Array.from({ length: 6 }, (_, i) => [at(2, i * 3, 252, i % 2 ? 'TOM' : 'JOE'), at(2, i * 3 + 1, 180, 'Words.')]).flat(),
+      at(2, 20, 108, 'EXT. ROAD - DAY'),
+      at(2, 20, 540, '8'),
+    ];
+    const script = parseScreenplayPdf(revised);
+    expect(script.scenes.map((s) => [s.number, s.location, s.otherTime ?? s.dayNight, s.characters])).toEqual([
+      [null, 'DINER', 'CONTINUOUS', ['MARY', 'JOE', 'TOM']],
+      ['8', 'ROAD', 'DAY', []],
+    ]);
+  });
+
+  it('takes any short number in the margins as the scene number, combined scenes and letters first included', () => {
+    for (const number of ['12-14', '7a', 'A7']) {
+      const scene = parseScreenplayPdf([at(1, 2, 72, number), at(1, 2, 108, 'INT. BARN - DAWN'), at(1, 4, 108, 'Hay.')]).scenes;
+      expect(scene.map((s) => [s.number, s.location])).toEqual([[number, 'BARN']]);
+    }
+  });
+
+  it('reads both speakers of dual dialogue, side by side', () => {
+    const dual: PdfText[] = [
+      at(1, 2, 108, 'INT. DINER - NIGHT'),
+      at(1, 4, 108, 'They talk over each other.'),
+      at(1, 6, 216, 'MARY'),
+      at(1, 6, 432, 'TOM'),
+      at(1, 7, 144, 'Closed.'),
+      at(1, 7, 360, 'Open.'),
+    ];
+    expect(parseScreenplayPdf(dual).scenes[0]?.characters).toEqual(['MARY', 'TOM']);
+  });
+
+  it('has no title when the script starts on page one, and keeps a baseline whole through rounding noise', () => {
+    const noTitle = parseScreenplayPdf([at(1, 0, 108, 'FADE IN:'), at(1, 2, 108, 'INT. A - DAY'), at(1, 4, 108, 'Light.')]);
+    expect(noTitle.title).toBeNull();
+    const noisy = parseScreenplayPdf([
+      { page: 1, x: 72, y: 697.0000001, width: 7.2, text: '9' },
+      { page: 1, x: 108, y: 696.9999999, width: 100, text: 'INT. A - DAY' },
+    ]);
+    expect(noisy.scenes[0]?.number).toBe('9');
+  });
+
   it('copes with a page whose margin isn’t the usual inch and a half', () => {
     const shifted = SCRIPT.filter((t) => t.page === 2).map((t) => ({ ...t, x: t.x - 36 }));
     expect(parseScreenplayPdf(shifted).scenes.map((s) => s.characters)).toEqual([['MARY', 'TOM'], ['MARY']]);
