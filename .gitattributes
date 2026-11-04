@@ -1,0 +1,2 @@
+# LF in the repo and in every checkout, Windows too: a CRLF file rewrites every line of its diff.
+* text=auto eol=lf

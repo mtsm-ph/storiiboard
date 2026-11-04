@@ -245,8 +245,8 @@ test('Watermark Save with nothing changed leaves no step to undo', async ({ page
   await expect(frames).toHaveCount(1);
 });
 
-test('Stop ends a running export between frames, and says what it wrote', async ({ page }) => {
-  // The second frame waits to be encoded until the test lets it go, so Stop lands mid-export every time.
+/** The second frame waits to be encoded until releaseFrame lets it go, so Stop lands mid-export every time. */
+async function holdSecondFrame(page: Page) {
   await page.evaluate(() => {
     const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
       this: OffscreenCanvas,
@@ -263,6 +263,16 @@ test('Stop ends a running export between frames, and says what it wrote', async 
       return encode.call(this, options);
     };
   });
+}
+
+async function releaseFrame(page: Page) {
+  await page.evaluate(() => {
+    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
+  });
+}
+
+test('Stop ends a running export between frames, and says what it wrote', async ({ page }) => {
+  await holdSecondFrame(page);
   await projectMenu(page, 'Export Project…');
   await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
   const files: Download[] = [];
@@ -271,11 +281,25 @@ test('Stop ends a running export between frames, and says what it wrote', async 
   await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
   await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
   await expect(dialog(page, 'Export')).toHaveCount(0);
-  await page.evaluate(() => {
-    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
-  });
+  await releaseFrame(page);
   await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
   expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
+});
+
+test('Stop on a PDF, which writes its one file at the end, says nothing was written', async ({ page }) => {
+  await holdSecondFrame(page);
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  // Let the held frame finish: its drawing counted as done made the old message say "2 of 2 written".
+  await releaseFrame(page);
+  await expect(page.getByRole('status').getByText('Export stopped. Nothing was written.')).toBeVisible();
+  expect(files).toEqual([]);
 });
 
 /**

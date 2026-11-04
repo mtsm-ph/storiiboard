@@ -185,7 +185,9 @@ function printer() {
     }
     let out = '';
     let lacking = false;
-    for (const char of text) {
+    // Line breaks and tabs, as typed into Action and Dialogue, are spaces on one line: the fonts have no glyph for
+    // them, so they came out as ? and the export warned of emoji that weren't there.
+    for (const char of text.replace(/\s+/g, ' ')) {
       if (set.has(char.codePointAt(0) ?? 0)) {
         out += char;
         lacking = false;

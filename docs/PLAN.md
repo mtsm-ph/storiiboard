@@ -59,7 +59,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #40 | Done |
 | 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #41 | Done |
-| 1.25 PDF storyboard | #42 | Done |
+| 1.25 PDF storyboard | | Done |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
@@ -299,6 +299,9 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   the export says so, rather than adding a fallback font (a new, large dependency); board notes stay out of the PDF,
   and the format's description says so (a note row between frames is a later option); the centred watermark keeps
   its 15 degrees (the PNGs' is flat), and its outline pass means a PDF reader finds its text twice on a page.
+- Fixed in second review (Nov 4): line breaks and tabs typed into Action and Dialogue print as spaces, not as ? with
+  the emoji warning; a stopped export says what it actually wrote, so a stopped PDF says nothing was written; the
+  repo keeps LF line endings (.gitattributes).
 
 **As built in 1.24 (Nov 3): export** (src/features/export, src/core/storage/exportFiles.ts, src-tauri/src/export.rs):
 - Export Project… in the project menu: a format from the registry (each one file plus one line in registry.ts), the

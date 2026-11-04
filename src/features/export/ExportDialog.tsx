@@ -108,13 +108,22 @@ function ExportDialog() {
     const name = format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
-    let done = 0;
+    // Files actually written, not frames drawn: the PDF draws every frame before it writes its one file, so a PDF
+    // stopped at frame 2 of 2 had written nothing, and saying "2 of 2 written" told people a file was there.
+    let written = 0;
     let total = 0;
     let label = '';
     try {
-      const target = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
-      if (!target || controller.signal.aborted) return;
-      label = target.label;
+      const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
+      if (!chosen || controller.signal.aborted) return;
+      label = chosen.label;
+      const target = {
+        label: chosen.label,
+        write: async (file: string, bytes: Uint8Array) => {
+          await chosen.write(file, bytes);
+          written += 1;
+        },
+      };
       setRunning('Exporting…');
       const { what, warning } = await format.run({
         records,
@@ -123,10 +132,9 @@ function ExportDialog() {
         scope,
         file: project.file,
         target,
-        progress: (written, of) => {
-          done = written;
+        progress: (done, of) => {
           total = of;
-          setRunning(`Exporting ${String(written)} of ${String(of)}…`);
+          setRunning(`Exporting ${String(done)} of ${String(of)}…`);
         },
         signal: controller.signal,
       });
@@ -137,7 +145,9 @@ function ExportDialog() {
       else showInfo(said);
     } catch (error) {
       if (controller.signal.aborted) {
-        showInfo(total === 0 ? 'Export stopped.' : `Export stopped: ${String(done)} of ${String(total)} written to “${label}”.`);
+        showInfo(
+          written === 0 ? 'Export stopped. Nothing was written.' : `Export stopped: ${String(written)} of ${String(total)} written to “${label}”.`,
+        );
       } else showNotice(error);
     } finally {
       if (stopper.current === controller) stopper.current = null;

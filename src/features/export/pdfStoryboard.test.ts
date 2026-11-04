@@ -383,6 +383,23 @@ describe('the PDF storyboard', () => {
     expect(one).toContain('Bey County ?');
   });
 
+  it('prints line breaks and tabs from Action and Dialogue as spaces, not as ?, and says nothing of them', async () => {
+    const [first = ''] = await scene('sc4', '4', 1);
+    await store.getState().apply([
+      { kind: 'update', id: first, set: { action: 'Mary wipes the counter.\nJay comes in.', dialogue: 'MARY\r\nWe are closed.\tJAY' } },
+    ]);
+    const { bytes, replaced } = await storyboardPdf({
+      ...board(),
+      title: 'Bey\tCounty\r\n',
+      watermark: { text: 'DRAFT\nv2', position: 'center', opacity: 0.3, appliesTo: ['pdf'] },
+    });
+    expect(replaced).toBe(false);
+    const [one = ''] = await pageTexts(bytes);
+    expect(one).not.toContain('?');
+    expect(one).toContain('Mary wipes the counter. Jay comes in.');
+    expect(one).toContain('“MARY We are closed. JAY”');
+  });
+
   it('prints a frame that fails to draw as PICTURE MISSING, and the rest of the storyboard with it', async () => {
     await scene('sc4', '4', 3);
     const { bytes, missing } = await storyboardPdf({
