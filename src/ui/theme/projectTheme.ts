@@ -7,10 +7,10 @@ import type { ResolvedTheme } from './theme';
 // prop from an older or a hand-edited file that isn't a whole theme reads as none, and the kit shows.
 
 export interface ProjectTheme {
-  /** The project's preferred mode, which Follow project takes. */
-  mode: ResolvedTheme;
-  light: ModeTokens;
-  dark: ModeTokens;
+  /** The project's preferred mode, which Follow project takes; null when it names none, and the OS decides. */
+  mode: ResolvedTheme | null;
+  /** Its own colours in both modes; null for the kit's (a `default` theme, or tokens that can't be read). */
+  tokens: { light: ModeTokens; dark: ModeTokens } | null;
 }
 
 /** The stored names, snake_case as in the file, for each token. */
@@ -43,15 +43,19 @@ function readTokens(value: unknown): ModeTokens | null {
   return tokens as ModeTokens;
 }
 
-/** The project's theme, or null for none (the kit) or one that can't be read. */
+/**
+ * The project's theme, or null for none. The mode is read on its own: a project on the kit's colours (`default`) can
+ * still prefer dark, and one whose tokens can't be read keeps its mode while the kit's colours show.
+ */
 export function readProjectTheme(prop: unknown): ProjectTheme | null {
   const theme = record(prop);
-  if (!theme || theme.source === 'default') return null;
-  const tokens = record(theme.tokens);
-  const light = readTokens(tokens?.light);
-  const dark = readTokens(tokens?.dark);
-  if (!light || !dark) return null;
-  return { mode: theme.mode === 'dark' ? 'dark' : 'light', light, dark };
+  if (!theme) return null;
+  const mode = theme.mode === 'dark' || theme.mode === 'light' ? theme.mode : null;
+  const stored = record(theme.tokens);
+  const light = readTokens(stored?.light);
+  const dark = readTokens(stored?.dark);
+  const tokens = theme.source !== 'default' && light && dark ? { light, dark } : null;
+  return mode === null && tokens === null ? null : { mode, tokens };
 }
 
 function storedTokens(tokens: ModeTokens): Record<string, JsonValue> {
@@ -64,7 +68,7 @@ export const GENERATOR_VERSION = 1;
 /** The `theme` prop for a generated theme, as onboarding and Settings → Theme store it (1.16). */
 export function themeProp(
   theme: Theme,
-  options: { source: 'image' | 'manual'; mode: ResolvedTheme; imageId: string | null; candidates: readonly string[] },
+  options: { source: 'default' | 'image' | 'manual'; mode: ResolvedTheme; imageId: string | null; candidates: readonly string[] },
 ): Record<string, JsonValue> {
   return {
     version: 1,

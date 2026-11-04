@@ -40,6 +40,21 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
+  it('switches from one open project to another without a moment with none', async () => {
+    const store = createProjectStore();
+    const first = await open('Bey County.sbd');
+    const second = await open('Bey County Pilot.sbd');
+    await store.getState().open(first);
+    const seen: (string | null)[] = [];
+    const stop = store.subscribe((s) => seen.push(s.project?.projectId ?? null));
+    await store.getState().open(second);
+    stop();
+    expect(seen).not.toContain(null);
+    expect(store.getState().project?.projectId).toBe(second.projectId);
+    expect(store.getState().records[first.projectId]).toBeUndefined();
+    await store.getState().close();
+  });
+
   it('runs edits in the order they were made, even fired together', async () => {
     const store = createProjectStore();
     const project = await open();

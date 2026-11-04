@@ -75,7 +75,14 @@ export function createProjectStore(): StoreApi<ProjectState> {
       open: (project) =>
         enqueue(async () => {
           const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
-          set({ project, records, ...(await history(project.file)), error: null, changedOnDisk: false });
+          const undoState = await history(project.file);
+          // A project already open (a switch) is closed only now, so there's never a moment with none.
+          const before = get().project;
+          if (before && before !== project) {
+            await before.close();
+            await releaseImageUrls(before.file);
+          }
+          set({ project, records, ...undoState, error: null, changedOnDisk: false });
         }),
       close: () =>
         enqueue(async () => {

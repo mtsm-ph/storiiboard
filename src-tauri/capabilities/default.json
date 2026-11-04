@@ -8,6 +8,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-message",
-    "core:window:allow-set-background-color"
+    "core:window:allow-set-background-color",
+    "core:webview:allow-set-webview-background-color"
   ]
 }

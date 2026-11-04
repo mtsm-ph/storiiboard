@@ -34,7 +34,7 @@ function subscribeToOs(onChange: () => void): () => void {
 
 interface ThemeProviderProps {
   children: ReactNode;
-  /** The open project's own theme (1.15); null for none open, or one on the kit's. */
+  /** The open project's own theme (1.15): its mode and colours; null for none open, or one with neither. */
   projectTheme?: ProjectTheme | null;
   /** Told the background colour each time it changes, for the window behind the page (the desktop app). */
   onBackground?: (colour: string | null) => void;
@@ -48,7 +48,7 @@ export function ThemeProvider({ children, projectTheme = null, onBackground }: T
   const osDark = useSyncExternalStore(subscribeToOs, osPrefersDark, () => false);
 
   const resolved = resolveTheme(preference, osDark, projectTheme?.mode ?? null);
-  const tokens = projectTheme ? projectTheme[resolved] : null;
+  const tokens = projectTheme?.tokens?.[resolved] ?? null;
 
   useEffect(() => {
     applyTheme(resolved);
@@ -58,7 +58,7 @@ export function ThemeProvider({ children, projectTheme = null, onBackground }: T
 
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
-    saveSettings({ theme: next });
+    saveSettings({ theme: next, themeChosen: true });
   }, []);
 
   const value = useMemo(() => ({ preference, resolved, setPreference }), [preference, resolved, setPreference]);

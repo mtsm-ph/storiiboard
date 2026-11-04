@@ -19,14 +19,26 @@ describe('backup settings', () => {
   it('keep 12 copies and 14 days unless changed, and drop a bad number on its own', () => {
     expect(loadSettings(memoryStorage()).backups).toEqual({ recent: 12, days: 14 });
     const storage = memoryStorage('{"theme":"dark","backups":{"recent":30,"days":-1}}');
-    expect(loadSettings(storage)).toEqual({ theme: 'dark', backups: { recent: 30, days: 14 }, syncNoted: [], backupsNextToProject: false });
+    expect(loadSettings(storage)).toEqual({
+      theme: 'dark',
+      themeChosen: false,
+      backups: { recent: 30, days: 14 },
+      syncNoted: [],
+      backupsNextToProject: false,
+    });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
 
   it('saves the keep numbers alongside the theme', () => {
     const storage = memoryStorage('{"theme":"light"}');
     saveSettings({ backups: { recent: 5, days: 30 } }, storage);
-    expect(loadSettings(storage)).toEqual({ theme: 'light', backups: { recent: 5, days: 30 }, syncNoted: [], backupsNextToProject: false });
+    expect(loadSettings(storage)).toEqual({
+      theme: 'light',
+      themeChosen: false,
+      backups: { recent: 5, days: 30 },
+      syncNoted: [],
+      backupsNextToProject: false,
+    });
   });
 });
 
@@ -50,6 +62,16 @@ describe('settings', () => {
     const storage = memoryStorage();
     saveSettings({ theme: 'dark' }, storage);
     expect(loadSettings(storage).theme).toBe('dark');
+  });
+
+  it('reads a System saved before 1.15 as the new default, and keeps one picked since', () => {
+    // Every save before 1.15 wrote the old default along with whatever changed, such as a backups number.
+    expect(loadSettings(memoryStorage('{"theme":"system","backups":{"recent":12,"days":14}}')).theme).toBe('project');
+    const storage = memoryStorage();
+    saveSettings({ theme: 'system', themeChosen: true }, storage);
+    // A later save of something else keeps the choice.
+    saveSettings({ backupsNextToProject: true }, storage);
+    expect(loadSettings(storage)).toMatchObject({ theme: 'system', themeChosen: true });
   });
 });
 

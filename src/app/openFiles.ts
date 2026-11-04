@@ -92,6 +92,7 @@ async function replaceWith(
   } catch (error) {
     throw new OpenFileError(path, error);
   }
-  await store.getState().close();
+  // Open replaces the project in place: the one open now closes once the new one's records are in, so the window
+  // never shows "no project" (the Projects screen and the kit's colours) in between.
   await store.getState().open(project);
 }

@@ -589,7 +589,12 @@ open project's stored tokens go on `<html>` as inline variables, and come off fo
 desktop window's own background follows `--bg` (permission `core:window:allow-set-background-color`). Follow project
 is the new default Appearance and the first option in the status bar. Decided while building, to review:
 `theme-boot.js` doesn't apply a cached project theme before first paint, as planned, because the app opens on the
-Projects screen with no project; a project opened at launch eases from the kit into its own colours.
+Projects screen with no project; a project opened at launch eases from the kit into its own colours. After review: switching projects replaces the
+open one in a single step, so the window never passes through the Projects screen or the kit's colours; the window
+and the webview layer both take the background (Windows paints the webview's at the edges); a project's mode is read
+apart from its tokens, so a project on the kit's colours can still prefer dark; and a `system` Appearance saved before
+1.15 (every save wrote it, chosen or not) reads as the new default, Follow project, once. Native controls (scrollbars)
+switch light and dark at once while the colours ease; left as is.
 
 **Stored** in the project record's `theme` prop (docs/SBD_FORMAT.md).
 

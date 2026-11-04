@@ -9,19 +9,35 @@ describe('a project’s stored theme', () => {
     // As the file stores it: snake_case names, and the family's id.
     expect(prop).toMatchObject({ version: 1, source: 'image', image_id: 'media-1', mode: 'dark', family: 'navy', generator: 1 });
     expect((prop.tokens as { light: Record<string, string> }).light.surface_raised).toBe(theme.light.surfaceRaised);
-    expect(readProjectTheme(JSON.parse(JSON.stringify(prop)))).toEqual({ mode: 'dark', light: theme.light, dark: theme.dark });
+    expect(readProjectTheme(JSON.parse(JSON.stringify(prop)))).toEqual({ mode: 'dark', tokens: { light: theme.light, dark: theme.dark } });
   });
 
-  it('reads none for the default, a missing prop or one that isn’t a whole theme, so the kit shows', () => {
+  it('shows the kit’s colours for the default or a theme that isn’t whole, and still keeps its mode', () => {
     expect(readProjectTheme(undefined)).toBeNull();
     expect(readProjectTheme({ source: 'default' })).toBeNull();
+    // The kit's own look, in the mode the person chose at onboarding.
+    const kit = themeProp(themeFor(null), { source: 'default', mode: 'dark', imageId: null, candidates: [] });
+    expect(readProjectTheme(kit)).toEqual({ mode: 'dark', tokens: null });
     const prop = themeProp(themeFor('#2E8B57'), { source: 'manual', mode: 'light', imageId: null, candidates: [] });
     const broken = JSON.parse(JSON.stringify(prop)) as { tokens: { dark: Record<string, string> } };
     broken.tokens.dark.accent = 'orange';
-    expect(readProjectTheme(broken)).toBeNull();
+    expect(readProjectTheme(broken)).toEqual({ mode: 'light', tokens: null });
     const partial = JSON.parse(JSON.stringify(prop)) as { tokens: { dark?: unknown } };
     delete partial.tokens.dark;
-    expect(readProjectTheme(partial)).toBeNull();
+    expect(readProjectTheme(partial)?.tokens).toBeNull();
+    // No mode named: the OS decides.
+    const modeless = JSON.parse(JSON.stringify(prop)) as { mode?: unknown };
+    modeless.mode = 'sepia';
+    expect(readProjectTheme(modeless)?.mode).toBeNull();
+  });
+
+  it('never lets a stored colour carry more CSS than a colour', () => {
+    const prop = themeProp(themeFor('#2E8B57'), { source: 'manual', mode: 'light', imageId: null, candidates: [] });
+    for (const hostile of ['#000000; background: url(https://example.com/x)', 'red', '#00000g', ' #000000', 'var(--x)']) {
+      const tampered = JSON.parse(JSON.stringify(prop)) as { tokens: { light: Record<string, string> } };
+      tampered.tokens.light.bg = hostile;
+      expect(readProjectTheme(tampered)?.tokens, hostile).toBeNull();
+    }
   });
 
   it('sets the ten tokens on an element, and takes them all off again', () => {

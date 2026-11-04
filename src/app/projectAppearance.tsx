@@ -1,4 +1,4 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useMemo, type ReactNode } from 'react';
 import { PAPER } from '../ui/theme/generator/families';
 import { readProjectTheme } from '../ui/theme/projectTheme';
@@ -14,8 +14,9 @@ function setWindowBackground(colour: string | null) {
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   // With no project theme, the kit's own backgrounds: the generator's Paper family holds them as values.
   const value = colour ?? (dark ? PAPER.dark.bg : PAPER.light.bg);
-  // Best effort: an older webview without it keeps the window's own colour.
-  getCurrentWindow()
+  // The window and the webview both: Windows paints the webview's own layer at the edges while resizing, macOS the
+  // window's. Best effort: a webview without either keeps its colour.
+  getCurrentWebviewWindow()
     .setBackgroundColor(value)
     .catch(() => undefined);
 }
