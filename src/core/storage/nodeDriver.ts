@@ -180,6 +180,15 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
         if (existsSync(dest)) throw new Error(`A backup named "${name}" already exists.`);
         db.prepare('VACUUM INTO ?').run(dest);
       }),
+    compact: () =>
+      settle(() => {
+        checkUnchanged();
+        try {
+          db.exec('VACUUM');
+        } finally {
+          lastWrite = fingerprint(path);
+        }
+      }),
     saveCopy: (dest) =>
       settle(() => {
         checkExtension(dest);

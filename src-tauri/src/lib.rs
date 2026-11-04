@@ -46,6 +46,7 @@ pub fn run() {
             sbd::sbd_read_blob,
             sbd::sbd_query,
             sbd::sbd_backup,
+            sbd::sbd_compact,
             sbd::sbd_backups,
             sbd::sbd_delete_backup,
             app_data::app_data_read,

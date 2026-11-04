@@ -62,6 +62,7 @@ function tauriFile(handle: number, path: string): ProjectFile {
       return bytes.length === 0 ? null : bytes;
     },
     backup: (kind, fileName) => command('sbd_backup', { handle, kind, fileName }),
+    compact: () => command('sbd_compact', { handle }),
     listBackups: () => command<BackupFile[]>('sbd_backups', { handle }),
     deleteBackup: (fileName) => command('sbd_delete_backup', { handle, fileName }),
     placeBackups: (nextToProject) => command<string>('sbd_place_backups', { handle, nextToProject }),

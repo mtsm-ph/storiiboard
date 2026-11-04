@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { historyOnlyPictures } from '../../core/ops/ops';
+import { fileSpace } from '../../core/storage/compact';
 import { trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
@@ -11,7 +12,8 @@ import { projectStore, useProject } from '../projectStore';
 // Settings → Storage (1.21): what the project's pictures take, and the two ways to give space back, each after a
 // confirm that says it can't be undone. Empty Trash deletes the Trash for good. Clean up old pictures deletes pictures
 // only History still uses (one added and then undone, say), never one a named version shows; the steps that used them
-// then show "picture removed".
+// then show "picture removed". Compact project (1.27) then shrinks the file itself, after a backup; it deletes
+// nothing, so it asks nothing.
 
 export function StorageTile() {
   const project = useProject((s) => s.project);
@@ -25,6 +27,9 @@ export function StorageTile() {
   const [generation, setGeneration] = useState(0);
   const pictureStatus = useRef<HTMLParagraphElement>(null);
   const trashStatus = useRef<HTMLParagraphElement>(null);
+  const fileStatus = useRef<HTMLParagraphElement>(null);
+  const [space, setSpace] = useState<{ bytes: number; free: number } | null>(null);
+  const [compacting, setCompacting] = useState(false);
 
   // Read again after every edit: an undo can leave a picture to History alone.
   useEffect(() => {
@@ -36,6 +41,20 @@ export function StorageTile() {
           const bytes = pictures.reduce((sum, p) => sum + p.bytes, 0);
           setOld({ count: pictures.length, bytes, shas: new Set(pictures.map((p) => p.sha256)) });
         }
+      })
+      .catch(showNotice);
+    return () => {
+      live = false;
+    };
+  }, [project, records, generation, deletedForGood]);
+
+  // The file's size and free space, read again after every edit and delete.
+  useEffect(() => {
+    if (!project) return;
+    let live = true;
+    fileSpace(project.file)
+      .then((measured) => {
+        if (live) setSpace(measured);
       })
       .catch(showNotice);
     return () => {
@@ -65,6 +84,23 @@ export function StorageTile() {
         status.current?.focus();
       });
     } finally {
+      setGeneration((n) => n + 1);
+    }
+  };
+
+  const compact = async () => {
+    if (compacting) return;
+    setCompacting(true);
+    try {
+      const done = await projectStore.getState().compact();
+      if (done) {
+        showInfo(`Compacted the project: ${sizeLabel(done.before)} to ${sizeLabel(done.after)}. Backed up first as “${done.backup}”.`);
+        requestAnimationFrame(() => {
+          fileStatus.current?.focus();
+        });
+      }
+    } finally {
+      setCompacting(false);
       setGeneration((n) => n + 1);
     }
   };
@@ -121,6 +157,34 @@ export function StorageTile() {
           }
         >
           Empty Trash…
+        </Button>
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-border pt-4">
+        <h3 className="sb-label">Project file</h3>
+        <p ref={fileStatus} tabIndex={-1} className="text-[13px]">
+          {space === null ? (
+            'Measuring…'
+          ) : (
+            <>
+              <span className="font-mono">{sizeLabel(space.bytes)}</span>
+              {space.free > 0 ? (
+                <>
+                  , of which <span className="font-mono">{sizeLabel(space.free)}</span> is free space.
+                </>
+              ) : (
+                ', with no free space inside.'
+              )}
+            </>
+          )}
+        </p>
+        <p className="text-[12px] text-text-muted">
+          Space freed inside the project, by Empty Trash or Clean up old pictures, is used again for new work, but the file
+          doesn’t get smaller. Compact project rewrites the file without it. It makes a backup first (Settings → Backups),
+          and takes a few seconds on a large project; a project in a synced folder uploads again in full afterwards.
+        </p>
+        <Button className="self-start" disabled={space === null || compacting} aria-busy={compacting} onClick={() => void compact()}>
+          {compacting ? 'Compacting…' : 'Compact project'}
         </Button>
       </section>
     </div>

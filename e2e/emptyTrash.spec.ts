@@ -90,6 +90,36 @@ test('Empty Trash in Settings → Storage asks first too', async ({ page }) => {
   await expect(storage(page).getByText('0 items in the Trash.')).toBeFocused();
 });
 
+test('Compact project backs up and shrinks the file without asking, and the board carries on', async ({ page }) => {
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('Delete');
+  await openStorage(page);
+  answer(page, [], true);
+  await storage(page).getByRole('button', { name: 'Empty Trash…' }).click();
+  await expect(storage(page).getByText('0 items in the Trash.')).toBeVisible();
+  // (The memory build's small file has no free pages to show; the unit and Rust tests measure the shrinking.)
+  await expect(storage(page).getByText(/^\d+ KB/)).toBeVisible();
+  // It deletes nothing, so it asks nothing.
+  const asked: string[] = [];
+  page.on('dialog', (dialog) => {
+    asked.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await storage(page).getByRole('button', { name: 'Compact project' }).click();
+  await expect(page.getByText(/^Compacted the project: .+ Backed up first as “Bey County \d{4}-\d{2}-\d{2} \d{2}-\d{2}\.sbd”\.$/)).toBeVisible();
+  await expect(storage(page).getByText(/with no free space inside\.$/)).toBeFocused();
+  expect(asked).toEqual([]);
+  // The backup is listed with the project's others.
+  await page.getByRole('tab', { name: 'Backups' }).click();
+  await expect(page.getByText(/Bey County \d{4}-\d{2}-\d{2} \d{2}-\d{2}/).first()).toBeVisible();
+  // And editing carries on, with undo.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(2);
+  await page.keyboard.press(await undoKey(page));
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(1);
+});
+
 test('Clean up old pictures finds a picture only History uses and, after a yes, deletes it', async ({ page }) => {
   await board(page).locator('[data-shot-id]').first().click();
   const chooser = page.waitForEvent('filechooser');
