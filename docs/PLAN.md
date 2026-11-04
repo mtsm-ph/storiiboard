@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.13 done, 1.14 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.22 done, 1.23 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 2, 2026 (synced-folder decisions) |
+| Last updated | Nov 4, 2026 (1.22 merged) |
 
 | Phase | State |
 |---|---|
@@ -55,8 +55,8 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
-| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Done |
-| 1.22 History tile: every step in words, restore a point, an item's old values | | Done |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #40 | Done |
+| 1.22 History tile: every step in words, restore a point, an item's old values | #41 | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | | Done |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
@@ -372,7 +372,8 @@ src/app/openVersion.ts):
   of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
   gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
-  that scene as it is now, so no two frames share a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  that scene as it is now, and a scene or frame that would go back onto a number another one holds stays as it is
+  now too, so no two scenes share a number and no two frames a slate number. Letters can be left with a gap (4A, 4C, when 4B
   was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
 - Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
   Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
@@ -383,7 +384,8 @@ src/app/openVersion.ts):
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
-  Trash. A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
+  Trash, and no step on the undo stack had (so one ⌘Z, such as undoing a History restore, never brings back a frame
+  whose picture is gone; only redo can). A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
   Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
   missing". The file isn't compacted; a Compact project command could come later.
 

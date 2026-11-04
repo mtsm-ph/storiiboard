@@ -32,6 +32,8 @@ export async function removeNamedVersion(store: StoreApi<ProjectState>, id: stri
   if (!project) return false;
   try {
     await deleteVersion(project.file, id);
+    // Pictures only that version kept are History's alone now: Settings → Storage counts them again.
+    store.setState((s) => ({ deletedForGood: s.deletedForGood + 1 }));
     return true;
   } catch (error) {
     return failed(store, error);

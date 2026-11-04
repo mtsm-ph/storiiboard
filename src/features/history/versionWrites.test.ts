@@ -44,7 +44,10 @@ describe('naming and deleting a version', () => {
     expect(await nameThisPoint(store, 'Board sent to client', await newest())).toBe(true);
     const [version] = await listVersions(project.file);
     expect(version?.name).toBe('Board sent to client');
+    const counted = store.getState().deletedForGood;
     expect(await removeNamedVersion(store, version?.id ?? '')).toBe(true);
+    // Settings → Storage counts again: pictures only that version kept are History's alone now.
+    expect(store.getState().deletedForGood).toBe(counted + 1);
     expect(await listVersions(project.file)).toEqual([]);
   });
 

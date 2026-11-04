@@ -47,6 +47,8 @@ test('lists every step in words, newest first, and Restore to here is a step und
   // Back to just after the first frame: two frames go, as one new step. The tile says it's restoring meanwhile.
   const status = history(page).getByRole('status');
   await expect(status).toHaveText('');
+  // Never inside a busy region, which a screen reader may hold back until it's done.
+  expect(await status.evaluate((line) => line.closest('[aria-busy]') === null)).toBe(true);
   await status.evaluate((line) => {
     const said: string[] = [];
     Object.assign(window, { restoreSaid: said });

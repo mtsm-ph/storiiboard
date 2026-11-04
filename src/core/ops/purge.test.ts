@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
-import { addShot, moveItem, trashShot } from '../../features/storyboard/board';
+import { addScene, addShot, moveItem, setSceneLocation, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../../features/storyboard/sketch/strokes';
 import { readOriginal, readThumbnail, type PreparedImage } from '../media/store';
@@ -105,7 +105,7 @@ describe('Empty Trash', () => {
     await trash(second);
     expect(await store.getState().emptyTrash(confirmed)).not.toBeNull();
     expect(records()[first]).toBeUndefined();
-    expect(records()[second]?.trashedAt).not.toBeNull();
+    expect(typeof records()[second]?.trashedAt).toBe('string');
   });
 
   it('keeps pictures only History uses: that’s Clean up’s job, after its own confirm', async () => {
@@ -116,6 +116,36 @@ describe('Empty Trash', () => {
     await store.getState().emptyTrash();
     expect(await readOriginal(project.file, historyOnly)).not.toBeNull();
     expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([historyOnly]);
+  });
+
+  it('clears what only History holds under a deleted scene: a note and a picture made and undone there', async () => {
+    const shot = await frame('sc4');
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'n1', type: 'note', parentId: 'sc4', sortKey: 'Z', props: { text: 'SECRET-NOTE-TEXT-XYZ' } } },
+    ]);
+    await store.getState().undo();
+    await withPicture(shot, 11);
+    await store.getState().undo();
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+    await store.getState().close();
+    const bytes = readFileSync(folder.path('Bey County.sbd'));
+    expect(bytes.includes(Buffer.from('SECRET-NOTE-TEXT-XYZ'))).toBe(false);
+    expect(fileHolds(11)).toBe(false);
+    await reopen();
+  });
+
+  it('keeps what only History holds under a parent that stays: a note made and undone in a live scene', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'n2', type: 'note', parentId: 'sc5', sortKey: 'Z', props: { text: 'KEPT-NOTE-TEXT' } } },
+    ]);
+    const made = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().undo();
+    await trash(await frame('sc4'));
+    await store.getState().emptyTrash();
+    await restoreTo(project.file, made);
+    await reopen();
+    expect(records().n2?.props.text).toBe('KEPT-NOTE-TEXT');
   });
 
   it('leaves a stroke erased from a frame still on the board, so History can bring the sketch back', async () => {
@@ -129,7 +159,7 @@ describe('Empty Trash', () => {
 
     // The person was told about one item: the frame. The erased stroke isn't in the Trash, so it isn't deleted.
     expect((await store.getState().emptyTrash())?.removed).toBe(1);
-    expect(records()[strokeId]?.trashedAt).not.toBeNull();
+    expect(typeof records()[strokeId]?.trashedAt).toBe('string');
     await restoreTo(project.file, drawn);
     await reopen();
     expect(records()[strokeId]?.trashedAt).toBeNull();
@@ -191,6 +221,45 @@ describe('Empty Trash', () => {
     const number = (id: string) => shotFields(records()[id]?.props ?? {}).number;
     expect([number(moved), number(stays)]).toEqual(['5A', '5B']);
     expect(records().sc5?.props.name).toBe('Road');
+  });
+
+  it('never puts a scene back on a number a scene kept as it is now has taken, nor its frames on one slate number', async () => {
+    const moved = await frame('sc4');
+    const other = await frame('sc5');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    // Scene 5 becomes 9; a new scene takes 5, and the frame from scene 4 moves into it as 5A.
+    await store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, 'sc5', '9') }));
+    const added = addScene(records(), project.projectId);
+    await store.getState().apply([added]);
+    await store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, added.record.id, '5') }));
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, added.record.id, null) }));
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const live = Object.values(records()).filter((r) => r.trashedAt === null);
+    const scenes = live.filter((r) => r.type === 'scene').map((r) => r.props.number);
+    const frames = live.filter((r) => r.type === 'shot').map((r) => shotFields(r.props).number);
+    expect(new Set(scenes).size).toBe(scenes.length);
+    expect(new Set(frames).size).toBe(frames.length);
+    expect(records()[moved]?.parentId).toBe(added.record.id);
+    expect(records()[other]?.parentId).toBe('sc5');
+  });
+
+  it('keeps a scene kept as it is now with the location it names, so its location is never deleted from under it', async () => {
+    const moved = await frame('sc4');
+    const before = (await log(project.file)).at(-1)?.id ?? null;
+    await store.getState().applyWith((now) => ({ changes: moveItem(now, project.projectId, moved, 'sc5', null) }));
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc5', 'Diner') }));
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await store.getState().emptyTrash();
+
+    await restoreTo(project.file, before);
+    await reopen();
+    const locationId = records().sc5?.props.location_id;
+    expect(typeof locationId).toBe('string');
+    expect(typeof locationId === 'string' ? records()[locationId]?.props.name : null).toBe('Diner');
   });
 
   it('keeps a frame kept as it is now with its newer picture and sketch, so nothing it shows is deleted', async () => {
@@ -269,7 +338,7 @@ describe('Empty Trash', () => {
     expect(store.getState().error).not.toBeNull();
     await reopen();
     expect(records()[shot]).toBeDefined();
-    expect(records()[shot]?.trashedAt).not.toBeNull();
+    expect(typeof records()[shot]?.trashedAt).toBe('string');
     expect(Object.values(records()).filter((r) => r.parentId === shot)).not.toEqual([]);
     expect(await readOriginal(project.file, sha)).not.toBeNull();
     expect((await log(project.file)).some((g) => g.kind === 'empty_trash')).toBe(false);
@@ -318,6 +387,27 @@ describe('Clean up old pictures', () => {
     await trash(shot);
     expect(await store.getState().emptyTrash()).not.toBeNull();
     expect(store.getState().deletedForGood).toBe(after.deletedForGood + 1);
+  });
+
+  it('keeps a picture one ⌘Z can bring back: the frame a History restore took away', async () => {
+    const point = (await log(project.file)).at(-1)?.id ?? null;
+    const shot = await frame();
+    const sha = await withPicture(shot, 12);
+    await restoreTo(project.file, point);
+    await reopen();
+    expect(await historyOnlyPictures(project.file)).toEqual([]);
+    await store.getState().cleanUpPictures();
+    await store.getState().undo();
+    expect(await readOriginal(project.file, sha)).not.toBeNull();
+    expect(shotFields(records()[shot]?.props ?? {}).mediaId).toBeTruthy();
+  });
+
+  it('still cleans up a picture added and then undone, once a new edit has cleared redo', async () => {
+    const shot = await frame();
+    const sha = await withPicture(shot, 13);
+    await store.getState().undo();
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { name: 'Road' } }]);
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([sha]);
   });
 
   it('deletes only the pictures the confirm counted', async () => {

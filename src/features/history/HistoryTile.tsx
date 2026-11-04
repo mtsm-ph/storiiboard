@@ -273,7 +273,8 @@ export function HistoryTile() {
   for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v]);
 
   return (
-    <div className="flex min-h-full flex-col" aria-busy={restoring}>
+    // Busy is on the list and the table, not round the status line, which a screen reader may hold back while busy.
+    <div className="flex min-h-full flex-col">
       <section aria-labelledby={versionsId} aria-busy={opening !== null} className="flex flex-col gap-2 border-b border-border p-3">
         <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
           Named versions
@@ -289,7 +290,8 @@ export function HistoryTile() {
                 setNaming(event.currentTarget.value);
               }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') saveVersion();
+                // Not the Enter that ends an IME composition (Japanese or Chinese input): that one confirms the text.
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) saveVersion();
               }}
             />
           </div>
@@ -347,7 +349,7 @@ export function HistoryTile() {
           ) : loaded.steps.length === 0 ? (
             <p className="p-3 text-[13px] text-text-muted">No steps yet. Every change you make shows here.</p>
           ) : (
-            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" className="flex flex-col">
+            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" aria-busy={restoring} className="flex flex-col">
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">

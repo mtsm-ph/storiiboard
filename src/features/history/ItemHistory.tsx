@@ -47,7 +47,7 @@ export function ItemHistory({
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
     field.prop === 'location_id' && typeof v === 'string' && v !== '' ? (places(v) ?? 'a location') : changeText(field, v);
   return (
-    <table ref={table} tabIndex={-1} className="w-full border-collapse text-[12px]">
+    <table ref={table} tabIndex={-1} aria-busy={busy} className="w-full border-collapse text-[12px]">
       <caption className="sr-only">Changes to {title}, newest first</caption>
       <thead>
         <tr className="border-b border-border">

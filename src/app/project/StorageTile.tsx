@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { historyOnlyPictures, trashedRoots } from '../../core/ops/ops';
-import { emptyTrashMessage, trashItems } from '../../features/trash/trash';
+import { historyOnlyPictures } from '../../core/ops/ops';
+import { trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
-import { forGood, SWITCHED_MESSAGE } from '../forGood';
+import { cleanUpConfirmed, emptyTrashConfirmed } from '../deleteForGood';
+import { SWITCHED_MESSAGE, type ForGood } from '../forGood';
 import { showInfo, showNotice } from '../notice';
 import { projectStore, useProject } from '../projectStore';
 
@@ -15,6 +16,8 @@ import { projectStore, useProject } from '../projectStore';
 export function StorageTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
+  // Bumped by deletes that change no record (Clean up, a named version deleted), so the count is read again.
+  const deletedForGood = useProject((s) => s.deletedForGood);
   const [old, setOld] = useState<{ count: number; bytes: number; shas: ReadonlySet<string> } | null>(null);
   // One run at a time, held in a ref so the buttons stay enabled (and focused) while the confirm is up.
   const running = useRef(false);
@@ -38,31 +41,19 @@ export function StorageTile() {
     return () => {
       live = false;
     };
-  }, [project, records, generation]);
+  }, [project, records, generation, deletedForGood]);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
   const inTrash = trashItems(records, project.projectId).length;
-  // What the Empty Trash confirm is about: anything trashed while it's up stays in the Trash.
-  const confirmedTrash = new Set(trashedRoots(Object.values(records)));
 
   const run = async (
-    title: string,
-    text: string,
-    action: string,
-    work: () => Promise<{ removed: number; freed: number } | null>,
+    act: () => Promise<ForGood<{ freed: number } | null>>,
     doneMessage: string,
     status: RefObject<HTMLParagraphElement | null>,
   ) => {
-    // Only for the project the confirm was about, if another opened while it was up.
-    const shownFor = project;
     try {
-      const done = await forGood(
-        running,
-        () => confirmForGood(title, text, action),
-        () => projectStore.getState().project === shownFor,
-        work,
-      );
+      const done = await act();
       if (!done.ran) {
         if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
         return;
@@ -101,11 +92,8 @@ export function StorageTile() {
           disabled={old === null || old.count === 0}
           onClick={() =>
             void run(
-              'Clean up old pictures?',
-              `${String(old?.count ?? 0)} ${old?.count === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone: a redo or a History restore that brings one back shows “Picture missing”.`,
-              'Clean up',
-              // Only the pictures the confirm counted.
-              () => projectStore.getState().cleanUpPictures(old?.shas ?? new Set()),
+              // Only the pictures counted here.
+              () => cleanUpConfirmed(projectStore, running, old?.shas ?? new Set(), (text) => confirmForGood('Clean up old pictures?', text, 'Clean up')),
               'Cleaned up old pictures',
               pictureStatus,
             )
@@ -126,10 +114,7 @@ export function StorageTile() {
           disabled={inTrash === 0}
           onClick={() =>
             void run(
-              'Empty Trash?',
-              emptyTrashMessage(records, inTrash),
-              'Empty Trash',
-              () => projectStore.getState().emptyTrash(confirmedTrash),
+              () => emptyTrashConfirmed(projectStore, running, (text) => confirmForGood('Empty Trash?', text, 'Empty Trash')),
               'Emptied the Trash',
               trashStatus,
             )
