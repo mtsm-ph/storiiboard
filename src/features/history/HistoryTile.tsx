@@ -8,7 +8,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { LoggedOp, OpGroup } from '../../core/ops/ops';
-import { deleteVersion, nameVersion, versionName, type NamedVersion } from '../../core/storage/versions';
+import { versionName, type NamedVersion } from '../../core/storage/versions';
 import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
@@ -16,6 +16,7 @@ import { ItemHistory } from './ItemHistory';
 import { putBackChange } from './putBack';
 import { itemOps as readItemOps, loadSteps, PAGE, restoreNotice, type Steps } from './steps';
 import { lineText, who, type FieldChange, type Line } from './summary';
+import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
@@ -61,6 +62,11 @@ export function HistoryTile() {
   const savingVersion = useRef(false);
   const [saving, setSaving] = useState(false);
   const versionsId = useId();
+  const versionsHeading = useRef<HTMLHeadingElement>(null);
+  const versionsList = useRef<HTMLUListElement>(null);
+  // After Delete…, where focus goes once its row is gone, so a keyboard user stays in the tile: the version that took
+  // its place in the list, else the one before it, else the Named versions heading.
+  const focusAfterDelete = useRef<{ gone: string; next: string | null } | null>(null);
   // Bumped after naming or deleting a version, which changes no record, so History is read again.
   const [generation, setGeneration] = useState(0);
   // What the selection is on, most particular first: a frame or a note is picked inside the active scene.
@@ -106,6 +112,16 @@ export function HistoryTile() {
     if (!olderAsked.current || loaded?.more !== false) return;
     olderAsked.current = false;
     if (document.activeElement === document.body || document.activeElement === null) list.current?.focus();
+  }, [loaded]);
+
+  useEffect(() => {
+    const pending = focusAfterDelete.current;
+    if (!pending || !loaded || loaded.versions.some((v) => v.id === pending.gone)) return;
+    focusAfterDelete.current = null;
+    // Only when focus fell out with the row: a click elsewhere since then keeps its focus.
+    if (document.activeElement !== document.body && document.activeElement !== null) return;
+    const next = pending.next === null ? null : versionsList.current?.querySelector<HTMLElement>(`[data-delete-version="${pending.next}"]`);
+    (next ?? versionsHeading.current)?.focus();
   }, [loaded]);
 
   useEffect(() => {
@@ -196,13 +212,13 @@ export function HistoryTile() {
     if (!versionNamed || !loaded?.newest || savingVersion.current) return;
     savingVersion.current = true;
     setSaving(true);
-    void nameVersion(project.file, { name: versionNamed, opGroupId: loaded.newest })
-      .then(() => {
+    void nameThisPoint(projectStore, versionNamed, loaded.newest)
+      .then((named) => {
+        if (!named) return;
         setNaming('');
         setGeneration((n) => n + 1);
         showInfo(`Named this point “${versionNamed}”.`);
       })
-      .catch(showNotice)
       .finally(() => {
         savingVersion.current = false;
         setSaving(false);
@@ -215,7 +231,11 @@ export function HistoryTile() {
       'Delete version',
     );
     if (!sure) return;
-    await deleteVersion(project.file, version.id).catch(showNotice);
+    // Worked out as pressed: the row below takes this one's place, so the next Delete… is where focus already was.
+    const shown = loaded?.versions ?? [];
+    const at = shown.findIndex((v) => v.id === version.id);
+    const next = shown[at + 1] ?? (at > 0 ? shown[at - 1] : undefined);
+    if (await removeNamedVersion(projectStore, version.id)) focusAfterDelete.current = { gone: version.id, next: next?.id ?? null };
     setGeneration((n) => n + 1);
   };
   // Two versions can share a name, so each is told apart by its id.
@@ -225,7 +245,7 @@ export function HistoryTile() {
   return (
     <div className="flex min-h-full flex-col">
       <section aria-labelledby={versionsId} className="flex flex-col gap-2 border-b border-border p-3">
-        <h3 id={versionsId} className="sb-label">
+        <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
           Named versions
         </h3>
         <div className="flex flex-wrap items-end gap-2">
@@ -248,7 +268,7 @@ export function HistoryTile() {
           </Button>
         </div>
         {(loaded?.versions.length ?? 0) > 0 && (
-          <ul aria-label="Named versions" className="flex flex-col">
+          <ul ref={versionsList} aria-label="Named versions" className="flex flex-col">
             {loaded?.versions.map((version) => (
               <li key={version.id} className="flex items-center gap-3 border-t border-border py-2">
                 <div className="min-w-0 flex-1">
@@ -265,7 +285,12 @@ export function HistoryTile() {
                 >
                   Open version
                 </Button>
-                <Button variant="warning" aria-label={`Delete version ${version.name}`} onClick={() => void removeVersion(version)}>
+                <Button
+                  variant="warning"
+                  aria-label={`Delete version ${version.name}`}
+                  data-delete-version={version.id}
+                  onClick={() => void removeVersion(version)}
+                >
                   Delete…
                 </Button>
               </li>

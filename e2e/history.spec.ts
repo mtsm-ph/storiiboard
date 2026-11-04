@@ -213,6 +213,33 @@ test('two versions with the same name on one step are both shown, each its own',
   expect(duplicateKeys).toEqual([]);
 });
 
+test('Delete… from the keyboard moves focus to the next version, then to the heading once none are left', async ({ page }) => {
+  await openHistory(page);
+  const versions = history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem');
+  const field = history(page).getByLabel('Name this point');
+  await field.fill('Locked for shoot');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(versions).toHaveCount(1);
+  // A step between, so the two are listed in a known order: newest first.
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await field.fill('Board sent to client');
+  await history(page).getByRole('button', { name: 'Name version' }).click();
+  await expect(versions).toHaveCount(2);
+  await expect(versions.first()).toContainText('Board sent to client');
+
+  page.on('dialog', (dialog) => void dialog.accept());
+  await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(versions).toHaveCount(1);
+  // The row that took its place: Enter again deletes the next one, as in a list of files.
+  await expect(history(page).getByRole('button', { name: 'Delete version Locked for shoot' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
+  await expect(history(page).getByRole('heading', { name: 'Named versions' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(field).toBeFocused();
+});
+
 test('a Put back from the keyboard keeps focus in the table, so the next Tab reaches the rows again', async ({ page }) => {
   await frames(page).first().click();
   await setLens(page, '35');

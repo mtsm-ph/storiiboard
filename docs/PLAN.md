@@ -292,12 +292,16 @@ src/app/openVersion.ts):
   (the notice then says the copy was saved and not opened). A failure partway deletes the draft and says why; only
   drafts the app made can be renamed or deleted. The version's name is shortened where a file name or a Windows path
   would be too long. Naming a version and Open version each run one at a time, so a double press makes one.
+  Naming or deleting a version that's refused because a sync replaced the file reopens the newer version, as a
+  refused edit does (src/features/history/versionWrites.ts). After Delete…, focus moves to the version that took its
+  place, else the one before it, else the Named versions heading.
 - Tests: Open version itself (src/core/storage/versions.test.ts): the copy is at the point and its restore undoes,
   it lasts a restart and the original keeps every frame and step; Cancel at the lock question leaves the original
   as it was; a restore that fails partway leaves no file; a file a sync replaced isn't copied; 80 Japanese characters
   fit; a v3 project upgrades to v4. The drafts' guards in Rust (sbd.rs) and in the Node and memory drivers. End to
   end: Delete… asks and every step stays; two Enters in one moment name one version; two clicks on Open version make
-  one copy; two versions sharing a name on one step both show.
+  one copy; two versions sharing a name on one step both show; Delete… from the keyboard keeps focus in the tile.
+  Naming and deleting on a file a sync replaced flag it for reopening (versionWrites.test.ts).
 - Decided while building, to review: a version names the newest step only (name it right after the step you mean);
   renaming waits for a later milestone; Open backup's copy still keeps the original's file id, as before; two
   versions may share a name; a draft a crash cuts off stays beside the project, hidden, until the person deletes it.
