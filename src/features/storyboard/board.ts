@@ -195,6 +195,22 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
 }
 
 /**
+ * Brings a frame back from the Trash to where it was (1.20), with its scene when that's in the Trash too; the scene's
+ * letters follow the board again unless they're locked, where it keeps its own.
+ */
+export function restoreShot(records: Records, projectId: string, shotId: string): Change[] {
+  const shot = records[shotId];
+  if (!shot?.parentId || shot.trashedAt === null) return [];
+  const scene = records[shot.parentId];
+  const order = sceneShots(records, shot.parentId).map((s) => (s.id === shotId ? { ...s, trashedAt: null } : s));
+  return [
+    ...(scene && scene.trashedAt !== null ? [{ kind: 'restore' as const, id: scene.id }] : []),
+    { kind: 'restore', id: shotId },
+    ...renumber(records, projectId, shot.parentId, order),
+  ];
+}
+
+/**
  * Moves a frame or a note to `beforeId`'s place in `targetSceneId` (or the end of it with null); `beforeId` can be
  * either kind. A frame renumbers the scenes it leaves and joins in the same op group, and one moved into another scene
  * is numbered there as a new frame would be: by board order while unlocked, or the next free letter once locked.
