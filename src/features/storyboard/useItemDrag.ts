@@ -71,13 +71,25 @@ function placeAt(x: number, y: number, draggedId: string, vertical: boolean): { 
   const scene = under
     .map((node) => (node instanceof HTMLElement ? node.closest<HTMLElement>('[data-drop-scene]') : null))
     .find((node): node is HTMLElement => node !== null);
-  // Over the scene's + Frame, its end. In a gap between cards, the nearest card in the same row decides (or in the
-  // shot list, the nearest row), so crossing a gap doesn't jump to the scene's end; past the last card in a row that
-  // has none, the end again.
+  // Over the scene's + Frame, its end; over its heading, its start. In a gap between cards (the 8px between rows
+  // included), the nearest card in the same row decides (or in the shot list, the nearest row), so crossing a gap
+  // doesn't jump to the scene's end; past the last card in a row that has none, the end again.
   const onAdd = under.some((node) => node instanceof HTMLElement && node.closest('[data-board-item]:not([data-item-id])'));
+  const onHeading = !direct && under.some((node) => node instanceof HTMLElement && node.closest('[data-drop-scene] h3'));
+  if (onHeading && scene?.dataset.dropScene) {
+    const first = sceneItems(scene.dataset.dropScene).find((node) => node.dataset.itemId !== draggedId);
+    if (first?.dataset.itemId) {
+      const box = boxOf(first);
+      const bar: Bar = vertical
+        ? { left: box.left, top: box.top - 3.5, vertical: false, length: box.width }
+        : { left: box.left - 5.5, top: box.top, vertical: true, length: box.height };
+      return { place: { sceneId: scene.dataset.dropScene, beforeId: first.dataset.itemId }, bar };
+    }
+  }
   const nearest = !direct && !onAdd && scene?.dataset.dropScene ? nearestItem(scene.dataset.dropScene, x, y, draggedId) : null;
   const nearestBox = nearest ? boxOf(nearest) : null;
-  const sameRow = nearestBox !== null && (vertical || (y >= nearestBox.top && y <= nearestBox.bottom));
+  const ROW_GAP = 8;
+  const sameRow = nearestBox !== null && (vertical || (y >= nearestBox.top - ROW_GAP && y <= nearestBox.bottom + ROW_GAP));
   const item = direct ?? (sameRow ? nearest : null);
   if (item?.dataset.sceneId && item.dataset.itemId) {
     const sceneId = item.dataset.sceneId;

@@ -176,6 +176,13 @@ test('⌘ with an arrow, pressed twice quickly, moves a frame two places', async
   await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
 });
 
+test('a frame dropped on a scene’s heading goes to the start of that scene', async ({ page }) => {
+  const id = await frames(page, 'SC 01').nth(1).getAttribute('data-shot-id');
+  await drag(page, frames(page, 'SC 01').nth(1), board(page).getByRole('heading', { name: /^SC 02/ }), 0.1);
+  await expect(frames(page, 'SC 02').nth(0)).toHaveAttribute('data-shot-id', id ?? '');
+  await expect.poll(() => numbers(page, 'SC 02')).toEqual(['2A', '2B']);
+});
+
 test('in the shot list, a row dropped on any cell of another row lands there', async ({ page }) => {
   await board(page).getByRole('radio', { name: 'Shot list' }).click();
   const rows = board(page).locator('[aria-label="Frames in SC 01"] tr', { has: page.locator('[data-shot-id]') });

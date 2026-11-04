@@ -138,7 +138,7 @@ export function StoryboardTile() {
   ) => {
     // Set by the builder, which runs in the queue.
     const outcome = { refused: false, moved: false };
-    await applyWith((now) => {
+    const written = await applyWith((now) => {
       const target = place(now);
       if (!target) return { changes: [] };
       if (leavesLockedScene(now, id, target.sceneId)) {
@@ -150,8 +150,10 @@ export function StoryboardTile() {
       return { changes };
     });
     if (outcome.refused) lockedNotice();
-    if (outcome.moved) selectItem(id);
-    return outcome.moved;
+    // A move that failed to save has said why; it didn't move.
+    const moved = outcome.moved && written;
+    if (moved) selectItem(id);
+    return moved;
   };
 
   // Worked out once per edit, keeping each shot's list as it was while its strokes are unchanged, so a card's
@@ -241,9 +243,16 @@ export function StoryboardTile() {
           }).then(() => {
             if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
             else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
-            // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it.
+            // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it, and focus goes
+            // to the scene's + Frame rather than off the board.
             else selectionStore.getState().selectShot(null, null);
-            focusFrame(nextId);
+            if (nextId) focusFrame(nextId);
+            else {
+              const sceneId = flat[at]?.sceneId;
+              requestAnimationFrame(() => {
+                if (sceneId) document.querySelector<HTMLElement>(`[data-scene-group="${CSS.escape(sceneId)}"] [data-board-item]`)?.focus();
+              });
+            }
           });
         }}
         onOpen={() => {
