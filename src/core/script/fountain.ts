@@ -79,7 +79,9 @@ function elements(body: string): Element[] {
       continue;
     }
     const forcedCue = line.startsWith('@');
-    if (before && after !== '' && (forcedCue || isUpperCue(line))) {
+    // A heading or a transition missing its blank line after is never a speaker.
+    const notCue = looksLikeHeading(line) || /TO:$/.test(line);
+    if (before && after !== '' && (forcedCue || (isUpperCue(line) && !notCue))) {
       const name = characterName(forcedCue ? line.slice(1) : line);
       if (name !== '') {
         out.push({ kind: 'character', name });
@@ -87,7 +89,10 @@ function elements(body: string): Element[] {
         continue;
       }
     }
-    out.push({ kind: 'action', text: line });
+    // Action wrapped over several lines is one paragraph, with one blank line after it.
+    const last = out.at(-1);
+    if (!before && last?.kind === 'action') last.text += `\n${line}`;
+    else out.push({ kind: 'action', text: line });
   }
   return out;
 }
@@ -117,6 +122,8 @@ export function parseFountain(source: string): Script {
     .replace(/\r\n?/g, '\n')
     // The boneyard and notes are never part of the script.
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    // A note on a line of its own goes with its line, so it never splits a cue from its dialogue.
+    .replace(/^[ \t]*\[\[[\s\S]*?\]\][ \t]*\n/gm, '')
     .replace(/\[\[[\s\S]*?\]\]/g, '');
   const { title, body } = splitTitlePage(text);
   const scenes: ScriptScene[] = [];

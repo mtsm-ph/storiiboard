@@ -17,9 +17,10 @@ const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>',
 
 function decode(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
-    if (name.startsWith('#x') || name.startsWith('#X')) return String.fromCodePoint(parseInt(name.slice(2), 16));
-    if (name.startsWith('#')) return String.fromCodePoint(parseInt(name.slice(1), 10));
-    return ENTITIES[name.toLowerCase()] ?? whole;
+    if (!name.startsWith('#')) return ENTITIES[name.toLowerCase()] ?? whole;
+    const code = name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+    // A number past Unicode is left as written rather than stopping the import.
+    return code <= 0x10ffff ? String.fromCodePoint(code) : whole;
   });
 }
 
@@ -29,15 +30,19 @@ function attribute(attributes: string, name: string): string | null {
   return value === undefined ? null : decode(value);
 }
 
-/** The paragraphs inside <Content>, in order; a dual-dialogue block's paragraphs come out one by one. */
-function paragraphs(xml: string): Paragraph[] {
+/**
+ * The paragraphs inside <Content> (the script's, or with `titlePage` the title page's), in order; a dual-dialogue
+ * block's paragraphs come out one by one.
+ */
+function paragraphs(xml: string, titlePage = false): Paragraph[] {
   const out: Paragraph[] = [];
   const open: Paragraph[] = [];
   let inContent = false;
   // The title page has a <Content> of its own, which isn't the script.
   let inTitlePage = false;
   let inText = 0;
-  const tags = /<(\/?)([A-Za-z][\w:-]*)([^>]*?)(\/?)>|([^<]+)|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[([\s\S]*?)\]\]>/g;
+  // A tag's attributes may hold a quoted > (`Title="A > B"`).
+  const tags = /<(\/?)([A-Za-z][\w:-]*)((?:"[^"]*"|'[^']*'|[^'">])*?)(\/?)>|([^<]+)|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[([\s\S]*?)\]\]>/g;
   for (const match of xml.matchAll(tags)) {
     const [, closing, name, attributes = '', selfClosing, text, cdata] = match;
     const paragraph = open.at(-1);
@@ -49,7 +54,7 @@ function paragraphs(xml: string): Paragraph[] {
       inTitlePage = closing !== '/' && selfClosing !== '/';
       continue;
     }
-    if (name === 'Content' && !inTitlePage) {
+    if (name === 'Content' && inTitlePage === titlePage) {
       inContent = closing !== '/' && selfClosing !== '/';
       continue;
     }
@@ -87,6 +92,8 @@ export function parseFdx(xml: string): Script {
   for (const paragraph of paragraphs(xml)) {
     const text = paragraph.text.replace(/\s+/g, ' ').trim();
     if (paragraph.type === 'Scene Heading') {
+      // An empty heading paragraph is a slip in the file, not a scene.
+      if (text === '') continue;
       close();
       current = {
         ...parseHeading(text),
@@ -108,6 +115,9 @@ export function parseFdx(xml: string): Script {
     }
   }
   close();
-  const title = /<TitlePage>[\s\S]*?<Text[^>]*>([^<]+)<\/Text>/.exec(xml)?.[1];
-  return { title: title ? decode(title).trim() : null, scenes };
+  // The title page's first line with text on it, all its runs together.
+  const title = paragraphs(xml, true)
+    .map((p) => p.text.replace(/\s+/g, ' ').trim())
+    .find((line) => line !== '');
+  return { title: title ?? null, scenes };
 }

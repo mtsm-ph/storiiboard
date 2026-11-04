@@ -7,6 +7,9 @@ import type { Script } from '../../core/script/script';
 export interface PendingImport {
   fileName: string;
   script: Script;
+  /** The project's file it was opened for: if another opens meanwhile, the preview closes rather than move to it. */
+  projectId: string;
+  path: string;
 }
 
 export const importStore = createStore<{ pending: PendingImport | null }>()(() => ({ pending: null }));
