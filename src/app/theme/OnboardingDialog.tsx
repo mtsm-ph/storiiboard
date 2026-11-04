@@ -34,9 +34,11 @@ function OnboardingDialog({ name }: { name: string }) {
     const element = dialog.current;
     if (element && !element.open) element.showModal();
     return () => {
+      // What opened it (New project…) is gone with the Projects screen, and focus is still on a button inside the
+      // dialog: it goes to the workspace's own section instead of falling to the page.
+      const focused = document.activeElement;
       if (element?.open) element.close();
-      // What opened it (New project…) is gone with the Projects screen: focus goes to the workspace's own section.
-      if (document.activeElement === document.body) {
+      if (!focused || focused === document.body || element?.contains(focused)) {
         document.querySelector<HTMLElement>('[id^="section-"][aria-current="page"]')?.focus();
       }
     };

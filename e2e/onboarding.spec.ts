@@ -16,8 +16,10 @@ test.beforeEach(async ({ page }) => {
 
 const onboarding = (page: Page) => page.getByRole('dialog', { name: 'Set up Bey County' });
 const themeTile = (page: Page) => page.getByRole('region', { name: 'Theme', exact: true });
-const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' });
+const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const accent = (page: Page) => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
+/** ⌘ where the app thinks it's on a Mac, Ctrl elsewhere (the Chromium project runs with a Windows user agent). */
+const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
 
 async function newProject(page: Page) {
   page.once('dialog', (dialog) => void dialog.accept('Bey County'));
@@ -58,12 +60,14 @@ test('Skip, or Escape, leaves the kit’s look and writes nothing', async ({ pag
   await expect(sidebar(page).getByRole('button', { name: /^Storyboard/ })).toBeFocused();
   expect(await accent(page)).toBe('');
 
-  page.once('dialog', (dialog) => void dialog.accept('Bey County'));
-  await page.getByRole('button', { name: /^Project: / }).click();
-  await page.getByRole('menuitem', { name: 'New project…' }).click();
-  await expect(onboarding(page)).toBeVisible();
+  // A second project, from the switcher: Escape skips its onboarding the same way.
+  page.once('dialog', (dialog) => void dialog.accept('Bey County Pilot'));
+  await sidebar(page).getByRole('button', { name: /^Project: / }).click();
+  await page.getByRole('button', { name: 'New project…' }).click();
+  const second = page.getByRole('dialog', { name: 'Set up Bey County Pilot' });
+  await expect(second).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(onboarding(page)).toHaveCount(0);
+  await expect(second).toHaveCount(0);
   expect(await accent(page)).toBe('');
 });
 
@@ -98,7 +102,7 @@ test('a logo offers its accent, the dialog previews it, and Create themes the pr
   await expect(themeTile(page).getByText('logo.png')).toBeVisible();
 
   // One undo takes back the image and the theme together.
-  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press(await undoKey(page));
   await expect.poll(() => accent(page)).toBe('');
   await expect(themeTile(page).getByText('No image')).toBeVisible();
 });
@@ -136,7 +140,7 @@ test('Settings → Theme takes an accent by hand, shows what AA makes of it, and
 
   await themeTile(page).getByRole('button', { name: 'Reset to default' }).click();
   await expect.poll(() => accent(page)).toBe('');
-  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press(await undoKey(page));
   await expect.poll(() => accent(page)).toBe(used);
 });
 
