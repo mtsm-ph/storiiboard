@@ -10,7 +10,9 @@ import { arrowHead, pressureOutline, type Stroke } from './strokes';
  * (a card is about 100px tall, where a pencil line would be under half a pixel).
  */
 export function StrokeShape({ stroke, width, height, minLine = 0 }: { stroke: Stroke; width: number; height: number; minLine?: number }) {
-  const line = Math.max(stroke.width * height, minLine);
+  // The width as a share of the height, raised to the floor; pressure strokes and arrowheads scale from it too.
+  const base = Math.max(stroke.width, minLine / height);
+  const line = base * height;
   const p = stroke.points.map((n, i) => (i % 2 === 0 ? n * width : n * height));
   if (stroke.tool === 'box') {
     const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = p;
@@ -31,12 +33,12 @@ export function StrokeShape({ stroke, width, height, minLine = 0 }: { stroke: St
     return (
       <g>
         <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={line} strokeLinecap="round" />
-        <polygon points={arrowHead(stroke.points, width, height, stroke.width).join(' ')} fill="currentColor" />
+        <polygon points={arrowHead(stroke.points, width, height, base).join(' ')} fill="currentColor" />
       </g>
     );
   }
   if (stroke.pressures) {
-    return <polygon points={pressureOutline(stroke.points, stroke.pressures, width, height, stroke.width).join(' ')} fill="currentColor" />;
+    return <polygon points={pressureOutline(stroke.points, stroke.pressures, width, height, base).join(' ')} fill="currentColor" />;
   }
   return (
     <polyline

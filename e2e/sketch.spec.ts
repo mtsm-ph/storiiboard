@@ -106,6 +106,35 @@ test('the editor closes when its frame goes, and focus doesn’t fall off the bo
   await editor(page).getByRole('button', { name: 'Undo' }).click();
   await expect(editor(page)).toHaveCount(0);
   await expect(board(page).locator('[data-shot-id]')).toHaveCount(0);
+  // Its card went with it, so focus goes to the board's Tab stop: the empty scene's + Frame.
+  await expect(board(page).getByRole('button', { name: '+ Frame in SC 01' })).toBeFocused();
+});
+
+test('a tool picked after one click starts afresh, and a drag after a click draws from where it began', async ({ page }) => {
+  await page.keyboard.press('s');
+  await expect(editor(page)).toBeVisible();
+  const box = await editor(page).locator('[data-sketch-frame]').boundingBox();
+  if (!box) throw new Error('no frame');
+  const svg = frame(page).locator('svg[data-sketch]');
+  const across = async () => Number((await svg.getAttribute('viewBox'))?.split(' ')[2]);
+
+  await page.keyboard.press('a');
+  await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
+  await expect(page.getByText('Click again where it ends.')).toBeAttached();
+  // Box from the toolbar drops the arrow's first click: the drag is a box where it went.
+  await editor(page).getByRole('radio', { name: 'Box' }).click();
+  await draw(page, [0.6, 0.2], [0.9, 0.5]);
+  await expect(cardStrokes(page)).toHaveCount(1);
+  expect(Number(await svg.locator('rect').getAttribute('x')) / (await across())).toBeCloseTo(0.6, 1);
+
+  // One click, then a drag somewhere else: an arrow of its own, from the drag's start.
+  await page.keyboard.press('a');
+  await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.9);
+  await draw(page, [0.3, 0.3], [0.5, 0.3]);
+  await expect(cardStrokes(page)).toHaveCount(2);
+  const line = svg.locator('g > line');
+  expect(Number(await line.getAttribute('x1')) / (await across())).toBeCloseTo(0.3, 1);
+  expect(Number(await line.getAttribute('y1')) / 1000).toBeCloseTo(0.3, 1);
 });
 
 test('draws an arrow and a box with their keys, and the eraser takes off what it touches', async ({ page }) => {

@@ -266,7 +266,9 @@ export function StoryboardView({
       else onOpen?.(itemId);
       return;
     }
-    if (itemId !== null && kind === 'frame' && onSketch && event.key === 's' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    // Lowercased, so Caps Lock doesn't stop it; Shift does, leaving ⇧S free.
+    const s = event.key.toLowerCase() === 's' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+    if (itemId !== null && kind === 'frame' && onSketch && s) {
       event.preventDefault();
       onSketch(itemId);
       return;
@@ -359,11 +361,7 @@ export function StoryboardView({
             )
           )}
           {frame.strokes && frame.strokes.length > 0 && (
-            <>
-              <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
-              {/* A frame with only a sketch says so; with a picture too, the picture is the frame's look. */}
-              {!frame.picture && <span className="sr-only">Sketched</span>}
-            </>
+            <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
           )}
           {hovered && <DropMark label={frame.picture ? 'Replace picture' : 'Set picture'} />}
         </span>
@@ -373,6 +371,8 @@ export function StoryboardView({
           <span data-number="" className={cx('font-mono text-[12px] font-bold', selected && 'bg-text px-1 text-text-inverse')}>
             {frame.number}
           </span>
+          {/* A frame with only a sketch says so, after its number; with a picture too, the picture is its look. */}
+          {!frame.picture && frame.strokes && frame.strokes.length > 0 && <span className="sr-only">Sketched</span>}
           <span className="truncate font-mono text-[10px] text-text-muted">{frame.spec}</span>
           <span className="ml-auto">
             <StatusGlyph status={frame.status} />

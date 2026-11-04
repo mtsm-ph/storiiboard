@@ -1,6 +1,6 @@
 import Konva from 'konva';
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Arrow, Layer, Line, Rect, Stage } from 'react-konva';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Arrow, Circle, Layer, Line, Rect, Stage } from 'react-konva';
 import { isMac } from '../../../app/shell/undoShortcuts';
 import { useProject } from '../../../app/projectStore';
 import { aspectRatioValue, projectStoryboard, shotFields } from '../../../core/model/storyboard';
@@ -45,6 +45,16 @@ const WIDTH_OPTIONS: readonly { value: WidthName; label: string }[] = [
 /** How near the eraser has to come to a stroke: 1.5% of the frame's height. */
 const ERASER_RADIUS = 0.015;
 
+/** An arrow or a box shorter than this (a share of the frame) was a click, not a drag. */
+const CLICK = 0.01;
+
+const isClick = ([x1 = 0, y1 = 0, x2 = 0, y2 = 0]: readonly number[]) => Math.hypot(x2 - x1, y2 - y1) < CLICK;
+
+interface Point {
+  x: number;
+  y: number;
+}
+
 /**
  * The ink the strokes are drawn in, read from the theme so the editor matches the cards: `--text`, which a project
  * theme sets on <html>. (Tailwind's `--color-text` is inlined into the classes, not set on the page.)
@@ -88,8 +98,9 @@ interface SketchEditorProps {
   onClose: () => void;
 }
 
-/** A stroke in progress: its points so far, and for an arrow or a box drawn by two clicks, where the first fell. */
+/** A stroke in progress: the tool it began with (a tool picked mid-stroke is for the next one), and its points. */
 interface Drawing {
+  tool: SketchTool;
   points: number[];
   pressures: number[] | null;
 }
@@ -112,8 +123,11 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
   // renders; the state copies are only for drawing them.
   const drawing = useRef<Drawing | null>(null);
   const erasing = useRef<Set<string> | null>(null);
-  // An arrow or a box begun with a click rather than a drag (WCAG 2.5.7): the next click ends it.
-  const anchor = useRef<{ x: number; y: number } | null>(null);
+  // An arrow or a box begun with a click rather than a drag (WCAG 2.5.7): the next click ends it. Shown as a mark,
+  // with the shape it would make following the pointer.
+  const anchor = useRef<Point | null>(null);
+  const [anchorShown, setAnchorShown] = useState<Point | null>(null);
+  const [hover, setHover] = useState<Point | null>(null);
   const [draft, setDraft] = useState<Drawing | null>(null);
   const [faded, setFaded] = useState<ReadonlySet<string>>(() => new Set());
   const [said, setSaid] = useState('');
@@ -133,7 +147,8 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     latest.current = { tool, widthName };
   }, [tool, widthName]);
 
-  // Opened as a modal; on close, focus goes back to whatever opened it (the frame on the board, or Sketch).
+  // Opened as a modal; on close, focus goes back to whatever opened it (the frame on the board, or Sketch). When that
+  // went with the frame (an undo took it back), to the board's Tab stop, so focus doesn't fall to the page.
   useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const element = dialog.current;
@@ -141,8 +156,24 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     return () => {
       if (element?.open) element.close();
       if (opener?.isConnected) opener.focus();
+      else document.querySelector<HTMLElement>('[data-board] [data-board-item][tabindex="0"]')?.focus();
     };
   }, []);
+
+  const setAnchor = useCallback((at: Point | null) => {
+    anchor.current = at;
+    setAnchorShown(at);
+    if (!at) setHover(null);
+  }, []);
+
+  /** From the keys or the toolbar: a new tool drops a half-made two-click shape. */
+  const pickTool = useCallback(
+    (next: Tool) => {
+      setAnchor(null);
+      setTool(next);
+    },
+    [setAnchor],
+  );
 
   useEffect(() => {
     const onResize = () => {
@@ -170,13 +201,17 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     if (!live) onClose();
   }, [live, onClose]);
 
-  /** A point in the frame, 0 to 1 each way, from any pointer event: on the stage, or anywhere for a release. */
+  /**
+   * A point in the frame, 0 to 1 each way, from any pointer event: on the stage, or anywhere for a release. Measured
+   * inside the frame's border, where the stage is.
+   */
   const pointAt = (event: PointerEvent) => {
-    const box = frame.current?.getBoundingClientRect();
-    if (!box || box.width === 0) return null;
+    const element = frame.current;
+    if (!element || element.clientWidth === 0) return null;
+    const box = element.getBoundingClientRect();
     return {
-      x: Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)),
-      y: Math.min(1, Math.max(0, (event.clientY - box.top) / box.height)),
+      x: Math.min(1, Math.max(0, (event.clientX - box.left - element.clientLeft) / element.clientWidth)),
+      y: Math.min(1, Math.max(0, (event.clientY - box.top - element.clientTop) / element.clientHeight)),
       // Only a pen reports real pressure; a mouse says 0.5 for any press, and that would only add noise.
       pressure: event.pointerType === 'pen' ? event.pressure : null,
     };
@@ -186,23 +221,27 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     const at = pointAt(event.evt);
     if (!at) return;
     if (tool === 'eraser') {
+      setAnchor(null);
       erasing.current = new Set(strokesAt(strokes, at.x, at.y, ERASER_RADIUS, aspect));
       setFaded(new Set(erasing.current));
       return;
     }
-    const start = tool !== 'pen' && anchor.current ? anchor.current : at;
+    if (tool === 'pen') setAnchor(null);
+    // Always from the press: whether it ends a two-click shape is known only at the release, if it was a click.
     drawing.current = {
-      points: [start.x, start.y, at.x, at.y],
+      tool,
+      points: [at.x, at.y, at.x, at.y],
       pressures: tool === 'pen' && at.pressure !== null ? [at.pressure, at.pressure] : null,
     };
-    setDraft({ ...drawing.current });
+    setDraft({ ...drawing.current, points: [...drawing.current.points] });
   };
 
   const onPointerMove = (event: Konva.KonvaEventObject<PointerEvent>) => {
-    // A pen hovering over the frame isn't drawing.
-    if (event.evt.buttons === 0) return;
     const at = pointAt(event.evt);
     if (!at) return;
+    if (anchor.current) setHover({ x: at.x, y: at.y });
+    // A pen hovering over the frame isn't drawing.
+    if (event.evt.buttons === 0) return;
     if (erasing.current) {
       const touched = strokesAt(strokes, at.x, at.y, ERASER_RADIUS, aspect);
       if (touched.some((id) => !erasing.current?.has(id))) {
@@ -213,56 +252,68 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     }
     const current = drawing.current;
     if (!current) return;
-    if (tool === 'pen') {
+    if (current.tool === 'pen') {
       current.points.push(at.x, at.y);
       current.pressures?.push(at.pressure ?? 0.5);
     } else {
       // An arrow or a box: from where it began to where the pointer is now.
       current.points.splice(2, 2, at.x, at.y);
     }
-    setDraft({ points: [...current.points], pressures: current.pressures ? [...current.pressures] : null });
+    setDraft({ tool: current.tool, points: [...current.points], pressures: current.pressures ? [...current.pressures] : null });
   };
 
-  // Registered once; they read the latest tool and strokes through `latest`. A release outside the frame still ends
-  // the stroke, at the release's own point; a cancelled pointer drops what it was doing.
+  // Registered once; they read the line width through `latest`. A release outside the frame still ends the stroke, at
+  // the release's own point; a cancelled pointer drops what it was doing.
   useEffect(() => {
     const finish = (event: PointerEvent) => {
-      const { tool: now, widthName: width } = latest.current;
+      const stroke = drawing.current;
+      drawing.current = null;
+      setDraft(null);
       if (erasing.current) {
         const ids = [...erasing.current];
         erasing.current = null;
         setFaded(new Set());
         if (ids.length === 0) return;
         // Only those still there when it lands: an undo mid-erase takes some away.
-        void applyWith((records) => ({ changes: eraseStrokes(ids.filter((id) => records[id]?.trashedAt === null)) }));
-        setSaid(`${String(ids.length)} ${ids.length === 1 ? 'stroke' : 'strokes'} erased.`);
+        const erased = { count: 0 };
+        void applyWith((records) => {
+          const still = ids.filter((id) => records[id]?.trashedAt === null);
+          erased.count = still.length;
+          return { changes: eraseStrokes(still) };
+        }).then((written) => {
+          if (written) setSaid(`${String(erased.count)} ${erased.count === 1 ? 'stroke' : 'strokes'} erased.`);
+        });
         return;
       }
-      const stroke = drawing.current;
-      if (!stroke || now === 'eraser') return;
-      drawing.current = null;
-      setDraft(null);
+      if (!stroke) return;
       const end = pointAt(event);
-      if (end && now !== 'pen') stroke.points.splice(2, 2, end.x, end.y);
-      const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = stroke.points;
-      if (now !== 'pen' && Math.hypot(x2 - x1, y2 - y1) < 0.01) {
-        // A click, not a drag: the first end of an arrow or a box, and the next click places the other.
-        anchor.current = { x: x1, y: y1 };
-        setSaid('Click again where it ends.');
-        return;
+      if (end && stroke.tool !== 'pen') stroke.points.splice(2, 2, end.x, end.y);
+      if (stroke.tool !== 'pen' && isClick(stroke.points)) {
+        const [x = 0, y = 0] = stroke.points;
+        const first = anchor.current;
+        // A click with no shape begun: the first end of an arrow or a box, and the next click places the other.
+        // A second click on the first one's spot leaves it waiting.
+        if (!first || isClick([first.x, first.y, x, y])) {
+          setAnchor({ x, y });
+          setSaid('Click again where it ends.');
+          return;
+        }
+        stroke.points = [first.x, first.y, x, y];
       }
-      anchor.current = null;
+      // A drag draws from its own start, whatever a click before it began.
+      setAnchor(null);
       const tidy = tidyPoints(stroke.points, stroke.pressures);
       // A tap with a pen has nowhere to show pressure; it's a dot at one width.
       const pressures = tidy.points.length > 4 ? tidy.pressures : null;
-      const made = { tool: now, points: tidy.points, pressures, width: WIDTHS[width] };
+      const made = { tool: stroke.tool, points: tidy.points, pressures, width: WIDTHS[latest.current.widthName] };
       // Ordered after whatever strokes landed before it, even ones drawn faster than they're saved.
       void applyWith((records) => ({ changes: [addStroke(records, shotId, made)] }));
-      setSaid(`${TOOLS.find((t) => t.value === now)?.label ?? 'Stroke'} drawn.`);
+      setSaid(`${TOOLS.find((t) => t.value === stroke.tool)?.label ?? 'Stroke'} drawn.`);
     };
     const cancel = () => {
       drawing.current = null;
       erasing.current = null;
+      setAnchor(null);
       setDraft(null);
       setFaded(new Set());
     };
@@ -272,7 +323,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', cancel);
     };
-  }, [applyWith, shotId]);
+  }, [applyWith, shotId, setAnchor]);
 
   // P, A, B and E pick a tool anywhere in the dialog.
   useEffect(() => {
@@ -282,17 +333,23 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
       const picked = TOOLS.find((t) => t.key === event.key.toLowerCase());
       if (!picked) return;
       event.preventDefault();
-      anchor.current = null;
-      setTool(picked.value);
+      pickTool(picked.value);
     };
     element?.addEventListener('keydown', onKeyDown);
     return () => {
       element?.removeEventListener('keydown', onKeyDown);
     };
-  }, []);
+  }, [pickTool]);
 
-  const draftStroke: Stroke | null =
-    draft && tool !== 'eraser' ? { id: 'draft', tool, points: draft.points, pressures: draft.pressures, width: WIDTHS[widthName] } : null;
+  const shaping = tool === 'arrow' || tool === 'box' ? tool : null;
+  // While a two-click shape waits for its second click (and the press for it hasn't become a drag), the shape it
+  // would make; otherwise the stroke being drawn.
+  const waiting = anchorShown && hover && shaping && (!draft || (draft.tool !== 'pen' && isClick(draft.points)));
+  const draftStroke: Stroke | null = waiting
+    ? { id: 'draft', tool: shaping, points: [anchorShown.x, anchorShown.y, hover.x, hover.y], pressures: null, width: WIDTHS[widthName] }
+    : draft
+      ? { id: 'draft', tool: draft.tool, points: draft.points, pressures: draft.pressures, width: WIDTHS[widthName] }
+      : null;
   const undoKey = mac ? '⌘Z' : 'Ctrl+Z';
 
   return (
@@ -312,7 +369,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
           <h2 id={titleId} className="font-mono text-[16px] font-bold">
             Sketch {number}
           </h2>
-          <SegmentedControl label="Tool" size="sm" options={TOOLS} value={tool} onChange={setTool} />
+          <SegmentedControl label="Tool" size="sm" options={TOOLS} value={tool} onChange={pickTool} />
           <SegmentedControl label="Line" size="sm" options={WIDTH_OPTIONS} value={widthName} onChange={setWidthName} />
           <span className="ml-auto flex items-center gap-2">
             {/* The app's own undo, as the shortcut is: the last edit anywhere in the project. */}
@@ -343,10 +400,11 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
           undoes the last edit, as it does anywhere in the app. Escape or Done closes.
         </p>
         <ProjectPictures>
+          {/* Sized by its content box, so the stage fills exactly the inside of the border. */}
           <div
             ref={frame}
             data-sketch-frame=""
-            className="relative touch-none overflow-hidden border border-text bg-surface-raised"
+            className="relative box-content touch-none overflow-hidden border border-text bg-surface-raised"
             style={{ width: size.width, height: size.height }}
           >
             {picture && <FrameImage picture={picture} frameAspect={aspect} size="original" eager />}
@@ -363,6 +421,9 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
               <SavedStrokes strokes={strokes} width={size.width} height={size.height} ink={ink} faded={faded} />
               <Layer listening={false}>
                 {draftStroke && <KonvaStroke stroke={draftStroke} width={size.width} height={size.height} ink={ink} faded={false} />}
+                {anchorShown && (
+                  <Circle x={anchorShown.x * size.width} y={anchorShown.y * size.height} radius={5} stroke={ink} strokeWidth={1.5} />
+                )}
               </Layer>
             </Stage>
           </div>

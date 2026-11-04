@@ -4,7 +4,17 @@ import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { addShot } from '../board';
-import { addStroke, arrowHead, eraseStrokes, pressureOutline, strokesAt, strokesByShot, strokesOf, tidyPoints } from './strokes';
+import {
+  addStroke,
+  arrowHead,
+  eraseStrokes,
+  pressureOutline,
+  stableStrokesByShot,
+  strokesAt,
+  strokesByShot,
+  strokesOf,
+  tidyPoints,
+} from './strokes';
 
 describe('stroke geometry', () => {
   it('thins a scribble and rounds it, keeping the last point and the pressures that go with it', () => {
@@ -95,5 +105,27 @@ describe('strokes as records', () => {
     expect(strokesOf(records(), shotId)).toEqual([]);
     await store.getState().undo();
     expect(strokesOf(records(), shotId)).toHaveLength(2);
+  });
+
+  it('hands a card the same list while its strokes are unchanged, a new one when one comes or goes', async () => {
+    const stroke = { tool: 'pen' as const, points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null };
+    await store.getState().apply([addStroke(records(), shotId, stroke)]);
+    const first = stableStrokesByShot(records()).get(shotId);
+    expect(first).toHaveLength(1);
+    // Another edit to the project: the same array, so the card's sketch doesn't redraw.
+    await store.getState().apply([{ kind: 'update', id: shotId, set: { lens_mm: 50 } }]);
+    expect(stableStrokesByShot(records()).get(shotId)).toBe(first);
+
+    await store.getState().apply([addStroke(records(), shotId, stroke)]);
+    const second = stableStrokesByShot(records()).get(shotId);
+    expect(second).not.toBe(first);
+    expect(second).toHaveLength(2);
+    await store.getState().apply(eraseStrokes(strokesOf(records(), shotId).map((s) => s.id)));
+    expect(stableStrokesByShot(records()).has(shotId)).toBe(false);
+    // Drawn again after it was let go: a new list, never the stale one.
+    await store.getState().undo();
+    const back = stableStrokesByShot(records()).get(shotId);
+    expect(back).not.toBe(second);
+    expect(back).toHaveLength(2);
   });
 });

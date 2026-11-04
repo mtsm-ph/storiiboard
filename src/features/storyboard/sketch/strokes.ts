@@ -76,6 +76,8 @@ export function stableStrokesByShot(records: Records): Map<string, Stroke[]> {
     if (before?.key === key) next.set(shotId, before.strokes);
     else handedOut.set(shotId, { key, strokes });
   }
+  // Only the board on screen is kept: a shot with no strokes now, or another project's, is let go.
+  for (const shotId of handedOut.keys()) if (!next.has(shotId)) handedOut.delete(shotId);
   return next;
 }
 
