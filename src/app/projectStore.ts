@@ -6,7 +6,7 @@ import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import type { Project } from '../core/storage/project';
-import { loadSlateNumbers, slateNumbersUnknown } from '../core/storage/slateNumbers';
+import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -86,6 +86,8 @@ export function createProjectStore(): StoreApi<ProjectState> {
   };
 
   let restoresInFlight = 0;
+  // The last slate number row the store has read, for the open project.
+  let slateRead = 0;
 
   return createStore<ProjectState>()((set, get) => {
     const merge = async (project: Project, touched: Touched | null) => {
@@ -100,10 +102,16 @@ export function createProjectStore(): StoreApi<ProjectState> {
       for (const [id, record] of touched) if (record) records[id] = record;
       set({
         records,
-        ...(numbered ? { slateNumbers: await loadSlateNumbers(project.file) } : {}),
+        ...(numbered ? { slateNumbers: await newSlateNumbers(project) } : {}),
         ...(await history(project.file)),
         error: null,
       });
+    };
+
+    const newSlateNumbers = async (project: Project) => {
+      const { rows, last } = await slateNumbersAfter(project.file, slateRead);
+      slateRead = last;
+      return rows.length > 0 ? [...get().slateNumbers, ...rows] : get().slateNumbers;
     };
 
     const edit = (run: (project: Project) => Promise<Touched | null>) => {
@@ -140,11 +148,14 @@ export function createProjectStore(): StoreApi<ProjectState> {
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'canUndo' | 'canRedo'>;
+          let read = 0;
           try {
             const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
+            const slate = await slateNumbersAfter(project.file, 0);
+            read = slate.last;
             loaded = {
               records,
-              slateNumbers: await loadSlateNumbers(project.file),
+              slateNumbers: slate.rows,
               slateUnknown: await slateNumbersUnknown(project.file),
               ...(await history(project.file)),
             };
@@ -156,6 +167,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           // A project already open (a switch) closes only after the new one is on screen, so there's never a
           // moment with none, and nothing on screen reads a closed file.
           const before = get().project;
+          slateRead = read;
           set({ project, ...loaded, error: null, changedOnDisk: false });
           if (before && before !== project) {
             // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
@@ -173,6 +185,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
             }
           } finally {
             // Closed or not, it's no longer the open project.
+            slateRead = 0;
             set({
               project: null,
               records: {},

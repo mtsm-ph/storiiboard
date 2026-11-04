@@ -46,10 +46,21 @@ export function recordSlateNumbers(ids: readonly string[], at: string): Statemen
   };
 }
 
+/**
+ * The slate numbers written after row `after` (0 for all of them), in the order they were written, and the last row's
+ * number to read on from. Rows are only ever added, so the store reads just the new ones after each edit.
+ */
+export async function slateNumbersAfter(file: ProjectFile, after: number): Promise<{ rows: SlateNumbers; last: number }> {
+  const rows = await file.query('SELECT rowid AS row, scene_id, number, shot_id FROM slate_numbers WHERE rowid > ? ORDER BY rowid', [after]);
+  return {
+    rows: rows.map((row) => ({ sceneId: String(row.scene_id), number: String(row.number), shotId: String(row.shot_id) })),
+    last: rows.length > 0 ? Number(rows.at(-1)?.row) : after,
+  };
+}
+
 /** Every slate number, oldest first. */
 export async function loadSlateNumbers(file: ProjectFile): Promise<SlateNumbers> {
-  const rows = await file.query('SELECT scene_id, number, shot_id FROM slate_numbers ORDER BY created_at, number');
-  return rows.map((row) => ({ sceneId: String(row.scene_id), number: String(row.number), shotId: String(row.shot_id) }));
+  return (await slateNumbersAfter(file, 0)).rows;
 }
 
 /**

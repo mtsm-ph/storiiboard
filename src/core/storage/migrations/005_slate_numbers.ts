@@ -7,7 +7,7 @@ import { recordSlateNumbers, SLATE_NUMBERS_UNKNOWN } from '../slateNumbers';
 //
 // The backfill replays the History to find every number a shot had while its scene was locked: frames live, in the
 // Trash, or only in History (made and then undone). What an Empty Trash deleted before this can't be found, since it
-// cleared those frames' steps too. When one ran after any scene had been locked, meta says some numbers are unknown,
+// cleared those frames' steps too, and which scene they were in. When one ran, meta says some numbers are unknown,
 // and the Empty Trash confirm still warns while a scene is locked.
 
 interface Known {
@@ -31,7 +31,6 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   const children = new Map<string, Set<string>>();
   // Scene, then number, then the shot it went to first.
   const found = new Map<string, Map<string, string>>();
-  let everLocked = false;
   let unknown = false;
 
   const add = (sceneId: string, number: string, shotId: string) => {
@@ -65,10 +64,10 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     if (String(row.group_id) !== group) {
       settle();
       group = String(row.group_id);
-      // An Empty Trash: what it deleted had its steps cleared, so the numbers it had are gone from the file. Once any
-      // scene had been locked, some may have been on slates: frames trashed while locked keep their number even after
-      // an unlock, and a whole scene deleted leaves no trace of which scene it was.
-      if (row.kind === 'purge' && everLocked) unknown = true;
+      // An Empty Trash: what it deleted had its steps cleared, so the numbers it had are gone from the file, and so is
+      // any sign of whether they were on slates: a locked scene deleted whole leaves no lock behind to see. Any one
+      // counts; the warning it brings shows only while a scene is locked.
+      if (row.kind === 'purge') unknown = true;
     }
     const id = String(row.record_id);
     const was = state.get(id);
@@ -85,7 +84,6 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     };
     state.set(id, after);
     touched.add(id);
-    if (after.type === 'scene' && after.locked) everLocked = true;
     if (after.parentId) {
       const siblings = children.get(after.parentId) ?? new Set<string>();
       siblings.add(id);

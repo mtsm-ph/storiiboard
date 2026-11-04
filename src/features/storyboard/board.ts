@@ -85,20 +85,6 @@ function boardNumbers(records: Records, alsoIn?: string): Set<string> {
   );
 }
 
-/** Every shot record holding each number, live or in the Trash. */
-function holders(records: Records): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const record of Object.values(records)) {
-    if (record.type !== 'shot') continue;
-    const { number } = shotFields(record.props);
-    if (number === '') continue;
-    const ids = out.get(number);
-    if (ids) ids.push(record.id);
-    else out.set(number, [record.id]);
-  }
-  return out;
-}
-
 /** Whether `number` went onto a slate with a shot other than `shotId` (1.26). */
 const slatedWithOther = (slate: SlateNumbers, shotId: string, number: string) =>
   slate.some((row) => row.number === number && row.shotId !== shotId);
@@ -312,14 +298,14 @@ export function restoredScene(
   for (const id of back) changes.push({ kind: 'restore', id });
   // Every number on the board once this lands: live frames in live scenes, and in this one.
   const liveNumbers = boardNumbers(records, sceneId);
-  const held = holders(records);
   const order = sceneShots(records, sceneId).map((s) => {
     if (!coming.has(s.id)) return s;
     if (fresh) return { ...s, trashedAt: null, props: { ...s.props, number: '' } };
-    // In a locked scene a frame keeps its letter, but never one another shot holds, live or in the Trash (a new scene
-    // 4 has its own 4C), or was slated with (1.26): then it takes the next free one.
+    // In a locked scene a frame keeps its letter, but never one a live frame anywhere has taken since (a new scene 4
+    // has its own 4C), or another shot was slated with (1.26): then it takes the next free one. Frames in the Trash
+    // don't count: one slated has its number among the slate numbers, and one not slated is numbered when it's back.
     const { number } = shotFields(s.props);
-    const free = (held.get(number) ?? []).every((id) => id === s.id) && !slatedWithOther(slate, s.id, number);
+    const free = !liveNumbers.has(number) && !slatedWithOther(slate, s.id, number);
     return { ...s, trashedAt: null, props: free ? s.props : { ...s.props, number: '' } };
   });
   // The next free letter skips those numbers too: the scene's highest letter may be the very one taken.
@@ -354,16 +340,28 @@ export function moveItem(
     ...item,
     parentId: targetSceneId,
     sortKey,
-    // Into another scene the old number means nothing (3B in scene 4); it's given a new one.
-    props: changesScene ? { ...item.props, number: '' } : item.props,
+    // Into another scene the old number means nothing (3B in scene 4); it's given a new one, or back into a locked
+    // scene where it was slated before, the number it had there, while it's still free (1.26).
+    props: changesScene ? { ...item.props, number: slatedBack(records, slate, item.id, targetSceneId) } : item.props,
   };
+  const back = changesScene ? shotFields(moved.props).number : '';
   return [
     move,
+    ...(back !== '' ? [{ kind: 'update' as const, id, set: { number: back } }] : []),
     ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved), { slate }),
     ...(changesScene
-      ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id))
+      ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id), { slate })
       : []),
   ];
+}
+
+/** The number `shotId` was last slated with in locked scene `sceneId`, if it's still free there; else ''. */
+function slatedBack(records: Records, slate: SlateNumbers, shotId: string, sceneId: string): string {
+  const fields = sceneFields(records[sceneId]?.props ?? {});
+  if (!fields.numbersLocked) return '';
+  const live = boardNumbers(records);
+  const own = slate.filter((row) => row.shotId === shotId && row.sceneId === sceneId && lettersOf(row.number, fields.number) !== null);
+  return own.filter((row) => !live.has(row.number)).at(-1)?.number ?? '';
 }
 
 /**
@@ -449,11 +447,12 @@ export function setNumbersLocked(
   if (!locked) return [toggle, ...renumber(records, projectId, sceneId, all, { sceneProps: props })];
 
   const sceneNumber = sceneFields(scene.props).number;
-  const mine = new Set(all.map((s) => s.id));
-  // Numbers held by shot records in other scenes, live or in the Trash.
+  // Numbers live frames in other live scenes hold. Frames in the Trash don't count: one that was slated has its number
+  // among the slate numbers, and one that wasn't is numbered when it comes back.
   const outside = new Set(
     Object.values(records)
-      .filter((s) => s.type === 'shot' && !mine.has(s.id))
+      .filter((s) => s.type === 'shot' && s.trashedAt === null && s.parentId !== sceneId)
+      .filter((s) => s.parentId !== null && records[s.parentId]?.trashedAt === null)
       .map((s) => shotFields(s.props).number),
   );
   const next = new Map<string, string>();
@@ -464,28 +463,35 @@ export function setNumbersLocked(
     if (back) next.set(shot.id, back.number);
   }
   const claimed = new Set(next.values());
-  // The rest, live frames first in board order, then the Trash: each keeps its number while nothing else has it.
-  const rest = [...all.filter((s) => s.trashedAt === null), ...all.filter((s) => s.trashedAt !== null)].filter((s) => !next.has(s.id));
+  // The other live frames, in board order, keep their numbers while nothing else has them. One in the Trash that
+  // wasn't slated here has a number from while the scene was unlocked, never on a slate: it goes, and the frame is
+  // numbered when it's restored, so boarding unlocked leaves no gaps.
   const kept: SbdRecord[] = [];
   const blank: SbdRecord[] = [];
-  for (const shot of rest) {
+  for (const shot of all.filter((s) => !next.has(s.id))) {
     const { number } = shotFields(shot.props);
-    if (number !== '' && !claimed.has(number) && !outside.has(number) && !slatedWithOther(slate, shot.id, number)) {
+    const free = number !== '' && !claimed.has(number) && !outside.has(number) && !slatedWithOther(slate, shot.id, number);
+    if (shot.trashedAt === null && free) {
       claimed.add(number);
       kept.push(shot);
     } else {
       blank.push(shot);
     }
   }
-  if (blank.some((s) => s.trashedAt === null)) {
-    for (const shot of kept.splice(0)) (shot.trashedAt === null ? blank : kept).push(shot);
-  }
+  // One live frame moving letters them all afresh, so the board still reads in order.
+  if (blank.some((s) => s.trashedAt === null)) blank.push(...kept);
   for (const shot of blank) next.set(shot.id, '');
   const shots = all.map((s) => (next.has(s.id) ? { ...s, props: { ...s.props, number: next.get(s.id) ?? '' } } : s));
-  const changes: Change[] = shots
-    .filter((s, i) => (s.trashedAt !== null || shotFields(s.props).number !== '') && shotFields(s.props).number !== shotFields(all[i]?.props ?? {}).number)
-    .map((s) => ({ kind: 'update', id: s.id, set: { number: shotFields(s.props).number } }));
-  return [toggle, ...changes, ...renumber(records, projectId, sceneId, shots, { sceneProps: props, slate })];
+  const numbers = new Map(shots.map((s) => [s.id, shotFields(s.props).number]));
+  for (const change of renumber(records, projectId, sceneId, shots, { sceneProps: props, slate })) {
+    const number = change.kind === 'update' ? change.set?.number : undefined;
+    if (change.kind === 'update' && typeof number === 'string') numbers.set(change.id, number);
+  }
+  // Only numbers that change: a lock that keeps every frame's number writes nothing else to History.
+  const changes = all
+    .filter((s) => numbers.get(s.id) !== shotFields(s.props).number)
+    .map((s): Change => ({ kind: 'update', id: s.id, set: { number: numbers.get(s.id) ?? '' } }));
+  return [toggle, ...changes];
 }
 
 /**
