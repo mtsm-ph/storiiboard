@@ -6,7 +6,7 @@ import {
   DAY_NIGHT,
   HEIGHTS,
   INT_EXT,
-  isSceneNumber,
+  sceneNumberProblem,
   MOVES,
   pageLabel,
   parsePages,
@@ -577,9 +577,8 @@ export function InspectorView({
             value={s.number}
             onCommit={(text) => {
               const number = text.trim().toUpperCase();
-              if (!isSceneNumber(number)) return 'Scene numbers look like 4, 4A or A1.';
-              if (otherSceneNumbers.includes(number)) return `There's already a scene ${number}.`;
-              if (trashedSceneNumbers.includes(number)) return `Scene ${number} is in the Trash. Restore it, or choose another number.`;
+              const problem = sceneNumberProblem(number, otherSceneNumbers, trashedSceneNumbers);
+              if (problem) return problem;
               onSceneNumberChange(number);
               return null;
             }}

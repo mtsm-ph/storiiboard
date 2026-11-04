@@ -3,7 +3,7 @@ import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { restoreChanges, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
+import { restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash, which deletes for good after a confirm, comes in 1.21. Any workspace can
@@ -40,6 +40,8 @@ export function TrashTile() {
   );
   // A scene whose last item was restored leaves the filter: it shows every scene again rather than nothing.
   const sceneId = scenes.some(([id]) => id === chosenScene) ? chosenScene : '';
+  // And lets go of it (React redraws at once), so a later delete in that scene doesn't bring the filter back by itself.
+  if (chosenScene !== '' && sceneId === '') setSceneId('');
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
   const restore = (id: string, name: string, index: number) => {
@@ -55,7 +57,8 @@ export function TrashTile() {
       })
       .then((written) => {
         if (!written || !restored) return;
-        showInfo(`Restored ${name}.`);
+        // As it's numbered now: a restore can give a frame or a scene a new number.
+        showInfo(`Restored ${restoredName(projectStore.getState().records, id) ?? name}.`);
         // Focus stays in the list: on the row that took this one's place, or the one before at the end, or on the
         // message that the list is empty now.
         requestAnimationFrame(() => {
