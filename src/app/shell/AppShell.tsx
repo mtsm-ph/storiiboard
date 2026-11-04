@@ -15,6 +15,7 @@ import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
 import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 
 export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
@@ -156,6 +157,7 @@ export function AppShell() {
             <Dock key={workspace.id} workspace={workspace} />
           )}
         </main>
+        <SketchHost />
       </div>
       <StatusBar workspace={workspace} />
     </div>

@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.12 done, 1.13 next |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.13 done, 1.14 next |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -47,14 +47,14 @@ themes). One PR per milestone, each into `v2`.
 | 1.10b Backups as APFS clones, step-by-step full copies elsewhere, 5 GB cap; Linux checks on every PR | #26 | Done |
 | 1.11 Frame images: drop, paste, browse, crop; original's path kept as a pointer | #27 | Done |
 | 1.12 Drag to reorder; "/" menu; notes; scene locations by name | #29 | Done |
-| 1.13 Sketching | | Not started |
+| 1.13 Sketching: stroke records, Konva editor, SVG on cards | #30 | Done |
 | 1.14 Theme generator | | Not started |
 | 1.15 Theme switching, Follow project | | Not started |
 | 1.16 Onboarding and Settings → Theme | | Not started |
 | 1.17 Script import: Fountain and FDX | | Not started |
 | 1.18 Script import: PDF | | Not started |
 | 1.19 Custom fields on shots | | Not started |
-| 1.20 Trash tile | | Not started |
+| 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |

@@ -225,6 +225,23 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
 
+**Sketches** (1.13, src/features/storyboard/sketch/strokes.ts). Each stroke of a frame's sketch is a `stroke` record
+under its shot, ordered by `sort_key` as drawn, so the History never copies earlier strokes into later ones.
+
+| Prop | Value | Notes |
+|---|---|---|
+| tool | `pen`, `arrow`, `box` | A box is a framing rectangle |
+| points | array of numbers | x, y, x, y… as fractions of the frame (0 to 1 across and down), to four places. An arrow or a box has two points: its ends, or two corners |
+| width | number | Line width as a fraction of the frame's height: 0.004, 0.008 or 0.016 |
+| pressures | array of numbers | One per point, 0 to 1, only when a pen reported real pressure; a stroke without it has one width |
+
+The eraser takes off whole strokes it touches: each pass, and Clear, trashes them in one op group, so one undo brings
+them back. Erased strokes are trashed records, not things a person deleted: the Trash tile (1.20) leaves them out, and
+Empty Trash purges them with the frames they belong to.
+
+Strokes are fractions of the frame, so a change of the project's aspect ratio stretches a sketch to the new shape,
+while the frame's picture re-crops instead. Redraw a sketch after changing the aspect ratio of a boarded project.
+
 **Notes and locations** (1.12). A note card is a `note` record under its scene, ordered among the scene's shots by
 `sort_key`, with one prop, `text`. Notes take no shot number. A `location` record sits under the project with one prop
 so far, `name`; the "/" menu reuses a location whose name matches, whatever its case, before it makes a new one.

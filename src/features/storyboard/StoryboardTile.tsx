@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -19,6 +19,8 @@ import {
   type BoardShot,
 } from './board';
 import { pictureView } from './framePictures';
+import { openSketch } from './sketch/sketchStore';
+import { stableStrokesByShot } from './sketch/strokes';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
@@ -154,6 +156,9 @@ export function StoryboardTile() {
     return moved;
   };
 
+  // Worked out once per edit, keeping each shot's list as it was while its strokes are unchanged, so a card's
+  // sketch redraws only when its own strokes do.
+  const strokes = useMemo(() => stableStrokesByShot(records), [records]);
   const frameCard = (shot: BoardShot): FrameCard => ({
     id: shot.record.id,
     number: shot.fields.number,
@@ -161,6 +166,7 @@ export function StoryboardTile() {
     status: shot.fields.status,
     fields: shot.fields,
     picture: pictureView(records, shot.fields),
+    strokes: strokes.get(shot.record.id) ?? [],
   });
 
   const groups: SceneGroup[] = scenes.map((scene) => ({
@@ -271,6 +277,7 @@ export function StoryboardTile() {
         }}
         selectedNoteId={selectedNoteId}
         locationNames={locations(records, projectId).map((l) => l.name)}
+        onSketch={openSketch}
         onSetLocation={(sceneId, name) => {
           void applyWith((now) => ({ changes: setSceneLocation(now, projectId, sceneId, name) }));
         }}
