@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWriteGate, SETTLE_MS } from './writeGate';
+import { createWriteGate, GIVE_UP_MS, SETTLE_MS } from './writeGate';
 
 describe('one restore or Put back at a time', () => {
   it('drops clicks while one writes, until its rows are read again and have stood still', () => {
@@ -44,5 +44,56 @@ describe('one restore or Put back at a time', () => {
     gate.read('steps', gate.versionOf({}));
     clock += SETTLE_MS * 4;
     expect(gate.take('frame', {})).toBe(false);
+  });
+
+  it('lets go when the view the click came from stops being read, before or after the write is done', () => {
+    let clock = 0;
+    const gate = createWriteGate(() => clock);
+    // Put back, then Only frame turned off: the frame's rows won't be read again.
+    expect(gate.take('frame', {})).toBe(true);
+    gate.written(true);
+    gate.gone('frame');
+    clock += SETTLE_MS;
+    expect(gate.take('steps', {})).toBe(true);
+    gate.written(false);
+    // Gone while the write was still going: it lets go once the write is done.
+    expect(gate.take('frame', {})).toBe(true);
+    gate.gone('frame');
+    expect(gate.take('frame', {})).toBe(false);
+    gate.written(true);
+    clock += SETTLE_MS;
+    expect(gate.take('steps', {})).toBe(true);
+  });
+
+  it('keeps waiting when only the other view goes', () => {
+    let clock = 0;
+    const gate = createWriteGate(() => clock);
+    expect(gate.take('steps', {})).toBe(true);
+    gate.written(true);
+    gate.gone('frame');
+    clock += SETTLE_MS;
+    expect(gate.take('steps', {})).toBe(false);
+  });
+
+  it('lets go when the read it waits for fails', () => {
+    let clock = 0;
+    const gate = createWriteGate(() => clock);
+    expect(gate.take('steps', {})).toBe(true);
+    gate.written(true);
+    // The steps' read rejected: the tile says the view is gone.
+    gate.gone('steps');
+    clock += SETTLE_MS;
+    expect(gate.take('steps', {})).toBe(true);
+  });
+
+  it('never stays shut for good: a few seconds after a write, a click counts again whatever its rows did', () => {
+    let clock = 0;
+    const gate = createWriteGate(() => clock);
+    expect(gate.take('frame', {})).toBe(true);
+    gate.written(true);
+    clock += GIVE_UP_MS - 1;
+    expect(gate.take('frame', {})).toBe(false);
+    clock += 1;
+    expect(gate.take('frame', {})).toBe(true);
   });
 });

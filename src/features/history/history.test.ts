@@ -229,6 +229,27 @@ describe('Put back', () => {
     expect(await stepCount()).toBe(steps);
   });
 
+  it('counts no departments ticked as the same as none ever set, so it isn’t offered to put back', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['camera'] } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { departments: [] } }]);
+    const rows = frameRows(await opsOfRecord(project.file, a), a).flatMap((r) => (r.field?.prop === 'departments' ? [r.field] : []));
+    // Newest first: the untick (camera → —), then the tick (— → camera), whose old value reads as the frame does now.
+    expect(rows.map((f) => [changeValue(f, f.before), changeValue(f, f.after)])).toEqual([
+      ['camera', '—'],
+      ['—', 'camera'],
+    ]);
+    const [untick, tick] = rows;
+    if (!untick || !tick) throw new Error('no department rows');
+    expect(putBackChange(records()[a], tick)).toBeNull();
+    const steps = await stepCount();
+    expect(await putBack(a, tick)).toBe(false);
+    expect(await stepCount()).toBe(steps);
+    // The untick's old value is a real one, and goes back.
+    expect(await putBack(a, untick)).toBe(true);
+    expect(records()[a]?.props.departments).toEqual(['camera']);
+  });
+
   it('takes a custom field off again when it wasn’t on the frame, even emptied', async () => {
     const a = await frame();
     await store.getState().apply(setCustomField(records(), a, 'VFX', ''));

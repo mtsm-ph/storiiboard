@@ -291,13 +291,16 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   by field ("lens, restored", "Restore to here: out of the Trash"), and renumbers show too. Put back sets an old value
   again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status, action,
   dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
-  Put back isn't offered where the frame already has that value. A new selection shows only its own changes.
+  Put back isn't offered where the frame already has that value, and values that both read "—" (an empty text or no
+  departments ticked, and one never set) count as the same. A new selection shows only its own changes.
 - Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
-- A step whose picture was cleaned up (1.21) says "(picture removed)". Values kept by id never show as ids: a
-  scene's location reads by its name as it was then ("SC 05: location — → Dock"), and a frame's picture as "picture
-  set", "picture replaced" or "picture removed".
+- A step whose picture was cleaned up (1.21) says "(picture removed)", at once when History is open beside
+  Settings → Storage. Values kept by id never show as ids: a scene's location reads by its name as it was then
+  ("SC 05: location — → Dock"), and a frame's picture as "picture set", "picture replaced" or "picture removed".
 - One restore or Put back at a time: a second click while one writes, or within half a second of its rows being read
-  again, is dropped, so a double click never lands on the row that moved under the pointer. Restore to here on a
+  again, is dropped, so a double click never lands on the row that moved under the pointer. If those rows stop being
+  read (Only frame turned off, the frame deselected or trashed, a read that failed), clicks count again from then, and
+  in any case 5 seconds after the write. Restore to here on a
   point the project is already at says so (and, past an Empty Trash, that what it deleted can't come back).
 - A frame's own history finds its strokes and picture in the log, so an undone sketch, or one Restore to here took
   away, still shows ("Sketched", "Undid: Sketched").

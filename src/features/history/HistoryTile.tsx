@@ -41,6 +41,8 @@ export function HistoryTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const canUndo = useProject((s) => s.canUndo);
+  // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
+  const deletedForGood = useProject((s) => s.deletedForGood);
   const shotId = useSelection((s) => s.shotId);
   const [count, setCount] = useState(PAGE);
   const [onlyFrame, setOnlyFrame] = useState(false);
@@ -57,7 +59,7 @@ export function HistoryTile() {
   // One restore or Put back at a time (writeGate.ts): a click on a row that just moved under the pointer is dropped.
   const [gate] = useState(() => createWriteGate());
 
-  // Read again after every edit, undo and restore: each is a new step.
+  // Read again after every edit, undo and restore (each is a new step), and after anything is deleted for good.
   useEffect(() => {
     if (!project) return;
     let live = true;
@@ -66,11 +68,15 @@ export function HistoryTile() {
       .then((next) => {
         if (live) setLoaded({ ...next, readFor });
       })
-      .catch(showNotice);
+      .catch((error: unknown) => {
+        // No new rows are coming: a restore waiting for them lets go, so the next click isn't dropped for good.
+        if (live) gate.gone('steps');
+        showNotice(error);
+      });
     return () => {
       live = false;
     };
-  }, [gate, project, records, canUndo, count]);
+  }, [gate, project, records, canUndo, deletedForGood, count]);
 
   useEffect(() => {
     if (loaded) gate.read('steps', loaded.readFor);
@@ -97,11 +103,19 @@ export function HistoryTile() {
       .then((ops) => {
         if (live) setFrameOps({ id, ops, readFor });
       })
-      .catch(showNotice);
+      .catch((error: unknown) => {
+        if (live) gate.gone('frame');
+        showNotice(error);
+      });
     return () => {
       live = false;
     };
   }, [gate, project, filtered, frame, records]);
+  // The frame's rows are off screen (Only frame turned off, the frame deselected or trashed): a Put back waiting for
+  // them to be read again lets go.
+  useEffect(() => {
+    if (!filtered) gate.gone('frame');
+  }, [gate, filtered]);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   const undoKey = isMac() ? '⌘Z' : 'Ctrl+Z';

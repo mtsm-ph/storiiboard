@@ -11,8 +11,8 @@ import type { FieldChange } from './summary';
 const PUTTABLE = new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'departments', 'custom']);
 
 // A frame's own empty and unset fields read the same in the inspector and in History (`—`), so neither is put back
-// over the other.
-const blank = (v: JsonValue | undefined) => (v === undefined || v === '' ? null : v);
+// over the other: an empty text, or no departments ticked (an empty list, once a department was ticked and unticked).
+const blank = (v: JsonValue | undefined) => (v === undefined || v === '' || (Array.isArray(v) && v.length === 0) ? null : v);
 const same = (a: JsonValue | undefined, b: JsonValue | undefined) => JSON.stringify(blank(a)) === JSON.stringify(blank(b));
 
 /** Whether this change's old value can be put back by hand. A custom field holding more than text never is (1.19). */

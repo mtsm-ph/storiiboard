@@ -27,6 +27,11 @@ export interface ProjectState {
    * again when it changes, so the same photo added back shows on every frame that names it.
    */
   picturesWritten: number;
+  /**
+   * Counts Empty Trash and Clean up old pictures runs that deleted something. Clean up changes no record and no undo
+   * state, yet older steps in History now read "(picture removed)", so the History tile reads its steps again on this.
+   */
+  deletedForGood: number;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -97,6 +102,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       error: null,
       changedOnDisk: false,
       picturesWritten: 0,
+      deletedForGood: 0,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'canUndo' | 'canRedo'>;
@@ -156,6 +162,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return done.touched;
         });
         return result;
@@ -176,6 +183,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           const done = await cleanUpPictures(project.file, only);
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          if (done.removed > 0) set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return null;
         });
         return result;

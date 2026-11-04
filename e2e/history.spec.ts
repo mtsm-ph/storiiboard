@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
@@ -241,6 +242,29 @@ test('shot numbers, lens and T-stop are set in mono, in the steps and the frame�
   expect(await fontOf(steps(page).first(), '1A')).toContain('JetBrains Mono');
   expect(await fontOf(history(page), '1A')).toContain('JetBrains Mono');
   await expect(history(page).getByRole('switch', { name: 'Only frame 1A' })).toBeVisible();
+});
+
+test('a step whose picture Clean up old pictures deleted says so at once, with History open beside it', async ({ page }) => {
+  await frames(page).first().click();
+  const chooser = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Choose picture…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect(frames(page).first().locator('img[data-frame-image]')).toBeVisible();
+  // Undone: only History uses the picture now.
+  await page.keyboard.press(await undoKey(page));
+  await expect(frames(page).first().locator('img[data-frame-image]')).toHaveCount(0);
+
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Settings/ }).click();
+  await page.getByRole('tab', { name: 'Storage' }).click();
+  await openHistory(page);
+  const pictureStep = steps(page).filter({ hasText: /^Set the picture of 1A/ });
+  await expect(pictureStep).toHaveCount(1);
+  await expect(pictureStep).not.toContainText('(picture removed)');
+
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('region', { name: 'Storage', exact: true }).getByRole('button', { name: 'Clean up old pictures…' }).click();
+  // No record and no undo state changed, yet the step reads again.
+  await expect(pictureStep).toContainText('(picture removed)');
 });
 
 for (const scheme of ['light', 'dark'] as const) {
