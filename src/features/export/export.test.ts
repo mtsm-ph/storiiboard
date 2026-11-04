@@ -5,20 +5,42 @@ import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, trashShot } from '../storyboard/board';
-import { exportName, frameFileName, paddedScene, safeName } from './names';
+import { exportName, frameFileName, paddedScene, safeName, uniqueNames } from './names';
 import { pngSize } from './pngFrames';
+import { watermarkSize } from './renderFrame';
 import { FORMATS } from './registry';
 import { csvCell, shotListCsv } from './shotListCsv';
-import { readWatermark, watermarkFor, watermarkProp } from './watermark';
+import { readWatermark, watermarkChange, watermarkFor, watermarkProp, type Watermark } from './watermark';
 
 describe('export names', () => {
-  it('pads the scene number so files sort, and keeps the shot number exactly as on the slate', () => {
+  it('pads the scene number, and keeps the scene and shot numbers exactly as on the slate', () => {
     expect(paddedScene('4')).toBe('004');
     expect(paddedScene('12A')).toBe('012A');
     expect(paddedScene('A4')).toBe('A004');
     expect(frameFileName('4', '4A')).toBe('SC004_4A.png');
+    expect(frameFileName('4', '4AA')).toBe('SC004_4AA.png');
+    expect(frameFileName('12A', '12AA')).toBe('SC012A_12AA.png');
     expect(frameFileName('12A', '12AB')).toBe('SC012A_12AB.png');
+    // Plain scene numbers line up in a folder...
     expect(['SC010_10A.png', 'SC002_2A.png', 'SC004_4B.png'].sort()).toEqual(['SC002_2A.png', 'SC004_4B.png', 'SC010_10A.png']);
+    // ...but a name sort isn't board order, as names.ts says: letters sort as letters, so these read out of order.
+    expect(['SC004_4B.png', 'SC004_4AA.png', 'SC012_12A.png', 'SC012A_12AA.png'].sort()).toEqual([
+      'SC004_4AA.png',
+      'SC004_4B.png',
+      'SC012A_12AA.png',
+      'SC012_12A.png',
+    ]);
+  });
+
+  it('names each file of a set once, whatever its case', () => {
+    const unique = uniqueNames();
+    expect(['SC004_4A.png', 'SC004_4B.png', 'SC004_4A.png', 'sc004_4a.png', 'SC004_4A (2).png'].map(unique)).toEqual([
+      'SC004_4A.png',
+      'SC004_4B.png',
+      'SC004_4A (2).png',
+      'sc004_4a (3).png',
+      'SC004_4A (2) (2).png',
+    ]);
   });
 
   it('names a file after the project and the scene, without what a file system refuses', () => {
@@ -26,6 +48,11 @@ describe('export names', () => {
     expect(exportName('Bey County', '4', 'frames')).toBe('Bey County SC 04 frames');
     expect(safeName('A/B: "C"')).toBe('A B C');
     expect(safeName('///')).toBe('Storiiboard');
+    // The Rust side refuses a name that starts with a dot, so these titles once couldn't export at all.
+    expect(exportName('...And Then There Were None', null, 'shot list', 'csv')).toBe('And Then There Were None shot list.csv');
+    expect(exportName('.Bey County', '4', 'frames')).toBe('Bey County SC 04 frames');
+    expect(safeName(' . Bey County. . ')).toBe('Bey County');
+    expect(safeName('...')).toBe('Storiiboard');
   });
 
   it('sizes frames by the long edge, wide or tall', () => {
@@ -56,6 +83,41 @@ describe('a CSV cell', () => {
 });
 
 describe('the watermark', () => {
+  /** A stand-in for the canvas's measure: each character 0.6 of the type size wide. */
+  const measure = (text: string) => (font: string) => text.length * 0.6 * Number(/(\d+)px/.exec(font)?.[1] ?? 0);
+
+  it('keeps its size on a wide frame, and on a tall or a long one shrinks to fit between the margins', () => {
+    expect(watermarkSize(measure('DRAFT'), 1920, 1080)).toBe(49);
+    // A 9:16 frame gets the size a 16:9 one does, from the short edge, not one sized from its height.
+    expect(watermarkSize(measure('DRAFT'), 1080, 1920)).toBe(49);
+    const long = 'DRAFT — not for distribution, Bey County, client review copy, Nov 2026 cut';
+    for (const [width, height] of [
+      [1080, 1920],
+      [1920, 1080],
+      [1920, 803],
+    ] as const) {
+      const size = watermarkSize(measure(long), width, height);
+      const margin = Math.round(Math.min(width, height) * 0.03);
+      expect(measure(long)(`${String(size)}px`)).toBeLessThanOrEqual(width - 2 * margin);
+      expect(size).toBeGreaterThan(10);
+    }
+  });
+
+  it('makes no edit when Save changes nothing, and one when it does', () => {
+    const draft: Watermark = { text: 'DRAFT', position: 'center', opacity: 0.5, appliesTo: ['pdf', 'png'] };
+    const props = { watermark: watermarkProp(draft) };
+    expect(watermarkChange('p', props, draft)).toBeNull();
+    // A box ticked off and on again is the same setting.
+    expect(watermarkChange('p', props, { ...draft, text: ' DRAFT ', appliesTo: ['png', 'pdf'] })).toBeNull();
+    expect(watermarkChange('p', {}, { ...draft, text: '' })).toBeNull();
+    expect(watermarkChange('p', props, { ...draft, opacity: 0.6 })).toEqual({
+      kind: 'update',
+      id: 'p',
+      set: { watermark: watermarkProp({ ...draft, opacity: 0.6 }) },
+    });
+    expect(watermarkChange('p', props, { ...draft, text: '' })).toEqual({ kind: 'update', id: 'p', unset: ['watermark'] });
+  });
+
   it('reads back what was stored, and is off with no text or for an export it doesn’t apply to', () => {
     const props = { watermark: watermarkProp({ text: 'DRAFT', position: 'center', opacity: 0.5, appliesTo: ['png'] }) };
     expect(readWatermark(props)).toEqual({ text: 'DRAFT', position: 'center', opacity: 0.5, appliesTo: ['png'] });
@@ -78,6 +140,50 @@ describe('the shot list CSV', () => {
   afterEach(async () => {
     await store.getState().close();
     folder.remove();
+  });
+
+  it('saves Watermark Settings as one step to undo', async () => {
+    expect(store.getState().canUndo).toBe(false);
+    const draft: Watermark = { text: 'DRAFT', position: 'center', opacity: 0.5, appliesTo: ['png'] };
+    const change = watermarkChange(project.projectId, store.getState().records[project.projectId]?.props, draft);
+    if (!change) throw new Error('expected an edit');
+    await store.getState().apply([change]);
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toEqual(draft);
+    expect(watermarkChange(project.projectId, store.getState().records[project.projectId]?.props, draft)).toBeNull();
+    await store.getState().undo();
+    expect(readWatermark(store.getState().records[project.projectId]?.props)).toBeNull();
+    expect(store.getState().canUndo).toBe(false);
+  });
+
+  it('reads a custom field whatever case a frame spells it in, and exports one scene alone', async () => {
+    for (const [id, number, key] of [
+      ['sc4', '4', 'V'],
+      ['sc5', '5', 'W'],
+    ] as const) {
+      await store.getState().apply([{ kind: 'create', record: { id, type: 'scene', parentId: project.projectId, sortKey: key, props: { number, name: '' } } }]);
+    }
+    const ids: string[] = [];
+    for (const scene of ['sc4', 'sc4', 'sc5']) {
+      const added = addShot(store.getState().records, project.projectId, scene);
+      await store.getState().apply(added.changes);
+      ids.push(added.shotId);
+    }
+    const [a = '', b = '', c = ''] = ids;
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { custom: { Drone: 'yes' } } },
+      { kind: 'update', id: b, set: { custom: { drone: 'no' } } },
+      { kind: 'update', id: c, set: { custom: { Drone: 'maybe' } } },
+    ]);
+    const rows = (scope: Parameters<typeof shotListCsv>[2]) =>
+      shotListCsv(store.getState().records, project.projectId, scope).replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    const all = rows({ kind: 'project' });
+    expect(all[0]?.endsWith(',Drone')).toBe(true);
+    expect(all.slice(1).map((row) => [row.split(',')[4], row.split(',').at(-1)])).toEqual([
+      ['4A', 'yes'],
+      ['4B', 'no'],
+      ['5A', 'maybe'],
+    ]);
+    expect(rows({ kind: 'scene', sceneId: 'sc5' }).slice(1).map((row) => row.split(',')[4])).toEqual(['5A']);
   });
 
   it('is one row per live frame in board order, with custom fields as columns, exactly', async () => {
