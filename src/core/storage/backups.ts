@@ -139,7 +139,26 @@ export interface BackupOptions {
 export interface BackupSchedule {
   /** Backs up now if anything changed since the last backup, then prunes. */
   runNow(): Promise<BackupRun>;
+  /**
+   * A backup of the file as it is, then `then`, with no backup of this schedule's between or during them (Compact
+   * project, 1.27). When nothing has changed since this schedule's last backup, that one stands for it. Resolves to
+   * the backup's name and what `then` returned.
+   */
+  backUpThen<T>(then: () => Promise<T>): Promise<{ backup: string; result: T }>;
   stop(): void;
+}
+
+/**
+ * A backup name for the file as it is now: this minute's, or the next free minute's when a backup made earlier this
+ * minute already has it. That one holds an older state, and backups are never overwritten.
+ */
+export async function freshBackupName(file: ProjectFile, at: Date): Promise<string> {
+  const stem = fileStem(file.path);
+  const taken = new Set((await file.listBackups()).map((backup) => backup.name));
+  for (let minutes = 0; ; minutes += 1) {
+    const name = backupFileName(stem, new Date(at.getTime() + minutes * 60_000));
+    if (!taken.has(name)) return name;
+  }
 }
 
 /**
@@ -151,18 +170,27 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     options;
   const stem = fileStem(file.path);
   let backedUpAt = await changeCount(file);
+  /** The newest backup this schedule made, which stands for the file while nothing has changed since. */
+  let latest: string | null = null;
   let running: Promise<BackupRun> | null = null;
   let stopped = false;
+  // Everything that copies the file takes its turn: the desktop makes one copy of a project at a time.
+  let turn: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = turn.then(work, work);
+    turn = next.catch(() => undefined);
+    return next;
+  };
 
   const backUp = async (): Promise<BackupRun> => {
     const changes = await changeCount(file);
     if (changes <= backedUpAt) return { created: null, deleted: [] };
     const at = now();
-    const name = backupFileName(stem, at);
-    const existing = await file.listBackups();
-    // Two runs in the same minute (a manual one right after a scheduled one) share a name; the first copy stands.
-    if (!existing.some((backup) => backup.name === name)) await file.backup('scheduled', name);
+    // A second run in the same minute (a manual one right after a scheduled one) takes the next minute's name.
+    const name = await freshBackupName(file, at);
+    await file.backup('scheduled', name);
     backedUpAt = changes;
+    latest = name;
     // Listed again for the new backup's size.
     const backups = await file.listBackups();
     const byAge = backupsToDelete(
@@ -179,11 +207,24 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
 
   // One run at a time: a slow disk must not start a second copy over the first.
   const runNow = () => {
-    running ??= backUp().finally(() => {
+    running ??= inTurn(backUp).finally(() => {
       running = null;
     });
     return running;
   };
+
+  const backUpThen = <T>(then: () => Promise<T>) =>
+    inTurn(async () => {
+      const changes = await changeCount(file);
+      let backup = latest;
+      if (backup === null || changes > backedUpAt) {
+        backup = await freshBackupName(file, now());
+        await file.backup('scheduled', backup);
+        backedUpAt = changes;
+        latest = backup;
+      }
+      return { backup, result: await then() };
+    });
 
   const timer = setInterval(() => {
     runNow().catch((error: unknown) => {
@@ -194,6 +235,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
 
   return {
     runNow,
+    backUpThen,
     stop: () => {
       stopped = true;
       clearInterval(timer);

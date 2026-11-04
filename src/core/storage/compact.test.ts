@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, board, setNumbersLocked } from '../../features/storyboard/board';
 import { log } from '../ops/ops';
-import { backupFileName } from './backups';
+import { backupFileName, startBackups } from './backups';
 import { compactProject, fileSpace } from './compact';
 import { nodeDriver } from './nodeDriver';
 import { createProject, openProject, type Project } from './project';
@@ -53,7 +53,7 @@ describe('Compact project', () => {
     expect(before.free).toBeGreaterThan(before.bytes / 2);
     const steps = (await log(project.file)).length;
 
-    const done = await compactProject(project.file, AT);
+    const done = await compactProject(project.file, { now: AT });
     expect(done.backup).toBe(backupFileName('Bey County', AT));
     expect(done.before).toBe(before.bytes);
     expect(done.after).toBeLessThan(before.bytes / 2);
@@ -82,7 +82,7 @@ describe('Compact project', () => {
 
   it('keeps everything after a restart, with the backup listed among the project’s backups', async () => {
     await freeUpSpace();
-    const done = await compactProject(project.file, AT);
+    const done = await compactProject(project.file, { now: AT });
     await store.getState().close();
     project = await openProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
     await store.getState().open(project);
@@ -95,7 +95,7 @@ describe('Compact project', () => {
   it('never overwrites a backup made earlier the same minute: it takes the next free minute', async () => {
     await project.file.backup('scheduled', backupFileName('Bey County', AT));
     await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
-    const done = await compactProject(project.file, AT);
+    const done = await compactProject(project.file, { now: AT });
     expect(done.backup).toBe(backupFileName('Bey County', new Date(AT.getTime() + 60_000)));
     expect(backups()).toEqual([backupFileName('Bey County', AT), done.backup]);
   });
@@ -113,7 +113,7 @@ describe('Compact project', () => {
         return file.compact();
       },
     };
-    await expect(compactProject(failing, AT)).rejects.toThrow('The disk is full.');
+    await expect(compactProject(failing, { now: AT })).rejects.toThrow('The disk is full.');
     expect(compacted).toBe(false);
     expect(await fileSpace(file)).toEqual(before);
   });
@@ -122,8 +122,33 @@ describe('Compact project', () => {
     const incoming = await createProject(folder.path('incoming.sbd'), { driver: nodeDriver, backups: false });
     await incoming.close();
     arriveFromSync(folder.path('incoming.sbd'), folder.path('Bey County.sbd'));
-    await expect(compactProject(project.file, AT)).rejects.toThrow('The project file changed on disk since Storiiboard last saved it.');
+    await expect(compactProject(project.file, { now: AT })).rejects.toThrow('The project file changed on disk since Storiiboard last saved it.');
     expect(backups()).toEqual([]);
+  });
+
+  it('takes its turn with the scheduled backups, and lets the newest stand when nothing has changed', async () => {
+    let minute = 0;
+    const clock = () => new Date(AT.getTime() + minute * 60_000);
+    const schedule = await startBackups(project.file, { intervalMs: 3_600_000, now: clock });
+    try {
+      await freeUpSpace();
+      // A scheduled run and Compact at once: the copy finishes before the file is rewritten, and each is its own.
+      const [run, done] = await Promise.all([schedule.runNow(), compactProject(project.file, { schedule })]);
+      expect(run.created).toBe(backupFileName('Bey County', AT));
+      // Nothing changed between them, so the scheduled copy stands for Compact's.
+      expect(done.backup).toBe(run.created);
+      expect(done.after).toBeLessThan(done.before);
+      // After an edit, Compact makes a new one; in the same minute, under the next minute's name.
+      await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
+      const again = await compactProject(project.file, { schedule });
+      expect(again.backup).toBe(backupFileName('Bey County', new Date(AT.getTime() + 60_000)));
+      minute = 1;
+      // And a scheduled run in that minute after another edit never stands on the older copy.
+      await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
+      expect((await schedule.runNow()).created).toBe(backupFileName('Bey County', new Date(AT.getTime() + 120_000)));
+    } finally {
+      schedule.stop();
+    }
   });
 
   it('runs in the edit queue and reads the slate numbers again afterwards', async () => {

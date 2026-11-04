@@ -275,14 +275,22 @@ impl SbdFile {
     }
 
     /// Compact project (1.27): rewrites the file without its free space, SQLite's VACUUM, in place. It runs as one
-    /// write through the rollback journal, so a crash or a kill partway leaves the file as it was. The app makes a
-    /// backup first. A full backup copy still being made is dropped (it would be of the old pages); the next scheduled
-    /// run makes another.
+    /// write through the rollback journal, so a crash or a kill partway leaves the file as it was once it's next
+    /// opened. The app makes a backup first, in turn with the scheduled ones; a copy still being made here is a reason
+    /// to refuse, never to drop it.
     pub fn compact(&mut self) -> Result<(), String> {
+        if self.copying.is_some() {
+            return Err("A backup of this project is being made. Try again when it's done.".into());
+        }
         self.check_unchanged()?;
-        self.copying = None;
+        let before = self.fingerprint.id;
         let result = self.conn.execute_batch("VACUUM").map_err(text);
         self.fingerprint = fingerprint(&self.path)?;
+        // A sync that renamed another file over the project while it was rewritten (seconds, on a large one) must not
+        // be taken for the file this app wrote: the next write then refuses, as for any replaced file.
+        if before.is_some() && self.fingerprint.id != before {
+            self.fingerprint.len = u64::MAX;
+        }
         result
     }
 
@@ -2177,62 +2185,113 @@ mod tests {
         out.flush().unwrap();
     }
 
+    /// Starts `compact_child` on `path` and waits for its "start" line; returns it, with the lines still to come.
+    fn start_compact_child(
+        path: &Path,
+    ) -> (std::process::Child, std::thread::JoinHandle<Vec<String>>) {
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "sbd::tests::compact_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("SBD_COMPACT_CHILD", path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        // The test harness prints its own lines first.
+        loop {
+            let line = lines
+                .next()
+                .expect("the child ended before it began")
+                .unwrap();
+            if line.contains("start") {
+                break;
+            }
+        }
+        // The rest is read to the end, which comes when the child exits or is killed.
+        let rest = std::thread::spawn(move || lines.map_while(Result::ok).collect());
+        (child, rest)
+    }
+
     #[test]
     fn survives_a_kill_mid_compact() {
-        // Killed at several moments into the compaction: each time the file opens whole, with every row as it was.
-        // At least one kill has to land before the compaction finished, or the test proves nothing.
-        let mut cut_short = 0;
-        for delay in [0_u64, 15, 40, 80, 150, 300] {
+        // How long one compaction takes here, start to finish, so the kills spread across all of it.
+        let dir = temp_dir("compact-time");
+        let path = file_with_free_space(&dir, 12_000);
+        let began = std::time::Instant::now();
+        let (mut child, rest) = start_compact_child(&path);
+        child.wait().unwrap();
+        assert!(rest
+            .join()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("done")));
+        let whole = began.elapsed();
+        let compacted = fs::metadata(&path).unwrap().len();
+
+        // Killed at moments across it, more of them late, where VACUUM copies the compacted pages back into the file:
+        // each time the file opens whole, with every row as it was, either as it was or compacted all the way (a kill
+        // just after the commit). At least one kill must have landed during that copy-back, leaving its journal
+        // behind to roll it back, or the test proves nothing.
+        let mut mid_rewrite = 0;
+        for share in [10_u32, 30, 50, 65, 75, 82, 88, 92, 95, 97, 99] {
             let dir = temp_dir("compact-kill");
             let path = file_with_free_space(&dir, 12_000);
             let expected = contents(&SbdFile::open(&path).unwrap());
-            let mut child = Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "sbd::tests::compact_child",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
-                .env("SBD_COMPACT_CHILD", &path)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let stdout = child.stdout.take().unwrap();
-            std::thread::spawn(move || {
-                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                    if tx.send(line).is_err() {
-                        break;
-                    }
-                }
-            });
-            // Waits for the child to begin, then lets it run for `delay` before the kill.
-            // (The test harness prints its own lines first.)
-            loop {
-                let line = rx.recv_timeout(Duration::from_secs(60)).unwrap();
-                if line.contains("start") {
-                    break;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(delay));
+            let len = fs::metadata(&path).unwrap().len();
+            let (mut child, rest) = start_compact_child(&path);
+            std::thread::sleep(whole * share / 100);
             // SIGKILL on Mac and Linux, TerminateProcess on Windows: no chance to finish what it was writing.
             child.kill().unwrap();
             child.wait().unwrap();
-            let finished = rx.try_iter().any(|line| line.contains("done"));
-            if !finished {
-                cut_short += 1;
+            rest.join().unwrap();
+            let journal = path.with_file_name("Compact.sbd-journal");
+            if fs::metadata(&journal).is_ok_and(|m| m.len() > 0) {
+                mid_rewrite += 1;
             }
 
             let file = SbdFile::open(&path).unwrap();
             let check = file.query("PRAGMA integrity_check", &[]).unwrap();
             assert_eq!(
                 check[0]["integrity_check"], "ok",
-                "after a kill {delay} ms in"
+                "after a kill {share}% in"
             );
-            assert_eq!(contents(&file), expected, "after a kill {delay} ms in");
+            assert_eq!(contents(&file), expected, "after a kill {share}% in");
+            let now = fs::metadata(&path).unwrap().len();
+            assert!(
+                now == len || now == compacted,
+                "{now} bytes after a kill {share}% in: neither as it was ({len}) nor compacted ({compacted})"
+            );
         }
-        assert!(cut_short > 0, "every compaction finished before its kill");
+        assert!(
+            mid_rewrite > 0,
+            "no kill landed while the file was being rewritten"
+        );
+    }
+
+    #[test]
+    fn compacting_refuses_while_a_backup_is_being_made() {
+        let dir = temp_dir("compact-backup");
+        let path = file_with_free_space(&dir, 600);
+        let mut file = SbdFile::open(&path).unwrap();
+        file.place_backups(None).unwrap();
+        assert!(file
+            .start_backup(BackupKind::Scheduled, "Compact 2026-11-04 18-30.sbd", false)
+            .unwrap()
+            .is_none());
+        assert!(file.compact().unwrap_err().contains("being made"));
+        // The copy carries on and completes.
+        loop {
+            if let Some(partial) = file.step_backup().unwrap() {
+                partial.save().unwrap();
+                break;
+            }
+        }
+        file.compact().unwrap();
     }
 
     /// Run by `survives_a_kill_mid_write` as a separate process; it does nothing in a normal test run.

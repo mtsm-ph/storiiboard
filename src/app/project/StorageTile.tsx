@@ -29,7 +29,7 @@ export function StorageTile() {
   const trashStatus = useRef<HTMLParagraphElement>(null);
   const fileStatus = useRef<HTMLParagraphElement>(null);
   const [space, setSpace] = useState<{ bytes: number; free: number } | null>(null);
-  const [compacting, setCompacting] = useState(false);
+  const compacting = useProject((s) => s.compacting);
 
   // Read again after every edit: an undo can leave a picture to History alone.
   useEffect(() => {
@@ -90,17 +90,20 @@ export function StorageTile() {
 
   const compact = async () => {
     if (compacting) return;
-    setCompacting(true);
+    const madeIn = project;
     try {
       const done = await projectStore.getState().compact();
+      const state = projectStore.getState();
       if (done) {
         showInfo(`Compacted the project: ${sizeLabel(done.before)} to ${sizeLabel(done.after)}. Backed up first as “${done.backup}”.`);
         requestAnimationFrame(() => {
           fileStatus.current?.focus();
         });
+      } else if (state.project === madeIn && !state.changedOnDisk) {
+        // Focus stays on the button, to try again.
+        showNotice(new Error(state.error ?? 'The project couldn’t be compacted.'));
       }
     } finally {
-      setCompacting(false);
       setGeneration((n) => n + 1);
     }
   };
@@ -180,10 +183,18 @@ export function StorageTile() {
         </p>
         <p className="text-[12px] text-text-muted">
           Space freed inside the project, by Empty Trash or Clean up old pictures, is used again for new work, but the file
-          doesn’t get smaller. Compact project rewrites the file without it. It makes a backup first (Settings → Backups),
-          and takes a few seconds on a large project; a project in a synced folder uploads again in full afterwards.
+          doesn’t get smaller. Compact project rewrites the file without it. It makes a backup first (Settings → Backups).
+          On a large project it takes a while, and edits wait until it’s done; a project in a synced folder uploads again
+          in full afterwards.
         </p>
-        <Button className="self-start" disabled={space === null || compacting} aria-busy={compacting} onClick={() => void compact()}>
+        {/* aria-disabled while it runs, so focus stays on the button; the handler ignores a second click. */}
+        <Button
+          className="self-start"
+          disabled={space === null}
+          aria-disabled={compacting}
+          aria-busy={compacting}
+          onClick={() => void compact()}
+        >
           {compacting ? 'Compacting…' : 'Compact project'}
         </Button>
       </section>

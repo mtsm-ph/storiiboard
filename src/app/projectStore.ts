@@ -46,6 +46,8 @@ export interface ProjectState {
    * and opened again, since it's kept here rather than in the tile.
    */
   restoring: boolean;
+  /** True while Compact project (1.27) runs; kept here, like `restoring`, so a tile closed and opened again knows. */
+  compacting: boolean;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -146,6 +148,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       picturesWritten: 0,
       deletedForGood: 0,
       restoring: false,
+      compacting: false,
       open: (project) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'canUndo' | 'canRedo'>;
@@ -262,16 +265,23 @@ export function createProjectStore(): StoreApi<ProjectState> {
         await edit((project) => redo(project.file));
       },
       compact: async () => {
+        if (get().compacting) return null;
         let result: Compacted | null = null;
-        // In the queue like an edit: nothing is written while the file is rewritten.
-        await edit(async (project) => {
-          result = await compactProject(project.file);
-          // Compacting may renumber the table's rows, so the slate numbers are read again from the start.
-          const slate = await slateNumbersAfter(project.file, 0);
-          slateRead = slate.last;
-          set({ slateNumbers: slate.rows });
-          return null;
-        });
+        set({ compacting: true });
+        try {
+          // In the queue like an edit: nothing is written while the file is rewritten.
+          await edit(async (project) => {
+            const done = await compactProject(project.file, { schedule: project.backups });
+            // Compacting may renumber the table's rows, so the slate numbers are read again from the start.
+            const slate = await slateNumbersAfter(project.file, 0);
+            slateRead = slate.last;
+            set({ slateNumbers: slate.rows, error: null });
+            result = done;
+            return null;
+          });
+        } finally {
+          set({ compacting: false });
+        }
         return result;
       },
     };

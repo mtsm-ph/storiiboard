@@ -538,20 +538,25 @@ MIME type is `application/vnd.storiiboard.project`.
 
 Settings → Storage → Compact project rewrites the file without its free space (src/core/storage/compact.ts). Space a
 deletion frees inside the file (Empty Trash, Clean up old pictures) is reused for new work, but the file doesn't
-shrink; and space freed by builds before 1.21 can still hold old text (see Trash). Compacting removes both. Nothing
-compacts on its own (Kevin, Nov 4).
+shrink; and space freed by builds before 1.21 can still hold old text (see Trash). Compacting removes both from the
+project file; the backup made first keeps them until it's pruned. Nothing compacts on its own (Kevin, Nov 4).
 
 1. A backup of the file as it is, as one of the project's scheduled backups (`Backups/`, or the local folder for a
-   synced project), every time. It's named for this minute, or the next free minute when a backup made earlier this
-   minute already has the name; backups are never overwritten. A failed backup compacts nothing.
-2. SQLite's VACUUM on the open file, in place, after the same on-disk check as a write: one write through the rollback
-   journal, so a crash or a kill partway leaves the file as it was (`survives_a_kill_mid_compact` in sbd.rs kills it
-   at several moments). A full backup copy still being made is dropped; the next scheduled run makes another.
+   synced project), taking its turn with them: no other copy of the file is made until the compaction ends. When
+   nothing has changed since the schedule's newest backup, that one stands for it. A new one is named for this minute,
+   or the next free minute when a backup made earlier this minute has the name (scheduled runs name theirs the same
+   way); backups are never overwritten. A failed backup compacts nothing.
+2. SQLite's VACUUM on the open file, in place, after the same on-disk check as a write; refused while a backup copy of
+   the file is still being made. It's one write through the rollback journal, so a crash or a kill partway leaves the
+   file as it was, rolled back the next time it's opened on this computer (`survives_a_kill_mid_compact` in sbd.rs
+   kills it across the whole run and checks at least one kill landed mid-rewrite). A sync that replaced the file while
+   it ran is caught at the next write, as for any replaced file.
 3. The format, the records, History and every other table are unchanged. The store reads the slate numbers again
    afterwards, since VACUUM may renumber a table's rowids.
 
-A project in a synced folder uploads again in full afterwards, and a Mac backup clone made before stops sharing space
-with the project.
+Edits wait while it runs; on a large project that's a while. A project in a synced folder uploads again in full
+afterwards, and is half rewritten while it runs, so another computer shouldn't open it until it's done. A Mac backup
+clone made before stops sharing space with the project.
 
 ## Safety while a project is open (1.2)
 
