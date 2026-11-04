@@ -55,7 +55,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.18 Script import: PDF, read by its layout | #35 | Done |
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
-| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
+| 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
@@ -269,6 +269,15 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
+- Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
+  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went and
+  the space freed. How each changes the file is in docs/SBD_FORMAT.md (Trash).
+- Tests for both: undo can't reach past them, they last a restart, and a write that dies halfway changes nothing.
+- Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
+  Trash. A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
+  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now shows as removed.
 
 **As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and

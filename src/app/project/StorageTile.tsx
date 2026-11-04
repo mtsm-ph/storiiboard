@@ -15,6 +15,8 @@ export function StorageTile() {
   const records = useProject((s) => s.records);
   const [old, setOld] = useState<{ count: number; bytes: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Bumped after Clean up, which changes no record, so the count is read again.
+  const [generation, setGeneration] = useState(0);
 
   // Read again after every edit: an undo can leave a picture to History alone.
   useEffect(() => {
@@ -28,7 +30,7 @@ export function StorageTile() {
     return () => {
       live = false;
     };
-  }, [project, records]);
+  }, [project, records, generation]);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
@@ -42,6 +44,7 @@ export function StorageTile() {
       if (result) showInfo(`${done}${result.freed > 0 ? `, ${sizeLabel(result.freed)} freed` : ''}.`);
     } finally {
       setBusy(false);
+      setGeneration((n) => n + 1);
     }
   };
 

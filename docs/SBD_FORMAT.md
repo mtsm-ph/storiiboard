@@ -66,7 +66,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | seq | integer, unique | Order of the log, which UUIDs can't give. It follows the order of the groups: every op in a group has a higher seq than every op in earlier groups |
 | group_id | text | The op group it belongs to (op_groups.id) |
 | record_id | text | |
-| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), or `revert` (set back by a restore group). An undo or redo group's ops keep the kind of the op they reverse or replay |
+| kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
 | author | text | `local` for now |
 | timestamp | text | When the edit happened |
@@ -80,7 +80,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | Column | Type | Notes |
 |---|---|---|
 | seq | integer, unique | Order of the groups |
-| kind | text | `edit`, `undo`, `redo` or `restore` |
+| kind | text | `edit`, `undo`, `redo`, `restore` or `empty_trash` (1.21) |
 | target_group_id | text, null | For `undo` and `redo`: the group undone or redone |
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
@@ -188,6 +188,15 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
 - Empty Trash, after a confirm, deletes the trashed records, their children and their media bytes for good. Older ops
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
   them until they're pruned.
+- As built in 1.21 (src/core/ops/ops.ts, `emptyTrash`), in one transaction: every trashed record (never the project)
+  and everything under it is deleted; their ops keep their rows but `before` and `after` become null; an
+  `empty_trash` group of `purge` ops (one per deleted record) is written with `undo_top` and `redo_top` null, so
+  neither stack reaches past it; and stored pictures nothing left refers to (no record's props, no remaining op) are
+  deleted with their thumbnails. A restore to a point before it never brings a deleted record back, and a record that
+  sat under a deleted parent at that point stays where it is.
+- Clean up old pictures (1.21, Settings → Storage, after a confirm) deletes stored pictures no record uses, live or
+  in the Trash, though older ops may (a picture added and undone). The log is unchanged; a step that brings such a
+  record back shows its picture as removed.
 
 ## Project record props
 
