@@ -660,6 +660,9 @@ switch light and dark at once while the colours ease; left as is.
   switches is dropped, and onboarding belongs to the project it opened for.
 - `image_id` counts only when it names a live `media` record under the project, so a hand-edited file can never make
   Reset trash a frame's picture.
+- Kevin, Nov 3: the screenshot tests (e2e/visual.spec.ts, 8 of them) are suppressed until the UI is ready to test
+  properly. They and their baselines stay in the repo and run only with `SB_VISUAL=1` (CI's baseline update run sets
+  it). The behaviour tests and unit tests run as before.
 - Decided while building, to review: a Settings layout saved before 1.16 keeps its tiles, so Theme shows only after
   Layout → Reset to default (or from the Layout menu's tile list). A replaced theme image in the Trash restores on
   its own, without becoming the theme again.

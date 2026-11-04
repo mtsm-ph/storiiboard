@@ -52,9 +52,8 @@ export function ThemeTile() {
   const osDark = resolved === 'dark';
 
   /** One op group, worked out from the records as they are when it lands. */
-  const save = (patch: ThemePatch) => {
-    void projectStore.getState().applyWith((now) => setTheme(now, project.projectId, patch, { projectPath: project.file.path, osDark }));
-  };
+  const save = (patch: ThemePatch) =>
+    projectStore.getState().applyWith((now) => setTheme(now, project.projectId, patch, { projectPath: project.file.path, osDark }));
 
   const onFiles = (files: PictureFile[]) => {
     const [chosen] = files;
@@ -68,7 +67,8 @@ export function ThemeTile() {
         URL.revokeObjectURL(image.previewUrl);
         if (ticket !== reading.current || projectStore.getState().project !== openNow) return;
         setTyped(null);
-        save({ image });
+        // Busy until it's written, so nothing picked meanwhile is worked out from before the image.
+        return save({ image });
       })
       .catch(showNotice)
       .finally(() => {
@@ -79,26 +79,29 @@ export function ThemeTile() {
   const shown = typed && typed.over === current.choice.accent ? typed.value : (current.choice.accent ?? '');
   // What was typed, as #RRGGBB: the picker takes no other form.
   const picked = HEX.test(shown.trim()) ? hex(parseHex(shown)) : null;
-  const fitted = picked ? themeFor(picked) : null;
+  // The kit's orange typed in is the kit's exact look, as it's stored.
+  const fitted = picked ? { ...themeFor(picked === DEFAULT_ACCENT ? null : picked), source: picked } : null;
   const type = (value: string) => {
     setTyped({ value, over: current.choice.accent });
   };
   const applyTyped = () => {
     if (!fitted) return;
     setTyped(null);
-    save({ accent: fitted.source });
+    void save({ accent: fitted.source });
   };
 
   return (
     // The tile takes a pasted picture anywhere in it, as its image (ThemeImageWell).
-    <div data-theme-tile="" className="flex max-w-[640px] flex-col gap-5 p-4">
+    // Focusable by script only: a click that leaves focus nowhere puts it here, so a paste goes to the image.
+    <div data-theme-tile="" tabIndex={-1} className="flex max-w-[640px] flex-col gap-5 p-4 outline-none">
       <ThemeChooser
         candidates={current.candidates}
         choice={current.choice}
         busy={busy}
         onChange={(choice) => {
           setTyped(null);
-          save({ accent: choice.accent, mode: choice.mode });
+          // Only what changed, so it never puts back an accent or a mode from before an edit still landing.
+          void save(choice.mode !== current.choice.mode ? { mode: choice.mode } : { accent: choice.accent });
         }}
         image={<ThemeImageWell url={url} name={imageName} onFiles={onFiles} disabled={busy} />}
       />
@@ -148,7 +151,7 @@ export function ThemeTile() {
           disabled={!current.stored}
           onClick={() => {
             // The stored tokens are kept as approved; this works them out again from the accent with today's generator.
-            save({});
+            void save({});
           }}
         >
           Regenerate

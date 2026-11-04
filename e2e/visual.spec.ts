@@ -4,6 +4,10 @@ import { skipOnboarding } from './onboarding';
 // Baselines are per browser and per OS (fonts render differently), so each platform keeps its own set.
 test.use({ viewport: { width: 1440, height: 900 } });
 
+// Suppressed while the UI is still changing (Kevin, Nov 3): kept, not deleted, and skipped unless SB_VISUAL=1, so CI
+// and the local gate don't need new baselines for every change. CI's baseline update run sets it.
+test.skip(!process.env.SB_VISUAL, 'Screenshot tests are suppressed until the UI is ready to test properly');
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`shell, ${scheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
