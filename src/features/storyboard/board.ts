@@ -86,13 +86,14 @@ export function renumber(
   sceneId: string,
   shots: readonly SbdRecord[],
   sceneProps?: SbdRecord['props'],
+  taken?: ReadonlySet<string>,
 ): Change[] {
   const scene = records[sceneId];
   if (!scene) return [];
   const fields = sceneFields(sceneProps ?? scene.props);
   const { skipIO } = projectStoryboard(records[projectId]?.props);
   const numbered = shots.map((shot) => ({ id: shot.id, number: shotFields(shot.props).number, trashed: shot.trashedAt !== null }));
-  const changed = shotNumbers(fields.number, numbered, { locked: fields.numbersLocked, skipIO });
+  const changed = shotNumbers(fields.number, numbered, { locked: fields.numbersLocked, skipIO, taken });
   return [...changed].map(([id, number]): Change => ({ kind: 'update', id, set: { number } }));
 }
 
@@ -258,7 +259,8 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
     // has its own 4C): then it takes the next free one.
     return { ...s, trashedAt: null, props: liveNumbers.has(shotFields(s.props).number) ? { ...s.props, number: '' } : s.props };
   });
-  return [...changes, ...renumber(records, projectId, sceneId, order, props)];
+  // The next free letter skips those numbers too: the scene's highest letter may be the very one taken.
+  return [...changes, ...renumber(records, projectId, sceneId, order, props, liveNumbers)];
 }
 
 /**

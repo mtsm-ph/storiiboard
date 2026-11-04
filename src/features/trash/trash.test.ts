@@ -155,6 +155,35 @@ describe('the Trash', () => {
     expect(all).toEqual(['A4A', 'A4B', 'A4C', '4A', '4B', '4C']);
   });
 
+  /** A live, locked scene 9 whose frames still carry scene 4's letters (renumbered in an older file). */
+  async function sceneNineWith(...letters: string[]) {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc9', type: 'scene', parentId: project.projectId, sortKey: 'X', props: { number: '9', name: 'Dock', numbers_locked: true } } },
+    ]);
+    for (const number of letters) {
+      const added = addShot(records(), project.projectId, 'sc9');
+      await store.getState().apply([...added.changes, { kind: 'update', id: added.shotId, set: { number } }]);
+    }
+  }
+
+  it('in a locked scene, skips a taken number even when it was the scene’s highest letter', async () => {
+    const [, , frameC = ''] = shots;
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await trash(frameC);
+    await sceneNineWith('4C');
+    await restore(frameC);
+    expect(numbers()).toEqual(['4A', '4B', '4D']);
+  });
+
+  it('brings a locked scene back with its frames on numbers no live frame has', async () => {
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
+    await sceneNineWith('4A', '4B', '4C');
+    await restore('sc4');
+    const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
+    expect(all).toEqual(['4D', '4E', '4F', '4A', '4B', '4C']);
+  });
+
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {
     // Locked too: its frames still take letters under the new number, or two scenes would share 4A.
     await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
