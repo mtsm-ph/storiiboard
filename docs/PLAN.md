@@ -56,7 +56,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.19 Custom fields on shots: inspector and shot list | #36 | Done |
 | 1.20 Trash tile: filters, Restore (erased sketch strokes left out) | #37 | Done |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
-| 1.22 History tile | | Not started |
+| 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
 | 1.23 Named versions (schema 4) and Open version | | Not started |
 | 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
 | 1.25 PDF storyboard | | Not started |
@@ -269,6 +269,21 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.22 (Nov 3): the History tile** (src/features/history):
+- History in the project menu opens it in the workspace on screen. Every step is listed newest first, undos, redos,
+  restores and Empty Trash included, in the board's words ("Added frame 4C", "4A: lens 35mm → 50mm", "Moved 4B",
+  "Undid: …"), with who and when. A drag that renumbers a scene is one step.
+- Restore to here brings the project back to just after that step, as a new step that ⌘Z takes back (a restore
+  never brings back what Empty Trash deleted). Steps load 100 at a time.
+- Only frame 4A lists every change to the selected frame, field by field (before, after, when), and Put back sets an
+  old value again as one step: the fields a person sets by hand (size, lens, T-stop, support, height, move, status,
+  action, dialogue, departments, custom fields).
+- A step whose picture was cleaned up (1.21) says "(picture removed)".
+- Tests: a restore and its undo, a restore after a restart (and undone after another), and a restore whose write dies
+  halfway changing nothing.
+- Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
+  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9).
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
