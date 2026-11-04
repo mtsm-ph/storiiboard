@@ -59,7 +59,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #40 | Done |
 | 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #41 | Done |
-| 1.25 PDF storyboard | | Not started |
+| 1.25 PDF storyboard | #42 | Done |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
 a PDF.
@@ -269,6 +269,21 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.25 (Nov 3): the PDF storyboard** (src/features/export/pdfStoryboard.ts, pdfStoryboardFormat.ts):
+- Storyboard (PDF), the format Export starts on: US Letter landscape, three frames a row, each scene under its heading
+  (number, heading, length) and carried on to the next page as "(continued)". Under each frame: its shot number as on
+  the slate, status, size, lens and stop, three lines of action and two of dialogue, cut with … when they run on.
+  Title and STORYBOARD at the top of every page, the date and "2 / 5" at the foot, and the watermark when it applies
+  to PDFs.
+- Real text and lines from pdf-lib, so the file is small and searchable (an editor can find "4B"); each frame goes in
+  as a JPEG drawn the way the PNG export draws it, 1200 pixels wide. Inter Tight and JetBrains Mono are embedded as
+  subsets, from static copies of the bundled fonts made by scripts/static-fonts.py (fontTools, run once by hand; not
+  a dependency). pdf-lib and the fonts load only when a PDF is exported.
+- Dependencies, as approved: pdf-lib 1.17.1 and @pdf-lib/fontkit 1.1.1, both MIT.
+- Decided while building, to review: Letter only (A4 and frames per row can be settings later); frames print on white,
+  as the PNGs do; a frame without a picture is an empty box with its caption; a centred watermark is set at 15
+  degrees, the others flat in their corner.
 
 **As built in 1.24 (Nov 3): export** (src/features/export, src/core/storage/exportFiles.ts, src-tauri/src/export.rs):
 - Export Project… in the project menu: a format from the registry (each one file plus one line in registry.ts), the
