@@ -414,7 +414,10 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
    * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
    *   back to the point, a newer one would be deleted from under a record that still shows it;
    * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
-   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number.
+   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number;
+   * - for a scene, every frame in it or going back into it: a scene kept as it is now may be locked now when it
+   *   wasn't at the point, and a frame going back into it would land on a number from the point, which another shot
+   *   may have been slated with since (1.26).
    */
   const settleKept = () => {
     for (let id = waiting.pop(); id !== undefined; id = waiting.pop()) {
@@ -422,6 +425,7 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
       if (!kept) continue;
       for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
       for (const child of under.get(id) ?? []) keepAsNow(child);
+      if (kept.type === 'scene') for (const frame of framesOf.get(id) ?? []) keepAsNow(frame);
       if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
         if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
         for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);

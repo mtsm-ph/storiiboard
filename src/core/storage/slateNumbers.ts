@@ -11,8 +11,8 @@ import type { ProjectFile, Statement } from './driver';
 // frame whose number another shot was slated with takes a new one (src/features/storyboard/board.ts).
 
 /**
- * The meta key set when the schema 5 migration couldn't recover every number: an Empty Trash had run after a scene had
- * been locked, and what it deleted is gone from the file, numbers and all.
+ * The meta key set when the schema 5 migration couldn't recover every number: an Empty Trash had run, and what it
+ * deleted is gone from the file, numbers and all, with any sign of whether they were on slates.
  */
 export const SLATE_NUMBERS_UNKNOWN = 'slate_numbers_unknown';
 
@@ -66,9 +66,8 @@ export async function loadSlateNumbers(file: ProjectFile): Promise<SlateNumbers>
 }
 
 /**
- * Whether some numbers given out before schema 5 are unknown: frames an Empty Trash deleted from a scene that had been
- * locked, in this file or under another number since. A locked scene could give one out again; the Empty Trash
- * confirm says so.
+ * Whether some numbers given out before schema 5 are unknown: an Empty Trash ran before then, and frames it deleted
+ * may have been on slates. A locked scene could give one out again; the Empty Trash confirm says so.
  */
 export async function slateNumbersUnknown(file: ProjectFile): Promise<boolean> {
   const [row] = await file.query('SELECT value FROM meta WHERE key = ?', [SLATE_NUMBERS_UNKNOWN]);

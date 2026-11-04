@@ -247,7 +247,8 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
 
 /**
  * Brings a frame back from the Trash to where it was (1.20), with its scene when that's in the Trash too; the scene's
- * letters follow the board again unless they're locked, where it keeps its own unless a live frame has taken it since.
+ * letters follow the board again unless they're locked, where it keeps its own unless a live frame has taken it since
+ * or another shot was slated with it (1.26).
  */
 export function restoreShot(records: Records, projectId: string, shotId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
   const shot = records[shotId];

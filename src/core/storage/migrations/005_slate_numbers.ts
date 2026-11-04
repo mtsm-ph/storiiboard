@@ -97,9 +97,21 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   }
   settle();
 
+  // A v4 locked scene could give one number to two shots (an undone frame's letter given out again, or letters closed
+  // up by an unlock and kept by a relock). The one on footage is the one holding it now, so that one owns it; the
+  // first shot seen only when none does.
+  const holders = new Map<string, string>();
+  for (const trashed of [true, false]) {
+    for (const [id, record] of state) {
+      if (record.type === 'shot' && record.trashed === trashed && record.parentId !== null && record.number !== '') {
+        holders.set(`${record.parentId} ${record.number}`, id);
+      }
+    }
+  }
   const statements: Statement[] = [];
   for (const [sceneId, numbers] of found) {
-    for (const [number, shotId] of numbers) {
+    for (const [number, first] of numbers) {
+      const shotId = holders.get(`${sceneId} ${number}`) ?? first;
       statements.push({
         sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT (scene_id, number) DO NOTHING`,
