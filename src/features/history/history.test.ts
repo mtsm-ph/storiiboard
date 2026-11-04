@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { shotFields } from '../../core/model/storyboard';
-import { log, opsOfRecord, opsOfRecords, type OpGroup } from '../../core/ops/ops';
+import { log, opsOfRecord, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addShot, board, moveItem, setCustomField, trashShot } from '../storyboard/board';
+import { addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { putBackChange } from './putBack';
-import { loadSteps, PAGE } from './steps';
+import { frameOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeValue, fieldChanges, frameRows, lineText, type FieldChange } from './summary';
 
 let folder: TestFolder;
@@ -350,12 +350,7 @@ describe('after Empty Trash', () => {
 
 const pen = { tool: 'pen' as const, points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null };
 /** A frame's own history as the tile reads it: the frame, and its strokes and picture. */
-const withChildren = async (id: string) => {
-  const children = Object.values(records())
-    .filter((r) => r.parentId === id)
-    .map((r) => r.id);
-  return frameRows(await opsOfRecords(project.file, [id, ...children]), id);
-};
+const withChildren = async (id: string) => frameRows(await frameOps(project.file, id), id);
 
 describe('sketching in History', () => {
   it('names the frame a sketch or an erase was on, by its number then', async () => {
@@ -389,5 +384,80 @@ describe('sketching in History', () => {
     const after = (await withChildren(a)).map((r) => r.key);
     expect(after.slice(1)).toEqual(before);
     expect(new Set(after).size).toBe(after.length);
+  });
+});
+
+describe('a frame’s own history, from the log', () => {
+  it('keeps an undone sketch, whose stroke has no record any more', async () => {
+    const a = await frame();
+    await store.getState().apply([addStroke(records(), a, pen)]);
+    await store.getState().undo();
+    expect(Object.values(records()).some((r) => r.type === 'stroke')).toBe(false);
+    expect((await withChildren(a)).map((r) => r.change)).toEqual(['Undid: Sketched', 'Sketched', 'Added']);
+  });
+
+  it('keeps a sketch Restore to here took away', async () => {
+    const a = await frame();
+    const point = await lastGroup();
+    await store.getState().apply([addStroke(records(), a, pen)]);
+    await store.getState().restoreTo(point.id);
+    expect((await withChildren(a)).map((r) => r.change)).toEqual(['Restore to here: the sketch', 'Sketched', 'Added']);
+  });
+});
+
+describe('values kept by id', () => {
+  it('names a location picked for a scene, as it was then, never by its id', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc5', type: 'scene', parentId: project.projectId, sortKey: 'W', props: { number: '5' } } },
+    ]);
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc4', 'Dock') }));
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc5', 'Dock') }));
+    const dock = Object.values(records()).find((r) => r.type === 'location');
+    if (!dock) throw new Error('no location');
+    await store.getState().apply([{ kind: 'update', id: dock.id, set: { name: 'Pier 9' } }]);
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc4', 'Diner') }));
+    await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc5', 'Diner') }));
+    expect((await lines()).slice(-5)).toEqual([
+      'Added location Dock',
+      'SC 05: location — → Dock',
+      'Pier 9: name Dock → Pier 9',
+      'Added location Diner',
+      'SC 05: location Pier 9 → Diner',
+    ]);
+  });
+
+  it('says a frame’s picture was set, replaced or removed, never its id', async () => {
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { media_id: 'b7c1e0a2-0000-4000-8000-000000000001' } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { media_id: 'b7c1e0a2-0000-4000-8000-000000000002' } }]);
+    await store.getState().apply([{ kind: 'update', id: a, unset: ['media_id'] }]);
+    expect((await lines()).slice(-3)).toEqual(['4A: picture set', '4A: picture replaced', '4A: picture removed']);
+    const rows = (await withChildren(a)).flatMap((r) => (r.field ? [[r.change, changeValue(r.field, r.field.before), changeValue(r.field, r.field.after)]] : []));
+    expect(rows).toEqual([
+      ['picture removed', 'a picture', '—'],
+      ['picture replaced', 'a picture', 'a picture'],
+      ['picture set', '—', 'a picture'],
+    ]);
+  });
+});
+
+describe('Restore to here’s notice', () => {
+  it('names the step pressed, and says so when the project is already as it was then', async () => {
+    const [a, b] = [await frame(), await frame()];
+    const steps = (await loadSteps(project.file, PAGE)).steps;
+    const added4A = steps[1]?.group.id ?? '';
+    expect(restoreNotice(steps, added4A, true, '⌘Z')).toBe('Restored the project to after “Added frame 4A”. ⌘Z takes it back.');
+    expect(restoreNotice(steps, added4A, false, '⌘Z')).toBe('Nothing to restore: the project is already as it was after “Added frame 4A”.');
+
+    // Just below an Empty Trash, the point differs from now only by what it deleted for good.
+    await store.getState().apply(trashShot(records(), project.projectId, a));
+    await store.getState().emptyTrash();
+    const after = (await loadSteps(project.file, PAGE)).steps;
+    const deleted = after[1]?.group.id ?? '';
+    expect(await store.getState().restoreTo(deleted)).toBe(false);
+    expect(restoreNotice(after, deleted, false, '⌘Z')).toBe(
+      'Nothing to restore: the project is already as it was after “Deleted an item, since deleted for good”. What Empty Trash deleted can’t come back.',
+    );
+    expect(records()[b]).toBeDefined();
   });
 });

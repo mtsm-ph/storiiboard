@@ -578,6 +578,20 @@ export async function opsOfRecords(file: ProjectFile, recordIds: readonly string
 }
 
 /**
+ * Every record the log ever put under `parentId` (a frame's strokes and picture), from both sides of its writes: a
+ * sketch that was undone, or taken away by Restore to here, has no record any more, but its steps are still the
+ * frame's. Not those Empty Trash deleted for good, whose writes no longer say where they were.
+ */
+export async function childrenInLog(file: ProjectFile, parentId: string): Promise<string[]> {
+  const rows = await file.query(
+    `SELECT DISTINCT record_id FROM ops WHERE record_id <> ?
+      AND (json_extract(before, '$.parent_id') = ? OR json_extract(after, '$.parent_id') = ?)`,
+    [parentId, parentId, parentId],
+  );
+  return rows.map((row) => String(row.record_id));
+}
+
+/**
  * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
  * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.
  */

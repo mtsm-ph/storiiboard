@@ -60,6 +60,10 @@ export const isMono = (prop: string): boolean => MONO.has(prop);
 /** A value as a line of History shows it: short, and `—` for nothing. */
 export function valueLabel(prop: string, value: JsonValue | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
+  // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
+  // picture change reads as set, removed or replaced (pictureChange).
+  if (prop === 'location_id') return 'a location';
+  if (prop === 'media_id') return 'a picture';
   if (prop === 'lens_mm' && typeof value === 'number') return `${String(value)}mm`;
   if (prop === 't_stop' && typeof value === 'number') return `T${String(value)}`;
   if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ');
@@ -73,6 +77,12 @@ const valuePart = (prop: string, value: JsonValue | undefined): Part => {
   const label = valueLabel(prop, value);
   return isMono(prop) && label !== '—' ? { mono: label } : label;
 };
+
+const isBlank = (value: JsonValue | undefined) => value === undefined || value === null || value === '';
+
+/** What a change of a frame's picture did, since its value is only an id. */
+export const pictureChange = (change: FieldChange): string =>
+  isBlank(change.before) ? 'picture set' : isBlank(change.after) ? 'picture removed' : 'picture replaced';
 
 /** The props an update changed, by name. */
 export function changedProps(before: SbdRecord, after: SbdRecord): string[] {
@@ -165,7 +175,7 @@ const purged = (op: LoggedOp) => op.kind !== 'purge' && op.before === null && op
 
 /**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
- * names without writing them (a sketch's frame), as they were then.
+ * names without writing them (a sketch's frame, a scene's location), as they were then.
  */
 export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
   if (ops.length === 0) return ['No change'];
@@ -234,8 +244,14 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       if (changes.length === 1 && only?.key !== undefined && (only.before === undefined || only.after === undefined)) {
         return [who, `: ${only.before === undefined ? 'added' : 'removed'} the field ${only.key}${tag}`];
       }
+      if (changes.length === 1 && only?.prop === 'media_id') return [who, `: ${pictureChange(only)}${tag}`];
       if (changes.length === 1 && only) {
-        return [who, `: ${changeLabel(only)} `, changeValuePart(only, only.before), ' → ', changeValuePart(only, only.after), tag];
+        const value = (v: JsonValue | undefined): Part => {
+          if (only.prop !== 'location_id' || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          const place = around.get(v);
+          return place ? nameOf(place) : 'a location';
+        };
+        return [who, `: ${changeLabel(only)} `, value(only.before), ' → ', value(only.after), tag];
       }
       return [who, `: ${[...new Set(changes.map(changeLabel))].join(', ')}${tag}`];
     }
@@ -382,7 +398,8 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
     if (line !== null) rows.push({ key: op.id, op, change: line, field: null });
     if (op.before && op.after) {
       for (const field of fieldChanges(op.before, op.after)) {
-        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: `${changeLabel(field)}${FIELD_HOW[op.groupKind]}`, field });
+        const name = field.prop === 'media_id' ? pictureChange(field) : changeLabel(field);
+        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: `${name}${FIELD_HOW[op.groupKind]}`, field });
       }
     }
     // An update that changed nothing a person sees still happened: say so rather than drop it.

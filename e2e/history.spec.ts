@@ -54,6 +54,62 @@ test('lists every step in words, newest first, and Restore to here is a step und
   await expect(steps(page).first()).toContainText('Undid: Restored the project to');
 });
 
+test('a second quick click on Restore to here is dropped, never restoring the step that moved under the pointer', async ({ page }) => {
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('Added frame 1D');
+  await expect(steps(page).nth(3)).toContainText('Added frame 1A');
+  const button = steps(page).nth(3).getByRole('button', { name: /^Restore to here/ });
+  // Clicked by position, as a person's pointer would, so it has to be on screen first.
+  await button.scrollIntoViewIfNeeded();
+  const box = await button.boundingBox();
+  if (!box) throw new Error('no button');
+  // Each restore adds a step at the top, so 150 ms later the same spot holds the button of “Added frame 1B”.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(150);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(frames(page)).toHaveCount(1);
+  await expect(page.getByRole('status').getByText('Restored the project to after “Added frame 1A”.', { exact: false })).toBeVisible();
+  await page.waitForTimeout(700);
+  await expect(frames(page)).toHaveCount(1);
+  await expect(history(page).getByText('Restored the project to: ', { exact: false })).toHaveCount(1);
+});
+
+test('Restore to here on the point the project is already at says so', async ({ page }) => {
+  await openHistory(page);
+  await steps(page).nth(2).getByRole('button', { name: /^Restore to here/ }).click();
+  await expect(frames(page)).toHaveCount(1);
+  // The restore is a step of its own at the top; the point it went back to is still listed below.
+  await expect(steps(page).nth(3)).toContainText('Added frame 1A');
+  // After the rows settle (a click straight away would be taken for a double click).
+  await page.waitForTimeout(700);
+  await steps(page).nth(3).getByRole('button', { name: /^Restore to here/ }).click();
+  await expect(page.getByRole('status').getByText('Nothing to restore: the project is already as it was after “Added frame 1A”.')).toBeVisible();
+  await expect(history(page).getByText('Restored the project to: ', { exact: false })).toHaveCount(1);
+});
+
+test('a second quick click on Put back is dropped, never putting back the row that moved under the pointer', async ({ page }) => {
+  await frames(page).first().click();
+  await setLens(page, '35');
+  await setLens(page, '50');
+  await setLens(page, '85');
+  await openHistory(page);
+  await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  const button = changes.getByRole('button', { name: 'Put back lens 35mm' });
+  // Clicked by position, as a person's pointer would, so it has to be on screen first.
+  await button.scrollIntoViewIfNeeded();
+  const box = await button.boundingBox();
+  if (!box) throw new Error('no button');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(150);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
+  await page.waitForTimeout(700);
+  await expect(inspector(page).getByLabel('Lens (mm)')).toHaveValue('35');
+  await expect(changes.getByRole('row').nth(1)).toContainText(/lens\s*85mm\s*35mm/);
+});
+
 test('one frame’s own changes, field by field, with an old value to put back', async ({ page }) => {
   await frames(page).first().click();
   await setLens(page, '35');

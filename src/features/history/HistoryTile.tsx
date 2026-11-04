@@ -5,14 +5,16 @@ import { isMac } from '../../app/shell/undoShortcuts';
 import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { shotFields } from '../../core/model/storyboard';
-import { opsOfRecords, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import type { LoggedOp, OpGroup } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { canPutBack, putBackChange } from './putBack';
-import { loadSteps, PAGE, type Steps } from './steps';
+import { frameOps as readFrameOps, loadSteps, PAGE, restoreNotice, type Steps } from './steps';
 import { changeLabel, changeValue, frameRows, isMono, lineText, who, type FieldChange, type Line } from './summary';
+import { createWriteGate } from './writeGate';
+
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
 // did, who and when, and Restore to here. Filtered to the selected frame, every change to it, field by field, with
@@ -42,29 +44,40 @@ export function HistoryTile() {
   const shotId = useSelection((s) => s.shotId);
   const [count, setCount] = useState(PAGE);
   const [onlyFrame, setOnlyFrame] = useState(false);
-  const [loaded, setLoaded] = useState<Steps | null>(null);
+  // Each read keeps the records it was read for, so a restore can tell when the rows show what it did.
+  const [loaded, setLoaded] = useState<(Steps & { readFor: number }) | null>(null);
   // Kept with the frame they were read for: a new selection shows nothing until its own are read, so a Put back
   // can never land on the frame selected before.
-  const [frameOps, setFrameOps] = useState<{ id: string; ops: LoggedOp[] } | null>(null);
+  const [frameOps, setFrameOps] = useState<{ id: string; ops: LoggedOp[]; readFor: number } | null>(null);
   const shot = shotId ? records[shotId] : undefined;
   const frame = shot?.type === 'shot' && shot.trashedAt === null ? shot : undefined;
   const filtered = onlyFrame && frame !== undefined;
   const list = useRef<HTMLOListElement>(null);
   const olderAsked = useRef(false);
+  // One restore or Put back at a time (writeGate.ts): a click on a row that just moved under the pointer is dropped.
+  const [gate] = useState(() => createWriteGate());
 
   // Read again after every edit, undo and restore: each is a new step.
   useEffect(() => {
     if (!project) return;
     let live = true;
+    const readFor = gate.versionOf(records);
     loadSteps(project.file, count)
       .then((next) => {
-        if (live) setLoaded(next);
+        if (live) setLoaded({ ...next, readFor });
       })
       .catch(showNotice);
     return () => {
       live = false;
     };
-  }, [project, records, canUndo, count]);
+  }, [gate, project, records, canUndo, count]);
+
+  useEffect(() => {
+    if (loaded) gate.read('steps', loaded.readFor);
+  }, [gate, loaded]);
+  useEffect(() => {
+    if (frameOps) gate.read('frame', frameOps.readFor);
+  }, [gate, frameOps]);
 
   // Show older steps goes once the last page is in: focus stays in the list rather than falling out of the window.
   useEffect(() => {
@@ -77,38 +90,58 @@ export function HistoryTile() {
     if (!project || !filtered) return;
     let live = true;
     const id = frame.id;
-    // Its strokes and picture too, trashed ones included: sketching writes only the stroke, never the frame.
-    const children = Object.values(records)
-      .filter((r) => r.parentId === id)
-      .map((r) => r.id);
-    opsOfRecords(project.file, [id, ...children])
+    const readFor = gate.versionOf(records);
+    // Its strokes and picture too, from the log: sketching writes only the stroke, never the frame, and an undone
+    // sketch has no record left to find them by.
+    readFrameOps(project.file, id)
       .then((ops) => {
-        if (live) setFrameOps({ id, ops });
+        if (live) setFrameOps({ id, ops, readFor });
       })
       .catch(showNotice);
     return () => {
       live = false;
     };
-  }, [project, filtered, frame, records]);
+  }, [gate, project, filtered, frame, records]);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   const undoKey = isMac() ? '⌘Z' : 'Ctrl+Z';
 
-  const restore = (group: OpGroup, line: Line) => {
+  const restore = (group: OpGroup) => {
+    if (!gate.take('steps', projectStore.getState().records)) return;
+    // The list as clicked: the notice names the step that was pressed, not what moved into its place.
+    const shown = loaded?.steps ?? [];
     void projectStore
       .getState()
       .restoreTo(group.id)
-      .then((changed) => {
-        if (changed) showInfo(`Restored the project to after “${lineText(line)}”. ${undoKey} takes it back.`);
-      });
+      .then(
+        (changed) => {
+          gate.written(changed);
+          // A restore that failed has said why (the store's error); only one that found nothing to do says so here.
+          const { error, changedOnDisk } = projectStore.getState();
+          if (changed || (error === null && !changedOnDisk)) showInfo(restoreNotice(shown, group.id, changed, undoKey));
+        },
+        () => {
+          gate.written(false);
+        },
+      );
   };
 
-  const putBack = (recordId: string, field: FieldChange) =>
-    // Worked out from the frame as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
-    projectStore.getState().applyWith((now) => {
-      const change = putBackChange(now[recordId], field);
-      return { changes: change ? [change] : [] };
-    });
+  const putBack = async (recordId: string, field: FieldChange): Promise<boolean> => {
+    if (!gate.take('frame', projectStore.getState().records)) return false;
+    let changed = false;
+    try {
+      // Worked out from the frame as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
+      const done = await projectStore.getState().applyWith((now) => {
+        const change = putBackChange(now[recordId], field);
+        changed = change !== null;
+        return { changes: change ? [change] : [] };
+      });
+      changed &&= done;
+      return done;
+    } finally {
+      gate.written(changed);
+    }
+  };
 
   const frameName = frame ? shotFields(frame.props).number : '';
   const label = frame ? (
@@ -152,7 +185,7 @@ export function HistoryTile() {
                     <Button
                       aria-label={`Restore to here: after “${lineText(line)}”`}
                       onClick={() => {
-                        restore(group, line);
+                        restore(group);
                       }}
                     >
                       Restore to here

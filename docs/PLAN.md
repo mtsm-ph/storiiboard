@@ -284,14 +284,22 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   dialogue, departments, custom fields). A custom field goes back on its own, leaving the frame's others as they are;
   Put back isn't offered where the frame already has that value. A new selection shows only its own changes.
 - Shot and scene numbers, lens and T-stop are set in JetBrains Mono in step lines and in the frame toggle.
-- A step whose picture was cleaned up (1.21) says "(picture removed)".
+- A step whose picture was cleaned up (1.21) says "(picture removed)". Values kept by id never show as ids: a
+  scene's location reads by its name as it was then ("SC 05: location — → Dock"), and a frame's picture as "picture
+  set", "picture replaced" or "picture removed".
+- One restore or Put back at a time: a second click while one writes, or within half a second of its rows being read
+  again, is dropped, so a double click never lands on the row that moved under the pointer. Restore to here on a
+  point the project is already at says so (and, past an Empty Trash, that what it deleted can't come back).
+- A frame's own history finds its strokes and picture in the log, so an undone sketch, or one Restore to here took
+  away, still shows ("Sketched", "Undid: Sketched").
 - Tests: a restore and its undo, a restore after a restart (and undone after another), a restore whose write dies
   halfway changing nothing, a restore after Empty Trash (src/core/ops/purge.test.ts), a frame's Trash state and the
   board's order brought back, Put back on custom fields and the action, no empty step, and paging.
 - Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
   them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9). A
   custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
-  marked by a word after the field rather than a column of their own.
+  marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
+  are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
