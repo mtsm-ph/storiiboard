@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { imageUrl } from '../../core/media/urls';
 import { mediaFields } from '../../core/media/store';
 import { Button } from '../../ui/Button';
@@ -9,13 +9,13 @@ import { useTheme } from '../../ui/theme/ThemeProvider';
 import { showNotice } from '../notice';
 import type { PictureFile } from '../pictures';
 import { projectStore, useProject } from '../projectStore';
-import { ThemeChooser, type ThemeChoice } from './ThemeChooser';
-import { currentTheme, prepareThemeImage, resetTheme, setTheme } from './themeEdits';
+import { ThemeChooser } from './ThemeChooser';
+import { currentTheme, prepareThemeImage, resetTheme, setTheme, type ThemePatch } from './themeEdits';
 import { ThemeImageWell } from './ThemeImageWell';
 
 // Settings → Theme (1.16, docs/PLAN.md B): onboarding's controls for an open project, plus a manual accent (put
 // through the same AA fit, with what was picked and what's used side by side), Regenerate and Reset to default. Each
-// change is one op group, so ⌘Z takes it back.
+// change is one op group, so ⌘Z takes it back, and each is worked out from the project as it is when it lands.
 
 /** Six hex digits or three, with or without the #. */
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -26,7 +26,9 @@ export function ThemeTile() {
   const { resolved } = useTheme();
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState<{ sha256: string; url: string | null } | null>(null);
-  const [typed, setTyped] = useState<string | null>(null);
+  // What's typed in the hex field, with the accent it was typed over: an undo that changes the accent clears it.
+  const [typed, setTyped] = useState<{ value: string; over: string | null } | null>(null);
+  const reading = useRef(0);
   const hexId = useId();
 
   const current = project ? currentTheme(records, project.projectId, resolved === 'dark') : null;
@@ -47,44 +49,58 @@ export function ThemeTile() {
 
   if (!project || !current) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   const imageName = current.imageId ? (mediaFields(records[current.imageId]?.props ?? {})?.sourceName ?? null) : null;
+  const osDark = resolved === 'dark';
 
-  /** One op group from the records as they are when it lands. */
-  const save = (choice: ThemeChoice, extra: Parameters<typeof setTheme>[3]) => {
-    void projectStore.getState().applyWith((now) => setTheme(now, project.projectId, choice, extra));
+  /** One op group, worked out from the records as they are when it lands. */
+  const save = (patch: ThemePatch) => {
+    void projectStore.getState().applyWith((now) => setTheme(now, project.projectId, patch, { projectPath: project.file.path, osDark }));
   };
-  const keep = { keepImageId: current.imageId, candidates: current.candidates, projectPath: project.file.path };
 
   const onFiles = (files: PictureFile[]) => {
-    const [picked] = files;
-    if (!picked) return;
+    const [chosen] = files;
+    if (!chosen || busy) return;
+    // The latest pick wins; one still being read when the project switches is dropped.
+    const ticket = ++reading.current;
+    const openNow = projectStore.getState().project;
     setBusy(true);
-    prepareThemeImage(picked)
+    prepareThemeImage(chosen)
       .then((image) => {
-        save({ ...current.choice, accent: image.candidates[0] ?? null }, { ...keep, image, candidates: image.candidates });
         URL.revokeObjectURL(image.previewUrl);
+        if (ticket !== reading.current || projectStore.getState().project !== openNow) return;
+        setTyped(null);
+        save({ image });
       })
       .catch(showNotice)
       .finally(() => {
-        setBusy(false);
+        if (ticket === reading.current) setBusy(false);
       });
   };
 
-  const manual = typed ?? current.choice.accent ?? '';
+  const shown = typed && typed.over === current.choice.accent ? typed.value : (current.choice.accent ?? '');
   // What was typed, as #RRGGBB: the picker takes no other form.
-  const picked = HEX.test(manual.trim()) ? hex(parseHex(manual)) : null;
+  const picked = HEX.test(shown.trim()) ? hex(parseHex(shown)) : null;
   const fitted = picked ? themeFor(picked) : null;
+  const type = (value: string) => {
+    setTyped({ value, over: current.choice.accent });
+  };
+  const applyTyped = () => {
+    if (!fitted) return;
+    setTyped(null);
+    save({ accent: fitted.source });
+  };
 
   return (
-    <div className="flex max-w-[640px] flex-col gap-5 p-4">
+    // The tile takes a pasted picture anywhere in it, as its image (ThemeImageWell).
+    <div data-theme-tile="" className="flex max-w-[640px] flex-col gap-5 p-4">
       <ThemeChooser
         candidates={current.candidates}
         choice={current.choice}
         busy={busy}
         onChange={(choice) => {
           setTyped(null);
-          save(choice, keep);
+          save({ accent: choice.accent, mode: choice.mode });
         }}
-        image={<ThemeImageWell url={url} name={imageName} onFiles={onFiles} />}
+        image={<ThemeImageWell url={url} name={imageName} onFiles={onFiles} disabled={busy} />}
       />
 
       <section className="flex flex-col gap-2 border-t border-border pt-4">
@@ -93,13 +109,13 @@ export function ThemeTile() {
           <TextField
             label="Hex"
             mono
-            value={manual}
+            value={shown}
             placeholder="#RRGGBB"
             onChange={(event) => {
-              setTyped(event.currentTarget.value);
+              type(event.currentTarget.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && fitted) save({ ...current.choice, accent: fitted.source }, keep);
+              if (event.key === 'Enter') applyTyped();
             }}
           />
           <label htmlFor={hexId} className="flex flex-col gap-[5px]">
@@ -109,17 +125,12 @@ export function ThemeTile() {
               type="color"
               value={(picked ?? DEFAULT_ACCENT).toLowerCase()}
               onChange={(event) => {
-                setTyped(event.currentTarget.value);
+                type(event.currentTarget.value);
               }}
               className="h-[34px] w-[48px] border border-text bg-surface"
             />
           </label>
-          <Button
-            disabled={!fitted}
-            onClick={() => {
-              if (fitted) save({ ...current.choice, accent: fitted.source }, keep);
-            }}
-          >
+          <Button disabled={!fitted} onClick={applyTyped}>
             Use this accent
           </Button>
         </div>
@@ -129,20 +140,22 @@ export function ThemeTile() {
             {fitted.source} → {fitted.light.accent} light, {fitted.dark.accent} dark
           </p>
         )}
-        {!picked && manual.trim() !== '' && <p className="text-[12px] text-text-muted">A colour as six hex digits, #RRGGBB, or three, #RGB.</p>}
+        {!picked && shown.trim() !== '' && <p className="text-[12px] text-text-muted">A colour as six hex digits, #RRGGBB, or three, #RGB.</p>}
       </section>
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-4">
         <Button
+          disabled={!current.stored}
           onClick={() => {
             // The stored tokens are kept as approved; this works them out again from the accent with today's generator.
-            save(current.choice, keep);
+            save({});
           }}
         >
           Regenerate
         </Button>
         <Button
           variant="warning"
+          disabled={!current.stored}
           onClick={() => {
             setTyped(null);
             void projectStore.getState().applyWith((now) => ({ changes: resetTheme(now, project.projectId) }));

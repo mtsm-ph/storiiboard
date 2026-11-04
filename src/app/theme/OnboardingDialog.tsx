@@ -5,7 +5,7 @@ import { useTheme } from '../../ui/theme/ThemeProvider';
 import { showNotice } from '../notice';
 import { fromFile, type PictureFile } from '../pictures';
 import { projectStore, useProject } from '../projectStore';
-import { closeOnboarding, useOnboardingOpen } from './onboarding';
+import { closeOnboarding, useOnboardingProject } from './onboarding';
 import { ThemeChooser, type ThemeChoice } from './ThemeChooser';
 import { prepareThemeImage, setTheme, type ThemeImage } from './themeEdits';
 import { ThemeImageWell } from './ThemeImageWell';
@@ -15,9 +15,10 @@ import { ThemeImageWell } from './ThemeImageWell';
 // keeps the kit's look, which Settings → Theme can change later.
 
 export function OnboardingHost() {
-  const open = useOnboardingOpen();
+  const forProject = useOnboardingProject();
   const project = useProject((s) => s.project);
-  if (!open || !project) return null;
+  // Only for the project it was opened for: another one opened meanwhile (a double-click in Finder) never gets it.
+  if (!forProject || project?.projectId !== forProject) return null;
   return <OnboardingDialog key={project.projectId} name={project.name} />;
 }
 
@@ -29,6 +30,16 @@ function OnboardingDialog({ name }: { name: string }) {
   const [image, setImage] = useState<ThemeImage | null>(null);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The latest image picked wins; one still being read when the dialog goes is freed as soon as it's ready.
+  const reading = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    // Set again on every mount: StrictMode mounts twice in development.
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const element = dialog.current;
@@ -50,7 +61,8 @@ function OnboardingDialog({ name }: { name: string }) {
   }, [image]);
 
   // In the browser build, a picture dropped anywhere on the dialog is the image (the desktop app's drops come through
-  // the well's window listener instead). Registered once; it reads the latest handler.
+  // the well's window listener instead; pastes, through the well's listener on the dialog). Registered once; it reads
+  // the latest handler.
   const latest = useRef<(files: PictureFile[]) => void>(() => undefined);
   useEffect(() => {
     const element = dialog.current;
@@ -72,16 +84,21 @@ function OnboardingDialog({ name }: { name: string }) {
   const onFiles = (files: PictureFile[]) => {
     const [file] = files;
     if (!file) return;
+    const ticket = ++reading.current;
     setBusy(true);
     prepareThemeImage(file)
       .then((next) => {
+        if (!mounted.current || ticket !== reading.current) {
+          URL.revokeObjectURL(next.previewUrl);
+          return;
+        }
         setImage(next);
         // The most saturated accent is the default, as the plan has it; none for a grey image keeps the kit.
         setChoice((current) => ({ ...current, accent: next.candidates[0] ?? null }));
       })
       .catch(showNotice)
       .finally(() => {
-        setBusy(false);
+        if (mounted.current && ticket === reading.current) setBusy(false);
       });
   };
 
@@ -101,9 +118,17 @@ function OnboardingDialog({ name }: { name: string }) {
     void projectStore
       .getState()
       .applyWith((records) =>
-        setTheme(records, project.projectId, choice, { image, candidates: image?.candidates ?? [], projectPath: project.file.path }),
+        setTheme(
+          records,
+          project.projectId,
+          { accent: choice.accent, mode: choice.mode, ...(image ? { image } : {}) },
+          { projectPath: project.file.path, osDark: resolved === 'dark' },
+        ),
       )
-      .then(closeOnboarding)
+      // Not written (an error, shown as a notice): the dialog stays, with the choice, to try again or skip.
+      .then((written) => {
+        if (written) closeOnboarding();
+      })
       .finally(() => {
         setSaving(false);
       });
@@ -123,7 +148,6 @@ function OnboardingDialog({ name }: { name: string }) {
         event.preventDefault();
         closeOnboarding();
       }}
-
       className="m-auto max-h-none w-[560px] max-w-[calc(100vw-32px)] border-[1.5px] border-text bg-surface p-0 text-text backdrop:bg-text/40"
     >
       <div className="flex flex-col gap-4 p-4">

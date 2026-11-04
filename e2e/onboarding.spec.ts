@@ -18,6 +18,14 @@ const onboarding = (page: Page) => page.getByRole('dialog', { name: 'Set up Bey 
 const themeTile = (page: Page) => page.getByRole('region', { name: 'Theme', exact: true });
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const accent = (page: Page) => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
+/** The open project's stored theme prop and whether anything can be undone, read from the app's own store. */
+const stored = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/projectStore.ts';
+    const { projectStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projectStore');
+    const { project, records, canUndo } = projectStore.getState();
+    return { theme: project ? (records[project.projectId]?.props.theme ?? null) : null, canUndo };
+  });
 /** ⌘ where the app thinks it's on a Mac, Ctrl elsewhere (the Chromium project runs with a Windows user agent). */
 const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
 
@@ -59,6 +67,8 @@ test('Skip, or Escape, leaves the kit’s look and writes nothing', async ({ pag
   // Focus lands on the workspace's section, not the page.
   await expect(sidebar(page).getByRole('button', { name: /^Storyboard/ })).toBeFocused();
   expect(await accent(page)).toBe('');
+  // Nothing stored, and nothing in the History to undo.
+  expect(await stored(page)).toEqual({ theme: null, canUndo: false });
 
   // A second project, from the switcher: Escape skips its onboarding the same way.
   page.once('dialog', (dialog) => void dialog.accept('Bey County Pilot'));
@@ -107,6 +117,19 @@ test('a logo offers its accent, the dialog previews it, and Create themes the pr
   await expect(themeTile(page).getByText('No image')).toBeVisible();
 });
 
+test('a picture pasted anywhere on the dialog is its image', async ({ page }) => {
+  await newProject(page);
+  await onboarding(page).getByRole('radiogroup', { name: 'Mode' }).getByRole('radio', { name: 'Dark' }).click();
+  const file = await logo(page);
+  // Focus on the Dark radio, as after clicking it: the paste still lands on the dialog's image.
+  await page.evaluate((data) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(data)], 'pasted.png', { type: 'image/png' }));
+    document.activeElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true }));
+  }, [...file.buffer]);
+  await expect(onboarding(page).getByText('pasted.png')).toBeVisible();
+});
+
 test('a picture dropped on the dialog is its image, never a frame on the board', async ({ page }) => {
   await newProject(page);
   const file = await logo(page);
@@ -137,6 +160,8 @@ test('Settings → Theme takes an accent by hand, shows what AA makes of it, and
   await hex.press('Enter');
   await expect.poll(() => accent(page)).not.toBe('');
   const used = await accent(page);
+  // The accent typed in is one of the swatches now, and the one picked.
+  await expect(themeTile(page).getByRole('radiogroup', { name: 'Accent' }).getByRole('radio', { name: '#1E6BD6' })).toHaveAttribute('aria-checked', 'true');
 
   await themeTile(page).getByRole('button', { name: 'Reset to default' }).click();
   await expect.poll(() => accent(page)).toBe('');

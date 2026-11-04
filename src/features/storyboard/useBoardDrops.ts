@@ -26,10 +26,10 @@ const targetAt = (point: PagePoint) => targetOf(document.elementFromPoint(point.
 
 /**
  * Whether a drop or a paste is someone else's: anything while a modal dialog is open (onboarding, the sketch editor),
- * or one on a theme image well (Settings → Theme), which takes its own.
+ * or one on Settings → Theme, which takes a picture as the project's image.
  */
 function takenElsewhere(element: Element | null): boolean {
-  return document.querySelector('dialog[open]') !== null || element?.closest('[data-theme-well]') != null;
+  return document.querySelector('dialog[open]') !== null || element?.closest('[data-theme-well], [data-theme-tile]') != null;
 }
 
 function hoverOf(target: PictureTarget | null): DropHover {
