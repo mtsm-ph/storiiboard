@@ -7,8 +7,8 @@ import { recordSlateNumbers, SLATE_NUMBERS_UNKNOWN } from '../slateNumbers';
 //
 // The backfill replays the History to find every number a shot had while its scene was locked: frames live, in the
 // Trash, or only in History (made and then undone). What an Empty Trash deleted before this can't be found, since it
-// cleared those frames' steps too; scenes that had been locked by the time one ran are listed in meta, and the Empty
-// Trash confirm still warns about them.
+// cleared those frames' steps too. When one ran after any scene had been locked, meta says some numbers are unknown,
+// and the Empty Trash confirm still warns while a scene is locked.
 
 interface Known {
   type: string;
@@ -29,14 +29,15 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   );
   const state = new Map<string, Known>();
   const children = new Map<string, Set<string>>();
-  const found = new Map<string, Set<string>>();
-  const everLocked = new Set<string>();
-  const unknown = new Set<string>();
+  // Scene, then number, then the shot it went to first.
+  const found = new Map<string, Map<string, string>>();
+  let everLocked = false;
+  let unknown = false;
 
-  const add = (sceneId: string, number: string) => {
+  const add = (sceneId: string, number: string, shotId: string) => {
     if (number === '') return;
-    const numbers = found.get(sceneId) ?? new Set<string>();
-    numbers.add(number);
+    const numbers = found.get(sceneId) ?? new Map<string, string>();
+    if (!numbers.has(number)) numbers.set(number, shotId);
     found.set(sceneId, numbers);
   };
   // What a group gave out is what it left behind, as the app records it: a frame moved from an unlocked scene into a
@@ -48,12 +49,12 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
       const record = state.get(id);
       if (record?.type === 'shot' && record.parentId !== null) {
         const scene = state.get(record.parentId);
-        if (scene?.type === 'scene' && scene.locked) add(record.parentId, record.number);
+        if (scene?.type === 'scene' && scene.locked) add(record.parentId, record.number, id);
       }
       if (record?.type === 'scene' && record.locked) {
         for (const child of children.get(id) ?? []) {
           const shot = state.get(child);
-          if (shot?.type === 'shot') add(id, shot.number);
+          if (shot?.type === 'shot') add(id, shot.number, child);
         }
       }
     }
@@ -64,10 +65,10 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     if (String(row.group_id) !== group) {
       settle();
       group = String(row.group_id);
-      // An Empty Trash: frames it deleted had their steps cleared, so the numbers they had are gone from the file.
-      // Any scene that had been locked by then may have lost one (a frame trashed while locked keeps its number even
-      // after the scene is unlocked).
-      if (row.kind === 'purge') for (const id of everLocked) unknown.add(id);
+      // An Empty Trash: what it deleted had its steps cleared, so the numbers it had are gone from the file. Once any
+      // scene had been locked, some may have been on slates: frames trashed while locked keep their number even after
+      // an unlock, and a whole scene deleted leaves no trace of which scene it was.
+      if (row.kind === 'purge' && everLocked) unknown = true;
     }
     const id = String(row.record_id);
     const was = state.get(id);
@@ -84,7 +85,7 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     };
     state.set(id, after);
     touched.add(id);
-    if (after.type === 'scene' && after.locked) everLocked.add(id);
+    if (after.type === 'scene' && after.locked) everLocked = true;
     if (after.parentId) {
       const siblings = children.get(after.parentId) ?? new Set<string>();
       siblings.add(id);
@@ -95,11 +96,11 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
 
   const statements: Statement[] = [];
   for (const [sceneId, numbers] of found) {
-    for (const number of numbers) {
+    for (const [number, shotId] of numbers) {
       statements.push({
-        sql: `INSERT INTO slate_numbers (id, scene_id, number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+        sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT (scene_id, number) DO NOTHING`,
-        params: [crypto.randomUUID(), sceneId, number, at, at],
+        params: [crypto.randomUUID(), sceneId, number, shotId, at, at],
       });
     }
   }
@@ -108,8 +109,7 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   const sceneIds = scenes.map((scene) => String(scene.id));
   const current = recordSlateNumbers(sceneIds, at);
   if (current) statements.push(current);
-  const stillThere = [...unknown].filter((id) => sceneIds.includes(id)).sort();
-  if (stillThere.length > 0) statements.push(setMeta(SLATE_NUMBERS_UNKNOWN, JSON.stringify(stillThere), now()));
+  if (unknown) statements.push(setMeta(SLATE_NUMBERS_UNKNOWN, 'true', now()));
   return statements;
 }
 
@@ -124,6 +124,7 @@ export const slateNumbers: Migration = {
         id TEXT PRIMARY KEY,
         scene_id TEXT NOT NULL,
         number TEXT NOT NULL,
+        shot_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE (scene_id, number)

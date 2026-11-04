@@ -6,9 +6,14 @@ import type { ProjectFile, Statement } from './driver';
 // records and the History: undo, redo and Restore to here write whole records back, and a list kept in a scene's
 // props would lose numbers to any of them. Nothing ever deletes a row, not even Empty Trash (docs/SBD_FORMAT.md).
 //
-// Unlocked scenes record nothing: their letters follow the board, so boarding never leaves gaps.
+// Unlocked scenes record nothing: their letters follow the board, so boarding never leaves gaps. Each number keeps the
+// shot it went to first, so a scene unlocked and locked again gives every frame back the number on its slate, and a
+// frame whose number another shot was slated with takes a new one (src/features/storyboard/board.ts).
 
-/** The meta key listing scenes whose numbers the schema 5 migration couldn't all recover (Empty Trash had run). */
+/**
+ * The meta key set when the schema 5 migration couldn't recover every number: an Empty Trash had run after a scene had
+ * been locked, and what it deleted is gone from the file, numbers and all.
+ */
 export const SLATE_NUMBERS_UNKNOWN = 'slate_numbers_unknown';
 
 /** A UUID v4 made inside SQLite, one per row an INSERT … SELECT writes. */
@@ -28,12 +33,12 @@ export function recordSlateNumbers(ids: readonly string[], at: string): Statemen
   if (ids.length === 0) return null;
   const list = JSON.stringify(ids);
   return {
-    sql: `INSERT INTO slate_numbers (id, scene_id, number, created_at, updated_at)
-      SELECT ${UUID_V4}, scene_id, number, ?, ? FROM (
-        SELECT sc.id AS scene_id, json_extract(sh.props, '$.number') AS number
+    sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at)
+      SELECT ${UUID_V4}, scene_id, number, shot_id, ?, ? FROM (
+        SELECT sc.id AS scene_id, json_extract(sh.props, '$.number') AS number, sh.id AS shot_id
           FROM json_each(?) j JOIN records sh ON sh.id = j.value JOIN records sc ON sc.id = sh.parent_id WHERE ${KEPT}
         UNION
-        SELECT sc.id, json_extract(sh.props, '$.number')
+        SELECT sc.id, json_extract(sh.props, '$.number'), sh.id
           FROM json_each(?) j JOIN records sc ON sc.id = j.value JOIN records sh ON sh.parent_id = sc.id WHERE ${KEPT}
       ) WHERE true
       ON CONFLICT (scene_id, number) DO NOTHING`,
@@ -41,26 +46,18 @@ export function recordSlateNumbers(ids: readonly string[], at: string): Statemen
   };
 }
 
-/** Every scene's slate numbers, by scene id. */
+/** Every slate number, oldest first. */
 export async function loadSlateNumbers(file: ProjectFile): Promise<SlateNumbers> {
-  const rows = await file.query('SELECT scene_id, number FROM slate_numbers');
-  const out = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const scene = String(row.scene_id);
-    const numbers = out.get(scene) ?? new Set<string>();
-    numbers.add(String(row.number));
-    out.set(scene, numbers);
-  }
-  return out;
+  const rows = await file.query('SELECT scene_id, number, shot_id FROM slate_numbers ORDER BY created_at, number');
+  return rows.map((row) => ({ sceneId: String(row.scene_id), number: String(row.number), shotId: String(row.shot_id) }));
 }
 
 /**
- * Scenes that were locked when an Empty Trash ran before schema 5: it may have deleted frames whose numbers nothing
- * in the file still holds, so a new frame there could be given one of them. The Empty Trash confirm says so.
+ * Whether some numbers given out before schema 5 are unknown: frames an Empty Trash deleted from a scene that had been
+ * locked, in this file or under another number since. A locked scene could give one out again; the Empty Trash
+ * confirm says so.
  */
-export async function slateNumbersUnknown(file: ProjectFile): Promise<ReadonlySet<string>> {
+export async function slateNumbersUnknown(file: ProjectFile): Promise<boolean> {
   const [row] = await file.query('SELECT value FROM meta WHERE key = ?', [SLATE_NUMBERS_UNKNOWN]);
-  if (!row) return new Set();
-  const ids: unknown = JSON.parse(String(row.value));
-  return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  return row !== undefined;
 }

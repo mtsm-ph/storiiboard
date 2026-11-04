@@ -218,8 +218,9 @@ computer; their names fit, but that folder's path isn't checked.
 
 ## Schema v5: slate numbers (1.26)
 
-A locked scene remembers every shot number it has given out (Kevin, Nov 4), so a letter that has been on a slate is
-never given out again, even after Empty Trash deletes the frame that had it (src/core/storage/slateNumbers.ts).
+A locked scene remembers every shot number it has given out (Kevin, Nov 4), so a number that has been on a slate is
+never given out again, even after Empty Trash deletes the frame that had it (src/core/storage/slateNumbers.ts; the
+rules in src/features/storyboard/board.ts).
 
 `slate_numbers`
 
@@ -228,27 +229,33 @@ never given out again, even after Empty Trash deletes the frame that had it (src
 | id, created_at, updated_at | | As every table |
 | scene_id | text | The scene that gave the number out. No reference to records: a scene Empty Trash deletes keeps its rows |
 | number | text | The shot number as on the slate: `4C`. Unique with scene_id |
+| shot_id | text | The shot it went to first. No reference either: the shot may be gone for good |
 
 - Only numbers given out while the scene is locked are kept. An unlocked scene's letters follow the board and close up,
-  so boarding never leaves gaps; locking a scene keeps the numbers its frames have at that moment, those in the Trash
+  so boarding never leaves gaps. Locking a scene records the numbers its frames have then, those in the Trash
   included, and every number a frame gets there afterwards.
 - Every op group writes its rows in its own transaction, after its records: a frame added to a locked scene, a scene
   as it's locked, and anything undo, redo or a History restore writes. Nothing ever deletes or changes a row: not undo,
   not a restore, not Empty Trash. They're kept apart from the records for that reason: History stores whole records,
   so a list in a scene's props would go back with any undo of an older change to the scene.
 - A locked scene's next free letter comes after the highest it has used (its frames, live or in the Trash, and its
-  rows here), and skips every number on the board and every scene's rows, so 4C, made in a scene since renumbered 9
-  or deleted for good, is never made again in a locked scene 4.
-- An unlocked scene's letters can repeat another scene's numbers (a new scene 4 boarded after the old one was
-  deleted reads 4A, 4B again): they aren't on a slate yet. Locking keeps each frame's number unless it's another
-  scene's row here or a live frame's number in another scene; such a frame takes the next free letter, so the moment
-  numbers go onto slates, none is on two.
-- A locked scene restored from the Trash under a new number (its own was taken meanwhile) numbers its frames afresh
-  in board order, skipping the same numbers, and stays locked.
-- The migration replays the log to find every number a shot had while its scene was locked, live, trashed or only in
-  History (made and then undone). Frames an Empty Trash deleted before schema 5 can't be found, since it cleared their
-  steps; the scenes that were locked when one ran are listed in `meta` under `slate_numbers_unknown` (a JSON array of
-  scene ids), and the Empty Trash confirm names those that are still locked.
+  rows here), and skips every number any shot holds and every row, so 4C, made in a scene since renumbered 9 or
+  deleted for good, is never made again in a locked scene 4.
+- Locking is when numbers go onto slates, so then no number may be on two:
+  - a frame slated in this scene before (locked, unlocked and edited, locked again) takes back the number it had;
+  - any other frame keeps its number unless another shot was slated with it or holds it (a new scene 4 boarded
+    unlocked after the old one was deleted reads 4A, 4B again, which are on footage);
+  - if any live frame needs a new letter, every live frame not slated before takes one, in board order after the
+    scene's highest, so the board still reads in order; a frame in the Trash that clashes loses its number and takes
+    one when it's restored. Undo takes the lock back with its new numbers.
+- A frame restored from the Trash into a locked scene keeps its number only while no other shot holds it or was slated
+  with it; otherwise it takes the next free letter. A locked scene restored under a new number (its own was taken
+  meanwhile) numbers its frames afresh in board order, skipping the same numbers, and stays locked.
+- The migration replays the log, an op group at a time, to find every number a shot had at the end of a group while
+  its scene was locked, live, trashed or only in History (made and then undone), with the shot it went to first.
+  Frames an Empty Trash deleted before schema 5 can't be found, since it cleared their steps, and neither can which
+  scene they were in. If one ran after any scene had been locked, `meta` gets `slate_numbers_unknown` = `true`, and
+  the Empty Trash confirm says, while any scene is locked, that a locked scene could give one of those out again.
 - They're part of the file, so backups and Open version copies carry them. The JSON export (Phase 2) must carry them
   too.
 

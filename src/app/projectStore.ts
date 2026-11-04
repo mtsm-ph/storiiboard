@@ -15,10 +15,10 @@ export interface ProjectState {
   project: Project | null;
   /** Every record by id, trashed ones included; views filter. */
   records: Record<string, SbdRecord>;
-  /** Every scene's slate numbers (1.26): what a locked scene has given out, read again after every write. */
+  /** Every slate number (1.26): what locked scenes have given out, read again after each group touching a shot or scene. */
   slateNumbers: SlateNumbers;
-  /** Scenes whose numbers before schema 5 aren't all known (an Empty Trash had run); the Empty Trash confirm says so. */
-  slateUnknown: ReadonlySet<string>;
+  /** Whether some numbers given out before schema 5 are unknown (an Empty Trash had run); the Empty Trash confirm says so. */
+  slateUnknown: boolean;
   canUndo: boolean;
   canRedo: boolean;
   /** The last edit that failed, in words a person can read. */
@@ -129,7 +129,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       project: null,
       records: {},
       slateNumbers: NO_SLATE_NUMBERS,
-      slateUnknown: new Set(),
+      slateUnknown: false,
       canUndo: false,
       canRedo: false,
       error: null,
@@ -177,7 +177,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
               project: null,
               records: {},
               slateNumbers: NO_SLATE_NUMBERS,
-              slateUnknown: new Set(),
+              slateUnknown: false,
               canUndo: false,
               canRedo: false,
               error: null,

@@ -457,9 +457,8 @@ src/app/openVersion.ts):
 - Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
   Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
   erased from a frame still on the board stays, with its History.
-- Open, for Kevin: a locked scene reserves a trashed frame's letter by keeping the frame, so once Empty Trash deletes
-  it, a new frame can be given that letter again (it may be on a slate). The confirm says so when it can happen.
-  Keeping the reservation needs a scene prop for the highest letter used, a format change.
+- Kevin, Nov 4: a locked scene keeps its letters after Empty Trash too. Built in 1.26 (slate numbers, schema 5); the
+  confirm's warning stays only where the migration couldn't recover them.
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
@@ -474,7 +473,8 @@ src/app/openVersion.ts):
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
 - Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame anywhere has
-  taken it since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+  taken it since, when it takes the next free one (from 1.26, also unless any other shot holds it or was slated with
+  it); a restored scene whose number a live scene has taken gets a new one, and
   its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
   scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway

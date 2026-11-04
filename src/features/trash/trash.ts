@@ -171,23 +171,20 @@ export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
 
 /**
  * The Empty Trash confirm, the same in the Trash tile and Settings → Storage. `hidden` counts items the Trash tile's
- * filters hide, since it empties them too. `unknown` is the scenes whose slate numbers schema 5 couldn't all recover.
+ * filters hide, since it empties them too. `unknown`: some slate numbers from before schema 5 couldn't be recovered.
  */
-export function emptyTrashMessage(records: Records, count: number, hidden = 0, unknown: ReadonlySet<string> = new Set()): string {
+export function emptyTrashMessage(records: Records, count: number, hidden = 0, unknown = false): string {
   const what = `${String(count)} ${count === 1 ? 'item' : 'items'}${hidden > 0 ? ` (${String(hidden)} hidden by the filters)` : ''}`;
   // A locked scene keeps every number it has given out (1.26), so emptying the Trash can't free one. The exception is
-  // a scene that was locked when an Empty Trash ran before that: what it deleted then is gone, numbers and all.
-  const lost = Object.values(records)
-    .filter((r) => r.type === 'scene' && r.trashedAt === null && unknown.has(r.id) && sceneFields(r.props).numbersLocked)
-    .map((r) => sceneLabel(sceneFields(r.props).number))
-    .sort();
+  // what an Empty Trash deleted before that: gone, numbers and all. Said while any scene is locked.
+  const locked = Object.values(records).some((r) => r.type === 'scene' && r.trashedAt === null && sceneFields(r.props).numbersLocked);
   return [
     `${what} will be deleted for good, with their sketches and pictures.`,
     'This can’t be undone, History can’t bring them back, and Undo won’t go back past it.',
-    ...(lost.length > 0
+    ...(unknown && locked
       ? [
-          `${lost.join(', ')} ${lost.length === 1 ? 'is' : 'are'} locked, and frames an earlier Empty Trash deleted there ` +
-            'may have had letters Storiiboard no longer knows, so a new frame there could be given one of them.',
+          'Frames an Empty Trash deleted before this version of Storiiboard may have had letters it no longer knows, so ' +
+            'a locked scene could give one of them out again.',
         ]
       : []),
   ].join(' ');

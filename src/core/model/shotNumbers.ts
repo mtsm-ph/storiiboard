@@ -59,13 +59,20 @@ export interface NumberedShot {
   trashed: boolean;
 }
 
-/**
- * Every shot number each scene has given out while locked (schema 5, src/core/storage/slateNumbers.ts), by scene id.
- * Kept apart from the records, so undo, History restores and Empty Trash never take one away.
- */
-export type SlateNumbers = ReadonlyMap<string, ReadonlySet<string>>;
+/** A shot number a scene gave out while locked, and the shot it went to first (schema 5, 1.26). */
+export interface SlateNumber {
+  sceneId: string;
+  number: string;
+  shotId: string;
+}
 
-export const NO_SLATE_NUMBERS: SlateNumbers = new Map();
+/**
+ * Every shot number any scene has given out while locked (src/core/storage/slateNumbers.ts). Kept apart from the
+ * records, so undo, History restores and Empty Trash never take one away.
+ */
+export type SlateNumbers = readonly SlateNumber[];
+
+export const NO_SLATE_NUMBERS: SlateNumbers = [];
 
 /**
  * The number each live shot in a scene should have, in board order. Only shots whose number changes are returned,
