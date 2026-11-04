@@ -1,7 +1,22 @@
 import fontkit from '@pdf-lib/fontkit';
-import { degrees, PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import {
+  degrees,
+  PDFDocument,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+  setCharacterSpacing,
+  setGraphicsState,
+  setLineWidth,
+  setStrokingRgbColor,
+  setTextRenderingMode,
+  TextRenderingMode,
+  type PDFFont,
+  type PDFPage,
+} from 'pdf-lib';
+import { watermarkOutline } from './renderFrame';
 import { pageLabel, sceneLabel, specLine } from '../../core/model/storyboard';
-import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
+import { SHOT_STATUS_LABELS, type ShotStatus } from '../../core/model/shotStatus';
 import type { BoardScene } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import type { Watermark } from './watermark';
@@ -19,6 +34,12 @@ export interface PdfFonts {
   monoBold: Uint8Array;
 }
 
+/** A frame drawn as a JPEG; `pictureMissing` when the drawing already says PICTURE MISSING (renderFrame.ts). */
+export interface FrameImage {
+  jpeg: Uint8Array;
+  pictureMissing?: boolean;
+}
+
 export interface StoryboardInput {
   title: string;
   scenes: readonly BoardScene[];
@@ -26,20 +47,34 @@ export interface StoryboardInput {
   aspect: number;
   watermark: Watermark | null;
   fonts: PdfFonts;
-  /** A frame drawn as a JPEG, or null for one that couldn't be drawn. */
-  frame: (sceneIndex: number, shotIndex: number) => Promise<Uint8Array | null>;
+  /** A frame drawn as a JPEG. Null, or a throw, prints the frame's box as PICTURE MISSING. */
+  frame: (sceneIndex: number, shotIndex: number) => Promise<FrameImage | null>;
   now?: Date;
+  /** Checked before each frame: a stopped export ends there and writes nothing. */
+  signal?: AbortSignal;
 }
 
-/** Points: US Letter landscape, a half-inch margin, the kit's 8px gap as 8pt. */
-const PAGE = { width: 792, height: 612 };
-const MARGIN = 36;
+export interface StoryboardPdf {
+  bytes: Uint8Array;
+  /** Frames that went out without their picture, by shot number, in board order. */
+  missing: string[];
+  /** Whether some text had characters the fonts don't have, printed as ?. */
+  replaced: boolean;
+}
+
+/** Points: US Letter landscape, a half-inch margin. */
+export const PAGE = { width: 792, height: 612 };
+export const MARGIN = 36;
 const GAP = 12;
 const COLUMNS = 3;
 const INK = rgb(0x16 / 255, 0x15 / 255, 0x0f / 255);
 const MUTED = rgb(0x5e / 255, 0x5a / 255, 0x52 / 255);
 /** The kit's 1.5px rules. */
 const RULE = 1.5;
+/** Where the header's rule sits: everything on the page is drawn under it, but a top-corner watermark. */
+const HEADER_RULE = PAGE.height - MARGIN - 20;
+/** The kit's mono labels are tracked 0.08em (design/DESIGN.md). */
+const LABEL_TRACKING = 0.08;
 
 interface Fonts {
   sans: PDFFont;
@@ -49,25 +84,54 @@ interface Fonts {
   monoBold: PDFFont;
 }
 
-/** Words to lines no wider than `width`, at most `max` of them; the last ends in … when it runs on. */
+/**
+ * Words to lines no wider than `width`, at most `max` of them; the last ends in … when it runs on. A word wider than
+ * the line (a URL, a location's long name) is cut where it reaches the edge: left whole, it ran over the next frame
+ * and off the page.
+ */
 export function wrap(text: string, font: PDFFont, size: number, width: number, max: number): string[] {
+  if (max <= 0) return [];
+  const fits = (s: string) => font.widthOfTextAtSize(s, size) <= width;
   const words = text.replace(/\s+/g, ' ').trim().split(' ').filter((w) => w !== '');
   const lines: string[] = [];
   let line = '';
-  for (const word of words) {
+  let cut = false;
+  words: for (const word of words) {
     const next = line === '' ? word : `${line} ${word}`;
-    if (font.widthOfTextAtSize(next, size) <= width) {
+    if (fits(next)) {
       line = next;
       continue;
     }
-    if (line !== '') lines.push(line);
-    line = word;
-    if (lines.length === max) break;
+    if (line !== '') {
+      if (lines.length === max) {
+        cut = true;
+        break;
+      }
+      lines.push(line);
+      line = '';
+    }
+    let rest = word;
+    while (!fits(rest)) {
+      if (lines.length === max) {
+        cut = true;
+        break words;
+      }
+      // By code point, so an accented letter or a surrogate pair is never split; at least one, so it always ends.
+      const chars = Array.from(rest);
+      let n = 1;
+      while (n < chars.length && fits(chars.slice(0, n + 1).join(''))) n += 1;
+      lines.push(chars.slice(0, n).join(''));
+      rest = chars.slice(n).join('');
+    }
+    line = rest;
   }
-  if (line !== '' && lines.length < max) lines.push(line);
-  if (lines.length === max && words.join(' ') !== lines.join(' ')) {
+  if (line !== '') {
+    if (lines.length < max) lines.push(line);
+    else cut = true;
+  }
+  if (cut) {
     let last = lines[max - 1] ?? '';
-    while (last !== '' && font.widthOfTextAtSize(`${last}…`, size) > width) last = last.slice(0, -1).trimEnd();
+    while (last !== '' && !fits(`${last}…`)) last = Array.from(last).slice(0, -1).join('').trimEnd();
     lines[max - 1] = `${last}…`;
   }
   return lines;
@@ -77,8 +141,66 @@ export function wrap(text: string, font: PDFFont, size: number, width: number, m
 const CAPTION = { number: 10, spec: 7.5, text: 8, leading: 10 };
 const ACTION_LINES = 3;
 const DIALOGUE_LINES = 2;
+const CAPTION_HEIGHT = CAPTION.leading * (2 + ACTION_LINES + DIALOGUE_LINES) + 4;
+/** A scene heading's line. */
+const HEADING = 22;
+/** The frames' band: under the header, over the footer. */
+const TOP = PAGE.height - MARGIN - 28;
+const BOTTOM = MARGIN + 18;
+const CELL_WIDTH = (PAGE.width - 2 * MARGIN - (COLUMNS - 1) * GAP) / COLUMNS;
 
-export async function storyboardPdf(input: StoryboardInput): Promise<Uint8Array> {
+/**
+ * A frame's size in its cell: the cell's width, unless that makes a row taller than a page has room for under a
+ * heading. A 9:16 frame a cell wide is 412pt tall, its row 498pt, and only 472pt fits: every row went to a page of
+ * its own, its heading left alone on the page before, and ran off the foot. Capped, a tall frame is narrower instead.
+ */
+export function frameBox(aspect: number): { width: number; height: number } {
+  const most = TOP - BOTTOM - HEADING - CAPTION_HEIGHT - GAP;
+  const height = Math.min(CELL_WIDTH / aspect, most);
+  return { width: height * aspect, height };
+}
+
+/** The shapes the kit gives shot status, in JetBrains Mono, which has all three; the word beside it. */
+const STATUS_SHAPE: Readonly<Record<ShotStatus, string>> = { have: '■', need: '□', source: '◩' };
+
+/** YYYY-MM-DD on this computer's calendar: from toISOString, an evening export in the US was dated tomorrow. */
+export function localDate(date: Date): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${String(date.getFullYear())}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
+}
+
+/**
+ * Text the font can print: a run of characters it has no glyph for (emoji; Chinese, Japanese or Korean, which Inter
+ * Tight and JetBrains Mono don't cover) becomes one ?. Left as they were, they printed as blank boxes and came out
+ * of the text layer as \0. `replaced` says whether any did, so the export can say so.
+ */
+function printer() {
+  const sets = new Map<PDFFont, Set<number>>();
+  const state = { replaced: false };
+  const printable = (font: PDFFont, text: string): string => {
+    let set = sets.get(font);
+    if (!set) {
+      set = new Set(font.getCharacterSet());
+      sets.set(font, set);
+    }
+    let out = '';
+    let lacking = false;
+    for (const char of text) {
+      if (set.has(char.codePointAt(0) ?? 0)) {
+        out += char;
+        lacking = false;
+      } else {
+        if (!lacking) out += '?';
+        lacking = true;
+        state.replaced = true;
+      }
+    }
+    return out;
+  };
+  return { printable, state };
+}
+
+export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardPdf> {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const now = input.now ?? new Date();
@@ -94,71 +216,105 @@ export async function storyboardPdf(input: StoryboardInput): Promise<Uint8Array>
     mono: await pdf.embedFont(input.fonts.mono, { subset: true }),
     monoBold: await pdf.embedFont(input.fonts.monoBold, { subset: true }),
   };
+  const { printable, state } = printer();
+  const missing: string[] = [];
 
-  const cellWidth = (PAGE.width - 2 * MARGIN - (COLUMNS - 1) * GAP) / COLUMNS;
-  const frameHeight = cellWidth / input.aspect;
-  const captionHeight = CAPTION.leading * (2 + ACTION_LINES + DIALOGUE_LINES) + 4;
-  const rowHeight = frameHeight + captionHeight + GAP;
-  const top = PAGE.height - MARGIN - 28;
-  const bottom = MARGIN + 18;
+  const frame = frameBox(input.aspect);
+  const rowHeight = frame.height + CAPTION_HEIGHT + GAP;
 
-  let y = top;
+  let y = TOP;
   const pages: PDFPage[] = [];
   const newPage = (): PDFPage => {
     const page = pdf.addPage([PAGE.width, PAGE.height]);
     pages.push(page);
-    // The header: the project's title, and what this is.
-    page.drawText(input.title, { x: MARGIN, y: PAGE.height - MARGIN - 12, size: 14, font: fonts.bold, color: INK });
+    // The header: the project's title, and what this is, as the kit's tracked mono label.
     const label = 'STORYBOARD';
-    page.drawText(label, { x: PAGE.width - MARGIN - fonts.mono.widthOfTextAtSize(label, 8), y: PAGE.height - MARGIN - 10, size: 8, font: fonts.mono, color: MUTED });
-    page.drawLine({ start: { x: MARGIN, y: PAGE.height - MARGIN - 20 }, end: { x: PAGE.width - MARGIN, y: PAGE.height - MARGIN - 20 }, thickness: RULE, color: INK });
-    y = top;
+    const tracking = LABEL_TRACKING * 8;
+    const labelWidth = fonts.mono.widthOfTextAtSize(label, 8) + tracking * (label.length - 1);
+    const [title = ''] = wrap(printable(fonts.bold, input.title), fonts.bold, 14, PAGE.width - 2 * MARGIN - labelWidth - 16, 1);
+    page.drawText(title, { x: MARGIN, y: PAGE.height - MARGIN - 12, size: 14, font: fonts.bold, color: INK });
+    page.pushOperators(setCharacterSpacing(tracking));
+    page.drawText(label, { x: PAGE.width - MARGIN - labelWidth, y: PAGE.height - MARGIN - 10, size: 8, font: fonts.mono, color: MUTED });
+    page.pushOperators(setCharacterSpacing(0));
+    page.drawLine({ start: { x: MARGIN, y: HEADER_RULE }, end: { x: PAGE.width - MARGIN, y: HEADER_RULE }, thickness: RULE, color: INK });
+    y = TOP;
     return page;
   };
 
   for (const [sceneIndex, scene] of input.scenes.entries()) {
-    // A scene starts under its heading, on a page with room for the heading and a row of frames.
+    // A scene starts under its heading, on a page with room for the heading and a row of frames: never a heading
+    // alone at the foot of a page.
     const last = pages.at(-1);
-    let current: PDFPage = !last || y - 22 - rowHeight < bottom ? newPage() : last;
+    let current: PDFPage = !last || y - HEADING - rowHeight < BOTTOM ? newPage() : last;
     const heading = (continued: boolean) => {
-      const number = sceneLabel(scene.fields.number);
+      const number = printable(fonts.monoBold, sceneLabel(scene.fields.number));
       current.drawText(number, { x: MARGIN, y: y - 12, size: 11, font: fonts.monoBold, color: INK });
       const after = MARGIN + fonts.monoBold.widthOfTextAtSize(number, 11) + 10;
-      current.drawText(`${headingOf(scene.fields)}${continued ? ' (continued)' : ''}`, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
       const length = scene.fields.pageEighths === null ? '' : pageLabel(scene.fields.pageEighths);
-      if (length) current.drawText(length, { x: PAGE.width - MARGIN - fonts.mono.widthOfTextAtSize(length, 8), y: y - 11, size: 8, font: fonts.mono, color: MUTED });
-      y -= 22;
+      const lengthWidth = length ? fonts.mono.widthOfTextAtSize(length, 8) : 0;
+      if (length) current.drawText(length, { x: PAGE.width - MARGIN - lengthWidth, y: y - 11, size: 8, font: fonts.mono, color: MUTED });
+      const [text = ''] = wrap(
+        printable(fonts.semi, `${headingOf(scene.fields)}${continued ? ' (continued)' : ''}`),
+        fonts.semi,
+        11,
+        PAGE.width - MARGIN - after - lengthWidth - 12,
+        1,
+      );
+      current.drawText(text, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
+      y -= HEADING;
     };
     heading(false);
     for (let start = 0; start < scene.shots.length; start += COLUMNS) {
-      if (y - rowHeight < bottom) {
+      if (y - rowHeight < BOTTOM) {
         current = newPage();
         heading(true);
       }
       const row = scene.shots.slice(start, start + COLUMNS);
       for (const [column, shot] of row.entries()) {
-        const x = MARGIN + column * (cellWidth + GAP);
+        const x = MARGIN + column * (CELL_WIDTH + GAP);
         const frameTop = y;
-        const jpeg = await input.frame(sceneIndex, start + column);
-        if (jpeg) {
-          const image = await pdf.embedJpg(jpeg);
-          current.drawImage(image, { x, y: frameTop - frameHeight, width: cellWidth, height: frameHeight });
-        }
-        current.drawRectangle({ x, y: frameTop - frameHeight, width: cellWidth, height: frameHeight, borderColor: INK, borderWidth: RULE });
-        let line = frameTop - frameHeight - CAPTION.leading - 2;
         const f = shot.fields;
-        current.drawText(f.number, { x, y: line, size: CAPTION.number, font: fonts.monoBold, color: INK });
+        const box = { x, y: frameTop - frame.height, width: frame.width, height: frame.height };
+        // One frame that won't draw (a damaged picture) goes out marked, and the rest of the storyboard with it.
+        input.signal?.throwIfAborted();
+        let drawn = false;
+        try {
+          const image = await input.frame(sceneIndex, start + column);
+          if (image) {
+            current.drawImage(await pdf.embedJpg(image.jpeg), box);
+            drawn = true;
+            if (image.pictureMissing) missing.push(f.number || String(start + column + 1));
+          }
+        } catch (error) {
+          if (input.signal?.aborted) throw error;
+        }
+        if (!drawn) {
+          const said = 'PICTURE MISSING';
+          const width = fonts.monoBold.widthOfTextAtSize(said, 8);
+          current.drawText(said, { x: x + (frame.width - width) / 2, y: frameTop - frame.height / 2 - 3, size: 8, font: fonts.monoBold, color: INK });
+          missing.push(f.number || String(start + column + 1));
+        }
+        current.drawRectangle({ ...box, borderColor: INK, borderWidth: RULE });
+        let line = frameTop - frame.height - CAPTION.leading - 2;
+        current.drawText(printable(fonts.monoBold, f.number), { x, y: line, size: CAPTION.number, font: fonts.monoBold, color: INK });
+        // Status as the board shows it, a shape (it reads in black and white and for colour-blind crew), and its name.
         const status = SHOT_STATUS_LABELS[f.status];
-        current.drawText(status, { x: x + cellWidth - fonts.sans.widthOfTextAtSize(status, CAPTION.spec), y: line, size: CAPTION.spec, font: fonts.sans, color: MUTED });
+        const shape = STATUS_SHAPE[f.status];
+        const statusWidth = fonts.sans.widthOfTextAtSize(status, CAPTION.spec);
+        const shapeWidth = fonts.mono.widthOfTextAtSize(shape, CAPTION.spec);
+        const statusX = x + CELL_WIDTH - statusWidth;
+        current.drawText(shape, { x: statusX - 3 - shapeWidth, y: line, size: CAPTION.spec, font: fonts.mono, color: INK });
+        current.drawText(status, { x: statusX, y: line, size: CAPTION.spec, font: fonts.sans, color: MUTED });
         line -= CAPTION.leading;
-        const spec = specLine(f);
+        const [spec = ''] = wrap(printable(fonts.mono, specLine(f)), fonts.mono, CAPTION.spec, CELL_WIDTH, 1);
         if (spec) current.drawText(spec, { x, y: line, size: CAPTION.spec, font: fonts.mono, color: MUTED });
         line -= CAPTION.leading;
-        for (const text of wrap(f.action, fonts.sans, CAPTION.text, cellWidth, ACTION_LINES)) {
+        for (const text of wrap(printable(fonts.sans, f.action), fonts.sans, CAPTION.text, CELL_WIDTH, ACTION_LINES)) {
           current.drawText(text, { x, y: line, size: CAPTION.text, font: fonts.sans, color: INK });
           line -= CAPTION.leading;
         }
-        for (const text of wrap(f.dialogue === '' ? '' : `“${f.dialogue}”`, fonts.sans, CAPTION.text, cellWidth, DIALOGUE_LINES)) {
+        const dialogue = f.dialogue === '' ? '' : `“${f.dialogue}”`;
+        for (const text of wrap(printable(fonts.sans, dialogue), fonts.sans, CAPTION.text, CELL_WIDTH, DIALOGUE_LINES)) {
           current.drawText(text, { x, y: line, size: CAPTION.text, font: fonts.sans, color: MUTED });
           line -= CAPTION.leading;
         }
@@ -169,31 +325,83 @@ export async function storyboardPdf(input: StoryboardInput): Promise<Uint8Array>
   }
   if (pages.length === 0) newPage();
 
-  // Footers last, when the number of pages is known; the watermark on every page.
+  // Footers last, when the number of pages is known; the watermark on every page, over everything else.
+  const watermark = input.watermark ? { ...input.watermark, text: printable(fonts.semi, input.watermark.text) } : null;
+  const date = localDate(now);
   for (const [index, each] of pages.entries()) {
     const label = `${String(index + 1)} / ${String(pages.length)}`;
     each.drawText(label, { x: PAGE.width - MARGIN - fonts.mono.widthOfTextAtSize(label, 8), y: MARGIN - 4, size: 8, font: fonts.mono, color: MUTED });
-    const date = now.toISOString().slice(0, 10);
     each.drawText(date, { x: MARGIN, y: MARGIN - 4, size: 8, font: fonts.mono, color: MUTED });
-    if (input.watermark) drawWatermark(each, input.watermark, fonts.bold);
+    if (watermark) drawWatermark(pdf, each, watermark, fonts.semi);
   }
-  return pdf.save();
+  input.signal?.throwIfAborted();
+  return { bytes: await pdf.save(), missing, replaced: state.replaced };
 }
 
-function drawWatermark(page: PDFPage, watermark: Watermark, font: PDFFont) {
-  const size = watermark.position === 'center' ? 48 : 18;
+/**
+ * The watermark as the PNG frames draw it (renderFrame.ts): Inter Tight SemiBold in ink with a paper outline, both at
+ * the watermark's strength, drawn last so it lies over the pictures. Ink alone over a dark picture all but vanished.
+ * The outline is a stroke-only pass under the fill, as the canvas's strokeText then fillText; its own graphics state
+ * sets the stroke's opacity, which pdf-lib's `opacity` leaves at full.
+ */
+function drawWatermark(pdf: PDFDocument, page: PDFPage, watermark: Watermark, font: PDFFont) {
+  const at = watermarkPlacement(watermark, font);
+  const text = { x: at.x, y: at.y, size: at.size, font, rotate: degrees(at.angle) };
+  const strength = page.node.newExtGState('Watermark', pdf.context.obj({ Type: 'ExtGState', CA: watermark.opacity, ca: watermark.opacity }));
+  page.pushOperators(
+    pushGraphicsState(),
+    setGraphicsState(strength),
+    setTextRenderingMode(TextRenderingMode.Outline),
+    setStrokingRgbColor(1, 1, 1),
+    setLineWidth(watermarkOutline(at.size)),
+  );
+  page.drawText(watermark.text, { ...text, color: rgb(1, 1, 1) });
+  page.pushOperators(popGraphicsState());
+  page.drawText(watermark.text, { ...text, color: INK, opacity: watermark.opacity });
+}
+
+/** A centred watermark sits across the page at a slight angle, as a stamp would. */
+const STAMP_ANGLE = 15;
+
+/**
+ * Where the watermark goes on a page: its baseline's start, type size and angle. Centred, it is turned about its own
+ * middle onto the page's, and made smaller until the turned text fits inside the margins. In a corner it sits in the
+ * margin above the header (top) or between the last row and the footer (bottom), so it never crosses a frame's rules
+ * or the header's text, and shrinks to fit between the side margins.
+ */
+export function watermarkPlacement(watermark: Watermark, font: PDFFont): { x: number; y: number; size: number; angle: number } {
+  const roomWidth = PAGE.width - 2 * MARGIN;
+  if (watermark.position === 'center') {
+    const angle = STAMP_ANGLE;
+    const turn = (angle * Math.PI) / 180;
+    const at = (size: number) => {
+      const width = font.widthOfTextAtSize(watermark.text, size);
+      const ascent = font.heightAtSize(size, { descender: false });
+      const descent = font.heightAtSize(size) - ascent;
+      return { width, ascent, descent, height: ascent + descent };
+    };
+    const most = 48;
+    const big = at(most);
+    const spanX = big.width * Math.cos(turn) + big.height * Math.sin(turn);
+    const spanY = big.width * Math.sin(turn) + big.height * Math.cos(turn);
+    const size = Math.min(most, (most * roomWidth) / spanX, (most * (PAGE.height - 2 * MARGIN)) / spanY);
+    const m = at(size);
+    // The text's own middle, from its baseline's start, turned by the angle.
+    const cx = m.width / 2;
+    const cy = (m.ascent - m.descent) / 2;
+    return {
+      x: PAGE.width / 2 - (cx * Math.cos(turn) - cy * Math.sin(turn)),
+      y: PAGE.height / 2 - (cx * Math.sin(turn) + cy * Math.cos(turn)),
+      size,
+      angle,
+    };
+  }
+  // As big as the band between the footer's type and the frames holds (16pt, letters and descenders).
+  const most = 12;
+  const size = Math.min(most, (most * roomWidth) / font.widthOfTextAtSize(watermark.text, most));
   const width = font.widthOfTextAtSize(watermark.text, size);
-  const inset = MARGIN + 8;
-  const x = watermark.position === 'center' ? (PAGE.width - width * Math.cos(Math.PI / 12)) / 2 : watermark.position.endsWith('left') ? inset : PAGE.width - inset - width;
-  const y = watermark.position === 'center' ? PAGE.height / 2 - size / 3 : watermark.position.startsWith('top') ? PAGE.height - inset - 28 - size : inset + 10;
-  page.drawText(watermark.text, {
-    x,
-    y,
-    size,
-    font,
-    color: INK,
-    opacity: watermark.opacity,
-    // A centred watermark sits across the page at a slight angle, as a stamp would.
-    rotate: degrees(watermark.position === 'center' ? 15 : 0),
-  });
+  const descent = font.heightAtSize(size) - font.heightAtSize(size, { descender: false });
+  const x = watermark.position.endsWith('left') ? MARGIN : PAGE.width - MARGIN - width;
+  const y = watermark.position.startsWith('top') ? PAGE.height - MARGIN + descent : MARGIN + 3 + descent;
+  return { x, y, size, angle: 0 };
 }

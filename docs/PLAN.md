@@ -285,6 +285,20 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Decided while building, to review: Letter only (A4 and frames per row can be settings later); frames print on white,
   as the PNGs do; a frame without a picture is an empty box with its caption; a centred watermark is set at 15
   degrees, the others flat in their corner.
+- Fixed in review (Nov 4): a frame is capped so its row always fits under a heading (a 9:16 frame is 386pt tall and
+  narrower than its cell, rather than a row a page that ran off the foot); the footer's date is this computer's day,
+  not UTC's; a word wider than its cell (a URL) is cut at the edge; the centred watermark turns about its own middle
+  and shrinks to fit inside the margins; status prints as its shape and name (■ Have, □ Need to shoot, ◩ Source);
+  STORYBOARD is tracked 0.08em as the kit's labels are; a frame that fails to draw prints PICTURE MISSING and the
+  rest of the PDF goes out, the export naming those frames; Stop ends a PDF export before the next frame; the
+  watermark is drawn as the fixed 1.24 PNGs draw it, Inter Tight SemiBold in ink with a paper outline, both at its
+  strength, last on the page, so it reads over a dark picture.
+- Decided in review (Nov 4), to review: a corner watermark sits in the page's margin, top ones above the title and
+  bottom ones between the frames and the footer, at 12pt at most (the room those bands have), so it never crosses a
+  rule or the header; a run of characters the fonts lack (emoji; Chinese, Japanese or Korean) prints as one ?, and
+  the export says so, rather than adding a fallback font (a new, large dependency); board notes stay out of the PDF,
+  and the format's description says so (a note row between frames is a later option); the centred watermark keeps
+  its 15 degrees (the PNGs' is flat), and its outline pass means a PDF reader finds its text twice on a page.
 
 **As built in 1.24 (Nov 3): export** (src/features/export, src/core/storage/exportFiles.ts, src-tauri/src/export.rs):
 - Export Project… in the project menu: a format from the registry (each one file plus one line in registry.ts), the
