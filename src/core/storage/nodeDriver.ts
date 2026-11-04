@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -28,6 +28,8 @@ function configure(db: DatabaseSync): void {
   db.exec('PRAGMA synchronous = FULL');
   db.exec('PRAGMA fullfsync = ON');
   db.exec('PRAGMA foreign_keys = ON');
+  // As the app does: deleted rows are overwritten, so what Empty Trash deletes is gone from the file itself.
+  db.exec('PRAGMA secure_delete = ON');
 }
 
 function toRow(row: Record<string, unknown>): Row {
@@ -101,7 +103,10 @@ function fingerprint(path: string): string {
   return `${String(stat.size)}|${String(stat.mtimeNs)}|${id}`;
 }
 
-function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): ProjectFile {
+/** Copies saveCopy made and keepCopy hasn't named yet, as sbd.rs keeps them: only these can be renamed or deleted. */
+type Drafts = Set<string>;
+
+function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: Drafts, open: Map<string, number>): ProjectFile {
   const dir = dirname(path);
   let backupsDir = join(dir, 'Backups');
   const stem = fileStem(path);
@@ -175,6 +180,26 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): Project
         if (existsSync(dest)) throw new Error(`A backup named "${name}" already exists.`);
         db.prepare('VACUUM INTO ?').run(dest);
       }),
+    saveCopy: (dest) =>
+      settle(() => {
+        checkExtension(dest);
+        checkUnchanged();
+        // Made new and empty first ('wx' fails on any file there), as sbd.rs does; VACUUM INTO accepts an empty file.
+        try {
+          closeSync(openSync(dest, 'wx'));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('A file already exists at that path.', { cause: error });
+          throw error;
+        }
+        try {
+          db.prepare('VACUUM INTO ?').run(dest);
+          checkUnchanged();
+        } catch (error) {
+          rmSync(dest, { force: true });
+          throw error;
+        }
+        drafts.add(dest);
+      }),
     listBackups: () =>
       settle(() =>
         existsSync(backupsDir)
@@ -217,29 +242,55 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine): Project
     close: () =>
       settle(() => {
         db.close();
+        open.set(path, (open.get(path) ?? 1) - 1);
         // Another computer may have taken the lock over with Open anyway; only this session's lock is removed.
         if (readLock(path)?.session === lock.session) rmSync(lockPath(path), { force: true });
       }),
   };
 }
 
-function openFile(path: string, isNew: boolean, machine: NodeMachine): Promise<ProjectFile> {
+function openFile(path: string, isNew: boolean, machine: NodeMachine, drafts: Drafts, open: Map<string, number>): Promise<ProjectFile> {
   return settle(() => {
     checkExtension(path);
     if (isNew && existsSync(path)) throw new Error('A file already exists at that path.');
     if (!isNew && !existsSync(path)) throw new Error("There's no project file at that path.");
     const db = new DatabaseSync(path);
     configure(db);
-    return nodeFile(db, path, machine);
+    open.set(path, (open.get(path) ?? 0) + 1);
+    return nodeFile(db, path, machine, drafts, open);
   });
+}
+
+/** The draft, once it's known to be one saveCopy made and is closed, as sbd.rs checks it. */
+function checkDraft(draft: string, drafts: Drafts, open: Map<string, number>): void {
+  if (!drafts.has(draft)) throw new Error("That isn't a copy Storiiboard is making.");
+  if ((open.get(draft) ?? 0) > 0) throw new Error('That copy is still open.');
 }
 
 /** The Node driver as one computer. `nodeDriver` is this one; tests make others to act as a second computer. */
 export function nodeDriverFor(machine: NodeMachine): SqlDriver {
+  const drafts: Drafts = new Set();
+  // How many connections each path has open here, so a draft still open is never renamed or deleted.
+  const open = new Map<string, number>();
   return {
-    create: (path) => openFile(path, true, machine),
-    open: (path) => openFile(path, false, machine),
+    create: (path) => openFile(path, true, machine, drafts, open),
+    open: (path) => openFile(path, false, machine, drafts, open),
     copy: (source, dest) => copyFile(source, dest),
+    keepCopy: (draft, dest) =>
+      settle(() => {
+        checkExtension(dest);
+        checkDraft(draft, drafts, open);
+        // Checked first: rename itself would replace a file that's there.
+        if (existsSync(dest)) throw new Error('A file already exists at that path.');
+        renameSync(draft, dest);
+        drafts.delete(draft);
+      }),
+    dropCopy: (draft) =>
+      settle(() => {
+        checkDraft(draft, drafts, open);
+        rmSync(draft, { force: true });
+        drafts.delete(draft);
+      }),
     lockHolder: (path) =>
       settle((): LockHolder | null => {
         const info = readLock(path);

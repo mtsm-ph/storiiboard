@@ -1,0 +1,148 @@
+name: Checkpoint
+
+# Run by hand at a checkpoint (Kevin, Nov 4): the end-to-end smoke set (e2e/smoke.spec.ts) on Linux in Chromium and
+# WebKit, the same set in WebKit on a Mac (the closest stand-in for the Mac app's webview), and the Mac and Windows
+# installers, each after its own Rust tests: clones and private sizes exist only on a Mac, and on Windows the
+# step-by-step copy is the only backup path, so Linux alone never runs them.
+# A workflow_dispatch run needs the file on the default branch, which is still main, so pushing a branch named
+# checkpoint/<anything> (git push origin v2:checkpoint/phase1) starts one too.
+on:
+  push:
+    branches: ['checkpoint/**']
+  workflow_dispatch:
+    inputs:
+      update_visual_baselines:
+        description: Regenerate the Linux visual baselines and upload them as an artifact to commit
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-linux:
+    name: Smoke (Linux)
+    # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright's browsers
+        run: npx playwright install --with-deps chromium webkit
+      - name: Smoke tests
+        if: ${{ !inputs.update_visual_baselines }}
+        run: npm run e2e:smoke
+      # The screenshot tests are suppressed in every other run (e2e/visual.spec.ts) until the polish step.
+      - name: Regenerate the Linux visual baselines
+        if: ${{ inputs.update_visual_baselines }}
+        env:
+          SB_VISUAL: '1'
+        run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
+      # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
+      # workflow's own token starts no CI run, so the new baselines would go unchecked.
+      - name: Look for new or changed Linux baselines
+        id: baselines
+        if: ${{ !cancelled() && inputs.update_visual_baselines }}
+        run: echo "count=$(git status --porcelain --untracked-files=all -- 'e2e/*-snapshots/*-linux.png' | wc -l)" >> "$GITHUB_OUTPUT"
+      - name: Upload the Linux baselines to commit
+        if: ${{ !cancelled() && inputs.update_visual_baselines && steps.baselines.outputs.count != '0' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines-linux
+          path: e2e/*-snapshots/*-linux.png
+          retention-days: 7
+      - name: Upload the Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results-linux
+          path: test-results/
+          retention-days: 7
+
+  smoke-mac:
+    name: Smoke (macOS, WebKit)
+    if: ${{ !inputs.update_visual_baselines }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright's WebKit
+        run: npx playwright install webkit
+      - name: Smoke tests
+        run: npm run e2e:smoke -- --project=webkit
+      - name: Upload the Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results-macos
+          path: test-results/
+          retention-days: 7
+
+  installers:
+    name: Installer (${{ matrix.name }})
+    if: ${{ !inputs.update_visual_baselines }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            bundles: src-tauri/target/release/bundle/dmg/*.dmg
+          - name: Windows
+            os: windows-latest
+            bundles: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - name: Rust tests
+        run: cargo test --lib --manifest-path src-tauri/Cargo.toml
+      # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
+      # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
+      - uses: tauri-apps/tauri-action@v1
+      # Double-clicking a .sbd opens Storiiboard (0.6). The association lives in what the bundler writes, so check
+      # it there rather than trust the config.
+      - name: Check the .sbd file association (macOS)
+        if: matrix.name == 'macOS'
+        run: |
+          plist=src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/Info.plist
+          plutil -extract CFBundleDocumentTypes json -o - "$plist" | grep -q '"CFBundleTypeExtensions":\["sbd"\]'
+          plutil -extract UTExportedTypeDeclarations json -o - "$plist" | grep -q '"UTTypeIdentifier":"app.storiiboard.project"'
+      - name: Check the .sbd file association (Windows)
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: |
+          $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
+          if (-not $found) { throw 'Neither installer registers .sbd files.' }
+          $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: storiiboard-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 7

@@ -1,135 +1,258 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
+import { useOpeningVersion } from '../../app/openingVersion';
 import { openVersion } from '../../app/projects/actions';
 import { showInfo, showNotice } from '../../app/notice';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { projectStore, useProject } from '../../app/projectStore';
-import type { JsonValue } from '../../core/model/record';
-import { shotFields } from '../../core/model/storyboard';
-import { log, opsOfGroups, opsOfRecord, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
-import { deleteVersion, listVersions, nameVersion, versionName, type NamedVersion } from '../../core/storage/versions';
+import type { SbdRecord } from '../../core/model/record';
+import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
+import type { LoggedOp, OpGroup } from '../../core/ops/ops';
+import { versionName, type NamedVersion } from '../../core/storage/versions';
 import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
-import { changedProps, describeGroup, fieldLabel, valueLabel } from './summary';
+import { ItemHistory } from './ItemHistory';
+import { putBackChange } from './putBack';
+import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
+import { lineText, who, type FieldChange, type Line } from './summary';
+import { nameThisPoint, removeNamedVersion } from './versionWrites';
+import { createWriteGate } from './writeGate';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
-// did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects. Filtered to the selected frame, every change to it, field by field, with
-// its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
+// did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects.
+// Filtered to the selected item (a frame, else a note, else the active scene), every change to it, field by field,
+// with its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
 
-/** Steps shown at a time; older ones load on asking, so a long project opens its History at once. */
-const PAGE = 100;
-
-interface Loaded {
-  steps: { group: OpGroup; line: string }[];
-  /** More steps before the oldest shown. */
-  more: boolean;
-  /** The newest step: what a version named now includes. */
-  newest: string | null;
-  versions: NamedVersion[];
-  /** Each version's step, in words. */
-  versionLines: Map<string, string>;
+/** A step's line, its technical values in mono. */
+function LineText({ line }: { line: Line }) {
+  return (
+    <>
+      {line.map((part, i) =>
+        typeof part === 'string' ? (
+          part
+        ) : (
+          <span key={i} className="font-mono">
+            {part.mono}
+          </span>
+        ),
+      )}
+    </>
+  );
 }
 
-const who = (author: string) => (author === 'local' ? 'You' : author);
-
-async function loadSteps(file: Parameters<typeof log>[0], count: number): Promise<Loaded> {
-  const groups = await log(file);
-  const shown = groups.slice(-count);
-  // Undo, redo and restore name the step they point at, which may be older than the page.
-  const versions = await listVersions(file);
-  const wanted = new Set(shown.map((g) => g.id));
-  for (const g of shown) for (const id of [g.targetGroupId, g.restoreTo]) if (id) wanted.add(id);
-  for (const v of versions) wanted.add(v.opGroupId);
-  const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
-  const byGroup = new Map<string, LoggedOp[]>();
-  for (const op of ops) byGroup.set(op.groupId, [...(byGroup.get(op.groupId) ?? []), op]);
-  // Oldest first, so the step an undo, redo or restore names already has its line.
-  const titles = new Map<string, string>();
-  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored));
-  return {
-    steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? 'a step' })),
-    more: groups.length > count,
-    newest: groups.at(-1)?.id ?? null,
-    versions,
-    versionLines: new Map(versions.map((v) => [v.id, titles.get(v.opGroupId) ?? 'a step'])),
-  };
+/**
+ * Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. Or that
+ * Open version is copying the project (1.23): with gigabytes of pictures that takes many seconds, and without a word
+ * someone may quit mid-copy. One line for the tile, so a screen reader hears one at a time.
+ */
+export function RestoreStatus({ restoring, opening = null }: { restoring: boolean; opening?: string | null }) {
+  // Always there, empty when idle, so a screen reader hears it start.
+  return (
+    <p role="status" className="text-[13px]">
+      {restoring ? 'Restoring the project…' : opening !== null ? `Copying “${opening}”…` : ''}
+    </p>
+  );
 }
 
 export function HistoryTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const canUndo = useProject((s) => s.canUndo);
+  // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
+  const deletedForGood = useProject((s) => s.deletedForGood);
+  const restoring = useProject((s) => s.restoring);
+  const opening = useOpeningVersion();
   const shotId = useSelection((s) => s.shotId);
+  const noteId = useSelection((s) => s.noteId);
+  const sceneId = useSelection((s) => s.sceneId);
   const [count, setCount] = useState(PAGE);
-  const [onlyFrame, setOnlyFrame] = useState(false);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [frameOps, setFrameOps] = useState<LoggedOp[] | null>(null);
+  const [onlyItem, setOnlyItem] = useState(false);
+  // Each read keeps the records it was read for, so a restore can tell when the rows show what it did.
+  const [loaded, setLoaded] = useState<(Steps & { readFor: number }) | null>(null);
+  // Kept with the item they were read for: a new selection shows nothing until its own are read, so a Put back
+  // can never land on the item selected before.
+  const [itemOps, setItemOps] = useState<{ id: string; ops: LoggedOp[]; readFor: number } | null>(null);
   const [naming, setNaming] = useState('');
+  // Set at once, not on the next render: a second Enter or click while the name is written would name it twice.
+  const savingVersion = useRef(false);
+  const [saving, setSaving] = useState(false);
   const versionsId = useId();
+  const versionsHeading = useRef<HTMLHeadingElement>(null);
+  const versionsList = useRef<HTMLUListElement>(null);
+  // After Delete…, where focus goes once its row is gone, so a keyboard user stays in the tile: the version that took
+  // its place in the list, else the one before it, else the Named versions heading.
+  const focusAfterDelete = useRef<{ gone: string; next: string | null } | null>(null);
   // Bumped after naming or deleting a version, which changes no record, so History is read again.
   const [generation, setGeneration] = useState(0);
-  const shot = shotId ? records[shotId] : undefined;
-  const frame = shot?.type === 'shot' && shot.trashedAt === null ? shot : undefined;
-  const filtered = onlyFrame && frame !== undefined;
+  // What the selection is on, most particular first: a frame or a note is picked inside the active scene.
+  const liveRecord = (id: string | null, type: SbdRecord['type']) => {
+    const record = id ? records[id] : undefined;
+    return record?.type === type && record.trashedAt === null ? record : undefined;
+  };
+  const item = liveRecord(shotId, 'shot') ?? liveRecord(noteId, 'note') ?? liveRecord(sceneId, 'scene');
+  const filtered = onlyItem && item !== undefined;
+  const list = useRef<HTMLOListElement>(null);
+  const olderAsked = useRef(false);
+  // One restore or Put back at a time (writeGate.ts): a click on a row that just moved under the pointer is dropped.
+  const [gate] = useState(() => createWriteGate());
+  // The item's history as last read, for the next read to take only the new writes: finding a frame's strokes afresh
+  // looks through the whole log. With what it was read in, since Empty Trash and Clean up take data from older
+  // writes, and another project's file is another log.
+  const itemRead = useRef<{ file: object; deletedForGood: number; log: ItemLog } | null>(null);
 
-  // Read again after every edit, undo and restore: each is a new step.
+  // Read again after every edit, undo and restore (each is a new step), and after anything is deleted for good.
   useEffect(() => {
     if (!project) return;
     let live = true;
+    const readFor = gate.versionOf(records);
     loadSteps(project.file, count)
       .then((next) => {
-        if (live) setLoaded(next);
+        if (live) setLoaded({ ...next, readFor });
       })
-      .catch(showNotice);
+      .catch((error: unknown) => {
+        // No new rows are coming: a restore waiting for them lets go, so the next click isn't dropped for good.
+        if (live) gate.gone('steps');
+        showNotice(error);
+      });
     return () => {
       live = false;
     };
-  }, [project, records, canUndo, count, generation]);
+  }, [gate, project, records, canUndo, deletedForGood, count, generation]);
+
+  useEffect(() => {
+    if (loaded) gate.read('steps', loaded.readFor);
+  }, [gate, loaded]);
+  useEffect(() => {
+    if (itemOps) gate.read('item', itemOps.readFor);
+  }, [gate, itemOps]);
+
+  // Show older steps goes once the last page is in: focus stays in the list rather than falling out of the window.
+  useEffect(() => {
+    if (!olderAsked.current || loaded?.more !== false) return;
+    olderAsked.current = false;
+    if (document.activeElement === document.body || document.activeElement === null) list.current?.focus();
+  }, [loaded]);
+
+  useEffect(() => {
+    const pending = focusAfterDelete.current;
+    if (!pending || !loaded || loaded.versions.some((v) => v.id === pending.gone)) return;
+    focusAfterDelete.current = null;
+    // Only when focus fell out with the row: a click elsewhere since then keeps its focus.
+    if (document.activeElement !== document.body && document.activeElement !== null) return;
+    const next = pending.next === null ? null : versionsList.current?.querySelector<HTMLElement>(`[data-delete-version="${pending.next}"]`);
+    (next ?? versionsHeading.current)?.focus();
+  }, [loaded]);
 
   useEffect(() => {
     if (!project || !filtered) return;
     let live = true;
-    opsOfRecord(project.file, frame.id)
-      .then((ops) => {
-        if (live) setFrameOps(ops);
+    const id = item.id;
+    const readFor = gate.versionOf(records);
+    const file = project.file;
+    const known = itemRead.current;
+    // A frame's strokes and picture too, from the log: sketching writes only the stroke, never the frame, and an
+    // undone sketch has no record left to find them by.
+    const reading =
+      known && known.file === file && known.deletedForGood === deletedForGood && known.log.itemId === id
+        ? moreItemLog(file, item, known.log)
+        : readItemLog(file, item);
+    reading
+      .then((next) => {
+        if (!live) return;
+        itemRead.current = { file, deletedForGood, log: next };
+        setItemOps({ id, ops: next.ops, readFor });
       })
-      .catch(showNotice);
+      .catch((error: unknown) => {
+        if (live) gate.gone('item');
+        showNotice(error);
+      });
     return () => {
       live = false;
     };
-  }, [project, filtered, frame, records]);
+  }, [gate, project, filtered, item, records, deletedForGood]);
+  // The item's rows are off screen (the filter turned off, the item deselected or trashed): a Put back waiting for
+  // them to be read again lets go.
+  useEffect(() => {
+    if (!filtered) gate.gone('item');
+  }, [gate, filtered]);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   const undoKey = isMac() ? '⌘Z' : 'Ctrl+Z';
 
-  const restore = (group: OpGroup, line: string) => {
+  const restore = (group: OpGroup) => {
+    // A restore still running (from this tile, or from before it was closed and opened again) takes no more clicks.
+    if (projectStore.getState().restoring || !gate.take('steps', projectStore.getState().records)) return;
+    // The list as clicked: the notice names the step that was pressed, not what moved into its place.
+    const shown = loaded?.steps ?? [];
     void projectStore
       .getState()
       .restoreTo(group.id)
-      .then((changed) => {
-        if (changed) showInfo(`Restored the project to after “${line}”. ${undoKey} takes it back.`);
+      .then(
+        (changed) => {
+          gate.written(changed);
+          // A restore that failed has said why (the store's error); only one that found nothing to do says so here.
+          const { error, changedOnDisk } = projectStore.getState();
+          if (changed || (error === null && !changedOnDisk)) showInfo(restoreNotice(shown, group.id, changed, undoKey));
+        },
+        () => {
+          gate.written(false);
+        },
+      );
+  };
+
+  const putBack = async (recordId: string, field: FieldChange): Promise<boolean> => {
+    if (projectStore.getState().restoring || !gate.take('item', projectStore.getState().records)) return false;
+    let changed = false;
+    try {
+      // Worked out from the item as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
+      const done = await projectStore.getState().applyWith((now) => {
+        const change = putBackChange(now[recordId], field);
+        changed = change !== null;
+        return { changes: change ? [change] : [] };
       });
+      changed &&= done;
+      return done;
+    } finally {
+      gate.written(changed);
+    }
   };
 
-  const putBack = (recordId: string, prop: string, value: JsonValue | undefined) => {
-    void projectStore
-      .getState()
-      .apply([{ kind: 'update', id: recordId, ...(value === undefined ? { unset: [prop] } : { set: { [prop]: value } }) }]);
+  const named = item ? itemName(item) : null;
+  const label = named ? (
+    <>
+      Only {named.noun}
+      {named.mono !== '' && (
+        <>
+          {' '}
+          <span className="font-mono">{named.mono}</span>
+        </>
+      )}
+    </>
+  ) : (
+    'Only the selected item'
+  );
+  const places = (id: string): string | null => {
+    const place = records[id];
+    return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
   };
-
-  const frameName = frame ? shotFields(frame.props).number : '';
-  const named = versionName(naming);
+  const versionNamed = versionName(naming);
   const saveVersion = () => {
-    if (!named || !loaded?.newest) return;
-    void nameVersion(project.file, { name: named, opGroupId: loaded.newest })
-      .then(() => {
+    if (!versionNamed || !loaded?.newest || savingVersion.current) return;
+    savingVersion.current = true;
+    setSaving(true);
+    void nameThisPoint(projectStore, versionNamed, loaded.newest)
+      .then((named) => {
+        if (!named) return;
         setNaming('');
         setGeneration((n) => n + 1);
-        showInfo(`Named this point “${named}”.`);
+        showInfo(`Named this point “${versionNamed}”.`);
       })
-      .catch(showNotice);
+      .finally(() => {
+        savingVersion.current = false;
+        setSaving(false);
+      });
   };
   const removeVersion = async (version: NamedVersion) => {
     const sure = await confirmForGood(
@@ -138,16 +261,22 @@ export function HistoryTile() {
       'Delete version',
     );
     if (!sure) return;
-    await deleteVersion(project.file, version.id).catch(showNotice);
+    // Worked out as pressed: the row below takes this one's place, so the next Delete… is where focus already was.
+    const shown = loaded?.versions ?? [];
+    const at = shown.findIndex((v) => v.id === version.id);
+    const next = shown[at + 1] ?? (at > 0 ? shown[at - 1] : undefined);
+    if (await removeNamedVersion(projectStore, version.id)) focusAfterDelete.current = { gone: version.id, next: next?.id ?? null };
     setGeneration((n) => n + 1);
   };
-  const versionsAt = new Map<string, string[]>();
-  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v.name]);
+  // Two versions can share a name, so each is told apart by its id.
+  const versionsAt = new Map<string, NamedVersion[]>();
+  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v]);
 
   return (
+    // Busy is on the list and the table, not round the status line, which a screen reader may hold back while busy.
     <div className="flex min-h-full flex-col">
-      <section aria-labelledby={versionsId} className="flex flex-col gap-2 border-b border-border p-3">
-        <h3 id={versionsId} className="sb-label">
+      <section aria-labelledby={versionsId} aria-busy={opening !== null} className="flex flex-col gap-2 border-b border-border p-3">
+        <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
           Named versions
         </h3>
         <div className="flex flex-wrap items-end gap-2">
@@ -161,33 +290,41 @@ export function HistoryTile() {
                 setNaming(event.currentTarget.value);
               }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') saveVersion();
+                // Not the Enter that ends an IME composition (Japanese or Chinese input): that one confirms the text.
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) saveVersion();
               }}
             />
           </div>
-          <Button disabled={!named || !loaded?.newest} onClick={saveVersion}>
+          <Button disabled={!versionNamed || !loaded?.newest || saving} onClick={saveVersion}>
             Name version
           </Button>
         </div>
         {(loaded?.versions.length ?? 0) > 0 && (
-          <ul aria-label="Named versions" className="flex flex-col">
+          <ul ref={versionsList} aria-label="Named versions" className="flex flex-col">
             {loaded?.versions.map((version) => (
               <li key={version.id} className="flex items-center gap-3 border-t border-border py-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold">{version.name}</p>
                   <p className="text-[11px] text-text-muted">
-                    After “{loaded.versionLines.get(version.id)}” · <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>
+                    After “<LineText line={loaded.versionLines.get(version.id) ?? []} />” · <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>
                   </p>
                 </div>
                 <Button
                   aria-label={`Open version ${version.name}`}
+                  // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                  aria-disabled={opening !== null || undefined}
                   onClick={() => {
                     void openVersion(version);
                   }}
                 >
                   Open version
                 </Button>
-                <Button variant="warning" aria-label={`Delete version ${version.name}`} onClick={() => void removeVersion(version)}>
+                <Button
+                  variant="warning"
+                  aria-label={`Delete version ${version.name}`}
+                  data-delete-version={version.id}
+                  onClick={() => void removeVersion(version)}
+                >
                   Delete…
                 </Button>
               </li>
@@ -196,10 +333,15 @@ export function HistoryTile() {
         )}
       </section>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
-        <Toggle label={frame ? `Only frame ${frameName}` : 'Only the selected frame'} checked={filtered} disabled={!frame} onChange={setOnlyFrame} />
+        <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
+        <RestoreStatus restoring={restoring} opening={opening} />
       </div>
-      {filtered ? (
-        <FrameHistory name={frameName} ops={frameOps ?? []} onPutBack={putBack} />
+      {filtered && named ? (
+        itemOps?.id === item.id ? (
+          <ItemHistory item={item} title={named.title} ops={itemOps.ops} places={places} busy={restoring} onPutBack={putBack} />
+        ) : (
+          <p className="p-3 text-[13px] text-text-muted">Reading History…</p>
+        )
       ) : (
         <>
           {loaded === null ? (
@@ -207,15 +349,15 @@ export function HistoryTile() {
           ) : loaded.steps.length === 0 ? (
             <p className="p-3 text-[13px] text-text-muted">No steps yet. Every change you make shows here.</p>
           ) : (
-            <ol aria-label="Steps, newest first" className="flex flex-col">
+            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" aria-busy={restoring} className="flex flex-col">
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px]">
-                      {line}
-                      {(versionsAt.get(group.id) ?? []).map((name) => (
-                        <span key={name} className="sb-label ml-2 border border-text px-1">
-                          {name}
+                      <LineText line={line} />
+                      {(versionsAt.get(group.id) ?? []).map((version) => (
+                        <span key={version.id} className="sb-label ml-2 border border-text px-1">
+                          {version.name}
                         </span>
                       ))}
                     </p>
@@ -226,9 +368,11 @@ export function HistoryTile() {
                   {/* The newest step is how the project is now: nothing to go back to. */}
                   {index > 0 && group.kind !== 'empty_trash' && (
                     <Button
-                      aria-label={`Restore to here: after “${line}”`}
+                      aria-label={`Restore to here: after “${lineText(line)}”`}
+                      // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                      aria-disabled={restoring || undefined}
                       onClick={() => {
-                        restore(group, line);
+                        restore(group);
                       }}
                     >
                       Restore to here
@@ -242,6 +386,7 @@ export function HistoryTile() {
             <div className="p-3">
               <Button
                 onClick={() => {
+                  olderAsked.current = true;
                   setCount((n) => n + PAGE);
                 }}
               >
@@ -255,84 +400,15 @@ export function HistoryTile() {
   );
 }
 
-/** One line of a frame's own history: a field's change, or a whole step (added, moved, deleted). */
-interface ChangeRow {
-  key: string;
-  op: LoggedOp;
-  prop: string | null;
-  before: JsonValue | undefined;
-  after: JsonValue | undefined;
+/** How the filter and the table name an item: "frame 4A", "scene SC 05", "this note". */
+function itemName(item: SbdRecord): { noun: string; mono: string; title: string } {
+  if (item.type === 'shot') {
+    const number = shotFields(item.props).number;
+    return { noun: 'frame', mono: number, title: `frame ${number}` };
+  }
+  if (item.type === 'scene') {
+    const label = sceneLabel(sceneFields(item.props).number);
+    return { noun: 'scene', mono: label, title: `scene ${label}` };
+  }
+  return { noun: 'this note', mono: '', title: 'this note' };
 }
-
-/** Every change to one frame, newest first, field by field, each with its old value to put back. */
-function FrameHistory({
-  name,
-  ops,
-  onPutBack,
-}: {
-  name: string;
-  ops: readonly LoggedOp[];
-  onPutBack: (recordId: string, prop: string, value: JsonValue | undefined) => void;
-}) {
-  const rows = [...ops].reverse().flatMap((op, opIndex): ChangeRow[] => {
-    if (op.kind === 'update' && op.before && op.after) {
-      const { before, after } = op;
-      return changedProps(before, after)
-        // The board keeps a frame's number and media in step itself; those aren't values to put back by hand.
-        .filter((prop) => prop !== 'number')
-        .map((prop) => ({ key: `${String(opIndex)}:${prop}`, op, prop, before: before.props[prop], after: after.props[prop] }));
-    }
-    return [{ key: String(opIndex), op, prop: null, before: undefined, after: undefined }];
-  });
-  if (rows.length === 0) return <p className="p-3 text-[13px] text-text-muted">No changes to {name} yet.</p>;
-  return (
-    <table className="w-full border-collapse text-[12px]">
-      <caption className="sr-only">Changes to frame {name}, newest first</caption>
-      <thead>
-        <tr className="border-b border-border">
-          {['Change', 'Before', 'After', 'When', ''].map((head) => (
-            <th key={head} scope="col" className="sb-label px-2 py-1.5 text-left font-normal text-text-muted">
-              {head === '' ? <span className="sr-only">Put back</span> : head}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.key} className="border-b border-border">
-            <td className="px-2 py-1.5">{row.prop ? fieldLabel(row.prop) : KIND_LINE[row.op.kind]}</td>
-            <td className="px-2 py-1.5 font-mono">{row.prop ? valueLabel(row.prop, row.before) : ''}</td>
-            <td className="px-2 py-1.5 font-mono">{row.prop ? valueLabel(row.prop, row.after) : ''}</td>
-            <td className="px-2 py-1.5 font-mono whitespace-nowrap">{localDateTime(new Date(row.op.timestamp))}</td>
-            <td className="px-2 py-1 text-right">
-              {row.prop && PUTTABLE.has(row.prop) && (
-                <Button
-                  aria-label={`Put back ${fieldLabel(row.prop)} ${valueLabel(row.prop, row.before)}`}
-                  onClick={() => {
-                    onPutBack(row.op.recordId, row.prop ?? '', row.before);
-                  }}
-                >
-                  Put back
-                </Button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** Fields a person sets by hand, so an old value can go back on its own without leaving the board inconsistent. */
-const PUTTABLE = new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'departments', 'custom']);
-
-const KIND_LINE: Readonly<Record<LoggedOp['kind'], string>> = {
-  create: 'Added',
-  update: 'Changed',
-  move: 'Moved',
-  retype: 'Changed type',
-  trash: 'Deleted',
-  restore: 'Restored',
-  revert: 'Restored from History',
-  purge: 'Deleted for good',
-};

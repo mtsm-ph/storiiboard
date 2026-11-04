@@ -2,7 +2,7 @@
 //! SQL with parameters and gets rows back; the schema and migrations live in TypeScript (src/core/storage), so the
 //! MCP server can run the same ones through Node's own SQLite.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -148,6 +148,34 @@ impl SbdFile {
         Ok(())
     }
 
+    /// Open version (1.23): a consistent copy of this open project, made through its own connection. A second
+    /// connection would skip the check below and hold a shared lock on the project for the whole copy, which keeps
+    /// edits waiting up to five seconds and then fails them. The copy gets the same check as a write, before and after,
+    /// so a file a sync has replaced is never copied as if it were current. It's made in a file created here, empty
+    /// and new, so nothing is overwritten, and a copy cut off by an error is deleted.
+    pub fn save_copy(&mut self, dest: &Path) -> Result<(), String> {
+        check_extension(dest)?;
+        self.check_unchanged()?;
+        let dest_text = dest.to_str().ok_or("The copy's path isn't valid text.")?;
+        // create_new fails on any file already there, in one step; VACUUM INTO accepts an empty file. Hidden, as a
+        // draft: the leading dot hides it on a Mac, the attribute on Windows (as for lock files), so one a crash
+        // leaves behind isn't there in Explorer to be opened and edited as if it were the version.
+        create_draft(dest).map_err(|error| match error.kind() {
+            std::io::ErrorKind::AlreadyExists => "A file already exists at that path.".to_string(),
+            _ => text(error),
+        })?;
+        let copied = self
+            .conn
+            .execute("VACUUM INTO ?1", [dest_text])
+            .map(|_| ())
+            .map_err(text)
+            .and_then(|()| self.check_unchanged());
+        if copied.is_err() {
+            let _ = fs::remove_file(dest);
+        }
+        copied
+    }
+
     fn configure(conn: Connection, path: &Path) -> Result<Self, String> {
         // The rollback journal, not WAL: WAL keeps -wal and -shm files beside the project, and Dropbox or email can
         // split them from it. This is also the first read of the file, so it's where a non-SQLite file fails.
@@ -170,6 +198,10 @@ impl SbdFile {
             .map_err(text)?;
         conn.pragma_update(None, "fullfsync", "ON").map_err(text)?;
         conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(text)?;
+        // Deleted rows are overwritten with zeros, so what Empty Trash and Clean up delete is gone from the file itself
+        // (and from every backup and pack made after), not left in its free pages.
+        conn.pragma_update(None, "secure_delete", "ON")
             .map_err(text)?;
         Ok(Self {
             copying: None,
@@ -585,6 +617,64 @@ fn to_json(value: ValueRef<'_>) -> Result<Json, String> {
     }
 }
 
+/// A new, empty file for save_copy, refused if anything is already there; hidden on Windows.
+#[cfg(windows)]
+fn create_draft(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_HIDDEN)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn create_draft(path: &Path) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
+#[cfg(windows)]
+const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+
+/// Clears Windows' hidden attribute. std can set attributes only when creating a file, so this calls the system
+/// directly (kernel32, which every Windows program links already) rather than adding a crate.
+#[cfg(windows)]
+fn unhide(path: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetFileAttributesW(name: *const u16, attributes: u32) -> i32;
+    }
+    let attributes = fs::metadata(path)?.file_attributes();
+    let next = attributes & !FILE_ATTRIBUTE_HIDDEN;
+    if next == attributes {
+        return Ok(());
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // No attributes at all is spelled NORMAL.
+    let next = if next == 0 {
+        FILE_ATTRIBUTE_NORMAL
+    } else {
+        next
+    };
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call, which only reads it.
+    if unsafe { SetFileAttributesW(wide.as_ptr(), next) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Only Windows has a hidden attribute; elsewhere the leading dot of a draft's name hides it.
+#[cfg(not(windows))]
+fn unhide(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -597,6 +687,9 @@ pub struct OpenFiles(Mutex<Files>);
 struct Files {
     next: u32,
     open: HashMap<u32, SbdFile>,
+    /// Copies save_copy made that aren't finished yet (Open version restores one before giving it its name). Only
+    /// these can be renamed or deleted through keep_copy and drop_copy, so the page can never name another file.
+    drafts: HashSet<PathBuf>,
 }
 
 impl OpenFiles {
@@ -617,6 +710,63 @@ impl OpenFiles {
         let handle = files.next;
         files.open.insert(handle, file);
         Ok(handle)
+    }
+
+    /// Writes an unfinished copy of an open project (save_copy) and remembers it as one of this app's drafts.
+    pub fn save_copy(&self, handle: u32, dest: &Path) -> Result<(), String> {
+        let mut files = self
+            .0
+            .lock()
+            .map_err(|_| "Project storage is unavailable.")?;
+        let file = files
+            .open
+            .get_mut(&handle)
+            .ok_or("That project isn't open.")?;
+        file.save_copy(dest)?;
+        files.drafts.insert(dest.to_path_buf());
+        Ok(())
+    }
+
+    /// Gives a finished draft its name. Refuses a file that isn't one of this app's drafts, one still open, and a
+    /// name already taken.
+    pub fn keep_copy(&self, draft: &Path, dest: &Path) -> Result<(), String> {
+        check_extension(dest)?;
+        let mut files = self.draft(draft)?;
+        // Checked first: rename itself would replace a file that's there, on Windows as everywhere else.
+        if dest.exists() {
+            return Err("A file already exists at that path.".into());
+        }
+        // Shown before it takes the version's name, so a copy is never kept under it hidden.
+        unhide(draft).map_err(text)?;
+        fs::rename(draft, dest).map_err(text)?;
+        files.drafts.remove(draft);
+        Ok(())
+    }
+
+    /// Deletes a draft cut off partway, which nothing else has seen. Nothing but a draft can be deleted this way.
+    pub fn drop_copy(&self, draft: &Path) -> Result<(), String> {
+        let mut files = self.draft(draft)?;
+        match fs::remove_file(draft) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(text(error)),
+            _ => {}
+        }
+        files.drafts.remove(draft);
+        Ok(())
+    }
+
+    /// The files, once `draft` is known to be one of this app's drafts, and closed.
+    fn draft(&self, draft: &Path) -> Result<std::sync::MutexGuard<'_, Files>, String> {
+        let files = self
+            .0
+            .lock()
+            .map_err(|_| "Project storage is unavailable.")?;
+        if !files.drafts.contains(draft) {
+            return Err("That isn't a copy Storiiboard is making.".into());
+        }
+        if files.open.values().any(|file| file.path == draft) {
+            return Err("That copy is still open.".into());
+        }
+        Ok(files)
     }
 
     fn with<T>(
@@ -737,6 +887,30 @@ pub async fn sbd_lock_refresh(files: State<'_, OpenFiles>, handle: u32) -> Resul
 #[tauri::command]
 pub async fn sbd_copy(source: String, dest: String) -> Result<(), String> {
     SbdFile::copy(Path::new(&source), Path::new(&dest))
+}
+
+/// Open version (1.23): an unfinished copy of an open project, restored and then named with sbd_keep_copy.
+#[tauri::command]
+pub async fn sbd_save_copy(
+    files: State<'_, OpenFiles>,
+    handle: u32,
+    dest: String,
+) -> Result<(), String> {
+    files.save_copy(handle, Path::new(&dest))
+}
+
+#[tauri::command]
+pub async fn sbd_keep_copy(
+    files: State<'_, OpenFiles>,
+    draft: String,
+    dest: String,
+) -> Result<(), String> {
+    files.keep_copy(Path::new(&draft), Path::new(&dest))
+}
+
+#[tauri::command]
+pub async fn sbd_drop_copy(files: State<'_, OpenFiles>, draft: String) -> Result<(), String> {
+    files.drop_copy(Path::new(&draft))
 }
 
 #[tauri::command]
@@ -1183,6 +1357,135 @@ mod tests {
     }
 
     #[test]
+    fn copies_an_open_project_through_its_own_connection_and_never_overwrites() {
+        let dir = temp_dir("save-copy");
+        let files = OpenFiles::default();
+        let handle = files.add(new_file(&dir, "Bey County.sbd")).unwrap();
+        let edit = |lens: i64| {
+            files.with(handle, |file| {
+                file.tx(&[statement(
+                    "INSERT INTO shots VALUES (?1, ?2)",
+                    vec![Json::from(format!("4-{lens}")), Json::from(lens)],
+                )])
+            })
+        };
+        edit(35).unwrap();
+        let draft = dir.join(".Bey County (Board sent to client) 0a1b2c3d.sbd");
+        files.save_copy(handle, &draft).unwrap();
+        // Made through the project's own connection, so it holds no lock of its own: edits go on as before, and the
+        // copy has only what was there when it was made.
+        edit(50).unwrap();
+        let copy = SbdFile::open(&draft).unwrap();
+        assert_eq!(copy.query("SELECT lens FROM shots", &[]).unwrap().len(), 1);
+        drop(copy);
+
+        assert_eq!(
+            files.save_copy(handle, &draft).err().unwrap(),
+            "A file already exists at that path."
+        );
+        // The refusal left the draft that was there as it was.
+        let copy = SbdFile::open(&draft).unwrap();
+        assert_eq!(copy.query("SELECT lens FROM shots", &[]).unwrap().len(), 1);
+        assert!(files.save_copy(handle, &dir.join("notes.txt")).is_err());
+    }
+
+    #[test]
+    fn copies_nothing_once_something_else_has_rewritten_the_open_file() {
+        let dir = temp_dir("save-copy-changed");
+        let mut file = new_file(&dir, "Pilot.sbd");
+        let mut other = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("Pilot.sbd"))
+            .unwrap();
+        other.write_all(&[0; 4096]).unwrap();
+        drop(other);
+        let dest = dir.join("Pilot (Locked for shoot).sbd");
+        assert_eq!(file.save_copy(&dest).err().unwrap(), CHANGED_ON_DISK);
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn renames_or_deletes_only_its_own_closed_drafts() {
+        let dir = temp_dir("drafts");
+        let files = OpenFiles::default();
+        let handle = files.add(new_file(&dir, "Bey County.sbd")).unwrap();
+        let draft = dir.join(".Bey County (Board) 0a1b2c3d.sbd");
+        let dest = dir.join("Bey County (Board).sbd");
+        let not_ours = "That isn't a copy Storiiboard is making.";
+
+        // The project itself, or any other file, can never be renamed or deleted this way.
+        let project = dir.join("Bey County.sbd");
+        assert_eq!(files.drop_copy(&project).err().unwrap(), not_ours);
+        assert_eq!(files.keep_copy(&project, &dest).err().unwrap(), not_ours);
+        assert!(project.exists());
+
+        files.save_copy(handle, &draft).unwrap();
+        let open = files.add(SbdFile::open(&draft).unwrap()).unwrap();
+        assert_eq!(
+            files.keep_copy(&draft, &dest).err().unwrap(),
+            "That copy is still open."
+        );
+        assert_eq!(
+            files.drop_copy(&draft).err().unwrap(),
+            "That copy is still open."
+        );
+        files.0.lock().unwrap().open.remove(&open);
+
+        // A name already taken is refused, and both files stay as they were.
+        fs::write(&dest, b"someone else's file").unwrap();
+        assert_eq!(
+            files.keep_copy(&draft, &dest).err().unwrap(),
+            "A file already exists at that path."
+        );
+        assert_eq!(fs::read(&dest).unwrap(), b"someone else's file");
+        let other = dir.join("Bey County (Board 2).sbd");
+        files.keep_copy(&draft, &other).unwrap();
+        assert!(!draft.exists());
+        assert!(SbdFile::open(&other).is_ok());
+        // Once kept, it's a project like any other, no longer a draft to rename or delete.
+        assert_eq!(files.drop_copy(&other).err().unwrap(), not_ours);
+        assert_eq!(files.drop_copy(&draft).err().unwrap(), not_ours);
+
+        let failed = dir.join(".Bey County (Board) 9f8e7d6c.sbd");
+        files.save_copy(handle, &failed).unwrap();
+        files.drop_copy(&failed).unwrap();
+        assert!(!failed.exists());
+        assert!(other.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hides_a_draft_on_windows_until_it_is_kept() {
+        use std::os::windows::fs::MetadataExt;
+        let hidden = |path: &Path| {
+            fs::metadata(path).unwrap().file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+        };
+        let dir = temp_dir("drafts-hidden");
+        let files = OpenFiles::default();
+        let handle = files.add(new_file(&dir, "Bey County.sbd")).unwrap();
+        let draft = dir.join(".Bey County (Board sent to client) 0a1b2c3d.sbd");
+        files.save_copy(handle, &draft).unwrap();
+        // Hidden while it's made and restored: one a crash leaves behind stays out of Explorer.
+        assert!(hidden(&draft));
+        // It still opens and takes writes as the restore needs, hidden as it is.
+        let mut copy = SbdFile::open(&draft).unwrap();
+        copy.tx(&[statement(
+            "INSERT INTO shots VALUES (?1, ?2)",
+            vec![Json::from("4A"), Json::from(35)],
+        )])
+        .unwrap();
+        drop(copy);
+        assert!(hidden(&draft));
+        // Kept under the version's name, it's shown like any project.
+        let kept = dir.join("Bey County (Board sent to client).sbd");
+        files.keep_copy(&draft, &kept).unwrap();
+        assert!(!hidden(&kept));
+        assert!(SbdFile::open(&kept).is_ok());
+        // The project itself was never hidden.
+        assert!(!hidden(&dir.join("Bey County.sbd")));
+    }
+
+    #[test]
     fn open_refuses_a_file_that_isnt_sqlite() {
         let dir = temp_dir("not-db");
         let path = dir.join("Fake.sbd");
@@ -1203,6 +1506,7 @@ mod tests {
         assert_eq!(row("PRAGMA journal_mode")["journal_mode"], "delete");
         assert_eq!(row("PRAGMA synchronous")["synchronous"], 2);
         assert_eq!(row("PRAGMA foreign_keys")["foreign_keys"], 1);
+        assert_eq!(row("PRAGMA secure_delete")["secure_delete"], 1);
     }
 
     #[test]

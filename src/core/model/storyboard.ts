@@ -186,3 +186,14 @@ export function parsePages(text: string): number | null {
 export function isSceneNumber(text: string): boolean {
   return /^[A-Z]{0,2}\d+[A-Z]{0,3}$/.test(text);
 }
+
+/**
+ * Why a scene can't take `number`, or null when it can: it must read as a scene number, and no other scene may have
+ * it, live or in the Trash (a trashed scene comes back with its number, so it stays taken until the Trash is emptied).
+ */
+export function sceneNumberProblem(number: string, live: readonly string[], trashed: readonly string[]): string | null {
+  if (!isSceneNumber(number)) return 'Scene numbers look like 4, 4A or A1.';
+  if (live.includes(number)) return `There's already a scene ${number}.`;
+  if (trashed.includes(number)) return `Scene ${number} is in the Trash. Restore it, or choose another number.`;
+  return null;
+}
