@@ -121,11 +121,15 @@ test('a tool picked after one click starts afresh, and a drag after a click draw
   await page.keyboard.press('a');
   await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
   await expect(page.getByText('Click again where it ends.')).toBeAttached();
-  // Box from the toolbar drops the arrow's first click: the drag is a box where it went.
+  // Box from the toolbar drops the arrow's first click: the box takes two clicks of its own. Had the first click
+  // been kept, the box would run from it (x 0.2) and the next click would start another.
   await editor(page).getByRole('radio', { name: 'Box' }).click();
-  await draw(page, [0.6, 0.2], [0.9, 0.5]);
+  await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.2);
+  await page.mouse.click(box.x + box.width * 0.9, box.y + box.height * 0.5);
   await expect(cardStrokes(page)).toHaveCount(1);
-  expect(Number(await svg.locator('rect').getAttribute('x')) / (await across())).toBeCloseTo(0.6, 1);
+  const rect = svg.locator('rect');
+  expect(Number(await rect.getAttribute('x')) / (await across())).toBeCloseTo(0.6, 1);
+  expect(Number(await rect.getAttribute('width')) / (await across())).toBeCloseTo(0.3, 1);
 
   // One click, then a drag somewhere else: an arrow of its own, from the drag's start.
   await page.keyboard.press('a');

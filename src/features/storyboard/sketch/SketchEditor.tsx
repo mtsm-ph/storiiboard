@@ -262,7 +262,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
     setDraft({ tool: current.tool, points: [...current.points], pressures: current.pressures ? [...current.pressures] : null });
   };
 
-  // Registered once; they read the line width through `latest`. A release outside the frame still ends the stroke, at
+  // Registered once; they read the tool picked now and the line width through `latest`. A release outside the frame still ends the stroke, at
   // the release's own point; a cancelled pointer drops what it was doing.
   useEffect(() => {
     const finish = (event: PointerEvent) => {
@@ -281,7 +281,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
           erased.count = still.length;
           return { changes: eraseStrokes(still) };
         }).then((written) => {
-          if (written) setSaid(`${String(erased.count)} ${erased.count === 1 ? 'stroke' : 'strokes'} erased.`);
+          if (written && erased.count > 0) setSaid(`${String(erased.count)} ${erased.count === 1 ? 'stroke' : 'strokes'} erased.`);
         });
         return;
       }
@@ -292,10 +292,13 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
         const [x = 0, y = 0] = stroke.points;
         const first = anchor.current;
         // A click with no shape begun: the first end of an arrow or a box, and the next click places the other.
-        // A second click on the first one's spot leaves it waiting.
+        // A second click on the first one's spot leaves it waiting. A tool picked while the button was down means
+        // the click begins nothing.
         if (!first || isClick([first.x, first.y, x, y])) {
-          setAnchor({ x, y });
-          setSaid('Click again where it ends.');
+          if (latest.current.tool === stroke.tool) {
+            setAnchor({ x, y });
+            setSaid('Click again where it ends.');
+          } else setAnchor(null);
           return;
         }
         stroke.points = [first.x, first.y, x, y];
@@ -415,6 +418,10 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
               style={{ cursor: tool === 'eraser' ? 'cell' : 'crosshair' }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
+              onPointerLeave={() => {
+                // The shape a first click would make follows the pointer only while it's over the frame.
+                setHover(null);
+              }}
             >
               {/* The saved strokes in a layer of their own that doesn't listen for the pointer: drawing a new one
                   redraws only the layer above. */}

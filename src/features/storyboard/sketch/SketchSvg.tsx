@@ -38,7 +38,7 @@ export function StrokeShape({ stroke, width, height, minLine = 0 }: { stroke: St
     );
   }
   if (stroke.pressures) {
-    return <polygon points={pressureOutline(stroke.points, stroke.pressures, width, height, base).join(' ')} fill="currentColor" />;
+    return <polygon points={pressureOutline(stroke.points, stroke.pressures, width, height, base, minLine).join(' ')} fill="currentColor" />;
   }
   return (
     <polyline

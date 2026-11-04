@@ -179,9 +179,17 @@ export function strokesAt(strokes: readonly Stroke[], x: number, y: number, radi
 
 /**
  * The outline of a stroke drawn with pressure, as a polygon in pixels: each point pushed out either side by half its
- * width, down one side and back up the other. Width goes from 40% at the lightest touch to 160% at the firmest.
+ * width, down one side and back up the other. Width goes from 40% at the lightest touch to 160% at the firmest, but
+ * never under `floor` pixels, so a light line still shows on a small card.
  */
-export function pressureOutline(points: readonly number[], pressures: readonly number[], width: number, height: number, baseWidth: number): number[] {
+export function pressureOutline(
+  points: readonly number[],
+  pressures: readonly number[],
+  width: number,
+  height: number,
+  baseWidth: number,
+  floor = 0,
+): number[] {
   const n = Math.floor(points.length / 2);
   const at = (i: number) => [(points[2 * i] ?? 0) * width, (points[2 * i + 1] ?? 0) * height] as const;
   const left: number[] = [];
@@ -193,7 +201,7 @@ export function pressureOutline(points: readonly number[], pressures: readonly n
     const dx = nx - px;
     const dy = ny - py;
     const length = Math.hypot(dx, dy) || 1;
-    const half = (baseWidth * height * (0.4 + 1.2 * (pressures[i] ?? 0.5))) / 2;
+    const half = Math.max(baseWidth * height * (0.4 + 1.2 * (pressures[i] ?? 0.5)), floor) / 2;
     left.push(x - (dy / length) * half, y + (dx / length) * half);
     right.push(x + (dy / length) * half, y - (dx / length) * half);
   }
