@@ -70,9 +70,10 @@ both installers), Kevin tests 1.11 to 1.25 as one batch, then a polish step, whi
 with fresh baselines. Phase 2 waits for the gate.
 
 Decided Nov 4 (Kevin):
-- 1.26: a locked scene remembers every letter it has used, in a record that Empty Trash, undo and History restores
-  leave alone, so a letter that has been on a slate is never given out again. Schema 5, with a migration (backup first) that fills the
-  field from what the file still holds. The Empty Trash warning stays only for scenes the migration couldn't fill in.
+- 1.26: a locked scene remembers every letter it has used, in a table that Empty Trash, undo and History restores
+  leave alone, so a letter that has been on a slate is never given out again. Schema 5, with a migration (backup
+  first) that fills the table from what the file still holds. The Empty Trash warning stays only where the migration
+  can't recover numbers (a project that ran Empty Trash before schema 5), while a scene is locked.
 - No automatic compaction: only Kevin's test projects predate 1.21. The polish step adds Compact project to
   Settings → Storage: it makes a backup, then compacts the file (SQLite's VACUUM), which clears free space older
   builds left and shrinks the file after big deletions.
@@ -473,8 +474,7 @@ src/app/openVersion.ts):
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
 - Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame anywhere has
-  taken it since, when it takes the next free one (from 1.26, also unless any other shot holds it or was slated with
-  it); a restored scene whose number a live scene has taken gets a new one, and
+  taken it since, when it takes the next free one (from 1.26, also unless another shot was slated with it); a restored scene whose number a live scene has taken gets a new one, and
   its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
   scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway

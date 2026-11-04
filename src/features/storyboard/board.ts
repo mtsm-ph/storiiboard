@@ -426,8 +426,8 @@ export function setSceneLocation(records: Records, projectId: string, sceneId: s
  * Locks or unlocks a scene's shot numbers. Unlocking brings them back in line with the board, so letters close up.
  * Locking puts them onto slates (1.26), so no number may be on two:
  * - a frame that was slated in this scene before (locked, unlocked, locked again) takes back the number it had;
- * - any other frame keeps its number unless another shot was slated with it or holds it, live or in the Trash (a new
- *   scene 4 boarded unlocked after the old one was deleted reads 4A, 4B again, which are on footage);
+ * - any other live frame keeps its number unless another shot was slated with it or a live frame elsewhere holds it
+ *   (a new scene 4 boarded unlocked after the old one was deleted reads 4A, 4B again, which are on footage);
  * - if any live frame needs a new letter, every live frame not yet slated takes one, in board order, after the scene's
  *   highest, so the board still reads in order; frames in the Trash that clash lose their number and take one when
  *   they're restored.

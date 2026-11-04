@@ -233,8 +233,9 @@ rules in src/features/storyboard/board.ts).
 
 - Only numbers given out while the scene is locked are kept. An unlocked scene's letters follow the board and close up,
   so boarding never leaves gaps. Locking a scene records the numbers its frames have then, and every number a frame
-  gets there afterwards; a frame in the Trash keeps its number there only if it was slated before (trashed while the
-  scene was locked), so one trashed while unlocked gives its letter up and takes the next free one when restored.
+  gets there afterwards. Only live frames are recorded: a frame trashed while the scene was locked was recorded while
+  it was live. One in the Trash that wasn't slated gives its letter up as the scene is locked (the Trash lists it as
+  an unnumbered frame) and takes the next free one when it's restored, so boarding unlocked leaves no gaps.
 - Every op group writes its rows in its own transaction, after its records: a frame added to a locked scene, a scene
   as it's locked, and anything undo, redo or a History restore writes. Nothing ever deletes or changes a row: not undo,
   not a restore, not Empty Trash. They're kept apart from the records for that reason: History stores whole records,
@@ -255,8 +256,9 @@ rules in src/features/storyboard/board.ts).
   shot was slated with it; otherwise it takes the next free letter. A frame moved back into a locked scene it was
   slated in takes back the number it had there, while it's free. A locked scene restored under a new number (its own was taken
   meanwhile) numbers its frames afresh in board order, skipping the same numbers, and stays locked.
-- The migration replays the log, an op group at a time, to find every number a shot had at the end of a group while
-  its scene was locked, live, trashed or only in History (made and then undone), with the shot it went to first.
+- The migration replays the log, an op group at a time, to find every number a live shot had at the end of a group
+  while its scene was locked, whether that shot is live now, in the Trash or only in History (made and then undone),
+  with the shot it went to first. Frames a v4 lock left in the Trash with an unlocked board's number aren't counted.
   Frames an Empty Trash deleted before schema 5 can't be found, since it cleared their steps, and neither can which
   scene they were in or whether it was locked (a locked scene deleted whole leaves no lock behind). So after any
   Empty Trash before schema 5, `meta` gets `slate_numbers_unknown` = `true`, and the Empty Trash confirm says, while

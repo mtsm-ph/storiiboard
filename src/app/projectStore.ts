@@ -100,12 +100,10 @@ export function createProjectStore(): StoreApi<ProjectState> {
       });
       const records = Object.fromEntries(Object.entries(before).filter(([id]) => !touched.has(id)));
       for (const [id, record] of touched) if (record) records[id] = record;
-      set({
-        records,
-        ...(numbered ? { slateNumbers: await newSlateNumbers(project) } : {}),
-        ...(await history(project.file)),
-        error: null,
-      });
+      const stacks = await history(project.file);
+      // Read last, and kept in the same step as it's stored, so a read that fails never skips rows next time.
+      const slateNumbers = numbered ? await newSlateNumbers(project) : null;
+      set({ records, ...(slateNumbers ? { slateNumbers } : {}), ...stacks, error: null });
     };
 
     const newSlateNumbers = async (project: Project) => {

@@ -15,6 +15,7 @@ interface Known {
   parentId: string | null;
   number: string;
   locked: boolean;
+  trashed: boolean;
 }
 
 async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]> {
@@ -22,7 +23,8 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   // Only what the replay needs, worked out in SQLite: a sketched project's log is mostly stroke points.
   const rows = await file.query(
     `SELECT record_id, group_id, kind, json_extract(after, '$.type') AS type, json_extract(after, '$.parent_id') AS parent_id,
-        json_extract(after, '$.props.number') AS number, json_extract(after, '$.props.numbers_locked') AS locked
+        json_extract(after, '$.props.number') AS number, json_extract(after, '$.props.numbers_locked') AS locked,
+        json_extract(after, '$.trashed_at') IS NOT NULL AS trashed
       FROM ops
       WHERE kind = 'purge' OR json_extract(after, '$.type') IN ('shot', 'scene') OR json_extract(before, '$.type') IN ('shot', 'scene')
       ORDER BY seq`,
@@ -40,20 +42,22 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     found.set(sceneId, numbers);
   };
   // What a group gave out is what it left behind, as the app records it: a frame moved from an unlocked scene into a
-  // locked one passes through with its old number on the way, and that number was never on a slate there.
+  // locked one passes through with its old number on the way, and that number was never on a slate there. Live
+  // frames only, as the app records them: a v4 lock left frames in the Trash with numbers from the unlocked board
+  // (a deleted 4C, with a newer frame slated as 4C), and those were never on a slate.
   let group: string | null = null;
   const touched = new Set<string>();
   const settle = () => {
     for (const id of touched) {
       const record = state.get(id);
-      if (record?.type === 'shot' && record.parentId !== null) {
+      if (record?.type === 'shot' && !record.trashed && record.parentId !== null) {
         const scene = state.get(record.parentId);
         if (scene?.type === 'scene' && scene.locked) add(record.parentId, record.number, id);
       }
       if (record?.type === 'scene' && record.locked) {
         for (const child of children.get(id) ?? []) {
           const shot = state.get(child);
-          if (shot?.type === 'shot') add(id, shot.number, child);
+          if (shot?.type === 'shot' && !shot.trashed) add(id, shot.number, child);
         }
       }
     }
@@ -81,6 +85,7 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
       parentId: typeof row.parent_id === 'string' ? row.parent_id : null,
       number: typeof row.number === 'string' ? row.number : '',
       locked: row.locked === 1,
+      trashed: row.trashed === 1,
     };
     state.set(id, after);
     touched.add(id);

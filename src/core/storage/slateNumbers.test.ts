@@ -453,6 +453,37 @@ describe('the schema 5 migration', () => {
     expect(store.getState().slateUnknown).toBe(true);
   });
 
+  /** Locks as a v4 build did: the lock alone, with nothing in the Trash blanked. */
+  const lockAsV4 = (sceneId: string) => store.getState().apply([{ kind: 'update', id: sceneId, set: { numbers_locked: true } }]);
+
+  it('gives a v4 number to the live frame slated with it, not a frame in the Trash still holding it', async () => {
+    const c = idOf('sc4', '4C');
+    await trashLast(); // C in the Trash, still reading 4C
+    await frame('sc4'); // D, unlocked: 4C too
+    const d = idOf('sc4', '4C');
+    await lockAsV4('sc4'); // D goes onto the slate as 4C
+    await asV4ThenReopen();
+    expect((await loadSlateNumbers(project.file)).find((row) => row.number === '4C')?.shotId).toBe(d);
+    // Relocking keeps D on 4C, and C comes back on a new letter.
+    await lock('sc4', false);
+    await lock('sc4');
+    expect(records()[d]?.props.number).toBe('4C');
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, project.projectId, c, slate) }));
+    expect(records()[c]?.props.number).toBe('4D');
+  });
+
+  it('reserves no number a v4 lock left on a frame in the Trash from before a renumber', async () => {
+    await trashLast(); // T keeps 4C in the Trash
+    await renumberScene('sc4', '9'); // unlocked: live frames follow, 9A, 9B
+    await lockAsV4('sc4');
+    await asV4ThenReopen();
+    expect(await stored()).toEqual(['9A', '9B']);
+    await scene('sc4b', '4', 'W');
+    for (let i = 0; i < 3; i += 1) await frame('sc4b');
+    await lock('sc4b');
+    expect(numbers('sc4b')).toEqual(['4A', '4B', '4C']);
+  });
+
   it('keeps the shot each number went to first', async () => {
     await lock('sc4');
     const owners = (await loadSlateNumbers(project.file)).map((row) => `${row.number} ${row.shotId}`).sort();
