@@ -74,9 +74,16 @@ export function customValue(fields: Readonly<Record<string, string>>, name: stri
  * a column's heading.
  */
 export function customFieldNames(records: Readonly<Record<string, SbdRecord>>): string[] {
+  return fieldNamesOf(Object.values(records).filter((record) => record.type === 'shot' && record.trashedAt === null));
+}
+
+/**
+ * The same, from just these shots: an export's frames in scope, so a field only frames in a trashed scene (or another
+ * scene) use never becomes a column.
+ */
+export function fieldNamesOf(shots: Iterable<SbdRecord>): string[] {
   const spellings = new Map<string, Map<string, number>>();
-  for (const record of Object.values(records)) {
-    if (record.type !== 'shot' || record.trashedAt !== null) continue;
+  for (const record of shots) {
     for (const name of Object.keys(customFieldsOf(record.props))) {
       const counts = spellings.get(name.toLowerCase()) ?? new Map<string, number>();
       counts.set(name, (counts.get(name) ?? 0) + 1);

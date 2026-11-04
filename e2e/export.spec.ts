@@ -266,6 +266,35 @@ test('a double click on Watermark Save makes one step to undo', async ({ page })
   await expect(frames).toHaveCount(2);
 });
 
+test('undo and the workspace keys do nothing inside the export dialogs, to the board behind them', async ({ page }) => {
+  const mac = await page.evaluate(() => /Mac/i.test(navigator.userAgent));
+  const undo = mac ? 'Meta+z' : 'Control+z';
+  const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
+  await expect(frames).toHaveCount(2);
+  await projectMenu(page, 'Watermark Settings');
+  const strength = dialog(page, 'Watermark Settings').getByRole('slider');
+  await strength.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press(undo);
+  await page.keyboard.press(mac ? 'Meta+Shift+z' : 'Control+y');
+  await page.keyboard.press('Alt+3');
+  await expect(dialog(page, 'Watermark Settings')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(frames).toHaveCount(2);
+
+  await projectMenu(page, 'Export Project…');
+  await expect(dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' })).toBeFocused();
+  await page.keyboard.press(undo);
+  await dialog(page, 'Export').getByRole('button', { name: 'Cancel' }).focus();
+  await page.keyboard.press(undo);
+  await expect(dialog(page, 'Export')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(frames).toHaveCount(2);
+  // Out of the dialog, undo is the project's again: the second frame goes.
+  await page.keyboard.press(undo);
+  await expect(frames).toHaveCount(1);
+});
+
 test('the dialogs take focus, close on Escape and give it back to the project menu', async ({ page }) => {
   const menuButton = page.getByRole('button', { name: 'Project', exact: true });
   await projectMenu(page, 'Export Project…');
@@ -400,6 +429,59 @@ for (const offscreen of [true, false]) {
     await expect(page.getByText(/^Exported /)).toHaveCount(0);
   });
 }
+
+/**
+ * Makes every export write from the `from`th on fail as a full disk would, until window.clearDisk(). At the memory
+ * build's write, the download: a typeless Blob is only ever an export's (pictures carry their type).
+ */
+async function failWrites(page: Page, from: number) {
+  await page.evaluate((from) => {
+    const make = URL.createObjectURL.bind(URL);
+    let writes = 0;
+    let full = true;
+    (window as unknown as { clearDisk?: () => void }).clearDisk = () => {
+      full = false;
+    };
+    URL.createObjectURL = (object: Blob | MediaSource) => {
+      if (object instanceof Blob && object.type === '') {
+        writes += 1;
+        if (full && writes >= from) throw new Error('Disk is full.');
+      }
+      return make(object);
+    };
+  }, from);
+}
+
+test('a frame that fails to write stops the export, and the dialog says how far it got', async ({ page }) => {
+  await failWrites(page, 2);
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' }).click();
+  // Inside the dialog, where it can be read and is announced; not in the shell's notice behind the backdrop.
+  await expect(dialog(page, 'Export').getByRole('alert')).toHaveText('Stopped with 1 of 2 written to “Bey County frames”: Disk is full.');
+  await expect(page.getByText(/Disk is full/)).toHaveCount(1);
+  await expect(dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' })).toBeEnabled();
+  expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
+});
+
+test('a shot list that fails to write says why inside the dialog, and a new try clears it', async ({ page }) => {
+  await failWrites(page, 1);
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  await expect(dialog(page, 'Export').getByRole('alert')).toHaveText('Not exported to “Bey County shot list.csv”: Disk is full.');
+  await expect(page.getByText(/Disk is full/)).toHaveCount(1);
+  // Room made: the next try goes through, and the old reason goes.
+  await page.evaluate(() => {
+    (window as unknown as { clearDisk?: () => void }).clearDisk?.();
+  });
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  expect((await downloaded).suggestedFilename()).toBe('Bey County shot list.csv');
+  await expect(dialog(page, 'Export')).toHaveCount(0);
+  await expect(page.getByText(/Disk is full/)).toHaveCount(0);
+});
 
 /**
  * A night exterior, as a PNG made in the page: a red band across the top fifth and near-black below it. Square, so a

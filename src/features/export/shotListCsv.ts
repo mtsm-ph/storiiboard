@@ -1,4 +1,4 @@
-import { customFieldNames, customFieldsOf, customValue } from '../../core/model/customFields';
+import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -26,9 +26,12 @@ export function csvCell(value: string): string {
 }
 
 export function shotListCsv(records: Records, projectId: string, scope: ExportScope): string {
-  const custom = customFieldNames(records);
+  const scenes = scenesIn(records, projectId, scope);
+  // Columns from the frames that go out: trashing a scene leaves its frames live, and a field only they use (or only
+  // another scene's frames use) would be a column of blanks, or the Trash going out by its name.
+  const custom = fieldNamesOf(scenes.flatMap((scene) => scene.shots.map((shot) => shot.record)));
   const rows: string[][] = [[...COLUMNS, ...custom]];
-  for (const scene of scenesIn(records, projectId, scope)) {
+  for (const scene of scenes) {
     const location = scene.fields.locationId ? records[scene.fields.locationId] : undefined;
     const place = location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : '';
     for (const shot of scene.shots) {

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type CSSProperties, type Pointer
 import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
 import { TILE_CONTENT } from '../tileContent';
-import { isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
+import { inModalDialog, isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
 import { previewBox, zoneAt, type Box } from './geometry';
 import {
   dropTile,
@@ -105,7 +105,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   // ` maximizes the tile holding focus, or restores; the rest fold into chips along the bottom.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== '`' || event.metaKey || event.ctrlKey || event.altKey || isTextEntry(event.target)) return;
+      if (event.key !== '`' || event.metaKey || event.ctrlKey || event.altKey || isTextEntry(event.target) || inModalDialog(event.target)) return;
       const current = layoutRef.current;
       const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-stack-id]');
       const stackId = focused?.dataset.stackId ?? current.maximized;

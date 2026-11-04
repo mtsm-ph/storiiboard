@@ -1,6 +1,6 @@
 import { useEffect, type MouseEvent } from 'react';
 import { Menu, menuItemClass } from '../../../ui/Menu';
-import { TILES, type Workspace } from '../workspaces';
+import { inModalDialog, TILES, type Workspace } from '../workspaces';
 import { openTile, tilesIn, type Layout } from './layout';
 import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore';
 
@@ -22,7 +22,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   useEffect(() => {
     // ⌘⇧S (Ctrl+Shift+S) saves the current layout, from anywhere in the app.
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 's' && !inModalDialog(event.target)) {
         event.preventDefault();
         layoutStore.getState().save(workspace.id);
       }

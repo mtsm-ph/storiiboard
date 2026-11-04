@@ -218,6 +218,36 @@ describe('the shot list CSV', () => {
     expect(rows({ kind: 'scene', sceneId: 'sc5' }).slice(1).map((row) => row.split(',')[4])).toEqual(['5A']);
   });
 
+  it('takes its custom columns from the frames that go out: never a trashed scene’s, nor another scene’s', async () => {
+    for (const [id, number, key] of [
+      ['sc4', '4', 'V'],
+      ['sc5', '5', 'W'],
+    ] as const) {
+      await store.getState().apply([{ kind: 'create', record: { id, type: 'scene', parentId: project.projectId, sortKey: key, props: { number, name: '' } } }]);
+    }
+    const ids: string[] = [];
+    for (const scene of ['sc4', 'sc5']) {
+      const added = addShot(store.getState().records, project.projectId, scene);
+      await store.getState().apply(added.changes);
+      ids.push(added.shotId);
+    }
+    const [a = '', b = ''] = ids;
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { custom: { Drone: 'yes' } } },
+      { kind: 'update', id: b, set: { custom: { 'Nudity rider': 'closed set' } } },
+    ]);
+    const header = (scope: Parameters<typeof shotListCsv>[2]) =>
+      shotListCsv(store.getState().records, project.projectId, scope).replace(/^\uFEFF/, '').split('\r\n')[0] ?? '';
+    expect(header({ kind: 'project' }).endsWith(',Departments,Drone,Nudity rider')).toBe(true);
+    // One scene alone: its own fields, not a column of blanks for another scene's.
+    expect(header({ kind: 'scene', sceneId: 'sc4' }).endsWith(',Departments,Drone')).toBe(true);
+    // The scene goes to the Trash; its frame stays live under it, but neither it nor its field's name goes out.
+    await store.getState().apply([{ kind: 'trash', id: 'sc5' }]);
+    expect(store.getState().records[b]?.trashedAt).toBeNull();
+    expect(header({ kind: 'project' }).endsWith(',Departments,Drone')).toBe(true);
+    expect(shotListCsv(store.getState().records, project.projectId, { kind: 'project' })).not.toContain('Nudity rider');
+  });
+
   it('is one row per live frame in board order, with custom fields as columns, exactly', async () => {
     await store.getState().apply([
       { kind: 'create', record: { id: 'loc', type: 'location', parentId: project.projectId, sortKey: 'V', props: { name: 'Bey County Diner' } } },

@@ -75,12 +75,25 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
 
 const CHOOSING = 'Choosing where…';
 
+/**
+ * Why an export failed, for the dialog. A set of files says how far it got and where, since what it wrote stays: the
+ * person needs to know which frames to find, or to clear, before they try again.
+ */
+function failureMessage(error: unknown, done: number, total: number, label: string): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  if (label === '') return `Not exported: ${reason}`;
+  if (total === 0) return `Not exported to “${label}”: ${reason}`;
+  return `Stopped with ${String(done)} of ${String(total)} written to “${label}”: ${reason}`;
+}
+
 function ExportDialog() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [formatId, setFormatId] = useState(FORMATS[0]?.id ?? '');
   const [sceneId, setSceneId] = useState('');
   const [running, setRunning] = useState<string | null>(null);
+  // Why the last run failed, said here: the shell's notice sits under the modal's backdrop, inert and unannounced.
+  const [failed, setFailed] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
   // One export at a time. A ref, not state: a second click can land before React re-renders the button disabled
   // (a double click while the native dialog is still on its way), and a second run would take over `stopper`, so
@@ -120,6 +133,7 @@ function ExportDialog() {
     let label = '';
     // The button goes disabled from the first click, while the Save or folder dialog is still coming up.
     setRunning(CHOOSING);
+    setFailed(null);
     try {
       const target = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
       if (!target || controller.signal.aborted) return;
@@ -147,7 +161,7 @@ function ExportDialog() {
     } catch (error) {
       if (controller.signal.aborted) {
         showInfo(total === 0 ? 'Export stopped.' : `Export stopped: ${String(done)} of ${String(total)} written to “${label}”.`);
-      } else showNotice(error);
+      } else setFailed(failureMessage(error, done, total, label));
     } finally {
       if (stopper.current === controller) stopper.current = null;
       busy.current = false;
@@ -183,6 +197,11 @@ function ExportDialog() {
         <span className="font-mono">{String(frames)}</span> {frames === 1 ? 'frame' : 'frames'}, leaving out the Trash.{' '}
         {carries ? `Watermark “${watermark.text}”, ${POSITION_LABEL[watermark.position].toLowerCase()}.` : 'No watermark.'}
       </p>
+      {failed !== null && (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {failed}
+        </p>
+      )}
       {running !== null && (
         <p role="status" className="font-mono text-[12px]">
           {running}
