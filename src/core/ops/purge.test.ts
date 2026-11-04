@@ -10,7 +10,7 @@ import { shotFields } from '../model/storyboard';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, openProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
-import { historyOnlyPictures, log, restoreTo } from './ops';
+import { historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
 
 function picture(seed: number): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -94,6 +94,26 @@ describe('Empty Trash', () => {
     expect(await readThumbnail(project.file, own)).toBeNull();
     expect(await readOriginal(project.file, shared)).not.toBeNull();
     expect(shotFields(records()[kept]?.props ?? {}).number).toBe('4A');
+  });
+
+  it('deletes only what the confirm counted: a frame trashed while it was up stays in the Trash', async () => {
+    const [first, second] = [await frame(), await frame()];
+    await trash(first);
+    const confirmed = new Set(trashedRoots(Object.values(records())));
+    await trash(second);
+    expect((await store.getState().emptyTrash(confirmed))?.items).toBe(1);
+    expect(records()[first]).toBeUndefined();
+    expect(records()[second]?.trashedAt).not.toBeNull();
+  });
+
+  it('keeps pictures only History uses: that’s Clean up’s job, after its own confirm', async () => {
+    const [undone, gone] = [await frame(), await frame()];
+    const historyOnly = await withPicture(undone, 7);
+    await store.getState().undo();
+    await trash(gone);
+    await store.getState().emptyTrash();
+    expect(await readOriginal(project.file, historyOnly)).not.toBeNull();
+    expect((await historyOnlyPictures(project.file)).map((p) => p.sha256)).toEqual([historyOnly]);
   });
 
   it('leaves a stroke erased from a frame still on the board, so History can bring the sketch back', async () => {
@@ -259,6 +279,19 @@ describe('Clean up old pictures', () => {
     expect(await historyOnlyPictures(project.file)).toEqual([]);
     expect(fileHolds(6)).toBe(false);
     expect(fileHolds(4)).toBe(true);
+  });
+
+  it('deletes only the pictures the confirm counted', async () => {
+    const [one, two] = [await frame(), await frame()];
+    const counted = await withPicture(one, 8);
+    await store.getState().undo();
+    const confirmed = new Set((await historyOnlyPictures(project.file)).map((p) => p.sha256));
+    // Another one is left to History while the confirm is up.
+    const later = await withPicture(two, 9);
+    await store.getState().undo();
+    expect((await store.getState().cleanUpPictures(confirmed))?.removed).toBe(1);
+    expect(await readOriginal(project.file, counted)).toBeNull();
+    expect(await readOriginal(project.file, later)).not.toBeNull();
   });
 
   it('lets History restore a point where the picture showed: the frame names it again, and it reads as missing', async () => {

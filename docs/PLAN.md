@@ -291,7 +291,15 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   aren't affected (their bytes were never freed before 1.21). Clearing that would take a one-time VACUUM, a rewrite
   of the whole file, for Kevin to decide (REPORT.local.md).
 - A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
-  gone stays as it is now, and so does whatever it sits under.
+  gone stays as it is now, and so does whatever it sits under. A frame kept in a scene it wasn't in at the point keeps
+  that scene as it is now, so no two frames share a slate number. Letters can be left with a gap (4A, 4C, when 4B
+  was deleted for good); the scene's next edit closes it up, as unlocked scenes do.
+- Each deletes only what its confirm counted: anything trashed, or left to History, while the confirm is up stays.
+  Empty Trash deletes what people put in the Trash (scenes, frames, notes, pictures) and what's under it; a stroke
+  erased from a frame still on the board stays, with its History.
+- Open, for Kevin: a locked scene reserves a trashed frame's letter by keeping the frame, so once Empty Trash deletes
+  it, a new frame can be given that letter again (it may be on a slate). The confirm says so when it can happen.
+  Keeping the reservation needs a scene prop for the highest letter used, a format change.
 - Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
   restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { historyOnlyPictures } from '../../core/ops/ops';
-import { trashItems } from '../../features/trash/trash';
+import { historyOnlyPictures, trashedRoots } from '../../core/ops/ops';
+import { emptyTrashMessage, trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
 import { forGood, SWITCHED_MESSAGE } from '../forGood';
@@ -14,7 +14,7 @@ import { projectStore, useProject } from '../projectStore';
 export function StorageTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [old, setOld] = useState<{ count: number; bytes: number } | null>(null);
+  const [old, setOld] = useState<{ count: number; bytes: number; shas: ReadonlySet<string> } | null>(null);
   // One run at a time, held in a ref so the buttons stay enabled (and focused) while the confirm is up.
   const running = useRef(false);
   // Bumped after Clean up, which changes no record, so the count is read again.
@@ -28,7 +28,10 @@ export function StorageTile() {
     let live = true;
     historyOnlyPictures(project.file)
       .then((pictures) => {
-        if (live) setOld({ count: pictures.length, bytes: pictures.reduce((sum, p) => sum + p.bytes, 0) });
+        if (live) {
+          const bytes = pictures.reduce((sum, p) => sum + p.bytes, 0);
+          setOld({ count: pictures.length, bytes, shas: new Set(pictures.map((p) => p.sha256)) });
+        }
       })
       .catch(showNotice);
     return () => {
@@ -39,6 +42,8 @@ export function StorageTile() {
   if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
   const inTrash = trashItems(records, project.projectId).length;
+  // What the Empty Trash confirm is about: anything trashed while it's up stays in the Trash.
+  const confirmedTrash = new Set(trashedRoots(Object.values(records)));
 
   const run = async (
     title: string,
@@ -98,7 +103,8 @@ export function StorageTile() {
               'Clean up old pictures?',
               `${String(old?.count ?? 0)} ${old?.count === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone: a redo or a History restore that brings one back shows “Picture missing”.`,
               'Clean up',
-              () => projectStore.getState().cleanUpPictures(),
+              // Only the pictures the confirm counted.
+              () => projectStore.getState().cleanUpPictures(old?.shas ?? new Set()),
               'Cleaned up old pictures',
               pictureStatus,
             )
@@ -120,9 +126,9 @@ export function StorageTile() {
           onClick={() =>
             void run(
               'Empty Trash?',
-              `${String(inTrash)} ${inTrash === 1 ? 'item' : 'items'} will be deleted for good, with their sketches and pictures. This can’t be undone, History can’t bring them back, and Undo won’t go back past it.`,
+              emptyTrashMessage(records, inTrash),
               'Empty Trash',
-              () => projectStore.getState().emptyTrash(),
+              () => projectStore.getState().emptyTrash(confirmedTrash),
               'Emptied the Trash',
               trashStatus,
             )

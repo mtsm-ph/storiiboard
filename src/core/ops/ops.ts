@@ -427,8 +427,16 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
  */
 const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media']);
 
-/** Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. */
-export function purgeIds(records: readonly SbdRecord[]): string[] {
+/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
+export function trashedRoots(records: readonly SbdRecord[]): string[] {
+  return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
+}
+
+/**
+ * Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. With `only`,
+ * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
+ */
+export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {
   const children = new Map<string, SbdRecord[]>();
   for (const record of records) if (record.parentId) children.set(record.parentId, [...(children.get(record.parentId) ?? []), record]);
   const ids = new Set<string>();
@@ -437,7 +445,9 @@ export function purgeIds(records: readonly SbdRecord[]): string[] {
     ids.add(record.id);
     for (const child of children.get(record.id) ?? []) add(child);
   };
-  for (const record of records) if (record.trashedAt !== null && TRASHED_BY_PEOPLE.has(record.type)) add(record);
+  for (const record of records) {
+    if (record.trashedAt !== null && TRASHED_BY_PEOPLE.has(record.type) && (!only || only.has(record.id))) add(record);
+  }
   return [...ids];
 }
 
@@ -488,11 +498,15 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
  */
 export async function emptyTrash(
   file: ProjectFile,
-  options: OpOptions = {},
-): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
-  const { author = 'local', now = () => new Date() } = options;
-  const ids = purgeIds(await loadRecords(file));
+  options: OpOptions & { only?: ReadonlySet<string> } = {},
+): Promise<{ touched: Touched; items: number; removed: number; freed: number; pictures: string[] } | null> {
+  const { author = 'local', now = () => new Date(), only } = options;
+  const all = await loadRecords(file);
+  const ids = purgeIds(all, only);
   if (ids.length === 0) return null;
+  const going = new Set(ids);
+  // Items as the Trash lists them, for the message.
+  const items = trashedRoots(all).filter((id) => going.has(id)).length;
   const pictures = await unusedPictures(file, ids, true);
   const at = now().toISOString();
   const groupId = crypto.randomUUID();
@@ -518,6 +532,7 @@ export async function emptyTrash(
   ]);
   return {
     touched: new Map(ids.map((id) => [id, null])),
+    items,
     removed: ids.length,
     freed: pictures.reduce((sum, p) => sum + p.bytes, 0),
     pictures: pictures.map((p) => p.sha256),
@@ -533,9 +548,15 @@ export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]>
   return unusedPictures(file, [], false);
 }
 
-/** Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged. */
-export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number; pictures: string[] }> {
-  const pictures = await historyOnlyPictures(file);
+/**
+ * Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged.
+ * With `only`, just those of them the person confirmed.
+ */
+export async function cleanUpPictures(
+  file: ProjectFile,
+  only?: ReadonlySet<string>,
+): Promise<{ removed: number; freed: number; pictures: string[] }> {
+  const pictures = (await historyOnlyPictures(file)).filter((p) => !only || only.has(p.sha256));
   if (pictures.length > 0) await file.tx(deletePictures(pictures));
   return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }

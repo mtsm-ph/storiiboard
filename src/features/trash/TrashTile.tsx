@@ -1,11 +1,12 @@
 import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { forGood, SWITCHED_MESSAGE } from '../../app/forGood';
+import { trashedRoots } from '../../core/ops/ops';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
+import { emptyTrashMessage, restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
@@ -50,27 +51,28 @@ export function TrashTile() {
 
   const emptyAll = async (count: number, hidden: number) => {
     const shownFor = project;
-    // It empties the whole Trash, so items the filters hide are named too.
-    const what = `${String(count)} ${count === 1 ? 'item' : 'items'}${hidden > 0 ? ` (${String(hidden)} hidden by the filters)` : ''}`;
+    // What the confirm is about: anything trashed while it's up stays in the Trash.
+    const confirmed = new Set(trashedRoots(Object.values(records)));
     const done = await forGood(
       emptying,
       () =>
         confirmForGood(
           'Empty Trash?',
-          `${what} will be deleted for good, with their sketches and pictures. This can’t be undone, History can’t bring them back, and Undo won’t go back past it.`,
+          emptyTrashMessage(records, count, hidden),
           'Empty Trash',
         ),
       () => projectStore.getState().project === shownFor,
-      () => projectStore.getState().emptyTrash(),
+      () => projectStore.getState().emptyTrash(confirmed),
     );
     if (!done.ran) {
       if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
       return;
     }
-    // The count the person saw (a frame's sketch and picture go with it, unlisted).
+    // Items as the Trash lists them (a frame's sketch and picture go with it, unlisted).
     if (!done.result) return;
+    const { items } = done.result;
     showInfo(
-      `Emptied the Trash: ${String(count)} ${count === 1 ? 'item' : 'items'} deleted for good${done.result.freed > 0 ? `, with ${sizeLabel(done.result.freed)} of pictures` : ''}.`,
+      `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${done.result.freed > 0 ? `, with ${sizeLabel(done.result.freed)} of pictures` : ''}.`,
     );
     // The button turns off with nothing left; focus goes to the message that says so.
     requestAnimationFrame(() => {

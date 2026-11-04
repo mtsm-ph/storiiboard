@@ -9,7 +9,7 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board, trashShot } from '../storyboard/board';
 import { setPicture, type FramePicture } from '../storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
-import { restoreChanges, trashItems } from './trash';
+import { emptyTrashMessage, restoreChanges, trashItems } from './trash';
 
 function picture(seed: number, name: string): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -182,6 +182,14 @@ describe('the Trash', () => {
     await restore('sc4');
     const all = board(records(), project.projectId).flatMap((s) => s.shots.map((f) => f.fields.number));
     expect(all).toEqual(['4D', '4E', '4F', '4A', '4B', '4C']);
+  });
+
+  it('warns in the Empty Trash confirm that a locked scene can give a deleted frame’s letter out again', async () => {
+    await trash(a());
+    expect(emptyTrashMessage(records(), 1)).not.toContain('locked scene');
+    expect(emptyTrashMessage(records(), 3, 2)).toContain('3 items (2 hidden by the filters)');
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    expect(emptyTrashMessage(records(), 1)).toContain('In a locked scene, a new frame can then be given a deleted frame’s letter.');
   });
 
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {
