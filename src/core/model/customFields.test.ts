@@ -53,6 +53,7 @@ describe('custom fields', () => {
     // A later version or a hand edit may keep more than text there; an edit never drops it.
     expect(withField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone', 'y')).toEqual({ set: { custom: { Takes: 3, Drone: 'y' } } });
     expect(withoutField({ custom: { Takes: 3, Drone: 'x' } }, 'Drone')).toEqual({ set: { custom: { Takes: 3 } } });
+    expect(withField({ custom: { Takes: 3 } }, 'takes', '')).toEqual({ set: { custom: { Takes: 3, takes: '' } } });
     expect(withoutField({ custom: { Drone: 'yes', VFX: 'plate' } }, 'Drone')).toEqual({ set: { custom: { VFX: 'plate' } } });
     expect(withoutField({ custom: { Drone: 'yes' } }, 'Drone')).toEqual({ unset: ['custom'] });
   });

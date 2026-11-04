@@ -31,6 +31,7 @@ export const BUILT_IN_FIELDS = [
   'Action',
   'Dialogue',
   'Departments',
+  'Departments this frame needs',
   'Picture',
   'INT / EXT',
   'Time',
@@ -97,7 +98,8 @@ export function fieldName(typed: string, known: readonly string[]): FieldName {
 /** The update that sets one field on a shot, in the shot's own spelling of it, keeping everything else in `custom`. */
 export function withField(props: Props, name: string, value: string): { set: Record<string, JsonValue> } {
   const stored = storedCustom(props);
-  const key = Object.hasOwn(stored, name) ? name : (fieldKey(stored, name) ?? name);
+  // Matched in another case only to a text field: an entry this version can't show is never written over.
+  const key = Object.hasOwn(stored, name) ? name : (fieldKey(customFieldsOf(props), name) ?? name);
   return { set: { custom: { ...stored, [key]: value } } };
 }
 

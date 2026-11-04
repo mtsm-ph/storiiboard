@@ -187,7 +187,6 @@ export function addShots(
   };
 }
 
-/** Sends a frame to the Trash, and closes up its scene's letters unless they're locked. */
 /** Sets one of a frame's custom fields (1.19), or takes it off with null; from the records it lands on, so quick edits all stay. */
 export function setCustomField(records: Records, shotId: string, name: string, value: string | null): Change[] {
   const props = records[shotId]?.props;
@@ -195,6 +194,7 @@ export function setCustomField(records: Records, shotId: string, name: string, v
   return [{ kind: 'update', id: shotId, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }];
 }
 
+/** Sends a frame to the Trash, and closes up its scene's letters unless they're locked. */
 export function trashShot(records: Records, projectId: string, shotId: string): Change[] {
   const shot = records[shotId];
   if (!shot?.parentId) return [];
