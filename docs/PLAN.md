@@ -280,7 +280,15 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   heading is a heading; a capitals line about two inches in with dialogue under it is a character cue. Scene numbers
   are the numbers printed outside the margins; page numbers (`2.`), (MORE) and CONTINUED are left out. Length comes
   from the lines a scene fills, blank ones included.
-- A PDF with no text (a scan) imports nothing and says to export the script as a PDF from the writing app.
+- A PDF with no text (a scan) imports nothing and says to export the script as a PDF from the writing app; a
+  password-protected or broken one says so, naming the file.
+- After review: the action margin is measured across the whole script (a page of dialogue alone has few lines at it);
+  any short token with a digit outside the margins is the scene number (`12-14`, `7a`, `A7`, checked as 1.17 does);
+  revision asterisks are dropped; a row split by a gap of an inch or more is two columns, so both speakers of dual
+  dialogue count; rotated or offset pages are read as shown; and the title comes only from a title page.
+- pdf.js's worker is made by the app from its own file. Left to pdf.js, the desktop app's tauri:// origin reads as
+  foreign and pdf.js would parse on the page itself, freezing the window on a large file. A read that takes over 60 s
+  is stopped.
 - Decided while building, to review: the title is the first line on the first page before any scene, which is the
   title page's title in a standard layout.
 
