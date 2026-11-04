@@ -28,6 +28,8 @@ export const DEFAULT_ACCENT = '#DF5E27';
 const MIN_CHROMA = 0.05;
 /** A cluster smaller than this share of the picture is a speck, not a colour of it. */
 const MIN_SHARE = 0.015;
+/** A ground with less chroma than this (or very light) is paper, not a colour: a logo on cream offers its mark. */
+const GROUND_CHROMA = 0.08;
 /** Candidates at least this far apart in OKLab, so the choices look different. */
 const APART = 0.09;
 const CLUSTERS = 8;
@@ -85,16 +87,16 @@ export function clusters(points: readonly Lab[], k: number, seed = 1): { center:
 }
 
 /**
- * The pixels worth reading from an RGBA image: opaque ones, without a logo's flat background. A grey or white that
- * fills most of the edge is taken for the background and left out, so a red mark on white offers red, not white. A
- * colour filling the edge stays: a white mark on a red square, or a solid red image, offers red. The background found,
- * if any, comes back too.
+ * The pixels worth reading from an RGBA image: opaque ones, without a logo's flat ground. A colour that fills most of
+ * the edge is the ground; a quiet one (grey, white, cream, any pale or barely tinted colour) is left out, so a red mark
+ * on white or on cream offers red, not the paper. A clearly coloured ground stays: a white mark on a red square, or a
+ * solid red image, offers red. The ground found comes back either way, for telling a mark's soft rim from a colour.
  */
 export function colourPixels(
   rgba: Uint8ClampedArray | readonly number[],
   width: number,
   height: number,
-): { pixels: Lab[]; background: Lab | null } {
+): { pixels: Lab[]; ground: Lab | null } {
   const at = (x: number, y: number): Rgb | null => {
     const i = (y * width + x) * 4;
     if ((rgba[i + 3] ?? 0) < 128) return null;
@@ -117,8 +119,9 @@ export function colourPixels(
     look(0, y);
     if (width > 1) look(width - 1, y);
   }
-  const filling = edge.find((candidate) => edge.filter((p) => deltaE(p, candidate) < 0.03).length > places * 0.6) ?? null;
-  const background = filling && labToLch(filling).c < MIN_CHROMA ? filling : null;
+  const ground = edge.find((candidate) => edge.filter((p) => deltaE(p, candidate) < 0.03).length > places * 0.6) ?? null;
+  const quiet = ground ? labToLch(ground) : null;
+  const background = ground && quiet && (quiet.c < GROUND_CHROMA || quiet.l > 0.9) ? ground : null;
   const out: Lab[] = [];
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -129,7 +132,7 @@ export function colourPixels(
       out.push(lab);
     }
   }
-  return { pixels: out, background };
+  return { pixels: out, ground };
 }
 
 /** How far, per sRGB channel, a colour may sit off the straight mix of two and still count as their mix. */
@@ -156,9 +159,10 @@ export function isBlend(colour: Rgb, accent: Rgb, background: Rgb): boolean {
  */
 export function accentCandidates(rgba: Uint8ClampedArray | readonly number[], width: number, height: number): string[] {
   // Judged as the hex it will be stored as, so an accent offered is never one the family table reads as grey.
-  const { pixels, background } = colourPixels(rgba, width, height);
-  const ground = background ? labToRgb(background) : null;
-  const found = clusters(pixels, CLUSTERS)
+  const sampled = colourPixels(rgba, width, height);
+  // Kept or left out, the ground is what a mark's rim fades into.
+  const ground = sampled.ground ? labToRgb(sampled.ground) : null;
+  const found = clusters(sampled.pixels, CLUSTERS)
     .map(({ center, share }) => {
       const value = hex(lchToRgb(labToLch(center)));
       return { center, share, value, lch: rgbToLch(parseHex(value)) };
@@ -198,8 +202,10 @@ export function familyFor(accent: string | null): Family {
  */
 export function fitAccent(accent: string, surfaces: Surfaces, ink: string): { accent: string; accentContrast: string } {
   const start = rgbToLch(parseHex(accent));
-  const [bg, surface, text] = [parseHex(surfaces.bg), parseHex(surfaces.surface), parseHex(ink)];
-  const passes = (rgb: Rgb) => contrast(rgb, bg) >= 3 && contrast(rgb, surface) >= 3 && contrast(rgb, text) >= 4.5;
+  const [bg, surface, text, modeText] = [parseHex(surfaces.bg), parseHex(surfaces.surface), parseHex(ink), parseHex(surfaces.text)];
+  // Apart from the mode's own text too, so a white typed in never comes out as dark mode's paper text.
+  const passes = (rgb: Rgb) =>
+    contrast(rgb, bg) >= 3 && contrast(rgb, surface) >= 3 && contrast(rgb, text) >= 4.5 && contrast(rgb, modeText) >= 1.5;
   // Down to no chroma at all, a grey of the right lightness, which always passes.
   for (const chroma of [1, 0.8, 0.6, 0.4, 0.2, 0]) {
     // Outward from the accent's own lightness, so the nearest passing one wins.
