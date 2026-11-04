@@ -1,12 +1,14 @@
 import fontkit from '@pdf-lib/fontkit';
 import {
   degrees,
+  LineJoinStyle,
   PDFDocument,
   popGraphicsState,
   pushGraphicsState,
   rgb,
   setCharacterSpacing,
   setGraphicsState,
+  setLineJoin,
   setLineWidth,
   setStrokingRgbColor,
   setTextRenderingMode,
@@ -354,6 +356,8 @@ function drawWatermark(pdf: PDFDocument, page: PDFPage, watermark: Watermark, fo
     setTextRenderingMode(TextRenderingMode.Outline),
     setStrokingRgbColor(1, 1, 1),
     setLineWidth(watermarkOutline(at.size)),
+    // Round, as the PNG's lineJoin: PDF's default mitre drew white spikes past the points of A, V and W.
+    setLineJoin(LineJoinStyle.Round),
   );
   page.drawText(watermark.text, { ...text, color: rgb(1, 1, 1) });
   page.pushOperators(popGraphicsState());

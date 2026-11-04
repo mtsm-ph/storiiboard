@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { skipOnboarding } from './onboarding';
 
 // Export (1.24, 1.25) in the memory build, where each file downloads: the PDF storyboard, the shot list CSV's text, the
@@ -49,6 +50,52 @@ test('exports a scene as a PDF storyboard, the format the dialog starts on', asy
   expect(pdf.getPageCount()).toBe(1);
   expect(pdf.getTitle()).toBe('Bey County storyboard');
   await expect(page.getByRole('status').getByText('Exported 2 frames to “Bey County SC 01 storyboard.pdf”.')).toBeVisible();
+});
+
+/** Each page's text in an exported PDF, as a reader finds it. */
+async function pdfPageTexts(path: string): Promise<string[]> {
+  const pdf = await getDocument({ data: new Uint8Array(readFileSync(path)), disableFontFace: true, useSystemFonts: false }).promise;
+  const texts: string[] = [];
+  for (let n = 1; n <= pdf.numPages; n += 1) {
+    const content = await (await pdf.getPage(n)).getTextContent();
+    texts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+  }
+  await pdf.destroy();
+  return texts;
+}
+
+test('the PDF carries the watermark on every page, and none once Applies to leaves PDF out', async ({ page }) => {
+  // Enough frames for a second page, so it's checked too.
+  for (let i = 0; i < 11; i += 1) await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]')).toHaveCount(13);
+  await projectMenu(page, 'Watermark Settings');
+  const settings = dialog(page, 'Watermark Settings');
+  await settings.getByLabel('Text').fill('DRAFT');
+  await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'true');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await expect(settings).toHaveCount(0);
+
+  const exportPdf = async () => {
+    await projectMenu(page, 'Export Project…');
+    await expect(dialog(page, 'Export').getByRole('radio', { name: 'Storyboard (PDF)' })).toBeChecked();
+    const downloaded = page.waitForEvent('download');
+    await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+    const texts = await pdfPageTexts(await (await downloaded).path());
+    await expect(dialog(page, 'Export')).toHaveCount(0);
+    return texts;
+  };
+  const marked = await exportPdf();
+  expect(marked.length).toBeGreaterThan(1);
+  for (const text of marked) expect(text).toContain('DRAFT');
+
+  await projectMenu(page, 'Watermark Settings');
+  await settings.getByRole('switch', { name: 'PDF storyboard' }).click();
+  await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'false');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await expect(settings).toHaveCount(0);
+  const unmarked = await exportPdf();
+  expect(unmarked.length).toBeGreaterThan(1);
+  for (const text of unmarked) expect(text).not.toContain('DRAFT');
 });
 
 test('exports the shot list as CSV, one row per frame', async ({ page }) => {

@@ -361,6 +361,8 @@ describe('the PDF storyboard', () => {
     expect(String(pass(OPS.setStrokeRGBColor)[0])).toMatch(/^#?(ffffff|255,255,255)$/i);
     const { semi } = await measured();
     expect(Number(pass(OPS.setLineWidth)[0])).toBeCloseTo(watermarkOutline(watermarkPlacement(watermark, semi).size), 3);
+    // Round corners, as the PNG's lineJoin: PDF's default mitre (0) spikes past the points of A, V and W.
+    expect(pass(OPS.setLineJoin)[0]).toBe(1);
     expect(pass(OPS.setGState)[0]).toEqual(expect.arrayContaining([['CA', 0.3]]));
     expect(fill).toBeGreaterThan(outlineText);
     expect(String(args(fnArray.lastIndexOf(OPS.setFillRGBColor, fill))[0])).toBe('#16150f');
