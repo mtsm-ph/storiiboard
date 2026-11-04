@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import fontkit from '@pdf-lib/fontkit';
-import { PDFDocument, type PDFFont } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, type PDFFont } from 'pdf-lib';
 import { createProjectStore } from '../../app/projectStore';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
@@ -21,6 +21,7 @@ const fonts: PdfFonts = {
   mono: font('JetBrainsMono-Regular'),
   monoBold: font('JetBrainsMono-Bold'),
 };
+const fontFiles = [fonts.sans, fonts.sansSemiBold, fonts.sansBold, fonts.mono, fonts.monoBold];
 const jpeg = new Uint8Array(readFileSync(new URL('../../../e2e/fixtures/images/srgb.jpg', import.meta.url)));
 
 /** Each page's text, as a PDF reader finds it: what an editor searching the file for "4B" would see. */
@@ -50,6 +51,41 @@ async function pageItems(bytes: Uint8Array, n = 1): Promise<PlacedText[]> {
   );
   await pdf.destroy();
   return items;
+}
+
+/**
+ * Each letter and digit of each embedded font, the outline a reader paints for it against the outline the font file
+ * has: what renders, not what extracts. Text extraction reads ToUnicode, which stayed right when Inter Tight's subsets
+ * were broken and printed blanks and other letters. Returns the fonts it checked and the letters that came out wrong.
+ */
+function paintedGlyphs(doc: PDFDocument): { checked: string[]; wrong: string[] } {
+  const sources = fontFiles.map((bytes) => fontkit.create(bytes));
+  const stream = (dict: PDFDict, key: string): Uint8Array => {
+    const found = dict.lookup(PDFName.of(key));
+    if (!(found instanceof PDFRawStream)) throw new Error(`no ${key} stream`);
+    return decodePDFRawStream(found).decode();
+  };
+  const checked: string[] = [];
+  const wrong: string[] = [];
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFDict) || object.get(PDFName.of('Subtype')) !== PDFName.of('Type0')) continue;
+    // pdf-lib names an embedded font after the file's PostScript name, with a random -NNNN after it.
+    const name = object.lookup(PDFName.of('BaseFont'), PDFName).asString().slice(1).replace(/-\d+$/, '');
+    const source = sources.find((font) => font.postscriptName === name);
+    if (!source) throw new Error(`${name} is not one of the bundled fonts`);
+    const descendant = object.lookup(PDFName.of('DescendantFonts'), PDFArray).lookup(0, PDFDict);
+    const embedded = fontkit.create(stream(descendant.lookup(PDFName.of('FontDescriptor'), PDFDict), 'FontFile2'));
+    const toUnicode = new TextDecoder().decode(stream(object, 'ToUnicode'));
+    checked.push(name);
+    for (const [, glyph = '', unicode = ''] of toUnicode.matchAll(/<([0-9a-f]{4})> <([0-9a-f]{4})>/gi)) {
+      const char = String.fromCharCode(parseInt(unicode, 16));
+      // Letters and digits: punctuation can take a contextual alternate (Inter Tight's raised dash between capitals).
+      if (!/^[A-Za-z0-9]$/.test(char)) continue;
+      const painted = embedded.getGlyph(parseInt(glyph, 16)).path.toSVG();
+      if (painted !== source.glyphForCodePoint(char.charCodeAt(0)).path.toSVG()) wrong.push(`${name} ${char}`);
+    }
+  }
+  return { checked: checked.sort(), wrong };
 }
 
 /** The fonts as pdf-lib measures them, for the layout's own functions. */
@@ -181,7 +217,7 @@ describe('the PDF storyboard', () => {
     folder.remove();
   });
 
-  async function scene(id: string, number: string, shots: number) {
+  async function scene(id: string, number: string, shots: number, name = 'Diner') {
     await store.getState().apply([
       {
         kind: 'create',
@@ -190,7 +226,7 @@ describe('the PDF storyboard', () => {
           type: 'scene',
           parentId: project.projectId,
           sortKey: number.padStart(4, '0'),
-          props: { number, name: 'Diner', int_ext: 'INT', day_night: 'NIGHT', page_eighths: 11 },
+          props: { number, name, int_ext: 'INT', day_night: 'NIGHT', page_eighths: 11 },
         },
       },
     ]);
@@ -238,6 +274,43 @@ describe('the PDF storyboard', () => {
     expect(one).not.toContain('4G');
     expect(two).toContain('INT. DINER — NIGHT (continued)');
     for (const text of ['4G', 'SC 05', '5A', '2 / 2']) expect(two).toContain(text);
+  });
+
+  it('paints every letter with its own glyph, in every font it embeds', async () => {
+    const [first = ''] = await scene('sc4', '4', 3);
+    await store.getState().apply([
+      {
+        kind: 'update',
+        id: first,
+        set: { size: 'MCU', lens_mm: 35, t_stop: 2.8, action: 'The quick brown fox jumps over the lazy dog 0123456789.', dialogue: 'Pack my box with five dozen liquor jugs.' },
+      },
+    ]);
+    const { bytes } = await storyboardPdf({
+      ...board(),
+      title: 'Bey County ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+      watermark: { text: 'CONFIDENTIAL DRAFT', position: 'center', opacity: 0.3, appliesTo: ['pdf'] },
+    });
+    const { checked, wrong } = paintedGlyphs(await PDFDocument.load(bytes));
+    // Title in Bold, heading and watermark in SemiBold, captions in Regular; numbers and specs in JetBrains Mono.
+    const names = fontFiles.map((each) => fontkit.create(each).postscriptName ?? '');
+    expect(checked).toEqual(names.sort());
+    expect(wrong).toEqual([]);
+  });
+
+  it('keeps “(continued)” on a carried-on heading whose name fills the line, and cuts the name instead', async () => {
+    await scene('sc12', '12A', 7, 'The very long name of a location that keeps going past the edge of the page and on');
+    const { bytes } = await storyboardPdf(board());
+    const texts = await pageTexts(bytes);
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).not.toContain('(continued)');
+    expect(texts[1]).toMatch(/INT\. THE VERY LONG NAME OF A LOCATION[^\n]*… \(continued\)/);
+    // And it still ends inside the heading's room, clear of the scene's length at the right.
+    const items = await pageItems(bytes, 2);
+    const heading = items.find((i) => i.str.includes('(continued)'));
+    const length = items.find((i) => i.str === '1 3/8 pg');
+    if (!heading || !length) throw new Error('no heading or length');
+    const { semi } = await measured();
+    expect(heading.x + semi.widthOfTextAtSize(heading.str, 11)).toBeLessThan(length.x);
   });
 
   it('stamps the watermark on every page', async () => {

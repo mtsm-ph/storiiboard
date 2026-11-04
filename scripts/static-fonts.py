@@ -12,6 +12,10 @@ for source, base, weights in FONTS:
     for weight, name in weights:
         font = TTFont(source)
         static = instantiateVariableFont(font, {'wght': weight}, updateFontNames=True)
+        # Every glyph padded to 4 bytes: fontkit's subsetter (pdf-lib) copies glyphs as they are, then writes short
+        # loca offsets (halved) when the subset is small. An odd-length glyph shifted every glyph after it, and most of
+        # Inter Tight printed as blanks or other letters. The test 'has even-length glyphs' holds this.
+        static['glyf'].padding = 4
         out = f'src/features/export/fonts/{base}-{name}.ttf'
         static.save(out)
         print(out, static['OS/2'].usWeightClass, 'fvar' in static)

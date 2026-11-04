@@ -255,14 +255,12 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
       const length = scene.fields.pageEighths === null ? '' : pageLabel(scene.fields.pageEighths);
       const lengthWidth = length ? fonts.mono.widthOfTextAtSize(length, 8) : 0;
       if (length) current.drawText(length, { x: PAGE.width - MARGIN - lengthWidth, y: y - 11, size: 8, font: fonts.mono, color: MUTED });
-      const [text = ''] = wrap(
-        printable(fonts.semi, `${headingOf(scene.fields)}${continued ? ' (continued)' : ''}`),
-        fonts.semi,
-        11,
-        PAGE.width - MARGIN - after - lengthWidth - 12,
-        1,
-      );
-      current.drawText(text, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
+      // The suffix gets its room first and the heading is cut to what's left: wrapped together, a long location's
+      // name cut " (continued)" off with …, and the carried-on page no longer said it was one.
+      const suffix = continued ? ' (continued)' : '';
+      const room = PAGE.width - MARGIN - after - lengthWidth - 12 - fonts.semi.widthOfTextAtSize(suffix, 11);
+      const [text = ''] = wrap(printable(fonts.semi, headingOf(scene.fields)), fonts.semi, 11, room, 1);
+      current.drawText(`${text}${suffix}`, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
       y -= HEADING;
     };
     heading(false);
