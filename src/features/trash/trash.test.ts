@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import type { PreparedImage } from '../../core/media/store';
-import { shotFields } from '../../core/model/storyboard';
+import { sceneFields, shotFields } from '../../core/model/storyboard';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
@@ -123,6 +123,54 @@ describe('the Trash', () => {
     await restore(frameA);
     expect(records().sc4?.trashedAt).toBeNull();
     expect(numbers()).toEqual(['4A', '4B', '4C']);
+  });
+
+  it('in a locked scene, brings a frame back on its own letter, or the next free one when a live frame has taken it', async () => {
+    const [frameA = '', frameB = ''] = shots;
+    await trash(frameB);
+    expect(numbers()).toEqual(['4A', '4B']);
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    // The frame that was 4C is 4B now, so the restored 4B takes the next letter: no two frames share a slate number.
+    await restore(frameB);
+    expect(numbers()).toEqual(['4A', '4C', '4B']);
+    // A letter no one has taken since is kept.
+    await trash(frameA);
+    await restore(frameA);
+    expect(numbers()).toEqual(['4A', '4C', '4B']);
+  });
+
+  it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {
+    // Locked too: its frames still take letters under the new number, or two scenes would share 4A.
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
+    // From an older file, or a scene renumbered before trashed numbers were counted.
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc4b', type: 'scene', parentId: project.projectId, sortKey: 'W', props: { number: '4', name: 'Road' } } },
+    ]);
+    await restore('sc4');
+    expect(board(records(), project.projectId).map((s) => s.fields.number)).toEqual(['A4', '4']);
+    expect(numbers()).toEqual(['A4A', 'A4B', 'A4C']);
+    expect(records().sc4?.props.numbers_locked).toBe(true);
+    await store.getState().undo();
+    expect(records().sc4?.trashedAt).not.toBeNull();
+    expect(sceneFields(records().sc4?.props ?? {}).number).toBe('4');
+  });
+
+  it('brings a note back with its scene, and a restore undone comes back with redo', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'n1', type: 'note', parentId: 'sc4', sortKey: 'z', props: { text: 'Rain all day.' } } },
+    ]);
+    await store.getState().apply([{ kind: 'trash', id: 'n1' }]);
+    await store.getState().apply([{ kind: 'trash', id: 'sc4' }]);
+    await restore('n1');
+    expect(records().sc4?.trashedAt).toBeNull();
+    expect(records().n1?.trashedAt).toBeNull();
+    expect(numbers()).toEqual(['4A', '4B', '4C']);
+    await store.getState().undo();
+    expect(records().n1?.trashedAt).not.toBeNull();
+    await store.getState().redo();
+    expect(records().n1?.trashedAt).toBeNull();
+    expect(records().sc4?.trashedAt).toBeNull();
   });
 
   it('restores after the app is closed and opened again, and the restore is still there after another restart', async () => {

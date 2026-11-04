@@ -69,6 +69,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
   const configure = (db: Database) => {
     // Export closes and reopens the database, which resets pragmas; this runs after each one.
     db.exec('PRAGMA foreign_keys = ON');
+    db.exec('PRAGMA secure_delete = ON');
   };
 
   const openFile = (path: string, isNew: boolean): ProjectFile => {

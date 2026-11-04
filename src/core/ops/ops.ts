@@ -355,20 +355,39 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     const after = fromSnapshot(row.before);
     if (snapshot(before) !== snapshot(after)) found.push({ recordId, kind: 'revert', before, after });
   }
-  // Empty Trash deleted some records for good, and their data in the log with them: a record from then never comes
-  // back half made (its ops say nothing), and one that sat under a deleted parent stays where it is now.
-  const coming = new Set(found.filter((op) => op.after !== null).map((op) => op.recordId));
-  const ops: PendingOp[] = [];
-  for (const op of found) {
-    const parentId = op.after?.parentId ?? null;
-    if (op.after && parentId !== null && !coming.has(parentId) && (await getRecord(file, parentId)) === null) {
-      if (op.before === null) continue;
-      const kept = { ...op.after, parentId: op.before.parentId, sortKey: op.before.sortKey };
-      if (snapshot(kept) !== snapshot(op.before)) ops.push({ ...op, after: kept });
-      continue;
+  // Empty Trash deleted some records for good, and their data in the log with them, so the point can't always be
+  // reached exactly. A record that would go back under a parent that won't be there stays as it is now (or stays away,
+  // if it isn't there now), and a record that stays where it is keeps its parent from being deleted. Each step only
+  // moves a record back to how it is now, so this ends, and every record written sits under one that exists.
+  const final = new Map(found.map((op) => [op.recordId, op.after]));
+  const byId = new Map(found.map((op) => [op.recordId, op]));
+  const existsNow = new Map<string, boolean>();
+  const exists = async (id: string): Promise<boolean> => {
+    if (final.has(id)) return final.get(id) !== null;
+    if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
+    return existsNow.get(id) === true;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [id, record] of final) {
+      const parentId = record?.parentId ?? null;
+      if (!record || parentId === null || (await exists(parentId))) continue;
+      const op = byId.get(id);
+      const parent = byId.get(parentId);
+      if (record !== op?.before) {
+        final.set(id, op?.before ?? null);
+        changed = true;
+      } else if (parent?.before && final.get(parentId) !== parent.before) {
+        // As it is now, under a parent this restore would delete: the parent stays as it is now too.
+        final.set(parentId, parent.before);
+        changed = true;
+      }
     }
-    ops.push(op);
   }
+  const ops = found.flatMap((op) => {
+    const after = final.get(op.recordId) ?? null;
+    return snapshot(after) === snapshot(op.before) ? [] : [{ ...op, after }];
+  });
   if (ops.length === 0) return null;
   const { undoTop } = await tops(file);
   await commit(
@@ -443,7 +462,7 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 export async function emptyTrash(
   file: ProjectFile,
   options: OpOptions = {},
-): Promise<{ touched: Touched; removed: number; freed: number } | null> {
+): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
   const { author = 'local', now = () => new Date() } = options;
   const ids = purgeIds(await loadRecords(file));
   if (ids.length === 0) return null;
@@ -470,7 +489,12 @@ export async function emptyTrash(
     })),
     ...deletePictures(pictures),
   ]);
-  return { touched: new Map(ids.map((id) => [id, null])), removed: ids.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
+  return {
+    touched: new Map(ids.map((id) => [id, null])),
+    removed: ids.length,
+    freed: pictures.reduce((sum, p) => sum + p.bytes, 0),
+    pictures: pictures.map((p) => p.sha256),
+  };
 }
 
 /**
@@ -483,10 +507,10 @@ export function historyOnlyPictures(file: ProjectFile): Promise<StoredPicture[]>
 }
 
 /** Clean up old pictures: deletes the stored pictures only History uses, in one transaction. The log is unchanged. */
-export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number }> {
+export async function cleanUpPictures(file: ProjectFile): Promise<{ removed: number; freed: number; pictures: string[] }> {
   const pictures = await historyOnlyPictures(file);
   if (pictures.length > 0) await file.tx(deletePictures(pictures));
-  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0) };
+  return { removed: pictures.length, freed: pictures.reduce((sum, p) => sum + p.bytes, 0), pictures: pictures.map((p) => p.sha256) };
 }
 
 export async function history(file: ProjectFile): Promise<{ canUndo: boolean; canRedo: boolean }> {

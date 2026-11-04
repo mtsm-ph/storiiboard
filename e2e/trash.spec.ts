@@ -70,6 +70,27 @@ test('filters by type and scene, and a restore keeps focus in the list', async (
   await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toBeFocused();
 });
 
+test('a scene with nothing left in the Trash leaves the filter, and focus goes to the message once the list is empty', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await board(page).getByRole('button', { name: '+ Frame in SC 02' }).click();
+  await openTrash(page);
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('Delete');
+  await board(page).locator('[data-shot-id]').last().click();
+  await page.keyboard.press('Delete');
+  await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(2);
+
+  const scene = trashTile(page).getByRole('combobox', { name: /^Scene/ });
+  await scene.selectOption({ label: 'SC 02' });
+  await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(1);
+  await trashTile(page).getByRole('button', { name: 'Restore frame 2A' }).click();
+  // SC 02 has nothing left in the Trash, so the filter shows every scene again rather than nothing.
+  await expect(scene).toHaveValue('');
+  await expect(trashTile(page).getByRole('button', { name: 'Restore frame 1A' })).toBeFocused();
+  await trashTile(page).getByRole('button', { name: 'Restore frame 1A' }).click();
+  await expect(trashTile(page).getByText('The Trash is empty.', { exact: false })).toBeFocused();
+});
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`the Trash passes axe (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });

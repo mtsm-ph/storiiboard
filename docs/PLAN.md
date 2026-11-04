@@ -264,8 +264,9 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     board would give it there: between a printed 1 and 2 it's 1A, after the last it's the next whole number. A
     number printed twice, or one that can't be a scene number, is numbered the same way, and the preview says why.
   - A scene counts as "On the board" only when the board's scene with its number has the same INT/EXT and place, so
-    importing the same draft again adds nothing. A different scene with that number ("Number taken on the board"),
-    or one in the Trash ("Number in the Trash"), is left out rather than renumbered off the slate. A revised script's
+    importing the same draft again adds nothing. A printed number the board has for a different scene ("Number taken
+    on the board"), or one in the Trash ("Number in the Trash"), is left out rather than renumbered off the slate. A
+    scene the script doesn't number has no slate number to keep, so it's numbered around the board's instead. A revised script's
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
@@ -287,22 +288,36 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 
 **As built in 1.21 (Nov 3): Empty Trash and Clean up old pictures** (src/core/ops/ops.ts, src/app/project/StorageTile.tsx):
 - Empty Trash… in the Trash tile and in Settings → Storage; Clean up old pictures… in Settings → Storage (a tab beside
-  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went and
-  the space freed. How each changes the file is in docs/SBD_FORMAT.md (Trash).
-- Tests for both: undo can't reach past them, they last a restart, and a write that dies halfway changes nothing.
+  Backups). Each asks first, in the system's warning dialog, saying it can't be undone, and reports what went. It
+  runs only for the project the confirm was about. How each changes the file is in docs/SBD_FORMAT.md (Trash).
+- Deleted rows are overwritten with zeros (SQLite's `secure_delete`, on every connection), so what's deleted is gone
+  from the file itself and from backups made after. The file doesn't shrink; the space is used for new pictures.
+- A History restore after Empty Trash goes back as far as it can: a record that would go back under a parent that's
+  gone stays as it is now, and so does whatever it sits under.
+- Tests for both: undo can't reach past them, they last a restart, a History restore after them (and after a
+  restart), a write that dies just before it commits changes nothing, and the picture's bytes are gone from the file.
 - Decided while building, to review: "pictures only History uses" means pictures no record shows, live or in the
   Trash. A picture replaced in a frame goes to the Trash (1.11), so its space comes back with Empty Trash rather than
-  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now shows as removed.
+  Clean up. Clean up leaves the log as it is, so a redo can bring back a frame whose picture now reads "Picture
+  missing". The file isn't compacted; a Compact project command could come later.
 
 **As built in 1.20 (Nov 3): the Trash tile** (src/features/trash):
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and
   pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
-  focus stays in the list.
-- Tests: undo of a restore, restore after closing and reopening the project, and a write that fails halfway
-  leaving the item in the Trash with nothing half restored.
+  focus stays in the list, or goes to the message once the list is empty.
+- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
+  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+  its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
+  scene (as + New scene already counted it). The notice names what came back as it's numbered now.
+- Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
+  leaving the item in the Trash with nothing half restored, locked scenes, a taken scene number.
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
-  goes to the Trash); the project's logo or key image comes back on its own, without becoming the theme's image again.
+  goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
+  its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
+  frame comes back on its old letter, as its locked neighbours keep theirs; a restored scene that needs a new number
+  stays where it was on the board, so in an old file it can read out of order (4, 4B, 4A); a picture whose frame went
+  to the Trash with its scene brings the scene back with that one frame.
 
 **As built in 1.19 (Nov 3): custom fields on shots** (src/core/model/customFields.ts):
 - The inspector has a Custom fields section: each of the frame's fields saves like the others (on leaving it or
@@ -323,7 +338,15 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   heading is a heading; a capitals line about two inches in with dialogue under it is a character cue. Scene numbers
   are the numbers printed outside the margins; page numbers (`2.`), (MORE) and CONTINUED are left out. Length comes
   from the lines a scene fills, blank ones included.
-- A PDF with no text (a scan) imports nothing and says to export the script as a PDF from the writing app.
+- A PDF with no text (a scan) imports nothing and says to export the script as a PDF from the writing app; a
+  password-protected or broken one says so, naming the file.
+- After review: the action margin is measured across the whole script (a page of dialogue alone has few lines at it);
+  any short token with a digit outside the margins is the scene number (`12-14`, `7a`, `A7`, checked as 1.17 does);
+  revision asterisks are dropped; a row split by a gap of an inch or more is two columns, so both speakers of dual
+  dialogue count; rotated or offset pages are read as shown; and the title comes only from a title page.
+- pdf.js's worker is made by the app from its own file. Left to pdf.js, the desktop app's tauri:// origin reads as
+  foreign and pdf.js would parse on the page itself, freezing the window on a large file. A read that takes over 60 s
+  is stopped.
 - Decided while building, to review: the title is the first line on the first page before any scene, which is the
   title page's title in a standard layout.
 

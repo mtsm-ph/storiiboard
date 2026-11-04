@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { historyOnlyPictures } from '../../core/ops/ops';
 import { trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
@@ -17,6 +17,8 @@ export function StorageTile() {
   const [busy, setBusy] = useState(false);
   // Bumped after Clean up, which changes no record, so the count is read again.
   const [generation, setGeneration] = useState(0);
+  const pictureStatus = useRef<HTMLParagraphElement>(null);
+  const trashStatus = useRef<HTMLParagraphElement>(null);
 
   // Read again after every edit: an undo can leave a picture to History alone.
   useEffect(() => {
@@ -36,12 +38,30 @@ export function StorageTile() {
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
   const inTrash = trashItems(records, project.projectId).length;
 
-  const run = async (title: string, text: string, action: string, work: () => Promise<{ removed: number; freed: number } | null>, done: string) => {
-    if (!(await confirmForGood(title, text, action))) return;
+  const run = async (
+    title: string,
+    text: string,
+    action: string,
+    work: () => Promise<{ removed: number; freed: number } | null>,
+    done: string,
+    status: RefObject<HTMLParagraphElement | null>,
+  ) => {
+    if (busy) return;
+    // Only for the project the confirm was about, if another opened while it was up.
+    const shownFor = project;
     setBusy(true);
     try {
+      if (!(await confirmForGood(title, text, action))) return;
+      if (projectStore.getState().project !== shownFor) {
+        showInfo('Another project opened while you were deciding, so nothing was deleted.');
+        return;
+      }
       const result = await work();
-      if (result) showInfo(`${done}${result.freed > 0 ? `, ${sizeLabel(result.freed)} freed` : ''}.`);
+      if (result) showInfo(`${done}${result.freed > 0 ? `: ${sizeLabel(result.freed)} of pictures deleted for good` : ''}.`);
+      // The button turns off with nothing left to do; focus goes to the line that says what's left.
+      requestAnimationFrame(() => {
+        status.current?.focus();
+      });
     } finally {
       setBusy(false);
       setGeneration((n) => n + 1);
@@ -52,7 +72,7 @@ export function StorageTile() {
     <div className="flex max-w-[560px] flex-col gap-5 p-4">
       <section className="flex flex-col gap-2">
         <h3 className="sb-label">Pictures only History uses</h3>
-        <p className="text-[13px]">
+        <p ref={pictureStatus} tabIndex={-1} className="text-[13px]">
           {old === null
             ? 'Counting…'
             : old.count === 0
@@ -62,7 +82,8 @@ export function StorageTile() {
         </p>
         <p className="text-[12px] text-text-muted">
           Pictures that no frame shows, even from the Trash, but an older step in History does: one added and then undone,
-          for example.
+          for example. Once deleted, the space they took inside the project is used for new pictures; the file itself
+          doesn’t get smaller.
         </p>
         <Button
           variant="warning"
@@ -75,6 +96,7 @@ export function StorageTile() {
               'Clean up',
               () => projectStore.getState().cleanUpPictures(),
               'Cleaned up old pictures',
+              pictureStatus,
             )
           }
         >
@@ -84,7 +106,7 @@ export function StorageTile() {
 
       <section className="flex flex-col gap-2 border-t border-border pt-4">
         <h3 className="sb-label">Trash</h3>
-        <p className="text-[13px]">
+        <p ref={trashStatus} tabIndex={-1} className="text-[13px]">
           <span className="font-mono">{String(inTrash)}</span> {inTrash === 1 ? 'item' : 'items'} in the Trash.
         </p>
         <Button
@@ -98,6 +120,7 @@ export function StorageTile() {
               'Empty Trash',
               () => projectStore.getState().emptyTrash(),
               'Emptied the Trash',
+              trashStatus,
             )
           }
         >
