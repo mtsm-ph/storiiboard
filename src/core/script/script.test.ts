@@ -60,6 +60,9 @@ describe('scene headings', () => {
     expect(parseHeading('INT. GYM - NIGHT (1987)')).toMatchObject({ location: 'GYM', dayNight: 'NIGHT' });
     // No INT or EXT: only a real time of day is split off.
     expect(parseHeading('FLASHBACK - THE BRIDGE')).toMatchObject({ intExt: null, location: 'FLASHBACK - THE BRIDGE', otherTime: null });
+    // The time of day wherever it falls among the dashes, and what follows it kept.
+    expect(parseHeading('INT. KITCHEN - NIGHT - FLASHBACK')).toMatchObject({ location: 'KITCHEN', dayNight: 'NIGHT', otherTime: 'FLASHBACK' });
+    expect(parseHeading('INT. DINER - BACK ROOM - NIGHT')).toMatchObject({ location: 'DINER - BACK ROOM', dayNight: 'NIGHT', otherTime: null });
   });
 
   it('names a character without extensions or the dual-dialogue mark', () => {
@@ -108,6 +111,21 @@ describe('a Fountain script', () => {
 
   it('needs a blank line round an unforced heading, so action that starts with INT isn’t one', () => {
     expect(parseFountain('EXT. FIELD - DAY\n\nInterior lights flick on.\nINT. is painted on the door.\n').scenes).toHaveLength(1);
+    // Fountain has no INTERIOR or EXTERIOR: prose that starts with one is action.
+    expect(parseFountain('EXT. FIELD - DAY\n\nExterior walls are cracked.\n\n').scenes).toHaveLength(1);
+  });
+
+  it('never takes a heading or a transition missing its blank line after for a speaker', () => {
+    const script = parseFountain('EXT. FIELD - DAY\n\nINT. HOUSE - DAY\nMary enters.\n\nCUT TO:\nA field.\n');
+    expect(script.scenes.flatMap((s) => s.characters)).toEqual([]);
+  });
+
+  it('keeps a speaker over a note on a line of its own, and counts wrapped action as one paragraph', () => {
+    const script = parseFountain('INT. A - DAY\n\nMARY\n[[ louder? ]]\nHello.\n');
+    expect(script.scenes[0]?.characters).toEqual(['MARY']);
+    const wrapped = `INT. HALL - DAY\n\n${Array.from({ length: 53 }, (_, i) => `Step ${String(i)}.`).join('\n')}\n`;
+    // 53 lines of one paragraph and one blank, not 106: about an eighth under a page.
+    expect(parseFountain(wrapped).scenes[0]?.eighths).toBe(8);
   });
 });
 
@@ -157,5 +175,17 @@ describe('a Final Draft script', () => {
 
   it('says so when the file isn’t Final Draft', () => {
     expect(() => parseFdx('<html></html>')).toThrow('Final Draft');
+  });
+
+  it('skips an empty heading, reads CDATA, single quotes and a > in an attribute, and keeps a bad number as written', () => {
+    const xml = `<FinalDraft><Content>
+<Paragraph Type="Scene Heading"><Text></Text></Paragraph>
+<Paragraph Type='Scene Heading' Number='3'><SceneProperties Title="A > B"/><Text><![CDATA[INT. BARN - DAWN]]></Text></Paragraph>
+<Paragraph Type="Character"><Text>JO&#99999999;</Text></Paragraph><Paragraph Type="Dialogue"><Text>Hi.</Text></Paragraph>
+</Content></FinalDraft>`;
+    const read = parseFdx(xml);
+    expect(read.scenes.map((s) => [s.number, s.location, s.dayNight])).toEqual([['3', 'BARN', 'DAWN']]);
+    expect(read.scenes[0]?.characters).toEqual(['JO&#99999999;']);
+    expect(read.title).toBeNull();
   });
 });

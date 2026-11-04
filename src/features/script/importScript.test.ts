@@ -93,11 +93,12 @@ describe('a script import', () => {
     ]);
     await store.getState().applyWith((now) => ({ changes: setSceneLocation(now, project.projectId, 'sc1', 'Diner') }));
     const plan = planImport(records(), project.projectId, SCRIPT);
-    expect(plan.scenes.map((s) => [s.number, s.exists])).toEqual([
-      ['1', true],
-      ['2', false],
-      ['3', false],
-      ['4', false],
+    // The board's scene 1 is another scene (its own name), so the script's 1 is left out, not renumbered.
+    expect(plan.scenes.map((s) => [s.number, s.status])).toEqual([
+      ['1', 'taken'],
+      ['2', 'new'],
+      ['3', 'new'],
+      ['4', 'new'],
     ]);
     expect(plan.locations).toEqual({ created: ['COUNTY ROAD'], linked: ['Diner'] });
     await runImport();
@@ -111,9 +112,60 @@ describe('a script import', () => {
     expect(named('location')).toEqual(['COUNTY ROAD', 'Diner']);
   });
 
-  it('keeps the script’s own numbers, and numbers the rest after the highest one so far', () => {
+  it('keeps every number the script prints, and numbers the rest between them as the board would', () => {
     const script = parseFountain('INT. A - DAY #4A#\n\nEXT. B - DAY\n\nINT. C - DAY #12#\n\nEXT. D - NIGHT\n');
-    expect(planImport(records(), project.projectId, script).scenes.map((s) => s.number)).toEqual(['4A', '5', '12', '13']);
+    expect(planImport(records(), project.projectId, script).scenes.map((s) => s.number)).toEqual(['4A', '4B', '12', '13']);
+    // An unnumbered scene before a printed 2 never takes the 2.
+    const partly = parseFountain('INT. A - DAY #1#\n\nINT. B - DAY\n\nINT. C - DAY #2#\n');
+    expect(planImport(records(), project.projectId, partly).scenes.map((s) => s.number)).toEqual(['1', '1A', '2']);
+  });
+
+  it('numbers a second copy of a printed number, or one that can’t be a scene number, and says why', () => {
+    const script = parseFountain('INT. A - DAY #2#\n\nINT. B - DAY #2#\n\nINT. C - DAY #1-a#\n');
+    const plan = planImport(records(), project.projectId, script).scenes;
+    expect(plan.map((s) => s.number)).toEqual(['2', '2A', '1A']);
+    expect(plan[1]?.note).toBe('The script prints 2 twice');
+    expect(plan[2]?.note).toBeNull();
+  });
+
+  it('finds its own scenes when the same draft is imported again, and nothing else', async () => {
+    await runImport();
+    const again = planImport(records(), project.projectId, SCRIPT);
+    expect(again.scenes.map((s) => s.status)).toEqual(['same', 'same', 'same', 'same']);
+    expect(importChanges(records(), project.projectId, again)).toEqual([]);
+  });
+
+  it('imports an unnumbered script into a board with scenes of its own made by hand', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1' } } },
+    ]);
+    // Scene 1 is the person's own: the script's 1 is left out, the rest come in with the script's numbers.
+    expect(planImport(records(), project.projectId, SCRIPT).scenes.map((s) => s.status)).toEqual(['taken', 'new', 'new', 'new']);
+  });
+
+  it('reuses a character the project has, whatever its case, and adds scenes after a trashed last one', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'ch', type: 'character', parentId: project.projectId, sortKey: 'V', props: { name: 'Mary' } } },
+      { kind: 'create', record: { id: 'z', type: 'scene', parentId: project.projectId, sortKey: 'zz', props: { number: '90' } } },
+    ]);
+    await store.getState().apply([{ kind: 'trash', id: 'z' }]);
+    expect(planImport(records(), project.projectId, SCRIPT).characters).toEqual({ created: ['TOM'], linked: ['Mary'] });
+    await runImport();
+    const keys = Object.values(records())
+      .filter((r) => r.type === 'scene' && r.id !== 'z')
+      .map((r) => r.sortKey);
+    expect(keys.every((k) => k > 'zz')).toBe(true);
+  });
+
+  it('is worked out again when it lands, so an edit made after the preview isn’t undone by it', async () => {
+    const preview = planImport(records(), project.projectId, SCRIPT);
+    expect(preview.scenes[0]?.status).toBe('new');
+    // Scene 1 made by hand while the preview was open.
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1', name: 'Mine' } } },
+    ]);
+    await runImport();
+    expect(scenes().filter((s) => s.number === '1').map((s) => s.name)).toEqual(['Mine']);
   });
 
   it('counts scenes in the Trash as taken, so a restored one never shares a number', async () => {
@@ -121,6 +173,6 @@ describe('a script import', () => {
       { kind: 'create', record: { id: 'old', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1' } } },
     ]);
     await store.getState().apply([{ kind: 'trash', id: 'old' }]);
-    expect(planImport(records(), project.projectId, SCRIPT).scenes[0]).toMatchObject({ number: '1', exists: true });
+    expect(planImport(records(), project.projectId, SCRIPT).scenes[0]).toMatchObject({ number: '1', status: 'trashed' });
   });
 });

@@ -260,11 +260,13 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - A preview lists every scene (number, heading, length, speakers) and what will be created. Import writes the scenes
   after the board's last, with their locations and characters found by name (any case) or created, in one op group.
 - Decided while building, to review:
-  - The script's own scene numbers are kept. Scenes it doesn't number are numbered as the script would be: the
-    first is 1, then the next after the highest so far.
-  - A scene whose number the project has already, live or in the Trash, is listed as "On the board" and left as
-    it is, so importing the same draft again adds nothing. A revised script's changed scenes aren't merged; that
-    needs the review screen of Phase 7.
+  - Every number the script prints is kept, exactly, as on the slate. A scene it doesn't number gets the number the
+    board would give it there: between a printed 1 and 2 it's 1A, after the last it's the next whole number. A
+    number printed twice, or one that can't be a scene number, is numbered the same way, and the preview says why.
+  - A scene counts as "On the board" only when the board's scene with its number has the same INT/EXT and place, so
+    importing the same draft again adds nothing. A different scene with that number ("Number taken on the board"),
+    or one in the Trash ("Number in the Trash"), is left out rather than renumbered off the slate. A revised script's
+    changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
 

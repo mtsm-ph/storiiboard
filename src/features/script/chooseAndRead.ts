@@ -1,4 +1,5 @@
 import { showNotice } from '../../app/notice';
+import { projectStore } from '../../app/projectStore';
 import { chooseScript } from '../../app/scripts';
 import { parseScreenplayPdf } from '../../core/script/pdfLayout';
 import { parseScript } from '../../core/script/parse';
@@ -17,6 +18,8 @@ async function read(name: string, bytes: ArrayBuffer): Promise<Script> {
 
 /** Import script…: the Open dialog, then the file read and parsed into the preview. A file with no scenes says so. */
 export async function chooseScriptToImport(): Promise<void> {
+  const opened = projectStore.getState().project;
+  if (!opened) return;
   try {
     const file = await chooseScript();
     if (!file) return;
@@ -29,7 +32,7 @@ export async function chooseScriptToImport(): Promise<void> {
       );
       return;
     }
-    showImport({ fileName: file.name, script });
+    showImport({ fileName: file.name, script, projectId: opened.projectId, path: opened.file.path });
   } catch (error) {
     showNotice(error);
   }

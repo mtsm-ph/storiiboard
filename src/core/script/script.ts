@@ -1,4 +1,4 @@
-import type { DayNight, IntExt } from '../model/storyboard';
+import { parsePages, type DayNight, type IntExt } from '../model/storyboard';
 
 // What a script import reads (1.17, CLAUDE.md: script import): each scene's heading, by rule and never by AI, its
 // speaking characters and its length. Shared by the app and, later, the MCP server's script tool, so it stays free of
@@ -29,8 +29,8 @@ export interface Script {
 // INT./EXT. and its spellings first, so INT doesn't match the start of INT./EXT.
 const PREFIXES: readonly [RegExp, IntExt][] = [
   [/^(?:INT\.?\s*\/\s*EXT|EXT\.?\s*\/\s*INT|I\s*\/\s*E)\.?(?:\s+|$)/i, 'INT/EXT'],
-  [/^(?:INT|INTERIOR)\.?(?:\s+|$)/i, 'INT'],
-  [/^(?:EXT|EXTERIOR|EST)\.?(?:\s+|$)/i, 'EXT'],
+  [/^INT\.?(?:\s+|$)/i, 'INT'],
+  [/^(?:EXT|EST)\.?(?:\s+|$)/i, 'EXT'],
 ];
 
 /** Times of day by the words scripts use; anything else is kept as written. */
@@ -62,15 +62,32 @@ export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intEx
       break;
     }
   }
-  // The time of day follows the last dash (a hyphen, en or em dash with spaces round it).
-  const split = /^(.*\S)\s+[-–—]+\s+([^-–—]+)$/.exec(rest);
-  const place = (split?.[1] ?? rest).trim();
-  const time = split?.[2]?.trim() ?? '';
-  const known = Object.entries(TIMES).find(([word]) => time.toUpperCase() === word || time.toUpperCase().startsWith(`${word} `));
-  const dayNight = known ? known[1] : null;
-  // Without INT or EXT (a forced heading such as `FLASHBACK - THE BRIDGE`), only a real time of day is split off.
-  const otherTime = time !== '' && !known && intExt !== null ? time : null;
-  const location = split && (known || otherTime) ? place : rest.trim();
+  // The place, then the time of day, then anything after it, split at dashes with spaces round them:
+  // `KITCHEN - NIGHT - FLASHBACK` is KITCHEN, NIGHT and FLASHBACK.
+  const parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
+  const timeOf = (part: string) =>
+    Object.entries(TIMES).find(([word]) => part.toUpperCase() === word || part.toUpperCase().startsWith(`${word} `))?.[1] ?? null;
+  // The last part that's a time of day, never the first (that's the place).
+  let at = -1;
+  for (let i = parts.length - 1; i >= 1; i -= 1) {
+    if (timeOf(parts[i] ?? '') !== null) {
+      at = i;
+      break;
+    }
+  }
+  let location = rest.trim();
+  let dayNight: DayNight | null = null;
+  let otherTime: string | null = null;
+  if (at !== -1) {
+    location = parts.slice(0, at).join(' - ');
+    dayNight = timeOf(parts[at] ?? '');
+    otherTime = parts.slice(at + 1).join(' - ') || null;
+  } else if (intExt !== null && parts.length > 1) {
+    // No time the board knows (CONTINUOUS, LATER): kept so the heading still says it. Without INT or EXT (a forced
+    // `FLASHBACK - THE BRIDGE`) the whole text is the place.
+    location = parts.slice(0, -1).join(' - ');
+    otherTime = parts.at(-1) ?? null;
+  }
   return { heading, intExt, location, dayNight, otherTime };
 }
 
@@ -90,13 +107,10 @@ export function eighthsFromLines(lines: number): number {
   return Math.max(1, Math.round((lines * 8) / LINES_PER_PAGE));
 }
 
-/** `1 3/8` as Final Draft writes a scene's length, in eighths: 11. Null for anything else. */
+/** `1 3/8` as Final Draft writes a scene's length, in eighths: 11. Null for anything else, or for nothing. */
 export function eighthsFromLength(length: string): number | null {
-  // Whole pages, eighths, or both: `2`, `4/8`, `1 3/8`.
-  const match = /^\s*(?:(\d+)(?:\s+(\d+)\s*\/\s*8)?|(\d+)\s*\/\s*8)\s*$/.exec(length);
-  if (!match) return null;
-  const total = Number(match[1] ?? '0') * 8 + Number(match[2] ?? match[3] ?? '0');
-  return total > 0 ? total : null;
+  const eighths = parsePages(length);
+  return eighths !== null && eighths > 0 ? eighths : null;
 }
 
 /** How many printed lines a block of text takes at a given width in characters (Courier 12, as scripts are set). */
