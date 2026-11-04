@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { customFieldNames, customFieldsOf } from '../../core/model/customFields';
 import { showInfo, showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -167,6 +168,7 @@ export function StoryboardTile() {
     fields: shot.fields,
     picture: pictureView(records, shot.fields),
     strokes: strokes.get(shot.record.id) ?? [],
+    custom: customFieldsOf(shot.record.props),
   });
 
   const groups: SceneGroup[] = scenes.map((scene) => ({
@@ -188,6 +190,7 @@ export function StoryboardTile() {
       <StoryboardView
         key={projectId}
         scenes={groups}
+        customNames={customFieldNames(records)}
         view={view}
         onViewChange={(next) => {
           setView(next);

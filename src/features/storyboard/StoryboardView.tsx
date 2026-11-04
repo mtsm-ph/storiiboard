@@ -45,6 +45,8 @@ export interface FrameCard {
   picture: FramePictureView | null;
   /** The frame's sketch, drawn over its picture; empty for none. */
   strokes?: readonly Stroke[];
+  /** The frame's own fields (1.19), by name. */
+  custom?: Readonly<Record<string, string>>;
 }
 
 /** One thing on the board, in order: a frame or a note. */
@@ -77,6 +79,8 @@ const entryId = (entry: BoardEntry) => (entry.kind === 'frame' ? entry.frame.id 
 
 export interface StoryboardViewProps {
   scenes: readonly SceneGroup[];
+  /** Every custom field name the project's frames use (1.19): the shot list's extra columns. */
+  customNames?: readonly string[];
   view: BoardView;
   onViewChange: (view: BoardView) => void;
   /** Width over height, from the project's aspect ratio. */
@@ -155,6 +159,7 @@ function SceneHeading({ scene, className }: { scene: SceneGroup; className?: str
 
 export function StoryboardView({
   scenes,
+  customNames = [],
   view,
   onViewChange,
   aspectRatio,
@@ -496,6 +501,7 @@ export function StoryboardView({
     body = (
       <ShotList
         scenes={scenes}
+        customNames={customNames}
         selectedShotId={selectedShotId}
         itemProps={itemProps}
         addProps={addProps}
@@ -575,6 +581,7 @@ const capital = (text: string) => (text === '' ? '—' : text.charAt(0).toUpperC
 
 interface ShotListProps {
   scenes: readonly SceneGroup[];
+  customNames: readonly string[];
   selectedShotId: string | null;
   itemProps: (frame: FrameCard, sceneId: string) => Record<string, unknown>;
   addProps: (scene: SceneGroup) => Record<string, unknown>;
@@ -587,17 +594,19 @@ interface ShotListProps {
  * is each row's focus target, so the board's keys work here too; the selected row takes the selected-row fill, with
  * the accent marker and the ink chip on its number.
  */
-function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered, renderNote }: ShotListProps) {
+function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sceneHovered, renderNote }: ShotListProps) {
   // Headers and short values stay on one line; only the action wraps.
   const head = 'sb-label px-2 py-1.5 text-left font-normal whitespace-nowrap text-text-muted';
   const cell = 'px-2 py-1.5 align-top';
+  // The built-in columns, then one per custom field the project's frames use.
+  const columns = 10 + customNames.length;
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-[12px]">
         <caption className="sr-only">Shot list</caption>
         <thead>
           <tr className="border-b border-border">
-            {['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments'].map((name) => (
+            {['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments', ...customNames].map((name) => (
               <th key={name} scope="col" className={head}>
                 {name}
               </th>
@@ -614,7 +623,7 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered, r
           >
             <tr className="border-b border-border">
               {/* Heads the scene's rows below it, not a column. */}
-              <th scope="rowgroup" colSpan={10} className="px-2 pt-3 pb-1.5 text-left font-normal">
+              <th scope="rowgroup" colSpan={columns} className="px-2 pt-3 pb-1.5 text-left font-normal">
                 <SceneHeading scene={scene} />
               </th>
             </tr>
@@ -622,7 +631,7 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered, r
               if (item.kind === 'note') {
                 return (
                   <tr key={item.id} className="border-b border-border">
-                    <td colSpan={10} className={cell}>
+                    <td colSpan={columns} className={cell}>
                       {renderNote(item, scene.id)}
                     </td>
                   </tr>
@@ -661,11 +670,19 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered, r
                       ? '—'
                       : f.departments.map(departmentName).join(', ')}
                   </td>
+                  {customNames.map((name) => {
+                    const value = frame.custom?.[name] ?? '';
+                    return (
+                      <td key={name} className={cx(cell, 'max-w-[24ch]', value === '' && quiet)}>
+                        {dash(value)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
             <tr className="border-b border-border">
-              <td colSpan={10} className={cell}>
+              <td colSpan={columns} className={cell}>
                 <button {...addProps(scene)} className="sb-label border border-dashed border-text px-2 py-1 hover:bg-surface-raised">
                   + Frame
                 </button>

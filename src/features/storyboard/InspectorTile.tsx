@@ -1,7 +1,8 @@
 import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
-import { useProject } from '../../app/projectStore';
+import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
+import { customFieldNames, customFieldsOf, withField, withoutField } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { addPictures } from './addPictures';
 import { setSceneNumber } from './board';
@@ -91,6 +92,17 @@ export function InspectorTile() {
         }}
         onCropChange={(crop) => {
           if (shot) void apply([setCrop(shot.id, crop)]);
+        }}
+        customFields={shot ? customFieldsOf(shot.props) : {}}
+        customNames={customFieldNames(records)}
+        onCustomChange={(name, value) => {
+          if (!shot) return;
+          // Worked out when it lands, so two fields added quickly both stay.
+          void projectStore.getState().applyWith((now) => {
+            const props = now[shot.id]?.props;
+            if (!props) return { changes: [] };
+            return { changes: [{ kind: 'update', id: shot.id, ...(value === null ? withoutField(props, name) : withField(props, name, value)) }] };
+          });
         }}
       />
     </ProjectPictures>

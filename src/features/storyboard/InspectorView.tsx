@@ -21,9 +21,11 @@ import {
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { Button } from '../../ui/Button';
+import { fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
+import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
+import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { departmentTagClass } from '../../ui/tags';
 import { CropEditor } from './CropEditor';
@@ -73,6 +75,12 @@ export interface InspectorViewProps {
   strokeCount?: number;
   /** The scene's location, set from the "/" menu; null when it has none. */
   locationName?: string | null;
+  /** The frame's own fields (1.19), by name. */
+  customFields?: Readonly<Record<string, string>>;
+  /** Every field name the project's frames use. */
+  customNames?: readonly string[];
+  /** A value to set, or null to take the field off the frame. */
+  onCustomChange?: (name: string, value: string | null) => void;
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
@@ -181,6 +189,105 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
   );
 }
 
+/** A frame's own fields (1.19): each saves like the others; a new one takes a name, offering the project's. */
+function CustomFields({
+  fields,
+  known,
+  onChange,
+}: {
+  fields: Readonly<Record<string, string>>;
+  /** Every field name the project's frames use, for the new field's suggestions. */
+  known: readonly string[];
+  /** A value to set, or null to take the field off this frame. */
+  onChange: (name: string, value: string | null) => void;
+}) {
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const listId = useId();
+  const errorId = useId();
+  const rows = useRef<HTMLDivElement>(null);
+  const focusField = (field: string) => {
+    requestAnimationFrame(() => {
+      rows.current?.querySelector<HTMLInputElement>(`[data-custom-field="${CSS.escape(field)}"] input`)?.focus();
+    });
+  };
+  const add = () => {
+    const tidy = fieldName(name, known);
+    if (!tidy) {
+      setError(`A name of 1 to ${String(MAX_FIELD_NAME)} characters.`);
+      return;
+    }
+    setError(null);
+    setName('');
+    // Already on this frame: go to it rather than add it twice.
+    if (!(tidy in fields)) onChange(tidy, '');
+    focusField(tidy);
+  };
+  const offered = known.filter((k) => !(k in fields));
+  return (
+    <>
+      <div ref={rows} className="flex flex-col gap-3">
+        {Object.entries(fields).map(([field, value]) => (
+          <div key={field} data-custom-field={field} className="flex items-end gap-2">
+            <div className="min-w-0 flex-1">
+              <CommitText
+                label={field}
+                value={value}
+                onCommit={(text) => {
+                  onChange(field, text);
+                  return null;
+                }}
+              />
+            </div>
+            <IconButton
+              label={`Remove ${field} from this frame`}
+              onClick={() => {
+                onChange(field, null);
+              }}
+            >
+              <CloseGlyph />
+            </IconButton>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <TextField
+              label="New field"
+              value={name}
+              list={listId}
+              maxLength={MAX_FIELD_NAME}
+              placeholder="Drone, VFX, budget…"
+              aria-invalid={error !== null}
+              aria-describedby={error ? errorId : undefined}
+              onChange={(event) => {
+                setName(event.currentTarget.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') add();
+              }}
+            />
+          </div>
+          <Button disabled={name.trim() === ''} onClick={add}>
+            Add field
+          </Button>
+        </div>
+        <datalist id={listId}>
+          {offered.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+        {error && (
+          <p id={errorId} role="alert" className="text-[12px] text-warning dark:text-text">
+            {error}
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 const choices = (options: readonly string[], format: (v: string) => string = (v) => v.charAt(0).toUpperCase() + v.slice(1)) =>
   [
     <option key="" value="">
@@ -209,6 +316,9 @@ export function InspectorView({
   locationName = null,
   onSketch,
   strokeCount = 0,
+  customFields = {},
+  customNames = [],
+  onCustomChange,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -415,6 +525,12 @@ export function InspectorView({
               })}
             </ul>
           </Section>
+
+          {onCustomChange && (
+            <Section title="Custom fields">
+              <CustomFields key={shot.id} fields={customFields} known={customNames} onChange={onCustomChange} />
+            </Section>
+          )}
         </>
       )}
 
