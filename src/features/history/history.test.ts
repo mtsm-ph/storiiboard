@@ -9,7 +9,7 @@ import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, tr
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
-import { changeText, changeValue, fieldChanges, frameRows, lineText, type FieldChange } from './summary';
+import { changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
 
 let folder: TestFolder;
 let project: Project;
@@ -127,6 +127,25 @@ describe('History', () => {
     await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 35 } }]);
     expect(shotFields(records()[a]?.props ?? {}).lensMm).toBe(35);
     expect((await lines()).at(-1)).toBe('4A: lens 50mm → 35mm');
+  });
+
+  it('says what each Watermark Settings step did, and shows the watermark itself in the project’s own changes', async () => {
+    const id = project.projectId;
+    const mark = (text: string, opacity: number) => ({ text, position: 'bottom-right', opacity, applies_to: ['pdf', 'png'] });
+    await store.getState().apply([{ kind: 'update', id, set: { watermark: mark('DRAFT', 0.35) } }]);
+    await store.getState().apply([{ kind: 'update', id, set: { watermark: mark('DRAFT', 0.5) } }]);
+    await store.getState().apply([{ kind: 'update', id, set: { watermark: mark('NOT FOR AIR', 0.5) } }]);
+    await store.getState().apply([{ kind: 'update', id, set: { watermark: { ...mark('NOT FOR AIR', 0.8), position: 'center' } } }]);
+    await store.getState().apply([{ kind: 'update', id, unset: ['watermark'] }]);
+    expect((await lines()).slice(-5)).toEqual([
+      'Set the watermark “DRAFT”',
+      'Watermark “DRAFT” strength: 35% → 50%',
+      'Watermark text: “DRAFT” → “NOT FOR AIR”',
+      'Changed the watermark “NOT FOR AIR”: position, strength',
+      'Removed the watermark “NOT FOR AIR”',
+    ]);
+    expect(valueLabel('watermark', mark('DRAFT', 0.35))).toBe('“DRAFT”, bottom right, 35%');
+    expect(valueLabel('watermark', { ...mark('DRAFT', 0.5), position: 'center' })).toBe('“DRAFT”, centre, 50%');
   });
 });
 

@@ -158,9 +158,22 @@ export function isTextEntry(target: EventTarget | null): boolean {
   return element.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((element as HTMLInputElement).type);
 }
 
+/**
+ * The app's own shortcuts step aside while a modal dialog is open (Export, Watermark Settings, Import Script…): the
+ * app behind it is inert, so a key pressed on a slider or a button in the dialog never edits, undoes or rearranges what
+ * the backdrop hides. A dialog whose work is the project's own edits marks itself `data-project-undo` (the sketch
+ * editor, whose strokes undo with ⌘Z); `projectUndo` lets ⌘Z through there. The event's target first, then the
+ * document, for a key pressed while focus sits on the dialog's body rather than a control.
+ */
+export function inModalDialog(target: EventTarget | null, projectUndo = false): boolean {
+  const own = target !== null && typeof (target as Partial<Element>).closest === 'function' ? (target as Element).closest('dialog[open]') : null;
+  const open = own ?? (typeof document === 'undefined' ? null : document.querySelector('dialog[open]'));
+  return open !== null && !(projectUndo && open.hasAttribute('data-project-undo'));
+}
+
 /** Alt+1–7, in the sidebar's order. Read from event.code, because Option+number types ¡™£¢ on a Mac keyboard. */
 export function workspaceForShortcut(event: ShortcutEvent): Workspace | undefined {
-  if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTextEntry(event.target)) return undefined;
+  if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTextEntry(event.target) || inModalDialog(event.target)) return undefined;
   const match = /^Digit([1-9])$/.exec(event.code);
   return match ? WORKSPACES[Number(match[1]) - 1] : undefined;
 }

@@ -56,6 +56,35 @@ const MONO = new Set(['number', 'lens_mm', 't_stop']);
 
 export const fieldLabel = (prop: string): string => FIELD[prop] ?? prop.replace(/_/g, ' ');
 
+type JsonObject = { [key: string]: JsonValue };
+const isObject = (value: JsonValue | undefined): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The parts of a watermark (Watermark Settings, 1.24), by the names the dialog gives them. */
+const WATERMARK_PART: Readonly<Record<string, string>> = { text: 'text', position: 'position', opacity: 'strength', applies_to: 'on' };
+
+function watermarkPart(part: string, value: JsonValue | undefined): string {
+  if (part === 'text') return typeof value === 'string' ? `“${value.length > 30 ? `${value.slice(0, 29)}…` : value}”` : '—';
+  if (part === 'opacity') return typeof value === 'number' ? `${String(Math.round(value * 100))}%` : '—';
+  if (part === 'position') return typeof value === 'string' ? value.replace(/-/g, ' ').replace('center', 'centre') : '—';
+  return Array.isArray(value) && value.length > 0 ? value.map((v) => (typeof v === 'string' ? v.toUpperCase() : JSON.stringify(v))).join(', ') : '—';
+}
+
+/**
+ * A watermark step in words. The prop is one object, so the plain line read "watermark changed → changed" and
+ * someone looking for the strength they had before couldn't tell one step from the next.
+ */
+function describeWatermark(before: JsonValue | undefined, after: JsonValue | undefined): string {
+  const text = (value: JsonObject) => watermarkPart('text', value.text);
+  if (!isObject(after)) return isObject(before) ? `Removed the watermark ${text(before)}` : 'Removed the watermark';
+  if (!isObject(before)) return `Set the watermark ${text(after)}`;
+  const parts = Object.keys(WATERMARK_PART).filter((part) => JSON.stringify(before[part]) !== JSON.stringify(after[part]));
+  const [only] = parts;
+  if (parts.length === 1 && only) {
+    return `Watermark ${only === 'text' ? '' : `${text(after)} `}${WATERMARK_PART[only] ?? only}: ${watermarkPart(only, before[only])} → ${watermarkPart(only, after[only])}`;
+  }
+  return `Changed the watermark ${text(after)}: ${parts.map((part) => WATERMARK_PART[part] ?? part).join(', ')}`;
+}
+
 /** Whether a field's values are technical ones, shown in mono. */
 export const isMono = (prop: string): boolean => MONO.has(prop);
 
@@ -87,6 +116,10 @@ export function valueLabel(prop: string, value: JsonValue | undefined): string {
  */
 export function valueText(prop: string, value: JsonValue | undefined): string {
   if (value === undefined || value === null || value === '') return '—';
+  // Its text, where and how strong, so an old watermark can be told apart before it's put back.
+  if (prop === 'watermark' && isObject(value)) {
+    return `${watermarkPart('text', value.text)}, ${watermarkPart('position', value.position)}, ${watermarkPart('opacity', value.opacity)}`;
+  }
   // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
   // picture change reads as set, removed or replaced (pictureChange).
   if (prop === 'location_id') return 'a location';
@@ -224,6 +257,8 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
   if (ops.some((op) => op.after?.type === 'project' && op.before && JSON.stringify(op.before.props.theme) !== JSON.stringify(op.after.props.theme))) {
     return [`Changed the theme${tag}`];
   }
+  const watermark = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.watermark) !== JSON.stringify(op.after.props.watermark));
+  if (watermark) return [`${describeWatermark(watermark.before?.props.watermark, watermark.after?.props.watermark)}${tag}`];
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const [kind, verb] of [

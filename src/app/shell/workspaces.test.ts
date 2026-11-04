@@ -53,4 +53,11 @@ describe('workspaces', () => {
     expect(alt3(element('INPUT', { type: 'range' }))?.id).toBe('team');
     expect(alt3(element('BUTTON'))?.id).toBe('team');
   });
+
+  it('step aside inside a modal dialog, whatever the dialog', () => {
+    const inDialog = (projectUndo: boolean) =>
+      ({ tagName: 'BUTTON', isContentEditable: false, closest: () => ({ hasAttribute: () => projectUndo }) }) as unknown as EventTarget;
+    expect(workspaceForShortcut(key('Digit3', { altKey: true }, inDialog(false)))).toBeUndefined();
+    expect(workspaceForShortcut(key('Digit3', { altKey: true }, inDialog(true)))).toBeUndefined();
+  });
 });
