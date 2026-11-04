@@ -88,7 +88,7 @@ test('a script imported again finds its scenes on the board and leaves them', as
   await preview(page).getByRole('button', { name: 'Import 3 scenes' }).click();
   await choose(page, 'Bey County.fountain', FOUNTAIN);
   await expect(preview(page).getByText('Every scene in this script is on the board already.')).toBeVisible();
-  await expect(preview(page).getByText('On the board')).toHaveCount(3);
+  await expect(preview(page).getByText('On the board', { exact: true })).toHaveCount(3);
   await expect(preview(page).getByRole('button', { name: 'Import 0 scenes' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(preview(page)).toHaveCount(0);
