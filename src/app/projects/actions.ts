@@ -1,14 +1,15 @@
 import type { ProjectState } from '../../core/model/project';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { appDataDir } from '@tauri-apps/api/path';
-import { copyBackup, copyBeside, folderOfPath } from '../../core/storage/openBackup';
-import { freshFileId, type NamedVersion } from '../../core/storage/versions';
+import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
+import type { NamedVersion } from '../../core/storage/versions';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
 import { appData, appDriver, isTauriApp } from '../fileAccess';
 import { fileStem } from '../../core/storage/paths';
 import { clearNotice, showInfo, showNotice } from '../notice';
 import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
+import { openVersionCopy } from '../openVersion';
 import { projectStore } from '../projectStore';
 import { openOnboarding } from '../theme/onboarding';
 import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
@@ -109,7 +110,9 @@ export async function openWithDialog(): Promise<void> {
 }
 
 export async function openRecent(path: string): Promise<void> {
-  await attempt(() => openProjectFile(path, files));
+  await attempt(async () => {
+    await openProjectFile(path, files);
+  });
 }
 
 /**
@@ -125,29 +128,33 @@ export async function openBackup(path: string, projectPath: string): Promise<voi
   if (worked) announceBackupCopy(copy);
 }
 
-/**
- * Open version (1.23, docs/PLAN.md: History, versions and backups): copies the open project beside it, named after
- * the version, gives the copy a file id of its own, opens it as a separate project, and restores the copy to the
- * version's step. The original is never touched.
- */
+let openingVersion = false;
+
+/** Open version (1.23, src/app/openVersion.ts): a copy restored to the version's step, opened as a separate project. */
 export async function openVersion(version: NamedVersion): Promise<void> {
-  const open = projectStore.getState().project;
-  if (!open) return;
-  // A version's name may hold what a file name can't.
-  const label = version.name.replace(/[/\\:*?"<>|]+/g, ' ').trim() || 'version';
-  let copy = '';
+  // One at a time: a double-click would otherwise make two copies.
+  if (!projectStore.getState().project || openingVersion) return;
+  openingVersion = true;
+  // An object, so the check after the closure sees what the closure set.
+  const made: { copy: { path: string; opened: boolean } | null } = { copy: null };
   const worked = await attempt(async () => {
-    copy = await copyBeside(open.file.path, label, appDriver);
-    const file = await appDriver.open(copy);
     try {
-      await freshFileId(file);
-    } finally {
-      await file.close();
+      made.copy = await openVersionCopy(version, files);
+    } catch (error) {
+      // A sync replaced the open file: nothing was copied, and the newer version is reopened as after a refused edit.
+      if (error instanceof Error && error.message === CHANGED_ON_DISK) projectStore.setState({ changedOnDisk: true });
+      else throw error;
     }
-    await openProjectFile(copy, files);
-    await projectStore.getState().restoreTo(version.opGroupId);
+  }).finally(() => {
+    openingVersion = false;
   });
-  if (worked) showInfo(`Opened version “${version.name}” as a separate project, “${fileStem(copy)}”. The original is unchanged.`);
+  const copy = made.copy;
+  if (!worked || !copy) return;
+  showInfo(
+    copy.opened
+      ? `Opened version “${version.name}” as a separate project, “${fileStem(copy.path)}”. The original is unchanged.`
+      : `Saved version “${version.name}” as a separate project, “${fileStem(copy.path)}”, beside the original, without opening it. The original is unchanged.`,
+  );
 }
 
 /** A backup's copy keeps the project's title, so the notice says which file is open and that the original is safe. */

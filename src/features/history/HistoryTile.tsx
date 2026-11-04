@@ -57,6 +57,9 @@ export function HistoryTile() {
   // can never land on the item selected before.
   const [itemOps, setItemOps] = useState<{ id: string; ops: LoggedOp[]; readFor: number } | null>(null);
   const [naming, setNaming] = useState('');
+  // Set at once, not on the next render: a second Enter or click while the name is written would name it twice.
+  const savingVersion = useRef(false);
+  const [saving, setSaving] = useState(false);
   const versionsId = useId();
   // Bumped after naming or deleting a version, which changes no record, so History is read again.
   const [generation, setGeneration] = useState(0);
@@ -190,14 +193,20 @@ export function HistoryTile() {
   };
   const versionNamed = versionName(naming);
   const saveVersion = () => {
-    if (!versionNamed || !loaded?.newest) return;
+    if (!versionNamed || !loaded?.newest || savingVersion.current) return;
+    savingVersion.current = true;
+    setSaving(true);
     void nameVersion(project.file, { name: versionNamed, opGroupId: loaded.newest })
       .then(() => {
         setNaming('');
         setGeneration((n) => n + 1);
         showInfo(`Named this point “${versionNamed}”.`);
       })
-      .catch(showNotice);
+      .catch(showNotice)
+      .finally(() => {
+        savingVersion.current = false;
+        setSaving(false);
+      });
   };
   const removeVersion = async (version: NamedVersion) => {
     const sure = await confirmForGood(
@@ -209,8 +218,9 @@ export function HistoryTile() {
     await deleteVersion(project.file, version.id).catch(showNotice);
     setGeneration((n) => n + 1);
   };
-  const versionsAt = new Map<string, string[]>();
-  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v.name]);
+  // Two versions can share a name, so each is told apart by its id.
+  const versionsAt = new Map<string, NamedVersion[]>();
+  for (const v of loaded?.versions ?? []) versionsAt.set(v.opGroupId, [...(versionsAt.get(v.opGroupId) ?? []), v]);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -233,7 +243,7 @@ export function HistoryTile() {
               }}
             />
           </div>
-          <Button disabled={!versionNamed || !loaded?.newest} onClick={saveVersion}>
+          <Button disabled={!versionNamed || !loaded?.newest || saving} onClick={saveVersion}>
             Name version
           </Button>
         </div>
@@ -285,9 +295,9 @@ export function HistoryTile() {
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px]">
                       <LineText line={line} />
-                      {(versionsAt.get(group.id) ?? []).map((name) => (
-                        <span key={name} className="sb-label ml-2 border border-text px-1">
-                          {name}
+                      {(versionsAt.get(group.id) ?? []).map((version) => (
+                        <span key={version.id} className="sb-label ml-2 border border-text px-1">
+                          {version.name}
                         </span>
                       ))}
                     </p>

@@ -65,6 +65,14 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
   const persist = () => {
     storage?.setItem(STORE_KEY, JSON.stringify(Object.fromEntries(files)));
   };
+  // Copies saveCopy made that keepCopy hasn't named yet, and how many connections each path has open, as sbd.rs
+  // keeps them: only a closed draft can be renamed or deleted.
+  const drafts = new Set<string>();
+  const open = new Map<string, number>();
+  const checkDraft = (draft: string) => {
+    if (!drafts.has(draft)) throw new Error("That isn't a copy Storiiboard is making.");
+    if ((open.get(draft) ?? 0) > 0) throw new Error('That copy is still open.');
+  };
 
   const configure = (db: Database) => {
     // Export closes and reopens the database, which resets pragmas; this runs after each one.
@@ -107,6 +115,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
       persist();
     };
     if (isNew) save();
+    open.set(path, (open.get(path) ?? 0) + 1);
 
     const stem = fileStem(path);
     const backupsDir = `${folderOf(path)}/Backups`;
@@ -181,6 +190,14 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
           files.delete(`${backupsDir}/${name}`);
           persist();
         }),
+      saveCopy: (dest) =>
+        settle(() => {
+          checkExtension(dest);
+          if (files.has(dest)) throw new Error('A file already exists at that path.');
+          files.set(dest, toBase64(exportBytes()));
+          persist();
+          drafts.add(dest);
+        }),
       placeBackups: () => settle(() => backupsDir),
       backupsFolder: () => settle(() => backupsDir),
       showBackups: () => settle(() => undefined),
@@ -188,6 +205,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
       close: () =>
         settle(() => {
           db.close();
+          open.set(path, (open.get(path) ?? 1) - 1);
         }),
     };
   };
@@ -204,6 +222,25 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         if (files.has(dest)) throw new Error('A file already exists at that path.');
         files.set(dest, saved);
         persist();
+      }),
+    keepCopy: (draft, dest) =>
+      settle(() => {
+        checkExtension(dest);
+        checkDraft(draft);
+        const saved = files.get(draft);
+        if (saved === undefined) throw new Error("There's no project file at that path.");
+        if (files.has(dest)) throw new Error('A file already exists at that path.');
+        files.set(dest, saved);
+        files.delete(draft);
+        persist();
+        drafts.delete(draft);
+      }),
+    dropCopy: (draft) =>
+      settle(() => {
+        checkDraft(draft);
+        files.delete(draft);
+        persist();
+        drafts.delete(draft);
       }),
     lockHolder: () => Promise.resolve(null),
   };

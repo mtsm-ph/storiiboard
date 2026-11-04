@@ -70,6 +70,12 @@ export interface ProjectFile {
   backupsFolder(): Promise<string>;
   /** Opens the backups folder in Finder or Explorer. */
   showBackups(): Promise<void>;
+  /**
+   * Open version (1.23): writes a consistent copy of the open project to `dest`, a new file, through this connection,
+   * with the same check as a write, so a file a sync has replaced is never copied as if it were current. Refuses to
+   * overwrite. The copy is a draft: the driver's keepCopy names it once it's ready, or dropCopy deletes it.
+   */
+  saveCopy(dest: string): Promise<void>;
   /** Rewrites this computer's lock file, so another computer sees the project is still open here. */
   refreshLock(): Promise<void>;
   /** Closes the file and removes its lock. */
@@ -85,6 +91,13 @@ export interface SqlDriver {
    * overwrite anything.
    */
   copy(source: string, dest: string): Promise<void>;
+  /**
+   * Gives a closed draft that saveCopy wrote its name, refusing a name already taken. Nothing but this driver's own
+   * drafts can be renamed this way.
+   */
+  keepCopy(draft: string, dest: string): Promise<void>;
+  /** Deletes a closed draft that saveCopy wrote, after a failure partway. Nothing else can be deleted this way. */
+  dropCopy(draft: string): Promise<void>;
   /** Another computer with this project open now, or null. Asked before opening, so the person can choose. */
   lockHolder(path: string): Promise<LockHolder | null>;
 }

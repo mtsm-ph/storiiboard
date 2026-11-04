@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v3 (milestone 1.10); sections marked planned aren't built yet. Every
+**Status:** schema v4 (milestone 1.23); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -174,6 +174,41 @@ and after each edit, never copies a picture.
 Schema 3 also adds three record types: `note` (a note card on the board, 1.12), `character` (from script import, 1.17)
 and `stroke` (one sketch stroke under its shot, 1.13). They need no table, but they come with the schema number: an
 older app refuses a file at schema 3 ("Update Storiiboard"), so it never meets a record type it doesn't know.
+
+## Schema v4: named versions (1.23)
+
+A named version is a named point in History, not a copy (src/core/storage/versions.ts). Open version copies the
+project, gives the copy a `file_id` of its own, restores the copy to that point (a `restore` group in the copy), and
+opens it as a separate project, as Open backup does. The original is never changed.
+
+`versions`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| name | text | "Board sent to client"; up to 80 characters |
+| note | text, null | |
+| op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
+| created_by | text | `local` for now |
+
+Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
+the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
+opened later lacks what it deleted.
+
+How Open version makes its copy (src/app/openVersion.ts), so the original is never touched and a copy that fails
+partway never looks finished:
+
+1. A consistent copy of the open project is written through its own connection with VACUUM INTO, after the same
+   on-disk check as a write, to a hidden draft beside it: `.<Project> (<version>) <8 hex digits>.sbd`.
+2. The draft is opened on a connection of its own, given its `file_id` and restored to the version's step, then
+   closed.
+3. It's renamed to `<Project> (<version>).sbd` (`(<version> 2)` when that's taken; nothing is overwritten), and opened.
+   A failure before the rename deletes the draft. Only drafts the app made this session can be renamed or deleted this
+   way (src-tauri/src/sbd.rs).
+
+The version's name in the file name loses what a file name can't hold (`/ \ : * ? " < > |`), and is shortened so the
+file name, its journal and its lock file stay within 255 bytes, and on Windows the path and its journal's within
+SQLite's 259 characters.
 
 ## Trash
 
@@ -464,31 +499,13 @@ merge a database, so two guards sit around every open project:
 | `<Project> YYYY-MM-DD HH-mm (from backup).sbd` | A backup opened with Open backup: a separate project, copied out of `Backups/` with VACUUM INTO. A second copy of the same backup is `(from backup 2)` | 0.7 | Like any project |
 | `.<Project>.sbd.lock` | While the project is open: which computer has it open. JSON: `app`, `computer` (its name), `machine` (a random id per install), `session`, `opened_at` and `refreshed_at` (ms since the epoch). Hidden: a leading dot on Mac, the hidden attribute on Windows | 1.2 | Deleted on close; rewritten every minute while open; stale after 5 minutes |
 | `<Project> (copy).sbd` | Open a copy, chosen when another computer has the project open. A separate project | 1.2 | Like any project |
+| `<Project> (<version>).sbd` | Open version: a copy restored to a named version's step, a separate project. A second copy of the same version is `(<version> 2)` | 1.23 | Like any project |
+| `.<Project> (<version>) <8 hex digits>.sbd` | Open version's draft while it's copied and restored, renamed to the copy's name once it's ready | 1.23 | Deleted if Open version fails. One a crash cuts off stays, hidden, until the person deletes it: the app never deletes a project-shaped file it didn't just make |
 | `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
 
 ## Planned changes
-
-### Schema 4: named versions (1.23, src/core/storage/versions.ts)
-
-A named version is a named point in History, not a copy. Open version copies the project, gives the copy a `file_id`
-of its own, restores the copy to that point (a `restore` group in the copy), and opens it as a separate project, as
-Open backup does. The original is never changed.
-
-`versions`
-
-| Column | Type | Notes |
-|---|---|---|
-| id, created_at, updated_at | | As every table |
-| name | text | "Board sent to client"; up to 80 characters |
-| note | text, null | |
-| op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
-| created_by | text | `local` for now |
-
-Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
-the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
-opened later lacks what it deleted.
 
 ### Schema 5: notification read state (Phase 3)
 

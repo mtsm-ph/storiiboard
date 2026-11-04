@@ -280,15 +280,27 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
 
-**As built in 1.23 (Nov 3): named versions** (schema 4, src/core/storage/versions.ts):
+**As built in 1.23 (Nov 3, review fixes Nov 4): named versions** (schema 4, src/core/storage/versions.ts,
+src/app/openVersion.ts):
 - In the History tile: Name this point names the newest step; versions are listed with their step, and each step
   shows the names on it. Open version copies the project beside it (`Bey County (Board sent to client).sbd`), gives
-  the copy its own file id, opens it in place and restores it to the version's step; the original isn't touched.
+  the copy its own file id, restores it to the version's step, then opens it in place; the original isn't touched.
   Delete… asks first; the steps stay.
-- Tests: the copy is at the point and its restore undoes; it lasts a restart, and the original keeps everything; a
-  name whose write dies halfway leaves nothing.
+- The copy is made through the open project's own connection (no second connection holding the file, and the same
+  on-disk check as a write), into a hidden draft that's restored on its own connection and renamed only once it's
+  ready, so the original never runs the restore, even when the open is cancelled at "open on another computer"
+  (the notice then says the copy was saved and not opened). A failure partway deletes the draft and says why; only
+  drafts the app made can be renamed or deleted. The version's name is shortened where a file name or a Windows path
+  would be too long. Naming a version and Open version each run one at a time, so a double press makes one.
+- Tests: Open version itself (src/core/storage/versions.test.ts): the copy is at the point and its restore undoes,
+  it lasts a restart and the original keeps every frame and step; Cancel at the lock question leaves the original
+  as it was; a restore that fails partway leaves no file; a file a sync replaced isn't copied; 80 Japanese characters
+  fit; a v3 project upgrades to v4. The drafts' guards in Rust (sbd.rs) and in the Node and memory drivers. End to
+  end: Delete… asks and every step stays; two Enters in one moment name one version; two clicks on Open version make
+  one copy; two versions sharing a name on one step both show.
 - Decided while building, to review: a version names the newest step only (name it right after the step you mean);
-  renaming waits for a later milestone; Open backup's copy still keeps the original's file id, as before.
+  renaming waits for a later milestone; Open backup's copy still keeps the original's file id, as before; two
+  versions may share a name; a draft a crash cuts off stays beside the project, hidden, until the person deletes it.
 
 **As built in 1.22 (Nov 3): the History tile** (src/features/history):
 - History in the project menu opens it in the workspace on screen. Every step is listed newest first, undos, redos,

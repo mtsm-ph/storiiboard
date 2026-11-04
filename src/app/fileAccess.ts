@@ -50,6 +50,8 @@ export const appDriver: SqlDriver = {
   create: async (path) => (await resolveDriver()).create(path),
   open: async (path) => (await resolveDriver()).open(path),
   copy: async (source, dest) => (await resolveDriver()).copy(source, dest),
+  keepCopy: async (draft, dest) => (await resolveDriver()).keepCopy(draft, dest),
+  dropCopy: async (draft) => (await resolveDriver()).dropCopy(draft),
   lockHolder: async (path) => (await resolveDriver()).lockHolder(path),
 };
 
