@@ -1723,6 +1723,8 @@ mod tests {
                 waits[waits.len() - 1]
             );
         }
+        // Closed first: Windows won't delete a file SQLite still has open.
+        drop(files);
         fs::remove_dir_all(&dir).unwrap();
     }
 
