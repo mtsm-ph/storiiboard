@@ -103,19 +103,21 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   // up by an unlock and kept by a relock). Of the shots seen holding it while locked, the one holding it now is the
   // one on footage, so it owns the number; otherwise the first seen. A shot holding it now that was never seen with it
   // while locked (a frame added after an unlock) never owns it: it wasn't on a slate.
-  const holders = new Map<string, string>();
-  for (const trashed of [true, false]) {
+  // Live holders first, then those in the Trash.
+  const holders = new Map<string, string[]>();
+  for (const trashed of [false, true]) {
     for (const [id, record] of state) {
       if (record.type === 'shot' && record.trashed === trashed && record.parentId !== null && record.number !== '') {
-        holders.set(`${record.parentId} ${record.number}`, id);
+        const key = `${record.parentId} ${record.number}`;
+        holders.set(key, [...(holders.get(key) ?? []), id]);
       }
     }
   }
   const statements: Statement[] = [];
   for (const [sceneId, numbers] of found) {
     for (const [number, seen] of numbers) {
-      const holder = holders.get(`${sceneId} ${number}`);
-      const shotId = holder !== undefined && seen.includes(holder) ? holder : (seen[0] ?? '');
+      const holder = (holders.get(`${sceneId} ${number}`) ?? []).find((id) => seen.includes(id));
+      const shotId = holder ?? seen[0] ?? '';
       statements.push({
         sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT (scene_id, number) DO NOTHING`,

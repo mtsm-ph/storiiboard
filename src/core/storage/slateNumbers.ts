@@ -7,7 +7,7 @@ import type { ProjectFile, Statement } from './driver';
 // props would lose numbers to any of them. Nothing ever deletes a row, not even Empty Trash (docs/SBD_FORMAT.md).
 //
 // Unlocked scenes record nothing: their letters follow the board, so boarding never leaves gaps. Each number keeps the
-// shot slated with it (the first to get it there), so a scene unlocked and locked again gives every frame back the number on its slate, and a
+// shot slated with it (the first to get it there; for a v4 file, see the migration), so a scene unlocked and locked again gives every frame back the number on its slate, and a
 // frame whose number another shot was slated with takes a new one (src/features/storyboard/board.ts).
 
 /**

@@ -387,10 +387,36 @@ describe('slate numbers', () => {
     await store.getState().apply([{ kind: 'trash', id: 'scX' }]);
     await store.getState().emptyTrash();
     await store.getState().restoreTo(point);
-    const locked = records().sc4?.props.numbers_locked === true;
-    // Either it stays unlocked as it is now, or it's back locked with its own 4A, 4B, 4C: never locked reading 9A, 9B.
-    expect(locked ? numbers() : ['4A', '4B', '4C']).toEqual(['4A', '4B', '4C']);
+    // Its frames clash with scene 4's on 4A to 4C, so they stay as they are now, and so does their scene: unlocked,
+    // reading 9A to 9C. It never comes back locked around them.
+    expect(records().sc4?.props.numbers_locked).not.toBe(true);
+    expect(numbers()).toEqual(['9A', '9B', '9C']);
     expect((await loadSlateNumbers(project.file)).filter((row) => row.number === '9A').map((row) => row.sceneId)).toEqual(['sc9']);
+  });
+
+  it('leaves History restores without an Empty Trash landing exactly on their point', async () => {
+    /** Every record as it is, apart from when it was last written. */
+    const state = () =>
+      JSON.stringify(
+        Object.values(records())
+          .map((r) => ({ ...r, updatedAt: '' }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      );
+    await scene('sc5', '5', 'X');
+    await frame('sc5');
+    await lock('sc4');
+    const point = await newest();
+    const at = state();
+    await lock('sc4', false);
+    await renumberScene('sc4', '7');
+    const moving = shotsIn('sc4')[0]?.record.id ?? '';
+    await store.getState().applyWith((now, slate) => ({ changes: moveItem(now, project.projectId, moving, 'sc5', null, slate) }));
+    await lock('sc4');
+    await frame('sc4');
+    await trashLast('sc5');
+    expect(await store.getState().restoreTo(point)).toBe(true);
+    const back = state();
+    expect(back).toBe(at);
   });
 
   it('goes into named version copies and backups, which are copies of the whole file', async () => {
@@ -562,6 +588,21 @@ describe('the schema 5 migration', () => {
     expect((await loadSlateNumbers(project.file)).find((row) => row.number === '4C')?.shotId).toBe(c);
     await lock('sc4');
     expect(records()[d]?.props.number).toBe('4D');
+  });
+
+  it('gives a v4 number given twice to the shot slated with it, in the Trash, over one numbered after an unlock', async () => {
+    await lockAsV4('sc4');
+    const after = shotsIn('sc4').at(-1)?.record.sortKey ?? '';
+    const make = (id: string, sortKey: string) =>
+      store.getState().apply([{ kind: 'create', record: { id, type: 'shot', parentId: 'sc4', sortKey, props: { number: '4D' } } }]);
+    await make('e', `${after}m`);
+    await store.getState().undo();
+    await make('f', `${after}n`); // shot as 4D
+    await store.getState().apply([{ kind: 'trash', id: 'f' }]);
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: false } }]);
+    await make('g', `${after}p`); // unlocked: 4D again
+    await asV4ThenReopen();
+    expect((await loadSlateNumbers(project.file)).find((row) => row.number === '4D')?.shotId).toBe('f');
   });
 
   it('keeps the shot each number was slated with', async () => {
