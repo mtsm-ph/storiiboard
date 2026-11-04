@@ -200,7 +200,8 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
       typeof keep === 'function' ? keep() : keep,
     );
     const left = backups.filter((backup) => !byAge.includes(backup.name));
-    const deleted = [...byAge, ...backupsOverCap(left, stem, capBytes)];
+    // Never the copy just made: after the clock goes back (a time zone, a fix), it can sort as the oldest.
+    const deleted = [...byAge, ...backupsOverCap(left, stem, capBytes)].filter((old) => old !== name);
     for (const old of deleted) await file.deleteBackup(old);
     return { created: name, deleted };
   };
@@ -216,7 +217,9 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   const backUpThen = <T>(then: () => Promise<T>) =>
     inTurn(async () => {
       const changes = await changeCount(file);
-      let backup = latest;
+      // The newest stands only while it's still there: someone short of space may have deleted it by hand.
+      const listed = latest !== null && (await file.listBackups()).some((b) => b.name === latest);
+      let backup = listed ? latest : null;
       if (backup === null || changes > backedUpAt) {
         backup = await freshBackupName(file, now());
         await file.backup('scheduled', backup);

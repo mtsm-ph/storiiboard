@@ -99,7 +99,9 @@ export function StorageTile() {
         requestAnimationFrame(() => {
           fileStatus.current?.focus();
         });
-      } else if (state.project === madeIn && !state.changedOnDisk) {
+      } else if (state.project !== madeIn) {
+        showInfo(SWITCHED_MESSAGE);
+      } else if (!state.changedOnDisk) {
         // Focus stays on the button, to try again.
         showNotice(new Error(state.error ?? 'The project couldn’t be compacted.'));
       }

@@ -287,9 +287,11 @@ impl SbdFile {
         let result = self.conn.execute_batch("VACUUM").map_err(text);
         self.fingerprint = fingerprint(&self.path)?;
         // A sync that renamed another file over the project while it was rewritten (seconds, on a large one) must not
-        // be taken for the file this app wrote: the next write then refuses, as for any replaced file.
+        // be taken for the file this app wrote: every write after refuses, and this says so now, so the app reopens the
+        // newer file rather than report a compaction of one it no longer has.
         if before.is_some() && self.fingerprint.id != before {
             self.fingerprint.len = u64::MAX;
+            return Err(CHANGED_ON_DISK.into());
         }
         result
     }
@@ -2168,6 +2170,8 @@ mod tests {
             vec![],
         )])
         .unwrap();
+        drop(file);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Run by `survives_a_kill_mid_compact` as a separate process; it does nothing in a normal test run.
@@ -2217,9 +2221,16 @@ mod tests {
         (child, rest)
     }
 
+    fn file_hash(path: &Path) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        fs::read(path).unwrap().hash(&mut hasher);
+        hasher.finish()
+    }
+
     #[test]
     fn survives_a_kill_mid_compact() {
-        // How long one compaction takes here, start to finish, so the kills spread across all of it.
+        // One compaction start to finish: how long it takes here, and how large it leaves the file.
         let dir = temp_dir("compact-time");
         let path = file_with_free_space(&dir, 12_000);
         let began = std::time::Instant::now();
@@ -2232,44 +2243,72 @@ mod tests {
             .any(|line| line.contains("done")));
         let whole = began.elapsed();
         let compacted = fs::metadata(&path).unwrap().len();
+        fs::remove_dir_all(&dir).unwrap();
 
-        // Killed at moments across it, more of them late, where VACUUM copies the compacted pages back into the file:
-        // each time the file opens whole, with every row as it was, either as it was or compacted all the way (a kill
-        // just after the commit). At least one kill must have landed during that copy-back, leaving its journal
-        // behind to roll it back, or the test proves nothing.
-        let mut mid_rewrite = 0;
-        for share in [10_u32, 30, 50, 65, 75, 82, 88, 92, 95, 97, 99] {
+        // Killed while the copy-back is under way (the journal, which keeps the pages being overwritten, past half
+        // the compacted size), and at moments across the run. Each time the file opens whole, every row as it was,
+        // and either as it was or compacted all the way (a kill just after the commit). At least one kill must have
+        // caught the file with its pages already overwritten and a journal to roll them back, or this proves nothing.
+        let mut rolled_back = 0;
+        for share in [
+            None,
+            None,
+            Some(30),
+            Some(60),
+            Some(80),
+            Some(90),
+            Some(95),
+            Some(99),
+        ] {
             let dir = temp_dir("compact-kill");
             let path = file_with_free_space(&dir, 12_000);
             let expected = contents(&SbdFile::open(&path).unwrap());
-            let len = fs::metadata(&path).unwrap().len();
+            let (len, hash) = (fs::metadata(&path).unwrap().len(), file_hash(&path));
+            let journal = path.with_file_name("Compact.sbd-journal");
             let (mut child, rest) = start_compact_child(&path);
-            std::thread::sleep(whole * share / 100);
+            match share {
+                Some(share) => std::thread::sleep(whole * share / 100),
+                None => {
+                    let until = std::time::Instant::now() + Duration::from_secs(60);
+                    while std::time::Instant::now() < until
+                        && child.try_wait().unwrap().is_none()
+                        && !fs::metadata(&journal).is_ok_and(|m| m.len() > compacted / 2)
+                    {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
             // SIGKILL on Mac and Linux, TerminateProcess on Windows: no chance to finish what it was writing.
             child.kill().unwrap();
             child.wait().unwrap();
             rest.join().unwrap();
-            let journal = path.with_file_name("Compact.sbd-journal");
-            if fs::metadata(&journal).is_ok_and(|m| m.len() > 0) {
-                mid_rewrite += 1;
+            let hot = fs::metadata(&journal).is_ok_and(|m| m.len() > 0);
+            if hot && file_hash(&path) != hash {
+                rolled_back += 1;
             }
 
             let file = SbdFile::open(&path).unwrap();
             let check = file.query("PRAGMA integrity_check", &[]).unwrap();
             assert_eq!(
                 check[0]["integrity_check"], "ok",
-                "after a kill {share}% in"
+                "after a kill at {share:?}"
             );
-            assert_eq!(contents(&file), expected, "after a kill {share}% in");
+            assert_eq!(contents(&file), expected, "after a kill at {share:?}");
             let now = fs::metadata(&path).unwrap().len();
-            assert!(
-                now == len || now == compacted,
-                "{now} bytes after a kill {share}% in: neither as it was ({len}) nor compacted ({compacted})"
-            );
+            if hot {
+                assert_eq!(now, len, "rolled back after a kill at {share:?}");
+            } else {
+                assert!(
+                    now == len || now == compacted,
+                    "{now} bytes after a kill at {share:?}: neither as it was ({len}) nor compacted ({compacted})"
+                );
+            }
+            drop(file);
+            fs::remove_dir_all(&dir).unwrap();
         }
         assert!(
-            mid_rewrite > 0,
-            "no kill landed while the file was being rewritten"
+            rolled_back > 0,
+            "no kill caught the file partly rewritten with a journal to roll it back"
         );
     }
 
@@ -2292,6 +2331,8 @@ mod tests {
             }
         }
         file.compact().unwrap();
+        drop(file);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Run by `survives_a_kill_mid_write` as a separate process; it does nothing in a normal test run.

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, board, setNumbersLocked } from '../../features/storyboard/board';
@@ -126,6 +126,27 @@ describe('Compact project', () => {
     expect(backups()).toEqual([]);
   });
 
+  it('never lets a backup that’s gone stand for one, and never prunes the copy it just made', async () => {
+    let at = AT;
+    const schedule = await startBackups(project.file, { intervalMs: 3_600_000, now: () => at, keep: { recent: 1, days: 1 } });
+    try {
+      await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
+      const first = (await schedule.runNow()).created ?? '';
+      // Deleted by hand from the Backups folder: Compact makes a new one rather than name a file that isn't there.
+      rmSync(folder.path('Backups', first));
+      const done = await compactProject(project.file, { schedule });
+      expect(backups()).toEqual([done.backup]);
+      // The clock goes back an hour: the next copy sorts as the oldest, and is kept anyway.
+      at = new Date(AT.getTime() - 3_600_000);
+      await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
+      const run = await schedule.runNow();
+      expect(run.deleted).not.toContain(run.created);
+      expect(backups()).toContain(run.created);
+    } finally {
+      schedule.stop();
+    }
+  });
+
   it('takes its turn with the scheduled backups, and lets the newest stand when nothing has changed', async () => {
     let minute = 0;
     const clock = () => new Date(AT.getTime() + minute * 60_000);
@@ -151,7 +172,7 @@ describe('Compact project', () => {
     }
   });
 
-  it('runs in the edit queue and reads the slate numbers again afterwards', async () => {
+  it('runs in the edit queue: an edit made meanwhile lands after it, numbered from the slate numbers', async () => {
     await store.getState().applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, 'sc4', true, slate) }));
     const slate = store.getState().slateNumbers.map((row) => `${row.number} ${row.shotId}`).sort();
     expect(slate).toHaveLength(3);

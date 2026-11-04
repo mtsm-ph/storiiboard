@@ -545,12 +545,15 @@ project file; the backup made first keeps them until it's pruned. Nothing compac
    synced project), taking its turn with them: no other copy of the file is made until the compaction ends. When
    nothing has changed since the schedule's newest backup, that one stands for it. A new one is named for this minute,
    or the next free minute when a backup made earlier this minute has the name (scheduled runs name theirs the same
-   way); backups are never overwritten. A failed backup compacts nothing.
+   way); backups are never overwritten, and pruning never deletes the one just made. The newest stands only while
+   it's still in the Backups folder. A failed backup compacts nothing.
 2. SQLite's VACUUM on the open file, in place, after the same on-disk check as a write; refused while a backup copy of
    the file is still being made. It's one write through the rollback journal, so a crash or a kill partway leaves the
    file as it was, rolled back the next time it's opened on this computer (`survives_a_kill_mid_compact` in sbd.rs
-   kills it across the whole run and checks at least one kill landed mid-rewrite). A sync that replaced the file while
-   it ran is caught at the next write, as for any replaced file.
+   kills it partway through the rewrite, with the file's pages already overwritten, and at moments across the run). A
+   sync that replaced the file while it ran sends the app to the newer file, as for any replaced file. It needs free
+   disk space of about the project's size for SQLite's temporary copy, and a journal beside the file; short of space,
+   it fails with nothing changed.
 3. The format, the records, History and every other table are unchanged. The store reads the slate numbers again
    afterwards, since VACUUM may renumber a table's rowids.
 
