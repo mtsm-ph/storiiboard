@@ -133,3 +133,29 @@ test('Clean up old pictures finds a picture only History uses and, after a yes, 
   await expect(board(page).locator('[data-shot-id]').nth(1).locator('img[data-frame-image]')).toBeVisible();
   await expect(board(page).locator('[data-shot-id]').first().locator('img[data-frame-image]')).toBeVisible();
 });
+
+test('a theme image deleted by Clean up reads as missing, and shows again when chosen again', async ({ page }) => {
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Settings/ }).click();
+  const theme = page.getByRole('region', { name: 'Theme', exact: true });
+  const choose = async () => {
+    const chooser = page.waitForEvent('filechooser');
+    await theme.getByRole('button', { name: 'Choose image…' }).click();
+    await (await chooser).setFiles(fixture);
+  };
+  await choose();
+  await expect(theme.locator('img')).toBeVisible();
+  // Undone: only History uses the image now.
+  await page.keyboard.press(await undoKey(page));
+  await expect(theme.getByText('No image')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Storage' }).click();
+  answer(page, [], true);
+  await storage(page).getByRole('button', { name: 'Clean up old pictures…' }).click();
+  await expect(storage(page).getByText('None. Every stored picture is on the board or in the Trash.')).toBeVisible();
+
+  // Redo names it again: the well says it's missing, as a frame does; chosen again, it shows.
+  await page.keyboard.press(await redoKey(page));
+  await expect(theme.getByText('Picture missing')).toBeVisible();
+  await choose();
+  await expect(theme.locator('img')).toBeVisible();
+});

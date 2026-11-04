@@ -103,7 +103,7 @@ describe('Empty Trash', () => {
     await trash(second);
     expect(await store.getState().emptyTrash(confirmed)).not.toBeNull();
     expect(records()[first]).toBeUndefined();
-    expect(records()[second]?.trashedAt).not.toBeNull();
+    expect(typeof records()[second]?.trashedAt).toBe('string');
   });
 
   it('keeps pictures only History uses: that’s Clean up’s job, after its own confirm', async () => {
@@ -127,7 +127,7 @@ describe('Empty Trash', () => {
 
     // The person was told about one item: the frame. The erased stroke isn't in the Trash, so it isn't deleted.
     expect((await store.getState().emptyTrash())?.removed).toBe(1);
-    expect(records()[strokeId]?.trashedAt).not.toBeNull();
+    expect(typeof records()[strokeId]?.trashedAt).toBe('string');
     await restoreTo(project.file, drawn);
     await reopen();
     expect(records()[strokeId]?.trashedAt).toBeNull();
@@ -267,7 +267,7 @@ describe('Empty Trash', () => {
     expect(store.getState().error).not.toBeNull();
     await reopen();
     expect(records()[shot]).toBeDefined();
-    expect(records()[shot]?.trashedAt).not.toBeNull();
+    expect(typeof records()[shot]?.trashedAt).toBe('string');
     expect(Object.values(records()).filter((r) => r.parentId === shot)).not.toEqual([]);
     expect(await readOriginal(project.file, sha)).not.toBeNull();
     expect((await log(project.file)).some((g) => g.kind === 'empty_trash')).toBe(false);
