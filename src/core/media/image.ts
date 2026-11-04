@@ -1,3 +1,4 @@
+import { canvasBlob, makeCanvas as makeAnyCanvas, type AnyCanvas, type Canvas2D } from './canvas';
 import type { PreparedImage } from './store';
 
 // Turning a picture into what the .sbd stores (Kevin's calls, Nov 2): at most 2560px on the long edge, its colour
@@ -18,46 +19,20 @@ export class ImageError extends Error {
   override name = 'ImageError';
 }
 
-type Canvas2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-
-function prepared<C extends OffscreenCanvas | HTMLCanvasElement>(canvas: C, ctx: Canvas2D | null) {
+function prepared({ canvas, ctx }: { canvas: AnyCanvas; ctx: Canvas2D | null }) {
   if (!ctx) throw new ImageError('This computer can’t draw images for the board.');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   return { canvas, ctx };
 }
 
-function makeCanvas(width: number, height: number): { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: Canvas2D } {
-  const settings: CanvasRenderingContext2DSettings = { colorSpace: 'display-p3', alpha: true };
-  if (typeof OffscreenCanvas !== 'undefined') {
-    const canvas = new OffscreenCanvas(width, height);
-    return prepared(canvas, canvas.getContext('2d', settings));
-  }
-  // A detached <canvas> on a webview without OffscreenCanvas (Safari before 16.4).
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  return prepared(canvas, canvas.getContext('2d', settings));
+function makeCanvas(width: number, height: number): { canvas: AnyCanvas; ctx: Canvas2D } {
+  return prepared(makeAnyCanvas(width, height, { colorSpace: 'display-p3', alpha: true }));
 }
 
-async function encode(
-  canvas: OffscreenCanvas | HTMLCanvasElement,
-  type: string,
-  quality: number,
-): Promise<Uint8Array<ArrayBuffer>> {
-  const blob =
-    'convertToBlob' in canvas
-      ? await canvas.convertToBlob({ type, quality })
-      : await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob(
-            (b) => {
-              if (b) resolve(b);
-              else reject(new ImageError('The image couldn’t be saved.'));
-            },
-            type,
-            quality,
-          );
-        });
+async function encode(canvas: AnyCanvas, type: string, quality: number): Promise<Uint8Array<ArrayBuffer>> {
+  const blob = await canvasBlob(canvas, type, quality);
+  if (!blob) throw new ImageError('The image couldn’t be saved.');
   return new Uint8Array(await blob.arrayBuffer());
 }
 

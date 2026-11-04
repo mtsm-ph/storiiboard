@@ -95,23 +95,59 @@ pub async fn export_choose_file(app: AppHandle, name: String) -> Result<Option<S
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    let filter = extension.clone();
     let picked = dialog(&app, move |handle| {
         let mut builder = handle
             .dialog()
             .file()
             .set_file_name(&name)
-            .add_filter(extension.to_ascii_uppercase(), &[extension.as_str()]);
+            .add_filter(filter.to_ascii_uppercase(), &[filter.as_str()]);
         if let Some(window) = handle.get_webview_window("main") {
             builder = builder.set_parent(&window);
         }
         builder.blocking_save_file()
     })
     .await?;
-    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+    let Some(picked) = picked.and_then(|p| p.into_path().ok()) else {
         return Ok(None);
     };
+    let path = as_export(picked, &extension)?;
     remember(&app.state::<Chosen>().files, &path);
     Ok(path.to_str().map(str::to_owned))
+}
+
+/// The file the Save dialog picked, made to end in the export's own extension. The filter is only a suggestion: on
+/// Windows a name typed with its own extension keeps it, and GTK enforces nothing, so a pick of `Bey County.sbd` would
+/// cut the open project down to a CSV. With the extension, an export can never be a project (`.sbd`) or its lock file
+/// (`.lock`), open here or not, nor a backup.
+fn as_export(picked: PathBuf, extension: &str) -> Result<PathBuf, String> {
+    let name = picked
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or("That isn't a name an export can have.")?;
+    // `Bey County.sbd:x.csv` on Windows is a stream inside the project file, whatever its extension says.
+    if name.contains(':') {
+        return Err("That isn't a name an export can have.".into());
+    }
+    let ends_right = picked
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|e| e.eq_ignore_ascii_case(extension));
+    if ends_right {
+        return Ok(picked);
+    }
+    let mut appended = picked.into_os_string();
+    appended.push(".");
+    appended.push(extension);
+    let appended = PathBuf::from(appended);
+    // The dialog asked before replacing the name the person gave, not this one, so this one must be new.
+    if appended.symlink_metadata().is_ok() {
+        return Err(format!(
+            "{} is there already; choose another name.",
+            appended.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    }
+    Ok(appended)
 }
 
 /// The folder dialog for a set of files. A new folder named `folder` (or `folder 2`…) is made inside the one picked,
@@ -350,6 +386,50 @@ mod tests {
         }
         assert!(plain_part("Bey County SC 04 frames"));
         assert!(plain_name("SC012A_12AA.png"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_save_dialog_pick_of_the_project_never_writes_over_it() {
+        let dir = temp("pick");
+        let project = dir.join("Bey County.sbd");
+        fs::write(&project, b"SQLite format 3\0").unwrap();
+
+        let csv = as_export(project.clone(), "csv").unwrap();
+        assert_eq!(csv, dir.join("Bey County.sbd.csv"));
+        // Its extension in any case, and the lock file beside it, end up as exports of their own too.
+        assert_eq!(
+            as_export(dir.join("Bey County.SBD"), "csv").unwrap(),
+            dir.join("Bey County.SBD.csv")
+        );
+        assert_eq!(
+            as_export(dir.join(".Bey County.sbd.lock"), "csv").unwrap(),
+            dir.join(".Bey County.sbd.lock.csv")
+        );
+        for kept in ["Bey County shot list.csv", "Bey County shot list.CSV"] {
+            assert_eq!(as_export(dir.join(kept), "csv").unwrap(), dir.join(kept));
+        }
+        // A name typed without an extension, as GTK returns it.
+        assert_eq!(
+            as_export(dir.join("shots"), "csv").unwrap(),
+            dir.join("shots.csv")
+        );
+        // Nobody was asked about replacing the name with the extension added, so a file there stays.
+        fs::write(&csv, b"kept").unwrap();
+        assert!(as_export(project.clone(), "csv")
+            .unwrap_err()
+            .contains("there already"));
+        assert!(as_export(dir.join("Bey County.sbd:x.csv"), "csv").is_err());
+
+        // The whole way through: the remembered path is the CSV, and the project is untouched.
+        let chosen = Chosen::default();
+        fs::remove_file(&csv).unwrap();
+        remember(&chosen.files, &as_export(project.clone(), "csv").unwrap());
+        assert!(target_of(&chosen, &header(&project, None)).is_err());
+        let target = target_of(&chosen, &header(&csv, None)).unwrap();
+        write_to(&target, b"Scene,Shot\r\n").unwrap();
+        assert_eq!(fs::read(&project).unwrap(), b"SQLite format 3\0");
+        assert!(EXTENSIONS.iter().all(|e| !["sbd", "lock"].contains(e)));
         fs::remove_dir_all(&dir).unwrap();
     }
 

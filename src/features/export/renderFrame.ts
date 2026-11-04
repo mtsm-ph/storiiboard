@@ -1,3 +1,4 @@
+import { makeCanvas, type AnyCanvas, type Canvas2D } from '../../core/media/canvas';
 import { cropBox, readCrop } from '../../core/media/crop';
 import { mediaFields, readOriginal } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
@@ -6,8 +7,9 @@ import { arrowHead, pressureOutline, strokesOf, type Stroke } from '../storyboar
 import type { Watermark } from './watermark';
 
 // A frame drawn as the board shows it (1.24), for PNG and PDF exports: its picture framed as the person framed it,
-// its sketch over it, and the watermark when the export carries one. Drawn on an OffscreenCanvas at the size asked
-// for, from the full-size stored picture, never the board's thumbnail.
+// its sketch over it, and the watermark when the export carries one. Drawn at the size asked for, from the full-size
+// stored picture, never the board's thumbnail, on src/core/media/canvas.ts's canvas, so a Mac whose webview has no
+// OffscreenCanvas still exports.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -15,7 +17,7 @@ type Records = Readonly<Record<string, SbdRecord>>;
 const PAPER = '#FFFFFF';
 const INK = '#16150F';
 
-function strokePath(ctx: OffscreenCanvasRenderingContext2D, points: readonly number[]) {
+function strokePath(ctx: Canvas2D, points: readonly number[]) {
   ctx.beginPath();
   for (let i = 0; i + 1 < points.length; i += 2) {
     const [x = 0, y = 0] = [points[i], points[i + 1]];
@@ -24,7 +26,7 @@ function strokePath(ctx: OffscreenCanvasRenderingContext2D, points: readonly num
   }
 }
 
-function drawStroke(ctx: OffscreenCanvasRenderingContext2D, stroke: Stroke, width: number, height: number) {
+function drawStroke(ctx: Canvas2D, stroke: Stroke, width: number, height: number) {
   // At least a pixel and a half, so a fine pencil line survives on a small export, as on the cards.
   const base = Math.max(stroke.width, 1.5 / height);
   const line = base * height;
@@ -74,7 +76,7 @@ export function watermarkSize(measure: (font: string) => number, width: number, 
 }
 
 /** Where the watermark goes, inside a margin of 3% of the frame's short edge. */
-function drawWatermark(ctx: OffscreenCanvasRenderingContext2D, watermark: Watermark, width: number, height: number) {
+function drawWatermark(ctx: Canvas2D, watermark: Watermark, width: number, height: number) {
   const margin = Math.round(Math.min(width, height) * 0.03);
   const size = watermarkSize(
     (font) => {
@@ -104,10 +106,9 @@ export async function renderFrame(
   shot: SbdRecord,
   size: { width: number; height: number },
   watermark: Watermark | null,
-): Promise<OffscreenCanvas> {
+): Promise<AnyCanvas> {
   const { width, height } = size;
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext('2d');
+  const { canvas, ctx } = makeCanvas(width, height);
   if (!ctx) throw new Error('This computer can’t draw the frames for export.');
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, width, height);

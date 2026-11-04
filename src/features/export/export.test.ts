@@ -48,6 +48,11 @@ describe('export names', () => {
     expect(exportName('Bey County', '4', 'frames')).toBe('Bey County SC 04 frames');
     expect(safeName('A/B: "C"')).toBe('A B C');
     expect(safeName('///')).toBe('Storiiboard');
+    // The Rust side refuses a name that starts with a dot, so these titles once couldn't export at all.
+    expect(exportName('...And Then There Were None', null, 'shot list', 'csv')).toBe('And Then There Were None shot list.csv');
+    expect(exportName('.Bey County', '4', 'frames')).toBe('Bey County SC 04 frames');
+    expect(safeName(' . Bey County. . ')).toBe('Bey County');
+    expect(safeName('...')).toBe('Storiiboard');
   });
 
   it('sizes frames by the long edge, wide or tall', () => {

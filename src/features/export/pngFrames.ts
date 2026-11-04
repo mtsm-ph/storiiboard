@@ -1,3 +1,4 @@
+import { canvasBlob } from '../../core/media/canvas';
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { exportName, frameFileName, uniqueNames } from './names';
 import type { ExportFormat } from './registry';
@@ -33,7 +34,8 @@ export const pngFrames: ExportFormat = {
       // Stopped: the frames written so far stay, in the export's own new folder.
       signal.throwIfAborted();
       const canvas = await renderFrame(records, file, shot.record, size, watermark);
-      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      const blob = await canvasBlob(canvas, 'image/png');
+      if (!blob) throw new Error(`This computer couldn’t save frame ${shot.fields.number || String(done + 1)} as a PNG.`);
       // And once drawn: a frame being drawn when the person pressed Stop isn't written after it.
       signal.throwIfAborted();
       const name = unique(frameFileName(scene.fields.number, shot.fields.number || String(done + 1)));

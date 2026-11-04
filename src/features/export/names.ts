@@ -34,9 +34,16 @@ export function uniqueNames(): (name: string) => string {
 
 /** A project or scene title as part of a file name: no slashes, colons or the like. */
 export function safeName(text: string): string {
-  // Control characters too: never part of a name a person typed on purpose.
-  // eslint-disable-next-line no-control-regex -- matching control characters is the point
-  return text.replace(/[/\\:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Storiiboard';
+  return (
+    text
+      // Control characters too: never part of a name a person typed on purpose.
+      // eslint-disable-next-line no-control-regex -- matching control characters is the point
+      .replace(/[/\\:*?"<>|\u0000-\u001f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      // No dot first: it hides the file on a Mac and Linux, and the Rust side refuses such names outright, so
+      // '...And Then There Were None' couldn't export at all. No dot or space last: Windows drops them from a name.
+      .replace(/^[.\s]+|[.\s]+$/g, '') || 'Storiiboard'
+  );
 }
 
 /** `Bey County shot list.csv`, `Bey County SC 04 shot list.csv`. */
