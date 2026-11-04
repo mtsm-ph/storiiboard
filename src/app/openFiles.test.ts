@@ -107,6 +107,8 @@ describe('a project open on another computer', () => {
     await openProjectFile(path, { store, driver: laptop, askWhenLocked: ask });
     expect(asked.map((h) => h.computer)).toEqual(['Studio iMac']);
     expect(openPath()).toBeUndefined();
+    // A reopen says it opened nothing, so the caller can close the stale version rather than keep it.
+    expect(await reopenProjectFile(path, { store, driver: laptop, askWhenLocked: ask })).toBe(false);
     await elsewhere.close();
   });
 
@@ -149,7 +151,7 @@ describe('a sync replacing the file while it is open', () => {
     expect(store.getState().changedOnDisk).toBe(true);
     expect(store.getState().error).toBeNull();
 
-    await reopenProjectFile(path, { store, driver: nodeDriver });
+    expect(await reopenProjectFile(path, { store, driver: nodeDriver })).toBe(true);
     expect(store.getState().changedOnDisk).toBe(false);
     expect(openPath()).toBe(path);
     // The newer file has its own project record; the refused note was never written anywhere.

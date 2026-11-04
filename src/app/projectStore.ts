@@ -103,11 +103,15 @@ export function createProjectStore(): StoreApi<ProjectState> {
       close: () =>
         enqueue(async () => {
           const { project } = get();
-          if (project) {
-            await project.close();
-            await releaseImageUrls(project.file);
+          try {
+            if (project) {
+              await project.close();
+              await releaseImageUrls(project.file);
+            }
+          } finally {
+            // Closed or not, it's no longer the open project.
+            set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
           }
-          set({ project: null, records: {}, canUndo: false, canRedo: false, error: null, changedOnDisk: false });
         }),
       apply: async (changes, options) => {
         await edit((project) => apply(project.file, changes, options));
