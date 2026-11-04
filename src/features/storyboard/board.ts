@@ -239,7 +239,9 @@ export function restoredScene(records: Records, projectId: string, sceneId: stri
         all.map((s) => sceneFields(s.props).number),
       );
       changes.push({ kind: 'update', id: sceneId, set: { number } });
-      props = { ...props, number };
+      // Its frames' letters were under the old number, so they're numbered afresh under the new one, in board order,
+      // even in a locked scene (the lock itself stays): otherwise two scenes would share 4A.
+      props = { ...props, number, numbers_locked: false };
     }
   }
   for (const id of back) changes.push({ kind: 'restore', id });

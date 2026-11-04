@@ -140,6 +140,8 @@ describe('the Trash', () => {
   });
 
   it('gives a restored scene a new number when a live scene has taken its own meanwhile, its frames following', async () => {
+    // Locked too: its frames still take letters under the new number, or two scenes would share 4A.
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { numbers_locked: true } }]);
     await store.getState().apply([{ kind: 'trash', id: 'sc4' }, ...shots.map((id) => ({ kind: 'trash' as const, id }))]);
     // From an older file, or a scene renumbered before trashed numbers were counted.
     await store.getState().apply([
@@ -148,6 +150,7 @@ describe('the Trash', () => {
     await restore('sc4');
     expect(board(records(), project.projectId).map((s) => s.fields.number)).toEqual(['A4', '4']);
     expect(numbers()).toEqual(['A4A', 'A4B', 'A4C']);
+    expect(records().sc4?.props.numbers_locked).toBe(true);
     await store.getState().undo();
     expect(records().sc4?.trashedAt).not.toBeNull();
     expect(sceneFields(records().sc4?.props ?? {}).number).toBe('4');

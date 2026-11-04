@@ -292,14 +292,17 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
   focus stays in the list, or goes to the message once the list is empty.
 - Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
-  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, its
-  frames following. A trashed scene's number can't be given to another scene (as + New scene already counted it).
+  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, and
+  its frames are lettered afresh under it, even in a locked scene. A trashed scene's number can't be given to another
+  scene (as + New scene already counted it). The notice names what came back as it's numbered now.
 - Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
   leaving the item in the Trash with nothing half restored, locked scenes, a taken scene number.
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
   goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
   its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
-  frame comes back on its old letter, as its locked neighbours keep theirs.
+  frame comes back on its old letter, as its locked neighbours keep theirs; a restored scene that needs a new number
+  stays where it was on the board, so in an old file it can read out of order (4, 4B, 4A); a picture whose frame went
+  to the Trash with its scene brings the scene back with that one frame.
 
 **As built in 1.19 (Nov 3): custom fields on shots** (src/core/model/customFields.ts):
 - The inspector has a Custom fields section: each of the frame's fields saves like the others (on leaving it or

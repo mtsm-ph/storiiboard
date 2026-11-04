@@ -93,6 +93,13 @@ function trashedWith(records: Records, scene: SbdRecord): SbdRecord[] {
   return Object.values(records).filter((r) => r.parentId === scene.id && (r.type === 'shot' || r.type === 'note') && trashedWithParent(records, r));
 }
 
+/** What an item is called now, as the list names it: after a restore, under the number it came back with. */
+export function restoredName(records: Records, id: string): string | null {
+  const record = records[id];
+  const kind = record ? kindOf(record) : null;
+  return record && kind ? partsOf(records, record, kind).map((p) => p.text).join('') : null;
+}
+
 /** Everything in the project's Trash, the most recently deleted first; a scene's frames deleted with it are in its row. */
 export function trashItems(records: Records, projectId: string): TrashItem[] {
   const items: TrashItem[] = [];
