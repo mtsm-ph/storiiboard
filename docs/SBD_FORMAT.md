@@ -213,6 +213,8 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | scene | location_id | record id | A `location` record (1.12, script import). Set from the board's "/" menu, by name |
 | scene | page_eighths | integer | Script length in eighths of a page (1.17); shown as "1 3/8 pg" |
 | scene | characters | array of text | Speaking characters, from script import (1.17) |
+| location | name | text | 1.12. As typed in the "/" menu, or as the script writes the place (`DINER - BACK ROOM`) |
+| character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
 | shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
 | shot | size | `EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT` | |

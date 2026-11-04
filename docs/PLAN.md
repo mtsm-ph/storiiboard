@@ -51,7 +51,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.14 Theme generator: 12 families, OKLab accents, AA fit, in a Web Worker | #31 | Done |
 | 1.15 Theme switching (200ms ease), Follow project, window background | #32 | Done |
 | 1.16 Onboarding and Settings → Theme | #33 | Done |
-| 1.17 Script import: Fountain and FDX | | Not started |
+| 1.17 Script import: Fountain and FDX, with a preview | #34 | Done |
 | 1.18 Script import: PDF | | Not started |
 | 1.19 Custom fields on shots | | Not started |
 | 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
@@ -247,6 +247,26 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 | Open in Blender | Export the set as glTF (an open 3D format with cameras and lights), then build a .blend with a camera per setup, real light types and a collection per department, using the Blender already on that person's computer | DP, gaffer, art department | Yes |
 | Simple Blender layout | A Storiiboard startup layout for Blender that hides most of the interface and keeps the few tools a DP needs: move, rotate, camera view, lens, lights | Anyone new to Blender | Yes, through Blender's application templates (manual) |
 | AI in Blender | An existing community MCP server lets Claude control Blender directly (blender-mcp). With Storiiboard's MCP it can build or adjust the scene from the plan | Advanced users | Yes, optional. It can run any code inside Blender, so save first |
+
+**As built in 1.17 (Nov 3): script import, Fountain and Final Draft** (src/core/script, src/features/script):
+- Import script… in the Scenes tile opens a Fountain (.fountain, .spmd, .txt) or Final Draft (.fdx) file. In the
+  desktop app it comes from Rust's Open dialog and is read only because it was picked.
+- Headings are read by rule: INT, EXT, EST, INT./EXT. or I/E, then the place, then the time of day after the last
+  dash. DAY, NIGHT, DAWN (or SUNRISE), DUSK (or SUNSET) and MAGIC HOUR become the scene's DAY/NIGHT; any other time
+  (CONTINUOUS, MOMENTS LATER) stays in the scene's name after the place. A forced heading without INT or EXT
+  (`.FLASHBACK - THE BRIDGE`) keeps its whole text and gets no location.
+- Speaking characters come from character cues, without extensions such as (V.O.) and (CONT'D). Length is Final
+  Draft's own where it has one, otherwise estimated from printed lines (55 a page), at least an eighth.
+- A preview lists every scene (number, heading, length, speakers) and what will be created. Import writes the scenes
+  after the board's last, with their locations and characters found by name (any case) or created, in one op group.
+- Decided while building, to review:
+  - The script's own scene numbers are kept. Scenes it doesn't number are numbered as the script would be: the
+    first is 1, then the next after the highest so far.
+  - A scene whose number the project has already, live or in the Trash, is listed as "On the board" and left as
+    it is, so importing the same draft again adds nothing. A revised script's changed scenes aren't merged; that
+    needs the review screen of Phase 7.
+  - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
+  - Character records hold only `name` until Phase 3.
 
 ### Web companion
 

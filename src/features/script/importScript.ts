@@ -47,15 +47,16 @@ const placeOf = (scene: ScriptScene) => (scene.intExt !== null && scene.location
 export function planImport(records: Records, projectId: string, script: Script): ImportPlan {
   const scenesNow = Object.values(records).filter((r) => r.type === 'scene' && r.parentId === projectId);
   const taken = new Set(scenesNow.map((r) => sceneFields(r.props).number.toUpperCase()).filter((n) => n !== ''));
-  // Scenes the script doesn't number follow the highest whole number so far, in the project or the script.
-  let highest = Math.max(0, ...[...taken].map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n)));
+  // Scenes the script doesn't number are numbered as the script would be: the first is 1, then the next whole number
+  // after the highest so far. So importing the same unnumbered draft again finds its scenes on the board.
+  let highest = 0;
   const planned: PlannedScene[] = [];
   const numbered = new Set<string>();
   for (const scene of script.scenes) {
     let number = scene.number?.toUpperCase() ?? '';
     if (number === '' || numbered.has(number)) {
       do highest += 1;
-      while (taken.has(String(highest)) || numbered.has(String(highest)));
+      while (numbered.has(String(highest)));
       number = String(highest);
     } else {
       const whole = parseInt(number, 10);
