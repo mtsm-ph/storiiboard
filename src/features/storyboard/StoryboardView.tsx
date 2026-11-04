@@ -1,4 +1,4 @@
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
 import { pageLabel, sceneLabel, SHOT_SIZE_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
@@ -10,13 +10,17 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { StatusGlyph } from '../../ui/tags';
 import { FrameImage, type FramePictureView } from './FrameImage';
 import { verticalNeighbour } from './gridKeys';
+import { NoteCard } from './NoteCard';
+import { SlashMenu, type SlashChoice } from './SlashMenu';
+import { useItemDrag, type DropPlace } from './useItemDrag';
 
 // The Storyboard tile (design board, Storyboard workspace) in its three views: Grid (frames by scene, wrapping),
 // Strip (one row through the whole board, like a filmstrip) and Shot list (a table, one row per shot). All three are
 // the same records and the same keys (CLAUDE.md, keyboard-first): the board is one Tab stop; arrows move through every
 // frame and + Frame, Enter goes on to the frame's details, Delete sends it to the Trash, ⌘ with an arrow moves it.
-// Pictures dropped on a frame become its picture; dropped elsewhere in a scene, new frames (1.11). This part only
-// draws and reads keys; StoryboardTile does the edits and finds what a drop landed on through the data-drop-*
+// Pictures dropped on a frame become its picture; dropped elsewhere in a scene, new frames (1.11). Notes sit among the
+// frames, frames and notes drag to a new place, and "/" opens the insert menu (1.12). This part only draws and reads
+// keys and pointers; StoryboardTile does the edits and finds what a drop landed on through the data-drop-*
 // attributes here.
 
 export type BoardView = 'grid' | 'strip' | 'list';
@@ -39,6 +43,15 @@ export interface FrameCard {
   picture: FramePictureView | null;
 }
 
+/** One thing on the board, in order: a frame or a note. */
+export type BoardEntry = { kind: 'frame'; frame: FrameCard } | { kind: 'note'; id: string; text: string };
+
+/** Where a "/" insert goes: in this scene, after this item (or at the end with null). */
+export interface InsertPlace {
+  sceneId: string;
+  afterId: string | null;
+}
+
 /** What a drag of files is over now: a frame (its picture) or a scene (new frames). */
 export type DropHover = { shotId: string } | { sceneId: string } | null;
 
@@ -50,7 +63,13 @@ export interface SceneGroup {
   locked: boolean;
   counts: Record<ShotStatus, number>;
   frames: readonly FrameCard[];
+  /** Frames and notes in board order; just the frames when left out. */
+  items?: readonly BoardEntry[];
 }
+
+const entriesOf = (scene: SceneGroup): readonly BoardEntry[] =>
+  scene.items ?? scene.frames.map((frame): BoardEntry => ({ kind: 'frame', frame }));
+const entryId = (entry: BoardEntry) => (entry.kind === 'frame' ? entry.frame.id : entry.id);
 
 export interface StoryboardViewProps {
   scenes: readonly SceneGroup[];
@@ -64,9 +83,22 @@ export interface StoryboardViewProps {
   onSelect: (shotId: string, sceneId: string) => void;
   onAddFrame: (sceneId: string) => void;
   onAddScene: () => void;
-  onTrash: (shotId: string) => void;
-  /** Earlier (-1) or later (1) by one place, crossing into the next scene at either end. */
-  onMove: (shotId: string, direction: -1 | 1) => void;
+  /** A frame or a note to the Trash. */
+  onTrash: (id: string) => void;
+  /** A frame or a note earlier (-1) or later (1) by one place, crossing into the next scene at either end. */
+  onMove: (id: string, direction: -1 | 1) => void;
+  /** A frame or a note dragged to a new place; resolves once it's saved, to whether it moved, for focus to follow. */
+  onMoveTo?: (id: string, place: DropPlace) => Promise<boolean>;
+  /** A note picked: its scene becomes the active one, with no frame selected. */
+  onSelectScene?: (sceneId: string, noteId: string) => void;
+  /** The note the keys are on, which keeps the board's Tab stop. */
+  selectedNoteId?: string | null;
+  /** The "/" menu's insert; resolves to the new item's id, for focus to go to it. */
+  onInsert?: (choice: Exclude<SlashChoice, { kind: 'location' }>, place: InsertPlace) => Promise<string | null>;
+  onSetLocation?: (sceneId: string, name: string) => void;
+  onNoteText?: (noteId: string, text: string) => void;
+  /** The project's locations, for the "/" menu. */
+  locationNames?: readonly string[];
   /** Enter on a frame: on to its details in the Frame inspector. */
   onOpen?: (shotId: string) => void;
   /** Add pictures…: the Open dialog, each picture a new frame. */
@@ -131,30 +163,105 @@ export function StoryboardView({
   onAddPictures,
   busy = 0,
   dropHover = null,
+  onMoveTo,
+  onSelectScene,
+  selectedNoteId = null,
+  onInsert,
+  onSetLocation,
+  onNoteText,
+  locationNames = [],
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
   // One Tab stop: the selected frame, or the first item when nothing is selected.
-  const tabStop = selectedShotId ?? scenes.flatMap((s) => s.frames)[0]?.id ?? scenes[0]?.id ?? null;
+  const firstEntry = scenes.flatMap((s) => entriesOf(s))[0];
+  // The selected frame or note is the stop only while it's on the board; one gone to the Trash or undone away isn't.
+  const onBoard = new Set(scenes.flatMap((s) => entriesOf(s).map(entryId)));
+  const kept = [selectedShotId, selectedNoteId].find((id): id is string => id !== null && onBoard.has(id));
+  const tabStop = kept ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
   const mac = isMac();
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [slash, setSlash] = useState<{ at: { left: number; top: number }; place: InsertPlace; from: HTMLElement } | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const { drag, dragHandlers } = useItemDrag(
+    view === 'list',
+    useCallback(
+      (id: string, place: DropPlace) => {
+        // Focus follows once the move is saved and drawn: into another scene, the item is drawn anew there.
+        void onMoveTo?.(id, place).then((moved) => {
+          if (moved) setAnnouncement('Moved.');
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
+          });
+        });
+      },
+      [onMoveTo],
+    ),
+  );
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, shotId: string | null) => {
+  /** Puts focus on an item once React has drawn it. */
+  const focusItem = (id: string) => {
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
+    });
+  };
+
+  const openSlash = (from: HTMLElement, place: InsertPlace) => {
+    const box = from.getBoundingClientRect();
+    setSlash({ at: { left: box.left, top: box.bottom + 4 }, place, from });
+  };
+
+  const closeSlash = () => {
+    slash?.from.focus();
+    setSlash(null);
+  };
+
+  const pickSlash = (choice: SlashChoice) => {
+    if (!slash) return;
+    const { place, from } = slash;
+    setSlash(null);
+    if (choice.kind === 'location') {
+      onSetLocation?.(place.sceneId, choice.name);
+      setAnnouncement(`${choice.name} is the location for this scene.`);
+      from.focus();
+      return;
+    }
+    void onInsert?.(choice, place).then((id) => {
+      if (!id) return;
+      setAnnouncement(choice.kind === 'scene' ? 'Scene added.' : choice.kind === 'note' ? 'Note added.' : 'Frame added.');
+      if (choice.kind === 'note') setEditingNote(id);
+      else if (choice.kind === 'scene') {
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(`[data-scene-group="${CSS.escape(id)}"] [data-board-item]`)?.focus();
+        });
+      } else focusItem(id);
+    });
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, itemId: string | null, kind: 'frame' | 'note' | null = 'frame') => {
     const items = boardItems(event.currentTarget);
     const current = items.indexOf(event.currentTarget);
     const command = mac ? event.metaKey : event.ctrlKey;
-    if (shotId !== null && command && event.key.startsWith('Arrow')) {
+    const sceneId = event.currentTarget.dataset.sceneId;
+    if (event.key === '/' && sceneId && onInsert && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
-      onMove(shotId, event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1);
+      openSlash(event.currentTarget, { sceneId, afterId: itemId });
       return;
     }
-    if (shotId !== null && event.key === 'Enter' && onOpen) {
+    if (itemId !== null && command && event.key.startsWith('Arrow')) {
       event.preventDefault();
-      onOpen(shotId);
+      onMove(itemId, event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1);
       return;
     }
-    if (shotId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {
+    if (itemId !== null && event.key === 'Enter') {
       event.preventDefault();
-      onTrash(shotId);
+      if (kind === 'note') setEditingNote(itemId);
+      else onOpen?.(itemId);
+      return;
+    }
+    if (itemId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {
+      event.preventDefault();
+      onTrash(itemId);
       return;
     }
     let next: number | null = null;
@@ -180,18 +287,21 @@ export function StoryboardView({
     target?.focus();
     // Selection follows focus, so the inspector always shows the frame the keys are on.
     const id = target?.dataset.shotId;
-    const sceneId = target?.dataset.sceneId;
-    if (id && sceneId) onSelect(id, sceneId);
+    const targetScene = target?.dataset.sceneId;
+    if (id && targetScene) onSelect(id, targetScene);
+    else if (target?.dataset.noteId && targetScene) onSelectScene?.(targetScene, target.dataset.noteId);
   };
 
   /** The attributes every frame's focus target carries, whichever view draws it. */
   const itemProps = (frame: FrameCard, sceneId: string) => ({
     type: 'button' as const,
     'data-board-item': '',
+    'data-item-id': frame.id,
     'data-shot-id': frame.id,
     'data-scene-id': sceneId,
     'aria-current': frame.id === selectedShotId ? ('true' as const) : undefined,
     tabIndex: frame.id === tabStop ? 0 : -1,
+    ...dragHandlers(frame.id, frame.number),
     onClick: () => {
       onSelect(frame.id, sceneId);
     },
@@ -205,7 +315,8 @@ export function StoryboardView({
     'data-board-item': '',
     // The visible "+ Frame" leads the name, so speech control can say what it sees (WCAG 2.5.3).
     'aria-label': `+ Frame in ${sceneLabel(scene.number)}`,
-    tabIndex: scene.frames.length === 0 && tabStop === scene.id ? 0 : -1,
+    'data-scene-id': scene.id,
+    tabIndex: entriesOf(scene).length === 0 && tabStop === scene.id ? 0 : -1,
     onClick: () => {
       onAddFrame(scene.id);
     },
@@ -251,6 +362,48 @@ export function StoryboardView({
     );
   };
 
+  /** A note card's focus target, as the board's keys and drag see it. */
+  const noteProps = (id: string, sceneId: string) => ({
+    'data-board-item': '',
+    'data-item-id': id,
+    'data-note-id': id,
+    'data-scene-id': sceneId,
+    tabIndex: id === tabStop ? 0 : -1,
+    ...dragHandlers(id, 'Note'),
+    onClick: () => {
+      onSelectScene?.(sceneId, id);
+    },
+    onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+      onKeyDown(event, id, 'note');
+    },
+  });
+
+  const note = (entry: Extract<BoardEntry, { kind: 'note' }>, sceneId: string, className?: string) => (
+    <NoteCard
+      id={entry.id}
+      text={entry.text}
+      editing={editingNote === entry.id}
+      itemProps={noteProps(entry.id, sceneId)}
+      onEdit={() => {
+        setEditingNote(entry.id);
+      }}
+      onSave={(text, back) => {
+        setEditingNote(null);
+        if (text !== entry.text) onNoteText?.(entry.id, text);
+        if (back) focusItem(entry.id);
+      }}
+      onCancel={() => {
+        setEditingNote(null);
+        focusItem(entry.id);
+      }}
+      className={className}
+    />
+  );
+
+  /** A frame or a note, in the grid or the strip. */
+  const entry = (item: BoardEntry, sceneId: string, className?: string) =>
+    item.kind === 'frame' ? card(item.frame, sceneId, className) : note(item, sceneId, cx(className, 'h-full'));
+
   if (!canEdit) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
 
   let body: ReactNode;
@@ -267,8 +420,8 @@ export function StoryboardView({
           <SceneHeading scene={scene} />
         </h3>
         <ul aria-label={`Frames in ${sceneLabel(scene.number)}`} className="grid grid-cols-[repeat(auto-fill,minmax(176px,1fr))] gap-gap">
-          {scene.frames.map((frame) => (
-            <li key={frame.id}>{card(frame, scene.id, 'w-full')}</li>
+          {entriesOf(scene).map((item) => (
+            <li key={entryId(item)}>{entry(item, scene.id, 'w-full')}</li>
           ))}
           {/* As tall as the cards beside it; alone in a scene, the shape of a frame. */}
           <li className="flex">
@@ -300,9 +453,9 @@ export function StoryboardView({
               <SceneHeading scene={scene} className="flex-nowrap whitespace-nowrap" />
             </h3>
             <ul aria-label={`Frames in ${sceneLabel(scene.number)}`} className="flex gap-gap">
-              {scene.frames.map((frame) => (
-                <li key={frame.id} className="shrink-0" style={{ width }}>
-                  {card(frame, scene.id, 'w-full')}
+              {entriesOf(scene).map((item) => (
+                <li key={entryId(item)} className="shrink-0" style={{ width }}>
+                  {entry(item, scene.id, 'w-full')}
                 </li>
               ))}
               <li className="flex shrink-0" style={{ width: Math.round(width / 2) }}>
@@ -320,7 +473,14 @@ export function StoryboardView({
     );
   } else {
     body = (
-      <ShotList scenes={scenes} selectedShotId={selectedShotId} itemProps={itemProps} addProps={addProps} sceneHovered={sceneHovered} />
+      <ShotList
+        scenes={scenes}
+        selectedShotId={selectedShotId}
+        itemProps={itemProps}
+        addProps={addProps}
+        sceneHovered={sceneHovered}
+        renderNote={(item, sceneId) => note(item, sceneId, 'min-h-0')}
+      />
     );
   }
 
@@ -348,6 +508,40 @@ export function StoryboardView({
       <div className="p-3">
         <Button onClick={onAddScene}>+ Scene</Button>
       </div>
+      {drag?.bar && (
+        // Where the dragged item will land: an ink bar between items.
+        <span
+          aria-hidden="true"
+          className="pointer-events-none fixed z-40 bg-text"
+          style={
+            drag.bar.vertical
+              ? { left: drag.bar.left, top: drag.bar.top, width: 3.5, height: drag.bar.length }
+              : { left: drag.bar.left, top: drag.bar.top, width: drag.bar.length, height: 3.5 }
+          }
+        />
+      )}
+      {drag && (
+        // The lifted item, as the tiles lift: a dashed ghost with a hard ink offset, a second box, never a shadow.
+        <div aria-hidden="true" className="pointer-events-none fixed z-50" style={{ left: drag.x + 12, top: drag.y + 12 }}>
+          <div className="absolute top-1 left-1 h-titlebar w-24 bg-text" />
+          <div className="relative flex h-titlebar w-24 items-center border-[1.5px] border-dashed border-text bg-surface px-2 font-mono text-[12px] font-bold">
+            {drag.label}
+          </div>
+        </div>
+      )}
+      {slash && (
+        <SlashMenu
+          at={slash.at}
+          sceneLabel={sceneLabel(scenes.find((s) => s.id === slash.place.sceneId)?.number ?? '')}
+          atEnd={slash.place.afterId === null}
+          locationNames={locationNames}
+          onPick={pickSlash}
+          onClose={closeSlash}
+        />
+      )}
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
     </div>
   );
 }
@@ -364,6 +558,7 @@ interface ShotListProps {
   itemProps: (frame: FrameCard, sceneId: string) => Record<string, unknown>;
   addProps: (scene: SceneGroup) => Record<string, unknown>;
   sceneHovered: (sceneId: string) => boolean;
+  renderNote: (note: Extract<BoardEntry, { kind: 'note' }>, sceneId: string) => ReactNode;
 }
 
 /**
@@ -371,7 +566,7 @@ interface ShotListProps {
  * is each row's focus target, so the board's keys work here too; the selected row takes the selected-row fill, with
  * the accent marker and the ink chip on its number.
  */
-function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered }: ShotListProps) {
+function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered, renderNote }: ShotListProps) {
   // Headers and short values stay on one line; only the action wraps.
   const head = 'sb-label px-2 py-1.5 text-left font-normal whitespace-nowrap text-text-muted';
   const cell = 'px-2 py-1.5 align-top';
@@ -402,7 +597,17 @@ function ShotList({ scenes, selectedShotId, itemProps, addProps, sceneHovered }:
                 <SceneHeading scene={scene} />
               </th>
             </tr>
-            {scene.frames.map((frame) => {
+            {entriesOf(scene).map((item) => {
+              if (item.kind === 'note') {
+                return (
+                  <tr key={item.id} className="border-b border-border">
+                    <td colSpan={10} className={cell}>
+                      {renderNote(item, scene.id)}
+                    </td>
+                  </tr>
+                );
+              }
+              const frame = item.frame;
               const selected = frame.id === selectedShotId;
               const f = frame.fields;
               // Muted text never sits on the selected-row fill (DESIGN.md), so a selected row's cells go ink.
