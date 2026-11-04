@@ -275,11 +275,16 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
 - Opened from the Layout menu in any workspace (it's in no default layout). It lists deleted frames, notes, scenes and
   pictures, newest first, with the scene each belongs to and when it was deleted; filters by type and scene.
 - Restore is one click and one undoable op group, and brings back what the item needs (docs/SBD_FORMAT.md, Trash);
-  focus stays in the list.
-- Tests: undo of a restore, restore after closing and reopening the project, and a write that fails halfway
-  leaving the item in the Trash with nothing half restored.
+  focus stays in the list, or goes to the message once the list is empty.
+- Slate numbers stay unique: in a locked scene a restored frame keeps its letter unless a live frame has taken it
+  since, when it takes the next free one; a restored scene whose number a live scene has taken gets a new one, its
+  frames following. A trashed scene's number can't be given to another scene (as + New scene already counted it).
+- Tests: undo and redo of a restore, restore after closing and reopening the project, a write that fails halfway
+  leaving the item in the Trash with nothing half restored, locked scenes, a taken scene number.
 - Decided while building, to review: restoring a frame's old picture makes it the frame's picture again (the newer one
-  goes to the Trash); the project's logo or key image comes back on its own, without becoming the theme's image again.
+  goes to the Trash) and resets the crop, as choosing a picture does; the project's logo or key image comes back on
+  its own, without becoming the theme's image again; in a locked scene renumbered while a frame was in the Trash, the
+  frame comes back on its old letter, as its locked neighbours keep theirs.
 
 **As built in 1.19 (Nov 3): custom fields on shots** (src/core/model/customFields.ts):
 - The inspector has a Custom fields section: each of the frame's fields saves like the others (on leaving it or
