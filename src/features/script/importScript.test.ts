@@ -150,6 +150,19 @@ describe('a script import', () => {
     ]);
   });
 
+  it('finds an unnumbered draft’s scenes again after they were numbered round hand-made ones', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '1' } } },
+    ]);
+    await runImport();
+    expect(planImport(records(), project.projectId, SCRIPT).scenes.map((s) => [s.number, s.status])).toEqual([
+      ['2', 'same'],
+      ['3', 'same'],
+      ['4', 'same'],
+      ['5', 'same'],
+    ]);
+  });
+
   it('leaves out a printed number the board has for another scene, rather than move it off the slate', async () => {
     await store.getState().apply([
       { kind: 'create', record: { id: 'mine', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4' } } },

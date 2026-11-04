@@ -4,7 +4,7 @@ import { isSceneNumber, sceneFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import type { Script, ScriptScene } from '../../core/script/script';
-import { locations } from '../storyboard/board';
+import { compareSceneNumbers, locations } from '../storyboard/board';
 
 // From a parsed script to the project (1.17): a scene shell for every scene the board doesn't have yet, with its
 // location and speaking characters found or created along the way, all in one op group so one undo takes the import
@@ -81,6 +81,16 @@ export function planImport(records: Records, projectId: string, script: Script):
     if (number !== null && !first.has(number)) first.set(number, index);
   });
   const scriptNumbers = [...first.keys()];
+  // The board's live scenes by heading, in board number order, leaving out the numbers the script prints itself: what
+  // an unnumbered scene can be matched to, so a draft imported again is found wherever its scenes were numbered.
+  const byHeading = new Map<string, string[]>();
+  for (const [number, scene] of [...board].sort((a, b) => compareSceneNumbers(a[0], b[0]))) {
+    if (scene.trashed || first.has(number)) continue;
+    byHeading.set(scene.key, [...(byHeading.get(scene.key) ?? []), number]);
+  }
+  const claim = (key: string, number: string) => {
+    byHeading.set(key, (byHeading.get(key) ?? []).filter((n) => n !== number));
+  };
 
   const planned: PlannedScene[] = [];
   script.scenes.forEach((scene, index) => {
@@ -102,8 +112,16 @@ export function planImport(records: Records, projectId: string, script: Script):
       const scriptTaken = [...scriptNumbers, ...planned.map((p) => p.number)];
       number = sceneNumberBetween(before, after, scriptTaken);
       const there = board.get(number);
-      if (there && !there.trashed && there.key === key) status = 'same';
-      else {
+      const match = byHeading.get(key)?.[0];
+      if (there && !there.trashed && there.key === key) {
+        status = 'same';
+        claim(key, number);
+      } else if (match !== undefined) {
+        // On the board already under another number (an import numbered round hand-made scenes): that one.
+        number = match;
+        status = 'same';
+        claim(key, match);
+      } else {
         // No slate number to keep: a number the board has for another scene (or in the Trash) is passed over.
         if (there) number = sceneNumberBetween(before, after, [...scriptTaken, ...board.keys()]);
         status = 'new';
