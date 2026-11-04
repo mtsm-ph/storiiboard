@@ -24,6 +24,14 @@ describe('stroke geometry', () => {
     expect(strokesAt([line, box], 0.2, 0.3, 0.015, 16 / 9)).toEqual(['box']);
   });
 
+  it('measures the eraser’s reach in the frame’s height both ways, so a wide frame doesn’t stretch it', () => {
+    // A vertical line at x = 0.5 in a 2.39 frame. 0.006 across is 0.014 of the height away: in reach.
+    const upright = { id: 'up', tool: 'pen' as const, points: [0.5, 0.1, 0.5, 0.9], width: 0.004, pressures: null };
+    expect(strokesAt([upright], 0.506, 0.5, 0.015, 2.39)).toEqual(['up']);
+    // 0.01 across is 0.024 of the height: out of reach, though it would be in reach measured across alone.
+    expect(strokesAt([upright], 0.51, 0.5, 0.015, 2.39)).toEqual([]);
+  });
+
   it('outlines a pressure stroke on both sides, and points an arrow at its end', () => {
     const outline = pressureOutline([0, 0.5, 1, 0.5], [0, 1], 100, 100, 0.1);
     expect(outline).toHaveLength(8);
@@ -63,6 +71,19 @@ describe('strokes as records', () => {
     expect(strokesByShot(records()).get(shotId)?.map((s) => s.tool)).toEqual(['pen', 'arrow']);
     await store.getState().undo();
     expect(strokesOf(records(), shotId).map((s) => s.tool)).toEqual(['pen']);
+  });
+
+  it('orders strokes drawn faster than they’re saved by when they were drawn', async () => {
+    const stroke = (tool: 'pen' | 'arrow' | 'box') => ({ tool, points: [0.1, 0.1, 0.2, 0.2], width: 0.008, pressures: null });
+    // Queued without waiting for each other, as quick strokes are.
+    await Promise.all([
+      store.getState().applyWith((now) => ({ changes: [addStroke(now, shotId, stroke('pen'))] })),
+      store.getState().applyWith((now) => ({ changes: [addStroke(now, shotId, stroke('arrow'))] })),
+      store.getState().applyWith((now) => ({ changes: [addStroke(now, shotId, stroke('box'))] })),
+    ]);
+    expect(strokesOf(records(), shotId).map((s) => s.tool)).toEqual(['pen', 'arrow', 'box']);
+    const keys = Object.values(records()).filter((r) => r.type === 'stroke').map((r) => r.sortKey);
+    expect(new Set(keys).size).toBe(3);
   });
 
   it('erases strokes to the Trash in one edit, and brings them all back with one undo', async () => {

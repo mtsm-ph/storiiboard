@@ -51,6 +51,61 @@ test('S on a frame opens its sketch; a pen stroke shows on the card, and ⌘Z ta
   // Escape closes the editor and focus goes back where it was.
   await page.keyboard.press('Escape');
   await expect(editor(page)).toHaveCount(0);
+  await expect(frame(page)).toBeFocused();
+});
+
+test('an arrow can be two clicks, and a release outside the frame still ends a stroke', async ({ page }) => {
+  await page.keyboard.press('s');
+  await expect(editor(page)).toBeVisible();
+  const box = await editor(page).locator('[data-sketch-frame]').boundingBox();
+  if (!box) throw new Error('no frame');
+  await page.keyboard.press('a');
+  await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.5);
+  await expect(page.getByText('Click again where it ends.')).toBeAttached();
+  await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.5);
+  await expect(cardStrokes(page)).toHaveCount(1);
+
+  await page.keyboard.press('p');
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.4, { steps: 3 });
+  // Let go well outside the frame.
+  await page.mouse.move(box.x - 40, box.y - 40, { steps: 3 });
+  await page.mouse.up();
+  await expect(cardStrokes(page)).toHaveCount(2);
+});
+
+test('in dark mode the editor draws in the theme’s text colour, as the cards do', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.keyboard.press('s');
+  await draw(page, [0.2, 0.5], [0.8, 0.5]);
+  await expect(cardStrokes(page)).toHaveCount(1);
+  const [ink, drawn] = await page.evaluate(() => {
+    // The text colour as the page resolves it, in rgb() like the canvas reads back.
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--text)';
+    document.body.append(probe);
+    const text = getComputedStyle(probe).color;
+    probe.remove();
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-sketch-frame] canvas');
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) throw new Error('no canvas');
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < data.length; i += 4) {
+      if ((data[i + 3] ?? 0) === 255) return [text, `rgb(${String(data[i])}, ${String(data[i + 1])}, ${String(data[i + 2])})`];
+    }
+    return [text, 'nothing drawn'];
+  });
+  expect(drawn).toBe(ink);
+});
+
+test('the editor closes when its frame goes, and focus doesn’t fall off the board', async ({ page }) => {
+  await page.keyboard.press('s');
+  await expect(editor(page)).toBeVisible();
+  // The last edit was adding this frame: Undo takes the frame back, and the editor with it.
+  await editor(page).getByRole('button', { name: 'Undo' }).click();
+  await expect(editor(page)).toHaveCount(0);
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(0);
 });
 
 test('draws an arrow and a box with their keys, and the eraser takes off what it touches', async ({ page }) => {

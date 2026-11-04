@@ -263,7 +263,7 @@ export function StoryboardView({
       else onOpen?.(itemId);
       return;
     }
-    if (itemId !== null && kind === 'frame' && onSketch && event.key.toLowerCase() === 's' && !command && !event.altKey) {
+    if (itemId !== null && kind === 'frame' && onSketch && event.key === 's' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       onSketch(itemId);
       return;
@@ -355,7 +355,13 @@ export function StoryboardView({
               </span>
             )
           )}
-          {frame.strokes && frame.strokes.length > 0 && <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />}
+          {frame.strokes && frame.strokes.length > 0 && (
+            <>
+              <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
+              {/* A frame with only a sketch says so; with a picture too, the picture is the frame's look. */}
+              {!frame.picture && <span className="sr-only">Sketched</span>}
+            </>
+          )}
           {hovered && <DropMark label={frame.picture ? 'Replace picture' : 'Set picture'} />}
         </span>
         <span className="flex items-center gap-2 px-2 py-1.5">

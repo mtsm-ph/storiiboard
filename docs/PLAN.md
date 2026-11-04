@@ -54,7 +54,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.17 Script import: Fountain and FDX | | Not started |
 | 1.18 Script import: PDF | | Not started |
 | 1.19 Custom fields on shots | | Not started |
-| 1.20 Trash tile | | Not started |
+| 1.20 Trash tile (leaves out erased sketch strokes, which are trashed records) | | Not started |
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | | Not started |
 | 1.22 History tile | | Not started |
 | 1.23 Named versions (schema 4) and Open version | | Not started |

@@ -1,12 +1,16 @@
+import { memo } from 'react';
 import { arrowHead, pressureOutline, type Stroke } from './strokes';
 
 // A frame's sketch on its card (1.13): inline SVG over the picture, in the text colour, so it reads on paper in light
 // and dark alike. The editor draws the same strokes with Konva; this needs no canvas, so a 1000-frame board stays a
 // page of plain elements.
 
-/** The SVG for one stroke, in a box `width` by `height`. */
-export function StrokeShape({ stroke, width, height }: { stroke: Stroke; width: number; height: number }) {
-  const line = stroke.width * height;
+/**
+ * The SVG for one stroke, in a box `width` by `height`. `minLine` keeps a thin line visible when the box is drawn small
+ * (a card is about 100px tall, where a pencil line would be under half a pixel).
+ */
+export function StrokeShape({ stroke, width, height, minLine = 0 }: { stroke: Stroke; width: number; height: number; minLine?: number }) {
+  const line = Math.max(stroke.width * height, minLine);
   const p = stroke.points.map((n, i) => (i % 2 === 0 ? n * width : n * height));
   if (stroke.tool === 'box') {
     const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = p;
@@ -46,8 +50,11 @@ export function StrokeShape({ stroke, width, height }: { stroke: Stroke; width: 
   );
 }
 
-/** Fills its parent, which gives the frame its shape (width over height: `aspect`). */
-export function SketchSvg({ strokes, aspect }: { strokes: readonly Stroke[]; aspect: number }) {
+/**
+ * Fills its parent, which gives the frame its shape (width over height: `aspect`). Memoised: a board redraws often,
+ * and a card's sketch only changes with its own strokes.
+ */
+export const SketchSvg = memo(function SketchSvg({ strokes, aspect }: { strokes: readonly Stroke[]; aspect: number }) {
   const height = 1000;
   const width = Math.round(height * aspect);
   return (
@@ -59,8 +66,9 @@ export function SketchSvg({ strokes, aspect }: { strokes: readonly Stroke[]; asp
       className="pointer-events-none absolute inset-0 h-full w-full text-text"
     >
       {strokes.map((stroke) => (
-        <StrokeShape key={stroke.id} stroke={stroke} width={width} height={height} />
+        // At least 1% of the frame's height: about a pixel on a card.
+        <StrokeShape key={stroke.id} stroke={stroke} width={width} height={height} minLine={10} />
       ))}
     </svg>
   );
-}
+});

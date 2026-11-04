@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -19,7 +19,7 @@ import {
 } from './board';
 import { pictureView } from './framePictures';
 import { openSketch } from './sketch/sketchStore';
-import { strokesByShot } from './sketch/strokes';
+import { stableStrokesByShot } from './sketch/strokes';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
@@ -125,7 +125,9 @@ export function StoryboardTile() {
     if (projectStore.getState().records[id]?.type === 'shot') selectionStore.getState().selectShot(id, sceneId);
   };
 
-  const strokes = strokesByShot(records);
+  // Worked out once per edit, keeping each shot's list as it was while its strokes are unchanged, so a card's
+  // sketch redraws only when its own strokes do.
+  const strokes = useMemo(() => stableStrokesByShot(records), [records]);
   const frameCard = (shot: BoardShot): FrameCard => ({
     id: shot.record.id,
     number: shot.fields.number,

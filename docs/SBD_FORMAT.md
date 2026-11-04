@@ -236,7 +236,11 @@ under its shot, ordered by `sort_key` as drawn, so the History never copies earl
 | pressures | array of numbers | One per point, 0 to 1, only when a pen reported real pressure; a stroke without it has one width |
 
 The eraser takes off whole strokes it touches: each pass, and Clear, trashes them in one op group, so one undo brings
-them back.
+them back. Erased strokes are trashed records, not things a person deleted: the Trash tile (1.20) leaves them out, and
+Empty Trash purges them with the frames they belong to.
+
+Strokes are fractions of the frame, so a change of the project's aspect ratio stretches a sketch to the new shape,
+while the frame's picture re-crops instead. Redraw a sketch after changing the aspect ratio of a boarded project.
 
 **Notes and locations** (1.12). A note card is a `note` record under its scene, ordered among the scene's shots by
 `sort_key`, with one prop, `text`. Notes take no shot number. A `location` record sits under the project with one prop

@@ -60,6 +60,25 @@ export function strokesByShot(records: Records): Map<string, Stroke[]> {
   return out;
 }
 
+/** Each shot's list as last handed out, with the stroke ids it was made from. */
+const handedOut = new Map<string, { key: string; strokes: Stroke[] }>();
+
+/**
+ * strokesByShot for a board that redraws on every edit: a shot whose strokes are unchanged gets the same list as last
+ * time, so its card's sketch (memoised) doesn't redraw. A stroke never changes once drawn, only comes or goes, so the
+ * ids say whether a list is the same.
+ */
+export function stableStrokesByShot(records: Records): Map<string, Stroke[]> {
+  const next = strokesByShot(records);
+  for (const [shotId, strokes] of next) {
+    const key = strokes.map((stroke) => stroke.id).join(',');
+    const before = handedOut.get(shotId);
+    if (before?.key === key) next.set(shotId, before.strokes);
+    else handedOut.set(shotId, { key, strokes });
+  }
+  return next;
+}
+
 /** A shot's live strokes, in the order they were drawn. */
 export function strokesOf(records: Records, shotId: string): Stroke[] {
   return Object.values(records)
