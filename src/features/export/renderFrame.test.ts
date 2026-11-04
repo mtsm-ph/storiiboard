@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
 import type { PreparedImage } from '../../core/media/store';
 import type { Change } from '../../core/ops/ops';
@@ -8,11 +8,11 @@ import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot } from '../storyboard/board';
 import { setCrop, setPicture, type FramePicture, type PictureEdit } from '../storyboard/framePictures';
-import { frameContent, watermarkOutline } from './renderFrame';
+import { frameContent, renderFrame, watermarkOutline } from './renderFrame';
 
 // What an exported frame is drawn from (1.24), read from a real file: the drawing itself is the browser's to check
-// (e2e/export.spec.ts), but whether a trashed stroke or picture gets in, and whether a lost picture is noticed, is
-// decided here.
+// (e2e/export.spec.ts), but whether a trashed stroke or picture gets in, and whether a lost or undecodable picture is
+// noticed, is decided here.
 
 function picture(seed: number): FramePicture {
   const bytes = new Uint8Array(3000).map((_, i) => (i * seed) % 256);
@@ -94,6 +94,110 @@ describe('a frame for export', () => {
 
   it('is empty with no picture set: a blank frame, nothing missing', async () => {
     expect(await frameContent(records(), project.file, shot())).toEqual({ strokes: [], picture: null });
+  });
+});
+
+/**
+ * A browser's canvas and decoder, as far as renderFrame uses them, since Node has neither: a 2D context that notes the
+ * text and pictures drawn on it, and a createImageBitmap that decodes only bytes that start as a JPEG does and
+ * rejects the rest as a browser does ('The source image could not be decoded').
+ */
+class FakeContext {
+  readonly texts: string[] = [];
+  pictures = 0;
+  font = '';
+  fillText(text: string) {
+    this.texts.push(text);
+  }
+  strokeText() {}
+  measureText(text: string) {
+    return { width: text.length * 8 };
+  }
+  drawImage() {
+    this.pictures += 1;
+  }
+  fillRect() {}
+  strokeRect() {}
+  beginPath() {}
+  moveTo() {}
+  lineTo() {}
+  closePath() {}
+  stroke() {}
+  fill() {}
+  save() {}
+  restore() {}
+}
+class FakeCanvas {
+  readonly context = new FakeContext();
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {}
+  getContext() {
+    return this.context;
+  }
+}
+async function fakeDecode(blob: Blob) {
+  const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
+  if (head[0] !== 0xff || head[1] !== 0xd8 || head[2] !== 0xff) throw new DOMException('The source image could not be decoded.', 'InvalidStateError');
+  return { width: 1600, height: 900, close: () => undefined };
+}
+
+describe('drawing a frame for export', () => {
+  let folder: TestFolder;
+  let project: Project;
+  const store = createProjectStore();
+  let shotId = '';
+  const records = () => store.getState().records;
+  const shot = () => {
+    const record = records()[shotId];
+    if (!record) throw new Error('no shot');
+    return record;
+  };
+
+  beforeEach(async () => {
+    vi.stubGlobal('OffscreenCanvas', FakeCanvas);
+    vi.stubGlobal('createImageBitmap', fakeDecode);
+    folder = makeTestFolder();
+    project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+    await store.getState().open(project);
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'sc4', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4' } } },
+    ]);
+    const added = addShot(records(), project.projectId, 'sc4');
+    shotId = added.shotId;
+    await store.getState().apply(added.changes);
+  });
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await store.getState().close();
+    folder.remove();
+  });
+
+  async function setBytes(bytes: Uint8Array) {
+    const chosen = picture(1);
+    chosen.image.original = { ...chosen.image.original, bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+    const edit = setPicture(records(), shotId, chosen, project.file.path);
+    await store.getState().apply(edit.changes, { alsoWrite: edit.alsoWrite });
+  }
+  const render = () => renderFrame(records(), project.file, shot(), { width: 1920, height: 1080 }, null);
+  const drawnOn = (canvas: unknown) => (canvas as FakeCanvas).context;
+
+  it('draws a picture that decodes', async () => {
+    await setBytes(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+    const { canvas, pictureMissing } = await render();
+    expect(pictureMissing).toBe(false);
+    expect(drawnOn(canvas).pictures).toBe(1);
+    expect(drawnOn(canvas).texts).toEqual([]);
+  });
+
+  it('marks a stored picture that won’t decode as missing, rather than ending the export', async () => {
+    // Bytes the file holds, under their own true sha256, that no decoder reads: a damaged blob in an old file.
+    await setBytes(new Uint8Array(3000).map((_, i) => (i * 7) % 256));
+    const { canvas, pictureMissing } = await render();
+    expect(pictureMissing).toBe(true);
+    expect(drawnOn(canvas).pictures).toBe(0);
+    expect(drawnOn(canvas).texts).toEqual(['PICTURE MISSING']);
   });
 });
 

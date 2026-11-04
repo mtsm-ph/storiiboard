@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
@@ -174,6 +175,59 @@ for (const offscreen of [true, false]) {
   });
 }
 
+/**
+ * Overwrites every picture the project stores with bytes no decoder reads, under the same sha256, as a truncated or
+ * damaged blob in an old file would be: straight into the memory build's saved file (src/core/storage/memoryDriver.ts),
+ * then a reload and a reopen, since the app itself would never store such bytes.
+ */
+async function damageStoredPictures(page: Page) {
+  const key = 'storiiboard.memory-files';
+  const saved = JSON.parse((await page.evaluate((k) => window.localStorage.getItem(k), key)) ?? '{}') as Record<string, string>;
+  const path = Object.keys(saved).find((p) => p.endsWith('/Bey County.sbd'));
+  if (!path) throw new Error('no Bey County.sbd in the memory build');
+  const { default: initSqlJs } = await import('sql.js');
+  const wasm = createRequire(import.meta.url).resolve('sql.js/dist/sql-wasm.wasm');
+  const SQL = await initSqlJs({ locateFile: () => wasm });
+  const db = new SQL.Database(Buffer.from(saved[path] ?? '', 'base64'));
+  db.run('UPDATE media_files SET bytes = ?', [new TextEncoder().encode('not a picture '.repeat(200))]);
+  const count = db.prepare('SELECT count(*) AS n FROM media_files');
+  count.step();
+  expect(count.getAsObject().n, 'stored pictures damaged').toBe(1);
+  count.free();
+  saved[path] = Buffer.from(db.export()).toString('base64');
+  db.close();
+  await page.evaluate(([k, v]) => {
+    window.localStorage.setItem(k, v);
+  }, [key, JSON.stringify(saved)] as const);
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+}
+
+test('a stored picture that won’t decode goes out marked and named, and the export runs to the end', async ({ page }) => {
+  const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
+  await frames.nth(0).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('region', { name: 'Frame inspector', exact: true }).getByRole('button', { name: 'Choose picture…' }).click();
+  await (await chooser).setFiles(fixture);
+  await expect(frames.nth(0).locator('img[data-frame-image]')).toBeVisible();
+  await damageStoredPictures(page);
+  await expect(frames).toHaveCount(2);
+
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+  const files: Download[] = [];
+  page.on('download', (download) => files.push(download));
+  await dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(page.getByText('Exported 2 frames to “Bey County frames”. 1 has a missing picture: SC001_1A.')).toBeVisible();
+  expect(files.map((f) => f.suggestedFilename()).sort()).toEqual(['SC001_1A.png', 'SC001_1B.png']);
+  const found = files.find((f) => f.suggestedFilename() === 'SC001_1A.png');
+  if (!found) throw new Error('no SC001_1A.png');
+  // White, with PICTURE MISSING across the middle.
+  const marked = await readPng(page, await found.path(), [255, 255, 255], [[0.5, 0.8]], [[0.3, 0.45, 0.7, 0.55]]);
+  expect(marked.points[0]).toEqual([255, 255, 255]);
+  expect(marked.marked[0], 'PICTURE MISSING').toBeGreaterThan(0);
+});
+
 test('Watermark Settings saves one edit, and the Export dialog says the PNGs carry it', async ({ page }) => {
   await projectMenu(page, 'Watermark Settings');
   const settings = dialog(page, 'Watermark Settings');
@@ -251,78 +305,101 @@ test('Watermark Save with nothing changed leaves no step to undo', async ({ page
   await expect(frames).toHaveCount(1);
 });
 
-test('Stop ends a running export between frames, and says what it wrote', async ({ page }) => {
-  // The second frame waits to be encoded until the test lets it go, so Stop lands mid-export every time.
-  await page.evaluate(() => {
-    const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
-      this: OffscreenCanvas,
-      options?: ImageEncodeOptions,
-    ) => Promise<Blob>;
-    let calls = 0;
-    const w = window as unknown as { releaseFrame?: () => void };
-    const held = new Promise<void>((resolve) => {
-      w.releaseFrame = resolve;
-    });
-    OffscreenCanvas.prototype.convertToBlob = async function (this: OffscreenCanvas, options) {
-      calls += 1;
-      if (calls === 2) await held;
-      return encode.call(this, options);
-    };
-  });
-  await projectMenu(page, 'Export Project…');
-  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
-  const files: Download[] = [];
-  page.on('download', (download) => files.push(download));
-  await dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' }).click();
-  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
-  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
-  await expect(dialog(page, 'Export')).toHaveCount(0);
-  await page.evaluate(() => {
-    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
-  });
-  await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
-  expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
-});
+/**
+ * Holds every frame from the `from`th on, waiting to be encoded, until the test calls window.releaseFrame(), so Stop
+ * lands mid-export every time. At canvasBlob's own seam, whichever the engine has: OffscreenCanvas's convertToBlob,
+ * or the <canvas> toBlob that macOS 13.0 to 13.2's WebKit falls back to.
+ */
+async function holdFrames(page: Page, from: number, offscreen: boolean) {
+  await page.evaluate(
+    ({ from, offscreen }) => {
+      if (!offscreen) Reflect.deleteProperty(window, 'OffscreenCanvas');
+      let calls = 0;
+      const w = window as unknown as { releaseFrame?: () => void };
+      const held = new Promise<void>((resolve) => {
+        w.releaseFrame = resolve;
+      });
+      if (typeof OffscreenCanvas !== 'undefined') {
+        const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
+          this: OffscreenCanvas,
+          options?: ImageEncodeOptions,
+        ) => Promise<Blob>;
+        OffscreenCanvas.prototype.convertToBlob = async function (this: OffscreenCanvas, options) {
+          calls += 1;
+          if (calls >= from) await held;
+          return encode.call(this, options);
+        };
+        return;
+      }
+      const encode = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'toBlob')?.value as (
+        this: HTMLCanvasElement,
+        callback: BlobCallback,
+        type?: string,
+        quality?: number,
+      ) => void;
+      HTMLCanvasElement.prototype.toBlob = function (this: HTMLCanvasElement, callback, type, quality) {
+        calls += 1;
+        if (calls < from) {
+          encode.call(this, callback, type, quality);
+          return;
+        }
+        void held.then(() => {
+          encode.call(this, callback, type, quality);
+        });
+      };
+    },
+    { from, offscreen },
+  );
+  if (!offscreen) expect(await page.evaluate(() => typeof OffscreenCanvas)).toBe('undefined');
+}
 
-test('a double click starts one export, and Stop ends it', async ({ page }) => {
-  // Every frame after the first waits to be encoded until the test lets it go. Two clicks land in one task, before
-  // React can disable the button: a second run would take over Stop, and the first would go on writing.
-  await page.evaluate(() => {
-    const encode = Object.getOwnPropertyDescriptor(OffscreenCanvas.prototype, 'convertToBlob')?.value as (
-      this: OffscreenCanvas,
-      options?: ImageEncodeOptions,
-    ) => Promise<Blob>;
-    let calls = 0;
-    const w = window as unknown as { releaseFrame?: () => void };
-    const held = new Promise<void>((resolve) => {
-      w.releaseFrame = resolve;
+// Each run twice, as the picture test above is: with OffscreenCanvas where the engine has it, and without, as macOS
+// 13.0 to 13.2's WebKit draws.
+for (const offscreen of [true, false]) {
+  const without = offscreen ? '' : ', without OffscreenCanvas';
+
+  test(`Stop ends a running export between frames, and says what it wrote${without}`, async ({ page }) => {
+    await holdFrames(page, 2, offscreen);
+    await projectMenu(page, 'Export Project…');
+    await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+    const files: Download[] = [];
+    page.on('download', (download) => files.push(download));
+    await dialog(page, 'Export').getByRole('button', { name: 'Choose folder…' }).click();
+    await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+    await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+    await expect(dialog(page, 'Export')).toHaveCount(0);
+    await page.evaluate(() => {
+      (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
     });
-    OffscreenCanvas.prototype.convertToBlob = async function (this: OffscreenCanvas, options) {
-      calls += 1;
-      if (calls >= 2) await held;
-      return encode.call(this, options);
-    };
+    await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
+    expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
   });
-  await projectMenu(page, 'Export Project…');
-  await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
-  const files: Download[] = [];
-  page.on('download', (download) => files.push(download));
-  await dialog(page, 'Export')
-    .getByRole('button', { name: 'Choose folder…' })
-    .evaluate((button: HTMLElement) => {
-      button.click();
-      button.click();
+
+  test(`a double click starts one export, and Stop ends it${without}`, async ({ page }) => {
+    // Two clicks land in one task, before React can disable the button: a second run would take over Stop, and the
+    // first would go on writing. Every frame after the first is held, the second run's too.
+    await holdFrames(page, 2, offscreen);
+    await projectMenu(page, 'Export Project…');
+    await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
+    const files: Download[] = [];
+    page.on('download', (download) => files.push(download));
+    await dialog(page, 'Export')
+      .getByRole('button', { name: 'Choose folder…' })
+      .evaluate((button: HTMLElement) => {
+        button.click();
+        button.click();
+      });
+    await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
+    await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
+    await expect(dialog(page, 'Export')).toHaveCount(0);
+    await page.evaluate(() => {
+      (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
     });
-  await expect(dialog(page, 'Export').getByRole('status')).toHaveText('Exporting 1 of 2…');
-  await dialog(page, 'Export').getByRole('button', { name: 'Stop' }).click();
-  await expect(dialog(page, 'Export')).toHaveCount(0);
-  await page.evaluate(() => {
-    (window as unknown as { releaseFrame?: () => void }).releaseFrame?.();
+    await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
+    expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
+    await expect(page.getByText(/^Exported /)).toHaveCount(0);
   });
-  await expect(page.getByRole('status').getByText('Export stopped: 1 of 2 written to “Bey County frames”.')).toBeVisible();
-  expect(files.map((f) => f.suggestedFilename())).toEqual(['SC001_1A.png']);
-  await expect(page.getByText(/^Exported /)).toHaveCount(0);
-});
+}
 
 /**
  * A night exterior, as a PNG made in the page: a red band across the top fifth and near-black below it. Square, so a
