@@ -207,7 +207,7 @@ and MCP read them.
 |---|---|---|
 | state | `draft`, `active` or `archived` | Archive Project sets `archived`. New projects start as `draft`, as in the prototype; a missing value reads as `active`. A Notion-style production stage (Discovery to Complete), when it comes, is a separate `stage` prop |
 | theme | object (below) | Phase 1 |
-| watermark | `text`, `position`, `opacity` (0 to 1), `applies_to` (any of `pdf`, `png`, `review`) | Phase 1, with export |
+| watermark | `text`, `position` (`top-left`, `top-right`, `center`, `bottom-left`, `bottom-right`), `opacity` (0.05 to 1), `applies_to` (any of `pdf`, `png`, `review`) | 1.24, Watermark Settings. Missing, or empty text, means no watermark |
 | aspect_ratio | `2.39:1`, `2:1`, `1.85:1`, `16:9`, `4:3`, `1:1`, `4:5`, `9:16` | 1.6. The storyboard's frame shape; missing reads as `16:9` |
 | shot_letters_allow_io | true or false | 1.6. Shot letters skip I and O unless this is true |
 

@@ -58,7 +58,7 @@ themes). One PR per milestone, each into `v2`.
 | 1.21 Empty Trash; Settings → Storage, Clean up old pictures | #38 | Done |
 | 1.22 History tile: every step in words, restore a point, a frame's old values | #39 | Done |
 | 1.23 Named versions (schema 4): name a point, Open version as a copy | #40 | Done |
-| 1.24 Export registry, shot list CSV, PNG sequence, Watermark Settings | | Not started |
+| 1.24 Export registry, shot list CSV, PNG frames, Watermark Settings | #41 | Done |
 | 1.25 PDF storyboard | | Not started |
 
 Gate: Kevin boards a real Bey County scene in one sitting, from script import to finished frames, and exports it as
@@ -269,6 +269,21 @@ the scene in Blender on their own computer, so heavy 3D work never runs on a ser
     changed scenes aren't merged; that needs the review screen of Phase 7.
   - Scenes are added after the board's last scene, in script order, rather than slotted between existing ones.
   - Character records hold only `name` until Phase 3.
+
+**As built in 1.24 (Nov 3): export** (src/features/export, src/core/storage/exportFiles.ts, src-tauri/src/export.rs):
+- Export Project… in the project menu: a format from the registry (each one file plus one line in registry.ts), the
+  whole project or one scene, then the Save dialog for a file or the folder dialog for a set. The Trash never goes
+  out. Rust shows the dialogs and writes only where the person chose; a set of files goes into a new folder made
+  inside the one picked (`Bey County frames`, then `Bey County frames 2`), so nothing there is ever overwritten.
+- Shot list (CSV): one row per frame in board order, with scene, heading, length, location, specs, status, action,
+  dialogue, departments and the custom fields; RFC 4180 quoting, CRLF and a byte-order mark, and a leading
+  apostrophe on a cell that starts like a formula. A report: the lossless JSON and CSV export is Phase 2's.
+- Frames (PNG): one per frame at 1920 on the long edge, the picture framed as on the board from the full-size stored
+  picture, the sketch over it, on white, named `SC004_4A.png`.
+- Watermark Settings (project menu): text, position, strength and which exports carry it (PDF and PNG; the web review
+  copy in Phase 9), one undoable edit to the project record.
+- Decided while building, to review: frames print on white in the kit's ink rather than on paper; an empty frame
+  exports as a blank image so the sequence has no gaps; the browser build downloads each file.
 
 **As built in 1.23 (Nov 3): named versions** (schema 4, src/core/storage/versions.ts):
 - In the History tile: Name this point names the newest step; versions are listed with their step, and each step
