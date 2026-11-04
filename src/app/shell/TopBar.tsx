@@ -1,12 +1,13 @@
 import { cx } from '../../ui/cx';
 import { SMark } from '../../ui/logo/SMark';
 import { projectStateOf } from '../../core/model/project';
-import { ComingItem, Menu, menuItemClass } from '../../ui/Menu';
+import { Menu, menuItemClass } from '../../ui/Menu';
 import { setProjectState } from '../projects/actions';
 import { useProject } from '../projectStore';
 import { openTile } from './docking/layout';
 import { layoutStore } from './docking/layoutStore';
 import { LayoutMenu } from './docking/LayoutMenu';
+import { openExportDialog } from '../../features/export/exportStore';
 import type { Workspace } from './workspaces';
 
 interface TopBarProps {
@@ -56,8 +57,28 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
               >
                 History
               </button>
-              <ComingItem label="Watermark Settings" phase="Phase 1" />
-              <ComingItem label="Export Project" phase="Phase 1" />
+              <button
+                type="button"
+                className={menuItemClass}
+                disabled={!open}
+                onClick={() => {
+                  close();
+                  openExportDialog('watermark');
+                }}
+              >
+                Watermark Settings
+              </button>
+              <button
+                type="button"
+                className={menuItemClass}
+                disabled={!open}
+                onClick={() => {
+                  close();
+                  openExportDialog('export');
+                }}
+              >
+                Export Project…
+              </button>
               {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}
               <button
                 type="button"

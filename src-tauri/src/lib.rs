@@ -4,6 +4,7 @@ use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
 mod backup;
+mod export;
 mod lock;
 mod opened;
 mod pictures;
@@ -26,6 +27,7 @@ pub fn run() {
         .manage(sbd::OpenFiles::default())
         .manage(opened::OpenedFiles::default())
         .manage(pictures::Offered::default())
+        .manage(export::Chosen::default())
         .invoke_handler(tauri::generate_handler![
             sbd::sbd_create,
             sbd::sbd_open,
@@ -51,6 +53,9 @@ pub fn run() {
             pictures::pictures_choose,
             pictures::pictures_read,
             pictures::script_choose,
+            export::export_choose_file,
+            export::export_choose_folder,
+            export::export_write,
         ])
         // Files dragged over the window, and dropped as pictures the page may read (pictures.rs).
         .on_window_event(|window, event| {
