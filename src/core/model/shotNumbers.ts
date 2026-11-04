@@ -59,6 +59,21 @@ export interface NumberedShot {
   trashed: boolean;
 }
 
+/** A shot number a scene gave out while locked, and the shot slated with it (schema 5, 1.26). */
+export interface SlateNumber {
+  sceneId: string;
+  number: string;
+  shotId: string;
+}
+
+/**
+ * Every shot number any scene has given out while locked (src/core/storage/slateNumbers.ts). Kept apart from the
+ * records, so undo, History restores and Empty Trash never take one away.
+ */
+export type SlateNumbers = readonly SlateNumber[];
+
+export const NO_SLATE_NUMBERS: SlateNumbers = [];
+
 /**
  * The number each live shot in a scene should have, in board order. Only shots whose number changes are returned,
  * so applying the result as updates touches nothing else.
@@ -66,10 +81,15 @@ export interface NumberedShot {
 export function shotNumbers(
   sceneNumber: string,
   shots: readonly NumberedShot[],
-  { locked, taken, ...options }: LetterOptions & {
+  { locked, taken, used, ...options }: LetterOptions & {
     locked: boolean;
-    /** Numbers held elsewhere on the board, which a locked scene's next free letter skips (a restore uses it). */
+    /**
+     * Numbers a locked scene's next free letter skips: every number on the board and every slate number of any scene,
+     * so 4C made in a scene since renumbered 9 is never made again in a locked scene 4.
+     */
     taken?: ReadonlySet<string> | undefined;
+    /** This scene's own slate numbers: frames deleted for good still count towards its highest letter. */
+    used?: ReadonlySet<string> | undefined;
   },
 ): Map<string, string> {
   const changed = new Map<string, string>();
@@ -82,10 +102,10 @@ export function shotNumbers(
     return changed;
   }
   // Locked: every number stays, even one from before the scene was renumbered. A shot without one takes the letter
-  // after the highest ever used under this scene number, trashed shots counted.
+  // after the highest ever used under this scene number: trashed shots and the scene's slate numbers counted.
   let highest = -1;
-  for (const shot of shots) {
-    const letters = lettersOf(shot.number, sceneNumber);
+  for (const number of [...shots.map((shot) => shot.number), ...(used ?? [])]) {
+    const letters = lettersOf(number, sceneNumber);
     const index = letters === null ? null : letterIndex(letters, options);
     if (index !== null) highest = Math.max(highest, index);
   }

@@ -72,8 +72,8 @@ export function TrashTile() {
     let restored = false;
     void projectStore
       .getState()
-      .applyWith((now) => {
-        const changes = restoreChanges(now, project.projectId, id);
+      .applyWith((now, slate) => {
+        const changes = restoreChanges(now, project.projectId, id, slate);
         restored = changes.length > 0;
         return { changes };
       })

@@ -18,13 +18,13 @@ export function emptyTrashConfirmed(
   ask: Ask,
   hidden = 0,
 ): Promise<ForGood<{ items: number; freed: number } | null>> {
-  const { project, records } = store.getState();
+  const { project, records, slateUnknown } = store.getState();
   if (!project) return Promise.resolve({ ran: false, why: 'cancelled' });
   const rows = trashItems(records, project.projectId);
   const confirmed = new Set(trashedRoots(Object.values(records)));
   return forGood(
     running,
-    () => ask(emptyTrashMessage(records, rows.length, hidden)),
+    () => ask(emptyTrashMessage(records, rows.length, hidden, slateUnknown)),
     () => store.getState().project === project,
     async () => {
       const done = await store.getState().emptyTrash(confirmed);

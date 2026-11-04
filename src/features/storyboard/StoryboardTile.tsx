@@ -139,14 +139,14 @@ export function StoryboardTile() {
   ) => {
     // Set by the builder, which runs in the queue.
     const outcome = { refused: false, moved: false };
-    const written = await applyWith((now) => {
+    const written = await applyWith((now, slate) => {
       const target = place(now);
       if (!target) return { changes: [] };
       if (leavesLockedScene(now, id, target.sceneId)) {
         outcome.refused = true;
         return { changes: [] };
       }
-      const changes = moveItem(now, projectId, id, target.sceneId, target.beforeId);
+      const changes = moveItem(now, projectId, id, target.sceneId, target.beforeId, slate);
       outcome.moved = changes.length > 0;
       return { changes };
     });
@@ -210,11 +210,11 @@ export function StoryboardTile() {
         }}
         onAddFrame={(sceneId) => {
           let shotId = '';
-          void applyWith((now) => {
+          void applyWith((now, slate) => {
             // After the selected frame when it's in this scene, so a frame goes where the person is working.
             const { shotId: selected } = selectionStore.getState();
             const after = selected && now[selected]?.parentId === sceneId ? selected : null;
-            const added = addShot(now, projectId, sceneId, after);
+            const added = addShot(now, projectId, sceneId, after, {}, slate);
             shotId = added.shotId;
             return added;
           }).then(() => {
@@ -293,7 +293,7 @@ export function StoryboardTile() {
         }}
         onInsert={async (choice, place) => {
           let id = '';
-          await applyWith((now) => {
+          await applyWith((now, slate) => {
             if (choice.kind === 'scene') {
               const change = addScene(now, projectId, place.sceneId);
               id = change.record.id;
@@ -304,7 +304,7 @@ export function StoryboardTile() {
               id = change.record.id;
               return { changes: [change] };
             }
-            const added = addShot(now, projectId, place.sceneId, place.afterId);
+            const added = addShot(now, projectId, place.sceneId, place.afterId, {}, slate);
             id = added.shotId;
             return added;
           });

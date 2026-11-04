@@ -1,5 +1,6 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
 import type { ProjectFile, Row, Statement } from '../storage/driver';
+import { recordSlateNumbers } from '../storage/slateNumbers';
 
 // Every change to a project is an operation (CLAUDE.md, Edits, undo and autosave). One user action is one op group:
 // its record changes, its op rows and its group row commit in a single transaction, which is the autosave. Each op
@@ -193,6 +194,8 @@ interface GroupRow extends Tops {
   stackBelow: string | null;
 }
 
+const isNumbered = (record: SbdRecord | null) => record?.type === 'shot' || record?.type === 'scene';
+
 /** Writes the records, the op rows and the group row in one transaction. Nothing already in the log is touched. */
 async function commit(
   file: ProjectFile,
@@ -209,9 +212,16 @@ async function commit(
   const firstSeq = Number(top?.op ?? 0) + 1;
   const records = new Map<string, SbdRecord | null>();
   for (const op of ops) records.set(op.recordId, op.after);
+  // Any number this group gives a shot in a locked scene, or a scene as it's locked, joins its slate numbers (1.26).
+  // Undo, redo and restores write through here too, and never take a number out.
+  const numbered = recordSlateNumbers(
+    [...new Set(ops.filter((op) => isNumbered(op.after ?? op.before)).map((op) => op.recordId))],
+    at,
+  );
   await file.tx([
     ...alsoWrite,
     ...[...records].map(([id, record]) => write(id, record)),
+    ...(numbered ? [numbered] : []),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
         timestamp, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -403,8 +413,11 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
    * What a record kept as it is now holds on to, as it is now too:
    * - what's under it, and every record it names (a frame's picture, a scene's location, the theme's image): sent
    *   back to the point, a newer one would be deleted from under a record that still shows it;
-   * - for a frame in a scene it wasn't in at the point, that scene and every frame in it or going back into it: the
-   *   frame keeps the number it has there, and the board as it is now has no two frames on one slate number.
+   * - for a frame, its scene as it is now; for one in a scene it wasn't in at the point, every frame in it or going
+   *   back into it too: the frame keeps the number it has there, alongside the scene's numbers as they are now;
+   * - for a scene, every frame in it or going back into it: a scene kept as it is now may be locked now when it
+   *   wasn't at the point, and a frame going back into it would land on a number from the point, which another shot
+   *   may have been slated with since (1.26).
    */
   const settleKept = () => {
     for (let id = waiting.pop(); id !== undefined; id = waiting.pop()) {
@@ -412,15 +425,20 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
       if (!kept) continue;
       for (const ref of namedBy(kept)) if (byId.has(ref)) keepAsNow(ref);
       for (const child of under.get(id) ?? []) keepAsNow(child);
+      if (kept.type === 'scene') for (const frame of framesOf.get(id) ?? []) keepAsNow(frame);
+      // Its scene too, even one it was in at the point: a scene going back to the point could come back locked
+      // around a frame whose number is from now, never on a slate there (1.26). The scene then keeps its frames.
+      if (kept.type === 'shot' && kept.parentId !== null && byId.has(kept.parentId)) keepAsNow(kept.parentId);
       if (kept.type === 'shot' && kept.parentId !== byId.get(id)?.after?.parentId && kept.parentId !== null) {
-        if (byId.has(kept.parentId)) keepAsNow(kept.parentId);
         for (const frame of framesOf.get(kept.parentId) ?? []) keepAsNow(frame);
       }
     }
   };
   // Once anything stays as it is now, the board is part now, part the point, and two scenes or two frames could land
-  // on one number. One going back onto a number another holds stays as it is now: the board as it is now has no two
-  // alike, so this always settles. Read only when needed, since it takes every record.
+  // on one number. One going back onto a number another holds stays as it is now. This always settles: each step only
+  // moves a record to how it is now, once. (Two frames can share a number as the board is now, a locked scene
+  // renumbered 9 keeping 4A beside a new scene 4's 4A; they stay as they are now, with their scenes.) Read only when
+  // needed, since it takes every record.
   let everything: Map<string, SbdRecord> | null = null;
   const keepNumbersUnique = async (): Promise<boolean> => {
     if (!keptAny) return false;
