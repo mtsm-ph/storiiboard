@@ -46,7 +46,7 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd, onDe
               {/* The active scene's marker is orange; its bold name is the second cue. */}
               <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-text')} />
               <span className="font-mono text-[11px]">{sceneLabel(scene.number)}</span>
-              <span className={cx('truncate', current && 'font-bold')}>{scene.name || t('scene.untitled')}</span>
+              <span data-user-text="" className={cx('truncate', current && 'font-bold')}>{scene.name || t('scene.untitled')}</span>
             </button>
           </li>
         );

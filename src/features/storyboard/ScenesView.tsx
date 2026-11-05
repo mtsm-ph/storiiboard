@@ -117,7 +117,7 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                   <span aria-hidden="true" className={cx('mt-1.5 size-1.5 shrink-0', active ? 'bg-accent' : 'border border-text')} />
                   <span className="font-mono text-[12px] font-bold">{sceneNumberLabel(row.fields.number)}</span>
                   <span className="flex min-w-0 flex-col">
-                    <span className={cx('truncate text-[13px]', active && 'font-bold')}>{headingOf(row.fields)}</span>
+                    <span data-user-text="" className={cx('truncate text-[13px]', active && 'font-bold')}>{headingOf(row.fields)}</span>
                     {/* Muted until hovered: muted text never sits on oatmeal. */}
                     <span className="font-mono text-[11px] text-text-muted group-hover:text-text">{sceneSummary(row)}</span>
                   </span>

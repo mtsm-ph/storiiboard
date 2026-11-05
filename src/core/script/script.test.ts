@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFdx } from './fdx';
 import { parseFountain } from './fountain';
-import { characterName, eighthsFromLength, parseHeading } from './script';
+import { characterName, eighthsFromLength, looksLikeHeading, parseHeading } from './script';
 
 const FOUNTAIN = `Title: Bey County
 Credit: written by
@@ -77,6 +77,63 @@ describe('scene headings', () => {
     expect(eighthsFromLength('2')).toBe(16);
     expect(eighthsFromLength('')).toBeNull();
     expect(eighthsFromLength('long')).toBeNull();
+  });
+});
+
+describe('Spanish scene headings (polish 7)', () => {
+  const read = (heading: string) => {
+    const h = parseHeading(heading);
+    return [h.intExt, h.location, h.dayNight, h.otherTime];
+  };
+
+  it('reads the times of day Spanish scripts write, with or without accents', () => {
+    expect(read('INT. CAFETERÍA - NOCHE')).toEqual(['INT', 'CAFETERÍA', 'NIGHT', null]);
+    expect(read('EXT. PLAZA DE ARMAS - DÍA')).toEqual(['EXT', 'PLAZA DE ARMAS', 'DAY', null]);
+    expect(read('EXT. PLAYA - DIA')).toEqual(['EXT', 'PLAYA', 'DAY', null]);
+    expect(read('INT./EXT. AUTO - AMANECER')).toEqual(['INT/EXT', 'AUTO', 'DAWN', null]);
+    expect(read('EXT. AZOTEA - ATARDECER')).toEqual(['EXT', 'AZOTEA', 'DUSK', null]);
+    expect(read('EXT. CERRO - ANOCHECER')).toEqual(['EXT', 'CERRO', 'DUSK', null]);
+    expect(read('EXT. MUELLE - HORA MÁGICA')).toEqual(['EXT', 'MUELLE', 'MAGIC HOUR', null]);
+    // A time the board doesn't know is kept, so the heading still says it.
+    expect(read('INT. CASA DE MARÍA - DÍA - MÁS TARDE')).toEqual(['INT', 'CASA DE MARÍA', 'DAY', 'MÁS TARDE']);
+    expect(read('INT. CASA DE MARÍA - CONTINUO')).toEqual(['INT', 'CASA DE MARÍA', null, 'CONTINUO']);
+    // A full stop after the time, sunrise and sunset in words, and an accent typed as a separate mark.
+    expect(read('INT. CASA - NOCHE.')).toEqual(['INT', 'CASA', 'NIGHT', null]);
+    expect(read('EXT. PLAYA - PUESTA DE SOL')).toEqual(['EXT', 'PLAYA', 'DUSK', null]);
+    expect(read('EXT. CERRO - OCASO')).toEqual(['EXT', 'CERRO', 'DUSK', null]);
+    expect(read('EXT. CAMPO - SALIDA DEL SOL')).toEqual(['EXT', 'CAMPO', 'DAWN', null]);
+    expect(read('INT. CASA - DI\u0301A')).toEqual(['INT', 'CASA', 'DAY', null]);
+    expect(characterName('MARI\u0301A (V.O.)')).toBe('MARÍA');
+  });
+
+  it('reads INTERIOR and EXTERIOR spelled out, in capitals as a heading writes them, and never an action line', () => {
+    expect(read('INTERIOR CASA - NOCHE')).toEqual(['INT', 'CASA', 'NIGHT', null]);
+    expect(read('EXTERIOR. CALLE - DÍA')).toEqual(['EXT', 'CALLE', 'DAY', null]);
+    expect(read('INTERIOR/EXTERIOR TAXI - NOCHE')).toEqual(['INT/EXT', 'TAXI', 'NIGHT', null]);
+    expect(looksLikeHeading('Exterior walls crumble into the sea.')).toBe(false);
+    expect(looksLikeHeading('Interior del bar, lleno de humo.')).toBe(false);
+    expect(looksLikeHeading('EXTERIOR CALLE - DÍA')).toBe(true);
+  });
+
+  it('imports a Spanish Fountain script by the same rules', () => {
+    const script = parseFountain(`Title: El Condado
+
+INT. CAFETERÍA - NOCHE #1#
+
+La lluvia golpea los vidrios. MARÍA limpia el mostrador.
+
+MARÍA
+Ya cerramos.
+
+EXTERIOR CARRETERA - ATARDECER
+
+Un camión pasa.
+`);
+    expect(script.scenes.map((s) => [s.number, s.intExt, s.location, s.dayNight])).toEqual([
+      ['1', 'INT', 'CAFETERÍA', 'NIGHT'],
+      [null, 'EXT', 'CARRETERA', 'DUSK'],
+    ]);
+    expect(script.scenes[0]?.characters).toEqual(['MARÍA']);
   });
 });
 

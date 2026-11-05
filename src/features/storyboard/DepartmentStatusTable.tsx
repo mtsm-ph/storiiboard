@@ -105,7 +105,8 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
           const status = statusIn(statuses, department);
           return (
             <div key={department} role="row" className={ROW}>
-              <span role="rowheader" className={`truncate pr-2 text-[13px] ${status.priority ? 'font-semibold' : ''}`}>
+              {/* Wrapped, not cut off: "Maquillaje y peinado" or "Grip & electric" fill two lines of a narrow inspector. */}
+              <span role="rowheader" className={`min-w-0 pr-2 text-[12px] leading-tight break-words ${status.priority ? 'font-semibold' : ''}`}>
                 {DEPARTMENT_LABELS[department]}
               </span>
               {COLUMNS.map((column, col) => {

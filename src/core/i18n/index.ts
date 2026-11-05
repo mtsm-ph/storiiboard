@@ -1,4 +1,5 @@
 import { en } from './locales/en';
+import { es } from './locales/es';
 
 // Every word the app shows (screens, notices, dialogs, exported PDFs and CSVs) comes from a translation file in
 // src/core/i18n/locales, through t() and tn() here. A language is one file plus one line in LOCALES. The person picks
@@ -11,7 +12,7 @@ export type MessageKey = keyof typeof en;
 /** A translation: every key English has, each with the same {placeholders}. */
 export type Messages = Readonly<Record<MessageKey, string>>;
 
-export type LocaleId = 'en';
+export type LocaleId = 'en' | 'es';
 
 interface LocaleInfo {
   id: LocaleId;
@@ -27,7 +28,11 @@ interface LocaleInfo {
   messages: Messages;
 }
 
-export const LOCALES: readonly [LocaleInfo, ...LocaleInfo[]] = [{ id: 'en', name: 'English', tag: 'en', dateTag: undefined, messages: en }];
+export const LOCALES: readonly [LocaleInfo, ...LocaleInfo[]] = [
+  { id: 'en', name: 'English', tag: 'en', dateTag: undefined, messages: en },
+  // es-419: Spanish as written in Latin America, for plural rules, dates and <html lang>.
+  { id: 'es', name: 'Español (Latinoamérica)', tag: 'es-419', dateTag: 'es-419', messages: es },
+];
 
 export const DEFAULT_LOCALE: LocaleId = 'en';
 

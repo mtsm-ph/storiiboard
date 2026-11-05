@@ -9,6 +9,7 @@ import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { ASPECT_RATIOS } from '../../core/model/storyboard';
 import { addShot } from '../storyboard/board';
+import { setLocale } from '../../core/i18n';
 import { frameBox, localDate, MARGIN, PAGE, storyboardPdf, WATERMARK_METRICS, watermarkPlacement, wrap, type PdfFonts } from './pdfStoryboard';
 import { watermarkOutline } from './renderFrame';
 import { scenesIn } from './scope';
@@ -450,6 +451,29 @@ describe('the PDF storyboard', () => {
     if (!draft || !title) throw new Error('no watermark or title');
     expect(draft.x).toBeCloseTo(MARGIN, 3);
     expect(draft.y).toBeGreaterThan(title.y + 14);
+  });
+
+  it('keeps every word inside the page in Spanish, the longest words its status and headings use (polish 7)', async () => {
+    setLocale('es');
+    try {
+      const shots = await scene('sc4', '4', 3, 'Casa de la abuela de María, junto al río, al fondo del valle');
+      await store.getState().apply(shots.map((id, i) => ({ kind: 'update' as const, id, set: { status: (['have', 'need', 'source'] as const)[i] ?? 'need', size: 'ECU', lens_mm: 135, t_stop: 1.4 } })));
+      for (const aspect of [16 / 9, 9 / 16]) {
+        const { bytes } = await storyboardPdf({ ...board(aspect), palettes: [['#A35139', '#1F2F4D', '#8FA38E', '#D9A23D']] });
+        const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+        const content = await (await pdf.getPage(1)).getTextContent();
+        await pdf.destroy();
+        for (const item of content.items) {
+          if (!('str' in item) || item.str.trim() === '') continue;
+          const x = Number(item.transform[4]);
+          expect(x, item.str).toBeGreaterThanOrEqual(MARGIN - 0.5);
+          expect(x + item.width, item.str).toBeLessThanOrEqual(PAGE.width - MARGIN + 0.5);
+        }
+      }
+      expect((await pageTexts((await storyboardPdf(board())).bytes))[0]).toContain('Por filmar');
+    } finally {
+      setLocale('en');
+    }
   });
 
   it('prints each scene’s palette in its heading when asked, and none when not (polish PP)', async () => {
