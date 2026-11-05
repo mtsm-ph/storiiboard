@@ -1007,5 +1007,9 @@ export const en = {
   'topBar.watermarkSettingsDots': 'Watermark Settings…',
   // src/app/shell/docking/LayoutMenu.tsx
   'layoutMenu.maximizeNamed': 'Maximize {title}',
+  // src/features/storyboard/deleteScene.ts and ScenesView.tsx (polish 5: delete a scene)
+  'scene.deleted': 'Deleted {scene} and its {what} to the Trash. {undo} brings them back.',
+  'scenes.deleteScene': 'Delete scene {scene}',
+  'scene.deletedEmpty': 'Deleted {scene} to the Trash. {undo} brings it back.',
   // codemod: new entries above this line
 };

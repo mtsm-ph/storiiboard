@@ -91,6 +91,15 @@ export function GearGlyph() {
   );
 }
 
+/** Delete to the Trash: a bin, in the button's own colour. */
+export function TrashGlyph() {
+  return (
+    <svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true" className="shrink-0">
+      <path d="M0.5 2.5h10M4 2.5V1h3v1.5M1.75 2.5l.75 8.75h6l.75-8.75M4.25 5v4.5M6.75 5v4.5" fill="none" className="stroke-current" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (

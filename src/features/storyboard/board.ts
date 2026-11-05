@@ -247,20 +247,24 @@ export function trashShot(records: Records, projectId: string, shotId: string): 
 }
 
 /**
- * Brings a frame back from the Trash to where it was (1.20), with its scene when that's in the Trash too; the scene's
- * letters follow the board again unless they're locked, where it keeps its own unless a live frame has taken it since
- * or another shot was slated with it (1.26).
+ * Sends a whole scene to the Trash (polish 5): the scene, its live frames and its notes, in one step, so one ⌘Z brings
+ * them all back and the Trash lists them as one row, "SC 04 (with 3 frames)". Frames keep their letters: a locked
+ * scene's are in its slate numbers already (1.26) and stay used, and Restore brings each back under its own unless a
+ * live frame has taken it since. Its number stays taken too while it's in the Trash.
  */
-export function restoreShot(records: Records, projectId: string, shotId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
-  const shot = records[shotId];
-  if (!shot?.parentId || shot.trashedAt === null) return [];
-  return restoredScene(records, projectId, shot.parentId, [shotId], slate);
+export function trashScene(records: Records, sceneId: string): Change[] {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
+  const inside = Object.values(records).filter(
+    (r) => r.parentId === sceneId && r.trashedAt === null && (r.type === 'shot' || r.type === 'note'),
+  );
+  return [{ kind: 'trash', id: sceneId }, ...inside.map((r) => ({ kind: 'trash' as const, id: r.id }))];
 }
 
 /**
- * Brings `back` (frames and notes in one scene) out of the Trash, so that slate numbers stay unique (1.20): the scene
- * comes back too if it's in the Trash, with a new number if a live scene has taken its own meanwhile, and its frames
- * renumber as the board numbers them now (the project's I and O setting included).
+ * Brings `back` (frames and notes in one scene) out of the Trash to where they were, so that slate numbers stay
+ * unique (1.20): the scene comes back too if it's in the Trash, with a new number if a live scene has taken its own
+ * meanwhile, and its frames renumber as the board numbers them now (the project's I and O setting included).
  */
 export function restoredScene(
   records: Records,

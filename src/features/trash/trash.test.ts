@@ -6,7 +6,7 @@ import { sceneFields, shotFields } from '../../core/model/storyboard';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addShot, board, trashShot } from '../storyboard/board';
+import { addShot, board, trashScene, trashShot } from '../storyboard/board';
 import { setPicture, type FramePicture } from '../storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { emptyTrashMessage, restoreChanges, rowsGone, trashItems } from './trash';
@@ -98,6 +98,23 @@ describe('the Trash', () => {
     await store.getState().undo();
     expect(shotFields(records()[frame]?.props ?? {}).mediaId).toBe(secondId);
     expect(records()[firstId]?.trashedAt).not.toBeNull();
+  });
+
+  it('brings back the whole scene, once each, for the old picture of a frame deleted with its scene (polish 5)', async () => {
+    const frame = a();
+    const first = setPicture(records(), frame, picture(1, 'first.jpg'), project.file.path);
+    await store.getState().apply(first.changes, { alsoWrite: first.alsoWrite });
+    const firstId = shotFields(records()[frame]?.props ?? {}).mediaId ?? '';
+    const second = setPicture(records(), frame, picture(2, 'second.jpg'), project.file.path);
+    await store.getState().apply(second.changes, { alsoWrite: second.alsoWrite });
+    await store.getState().apply(trashScene(records(), 'sc4'));
+
+    const changes = restoreChanges(records(), project.projectId, firstId);
+    const restored = changes.filter((c) => c.kind === 'restore').map((c) => c.id);
+    expect(restored.length).toBe(new Set(restored).size);
+    await restore(firstId);
+    expect(numbers()).toEqual(['4A', '4B', '4C']);
+    expect(shotFields(records()[frame]?.props ?? {}).mediaId).toBe(firstId);
   });
 
   it('lists a scene deleted with its frames as one row, and brings them back together, not ones deleted before', async () => {

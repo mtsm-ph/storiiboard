@@ -10,6 +10,7 @@ import { sectionId, type Workspace, type WorkspaceId } from '../workspaces';
 import { onNavKeyDown } from './navKeys';
 import { SceneList } from './SceneList';
 import { addSceneChange, sceneEntries } from './scenes';
+import { deleteScene, focusSceneAfterDelete } from '../../../features/storyboard/deleteScene';
 import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 import { IconButton } from '../../../ui/Button';
 import { SidebarGlyph } from '../../../ui/glyphs';
@@ -182,6 +183,12 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                     onSelect('storyboard');
                   }}
                   onAdd={addScene}
+                  onDelete={(id) => {
+                    void deleteScene(id).then(({ written, next }) => {
+                      // Focus stays in the sidebar: on the scene that took its place, or its section.
+                      if (written) focusSceneAfterDelete(next, 'data-sidebar-scene', () => document.getElementById(sectionId('storyboard')));
+                    });
+                  }}
                 />
               )}
             </li>

@@ -35,6 +35,7 @@ describe('the Scenes tile', () => {
         canAdd
         onSelect={noop}
         onToggleLock={noop}
+        onDelete={noop}
         onAdd={noop}
         onImport={noop}
       />,
@@ -43,6 +44,7 @@ describe('the Scenes tile', () => {
     expect(html).toMatch(/font-bold[^>]*>Penn Station/);
     expect(html).toMatch(/aria-pressed="true" aria-label="Lock shot numbers for SC 04"/);
     expect(html).toMatch(/aria-pressed="false" aria-label="Lock shot numbers for SC 05"/);
+    expect(html).toContain('aria-label="Delete scene SC 05"');
     // 11 + 6 eighths = 2 1/8 pages across the board.
     expect(html).toContain('2 1/8 pg');
     expect(html).toContain('41%');

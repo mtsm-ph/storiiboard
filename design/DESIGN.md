@@ -150,7 +150,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 ## Storyboard
 - **Scenes tile:** each scene as number (mono, bold), heading ("INT. PENN STATION — DAY" once INT/EXT or DAY/NIGHT is
   set) and "1 3/8 pg · 6 fr · 67%" in mono ("done" at 100%). The active scene has the orange marker and a bold heading,
-  as in the sidebar. A padlock per scene locks its shot numbers: open or closed, never faded.
+  as in the sidebar. A padlock per scene locks its shot numbers: open or closed, never faded. A bin after it deletes
+  the scene, with its frames, to the Trash (Delete on a focused row or sidebar scene does the same); no confirm, since
+  undo and Restore bring it back.
 - **Grid:** frames by scene group, each group headed "SC 04  Heading  1 3/8 pg · 4 have · 1 need". Cards are 176px
   and up, filling the row, with the picture at the project's aspect ratio and a strip below: the shot number in bold
   mono, the spec ("MCU · 35MM · T2.0") in mono, and the status shape at the right. Each group ends with a dashed

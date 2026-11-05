@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 6, 2026 (PA menus merged; review stop 1) |
+| Last updated | Nov 5, 2026 (P5 delete scene merged) |
 
 | Phase | State |
 |---|---|
@@ -98,7 +98,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | #53 | Done |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | #54 | Done |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | #55 | Done |
-| P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
+| P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | #56 | Done |
 | P6 Department status per shot (Priority, Seen, Working on it, Done, Approved) in place of on/off tags; schema change approved; "Your role on this project" | | Planned |
 | PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
@@ -187,6 +187,15 @@ Kevin set on Nov 5. Menu primitives in src/ui/Menu.tsx (MenuGroup, MenuItem, com
 History and ⌘E Export (Ctrl elsewhere), not inside a window of the app's. Maximize tile acts on the tile that last
 held focus. The sidebar's hidden state moved to a store of its own, shared by the button, ⌘\ and the menu. "Update
 “Storyboard”" is now "Save layout", and Watermark Settings… carries its "…".
+
+P5 as built (Nov 5): a bin button on each row of the Scenes tile, and Delete (or Backspace) on a focused scene row or
+sidebar scene, send the scene with its frames and notes to the Trash as one step (trashScene in board.ts, shared by
+both through src/features/storyboard/deleteScene.ts). No confirm: nothing is lost, and the notice says how to undo it.
+Focus moves to the scene that took its place (+ New scene in the tile, or the Storyboard section, once none is left);
+the active scene moves with it. The Trash lists the scene as one row with its frames, and Restore brings them all
+back. A frame already in the Trash stays its own row; its Restore brings the scene back whole. One delete per press
+and per click: a held key or a double-click never runs on into the next scene. A locked scene's slate numbers stay
+used through delete, restore and undo, and a new scene never takes a deleted one's number.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

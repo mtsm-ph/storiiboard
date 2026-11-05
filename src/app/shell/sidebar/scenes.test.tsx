@@ -81,6 +81,7 @@ describe('the sidebar scene list', () => {
         canAdd={false}
         onSelect={() => undefined}
         onAdd={() => undefined}
+        onDelete={() => undefined}
       />,
     );
     expect(html.split('bg-accent').length - 1).toBe(1);
