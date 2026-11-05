@@ -105,6 +105,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
+| PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | | In review |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -113,6 +114,19 @@ Decided Nov 5 (Kevin):
   sidebar only); shortcuts at the right, and "…" on items that open an in-app window.
 - P7's glossary offers Kevin one choice: shot size abbreviations in Spanish (PG, PM, PP…) or kept in English (WS, MS,
   CU…), as many bilingual US crews use them. Stored values stay as they are either way.
+
+Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo ones to be taken this way):
+- The Layout menu's Open tile lists only built tiles (Trash, History, Color script and the Storyboard's own); a
+  phase's placeholder stays in the default layout it belongs to, and Reset to default layout brings it back if closed.
+  Built: one filter in LayoutMenu.tsx.
+- The role list (src/core/model/role.ts) stays as built; roles are stored by id, so adding one later changes nothing.
+- An approval stays one sign-off by the director or the DP. The file keeps a list of approvals, so "both must sign"
+  is a change of rule, not of format.
+- The department status colours stay the kit's navy, mustard and sage. They match the department tags' colours, but
+  no screen shows a department tag today (only the developer catalogue), and every status carries its own shape.
+  Revisit when tags come back on screen (Phase 3's department workspaces). Changing them is three tokens.
+- Not decided, for Kevin: whether each edit carries who made it (names in the project file). Written into the
+  append-only log, a name stays there for good, so it can't be taken back once shipped.
 
 P1 as built (Nov 4):
 - The app's words live in one file per language, src/core/i18n/locales (English: `en.ts`). Code reads them through

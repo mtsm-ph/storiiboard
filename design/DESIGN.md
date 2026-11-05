@@ -108,7 +108,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   Mac, Ctrl elsewhere), and "…" on items that open a window. What isn't built yet isn't listed: phase placeholders
   stay in tiles and the sidebar only.
   - Layout: Workspace · {name} (Save layout ⌘⇧S, Reset to saved layout, Reset to default layout); View (Hide or Show
-    sidebar ⌘\, Maximize or Restore tile `, on the tile last focused); Open tile (each tile not open); Undo layout
+    sidebar ⌘\, Maximize or Restore tile `, on the tile last focused); Open tile (each built tile not open; a phase's placeholder stays in its default layout only); Undo layout
     change.
   - Project: Project (History ⌘⇧H, Settings… ⌘,); Export (Export Project… ⌘E, Watermark Settings…); Archive or
     Unarchive Project.

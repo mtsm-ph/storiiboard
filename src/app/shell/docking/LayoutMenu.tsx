@@ -1,6 +1,7 @@
 import { useEffect, type MouseEvent } from 'react';
 import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
 import { inModalDialog, TILES, type Workspace } from '../workspaces';
+import { TILE_CONTENT } from '../tileContent';
 import { openTile, tilesIn, toggleMaximize, type Layout } from './layout';
 import { lastUsedStack } from './Dock';
 import { isMac } from '../undoShortcuts';
@@ -10,7 +11,7 @@ import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore
 import { t } from '../../../core/i18n';
 
 // The workspace's layout commands (DESIGN.md, State 05), in labelled groups (polish A): this workspace's layout, the
-// view (the sidebar, a tile maximized), any tile to open here, and Undo layout change in a group of its own at the
+// view (the sidebar, a tile maximized), any built tile to open here, and Undo layout change in a group of its own at the
 // bottom. Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
 
 export function LayoutMenu({ workspace }: { workspace: Workspace }) {
@@ -19,7 +20,9 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   const unsaved = isUnsaved(layouts);
   const sidebarHidden = useSidebarHidden();
   const mac = isMac();
-  const missing = Object.keys(TILES).filter((tile) => !tilesIn(layouts.current).includes(tile));
+  // Only tiles whose tools are built (Kevin's menu rules, Nov 5: what isn't built is hidden, not greyed out). A phase's
+  // placeholder tile stays where a default layout puts it, and Reset to default layout brings a closed one back.
+  const missing = Object.keys(TILES).filter((tile) => tile in TILE_CONTENT && !tilesIn(layouts.current).includes(tile));
   const change = (next: Layout) => {
     layoutStore.getState().change(workspace.id, next);
   };
