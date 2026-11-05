@@ -61,10 +61,30 @@ test('Delete on a focused scene row deletes it, focus moves to the next scene, a
   await expect(rows(page).nth(1)).toBeFocused();
   await expect(rows(page).nth(1)).toContainText('03');
 
+  await expect(page.locator('[data-notice]')).toContainText('Deleted SC 02');
   await page.keyboard.press(await undoKey(page));
   await expect(rows(page)).toHaveCount(3);
+  // The notice told of a step that's been undone: it goes with it (1.28's low).
+  await expect(page.locator('[data-notice]')).toHaveCount(0);
   await sidebar(page).getByRole('button', { name: /^SC 02/ }).click();
   await expect(board(page).locator('[data-shot-id] [data-number]')).toHaveText(['2A', '2B']);
+});
+
+test('a notice is read out once: drawn again after a window closes, it shows without a second announcement (PB’s low)', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: 'Delete scene SC 02' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Deleted SC 02' })).toBeVisible();
+  // Settings opens over the workspace; the notice moves into it, then back out when it closes.
+  await page.getByRole('button', { name: /^Settings \(/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeHidden();
+  const notice = page.locator('[data-notice]');
+  await expect(notice).toContainText('Deleted SC 02');
+  // On screen, but not a live region again: a screen reader doesn't read it a second time.
+  await expect(notice).not.toHaveAttribute('role');
+  // A new notice is read out as usual.
+  await scenesTile(page).getByRole('button', { name: 'Delete scene SC 03' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Deleted SC 03' })).toBeVisible();
 });
 
 test('one delete per press and per click: a held key or a double-click never runs on into the next scene', async ({ page }) => {

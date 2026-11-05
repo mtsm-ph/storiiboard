@@ -262,8 +262,12 @@ function nameOf(record: SbdRecord | null): Part {
       return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
     case 'project':
       return t('history.theProject');
+    case 'media':
+      return t('history.aPicture');
     default:
-      return t('history.aRecord', { type: record.type });
+      // Never the record type itself: it's an English word in the file ("gear_item"), wrong in any language. The
+      // types a step can show today are named above; later phases add their own words (P7's low).
+      return t('history.anItem');
   }
 }
 

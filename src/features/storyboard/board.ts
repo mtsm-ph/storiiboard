@@ -239,11 +239,13 @@ export function setCustomField(records: Records, shotId: string, name: string, v
 }
 
 /** Sends a frame to the Trash, and closes up its scene's letters unless they're locked. */
-export function trashShot(records: Records, projectId: string, shotId: string): Change[] {
+export function trashShot(records: Records, projectId: string, shotId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
   const shot = records[shotId];
   if (!shot?.parentId) return [];
   const order = sceneShots(records, shot.parentId).map((s) => (s.id === shotId ? { ...s, trashedAt: 'now' } : s));
-  return [{ kind: 'trash', id: shotId }, ...renumber(records, projectId, shot.parentId, order)];
+  // The slate numbers too (1.26's low): no locked scene gives out a number on a trash today, but renumber takes them
+  // so it never could hand out one already on a slate.
+  return [{ kind: 'trash', id: shotId }, ...renumber(records, projectId, shot.parentId, order, { slate })];
 }
 
 /**
@@ -304,6 +306,10 @@ export function restoredScene(
   for (const id of back) changes.push({ kind: 'restore', id });
   // Every number on the board once this lands: live frames in live scenes, and in this one.
   const liveNumbers = boardNumbers(records, sceneId);
+  const locked = sceneFields(props).numbersLocked;
+  // Numbers frames take back from their own slate rows: renumber leaves a numbered frame as it is, so these are
+  // written here.
+  const reclaimed: Change[] = [];
   const order = sceneShots(records, sceneId).map((s) => {
     if (!coming.has(s.id)) return s;
     if (fresh) return { ...s, trashedAt: null, props: { ...s.props, number: '' } };
@@ -311,11 +317,22 @@ export function restoredScene(
     // has its own 4C), or another shot was slated with (1.26): then it takes the next free one. Frames in the Trash
     // don't count: one slated has its number among the slate numbers, and one not slated is numbered when it's back.
     const { number } = shotFields(s.props);
+    if (number === '' && locked) {
+      // No number, yet slated here before: a restore that was undone took its number away with the record, while the
+      // slate row stayed (1.26's low). It takes that number back rather than a new letter, if it's still free.
+      // Under the scene's number now, as a relock gives numbers back: a 4C from before the scene became 9 stays put.
+      const sceneNumber = sceneFields(props).number;
+      const own = slate.filter((row) => row.sceneId === sceneId && row.shotId === s.id && lettersOf(row.number, sceneNumber) !== null).at(-1)?.number;
+      if (own && !liveNumbers.has(own) && !slatedWithOther(slate, s.id, own)) {
+        reclaimed.push({ kind: 'update', id: s.id, set: { number: own } });
+        return { ...s, trashedAt: null, props: { ...s.props, number: own } };
+      }
+    }
     const free = !liveNumbers.has(number) && !slatedWithOther(slate, s.id, number);
     return { ...s, trashedAt: null, props: free ? s.props : { ...s.props, number: '' } };
   });
   // The next free letter skips those numbers too: the scene's highest letter may be the very one taken.
-  return [...changes, ...renumber(records, projectId, sceneId, order, { sceneProps: props, taken: liveNumbers, slate })];
+  return [...changes, ...reclaimed, ...renumber(records, projectId, sceneId, order, { sceneProps: props, taken: liveNumbers, slate })];
 }
 
 /**
@@ -504,13 +521,15 @@ export function setNumbersLocked(
 export interface Relettered {
   from: string;
   to: string;
+  /** The frame takes back the number already on its slate (a relock after an unlock), rather than dodging a clash. */
+  own?: boolean;
 }
 
 /**
  * The live frames `changes` give a different number, in board order: what a lock that settled clashes (1.26) tells
  * the person. Frames without a number before or after (one in the Trash giving its letter up) aren't listed.
  */
-export function relettered(records: Records, projectId: string, changes: readonly Change[]): Relettered[] {
+export function relettered(records: Records, projectId: string, changes: readonly Change[], slate: SlateNumbers = NO_SLATE_NUMBERS): Relettered[] {
   const next = new Map<string, string>();
   for (const change of changes) {
     const number = change.kind === 'update' ? change.set?.number : undefined;
@@ -520,40 +539,48 @@ export function relettered(records: Records, projectId: string, changes: readonl
     .flatMap((scene) => scene.shots)
     .flatMap(({ record, fields }) => {
       const to = next.get(record.id);
-      return to !== undefined && to !== '' && fields.number !== '' && to !== fields.number ? [{ from: fields.number, to }] : [];
+      if (to === undefined || to === '' || fields.number === '' || to === fields.number) return [];
+      const own = slate.some((row) => row.shotId === record.id && row.number === to);
+      return [own ? { from: fields.number, to, own } : { from: fields.number, to }];
     });
 }
 
 /** The notice for a lock that re-lettered frames: "Locked SC 04. To keep slate numbers unique, 4C is now 4E." */
 export function lockNotice(sceneNumber: string, changed: readonly Relettered[]): string | null {
   if (changed.length === 0) return null;
-  const each = changed.map(({ from, to }) => t('board.relettered', { from, to }));
-  return t('board.lockNotice', { scene: sceneLabel(sceneNumber), list: list(each) });
+  const words = (some: readonly Relettered[]) => list(some.map(({ from, to }) => t('board.relettered', { from, to })));
+  const own = changed.filter((c) => c.own === true);
+  const moved = changed.filter((c) => c.own !== true);
+  const scene = sceneLabel(sceneNumber);
+  // Frames taking back their own slate numbers (1.28's low): not a clash, so not "to keep slate numbers unique".
+  if (moved.length === 0) return t('board.lockNoticeOwn', { scene, list: words(own) });
+  if (own.length === 0) return t('board.lockNotice', { scene, list: words(moved) });
+  return t('board.lockNoticeBoth', { scene, own: words(own), list: words(moved) });
 }
 
 /**
  * Changes a scene's number. Unlocked, its shots follow (4A becomes 7A). Locked, they keep the numbers already on the
  * slates; only frames added later take the new scene number.
  */
-export function setSceneNumber(records: Records, projectId: string, sceneId: string, number: string): Change[] {
+export function setSceneNumber(records: Records, projectId: string, sceneId: string, number: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
   const scene = records[sceneId];
   if (!scene) return [];
   const props = { ...scene.props, number };
   return [
     { kind: 'update', id: sceneId, set: { number } },
-    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), { sceneProps: props }),
+    ...renumber(records, projectId, sceneId, sceneShots(records, sceneId), { sceneProps: props, slate }),
   ];
 }
 
 /** Allows or skips I and O in shot letters for the whole project, renumbering every unlocked scene. */
-export function setLettersAllowIO(records: Records, projectId: string, allow: boolean): Change[] {
+export function setLettersAllowIO(records: Records, projectId: string, allow: boolean, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
   const project = records[projectId];
   if (!project) return [];
   const next = { ...records, [projectId]: { ...project, props: { ...project.props, shot_letters_allow_io: allow } } };
   const scenes = childrenOf(records, projectId, 'scene');
   return [
     { kind: 'update', id: projectId, set: { shot_letters_allow_io: allow } },
-    ...scenes.flatMap((scene) => renumber(next, projectId, scene.id, sceneShots(records, scene.id))),
+    ...scenes.flatMap((scene) => renumber(next, projectId, scene.id, sceneShots(records, scene.id), { slate })),
   ];
 }
 

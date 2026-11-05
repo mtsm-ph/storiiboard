@@ -46,8 +46,10 @@ async function boardWithFrames(page: Page, language: Language): Promise<void> {
 async function settle(page: Page): Promise<void> {
   await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
-    // Adding SC 02's frame scrolled the board to keep it in view.
-    document.querySelector('[data-board]')?.parentElement?.scrollTo(0, 0);
+    // Adding SC 02's frame scrolled the board to keep it in view: back to the top, on the nearest box that scrolls.
+    let scroller = document.querySelector('[data-board]')?.parentElement ?? null;
+    while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+    scroller?.scrollTo(0, 0);
   });
   await page.evaluate(() => document.fonts.ready.then(() => true));
 }

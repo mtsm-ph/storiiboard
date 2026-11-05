@@ -35,6 +35,7 @@ export function InspectorTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const apply = useProject((s) => s.apply);
+  const applyWith = useProject((s) => s.applyWith);
   const sceneId = useSelection((s) => s.sceneId);
   const shotId = useSelection((s) => s.shotId);
   // What this person can approve here (polish 6): their role on this project, else their usual one.
@@ -90,7 +91,7 @@ export function InspectorTile() {
         }}
         onSceneNumberChange={(number) => {
           // Renumbers its unlocked shots in the same edit.
-          if (scene) void apply(setSceneNumber(records, project.projectId, scene.id, number));
+          if (scene) void applyWith((now, slate) => ({ changes: setSceneNumber(now, project.projectId, scene.id, number, slate) }));
         }}
         onBack={() => {
           focusBoard(shot?.id ?? null, scene?.id ?? null);

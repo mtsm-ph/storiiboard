@@ -4,6 +4,7 @@ import { nodeDriver } from '../core/storage/nodeDriver';
 import { createProject } from '../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
 import { ProjectFields } from './project/ProjectHome';
+import { clearNotice, noticeStore, showInfo } from './notice';
 import { createProjectStore, projectStore } from './projectStore';
 import { undoCommandFor } from './shell/undoShortcuts';
 
@@ -125,11 +126,36 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
-  it('reports a failed edit in words instead of throwing', async () => {
+  it('reports a failed edit in words instead of throwing, and says so on screen wherever it was made', async () => {
     const store = createProjectStore();
     await store.getState().open(await open());
     await store.getState().apply([{ kind: 'update', id: 'missing', set: {} }]);
     expect(store.getState().error).toBe('That item no longer exists.');
+    expect(noticeStore.getState()).toMatchObject({ message: 'That item no longer exists.', kind: 'warning' });
+    clearNotice();
+    await store.getState().close();
+  });
+
+  it('takes away a notice about a step when that step is undone or redone, and no other notice (1.28’s low)', async () => {
+    const store = createProjectStore();
+    const project = await open();
+    await store.getState().open(project);
+    // Nothing to undo: whatever notice is up stays.
+    showInfo('Deleted SC 03 to the Trash.', { step: true });
+    await store.getState().undo();
+    expect(noticeStore.getState().message).toBe('Deleted SC 03 to the Trash.');
+    // A notice that isn't about a step (a synced folder, an export) survives an undo.
+    await store.getState().apply([{ kind: 'update', id: project.projectId, set: { title: 'Pilot' } }]);
+    showInfo('This project is in a synced folder.');
+    await store.getState().undo();
+    expect(noticeStore.getState().message).toBe('This project is in a synced folder.');
+    // One about the step goes with it, on undo and on redo.
+    showInfo('Retitled.', { step: true });
+    await store.getState().redo();
+    expect(noticeStore.getState().message).toBeNull();
+    showInfo('Retitled.', { step: true });
+    await store.getState().undo();
+    expect(noticeStore.getState().message).toBeNull();
     await store.getState().close();
   });
 
@@ -203,13 +229,14 @@ describe('undo shortcuts', () => {
   });
 });
 
-it('shows a failed edit as an alert', async () => {
+it('shows a failed edit beside the project fields, read out by the notice rather than twice', async () => {
   const store = createProjectStore();
   const project = await open('Alert.sbd');
   await store.getState().open(project);
   const record = store.getState().records[project.projectId];
   if (!record) throw new Error('the project record should be loaded');
   const html = renderToString(<ProjectFields record={record} error="The disk is full." onChange={() => undefined} />);
-  expect(html).toMatch(/role="alert"[^>]*>The disk is full\.</);
+  expect(html).toContain('>The disk is full.<');
+  expect(html).not.toContain('role="alert"');
   await store.getState().close();
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale, t } from '../../core/i18n';
 import { createProjectStore } from '../../app/projectStore';
 import { withField } from '../../core/model/customFields';
 import { nodeDriver } from '../../core/storage/nodeDriver';
@@ -53,6 +54,18 @@ describe('export names', () => {
     expect(exportName('.Bey County', '4', 'frames')).toBe('Bey County SC 04 frames');
     expect(safeName(' . Bey County. . ')).toBe('Bey County');
     expect(safeName('...')).toBe('Storiiboard');
+  });
+
+  it('puts the words in the language’s order: lista de planos de Bey County ESC 04 (P7’s low)', () => {
+    setLocale('es');
+    try {
+      expect(exportName('Bey County', '4', t('export.csv.fileWord'), 'csv')).toBe('lista de planos de Bey County ESC 04.csv');
+      expect(exportName('Bey County', null, t('export.png.folderWord'))).toBe('cuadros de Bey County');
+      // Only a name's leading dots are refused; here the name starts with the word, so the title keeps them.
+      expect(exportName('...Bey County', null, t('export.pdf.fileWord'), 'pdf')).toBe('storyboard de ...Bey County.pdf');
+    } finally {
+      setLocale('en');
+    }
   });
 
   it('sizes frames by the long edge, wide or tall', () => {

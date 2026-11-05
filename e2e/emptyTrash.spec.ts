@@ -225,5 +225,7 @@ test('a notice still showing doesn’t take a window’s first focus', async ({ 
   await page.getByRole('button', { name: 'Export Project…' }).click();
   const exporting = page.getByRole('dialog', { name: 'Export' });
   await expect(exporting.getByRole('radio', { name: 'Storyboard (PDF)' })).toBeFocused();
-  await expect(exporting.getByRole('status').filter({ hasText: /^Compacted the project/ })).toBeVisible();
+  // Shown in the window, but not read out a second time: it was announced when it first appeared (PB's low).
+  await expect(exporting.locator('[data-notice]')).toContainText(/^Compacted the project/);
+  await expect(exporting.locator('[data-notice]')).not.toHaveAttribute('role');
 });

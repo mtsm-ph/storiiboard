@@ -9,6 +9,7 @@ import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
 import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage/seen';
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
+import { clearStepNotice, showNotice } from './notice';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -138,7 +139,12 @@ export function createProjectStore(): StoreApi<ProjectState> {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (message === CHANGED_ON_DISK) set({ changedOnDisk: true });
-          else set({ error: message });
+          else {
+            set({ error: message });
+            // Said wherever the edit was made: the board has no field of its own to show it in, and an edit that
+            // didn't save must never look as if it had (found with a 300-frame project, quality pass).
+            showNotice(new Error(message));
+          }
           return false;
         }
       });
@@ -229,7 +235,16 @@ export function createProjectStore(): StoreApi<ProjectState> {
           return touched;
         }),
       undo: async () => {
-        await edit((project) => undo(project.file));
+        // A notice about the step just made ("Locked SC 04. … 4C is now 4E.") would describe one that's no longer
+        // there (1.28's low): it goes, but only when something was undone, and only a notice about a step.
+        // A holder, since the edit sets it inside a callback.
+        const outcome = { changed: false };
+        await edit(async (project) => {
+          const touched = await undo(project.file);
+          outcome.changed = touched !== null;
+          return touched;
+        });
+        if (outcome.changed) clearStepNotice();
       },
       markSeen: (shotId, departments) => {
         const madeIn = get().project;
@@ -296,7 +311,14 @@ export function createProjectStore(): StoreApi<ProjectState> {
         return result;
       },
       redo: async () => {
-        await edit((project) => redo(project.file));
+        // A holder, since the edit sets it inside a callback.
+        const outcome = { changed: false };
+        await edit(async (project) => {
+          const touched = await redo(project.file);
+          outcome.changed = touched !== null;
+          return touched;
+        });
+        if (outcome.changed) clearStepNotice();
       },
       compact: async () => {
         if (get().compacting) return null;

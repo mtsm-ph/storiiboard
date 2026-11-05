@@ -59,6 +59,7 @@ language is a small change; say if you want it.
 | palette / swatch | paleta / color |
 | sketch / note | boceto / nota |
 | PDF page size | carta (US Letter) |
+| export names | lista de planos de Bey County ESC 04.csv, storyboard de Bey County.pdf, cuadros de Bey County |
 
 ## Script import
 
@@ -68,6 +69,8 @@ Spanish scripts are read by the same rules, in addition to the English ones:
 - Times of day, with or without accents, a full stop after them allowed: DÍA, NOCHE, AMANECER, ALBA, SALIDA DEL SOL
   (dawn); ATARDECER, ANOCHECER, CREPÚSCULO, OCASO, PUESTA DE SOL (dusk); HORA MÁGICA.
 - Anything else after the place (CONTINUO, MÁS TARDE, MAÑANA) is kept as written, as CONTINUOUS is in English.
+- Full stops between the parts, as many Spanish scripts write them: `INT. CASA. NOCHE` reads as `INT. CASA - NOCHE`.
+  Only when a time of day follows, so a place with a dot in it (`EXT. ST. JAMES`) stays whole.
 
 ## Checked
 

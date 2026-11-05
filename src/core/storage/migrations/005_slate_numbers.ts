@@ -34,9 +34,14 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
   // Scene, then number, then the shots seen holding it while the scene was locked, the first one first.
   const found = new Map<string, Map<string, string[]>>();
   let unknown = false;
+  // When each shot last held each number while locked, in replay order: the rows are written in that order, so a
+  // shot that held two numbers across relocks has its later one last, the one the app gives back (1.26's low).
+  let tick = 0;
+  const lastHeld = new Map<string, number>();
 
   const add = (sceneId: string, number: string, shotId: string) => {
     if (number === '') return;
+    lastHeld.set(`${sceneId} ${number} ${shotId}`, (tick += 1));
     const numbers = found.get(sceneId) ?? new Map<string, string[]>();
     const seen = numbers.get(number) ?? [];
     if (!seen.includes(shotId)) seen.push(shotId);
@@ -113,18 +118,21 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
       }
     }
   }
-  const statements: Statement[] = [];
+  const owned: { sceneId: string; number: string; shotId: string; when: number }[] = [];
   for (const [sceneId, numbers] of found) {
     for (const [number, seen] of numbers) {
       const holder = (holders.get(`${sceneId} ${number}`) ?? []).find((id) => seen.includes(id));
       const shotId = holder ?? seen[0] ?? '';
-      statements.push({
-        sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT (scene_id, number) DO NOTHING`,
-        params: [crypto.randomUUID(), sceneId, number, shotId, at, at],
-      });
+      owned.push({ sceneId, number, shotId, when: lastHeld.get(`${sceneId} ${number} ${shotId}`) ?? 0 });
     }
   }
+  const statements: Statement[] = owned
+    .sort((a, b) => a.when - b.when)
+    .map(({ sceneId, number, shotId }) => ({
+      sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (scene_id, number) DO NOTHING`,
+      params: [crypto.randomUUID(), sceneId, number, shotId, at, at],
+    }));
   // And the file as it stands, should any record have reached it outside the log.
   const scenes = await file.query("SELECT id FROM records WHERE type = 'scene'");
   const sceneIds = scenes.map((scene) => String(scene.id));

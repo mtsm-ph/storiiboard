@@ -104,6 +104,15 @@ describe('Spanish scene headings (polish 7)', () => {
     expect(read('EXT. CAMPO - SALIDA DEL SOL')).toEqual(['EXT', 'CAMPO', 'DAWN', null]);
     expect(read('INT. CASA - DI\u0301A')).toEqual(['INT', 'CASA', 'DAY', null]);
     expect(characterName('MARI\u0301A (V.O.)')).toBe('MARÍA');
+    // Full stops between the parts, as many Spanish scripts write them (P7's low); a place with a dot in it stays whole.
+    expect(read('INT. CASA DE MARÍA. NOCHE')).toEqual(['INT', 'CASA DE MARÍA', 'NIGHT', null]);
+    expect(read('EXT. PLAYA. ATARDECER. FLASHBACK.')).toEqual(['EXT', 'PLAYA', 'DUSK', 'FLASHBACK']);
+    expect(read('INT. CASA - COCINA. DÍA')).toEqual(['INT', 'CASA - COCINA', 'DAY', null]);
+    expect(read('EXT. ST. JAMES CHURCH')).toEqual(['EXT', 'ST. JAMES CHURCH', null, null]);
+    expect(read('INT. DR. LÓPEZ CONSULTORIO. NOCHE')).toEqual(['INT', 'DR. LÓPEZ CONSULTORIO', 'NIGHT', null]);
+    expect(read('INT. CASA. NOCHE - CONTINUO')).toEqual(['INT', 'CASA', 'NIGHT', 'CONTINUO']);
+    expect(read('EXT. AV. DÍA DE LA INDEPENDENCIA')).toEqual(['EXT', 'AV. DÍA DE LA INDEPENDENCIA', null, null]);
+    expect(read('EXT. AV. DÍA DE LA INDEPENDENCIA. DÍA')).toEqual(['EXT', 'AV. DÍA DE LA INDEPENDENCIA', 'DAY', null]);
   });
 
   it('reads INTERIOR and EXTERIOR spelled out, in capitals as a heading writes them, and never an action line', () => {

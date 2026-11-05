@@ -246,11 +246,11 @@ export function StoryboardTile() {
           const at = flat.findIndex((f) => (f.item.kind === 'shot' ? f.item.shot.record.id : f.item.note.record.id) === id);
           const next = flat[at + 1] ?? flat[at - 1] ?? null;
           const nextId = next ? (next.item.kind === 'shot' ? next.item.shot.record.id : next.item.note.record.id) : null;
-          void applyWith((now) => {
+          void applyWith((now, slate) => {
             const item = now[id];
             // A key held down can ask twice; the second finds it in the Trash already.
             if (!item || item.trashedAt !== null) return { changes: [] };
-            return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id) };
+            return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id, slate) };
           }).then((written) => {
             // Refused or dropped (a project switched in between): nothing moved, so neither does the selection.
             if (!written) return;

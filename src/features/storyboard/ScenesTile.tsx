@@ -37,10 +37,10 @@ export function ScenesTile() {
         let notice: string | null = null;
         void applyWith((now, slate) => {
           const changes = setNumbersLocked(now, project.projectId, id, locked, slate);
-          if (locked) notice = lockNotice(sceneFields(now[id]?.props ?? {}).number, relettered(now, project.projectId, changes));
+          if (locked) notice = lockNotice(sceneFields(now[id]?.props ?? {}).number, relettered(now, project.projectId, changes, slate));
           return { changes };
         }).then((written) => {
-          if (written && notice) showInfo(notice);
+          if (written && notice) showInfo(notice, { step: true });
         });
       }}
       onDelete={(id) => {

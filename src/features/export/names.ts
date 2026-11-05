@@ -47,8 +47,12 @@ export function safeName(text: string): string {
   );
 }
 
-/** `Bey County shot list.csv`, `Bey County SC 04 shot list.csv`. */
+/**
+ * `Bey County shot list.csv`, `Bey County SC 04 shot list.csv`; in Spanish `lista de planos de Bey County ESC 04.csv`.
+ * The order is the language's (P7's low), so the translation files hold it.
+ */
 export function exportName(project: string, scene: string | null, what: string, extension?: string): string {
-  const base = safeName([project, scene === null ? null : sceneLabel(scene), what].filter((part) => part !== null).join(' '));
+  const name = scene === null ? project : `${project} ${sceneLabel(scene)}`;
+  const base = safeName(t('export.fileName', { name, what }));
   return extension ? `${base}.${extension}` : base;
 }

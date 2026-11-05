@@ -486,6 +486,8 @@ export const es: Messages = {
   // src/features/export/shotListCsv.ts
   'export.csv.label': 'Lista de planos (CSV)',
   'export.csv.description': 'Una fila por cuadro, con su escena, especificaciones, estado y campos personalizados, para una hoja de cálculo.',
+  // src/features/export/names.ts: an export's file or folder name, `what` being one of the words below.
+  'export.fileName': '{what} de {name}',
   'export.csv.fileWord': 'lista de planos',
   'count.frames.one': '{count} cuadro',
   'count.frames.other': '{count} cuadros',
@@ -841,6 +843,8 @@ export const es: Messages = {
   // src/features/storyboard/board.ts
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',
+  'board.lockNoticeOwn': 'Se bloqueó {scene}. Los cuadros recuperan los números de su claqueta: {list}.',
+  'board.lockNoticeBoth': 'Se bloqueó {scene}. Los cuadros recuperan los números de su claqueta: {own}. Para que los números de claqueta no se repitan, {list}.',
   // src/features/storyboard/CropEditor.tsx
   'crop.said': 'Zoom {zoom}%, centrado a {x}% del ancho y {y}% del alto.',
   'crop.label': 'Encuadre, zoom {zoom}%',
@@ -936,8 +940,6 @@ export const es: Messages = {
   'error.inFolderAlready': '{name} ya está en esa carpeta.',
   'error.unfinishedExports': 'Hay muchas exportaciones sin terminar en esa carpeta.',
   'error.projectNotOpen': 'Ese proyecto no está abierto.',
-  // src/features/history/summary.ts
-  'history.aRecord': 'un {type}',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',
   // src/app/shell/sidebar/Sidebar.tsx

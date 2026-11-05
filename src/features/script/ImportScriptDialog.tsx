@@ -68,7 +68,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
         closeImport();
         if (!written || made.length === 0) return;
         selectionStore.getState().selectScene(made[0] ?? null);
-        showInfo(t('script.imported', { scenes: tn('count.scenes', made.length), name: pending.fileName, undo: undoKey }));
+        showInfo(t('script.imported', { scenes: tn('count.scenes', made.length), name: pending.fileName, undo: undoKey }), { step: true });
       })
       .finally(() => {
         setImporting(false);

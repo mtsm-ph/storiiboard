@@ -199,7 +199,7 @@ export function HistoryTile() {
           gate.written(changed);
           // A restore that failed has said why (the store's error); only one that found nothing to do says so here.
           const { error, changedOnDisk } = projectStore.getState();
-          if (changed || (error === null && !changedOnDisk)) showInfo(restoreNotice(shown, group.id, changed, undoKey));
+          if (changed || (error === null && !changedOnDisk)) showInfo(restoreNotice(shown, group.id, changed, undoKey), { step: true });
         },
         () => {
           gate.written(false);

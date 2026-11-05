@@ -19,7 +19,7 @@ export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
   const record = useProject((s) => (projectId ? s.records[projectId] : undefined));
   const apply = useProject((s) => s.apply);
-  const records = useProject((s) => s.records);
+  const applyWith = useProject((s) => s.applyWith);
   const error = useProject((s) => s.error);
   if (!record || !projectId) return <p className="sb-label p-3 text-text-muted">{t('projectHome.noProjectOpen')}</p>;
   return (
@@ -33,7 +33,8 @@ export function ProjectHome() {
         }}
         onLettersChange={(allowIO) => {
           // Renumbers every unlocked scene in the same edit.
-          void apply(setLettersAllowIO(records, record.id, allowIO));
+          // From the records and slate numbers as they are at its turn, like every renumbering edit.
+          void applyWith((now, slate) => ({ changes: setLettersAllowIO(now, record.id, allowIO, slate) }));
         }}
       />
     </>
@@ -160,8 +161,9 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
               className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text"
             />
           </div>
+          {/* Beside the fields, for reading; not a live region, since the window's notice announces the same failure. */}
           {error && (
-            <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+            <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
               {localizeError(error)}
             </p>
           )}
