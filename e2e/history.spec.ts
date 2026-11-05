@@ -486,7 +486,7 @@ test('a long, multi-line old action reads in full in the frame’s own history, 
 
 test('a scene’s own changes, field by field, with its old name to put back', async ({ page }) => {
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
-  const name = inspector(page).getByLabel('Name');
+  const name = inspector(page).getByLabel('Name', { exact: true });
   await name.fill('Penn Station');
   await name.press('Enter');
   await name.fill('Dock');
@@ -497,7 +497,7 @@ test('a scene’s own changes, field by field, with its old name to put back', a
   const changes = history(page).getByRole('table', { name: 'Changes to scene SC 02, newest first' });
   await expect(changes.getByRole('row').nth(1)).toContainText(/name\s*Penn Station\s*Dock/);
   await changes.getByRole('button', { name: 'Put back name Penn Station' }).click();
-  await expect(inspector(page).getByLabel('Name')).toHaveValue('Penn Station');
+  await expect(inspector(page).getByLabel('Name', { exact: true })).toHaveValue('Penn Station');
   await expect(changes.getByRole('row').nth(1)).toContainText(/name\s*Dock\s*Penn Station/);
 });
 

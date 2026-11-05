@@ -92,6 +92,15 @@ export function GearGlyph() {
 }
 
 /** Delete to the Trash: a bin, in the button's own colour. */
+/** Edit a title in place (Nov 5): a pencil, drawn in 1.5px strokes like the other glyphs. */
+export function PencilGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="shrink-0">
+      <path d="M1 11l.6-2.9L8.4 1.3a1 1 0 0 1 1.4 0l.9.9a1 1 0 0 1 0 1.4L3.9 10.4L1 11zM7.4 2.3l2.3 2.3" fill="none" className="stroke-current" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function TrashGlyph() {
   return (
     <svg width="11" height="12" viewBox="0 0 11 12" aria-hidden="true" className="shrink-0">

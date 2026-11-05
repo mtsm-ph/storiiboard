@@ -1,4 +1,4 @@
-import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { customValue } from '../../core/model/customFields';
 import { departmentStates } from '../../core/model/departmentStatus';
 import { DepartmentCounts, DepartmentStates, summaryText } from './DepartmentSummary';
@@ -7,6 +7,7 @@ import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
+import { PencilButton, TitleField } from '../../ui/EditableTitle';
 import { LockGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { StatusGlyph } from '../../ui/tags';
@@ -79,6 +80,8 @@ export interface SceneGroup {
   id: string;
   number: string;
   heading: string;
+  /** The scene's own name, as edited in place (the heading adds INT/EXT and the time of day round it). */
+  name?: string;
   pageEighths: number | null;
   locked: boolean;
   counts: Record<ShotStatus, number>;
@@ -130,6 +133,9 @@ export interface StoryboardViewProps {
   /** Pictures being prepared now. */
   busy?: number;
   dropHover?: DropHover;
+  /** A scene's name or a frame's title, edited in place with the pencil (Nov 5); empty for none. */
+  onRenameScene?: (sceneId: string, name: string) => void;
+  onRetitleShot?: (shotId: string, title: string) => void;
 }
 
 const NAV = '[data-board-item]';
@@ -154,7 +160,7 @@ function DropMark({ label }: { label: string }) {
 }
 
 /** "SC 04  INT. PENN STATION — DAY  1 3/8 pg · 4 have · 1 need", plus the lock when there is one. */
-function SceneHeading({ scene, className }: { scene: SceneGroup; className?: string }) {
+function SceneHeading({ scene, className }: { scene: SceneGroup; className?: string | undefined }) {
   return (
     <span className={cx('flex flex-wrap items-baseline gap-x-3 gap-y-1', className)}>
       <span className="font-mono text-[12px] font-bold">{sceneLabel(scene.number)}</span>
@@ -168,6 +174,68 @@ function SceneHeading({ scene, className }: { scene: SceneGroup; className?: str
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * A scene's heading with its pencil (Nov 5). The pencil sits after the heading, not in it, so the heading's name stays
+ * "SC 04 INT. PENN STATION — DAY …" for screen readers, and is pulled into the line so the heading keeps its height.
+ * While editing, the heading holds the field in the name's place.
+ */
+function SceneTitleRow({
+  scene,
+  className,
+  headingClassName,
+  onRename,
+  pencilTabbable,
+}: {
+  scene: SceneGroup;
+  className?: string;
+  headingClassName?: string;
+  onRename?: ((name: string) => void) | undefined;
+  /** Only the scene holding the board's Tab stop has its pencil in the Tab order: the board stays one stop. */
+  pencilTabbable: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const pencil = useRef<HTMLButtonElement>(null);
+  const label = t('title.sceneName', { scene: sceneLabel(scene.number) });
+  return (
+    // The whole row counts as the heading for a dragged frame (useItemDrag): over it, the frame lands at the start.
+    <div data-heading-row="" className={cx('group/title flex min-w-0 items-start gap-1', className)}>
+      <h3 id={`scene-${scene.id}`} className={cx('min-w-0', headingClassName)}>
+        {editing && onRename ? (
+          <span className="flex items-baseline gap-x-3">
+            <span className="font-mono text-[12px] font-bold">{sceneLabel(scene.number)}</span>
+            <TitleField
+              value={scene.name ?? ''}
+              label={label}
+              onDone={(text, how) => {
+                setEditing(false);
+                if (text !== null && text !== (scene.name ?? '')) onRename(text);
+                if (how !== 'away') {
+                  requestAnimationFrame(() => {
+                    pencil.current?.focus();
+                  });
+                }
+              }}
+            />
+          </span>
+        ) : (
+          <SceneHeading scene={scene} className={headingClassName} />
+        )}
+      </h3>
+      {onRename && !editing && (
+        <PencilButton
+          label={label}
+          buttonRef={pencil}
+          tabbable={pencilTabbable}
+          onClick={() => {
+            setEditing(true);
+          }}
+          className="-my-1"
+        />
+      )}
+    </div>
   );
 }
 
@@ -196,6 +264,8 @@ export function StoryboardView({
   onNoteText,
   locationNames = [],
   onSketch,
+  onRenameScene,
+  onRetitleShot,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
@@ -205,8 +275,12 @@ export function StoryboardView({
   const onBoard = new Set(scenes.flatMap((s) => entriesOf(s).map(entryId)));
   const kept = [selectedShotId, selectedNoteId].find((id): id is string => id !== null && onBoard.has(id));
   const tabStop = kept ?? (firstEntry ? entryId(firstEntry) : null) ?? scenes[0]?.id ?? null;
+  // The scene holding the board's Tab stop: its heading's pencil is the one in the Tab order.
+  const stopSceneId = scenes.find((s) => s.id === tabStop || entriesOf(s).some((e) => entryId(e) === tabStop))?.id ?? null;
   const mac = isMac();
   const [editingNote, setEditingNote] = useState<string | null>(null);
+  // The frame whose title is being edited in place (its pencil, or F2 on it).
+  const [titling, setTitling] = useState<string | null>(null);
   const [slash, setSlash] = useState<{ at: { left: number; top: number }; place: InsertPlace; from: HTMLElement } | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const { drag, dragHandlers } = useItemDrag(
@@ -292,6 +366,12 @@ export function StoryboardView({
       onSketch(itemId);
       return;
     }
+    // F2, the usual key to rename what has focus: the frame's title, in place.
+    if (itemId !== null && kind === 'frame' && onRetitleShot && view !== 'list' && event.key === 'F2') {
+      event.preventDefault();
+      setTitling(itemId);
+      return;
+    }
     if (itemId !== null && (event.key === 'Delete' || event.key === 'Backspace')) {
       event.preventDefault();
       onTrash(itemId);
@@ -358,16 +438,22 @@ export function StoryboardView({
     },
   });
 
-  /** A frame card: the picture at the aspect ratio, then the number, spec and status. Grid and strip share it. */
+  /**
+   * A frame card: the picture at the aspect ratio, then the number, spec and status, and its title when it has one.
+   * Grid and strip share it. The pencil sits beside the card, not in it (a button can't hold another): over its
+   * top-right corner, shown on hover, on the selected frame, and as the next Tab stop after the frame with focus.
+   */
   const card = (frame: FrameCard, sceneId: string, className?: string) => {
     const selected = frame.id === selectedShotId;
     const hovered = dropHover !== null && 'shotId' in dropHover && dropHover.shotId === frame.id;
+    const titleLabel = t('title.shotTitle', { number: frame.number || t('history.aFrame') });
     return (
+      // The drop target is the whole card with its pencil and field, so a picture dropped on the corner is its picture.
+      <span data-drop-shot={frame.id} className={cx('group/title relative block', className)}>
       <button
         {...itemProps(frame, sceneId)}
         {...(summaryText(frame.fields.departmentStatus, frame.seen ?? NOTHING_SEEN) !== null ? { 'aria-describedby': `departments-${frame.id}` } : {})}
-        data-drop-shot={frame.id}
-        className={cx('relative flex flex-col border border-border bg-surface text-left', className)}
+        className="relative flex w-full flex-col border border-border bg-surface text-left"
       >
         <span className="relative flex w-full items-center justify-center border-b border-border" style={{ aspectRatio: String(aspectRatio) }}>
           {frame.picture ? (
@@ -398,10 +484,45 @@ export function StoryboardView({
             <StatusGlyph status={frame.status} />
           </span>
         </span>
+        {frame.fields.title !== '' && titling !== frame.id && (
+          <span data-user-text="" data-frame-title="" className="-mt-1 truncate px-2 pb-1.5 text-[12px]">
+            {frame.fields.title}
+          </span>
+        )}
         {/* How far the departments have got (polish 6b), its words the card's description. */}
         <DepartmentCounts statuses={frame.fields.departmentStatus} seen={frame.seen ?? NOTHING_SEEN} descriptionId={`departments-${frame.id}`} />
         {selected && <span aria-hidden="true" className="pointer-events-none absolute -inset-px border-[3px] border-accent" />}
       </button>
+      {onRetitleShot && titling !== frame.id && (
+        <PencilButton
+          label={titleLabel}
+          // The frame is the board's one Tab stop; its pencil is the next, so the keys reach it without the mouse.
+          tabbable={frame.id === tabStop}
+          reveal={selected}
+          onClick={() => {
+            // The frame it names becomes the selected one, as a click on the card would make it.
+            onSelect(frame.id, sceneId);
+            setTitling(frame.id);
+          }}
+          className="absolute top-1 right-1 border border-border bg-surface"
+        />
+      )}
+      {onRetitleShot && titling === frame.id && (
+        <span className="absolute inset-x-1 bottom-1 flex">
+          <TitleField
+            value={frame.fields.title}
+            label={titleLabel}
+            className="w-full"
+            onDone={(text, how) => {
+              setTitling(null);
+              if (text !== null && text !== frame.fields.title) onRetitleShot(frame.id, text);
+              // Back to the frame after Enter or Escape; after a click or Tab, focus stays where it went.
+              if (how !== 'away') focusItem(frame.id);
+            }}
+          />
+        </span>
+      )}
+      </span>
     );
   };
 
@@ -459,9 +580,17 @@ export function StoryboardView({
         aria-labelledby={`scene-${scene.id}`}
         className={cx('relative border-b border-border p-3', sceneHovered(scene.id) && 'outline-2 -outline-offset-4 outline-text outline-dashed')}
       >
-        <h3 id={`scene-${scene.id}`} className="mb-2.5">
-          <SceneHeading scene={scene} />
-        </h3>
+        <SceneTitleRow
+          scene={scene}
+          pencilTabbable={stopSceneId === scene.id}
+          className="mb-2.5"
+          onRename={
+            onRenameScene &&
+            ((name: string) => {
+              onRenameScene(scene.id, name);
+            })
+          }
+        />
         <ul aria-label={t('board.framesIn', { scene: sceneLabel(scene.number) })} className="grid grid-cols-[repeat(auto-fill,minmax(176px,1fr))] gap-gap">
           {entriesOf(scene).map((item) => (
             <li key={entryId(item)}>{entry(item, scene.id, 'w-full')}</li>
@@ -492,9 +621,18 @@ export function StoryboardView({
             aria-labelledby={`scene-${scene.id}`}
             className={cx('flex shrink-0 flex-col gap-1.5', sceneHovered(scene.id) && 'outline-2 outline-offset-2 outline-text outline-dashed')}
           >
-            <h3 id={`scene-${scene.id}`} className="max-w-full">
-              <SceneHeading scene={scene} className="flex-nowrap whitespace-nowrap" />
-            </h3>
+            <SceneTitleRow
+              scene={scene}
+              pencilTabbable={stopSceneId === scene.id}
+              className="max-w-full"
+              headingClassName="flex-nowrap whitespace-nowrap"
+              onRename={
+                onRenameScene &&
+                ((name: string) => {
+                  onRenameScene(scene.id, name);
+                })
+              }
+            />
             <ul aria-label={t('board.framesIn', { scene: sceneLabel(scene.number) })} className="flex gap-gap">
               {entriesOf(scene).map((item) => (
                 <li key={entryId(item)} className="shrink-0" style={{ width }}>

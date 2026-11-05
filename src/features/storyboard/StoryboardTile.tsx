@@ -181,6 +181,7 @@ export function StoryboardTile() {
     id: scene.record.id,
     number: scene.fields.number,
     heading: headingOf(scene.fields),
+    name: scene.fields.name,
     pageEighths: scene.fields.pageEighths,
     locked: scene.fields.numbersLocked,
     counts: scene.counts,
@@ -213,6 +214,13 @@ export function StoryboardTile() {
         canEdit={project !== null}
         onSelect={(shotId, sceneId) => {
           selectionStore.getState().selectShot(shotId, sceneId);
+        }}
+        // Each is one edit, so one undo takes it back; an emptied title is taken off rather than kept empty.
+        onRenameScene={(sceneId, name) => {
+          void apply([{ kind: 'update', id: sceneId, set: { name } }]);
+        }}
+        onRetitleShot={(shotId, title) => {
+          void apply([title === '' ? { kind: 'update', id: shotId, unset: ['title'] } : { kind: 'update', id: shotId, set: { title } }]);
         }}
         onAddFrame={(sceneId) => {
           let shotId = '';

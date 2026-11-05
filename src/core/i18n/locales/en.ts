@@ -179,6 +179,11 @@ export const en = {
   'scenesView.newScene': '+ New scene',
   'scenesView.importScript': 'Import script…',
   // src/features/storyboard/StoryboardView.tsx
+  // src/ui/EditableTitle.tsx: a title edited in place.
+  'title.edit': 'Edit {label}',
+  'title.sceneName': 'name of {scene}',
+  'title.shotTitle': 'title of {number}',
+  'title.none': 'Add a title',
   'storyboardView.noImage': 'No image',
   'storyboardView.sketched': 'Sketched',
   'storyboardView.noProjectOpen': 'No project open.',
@@ -462,6 +467,7 @@ export const en = {
   'field.shot': 'Shot',
   'field.number': 'Number',
   'field.name': 'Name',
+  'field.title': 'Title',
   'field.size': 'Size',
   'field.lens': 'Lens',
   'field.lensMm': 'Lens (mm)',

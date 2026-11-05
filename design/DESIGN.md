@@ -194,9 +194,15 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   Tool (Pen, Arrow, Box, Eraser; P, A, B, E), Line (Thin, Medium, Bold), Undo, Redo, Clear and Done, all in the
   inspector's control style. Strokes are drawn in the text colour, so on cards they read in light and dark; a frame
   with a sketch and no picture drops its "No image".
+- **Titles in place (Nov 5):** a pencil (12px, 1.5px strokes, in a 24px box) beside every scene name and frame title:
+  after a scene's heading on the board, over a Scenes row's right side, over a card's top-right corner, and in the
+  inspector's header, where it always shows. Elsewhere it shows on hover, on the selected frame, and when Tab reaches
+  it (right after the frame or row it names). Never inside the button it names, and never in a heading. A click, or F2
+  on a frame, makes the text a field in place: Enter saves, Escape puts it back, leaving saves; one edit, one undo. A
+  frame's title reads under its number on the card, at 12px.
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
-- **Keyboard:** the board is one Tab stop. Arrows move through frames, notes and + Frame cards across scenes; Home and
+- **Keyboard:** the board is one Tab stop, with two pencils beside it (the frame's title, its scene's name). Arrows move through frames, notes and + Frame cards across scenes; Home and
   End go to the ends; Delete sends a frame or a note to the Trash; ⌘ (Ctrl on Windows) with an arrow moves it one
   place, crossing into the next scene at either end; "/" opens the insert menu. A frame stays in a scene whose
   numbers are locked.
