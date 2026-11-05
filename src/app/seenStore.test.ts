@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { departmentStates, departmentStatesText, departmentStatuses, stateCounts } from '../core/model/departmentStatus';
 import { log } from '../core/ops/ops';
 import { migrate } from '../core/storage/migrate';
-import { MIGRATIONS } from '../core/storage/migrations';
+import { MIGRATIONS, SCHEMA_VERSION } from '../core/storage/migrations';
 import { nodeDriver } from '../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../core/storage/project';
 import { loadSeen } from '../core/storage/seen';
@@ -122,7 +122,7 @@ describe('schema 7', () => {
     await migrate(file, { isNew: true, migrations: MIGRATIONS.slice(0, 6) });
     await file.close();
     const old = await openProject(folder.path('Old.sbd'), { driver: nodeDriver, backups: false });
-    expect(old.migration).toMatchObject({ from: 6, to: 7 });
+    expect(old.migration).toMatchObject({ from: 6, to: SCHEMA_VERSION });
     expect(old.migration.backup).toMatch(/^Old\.sbd\.bak-v6-/);
     expect(await loadSeen(old.file)).toEqual({});
     await old.close();

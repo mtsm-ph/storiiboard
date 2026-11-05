@@ -149,7 +149,7 @@ pub async fn script_choose(
     choose(app, title, (kind, SCRIPT_EXTENSIONS), false).await
 }
 
-async fn choose(
+pub(crate) async fn choose(
     app: AppHandle,
     title: String,
     (kind, extensions): (String, &'static [&'static str]),

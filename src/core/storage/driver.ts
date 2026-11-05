@@ -44,6 +44,11 @@ export interface BackupFile {
  */
 export interface ProjectFile {
   readonly path: string;
+  /**
+   * The desktop app's handle for this open file, which Rust commands outside storage take to check what the project
+   * links: a video record's file may be read because the project names it (src-tauri/src/video.rs). Absent elsewhere.
+   */
+  readonly nativeHandle?: number;
   /** Runs every statement in one transaction: all of them land, or none do. */
   tx(statements: readonly Statement[]): Promise<void>;
   query(sql: string, params?: readonly SqlValue[]): Promise<Row[]>;

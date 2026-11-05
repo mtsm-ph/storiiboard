@@ -816,6 +816,37 @@ impl OpenFiles {
         Ok(files)
     }
 
+    /// Whether a video record of the open project `handle` names `video` (Phase 2): by its absolute path, or relative to
+    /// the project's folder, as src/core/media/store.ts stores a path under it. A video linked in an earlier session
+    /// is read through this, since it wasn't dropped or chosen in this one.
+    pub fn names_video(&self, handle: u32, video: &Path) -> Result<bool, String> {
+        self.with(handle, |file| {
+            let mut forms = vec![video.to_string_lossy().into_owned()];
+            if let Some(rest) = file
+                .path
+                .parent()
+                .and_then(|folder| video.strip_prefix(folder).ok())
+            {
+                let parts: Vec<String> = rest
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                forms.push(parts.join("/"));
+            }
+            let rows = file.query(
+                "SELECT 1 FROM records WHERE type = 'media' AND json_extract(props, '$.kind') = 'video'
+                  AND json_extract(props, '$.source_path') IN (SELECT value FROM json_each(?)) LIMIT 1",
+                &[Json::String(serde_json::to_string(&forms).map_err(text)?)],
+            )?;
+            Ok(!rows.is_empty())
+        })
+    }
+
+    #[cfg(test)]
+    pub fn add_for_test(&self, file: SbdFile) -> u32 {
+        self.add(file).unwrap()
+    }
+
     fn with<T>(
         &self,
         handle: u32,

@@ -10,9 +10,10 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{ipc::Response, AppHandle, Manager};
 
 use crate::pictures::Offered;
+use crate::sbd::OpenFiles;
 
 /// The target triple the sidecars are named for in src-tauri/binaries, as Tauri's externalBin names them.
 #[cfg(debug_assertions)]
@@ -264,11 +265,59 @@ pub fn read_probe(json: &Value) -> Result<Probe, String> {
 
 /// Long enough for a camera file on a slow drive; a file on a network share that stopped answering is given up on.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+/// A still decodes from the keyframe before it: a long-GOP 8K frame can take a few seconds.
+const STILL_TIMEOUT: Duration = Duration::from_secs(60);
+
+const TOO_SLOW: &str =
+    "That video took too long to read. If it's on a network drive, copy it to this computer first.";
+const CANT_READ: &str = "That file can't be read as a video.";
+
+/// Runs a sidecar to the end and returns what it wrote, or gives up after `timeout`. Its output is read while it runs,
+/// so a long answer can't fill the pipe and stall it.
+fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| {
+            "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
+                .to_string()
+        })?;
+    let mut stdout = child.stdout.take().ok_or(CANT_READ)?;
+    let reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).map(|_| bytes)
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(None) => {
+                // A read stuck on a share that stopped answering can hold the kill back until it returns, so the
+                // wait for the process happens on a thread of its own, never here.
+                let _ = child.kill();
+                std::thread::spawn(move || child.wait());
+                return Err(TOO_SLOW.into());
+            }
+            Err(_) => return Err(CANT_READ.into()),
+        }
+    };
+    reader
+        .join()
+        .ok()
+        .and_then(Result::ok)
+        .filter(|_| status.success())
+        .ok_or_else(|| CANT_READ.to_string())
+}
 
 /// Runs ffprobe on a file. The path is one argument of the list, never part of a shell string, and ffprobe may open
 /// local files only (a playlist named like a video can't send it to the network).
 pub fn probe(path: &Path) -> Result<Probe, String> {
-    let mut child = command("ffprobe")
+    let mut command = command("ffprobe");
+    command
         .args([
             "-v",
             "error",
@@ -279,50 +328,78 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
             "-show_format",
             "-show_streams",
         ])
-        .arg(path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| {
-            "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
-                .to_string()
-        })?;
-    // Read while waiting, so a long answer can't fill the pipe and stall ffprobe.
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or("That file can't be read as a video.")?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).map(|_| bytes)
-    });
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Ok(None) => {
-                // A read stuck on a share that stopped answering can hold the kill back until it returns, so the
-                // wait for the process happens on a thread of its own, never here.
-                let _ = child.kill();
-                std::thread::spawn(move || child.wait());
-                return Err("That video took too long to read. If it's on a network drive, copy it to this computer first.".into());
-            }
-            Err(_) => return Err("That file can't be read as a video.".into()),
-        }
-    };
-    let bytes = reader.join().ok().and_then(Result::ok);
-    let json = bytes
-        .filter(|_| status.success())
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .ok_or("That file can't be read as a video.")?;
+        .arg(path);
+    let bytes = run(command, PROBE_TIMEOUT)?;
+    let json = serde_json::from_slice::<Value>(&bytes).map_err(|_| CANT_READ.to_string())?;
     read_probe(&json)
 }
 
-fn probe_offered(offered: &Offered, path: &Path) -> Result<Probe, String> {
-    if !offered.has(path) {
+/// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
+/// frame isn't sent across at full size only to be scaled down.
+const STILL_LONG_EDGE: u32 = 2560;
+/// How far before a still the quick seek lands: longer than any camera's keyframe interval.
+const STILL_PREROLL: f64 = 3.0;
+
+/// Frame `frame` of a video, counted from 0 at its exact rate, as a PNG: from the original, turned upright, its pixels
+/// made square, at most 2560 px on the long edge. Two seeks: a quick one to a few seconds before (some containers, a
+/// transport stream among them, can land on the keyframe after the time asked for, never before it by much), then
+/// decoding up to the frame. The time asked for is a quarter frame early, so rounding can't skip the frame.
+pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<u8>, String> {
+    if fps_num == 0 || fps_den == 0 {
+        return Err("That video's frame rate can't be read.".into());
+    }
+    let seconds = ((frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num)).max(0.0);
+    // Square pixels first (an anamorphic or HDV frame), then the cap; quoted, so the commas in min() stay inside it.
+    let filter = format!(
+        "scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=w='min({STILL_LONG_EDGE},iw)':h='min({STILL_LONG_EDGE},ih)':force_original_aspect_ratio=decrease"
+    );
+    let early = (seconds - STILL_PREROLL).max(0.0);
+    let mut command = command("ffmpeg");
+    command
+        .args(["-hide_banner", "-loglevel", "error"])
+        .args(["-protocol_whitelist", "file", "-ss"])
+        .arg(format!("{early:.6}"))
+        .arg("-i")
+        .arg(path)
+        .arg("-ss")
+        .arg(format!("{:.6}", seconds - early))
+        .args(["-map", "0:v:0", "-frames:v", "1", "-vf", &filter])
+        .args(["-pix_fmt", "rgb24", "-c:v", "png", "-f", "image2pipe", "-"]);
+    let bytes = run(command, STILL_TIMEOUT)?;
+    // A frame past the end gives no picture at all.
+    if bytes.is_empty() {
+        return Err(CANT_READ.into());
+    }
+    Ok(bytes)
+}
+
+/// File types a video may be (src/core/media/video.ts, VIDEO_EXTENSIONS). RAW formats need a maker's SDK.
+const VIDEO_EXTENSIONS: &[&str] = &[
+    "mov", "mp4", "m4v", "mxf", "mts", "m2ts", "ts", "mkv", "avi", "webm", "mpg", "mpeg", "3gp",
+];
+
+fn is_video_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| VIDEO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// Whether the page may read this file as a video: one the person dropped or chose this session, or one named like a
+/// video that a video record of the open project links (`handle`), so footage linked last week still plays. A page
+/// gone wrong could reach only a video file a record names, and only its frames and facts.
+fn may_read(offered: &Offered, files: &OpenFiles, handle: Option<u32>, path: &Path) -> bool {
+    offered.has(path)
+        || (is_video_name(path)
+            && handle.is_some_and(|handle| files.names_video(handle, path).unwrap_or(false)))
+}
+
+fn readable(
+    offered: &Offered,
+    files: &OpenFiles,
+    handle: Option<u32>,
+    path: &Path,
+) -> Result<(), String> {
+    if !may_read(offered, files, handle, path) {
         return Err("Storiiboard reads only the files you drop on it or choose.".into());
     }
     if path.is_dir() {
@@ -331,17 +408,106 @@ fn probe_offered(offered: &Offered, path: &Path) -> Result<Probe, String> {
     if !path.is_file() {
         return Err("That file isn't there any more.".into());
     }
-    probe(path)
+    Ok(())
 }
 
-/// What ffprobe says about a video the person dropped or chose.
+/// What ffprobe says about a video the person dropped or chose, or one the open project links.
 #[tauri::command]
-pub async fn video_probe(app: AppHandle, path: String) -> Result<Probe, String> {
+pub async fn video_probe(
+    app: AppHandle,
+    path: String,
+    handle: Option<u32>,
+) -> Result<Probe, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        probe_offered(&app.state::<Offered>(), Path::new(&path))
+        let path = Path::new(&path);
+        readable(
+            &app.state::<Offered>(),
+            &app.state::<OpenFiles>(),
+            handle,
+            path,
+        )?;
+        probe(path)
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// One frame of a video as a PNG (see `still`).
+#[tauri::command]
+pub async fn video_still(
+    app: AppHandle,
+    path: String,
+    handle: Option<u32>,
+    frame: u64,
+    fps_num: u32,
+    fps_den: u32,
+) -> Result<Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = Path::new(&path);
+        readable(
+            &app.state::<Offered>(),
+            &app.state::<OpenFiles>(),
+            handle,
+            path,
+        )?;
+        still(path, frame, fps_num, fps_den).map(Response::new)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Whether a linked video's file is still where the project says, and its size, for the missing flag and Relink.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FileStatus {
+    pub exists: bool,
+    pub size: Option<u64>,
+}
+
+fn status(
+    offered: &Offered,
+    files: &OpenFiles,
+    handle: Option<u32>,
+    path: &Path,
+) -> Option<FileStatus> {
+    if !may_read(offered, files, handle, path) {
+        return None;
+    }
+    let meta = std::fs::metadata(path)
+        .ok()
+        .filter(std::fs::Metadata::is_file);
+    Some(FileStatus {
+        exists: meta.is_some(),
+        size: meta.map(|meta| meta.len()),
+    })
+}
+
+/// The status of each path, in order: null for one the page may not ask about.
+#[tauri::command]
+pub async fn video_status(
+    app: AppHandle,
+    paths: Vec<String>,
+    handle: Option<u32>,
+) -> Result<Vec<Option<FileStatus>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (offered, files) = (app.state::<Offered>(), app.state::<OpenFiles>());
+        paths
+            .iter()
+            .map(|path| status(&offered, &files, handle, Path::new(path)))
+            .collect()
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// The Open dialog for videos; the files picked become readable.
+#[tauri::command]
+pub async fn video_choose(
+    app: AppHandle,
+    multiple: bool,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    crate::pictures::choose(app, title, (kind, VIDEO_EXTENSIONS), multiple).await
 }
 
 #[cfg(test)]
@@ -600,13 +766,13 @@ mod tests {
             ],
             &["-c:v", "mpeg4"],
         );
-        let offered = Offered::default();
-        assert!(probe_offered(&offered, &clip).is_err());
+        let (offered, files) = (Offered::default(), OpenFiles::default());
+        assert!(readable(&offered, &files, None, &clip).is_err());
         offered.offer(std::slice::from_ref(&clip));
-        assert!(probe_offered(&offered, &clip).is_ok());
+        assert!(readable(&offered, &files, None, &clip).is_ok());
         offered.offer(std::slice::from_ref(&dir));
         assert_eq!(
-            probe_offered(&offered, &dir).unwrap_err(),
+            readable(&offered, &files, None, &dir).unwrap_err(),
             "That's a folder, not a file."
         );
         let sound = make(
@@ -619,6 +785,208 @@ mod tests {
         let text = dir.join("notes.mov");
         fs::write(&text, "not a video").unwrap();
         assert!(probe(&text).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An open project, `Bey County.sbd` in `dir`, whose one video record names `source_path`.
+    fn project_linking(dir: &Path, files: &OpenFiles, source_path: &str) -> u32 {
+        let mut file = crate::sbd::SbdFile::create(&dir.join("Bey County.sbd")).unwrap();
+        let statement = |sql: &str, params: Vec<Value>| crate::sbd::Statement {
+            sql: sql.into(),
+            params,
+        };
+        file.tx(&[
+            statement(
+                "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT, props TEXT)",
+                vec![],
+            ),
+            statement(
+                "INSERT INTO records VALUES ('v', 'media', ?)",
+                vec![Value::String(
+                    serde_json::json!({ "kind": "video", "source_path": source_path }).to_string(),
+                )],
+            ),
+            // A picture's source path isn't a link to read a video through.
+            statement(
+                "INSERT INTO records VALUES ('p', 'media', ?)",
+                vec![Value::String(
+                    serde_json::json!({ "kind": "image", "source_path": "Stills/frame.mov" })
+                        .to_string(),
+                )],
+            ),
+        ])
+        .unwrap();
+        files.add_for_test(file)
+    }
+
+    #[test]
+    fn reads_a_video_the_open_project_links_by_a_path_relative_to_it_but_nothing_else() {
+        let dir = temp_dir("linked");
+        fs::create_dir_all(dir.join("Footage")).unwrap();
+        fs::create_dir_all(dir.join("Stills")).unwrap();
+        let (offered, files) = (Offered::default(), OpenFiles::default());
+        let handle = project_linking(&dir, &files, "Footage/C0042.MP4");
+        let linked = dir.join("Footage").join("C0042.MP4");
+        fs::write(&linked, "").unwrap();
+        assert!(may_read(&offered, &files, Some(handle), &linked));
+        // Not without the project, not another file, not one a picture names, not a non-video under a video's name.
+        assert!(!may_read(&offered, &files, None, &linked));
+        assert!(!may_read(
+            &offered,
+            &files,
+            Some(handle),
+            &dir.join("Footage").join("C0043.MP4")
+        ));
+        assert!(!may_read(
+            &offered,
+            &files,
+            Some(handle),
+            &dir.join("Stills").join("frame.mov")
+        ));
+        assert!(!may_read(&offered, &files, Some(handle + 1), &linked));
+        // The status of a linked file, and of one moved away; none for a file the page may not ask about.
+        assert_eq!(
+            status(&offered, &files, Some(handle), &linked),
+            Some(FileStatus {
+                exists: true,
+                size: Some(0)
+            })
+        );
+        fs::remove_file(&linked).unwrap();
+        assert_eq!(
+            status(&offered, &files, Some(handle), &linked),
+            Some(FileStatus {
+                exists: false,
+                size: None
+            })
+        );
+        assert_eq!(
+            status(&offered, &files, Some(handle), &dir.join("secret.txt")),
+            None
+        );
+
+        // An absolute path outside the project's folder, as a card or another drive is linked.
+        let elsewhere = temp_dir("card");
+        let files = OpenFiles::default();
+        let card = elsewhere.join("A001_C003.mov");
+        let handle = project_linking(&dir.join("Footage"), &files, &card.to_string_lossy());
+        assert!(may_read(&offered, &files, Some(handle), &card));
+        files.close_all();
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&elsewhere);
+    }
+
+    /// The grey level of a one-colour PNG, read back with the sidecar.
+    fn grey(dir: &Path, png: &[u8]) -> u8 {
+        let path = dir.join("still.png");
+        fs::write(&path, png).unwrap();
+        let raw = dir.join("still.raw");
+        let status = command("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+            .arg(&path)
+            .args(["-f", "rawvideo", "-pix_fmt", "gray"])
+            .arg(&raw)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let bytes = fs::read(&raw).unwrap();
+        (bytes.iter().map(|&b| u32::from(b)).sum::<u32>() / bytes.len() as u32) as u8
+    }
+
+    #[test]
+    fn grabs_exactly_the_frame_asked_for_at_23_976_from_a_file_that_starts_late() {
+        let dir = temp_dir("still");
+        // Each frame its own grey: frame n is 8 (n mod 32). An MPEG transport stream starts its clock at 1.4 s, as camera
+        // AVCHD files do, so the seek has to count from the file's own start.
+        // The same frames from a camera's own container, a QuickTime file, with long gaps between keyframes.
+        for name in ["00001.MTS", "A001_C003.mov"] {
+            let clip = make(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:size=64x36:rate=24000/1001:duration=6",
+                ],
+                &[
+                    "-vf",
+                    "format=gray,geq=lum='mod(N,32)*8',format=yuv420p",
+                    "-c:v",
+                    if name.ends_with("MTS") {
+                        "mpeg2video"
+                    } else {
+                        "mpeg4"
+                    },
+                    "-q:v",
+                    "1",
+                    "-g",
+                    if name.ends_with("MTS") { "12" } else { "48" },
+                ],
+            );
+            let untouched = (
+                fs::read(&clip).unwrap(),
+                fs::metadata(&clip).unwrap().modified().unwrap(),
+            );
+            probe(&clip).unwrap();
+            // Frames past 3 s use the quick seek first.
+            for frame in [0_u64, 1, 7, 13, 23, 30, 100, 137] {
+                let png = still(&clip, frame, 24000, 1001).unwrap();
+                assert_eq!(&png[1..4], b"PNG");
+                let level = i32::from(grey(&dir, &png));
+                let expected = (frame % 32 * 8) as i32;
+                assert!(
+                    (level - expected).abs() <= 3,
+                    "{name} frame {frame}: grey {level}, expected {expected}"
+                );
+            }
+            assert!(still(&clip, 10_000, 24000, 1001).is_err(), "past the end");
+            // The original is only ever read: the same bytes, never even touched.
+            assert_eq!(
+                (
+                    fs::read(&clip).unwrap(),
+                    fs::metadata(&clip).unwrap().modified().unwrap()
+                ),
+                untouched
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn grabs_an_anamorphic_frame_with_square_pixels_and_a_big_one_at_the_cap() {
+        let dir = temp_dir("still-size");
+        let size = |png: &[u8]| {
+            // A PNG's IHDR: width and height, big-endian, right after the signature and the chunk header.
+            let at = |i: usize| u32::from_be_bytes(png[i..i + 4].try_into().unwrap());
+            (at(16), at(20))
+        };
+        let hdv = make(
+            &dir,
+            "hdv.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=1440x1080:rate=25:duration=0.2",
+            ],
+            &["-c:v", "mpeg4", "-aspect", "16:9"],
+        );
+        assert_eq!(size(&still(&hdv, 2, 25, 1).unwrap()), (1920, 1080));
+        let big = make(
+            &dir,
+            "6k.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=6144x3240:rate=25:duration=0.08",
+            ],
+            &["-c:v", "mpeg4"],
+        );
+        let (width, height) = size(&still(&big, 0, 25, 1).unwrap());
+        assert_eq!(width, 2560);
+        assert!((1349..=1350).contains(&height), "{height}");
         let _ = fs::remove_dir_all(&dir);
     }
 
