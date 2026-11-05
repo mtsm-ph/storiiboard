@@ -54,8 +54,9 @@ function tileInfo(id: BuiltInTile): TileInfo {
 
 /**
  * Every tile, by an id unique across workspaces, so any tile can open in any workspace. Notifications and Trash are
- * in no default layout, and Calendar only in Production's: any workspace opens them. Production's cast and crew tile
- * and the Team section read the same person records.
+ * in no default layout, and Calendar only in Production's: any workspace opens them from the Layout menu once they're
+ * built (until then the menu leaves placeholders out, so Notifications shows nowhere before Phase 3). Production's
+ * cast and crew tile and the Team section read the same person records.
  */
 export const TILES: Readonly<Record<TileId, TileInfo>> = Object.fromEntries(BUILT_IN_TILES.map((id) => [id, tileInfo(id)]));
 

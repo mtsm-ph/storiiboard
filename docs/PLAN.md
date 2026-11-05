@@ -118,15 +118,19 @@ Decided Nov 5 (Kevin):
 Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo ones to be taken this way):
 - The Layout menu's Open tile lists only built tiles (Trash, History, Color script and the Storyboard's own); a
   phase's placeholder stays in the default layout it belongs to, and Reset to default layout brings it back if closed.
-  Built: one filter in LayoutMenu.tsx.
+  Built: one filter in LayoutMenu.tsx. Notifications, in no default layout, shows nowhere until Phase 3 builds it.
 - The role list (src/core/model/role.ts) stays as built; roles are stored by id, so adding one later changes nothing.
 - An approval stays one sign-off by the director or the DP. The file keeps a list of approvals, so "both must sign"
   is a change of rule, not of format.
 - The department status colours stay the kit's navy, mustard and sage. They match the department tags' colours, but
   no screen shows a department tag today (only the developer catalogue), and every status carries its own shape.
-  Revisit when tags come back on screen (Phase 3's department workspaces). Changing them is three tokens.
-- Not decided, for Kevin: whether each edit carries who made it (names in the project file). Written into the
-  append-only log, a name stays there for good, so it can't be taken back once shipped.
+  Revisit when tags come back on screen (Phase 3's department workspaces) and when the plan icons, drawn in the same
+  colours, reach the bird's-eye view (Phase 5). Changing them is the three state-* tokens in src/ui/theme.css (four
+  values with dark mode's Seen; Done's glow follows its token).
+- Not decided, for Kevin: whether each edit carries who made it (the op and op group uthor, still local, so
+  History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
+  shipped. Note that one name is already in the file: since P6a an approval keeps the approver's profile name and
+  role, as the brief's "showing who" asked, and each Approved tick is an op, so that name is in the log too.
 
 P1 as built (Nov 4):
 - The app's words live in one file per language, src/core/i18n/locales (English: `en.ts`). Code reads them through
@@ -191,7 +195,7 @@ PC as built (Nov 5):
   out of the strip, as Kevin listed it, and is one click away once the sidebar shows.
 - The local profile (name, initials, usual role) lives in the person's settings and is edited in Settings → Profile,
   which the profile button opens. Roles are kept by id (src/core/model/role.ts) for P6's approvals.
-- The profile stays in this computer's settings: nothing of it goes into a .sbd, and History's steps still read
+- The profile stays in this computer's settings, and History's steps still read
   "You" (ops keep `author = local`). Writing a name into every op would put personal data in the append-only log
   for good, so it waits for Kevin's call at review stop 1: names in the file or not, and if so as a stable profile id
   with the name beside it (renames and shared names stay one person) rather than the bare name.

@@ -131,6 +131,16 @@ test('opens any built tile in any workspace from the Layout menu, and only built
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await expect(tile(page, 'Trash')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Layout/ })).toBeFocused();
+
+  // With every built tile open, the group offers nothing, though Calendar, Gear and the rest aren't open.
+  for (const name of ['History', 'Color script']) {
+    await page.getByRole('button', { name: /^Layout/ }).click();
+    await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name, exact: true }).click();
+  }
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  const group = page.getByRole('group', { name: 'Open tile' });
+  await expect(group.getByRole('button')).toHaveCount(0);
+  await expect(group.getByText('Every built tile is open.')).toBeVisible();
 });
 
 test('moves a tile from the keyboard alone', async ({ page }) => {
