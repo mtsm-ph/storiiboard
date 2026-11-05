@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { parseBackupFileName } from '../../core/storage/backups';
+import { byNewest, parseBackup } from '../../core/storage/backups';
 import { joinPath } from '../../core/storage/openBackup';
 import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { localDateTime } from '../format';
@@ -35,9 +35,10 @@ export function BackupsPanel() {
 
   const entries: BackupEntry[] =
     project && found
-      ? found.names
-          .map((name) => ({ name, at: parseBackupFileName(project.name, name) }))
-          .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+      ? byNewest(project.name, found.names).map((name) => {
+          const parsed = parseBackup(project.name, name);
+          return { name, at: parsed?.at ?? null, copy: parsed?.copy ?? 1 };
+        })
       : [];
 
   return (

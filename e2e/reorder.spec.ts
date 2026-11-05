@@ -195,6 +195,26 @@ test('in the shot list, a row dropped on any cell of another row lands there', a
   await expect(frames(page, 'SC 01').nth(0)).toHaveAttribute('data-shot-id', id ?? '');
 });
 
+test('locking a scene whose letters are already on another scene’s slates says which frames it re-letters', async ({ page }) => {
+  const scenes = page.getByRole('region', { name: 'Scenes', exact: true });
+  await scenes.getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
+  // Renumbered while locked, scene 1 becomes 9, and its frames keep 1A to 1C, the numbers on their slates.
+  await frames(page, 'SC 01').nth(0).click();
+  await inspector(page).getByLabel('Number', { exact: true }).fill('9');
+  await inspector(page).getByLabel('Number', { exact: true }).press('Enter');
+  await expect(frames(page, 'SC 09')).toHaveCount(3);
+  // Scene 2, unlocked, becomes 1: its frame follows the board and reads 1A again.
+  await frames(page, 'SC 02').nth(0).click();
+  await inspector(page).getByLabel('Number', { exact: true }).fill('1');
+  await inspector(page).getByLabel('Number', { exact: true }).press('Enter');
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A']);
+  // Locking it puts the numbers on slates, where 1A already is, so it's re-lettered, and the person is told.
+  await scenes.getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
+  await expect(page.getByText('Locked SC 01. To keep slate numbers unique, 1A is now 1D.')).toBeVisible();
+  await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1D']);
+  expect(await numbers(page, 'SC 09')).toEqual(['1A', '1B', '1C']);
+});
+
 test('a frame stays in a scene whose numbers are locked, and the board says why', async ({ page }) => {
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
   await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);

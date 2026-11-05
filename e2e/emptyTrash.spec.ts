@@ -111,7 +111,9 @@ test('Compact project backs up and shrinks the file without asking, and the boar
   expect(asked).toEqual([]);
   // The backup is listed with the project's others.
   await page.getByRole('tab', { name: 'Backups' }).click();
-  await expect(page.getByText(/Bey County \d{4}-\d{2}-\d{2} \d{2}-\d{2}/).first()).toBeVisible();
+  await expect(
+    page.getByRole('list', { name: 'Backups' }).getByRole('button', { name: /^Open the \d{4}-\d{2}-\d{2} \d{2}:\d{2} backup/ }),
+  ).toBeVisible();
   // And editing carries on, with undo.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();

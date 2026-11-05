@@ -4,6 +4,7 @@ import {
   backupFileName,
   backupsOverCap,
   backupsToDelete,
+  byNewest,
   DEFAULT_KEEP,
   isBackupName,
   isMigrationBackupName,
@@ -35,6 +36,30 @@ describe('backup names', () => {
 
   it("doesn't read a date that doesn't exist", () => {
     expect(parseBackupFileName('Bey', 'Bey 2026-02-30 10-00.sbd')).toBeNull();
+  });
+
+  it('names a second backup in the same minute (2), never a time still to come, with one spelling each', () => {
+    const at = new Date(2026, 10, 4, 18, 30);
+    expect(backupFileName('Bey', at, 2)).toBe('Bey 2026-11-04 18-30 (2).sbd');
+    expect(backupFileName('Bey', at, 1)).toBe('Bey 2026-11-04 18-30.sbd');
+    for (const copy of ['(2)', '(9)', '(10)', '(99)']) expect(isBackupName('Bey', `Bey 2026-11-04 18-30 ${copy}.sbd`)).toBe(true);
+    for (const copy of ['(1)', '(0)', '(02)', '()', '(2a)', '(-2)', '(2', '2)', '(100)']) {
+      expect(isBackupName('Bey', `Bey 2026-11-04 18-30 ${copy}.sbd`)).toBe(false);
+    }
+    expect(parseBackupFileName('Bey', 'Bey 2026-11-04 18-30 (2).sbd')).toEqual(at);
+  });
+
+  it('lists and prunes a minute’s copies in the order they were made', () => {
+    const at = new Date(2026, 10, 4, 18, 30);
+    const minute = [backupFileName('Bey', at), backupFileName('Bey', at, 2), backupFileName('Bey', at, 10)];
+    const earlier = backupFileName('Bey', new Date(2026, 10, 4, 18, 29));
+    expect(byNewest('Bey', [minute[1] ?? '', earlier, minute[0] ?? '', minute[2] ?? ''])).toEqual([...minute].reverse().concat(earlier));
+    // Keeping the newest one keeps the minute's last copy.
+    expect(backupsToDelete([earlier, ...minute], 'Bey', at, { recent: 1, days: 1 }).sort()).toEqual([earlier, minute[0], minute[1]].sort());
+    // The cap deletes a minute's earliest copies first, whatever order they're listed in.
+    const shuffled = [10, 3, 1, 2, 4].map((copy) => backupFileName('Bey', at, copy));
+    const capped = backupsOverCap(shuffled.map((name) => ({ name, bytes: 10 })), 'Bey', 25);
+    expect(capped).toEqual([backupFileName('Bey', at), backupFileName('Bey', at, 2)]);
   });
 });
 

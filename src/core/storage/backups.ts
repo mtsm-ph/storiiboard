@@ -34,9 +34,12 @@ export function stamp(at: Date): string {
   return `${date} ${pad(at.getHours())}-${pad(at.getMinutes())}`;
 }
 
-/** `Bey County 2026-11-02 14-05.sbd` */
-export function backupFileName(projectStem: string, at: Date): string {
-  return `${projectStem} ${stamp(at)}.sbd`;
+/**
+ * `Bey County 2026-11-02 14-05.sbd`; a second backup in the same minute is `Bey County 2026-11-02 14-05 (2).sbd`, so
+ * a name never carries a time that hasn't come yet (Kevin, Nov 4).
+ */
+export function backupFileName(projectStem: string, at: Date, copy = 1): string {
+  return `${projectStem} ${stamp(at)}${copy > 1 ? ` (${String(copy)})` : ''}.sbd`;
 }
 
 /** `Bey County.sbd.bak-v1-2026-11-02 14-05`, the copy made before upgrading a file from schema `from`. */
@@ -45,11 +48,15 @@ export function migrationBackupName(projectFileName: string, from: number, at: D
 }
 
 const STAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2})$/;
+/** The most backups one minute can hold: its copy numbers run to ` (99)`, the room openBackup.ts leaves for them. */
+export const MAX_COPIES = 99;
+/** A scheduled backup's stamp, with the copy number a second one in the same minute takes: ` (2)` to ` (99)`. */
+const BACKUP_STAMP = /^((\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2}))(?: \(([2-9]|[1-9]\d)\))?$/;
 
 /** The shape check src-tauri/src/sbd.rs makes before it writes or deletes a backup; nodeDriver.ts makes it too. */
 export function isBackupName(projectStem: string, name: string): boolean {
   const prefix = `${projectStem} `;
-  return name.startsWith(prefix) && name.endsWith('.sbd') && STAMP.test(name.slice(prefix.length, -'.sbd'.length));
+  return name.startsWith(prefix) && name.endsWith('.sbd') && BACKUP_STAMP.test(name.slice(prefix.length, -'.sbd'.length));
 }
 
 export function isMigrationBackupName(projectFileName: string, name: string): boolean {
@@ -59,24 +66,42 @@ export function isMigrationBackupName(projectFileName: string, name: string): bo
   return match !== null && STAMP.test(match[2] ?? '');
 }
 
-/** When a backup of this project was made, or null if the name isn't one of its backups. */
-export function parseBackupFileName(projectStem: string, name: string): Date | null {
+/** When a backup of this project was made and which copy of that minute it is, or null if it isn't one of its backups. */
+export function parseBackup(projectStem: string, name: string): { at: Date; copy: number } | null {
   const prefix = `${projectStem} `;
   if (!name.startsWith(prefix) || !name.endsWith('.sbd')) return null;
-  const match = STAMP.exec(name.slice(prefix.length, -'.sbd'.length));
+  const match = BACKUP_STAMP.exec(name.slice(prefix.length, -'.sbd'.length));
   if (!match) return null;
-  const [year, month, day, hours, minutes] = match.slice(1).map(Number) as [number, number, number, number, number];
+  const [year, month, day, hours, minutes] = match.slice(2, 7).map(Number) as [number, number, number, number, number];
   const at = new Date(year, month - 1, day, hours, minutes);
   // Date rolls 2026-02-30 over to March; a name like that wasn't made by us.
-  return stamp(at) === match[0] ? at : null;
+  return stamp(at) === match[1] ? { at, copy: Number(match[7] ?? 1) } : null;
+}
+
+/** When a backup of this project was made, or null if the name isn't one of its backups. */
+export function parseBackupFileName(projectStem: string, name: string): Date | null {
+  return parseBackup(projectStem, name)?.at ?? null;
+}
+
+/** Newest first: by time, then a minute's later copies before its earlier ones. */
+function newestFirst(a: { at: Date; copy: number }, b: { at: Date; copy: number }): number {
+  return b.at.getTime() - a.at.getTime() || b.copy - a.copy;
+}
+
+/** Backup names in the order they were made, newest first; names that aren't this project's backups go last. */
+export function byNewest(projectStem: string, names: readonly string[]): string[] {
+  const parsed = names.map((name) => ({ name, backup: parseBackup(projectStem, name) }));
+  return parsed
+    .sort((a, b) => (a.backup && b.backup ? newestFirst(a.backup, b.backup) : a.backup ? -1 : b.backup ? 1 : 0))
+    .map((entry) => entry.name);
 }
 
 /** Which of this project's backups pruning deletes. Names that aren't its backups are never in the result. */
 export function backupsToDelete(names: readonly string[], projectStem: string, now: Date, keep: BackupKeep): string[] {
   const dated = names
-    .map((name) => ({ name, at: parseBackupFileName(projectStem, name) }))
-    .filter((backup): backup is { name: string; at: Date } => backup.at !== null)
-    .sort((a, b) => b.at.getTime() - a.at.getTime());
+    .map((name) => ({ name, parsed: parseBackup(projectStem, name) }))
+    .flatMap(({ name, parsed }) => (parsed ? [{ name, ...parsed }] : []))
+    .sort(newestFirst);
 
   const kept = new Set(dated.slice(0, keep.recent).map((backup) => backup.name));
   // Local midnight at the start of the oldest day kept. Built from the calendar date, so a daylight-saving change
@@ -100,9 +125,11 @@ export function backupsToDelete(names: readonly string[], projectStem: string, n
  */
 export function backupsOverCap(backups: readonly BackupFile[], projectStem: string, cap = BACKUP_CAP_BYTES): string[] {
   const oldestFirst = backups
-    .map((backup) => ({ ...backup, at: parseBackupFileName(projectStem, backup.name) }))
-    .filter((backup): backup is BackupFile & { at: Date } => backup.at !== null)
-    .sort((a, b) => a.at.getTime() - b.at.getTime());
+    .flatMap((backup) => {
+      const parsed = parseBackup(projectStem, backup.name);
+      return parsed ? [{ ...backup, ...parsed }] : [];
+    })
+    .sort((a, b) => newestFirst(b, a));
   let total = oldestFirst.reduce((sum, backup) => sum + backup.bytes, 0);
   const deleted: string[] = [];
   for (const backup of oldestFirst.slice(0, Math.max(0, oldestFirst.length - ALWAYS_KEPT))) {
@@ -149,16 +176,17 @@ export interface BackupSchedule {
 }
 
 /**
- * A backup name for the file as it is now: this minute's, or the next free minute's when a backup made earlier this
- * minute already has it. That one holds an older state, and backups are never overwritten.
+ * A backup name for the file as it is now: this minute's, or this minute's next copy, ` (2)` on, when a backup made
+ * earlier this minute already has it. That one holds an older state, and backups are never overwritten.
  */
 export async function freshBackupName(file: ProjectFile, at: Date): Promise<string> {
   const stem = fileStem(file.path);
   const taken = new Set((await file.listBackups()).map((backup) => backup.name));
-  for (let minutes = 0; ; minutes += 1) {
-    const name = backupFileName(stem, new Date(at.getTime() + minutes * 60_000));
+  for (let copy = 1; copy <= MAX_COPIES; copy += 1) {
+    const name = backupFileName(stem, at, copy);
     if (!taken.has(name)) return name;
   }
+  throw new Error(`This project already has ${String(MAX_COPIES)} backups from this minute. Try again in a minute.`);
 }
 
 /**
@@ -186,7 +214,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     const changes = await changeCount(file);
     if (changes <= backedUpAt) return { created: null, deleted: [] };
     const at = now();
-    // A second run in the same minute (a manual one right after a scheduled one) takes the next minute's name.
+    // A second run in the same minute (a manual one right after a scheduled one) is that minute's next copy.
     const name = await freshBackupName(file, at);
     await file.backup('scheduled', name);
     backedUpAt = changes;

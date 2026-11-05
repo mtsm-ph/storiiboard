@@ -575,13 +575,30 @@ fn check_extension(path: &Path) -> Result<(), String> {
     }
 }
 
-/// `<Project> YYYY-MM-DD HH-mm.sbd`, where `<Project>` is the .sbd's name without the extension. src/core/storage/
-/// backups.ts makes these names; this check is the guard that keeps a bug there from touching other files.
+/// `<Project> YYYY-MM-DD HH-mm.sbd`, or `… HH-mm (2).sbd` to `(99)` for a minute's later copies, where `<Project>` is
+/// the .sbd's name without the extension. src/core/storage/backups.ts makes these names; this check is the guard that
+/// keeps a bug there from touching other files.
 pub fn is_backup_name(stem: &str, name: &str) -> bool {
     name.strip_prefix(stem)
         .and_then(|rest| rest.strip_prefix(' '))
         .and_then(|rest| rest.strip_suffix(".sbd"))
-        .is_some_and(is_stamp)
+        .is_some_and(|rest| is_stamp(rest) || is_stamp_copy(rest))
+}
+
+/// `YYYY-MM-DD HH-mm (2)`: a second backup in the same minute, and on to `(99)` (backups.ts MAX_COPIES). A copy number
+/// is 2 to 99, with no leading zero, so each name has one spelling.
+fn is_stamp_copy(rest: &str) -> bool {
+    let Some((stamp, copy)) = rest.split_at_checked(16) else {
+        return false;
+    };
+    let Some(digits) = copy.strip_prefix(" (").and_then(|c| c.strip_suffix(')')) else {
+        return false;
+    };
+    is_stamp(stamp)
+        && (1..=2).contains(&digits.len())
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && !digits.starts_with('0')
+        && digits != "1"
 }
 
 /// `<name>.sbd.bak-v<from>-YYYY-MM-DD HH-mm`, made before a migration.
@@ -2106,6 +2123,25 @@ mod tests {
         assert!(!is_backup_name(
             "Bey County",
             "Bey County 2026-11-02 14:05.sbd"
+        ));
+        // A second backup in the same minute, and on; one spelling each.
+        for copy in ["(2)", "(3)", "(10)", "(99)"] {
+            assert!(is_backup_name(
+                "Bey County",
+                &format!("Bey County 2026-11-02 14-05 {copy}.sbd")
+            ));
+        }
+        for copy in [
+            "(1)", "(0)", "(02)", "()", "(2a)", "(2", "2)", "(-2)", "(100)",
+        ] {
+            assert!(!is_backup_name(
+                "Bey County",
+                &format!("Bey County 2026-11-02 14-05 {copy}.sbd")
+            ));
+        }
+        assert!(!is_backup_name(
+            "Bey County",
+            "Bey County 2026-11-02 14-05(2).sbd"
         ));
         assert!(is_migration_backup_name(
             "Bey.sbd",

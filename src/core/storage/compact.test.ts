@@ -92,12 +92,12 @@ describe('Compact project', () => {
     expect(check[0]?.integrity_check).toBe('ok');
   });
 
-  it('never overwrites a backup made earlier the same minute: it takes the next free minute', async () => {
+  it('never overwrites a backup made earlier the same minute, nor names one for a time still to come', async () => {
     await project.file.backup('scheduled', backupFileName('Bey County', AT));
     await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
     const done = await compactProject(project.file, { now: AT });
-    expect(done.backup).toBe(backupFileName('Bey County', new Date(AT.getTime() + 60_000)));
-    expect(backups()).toEqual([backupFileName('Bey County', AT), done.backup]);
+    expect(done.backup).toBe('Bey County 2026-11-04 18-30 (2).sbd');
+    expect(backups()).toEqual([backupFileName('Bey County', AT), done.backup].sort());
   });
 
   it('compacts nothing when the backup fails', async () => {
@@ -159,14 +159,17 @@ describe('Compact project', () => {
       // Nothing changed between them, so the scheduled copy stands for Compact's.
       expect(done.backup).toBe(run.created);
       expect(done.after).toBeLessThan(done.before);
-      // After an edit, Compact makes a new one; in the same minute, under the next minute's name.
+      // After an edit, Compact makes a new one: in the same minute, that minute's second copy, never a later time.
       await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
       const again = await compactProject(project.file, { schedule });
-      expect(again.backup).toBe(backupFileName('Bey County', new Date(AT.getTime() + 60_000)));
-      minute = 1;
-      // And a scheduled run in that minute after another edit never stands on the older copy.
+      expect(again.backup).toBe('Bey County 2026-11-04 18-30 (2).sbd');
+      // A scheduled run that minute after another edit is its third, never standing on an older copy.
       await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
-      expect((await schedule.runNow()).created).toBe(backupFileName('Bey County', new Date(AT.getTime() + 120_000)));
+      expect((await schedule.runNow()).created).toBe('Bey County 2026-11-04 18-30 (3).sbd');
+      // The next minute starts again at the plain name.
+      minute = 1;
+      await store.getState().apply(addShot(store.getState().records, project.projectId, 'sc4').changes);
+      expect((await schedule.runNow()).created).toBe(backupFileName('Bey County', new Date(AT.getTime() + 60_000)));
     } finally {
       schedule.stop();
     }
