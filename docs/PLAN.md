@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 6, 2026 (PC sidebar foot merged) |
+| Last updated | Nov 6, 2026 (PA menus merged; review stop 1) |
 
 | Phase | State |
 |---|---|
@@ -97,7 +97,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | #52 | Done |
 | PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | #53 | Done |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | #54 | Done |
-| PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
+| PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | #55 | Done |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
 | P6 Department status per shot (Priority, Seen, Working on it, Done, Approved) in place of on/off tags; schema change approved; "Your role on this project" | | Planned |
 | PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
@@ -181,6 +181,12 @@ PC as built (Nov 5):
   with the name beside it (renames and shared names stay one person) rather than the bare name.
 - For stop 1 too: the role list (src/core/model/role.ts) before P6 saves role ids in settings and approvals.
 - A project's own "Your role" comes with P6, in Settings → Project, and takes the place of the usual role there.
+
+PA as built (Nov 6): the Layout and project menus in labelled groups, as DESIGN.md's Menus lists them, with the rules
+Kevin set on Nov 5. Menu primitives in src/ui/Menu.tsx (MenuGroup, MenuItem, commandShortcut). New shortcuts: ⌘⇧H
+History and ⌘E Export (Ctrl elsewhere), not inside a window of the app's. Maximize tile acts on the tile that last
+held focus. The sidebar's hidden state moved to a store of its own, shared by the button, ⌘\ and the menu. "Update
+“Storyboard”" is now "Save layout", and Watermark Settings… carries its "…".
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

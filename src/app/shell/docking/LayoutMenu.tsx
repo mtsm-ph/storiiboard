@@ -1,17 +1,24 @@
 import { useEffect, type MouseEvent } from 'react';
-import { Menu, menuItemClass } from '../../../ui/Menu';
+import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
 import { inModalDialog, TILES, type Workspace } from '../workspaces';
-import { openTile, tilesIn, type Layout } from './layout';
+import { openTile, tilesIn, toggleMaximize, type Layout } from './layout';
+import { lastUsedStack } from './Dock';
+import { isMac } from '../undoShortcuts';
+import { sidebarShortcut } from '../sidebar/sidebarToggle';
+import { toggleSidebar, useSidebarHidden } from '../sidebar/sidebarStore';
 import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore';
 import { t } from '../../../core/i18n';
 
-// The workspace's layout commands (DESIGN.md, State 05): save, reset, undo, and open any tile in this workspace.
-// Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
+// The workspace's layout commands (DESIGN.md, State 05), in labelled groups (polish A): this workspace's layout, the
+// view (the sidebar, a tile maximized), any tile to open here, and Undo layout change in a group of its own at the
+// bottom. Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
 
 export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   const layouts = useLayouts((s) => s.layouts[workspace.id]);
   const undoable = useLayouts((s) => canUndoLayout(s.past, workspace.id));
   const unsaved = isUnsaved(layouts);
+  const sidebarHidden = useSidebarHidden();
+  const mac = isMac();
   const missing = Object.keys(TILES).filter((tile) => !tilesIn(layouts.current).includes(tile));
   const change = (next: Layout) => {
     layoutStore.getState().change(workspace.id, next);
@@ -50,37 +57,64 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
           const tile = event.currentTarget.dataset.tile;
           if (tile) run(() => { change(openTile(layoutStore.getState().layouts[workspace.id].current, tile)); })();
         };
+        const maximizedNow = layouts.current.maximized;
+        const lastStack = lastUsedStack(workspace.id, layouts.current);
+        const maximizeTarget = maximizedNow ?? lastStack?.id ?? null;
+        const lastTitle = lastStack ? (TILES[lastStack.active]?.title ?? lastStack.active) : null;
         return (
           <>
-            <button type="button" className={menuItemClass} disabled={!unsaved} onClick={run(save)} aria-keyshortcuts="Meta+Shift+S Control+Shift+S">
-              {t('layoutMenu.update', { name: workspace.label })}
-            </button>
-            <button type="button" className={menuItemClass} disabled={!unsaved} onClick={run(() => { change(layouts.saved); })}>
-              {t('layoutMenu.resetToSavedLayout')}
-            </button>
-            <button type="button" className={menuItemClass} onClick={run(() => { change(workspace.defaultLayout()); })}>
-              {t('layoutMenu.resetToDefaultLayout')}
-            </button>
-            <button
-              type="button"
-              className={menuItemClass}
-              disabled={!undoable}
-              onClick={run(() => {
-                layoutStore.getState().undo(workspace.id);
-              })}
-            >
-              {t('layoutMenu.undoLayoutChange')}
-            </button>
-            <p className="sb-label px-3 pt-3 pb-1 text-text-muted">{t('layoutMenu.openTile')}</p>
-            {missing.length === 0 ? (
-              <p className="sb-label px-3 pb-3 text-text-muted">{t('layoutMenu.everyTileIsOpen')}</p>
-            ) : (
-              missing.map((tile) => (
-                <button key={tile} type="button" className={menuItemClass} data-tile={tile} onClick={onOpenTile}>
-                  {TILES[tile]?.title}
-                </button>
-              ))
-            )}
+            <MenuGroup label={t('layoutMenu.groupWorkspace', { name: workspace.label })}>
+              <MenuItem disabled={!unsaved} onClick={run(save)} shortcut={commandShortcut('S', { shift: true, mac })}>
+                {t('layoutMenu.save')}
+              </MenuItem>
+              <MenuItem disabled={!unsaved} onClick={run(() => { change(layouts.saved); })}>
+                {t('layoutMenu.resetToSavedLayout')}
+              </MenuItem>
+              <MenuItem onClick={run(() => { change(workspace.defaultLayout()); })}>{t('layoutMenu.resetToDefaultLayout')}</MenuItem>
+            </MenuGroup>
+            <MenuGroup label={t('layoutMenu.groupView')}>
+              <MenuItem
+                onClick={run(() => {
+                  toggleSidebar(false);
+                })}
+                shortcut={sidebarShortcut(mac)}
+              >
+                {sidebarHidden ? t('layoutMenu.showSidebar') : t('layoutMenu.hideSidebar')}
+              </MenuItem>
+              <MenuItem
+                disabled={maximizeTarget === null}
+                onClick={run(() => {
+                  if (maximizeTarget) change(toggleMaximize(layouts.current, maximizeTarget));
+                })}
+                // ` acts on the tile holding focus, not on this item: shown as a hint, not as its own key.
+                hint="`"
+              >
+                {/* Named, so it's plain which tile it acts on; before any tile is used, a plain Maximize tile, off. */}
+                {maximizedNow ? t('layoutMenu.restoreTile') : lastTitle ? t('layoutMenu.maximizeNamed', { title: lastTitle }) : t('layoutMenu.maximizeTile')}
+              </MenuItem>
+            </MenuGroup>
+            <MenuGroup label={t('layoutMenu.openTile')}>
+              {missing.length === 0 ? (
+                <p className="sb-label px-3 pb-3 text-text-muted">{t('layoutMenu.everyTileIsOpen')}</p>
+              ) : (
+                missing.map((tile) => (
+                  <MenuItem key={tile} data-tile={tile} onClick={onOpenTile}>
+                    {TILES[tile]?.title}
+                  </MenuItem>
+                ))
+              )}
+            </MenuGroup>
+            {/* What undoes goes last, in a group of its own (Kevin, Nov 5). */}
+            <MenuGroup>
+              <MenuItem
+                disabled={!undoable}
+                onClick={run(() => {
+                  layoutStore.getState().undo(workspace.id);
+                })}
+              >
+                {t('layoutMenu.undoLayoutChange')}
+              </MenuItem>
+            </MenuGroup>
           </>
         );
       }}

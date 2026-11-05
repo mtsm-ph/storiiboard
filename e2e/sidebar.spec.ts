@@ -108,7 +108,7 @@ test('the project menu and switcher show what each command waits for', async ({ 
   // Every command is built; with no project open there's nothing for them to act on. In the menu's own panel: the top
   // bar has a History button too (polish 3).
   const menu = page.locator(`[id="${(await project.getAttribute('aria-controls')) ?? ''}"]`);
-  for (const name of ['History', 'Watermark Settings', 'Export Project…', 'Archive Project']) {
+  for (const name of ['History', 'Watermark Settings…', 'Export Project…', 'Archive Project']) {
     await expect(menu.getByRole('button', { name, exact: true })).toBeDisabled();
   }
   await page.keyboard.press('Escape');

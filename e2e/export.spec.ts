@@ -115,7 +115,7 @@ test('the PDF carries the watermark on every page, and none once Applies to leav
   // Enough frames for a second page, so it's checked too.
   for (let i = 0; i < 11; i += 1) await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]')).toHaveCount(13);
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
   await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'true');
@@ -135,7 +135,7 @@ test('the PDF carries the watermark on every page, and none once Applies to leav
   expect(marked.length).toBeGreaterThan(1);
   for (const text of marked) expect(text).toContain('DRAFT');
 
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await settings.getByRole('switch', { name: 'PDF storyboard' }).click();
   await expect(settings.getByRole('switch', { name: 'PDF storyboard' })).toHaveAttribute('aria-checked', 'false');
   await settings.getByRole('button', { name: 'Save' }).click();
@@ -241,7 +241,7 @@ for (const offscreen of [true, false]) {
     await page.keyboard.press('Escape');
     await expect(sketch).toHaveCount(0);
     // And both carry the watermark, top left.
-    await projectMenu(page, 'Watermark Settings');
+    await projectMenu(page, 'Watermark Settings…');
     await dialog(page, 'Watermark Settings').getByLabel('Text').fill('DRAFT');
     await dialog(page, 'Watermark Settings').getByRole('combobox', { name: /^Position/ }).selectOption({ label: 'Top left' });
     await dialog(page, 'Watermark Settings').getByRole('button', { name: 'Save' }).click();
@@ -338,7 +338,7 @@ test('a stored picture that won’t decode goes out marked and named, and the ex
 });
 
 test('Watermark Settings saves one edit, and the Export dialog says the PDF and PNGs carry it', async ({ page }) => {
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
   await settings.getByRole('combobox', { name: /^Position/ }).selectOption({ label: 'Centre' });
@@ -358,7 +358,7 @@ test('a double click on Watermark Save makes one step to undo', async ({ page })
   const undo = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+z' : 'Control+z';
   const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
   await expect(frames).toHaveCount(2);
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await dialog(page, 'Watermark Settings').getByLabel('Text').fill('DRAFT');
   // Both clicks in one go, as a fast double click lands before the first write is done.
   await dialog(page, 'Watermark Settings')
@@ -381,7 +381,7 @@ test('undo and the workspace keys do nothing inside the export dialogs, to the b
   const undo = mac ? 'Meta+z' : 'Control+z';
   const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
   await expect(frames).toHaveCount(2);
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   const strength = dialog(page, 'Watermark Settings').getByRole('slider');
   await strength.focus();
   await page.keyboard.press('ArrowRight');
@@ -413,7 +413,7 @@ test('the dialogs take focus, close on Escape and give it back to the project me
   await expect(dialog(page, 'Export')).toHaveCount(0);
   await expect(menuButton).toBeFocused();
 
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await expect(dialog(page, 'Watermark Settings').getByLabel('Text')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog(page, 'Watermark Settings')).toHaveCount(0);
@@ -436,7 +436,7 @@ test('Watermark Save with nothing changed leaves no step to undo', async ({ page
   const undo = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+z' : 'Control+z';
   const frames = board(page).locator('[aria-label="Frames in SC 01"] [data-shot-id]');
   await expect(frames).toHaveCount(2);
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await dialog(page, 'Watermark Settings').getByRole('button', { name: 'Save' }).click();
   await expect(dialog(page, 'Watermark Settings')).toHaveCount(0);
   // Undo reaches the last real edit, the second frame, not an empty watermark step.
@@ -669,7 +669,7 @@ test('a PNG frame is framed as on the board, and its watermark reads over a dark
     await expect(inspector.getByText(`Zoom 100%, centred 50% across and ${String(down)}% down.`)).toBeAttached();
   }
   // The watermark where it lands on the dark, at the strength it starts at.
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await dialog(page, 'Watermark Settings').getByLabel('Text').fill('DRAFT');
   await dialog(page, 'Watermark Settings').getByRole('combobox', { name: /^Position/ }).selectOption({ label: 'Bottom right' });
   await dialog(page, 'Watermark Settings').getByRole('button', { name: 'Save' }).click();
@@ -708,7 +708,7 @@ test('a PNG frame is framed as on the board, and its watermark reads over a dark
 });
 
 test('the export dialogs use the kit’s square controls', async ({ page }) => {
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   const settings = dialog(page, 'Watermark Settings');
   // Native checkboxes and radios draw round in WebView2 and WebKit; the kit's switches and segments don't.
   await expect(settings.getByRole('switch', { name: 'PNG frames' })).toHaveAttribute('aria-checked', 'true');
@@ -730,7 +730,7 @@ test('the export dialogs use the kit’s square controls', async ({ page }) => {
 });
 
 test('Strength goes as low as a stored watermark can be, 5%, and keeps it', async ({ page }) => {
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
   const strength = settings.getByRole('slider', { name: /^Strength/ });
@@ -740,7 +740,7 @@ test('Strength goes as low as a stored watermark can be, 5%, and keeps it', asyn
   await settings.getByRole('button', { name: 'Save' }).click();
   await expect(settings).toHaveCount(0);
 
-  await projectMenu(page, 'Watermark Settings');
+  await projectMenu(page, 'Watermark Settings…');
   await expect(dialog(page, 'Watermark Settings').getByRole('slider', { name: /^Strength/ })).toHaveValue('5');
   await expect(dialog(page, 'Watermark Settings').getByRole('slider', { name: /^Strength/ })).toHaveAttribute('aria-valuetext', '5%');
 });

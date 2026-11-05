@@ -44,6 +44,19 @@ function asEdge(zone: DropZone): WindowEdge | null {
 /** A keyboard move's last stop after every tile: the window's own edges (polish 4). Never a node id, which has none of '#'. */
 const WINDOW_TARGET = '#window';
 
+/**
+ * The tile last used in each workspace, by focus or a press anywhere on it (a canvas takes no focus, and a Mac's
+ * webview doesn't focus a clicked button): the Layout menu's Maximize tile acts on it, as ` does on the tile holding
+ * focus (focus is on the menu by then).
+ */
+const lastUsed = new Map<string, string>();
+
+/** The stack Maximize tile would fill in a workspace: the one last used there, if it's still in the layout. */
+export function lastUsedStack(workspaceId: string, layout: Layout): Stack | null {
+  const id = lastUsed.get(workspaceId);
+  return (id !== undefined ? findStack(layout, id) : undefined) ?? null;
+}
+
 /** Pointer travel before a press on a title bar becomes a drag, so a click on it stays a click. */
 const DRAG_THRESHOLD_PX = 4;
 
@@ -129,6 +142,20 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   // Numbers follow the design's order for the workspace, then the order tiles were opened in.
   const present = tilesIn(layout);
   const order = [...workspace.order.filter((t) => present.includes(t)), ...present.filter((t) => !workspace.order.includes(t))];
+
+  // Which tile was last used here, for the Layout menu's Maximize tile (focus is on the menu by the time it's picked).
+  useEffect(() => {
+    const onUse = (event: Event) => {
+      const stackId = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-stack-id]')?.dataset.stackId : undefined;
+      if (stackId) lastUsed.set(workspace.id, stackId);
+    };
+    window.addEventListener('focusin', onUse);
+    window.addEventListener('pointerdown', onUse, true);
+    return () => {
+      window.removeEventListener('focusin', onUse);
+      window.removeEventListener('pointerdown', onUse, true);
+    };
+  }, [workspace.id]);
 
   // ` maximizes the tile holding focus, or restores; the rest fold into chips along the bottom.
   useEffect(() => {

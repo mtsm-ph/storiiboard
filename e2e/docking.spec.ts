@@ -116,7 +116,7 @@ test('keeps the layout after a reload, marks it unsaved, and resets', async ({ p
   await expect(tile(page, 'Player')).toBeHidden();
 
   await page.getByRole('button', { name: /^Layout/ }).click();
-  await page.getByRole('button', { name: 'Update “Storyboard”' }).click();
+  await page.getByRole('button', { name: 'Save layout' }).click();
   await expect(tab.getByRole('img', { name: 'unsaved layout' })).toBeHidden();
 
   await page.getByRole('button', { name: /^Layout/ }).click();
@@ -234,3 +234,57 @@ test('docks along a window edge from the keyboard, after every tile, never on th
   expect(Math.abs(player.width - root.width)).toBeLessThan(2);
   await expect(page.getByRole('button', { name: 'Move Player' })).toBeFocused();
 });
+
+test('the Layout menu: four labelled groups, shortcuts at the right, Undo layout change alone at the bottom (polish A)', async ({ page }) => {
+  const layout = page.getByRole('button', { name: /^Layout/ });
+  await layout.click();
+  const panel = page.locator(`[id="${(await layout.getAttribute('aria-controls')) ?? ''}"]`);
+  // Three labelled groups, then Undo layout change on its own at the bottom, under a rule but no label.
+  const groups = panel.getByRole('group');
+  await expect(groups).toHaveCount(3);
+  await expect(groups.nth(0)).toHaveAccessibleName('Workspace · Storyboard');
+  await expect(groups.nth(1)).toHaveAccessibleName('View');
+  await expect(groups.nth(2)).toHaveAccessibleName('Open tile');
+  await expect(panel.getByRole('button').last()).toHaveText('Undo layout change');
+  // Shortcuts at the right, given to assistive tech too.
+  const save = groups.nth(0).getByRole('button', { name: 'Save layout' });
+  await expect(save).toHaveAttribute('aria-keyshortcuts', /Shift\+S/);
+  await expect(save.locator('kbd')).toHaveText(/⇧S|Shift\+S/);
+  await expect(save).toHaveAccessibleName('Save layout');
+  await expect(save).toHaveAccessibleDescription(/⇧S|Shift\+S/);
+
+  // View: before any tile is used there's nothing to maximize.
+  await expect(panel.getByRole('button', { name: 'Maximize tile' })).toBeDisabled();
+  // A press anywhere on a tile, even where nothing takes focus, makes it the one; the item names it.
+  await page.keyboard.press('Escape');
+  await page.getByRole('region', { name: 'Player', exact: true }).getByText('Proxy playback', { exact: false }).click();
+  await layout.click();
+  await panel.getByRole('button', { name: 'Maximize Player' }).click();
+  await expect(page.getByRole('region', { name: 'Scenes', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Player', exact: true })).toBeVisible();
+  await layout.click();
+  await panel.getByRole('button', { name: 'Restore tile' }).click();
+  await expect(page.getByRole('region', { name: 'Scenes', exact: true })).toBeVisible();
+
+  // And the sidebar.
+  await layout.click();
+  await panel.getByRole('button', { name: 'Hide sidebar' }).click();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toHaveCount(0);
+  await expect(layout).toBeFocused();
+  await layout.click();
+  await panel.getByRole('button', { name: 'Show sidebar' }).click();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+});
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`both menus pass axe, open (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+    for (const name of [/^Layout/, /^Project$/]) {
+      await page.getByRole('button', { name }).click();
+      await page.evaluate(() => document.fonts.ready.then(() => true));
+      const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
+      expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
+      await page.keyboard.press('Escape');
+    }
+  });
+}
