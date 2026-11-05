@@ -151,11 +151,19 @@ export function dropTile(layout: Layout, tile: TileId, targetStackId: string, zo
   return { root: tidy(root) ?? root, maximized: null };
 }
 
-/** Adds a tile that isn't in the layout yet, to the right of the given stack (or of everything). */
+/**
+ * Adds a tile that isn't in the layout yet, to the right of the given stack (or of everything). One that's there
+ * already comes to the front: its tab is picked, and a maximized tile that hides it is restored. Already in view, the
+ * layout is returned as it is, so asking again is no layout change to undo.
+ */
 export function openTile(layout: Layout, tile: TileId, besideStackId?: string): Layout {
   if (tilesIn(layout).includes(tile)) {
     const holder = stackOf(layout, tile);
-    return holder ? selectTab(layout, holder.id, tile) : layout;
+    if (!holder) return layout;
+    const hidden = layout.maximized !== null && layout.maximized !== holder.id;
+    if (holder.active === tile && !hidden) return layout;
+    const picked = selectTab(layout, holder.id, tile);
+    return hidden ? { ...picked, maximized: null } : picked;
   }
   const beside = besideStackId ? findStack(layout, besideStackId) : undefined;
   if (beside) return dropTile({ ...layout, root: layout.root }, tile, beside.id, 'right');

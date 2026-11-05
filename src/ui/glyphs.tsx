@@ -64,6 +64,17 @@ export function SidebarGlyph({ shown }: { shown: boolean }) {
   );
 }
 
+/** History: a clock face whose hand turns back. In the button's own colour, so it mutes with the word when disabled. */
+export function HistoryGlyph() {
+  return (
+    <svg width="13" height="12" viewBox="0 0 13 12" aria-hidden="true" className="shrink-0">
+      <path d="M2.4 3.2A5 5 0 1 1 2 7.4" fill="none" className="stroke-current" strokeWidth="1.5" />
+      <path d="M1 1.2v2.8h2.8" fill="none" className="stroke-current" strokeWidth="1.5" />
+      <path d="M6.7 3.5V6.5l2 1.2" fill="none" className="stroke-current" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (
