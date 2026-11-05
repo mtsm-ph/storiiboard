@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (Phase 2 plan approved; roadmap: canvas flow becomes Phase 5) |
+| Last updated | Nov 5, 2026 (2.1 merged; 2.2 split in two) |
 
 | Phase | State |
 |---|---|
@@ -36,8 +36,9 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 
 | Milestone | PR | State |
 |---|---|---|
-| 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | In review |
-| 2.2 Schema 8: video media, LUTs, clip and grab records; link a video, Relink | | Not started |
+| 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | Done |
+| 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | | In review |
+| 2.2b Link a video to a frame by drop or browse, its poster as the picture; video details in the inspector; missing flag and Relink | | Not started |
 | 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |

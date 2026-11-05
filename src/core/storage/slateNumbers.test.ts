@@ -540,6 +540,7 @@ describe('the schema 5 migration', () => {
       { sql: 'DROP TABLE slate_numbers' },
       // And what later schemas added, so the file reads as v4 throughout.
       { sql: 'DROP TABLE shot_seen' },
+      { sql: 'DROP TABLE luts' },
       { sql: "UPDATE meta SET value = '4' WHERE key = 'schema_version'" },
     ]);
     const path = project.file.path;

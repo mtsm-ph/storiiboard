@@ -48,6 +48,7 @@ export function packRawTx(handle: number, statements: readonly Statement[]): Uin
 function tauriFile(handle: number, path: string): ProjectFile {
   return {
     path,
+    nativeHandle: handle,
     tx: async (statements) => {
       // Bytes can't ride in JSON, so a transaction carrying an image goes raw; everything else stays plain.
       if (statements.some(({ params = [] }) => params.some((p) => p instanceof Uint8Array))) {

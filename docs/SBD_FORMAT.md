@@ -166,7 +166,7 @@ and after each edit, never copies a picture.
 
 | Prop | Value | Notes |
 |---|---|---|
-| kind | `image` | Video arrives in Phase 2 |
+| kind | `image` | `video` from schema 8 (below) |
 | file | text | media_files.sha256 |
 | mime, width, height, color_space | | As in media_files, so a view can lay out a frame without reading that table |
 | source_name | text | The file's name, when the picture came from a file: `IMG_4012.JPG` |
@@ -306,6 +306,79 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - It's part of the file, so backups and Open version copies carry it.
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
+
+## Schema v8: video (Phase 2)
+
+Approved by Kevin Nov 5. Videos stay outside the .sbd (CLAUDE.md): a `media` record of kind `video` points at the
+original and keeps what ffprobe read from it (src/core/media/video.ts). A frame plays part of a video through its
+`clip` prop; a picture grabbed from a video says where it came from in `from_video`. Those are props and need no
+table, but the schema number rises with them, so an older Storiiboard refuses the file ("Update Storiiboard") rather
+than show its frames without their clips. The one new table holds LUTs (2.5).
+
+`media` record props, for a video (a child of the project, so two frames can play parts of one video):
+
+| Prop | Value | Notes |
+|---|---|---|
+| kind | `video` | |
+| source_name | text | The clip's file name, as editors and camera reports call it: `A001_C003_0101AB.MP4` |
+| source_path | text | As for a picture: relative to the .sbd's folder when inside it (always with `/`), absolute otherwise. Missing only in the browser build |
+| source_size | integer | Bytes, when known: tells the same clip from another with its name when relinking |
+| duration_frames | integer | Frames at `fps` |
+| fps | `{ num, den }` | The exact rate: `{ "num": 24000, "den": 1001 }`, never 23.976. A variable-rate phone clip has the nearest camera rate, which its playback copy is made at, and `duration_frames` is its length at that rate |
+| start_timecode | text | As the source writes it: `01:00:00:00`, or `01:00:00;00` for drop-frame; missing when it has none |
+| width, height | integer | Stored pixels, before rotation |
+| sar | `{ num, den }` | Pixel shape: `{1,1}` square; `{4,3}` for HDV's 1440x1080; `{2,1}` for a 2x anamorphic |
+| rotation | 0, 90, 180, 270 | Degrees clockwise to show it upright (a phone held upright: 90) |
+| codec | text | ffprobe's name: `h264`, `hevc`, `prores` |
+| has_audio, hdr | boolean | HDR is PQ or HLG; shown as SDR once tone-mapped (2.3) |
+| bit_depth | integer | 8, 10, 12 |
+| poster | text | The id of an image `media` record under the video: a still shown for it where there's no frame yet; optional. A record, not a hash, so Empty Trash and Clean up old pictures count its picture as used like any other |
+| lut | text | A `luts` id (2.5); missing for none |
+
+- Frames are counted from 0 at the video's own rate. Timecode is worked out from `start_timecode` and a frame number
+  (src/core/media/timecode.ts), never stored per frame, except in `from_video`, where it records what the slate said.
+- Relink sets the file's props from the new file and takes off the ones it lacks (`source_path`, `source_size`,
+  `start_timecode`); `poster` and `lut` stay, and so do the frames that play the video. One op, so undo puts the old
+  file back.
+- The page reads a video's file only through Rust (src-tauri/src/video.rs), never for writing, and only one the
+  person dropped or chose this session; one they handed over before, which Rust remembers in this computer's app data
+  (`known-videos.json`, which only Rust writes); or one inside the open project's own folder that a live video record
+  links (relative path, no `..`, no symbolic link or junction anywhere below the project's folder), as when a
+  project folder is copied with its footage. Rust decides from the path and the records before it asks the disk. A path a
+  project file names elsewhere, a network share among them, is never read until the person relinks it, so a project
+  someone sends can't make the app reach for a file or a server.
+
+`clip`, a shot prop: the part of a video the frame plays (2.8).
+
+| Field | Value | Notes |
+|---|---|---|
+| video_id | text | The video's media record |
+| in_frame, out_frame | integer | Both included, at the video's `fps`; `out_frame` ≥ `in_frame` |
+| crop | `{ x, y, zoom }` | How the clip sits in the frame (2.6), the frame-picture crop of 1.11; missing when centred |
+
+`from_video`, a prop of a picture's media record: where a still came from (2.7), enough to grab the same frame again
+after the video is relinked or its LUT changes.
+
+| Field | Value | Notes |
+|---|---|---|
+| video_id | text | The video's media record |
+| frame | integer | At `fps`, counted from the video stream's first frame (not the file's start, which sound can lead) |
+| fps | `{ num, den }` | The video's rate when it was grabbed |
+| timecode | text | The frame's source timecode, as on the slate and in the edit |
+| source_name | text | The clip's file name when it was grabbed |
+| lut_id, lut_name | text or null | The LUT it was graded with, and its name then |
+
+`luts`: LUTs loaded for videos (2.5). Content-addressed like pictures: the same `.cube` loaded twice is stored once,
+and a row is never changed after it's written. A video names its LUT by id, so a LUT change is an op like any other.
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| sha256 | text, unique | Hex SHA-256 of `cube` |
+| name | text | Shown in the app: the file name without `.cube` |
+| file_name | text | As loaded: `SLog3SGamut3.CineToLC-709.cube` |
+| byte_size | integer | Length of `cube`, so totals don't read it |
+| cube | text | The `.cube` file's text, last for the same reason as `bytes` in media_files |
 
 ## Trash
 
@@ -681,6 +754,7 @@ is each person's read state, in two tables.
 | 5 | 1.26 | Slate numbers: `slate_numbers`; `meta.slate_numbers_unknown` |
 | 6 | Polish 6 | Department status: each shot's `departments` list becomes `department_status`, the departments that were on as Priority. No table change |
 | 7 | Polish 6b | Seen: `shot_seen` |
+| 8 | 2.2 | Video: `media` records of kind `video`, the shot prop `clip`, the picture prop `from_video`; `luts` |
 | later | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema

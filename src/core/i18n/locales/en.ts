@@ -1132,6 +1132,9 @@ export const en = {
   'dialogs.choosePictures': 'Choose pictures',
   'dialogs.choosePicture': 'Choose a picture',
   'dialogs.picturesFilter': 'Pictures',
+  'dialogs.chooseVideos': 'Choose videos',
+  'dialogs.chooseVideo': 'Choose a video',
+  'dialogs.videosFilter': 'Videos',
   'dialogs.importScript': 'Import a script',
   'dialogs.scriptsFilter': 'Scripts',
   // codemod: new entries above this line
