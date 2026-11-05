@@ -234,6 +234,13 @@ otherwise are in docs/i18n/es-glossary.md, shot size abbreviations first. Script
 (INTERIOR/EXTERIOR in capitals; DÍA, NOCHE, AMANECER, ATARDECER, HORA MÁGICA and more). An e2e sweep checks that no
 button, tab, label or title overflows in Spanish; a unit test keeps every PDF word inside the page.
 
+P8 as built (Nov 5): e2e/visual.spec.ts runs again everywhere `npm run e2e` runs, and at every checkpoint beside the
+smoke set. Three screens (the shell with no project, the board with a frame selected and its inspector, and Settings
+over the board), each in light and dark, English and Spanish: 12 screenshots per browser and OS. Windows Chromium
+baselines come from the Windows gate; the Linux and macOS ones from a push to `checkpoint/baselines-<name>`, which
+regenerates them and hands them back as artifacts to commit. Every baseline was looked at before it was committed.
+Looking found one Spanish fit the overflow sweep had missed (the Scenes tile's coverage label ran into its figure).
+
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
   profiles are saved once in the app's settings and can be attached to any project; attaching copies the details into

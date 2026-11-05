@@ -7,8 +7,8 @@ import { SETTINGS_KEY } from '../src/core/storage/settings';
 test.use({ viewport: { width: 1440, height: 900 } });
 
 const LANGUAGES = {
-  en: { newProject: 'New project…', setUp: /^Set up /, skip: 'Skip', scenes: 'Scenes', newScene: '+ New scene', frameIn: '+ Frame in SC' },
-  es: { newProject: 'Nuevo proyecto…', setUp: /^Configurar /, skip: 'Saltar', scenes: 'Escenas', newScene: '+ Escena nueva', frameIn: '+ Cuadro en ESC' },
+  en: { newProject: 'New project…', setUp: /^Set up /, skip: 'Skip', scenes: 'Scenes', newScene: '+ New scene', frameIn: '+ Frame in SC', settings: /^Settings \(/ },
+  es: { newProject: 'Nuevo proyecto…', setUp: /^Configurar /, skip: 'Saltar', scenes: 'Escenas', newScene: '+ Escena nueva', frameIn: '+ Cuadro en ESC', settings: /^Configuración \(/ },
 } as const;
 type Language = keyof typeof LANGUAGES;
 
@@ -75,7 +75,8 @@ for (const language of ['en', 'es'] as const) {
     test(`settings, ${scheme}, ${language}`, async ({ page }) => {
       await start(page, scheme, language, '/?files=memory');
       await boardWithFrames(page, language);
-      await page.keyboard.press('ControlOrMeta+Comma');
+      // The sidebar's gear, not ⌘,: Chromium on a Mac keeps ⌘, for itself.
+      await page.getByRole('button', { name: LANGUAGES[language].settings }).click();
       const settings = page.getByRole('dialog').last();
       await expect(settings).toBeVisible();
       await settings.getByRole('tab', { name: 'App', exact: true }).click();
