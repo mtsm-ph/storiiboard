@@ -1,3 +1,4 @@
+import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
@@ -407,8 +408,35 @@ export function InspectorView({
     <div ref={root} data-inspector="" className="flex flex-col">
       <header className="flex flex-col gap-0.5 border-b border-border p-3">
         <p className="font-mono text-[20px] font-bold">{shot ? shot.fields.number : sceneLabel(s.number)}</p>
+        {/* The frame's title, or the scene's name, edited in place (Nov 5): the pencil always shows here. */}
+        {shot ? (
+          <EditableTitle
+            value={shot.fields.title}
+            shown={shot.fields.title === '' ? <span className="text-text-muted">{t('title.none')}</span> : <span data-user-text="">{shot.fields.title}</span>}
+            label={t('title.shotTitle', { number: shot.fields.number || t('history.aFrame') })}
+            reveal
+            className="text-[13px]"
+            inputClassName="w-full"
+            onSave={(title) => {
+              onShotChange(title === '' ? { unset: ['title'] } : { set: { title } });
+            }}
+          />
+        ) : null}
         <p className="sb-label text-text-muted">
-          {shot ? t('inspector.sceneLine', { scene: sceneLabel(s.number), heading: headingOf(s) }) : headingOf(s)}
+          {shot ? (
+            t('inspector.sceneLine', { scene: sceneLabel(s.number), heading: headingOf(s) })
+          ) : (
+            <EditableTitle
+              value={s.name}
+              shown={headingOf(s)}
+              label={t('title.sceneName', { scene: sceneLabel(s.number) })}
+              reveal
+              inputClassName="w-full normal-case tracking-normal"
+              onSave={(name) => {
+                onSceneChange({ set: { name } });
+              }}
+            />
+          )}
         </p>
       </header>
 

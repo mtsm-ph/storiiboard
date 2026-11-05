@@ -179,6 +179,11 @@ export const en = {
   'scenesView.newScene': '+ New scene',
   'scenesView.importScript': 'Import script…',
   // src/features/storyboard/StoryboardView.tsx
+  // src/ui/EditableTitle.tsx: a title edited in place.
+  'title.edit': 'Edit {label}',
+  'title.sceneName': 'name of {scene}',
+  'title.shotTitle': 'title of {number}',
+  'title.none': 'Add a title',
   'storyboardView.noImage': 'No image',
   'storyboardView.sketched': 'Sketched',
   'storyboardView.noProjectOpen': 'No project open.',

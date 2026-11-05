@@ -374,6 +374,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
 | shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
+| shot | title | text | Nov 5 (a prop, no table change): an optional title, "Mary wipes the counter", edited in place. Missing for none, as in every older file; an emptied title is taken off |
 | shot | size | `EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT` | |
 | shot | lens_mm | number | Focal length |
 | shot | t_stop | number | |

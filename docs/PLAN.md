@@ -110,6 +110,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
 | PE Who made each edit: the profile's name (or initials) on every edit, shown in History | #67 | Done |
+| PT Titles edited in place: a pencil beside every scene name and frame title; frames get an optional title | | In review |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -333,6 +334,13 @@ did, and History shows no name for those (the step's time only; a dash in an ite
 "You". An approval is signed by the same rule (initials only when chosen), Open version signs the restore step it
 makes in the copy, and a named version records who named it. No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
 older build shows the names as they're written. docs/SBD_FORMAT.md says what the column now holds.
+
+PT as built (Nov 5): a pencil beside every scene name and frame title (the board's scene headings, the Scenes tile's
+rows, the frame cards, the inspector's header), shown on hover and on keyboard focus, never inside the button or
+heading it names. A click, or F2 on a frame, makes the text a field in place: Enter saves, Escape puts it back, leaving
+saves; each save is one edit, so one undo. A frame's title is a new shot prop, `title` (no table change, so no schema
+bump; Phase 2's schema 8 is for video), shown under its number on the card. Not in this milestone: the sidebar's scene
+list (navigation, left as it is) and a Title column in the shot list.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

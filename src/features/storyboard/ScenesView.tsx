@@ -1,9 +1,10 @@
-import type { KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { DAY_NIGHT_LABEL, INT_EXT_LABEL, pageLabel, sceneLabel, sceneNumberLabel, type SceneFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { LockGlyph, TrashGlyph } from '../../ui/glyphs';
 import { t } from '../../core/i18n';
+import { PencilButton, TitleField } from '../../ui/EditableTitle';
 
 // The Scenes tile (design board, Storyboard workspace): every scene in board order with its length, how many frames
 // it has, and how much of it is in hand; then the film's coverage and + New scene. This part only draws.
@@ -31,6 +32,8 @@ export interface ScenesViewProps {
   onAdd: () => void;
   /** Import script… (1.17): Fountain or Final Draft, previewed before anything is written. */
   onImport: () => void;
+  /** A scene's name edited in place with its pencil (Nov 5); empty for none. */
+  onRename?: (id: string, name: string) => void;
 }
 
 /** "INT. PENN STATION — DAY", as a scene heading reads; just the name until INT/EXT or DAY/NIGHT is set. */
@@ -60,7 +63,9 @@ function onRowKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
   rows[next]?.focus();
 }
 
-export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onDelete, onAdd, onImport }: ScenesViewProps) {
+export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onDelete, onAdd, onImport, onRename }: ScenesViewProps) {
+  // The scene whose name is being edited in place.
+  const [renaming, setRenaming] = useState<string | null>(null);
   const totalEighths = scenes.reduce<number | null>(
     (sum, s) => (s.fields.pageEighths === null ? sum : (sum ?? 0) + s.fields.pageEighths),
     null,
@@ -82,7 +87,7 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
             const active = row.id === activeSceneId;
             const label = sceneLabel(row.fields.number);
             return (
-              <li key={row.id} className="relative flex items-stretch border-b border-border">
+              <li key={row.id} className="group/title relative flex items-stretch border-b border-border">
                 {/* The scene's palette as a thin strip along the row's foot (polish PP): a look, not a control, so
                     hidden from screen readers; the inspector lists it in words. 2px, clear of the row's focus ring,
                     which sits 2 to 4px inside the edge. */}
@@ -93,6 +98,22 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                     ))}
                   </span>
                 )}
+                {renaming === row.id && onRename ? (
+                  <span className="flex min-w-0 flex-1 items-center px-3 py-1.5">
+                    <TitleField
+                      value={row.fields.name}
+                      label={t('title.sceneName', { scene: label })}
+                      className="w-full"
+                      onDone={(text) => {
+                        setRenaming(null);
+                        if (text !== null && text !== row.fields.name) onRename(row.id, text);
+                        requestAnimationFrame(() => {
+                          document.querySelector<HTMLElement>(`[data-scene-row="${CSS.escape(row.id)}"]`)?.focus();
+                        });
+                      }}
+                    />
+                  </span>
+                ) : (
                 <button
                   type="button"
                   data-scene-row={row.id}
@@ -122,6 +143,19 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                     <span className="font-mono text-[11px] text-text-muted group-hover:text-text">{sceneSummary(row)}</span>
                   </span>
                 </button>
+                )}
+                {onRename && renaming !== row.id && (
+                  // Beside the row, never in it (the row is a button), and over its right side rather than a column of
+                  // its own, so the names keep their room: shown on hover and when reached with Tab, right after the
+                  // row. Left of the lock and the bin.
+                  <PencilButton
+                    label={t('title.sceneName', { scene: label })}
+                    onClick={() => {
+                      setRenaming(row.id);
+                    }}
+                    className="absolute top-1.5 right-[68px] border border-border bg-surface"
+                  />
+                )}
                 <button
                   type="button"
                   aria-pressed={row.fields.numbersLocked}

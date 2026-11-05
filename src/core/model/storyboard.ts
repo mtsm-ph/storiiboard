@@ -167,6 +167,8 @@ export function sceneFields(props: Props): SceneFields {
 
 export interface ShotFields {
   number: string;
+  /** An optional title (Nov 5), edited in place on the card and in the inspector: "Mary's reaction", "Wide on the dock". */
+  title: string;
   size: ShotSize | null;
   lensMm: number | null;
   tStop: number | null;
@@ -187,6 +189,7 @@ export interface ShotFields {
 export function shotFields(props: Props): ShotFields {
   return {
     number: text(props.number),
+    title: text(props.title),
     size: oneOf(SHOT_SIZES, props.size),
     lensMm: number(props.lens_mm),
     tStop: number(props.t_stop),

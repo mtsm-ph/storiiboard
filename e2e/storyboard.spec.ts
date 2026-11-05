@@ -208,7 +208,7 @@ test('edits the scene: number, name, INT/EXT, time and length, renumbering its f
   await number.press('Enter');
   await expect.poll(() => numbers(page, 'SC 04')).toEqual(['4A', '4B']);
 
-  const name = inspector(page).getByLabel('Name');
+  const name = inspector(page).getByLabel('Name', { exact: true });
   await name.fill('Penn Station');
   await name.press('Enter');
   await inspector(page).getByRole('radio', { name: 'INT', exact: true }).click();

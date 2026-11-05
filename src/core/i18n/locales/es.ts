@@ -180,6 +180,11 @@ export const es: Messages = {
   'scenesView.newScene': '+ Escena nueva',
   'scenesView.importScript': 'Importar guion…',
   // src/features/storyboard/StoryboardView.tsx
+  // src/ui/EditableTitle.tsx: a title edited in place.
+  'title.edit': 'Editar {label}',
+  'title.sceneName': 'el nombre de {scene}',
+  'title.shotTitle': 'el título de {number}',
+  'title.none': 'Agregar un título',
   'storyboardView.noImage': 'Sin imagen',
   'storyboardView.sketched': 'Bocetado',
   'storyboardView.noProjectOpen': 'No hay ningún proyecto abierto.',

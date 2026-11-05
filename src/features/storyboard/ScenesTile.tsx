@@ -52,6 +52,10 @@ export function ScenesTile() {
       onImport={() => {
         void chooseScriptToImport();
       }}
+      onRename={(id, name) => {
+        // One edit, one undo step.
+        void apply([{ kind: 'update', id, set: { name } }]);
+      }}
       onAdd={() => {
         if (!project) return;
         const change = addScene(records, project.projectId);
