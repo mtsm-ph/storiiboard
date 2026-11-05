@@ -947,6 +947,8 @@ export const en = {
   'error.noVideoStream': 'That file has no video in it.',
   'error.noFrameRate': 'That video\'s frame rate can\'t be read.',
   'error.notAVideo': 'That file can\'t be read as a video.',
+  'error.videoToolMissing': 'Storiiboard\'s video reader couldn\'t start. Reinstalling Storiiboard puts it back.',
+  'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx

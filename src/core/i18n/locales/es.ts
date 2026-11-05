@@ -949,6 +949,8 @@ export const es: Messages = {
   'error.noVideoStream': 'Ese archivo no tiene video.',
   'error.noFrameRate': 'No se puede leer la cadencia de ese video.',
   'error.notAVideo': 'Ese archivo no se puede leer como video.',
+  'error.videoToolMissing': 'El lector de video de Storiiboard no pudo iniciarse. Reinstalar Storiiboard lo restablece.',
+  'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',
   // src/app/shell/sidebar/Sidebar.tsx

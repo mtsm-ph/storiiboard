@@ -17,6 +17,7 @@ triple=${1:?target triple, e.g. aarch64-apple-darwin}
 out=${2:?output folder}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
+here=$(cd "$(dirname "$0")" && pwd)
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -75,20 +76,45 @@ make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4
 licence=$(./ffmpeg -hide_banner -L)
 buildconf=$(./ffmpeg -hide_banner -buildconf)
 filters=$(./ffmpeg -hide_banner -filters)
-# The licence text wraps ("...GNU Lesser General Public" / "License..."), so only the words on one line.
+# The licence text wraps ("...GNU Lesser General Public" / "License..."), so only the words on one line; "version 2.1"
+# tells it from the LGPL 3 that --enable-version3 would bring, which the shipped COPYING.LGPLv2.1 wouldn't cover.
 grep -q 'GNU Lesser General Public' <<<"$licence" || { echo 'not an LGPL build' >&2; exit 1; }
-if grep -q -- '--enable-gpl' <<<"$buildconf"; then echo 'built with --enable-gpl' >&2; exit 1; fi
+grep -q 'version 2.1' <<<"$licence" || { echo 'not LGPL version 2.1' >&2; exit 1; }
+if grep -qE -- '--enable-(gpl|nonfree|version3)' <<<"$buildconf"; then echo 'built with a GPL, nonfree or version3 flag' >&2; exit 1; fi
 grep -qE '[[:space:]]lut3d[[:space:]]' <<<"$filters" || { echo 'lut3d missing' >&2; exit 1; }
 
 cp "ffmpeg${exe}" "$out/ffmpeg-${triple}${exe}"
 cp "ffprobe${exe}" "$out/ffprobe-${triple}${exe}"
 cp COPYING.LGPLv2.1 "$out/ffmpeg-LICENSE.txt"
+# FFmpeg's own summary of its licences: a few files inside carry ISC, MIT or BSD notices too.
+cp LICENSE.md "$out/ffmpeg-LICENSE.md"
+# The exact source, kept beside the binaries in every CI artifact, so whoever hands out an installer can hand out the
+# source from the same place (the LGPL's section 4); the Phase 8 release attaches it to each release.
+cp "$work/ffmpeg.tar.xz" "$out/ffmpeg-${VERSION}.tar.xz"
+commit=${GITHUB_SHA:-$(git -C "$here" rev-parse HEAD 2>/dev/null || echo unknown)}
+compiler=$( (cc --version 2>/dev/null || gcc --version) | head -n 1 || true)
 {
   echo "Storiiboard includes ffmpeg and ffprobe from FFmpeg ${VERSION}, under the GNU Lesser General Public License"
-  echo "version 2.1 or later (ffmpeg-LICENSE.txt). They run as separate programs; Storiiboard doesn't link them."
+  echo "version 2.1 or later (ffmpeg-LICENSE.txt; FFmpeg's notes on its licences: ffmpeg-LICENSE.md). They run as"
+  echo "separate programs; Storiiboard doesn't link them."
   echo
-  echo "Source: ${SOURCE_URL} (SHA-256 ${SHA256})"
-  echo "Built by scripts/ffmpeg/build.sh in the Storiiboard repository, configured with:"
+  echo "Source: ffmpeg-${VERSION}.tar.xz, published with each Storiiboard release, and ${SOURCE_URL}"
+  echo "(SHA-256 ${SHA256})."
+  echo "Built by scripts/ffmpeg/build.sh at Storiiboard commit ${commit}, with ${compiler}, configured with:"
   echo "  ${flags[*]}"
 } > "$out/ffmpeg-SOURCE.txt"
+case "$triple" in
+  *windows*)
+    # Linked statically from MSYS2: zlib (zlib licence) and MinGW-w64's winpthreads (MIT-style), whose notice must
+    # travel with the binary.
+    {
+      echo
+      echo "The Windows build also links zlib (https://zlib.net, zlib licence) and MinGW-w64's winpthreads, whose"
+      echo "licence follows."
+      echo
+      found=$(find /mingw64/share/licenses -ipath '*pthread*' -type f 2>/dev/null | head -n 1 || true)
+      if [ -n "$found" ]; then cat "$found"; else echo "(winpthreads: see https://github.com/mingw-w64/mingw-w64, mingw-w64-libraries/winpthreads/COPYING)"; fi
+    } >> "$out/ffmpeg-SOURCE.txt"
+    ;;
+esac
 echo "built ffmpeg ${VERSION} for ${triple}"
