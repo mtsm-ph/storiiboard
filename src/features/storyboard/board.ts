@@ -42,10 +42,31 @@ export interface BoardScene {
 
 const itemRecord = (item: BoardItem) => (item.kind === 'shot' ? item.shot.record : item.note.record);
 
+/**
+ * Every record's children, by parent, in sort order: built once per version of the records (the store makes a new
+ * object for each change, and the records are read-only). Scanning every record once per scene made the board's cost
+ * grow with scenes times records: a 120-scene film with 1000 frames redrew slowly on every key (quality pass).
+ */
+const childIndex = new WeakMap<Records, Map<string, SbdRecord[]>>();
+
+function childrenByParent(records: Records): Map<string, SbdRecord[]> {
+  let index = childIndex.get(records);
+  if (!index) {
+    index = new Map();
+    for (const record of Object.values(records)) {
+      if (record.parentId === null) continue;
+      const siblings = index.get(record.parentId);
+      if (siblings) siblings.push(record);
+      else index.set(record.parentId, [record]);
+    }
+    for (const siblings of index.values()) siblings.sort(bySortKey);
+    childIndex.set(records, index);
+  }
+  return index;
+}
+
 function childrenOf(records: Records, parentId: string, type: SbdRecord['type'], includeTrashed = false): SbdRecord[] {
-  return Object.values(records)
-    .filter((r) => r.type === type && r.parentId === parentId && (includeTrashed || r.trashedAt === null))
-    .sort(bySortKey);
+  return (childrenByParent(records).get(parentId) ?? []).filter((r) => r.type === type && (includeTrashed || r.trashedAt === null));
 }
 
 export function boardScene(records: Records, scene: SbdRecord): BoardScene {
