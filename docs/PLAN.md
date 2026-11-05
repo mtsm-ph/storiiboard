@@ -127,7 +127,7 @@ Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo
   Revisit when tags come back on screen (Phase 3's department workspaces) and when the plan icons, drawn in the same
   colours, reach the bird's-eye view (Phase 5). Changing them is the three state-* tokens in src/ui/theme.css (four
   values with dark mode's Seen; Done's glow follows its token).
-- Not decided, for Kevin: whether each edit carries who made it (the op and op group uthor, still local, so
+- Not decided, for Kevin: whether each edit carries who made it (the op and op group `author`, still `local`, so
   History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
   shipped. Note that one name is already in the file: since P6a an approval keeps the approver's profile name and
   role, as the brief's "showing who" asked, and each Approved tick is an op, so that name is in the log too.
