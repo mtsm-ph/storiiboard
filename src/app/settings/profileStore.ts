@@ -28,10 +28,11 @@ export function shownInitials(profile: Profile): string {
 export const NO_AUTHOR = 'local';
 
 /**
- * Who an edit is by, as the project file records it: the profile's name, or its initials when the person chose that.
- * With neither filled in, no name (`local`), as every edit before names were recorded.
+ * Who an edit is by, as the project file records it: the profile's name, or its initials when the person chose that
+ * (or when there's no name, only initials). With neither, no name (`local`), as every edit before names were kept.
+ * A name of exactly "local" reads as no name too: the log's own word (docs/SBD_FORMAT.md).
  */
 export function editAuthor(profile: Profile): string {
-  const said = profile.historyInitials ? shownInitials(profile) : profile.name;
+  const said = profile.historyInitials || profile.name === '' ? shownInitials(profile) : profile.name;
   return said === '' ? NO_AUTHOR : said;
 }

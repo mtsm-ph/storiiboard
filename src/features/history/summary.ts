@@ -431,7 +431,6 @@ export function describeGroup(
   }
 }
 
-/** Who made a step: "You" until people have names (Phase 9). */
 /** Who a step is by: the name the edit carried, or nothing for one without (every edit before names were kept). */
 export const who = (author: string): string => (author === 'local' ? '' : author);
 

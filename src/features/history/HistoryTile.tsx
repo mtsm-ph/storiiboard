@@ -371,7 +371,13 @@ export function HistoryTile() {
                     <p className="font-mono text-[11px] text-text-muted">
                       {/* Who, in the UI's type (a name isn't a technical value), then when; an edit from before names were
                           kept says only when. */}
-                      {who(group.author) !== '' && <span className="font-sans">{who(group.author)} · </span>}
+                      {/* bdi: a right-to-left name keeps to itself, so the time after it still reads in order. */}
+                      {who(group.author) !== '' && (
+                        <>
+                          <bdi className="font-sans wrap-anywhere">{who(group.author)}</bdi>
+                          {' · '}
+                        </>
+                      )}
                       {localDateTime(new Date(group.timestamp))}
                     </p>
                   </div>

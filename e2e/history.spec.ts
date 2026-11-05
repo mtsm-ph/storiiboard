@@ -114,7 +114,7 @@ test('each edit carries the profile’s name, or only its initials; edits made b
 
   // Initials only, from here on.
   profile = await openSettings(page, 'Profile');
-  await profile.getByRole('switch', { name: 'Show only my initials in History' }).click();
+  await profile.getByRole('switch', { name: 'Sign my edits with my initials only' }).click();
   await page.keyboard.press('Escape');
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(steps(page).first()).toContainText('Added frame 1E');
@@ -225,6 +225,11 @@ test('one frame’s own changes, field by field, with an old value to put back',
 });
 
 test('a named version opens as a copy at that point, and the original keeps every frame', async ({ page }) => {
+  // With a name in the profile, so the copy's restore step says who opened it.
+  const profile = await openSettings(page, 'Profile');
+  await profile.getByLabel('Your name').fill('Kevin Matos');
+  await profile.getByLabel('Your name').press('Enter');
+  await page.keyboard.press('Escape');
   await openHistory(page);
   await history(page).getByLabel('Name this point').fill('Board sent to client');
   await history(page).getByRole('button', { name: 'Name version' }).click();
@@ -245,6 +250,8 @@ test('a named version opens as a copy at that point, and the original keeps ever
   // The copy shares the project's title; the notice names its file.
   await expect(page.getByRole('status').getByText(/Opened version “Board sent to client” as a separate project, “Bey County \(Board sent to client\)”/)).toBeVisible();
   await expect(frames(page)).toHaveCount(3);
+  // The copy's newest step, the restore Open version made, is signed like any other.
+  await expect(steps(page).first()).toContainText('Kevin Matos ·');
   await expect(history(page).getByRole('status')).toHaveText('');
   await expect(history(page).locator('[aria-busy="true"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { openSaid: string[] }).openSaid)).toContain('Copying “Board sent to client”…');

@@ -68,7 +68,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | record_id | text | |
 | kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
-| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that (Settings → Profile). `local` means no name: every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
+| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
 | timestamp | text | When the edit happened |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
@@ -85,7 +85,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
 | undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
-| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that (Settings → Profile). `local` means no name: every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
+| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
 | timestamp | text | When it happened |
 
 Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,
@@ -190,7 +190,7 @@ opens it as a separate project, as Open backup does. The original is never chang
 | name | text | "Board sent to client"; up to 80 characters |
 | note | text, null | |
 | op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
-| created_by | text | `local` for now |
+| created_by | text | Who named it, as `ops.author` says who made an edit |
 
 Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
 the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version

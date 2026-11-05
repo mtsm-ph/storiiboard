@@ -2,7 +2,7 @@ import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { approverRoles, type Approval, type ProjectRole } from '../../core/model/departmentStatus';
 import { loadSettings, MAX_PROJECT_ROLES, saveSettings } from '../../core/storage/settings';
-import { profileStore, useProfile } from './profileStore';
+import { editAuthor, NO_AUTHOR, profileStore, useProfile } from './profileStore';
 
 // "Your role on this project" (polish 6, Settings → Project): the person's role on one project, in place of their
 // profile's usual role there. It says what they can approve on a shot, and (polish 6b) which department opening a
@@ -39,5 +39,7 @@ export function projectRoleOf(projectId: string): ProjectRole | null {
 /** A new approval by this person, or null when their role on the project doesn't approve. */
 export function approvalNow(role: ProjectRole | null, now = new Date()): Approval | null {
   const roles = approverRoles(role);
-  return roles.length === 0 ? null : { name: profileStore.getState().name, roles, at: now.toISOString() };
+  // Signed as edits are (initials only when the person chose that), since an approval goes into the file's History too.
+  const signed = editAuthor(profileStore.getState());
+  return roles.length === 0 ? null : { name: signed === NO_AUTHOR ? '' : signed, roles, at: now.toISOString() };
 }

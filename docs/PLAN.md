@@ -131,8 +131,8 @@ Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo
   Revisit when tags come back on screen (Phase 3's department workspaces) and when the plan icons, drawn in the same
   colours, reach the bird's-eye view (Phase 5). Changing them is the three state-* tokens in src/ui/theme.css (four
   values with dark mode's Seen; Done's glow follows its token).
-- Not decided, for Kevin: whether each edit carries who made it (the op and op group `author`, still `local`, so
-  History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
+- Not decided, for Kevin (decided Nov 5: names recorded, see PE below): whether each edit carries who made it (the op
+  and op group `author`, still `local`, so History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
   shipped. Note that one name is already in the file: since P6a an approval keeps the approver's profile name and
   role, as the brief's "showing who" asked, and each Approved tick is an op, so that name is in the log too.
 
@@ -199,8 +199,8 @@ PC as built (Nov 5):
   out of the strip, as Kevin listed it, and is one click away once the sidebar shows.
 - The local profile (name, initials, usual role) lives in the person's settings and is edited in Settings → Profile,
   which the profile button opens. Roles are kept by id (src/core/model/role.ts) for P6's approvals.
-- The profile stays in this computer's settings, and History's steps still read
-  "You" (ops keep `author = local`). Writing a name into every op would put personal data in the append-only log
+- (Superseded by PE, Nov 5: edits now carry the profile's name.) The profile stays in this computer's settings, and
+  History's steps still read "You" (ops keep `author = local`). Writing a name into every op would put personal data in the append-only log
   for good, so it waits for Kevin's call at review stop 1: names in the file or not, and if so as a stable profile id
   with the name beside it (renames and shared names stay one person) rather than the bare name.
 - For stop 1 too: the role list (src/core/model/role.ts) before P6 saves role ids in settings and approvals.
@@ -330,7 +330,8 @@ PE as built (Nov 5): every edit, undo, redo, History restore and Empty Trash car
 existing `author` columns (and a deleted item's `trashed_by`): the profile's name, or its initials with "Show only my
 initials in History" on, read as each edit is made. With an empty profile it stays `local`, as every edit before this
 did, and History shows no name for those (the step's time only; a dash in an item's own history), where it used to say
-"You". No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
+"You". An approval is signed by the same rule (initials only when chosen), Open version signs the restore step it
+makes in the copy, and a named version records who named it. No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
 older build shows the names as they're written. docs/SBD_FORMAT.md says what the column now holds.
 
 Later phases, added Nov 4 (not built now):
@@ -694,7 +695,7 @@ src/app/openVersion.ts):
   halfway changing nothing, a restore after Empty Trash (src/core/ops/purge.test.ts), a frame's Trash state and the
   board's order brought back, Put back on custom fields and the action, no empty step, and paging.
 - Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
-  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9). A
+  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (PE, Nov 5, gives them). A
   custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
   marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
   are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.

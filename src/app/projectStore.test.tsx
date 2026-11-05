@@ -156,6 +156,31 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
+  it('signs every kind of step: a worked-out edit, a delete, a History restore and Empty Trash', async () => {
+    const store = createProjectStore({ author: () => 'Kevin Matos' });
+    const project = await open();
+    await store.getState().open(project);
+    const scene = { id: 'sc1', type: 'scene' as const, parentId: project.projectId, sortKey: 'V', props: { number: '1' } };
+    await store.getState().applyWith(() => ({ changes: [{ kind: 'create', record: scene }] }));
+    const created = (await project.file.query('SELECT id FROM op_groups ORDER BY seq DESC LIMIT 1'))[0]?.id;
+    await store.getState().apply([{ kind: 'trash', id: 'sc1' }]);
+    expect(store.getState().records.sc1?.trashedBy).toBe('Kevin Matos');
+    expect(await store.getState().restoreTo(String(created))).toBe(true);
+    await store.getState().apply([{ kind: 'trash', id: 'sc1' }]);
+    await store.getState().emptyTrash();
+    const groups = await project.file.query('SELECT kind, author FROM op_groups ORDER BY seq');
+    expect(groups.map((g) => [g.kind, g.author])).toEqual([
+      ['edit', 'Kevin Matos'],
+      ['edit', 'Kevin Matos'],
+      ['restore', 'Kevin Matos'],
+      ['edit', 'Kevin Matos'],
+      ['empty_trash', 'Kevin Matos'],
+    ]);
+    const unsigned = await project.file.query("SELECT count(*) AS n FROM ops WHERE author <> 'Kevin Matos'");
+    expect(Number(unsigned[0]?.n)).toBe(0);
+    await store.getState().close();
+  });
+
   it('takes away a notice about a step when that step is undone or redone, and no other notice (1.28’s low)', async () => {
     const store = createProjectStore();
     const project = await open();
