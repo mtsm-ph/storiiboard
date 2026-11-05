@@ -124,11 +124,23 @@ test('keeps the layout after a reload, marks it unsaved, and resets', async ({ p
   await expect(tile(page, 'Player')).toBeVisible();
 });
 
-test('opens any tile in any workspace from the Layout menu', async ({ page }) => {
+test('opens any built tile in any workspace from the Layout menu, and only built ones', async ({ page }) => {
   await page.getByRole('button', { name: /^Layout/ }).click();
-  await page.getByRole('button', { name: 'Calendar' }).click();
-  await expect(tile(page, 'Calendar')).toBeVisible();
+  // A phase's placeholder (Calendar, Phase 3) isn't offered: what isn't built is hidden (Kevin, Nov 5).
+  await expect(page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Calendar' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  await expect(tile(page, 'Trash')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Layout/ })).toBeFocused();
+
+  // With every built tile open, the group offers nothing, though Calendar, Gear and the rest aren't open.
+  for (const name of ['History', 'Color script']) {
+    await page.getByRole('button', { name: /^Layout/ }).click();
+    await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name, exact: true }).click();
+  }
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  const group = page.getByRole('group', { name: 'Open tile' });
+  await expect(group.getByRole('button')).toHaveCount(0);
+  await expect(group.getByText('Every built tile is open.')).toBeVisible();
 });
 
 test('moves a tile from the keyboard alone', async ({ page }) => {

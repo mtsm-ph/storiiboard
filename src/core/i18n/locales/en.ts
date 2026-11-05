@@ -61,7 +61,7 @@ export const en = {
   'layoutMenu.resetToDefaultLayout': 'Reset to default layout',
   'layoutMenu.undoLayoutChange': 'Undo layout change',
   'layoutMenu.openTile': 'Open tile',
-  'layoutMenu.everyTileIsOpen': 'Every tile is open.',
+  'layoutMenu.everyTileIsOpen': 'Every built tile is open.',
   // src/app/shell/sidebar/SceneList.tsx
   'sceneList.scenes': 'Scenes',
   'sceneList.addScene': '+ Add Scene',

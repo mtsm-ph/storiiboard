@@ -62,7 +62,7 @@ export const es: Messages = {
   'layoutMenu.resetToDefaultLayout': 'Disposición predeterminada',
   'layoutMenu.undoLayoutChange': 'Deshacer cambio de disposición',
   'layoutMenu.openTile': 'Abrir panel',
-  'layoutMenu.everyTileIsOpen': 'Todos los paneles están abiertos.',
+  'layoutMenu.everyTileIsOpen': 'Todos los paneles disponibles están abiertos.',
   // src/app/shell/sidebar/SceneList.tsx
   'sceneList.scenes': 'Escenas',
   'sceneList.addScene': '+ Agregar escena',
