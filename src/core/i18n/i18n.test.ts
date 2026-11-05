@@ -85,7 +85,7 @@ describe('the English file', () => {
       .map((path) => readFileSync(path, 'utf8'))
       .join('\n');
     // Keys the code builds from an id: a tile's title, a drop zone, a status count, a field's error.
-    const built = [/^tile\.\w+\.(title|note)$/, /^dock\.zone\./, /^board\.counts\./, /^error\./];
+    const built = [/^tile\.\w+\.(title|note)$/, /^dock\.zone\./, /^dock\.edge\./, /^board\.counts\./, /^error\./];
     const unused = keys.filter((key) => {
       if (built.some((pattern) => pattern.test(key))) return false;
       const literal = key.replace(/\.(one|other)$/, '');

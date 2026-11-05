@@ -151,3 +151,58 @@ test('passes axe with tiles docked as tabs and the Layout menu open', async ({ p
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
 });
+
+test('docks a tile along the whole bottom, top or right of the window, spanning that side (polish 4)', async ({ page }) => {
+  const panel = await box(page.getByRole('region', { name: 'Storyboard workspace' }));
+  const root = await box(page.locator('[data-dock-root]'));
+  // Along the bottom: dragged close to the workspace's bottom edge, the preview spans the whole width.
+  await drag(page, tile(page, 'Frame inspector'), { x: panel.x + panel.width / 2, y: panel.y + panel.height - 6 }, false);
+  await expect(page.getByText('Dock along the bottom', { exact: true })).toBeVisible();
+  await page.mouse.up();
+  let inspector = await box(tile(page, 'Frame inspector'));
+  expect(Math.abs(inspector.x - root.x)).toBeLessThan(2);
+  expect(Math.abs(inspector.width - root.width)).toBeLessThan(2);
+  expect(Math.abs(inspector.y + inspector.height - (root.y + root.height))).toBeLessThan(2);
+  // Every other tile sits above it, at its old place across.
+  expect((await box(tile(page, 'Scenes'))).y + (await box(tile(page, 'Scenes'))).height).toBeLessThanOrEqual(inspector.y);
+
+  // Along the top.
+  await drag(page, tile(page, 'Player'), { x: panel.x + panel.width / 2, y: panel.y + 6 });
+  const player = await box(tile(page, 'Player'));
+  expect(Math.abs(player.y - root.y)).toBeLessThan(2);
+  expect(Math.abs(player.width - root.width)).toBeLessThan(2);
+
+  // Along the right: the whole height.
+  await drag(page, tile(page, 'Frame inspector'), { x: panel.x + panel.width - 6, y: panel.y + panel.height / 2 });
+  inspector = await box(tile(page, 'Frame inspector'));
+  expect(Math.abs(inspector.y - root.y)).toBeLessThan(2);
+  expect(Math.abs(inspector.height - root.height)).toBeLessThan(2);
+  expect(Math.abs(inspector.x + inspector.width - (root.x + root.width))).toBeLessThan(2);
+});
+
+test('never docks along the left edge, the sidebar’s: there a tile splits the tile under it', async ({ page }) => {
+  const panel = await box(page.getByRole('region', { name: 'Storyboard workspace' }));
+  // Inside the leftmost tile, as near the window's left edge as a tile reaches.
+  await drag(page, tile(page, 'Player'), { x: panel.x + 14, y: panel.y + panel.height / 2 }, false);
+  await expect(page.getByText(/^Dock along/)).toHaveCount(0);
+  await expect(page.getByText('Split left', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+});
+
+test('docks along a window edge from the keyboard, after every tile, never on the left', async ({ page }) => {
+  await page.getByRole('button', { name: 'Move Player' }).focus();
+  await page.keyboard.press('Enter');
+  // Scenes, Storyboard, Frame inspector, then the window.
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Tab');
+  await expect(page.getByText('Dock along the right', { exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByText('Dock along the right', { exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByText('Dock along the bottom', { exact: true })).toBeVisible();
+  await page.keyboard.press('Enter');
+  const root = await box(page.locator('[data-dock-root]'));
+  const player = await box(tile(page, 'Player'));
+  expect(Math.abs(player.width - root.width)).toBeLessThan(2);
+  await expect(page.getByRole('button', { name: 'Move Player' })).toBeFocused();
+});

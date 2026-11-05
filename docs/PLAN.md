@@ -94,7 +94,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P1 Language layer: every word through translation files (src/core/i18n), English only; Settings → App language | #49 | Done |
 | P2 Hide and show the sidebar: a button and a shortcut, the layout reflows, the choice remembered | #50 | Done |
 | P3 History button in the top bar, beside the project name | #51 | Done |
-| P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | | Planned |
+| P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | | Building |
 | PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Planned |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Planned |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
@@ -146,6 +146,13 @@ P2 as built (Nov 4):
 P3 as built (Nov 4): a History button (a clock glyph and the word) right after the project's name in the top bar,
 disabled with no project open. It opens the History tile in the workspace on screen, or brings it to the front, as
 the project menu's History does.
+
+P4 as built (Nov 5): within 24px of the workspace's top, right or bottom edge (the 8px gap and 16px into the tiles),
+a dragged tile docks along that whole side at a quarter of the space; everything else keeps its arrangement in the
+rest. A row or column the same way merges rather than nesting, so each tile keeps its share. The left edge has no
+band: there the tile under the pointer splits as before. A keyboard move offers the window after every tile; the
+arrows pick top, right or bottom, and Left says the edge is the sidebar's. A workspace's only tile, or a maximized
+layout, has no edge to dock to.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
