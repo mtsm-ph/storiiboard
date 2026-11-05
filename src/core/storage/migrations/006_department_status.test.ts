@@ -6,7 +6,7 @@ import { migrate } from '../migrate';
 import { nodeDriver } from '../nodeDriver';
 import { openProject, type Project } from '../project';
 import { makeTestFolder, type TestFolder } from '../testFolder';
-import { MIGRATIONS, SCHEMA_VERSION } from '.';
+import { MIGRATIONS } from '.';
 
 let folder: TestFolder;
 let project: Project | undefined;
@@ -47,7 +47,6 @@ describe('schema 6: department status', () => {
   it('backs the file up, then makes each department that was on a Priority one, and takes the list off', async () => {
     const path = await v5File();
     project = await openProject(path, { driver: nodeDriver, backups: false });
-    expect(SCHEMA_VERSION).toBe(6);
     expect(readdirSync(folder.dir).some((name) => name.startsWith('Bey County.sbd.bak-v5-'))).toBe(true);
 
     const a = await getRecord(project.file, 'a');

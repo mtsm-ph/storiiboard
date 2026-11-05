@@ -1038,5 +1038,27 @@ export const en = {
   'approver.directorInSentence': 'director',
   'approver.dpInSentence': 'DP',
   'departmentStatus.legend': 'Key',
+  // src/features/storyboard/DepartmentStatusTable.tsx
+  'departmentStatus.seenHow': 'Seen is automatic: ticked when someone from this department opens the frame.',
+  // src/features/export/shotListCsv.ts
+  'export.csv.department': '{department}: {states}',
+  // src/features/storyboard/DepartmentSummary.tsx (polish 6b: department status at a glance)
+  'departmentState.inSentence.priority': 'priority',
+  'departmentState.inSentence.seen': 'seen',
+  'departmentState.inSentence.working': 'working on it',
+  'departmentState.inSentence.done': 'done',
+  'departmentState.inSentence.approved': 'approved',
+  'departmentSummary.label': 'Departments: {states}',
+  'departmentSummary.priority.one': '{count} priority',
+  'departmentSummary.priority.other': '{count} priority',
+  'departmentSummary.seen.one': '{count} seen',
+  'departmentSummary.seen.other': '{count} seen',
+  'departmentSummary.working.one': '{count} working on it',
+  'departmentSummary.working.other': '{count} working on it',
+  'departmentSummary.done.one': '{count} done',
+  'departmentSummary.done.other': '{count} done',
+  'departmentSummary.approved.one': '{count} approved',
+  'departmentSummary.approved.other': '{count} approved',
+  'departmentSummary.states': '({states})',
   // codemod: new entries above this line
 };

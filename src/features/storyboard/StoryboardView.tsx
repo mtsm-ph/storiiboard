@@ -1,7 +1,7 @@
 import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { customValue } from '../../core/model/customFields';
-import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
-import { priorityDepartments } from '../../core/model/departmentStatus';
+import { departmentStates } from '../../core/model/departmentStatus';
+import { DepartmentCounts, DepartmentStates, summaryText } from './DepartmentSummary';
 import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
@@ -57,7 +57,11 @@ export interface FrameCard {
   strokes?: readonly Stroke[];
   /** The frame's own fields (1.19), by name. */
   custom?: Readonly<Record<string, string>>;
+  /** The departments that have opened the frame (polish 6b). */
+  seen?: readonly string[];
 }
+
+const NOTHING_SEEN: readonly string[] = [];
 
 /** One thing on the board, in order: a frame or a note. */
 export type BoardEntry = { kind: 'frame'; frame: FrameCard } | { kind: 'note'; id: string; text: string };
@@ -361,6 +365,7 @@ export function StoryboardView({
     return (
       <button
         {...itemProps(frame, sceneId)}
+        {...(summaryText(frame.fields.departmentStatus, frame.seen ?? NOTHING_SEEN) !== null ? { 'aria-describedby': `departments-${frame.id}` } : {})}
         data-drop-shot={frame.id}
         className={cx('relative flex flex-col border border-border bg-surface text-left', className)}
       >
@@ -393,6 +398,8 @@ export function StoryboardView({
             <StatusGlyph status={frame.status} />
           </span>
         </span>
+        {/* How far the departments have got (polish 6b), its words the card's description. */}
+        <DepartmentCounts statuses={frame.fields.departmentStatus} seen={frame.seen ?? NOTHING_SEEN} descriptionId={`departments-${frame.id}`} />
         {selected && <span aria-hidden="true" className="pointer-events-none absolute -inset-px border-[3px] border-accent" />}
       </button>
     );
@@ -583,9 +590,6 @@ export function StoryboardView({
   );
 }
 
-/** A department's name; an id from a newer file or an import shows as it is. */
-const departmentName = (id: string) =>
-  (DEPARTMENTS as readonly string[]).includes(id) ? DEPARTMENT_LABELS[id as Department] : id;
 const dash = (text: string) => (text === '' ? '—' : text);
 const capital = (text: string) => (text === '' ? '—' : text.charAt(0).toUpperCase() + text.slice(1));
 
@@ -680,11 +684,9 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                     <StatusGlyph status={f.status} showLabel />
                   </td>
                   <td className={cx(cell, 'max-w-[28ch]', f.action === '' && quiet)}>{dash(f.action)}</td>
-                  {/* The departments this frame depends on most (polish 6), as the on/off tags read before. */}
-                  <td className={cx(cell, priorityDepartments(f.departmentStatus).length === 0 && quiet)}>
-                    {priorityDepartments(f.departmentStatus).length === 0
-                      ? '—'
-                      : priorityDepartments(f.departmentStatus).map(departmentName).join(', ')}
+                  {/* Each department with anything set or seen, Priority first, with its shapes (polish 6b). */}
+                  <td className={cx(cell, departmentStates(f.departmentStatus, frame.seen ?? NOTHING_SEEN).length === 0 && quiet)}>
+                    <DepartmentStates statuses={f.departmentStatus} seen={frame.seen ?? NOTHING_SEEN} />
                   </td>
                   {customNames.map((name) => {
                     // The frame may spell the name in another case; it's the same field.

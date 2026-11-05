@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (P6a department status merged) |
+| Last updated | Nov 5, 2026 (P6b Seen and status summary merged) |
 
 | Phase | State |
 |---|---|
@@ -100,7 +100,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | #55 | Done |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | #56 | Done |
 | P6a Department status per shot (Priority, Working on it, Done, Approved) in place of on/off tags; schema 6 with migration; "Your role on this project" | #57 | Done |
-| P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | | Planned |
+| P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | #58 | Done |
 | PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
@@ -207,6 +207,12 @@ its approver's to take back, and the director's and the DP's can sit side by sid
 the place of the usual role there; its list adds "Director and DP". Schema 6 turns each department that was on into
 Priority, after a backup. The shot list and the CSV list the Priority departments for now; P6b adds Seen and the
 compact summary. Status colours from the kit as `state-*` tokens (navy, mustard, sage), each with its own shape.
+
+P6b as built (Nov 5): Seen. A frame open for 0.6s (arrowing past doesn't count) is marked seen by the departments
+the person's role on the project stands for (the DP: Camera; Director and DP: both), from any tile. Kept in a table of
+its own (schema 7, `shot_seen`), not an op, so undo never takes it back; Empty Trash deletes it with the frame. The
+inspector's grid gains a Seen column (read-only). Frame cards get a summary line (a shape and a count per state), the
+shot list each department with its shapes, and the CSV each department with its states in words.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

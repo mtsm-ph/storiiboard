@@ -282,7 +282,7 @@ describe('the shot list CSV', () => {
       '﻿' +
         [
           'Scene,Heading,Length,Location,Shot,Size,Lens (mm),T-stop,Support,Height,Move,Status,Action,Dialogue,Departments,Drone',
-          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4A,MCU,35,T2.8,,,,Have,"Mary wipes the counter, ""slowly"".",,"Camera, Art",no',
+          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4A,MCU,35,T2.8,,,,Have,"Mary wipes the counter, ""slowly"".",,Camera: Priority; Art: Priority; Sound: Done,no',
           '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4B,WS,,,,,,Need to shoot,,We’re closed.,,',
         ].join('\r\n') +
         '\r\n',

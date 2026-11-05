@@ -52,7 +52,7 @@ describe('the Frame inspector', () => {
     const statuses = departmentStatuses({ department_status: { camera: { approvals: [{ name: 'Kevin Matos', roles: ['director'], at: 'x' }] } } });
     const approved = (roles: readonly ('director' | 'dp')[]) =>
       /aria-checked="([a-z]+)" aria-label="Camera: Approved"/.exec(
-        renderToString(<DepartmentStatusTable statuses={statuses} approval={() => null} myRoles={roles} onEdit={noop} />),
+        renderToString(<DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={roles} onEdit={noop} />),
       )?.[1];
     expect(approved(['director'])).toBe('true');
     expect(approved(['dp'])).toBe('mixed');

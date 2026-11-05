@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v6 (polish 6); sections marked planned aren't built yet. Every
+**Status:** schema v7 (polish 6b); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -283,7 +283,29 @@ below; src/core/model/departmentStatus.ts). No table changes.
 - The edit log is append-only and keeps the old lists. A point restored from before v6 (Restore to here, Open
   version) has `departments` again, and the app reads it as Priority; the next status edit on that shot takes the
   list off.
-- Seen (automatic, when someone from a department opens a shot) comes with polish 6b and isn't an op.
+- Seen (automatic, when someone from a department opens a shot) is schema 7, below, and isn't an op.
+
+## Schema v7: Seen (polish 6b)
+
+Part of the department status Kevin approved Nov 5. Opening a frame marks it seen by the departments the person's
+role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTMENTS; src/core/storage/seen.ts).
+
+`shot_seen`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| shot_id | text | The frame. No reference to records, like `slate_numbers` |
+| department | text | A department id |
+| seen_at | text | The first time; a later opening writes nothing |
+
+- Unique on (`shot_id`, `department`).
+- Seen is automatic, like a notification read: not an op, so undo, redo and Restore to here never touch it and
+  History doesn't list it. A frame in the Trash keeps its rows; Empty Trash deletes them with the frame.
+- One row per department, not per person, until the web brings people (Phase 9: Seen per team member).
+- It's part of the file, so backups and Open version copies carry it.
+- A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
+  (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
 ## Trash
 
@@ -656,6 +678,7 @@ is each person's read state, in two tables.
 | 4 | 1.23 | Named versions: `versions` |
 | 5 | 1.26 | Slate numbers: `slate_numbers`; `meta.slate_numbers_unknown` |
 | 6 | Polish 6 | Department status: each shot's `departments` list becomes `department_status`, the departments that were on as Priority. No table change |
+| 7 | Polish 6b | Seen: `shot_seen` |
 | later | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema

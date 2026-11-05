@@ -158,7 +158,8 @@ describe('the strip and the shot list', () => {
     expect(html).toMatch(/<td class="px-2 py-1.5 align-top font-mono">24mm<\/td>/);
     expect(html).toContain('Dolly');
     expect(html).toContain('She waits.');
-    expect(html).toContain('Camera, Sound');
+    // Each department with its shapes, and the same in words for a screen reader (polish 6b).
+    expect(html).toMatch(/>Camera<span aria-hidden="true"[^]*?<span class="sr-only">\(priority\)<\/span>[^]*?>Sound</);
     expect(html).toMatch(/bg-surface-raised/);
     expect(html.split('bg-accent').length - 1).toBe(1);
   });

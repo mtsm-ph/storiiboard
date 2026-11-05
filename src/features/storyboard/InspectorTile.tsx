@@ -34,6 +34,7 @@ export function InspectorTile() {
   const shotId = useSelection((s) => s.shotId);
   // What this person can approve here (polish 6): their role on this project, else their usual one.
   const role = useProjectRole(project?.projectId);
+  const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -99,6 +100,7 @@ export function InspectorTile() {
         }}
         approval={() => approvalNow(role)}
         myRoles={approverRoles(role)}
+        {...(seen ? { seen } : {})}
         picture={picture}
         locationName={locationName}
         strokeCount={shot ? strokesOf(records, shot.id).length : 0}

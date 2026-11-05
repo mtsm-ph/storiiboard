@@ -17,7 +17,7 @@ import type { ProjectFile, Statement } from './driver';
 export const SLATE_NUMBERS_UNKNOWN = 'slate_numbers_unknown';
 
 /** A UUID v4 made inside SQLite, one per row an INSERT … SELECT writes. */
-const UUID_V4 = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' ||
+export const UUID_V4 = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' ||
   substr('89ab', 1 + (random() & 3), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
 
 // Live frames only: a frame trashed while its scene was locked was live there at the end of an earlier group, and

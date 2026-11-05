@@ -1,6 +1,6 @@
 import { mediaFields } from '../../core/media/store';
-import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
-import { statusText } from '../../core/model/departmentStatus';
+import { DEPARTMENT_LABELS } from '../../core/model/department';
+import { departmentName, statusText } from '../../core/model/departmentStatus';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -218,10 +218,7 @@ const isStatus = (change: FieldChange): change is FieldChange & { key: string } 
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange): string =>
-  isStatus(change) ? departmentLabel(change.key) : (change.key ?? fieldLabel(change.prop));
-
-/** A department by its name; an id this version doesn't know, as stored. */
-const departmentLabel = (id: string): string => (Object.hasOwn(DEPARTMENT_LABELS, id) ? DEPARTMENT_LABELS[id as Department] : id);
+  isStatus(change) ? departmentName(change.key) : (change.key ?? fieldLabel(change.prop));
 /**
  * A change's value. A custom field that isn't on the frame at all reads "no field", apart from an empty one (`—`):
  * putting back one takes the field off, the other keeps it.
