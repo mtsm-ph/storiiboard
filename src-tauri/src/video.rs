@@ -427,16 +427,22 @@ pub struct KnownVideos {
 impl KnownVideos {
     pub fn load(data_dir: &Path) -> Self {
         let file = data_dir.join("known-videos.json");
-        let paths = match std::fs::read(&file) {
-            Ok(bytes) => serde_json::from_slice::<Vec<PathBuf>>(&bytes).unwrap_or_else(|_| {
-                // Kept aside, never written over: the next video remembered starts a new list.
-                let _ = std::fs::rename(&file, file.with_extension("json.unreadable"));
-                Vec::new()
-            }),
-            Err(_) => Vec::new(),
+        let (paths, file) = match std::fs::read(&file) {
+            Ok(bytes) => match serde_json::from_slice::<Vec<PathBuf>>(&bytes) {
+                Ok(paths) => (paths, Some(file)),
+                Err(_) => {
+                    // Kept aside, never written over: the next video remembered starts a new list.
+                    let _ = std::fs::rename(&file, file.with_extension("json.unreadable"));
+                    (Vec::new(), Some(file))
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Vec::new(), Some(file)),
+            // There but unreadable now (held by another program, say): this session remembers in memory only, so
+            // the list on disk is never replaced by a shorter one.
+            Err(_) => (Vec::new(), None),
         };
         Self {
-            file: Some(file),
+            file,
             paths: Mutex::new(paths),
         }
     }

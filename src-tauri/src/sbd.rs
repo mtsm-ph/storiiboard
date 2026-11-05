@@ -859,7 +859,9 @@ impl OpenFiles {
             match fs::symlink_metadata(&at) {
                 Ok(meta) if meta.file_type().is_symlink() => return Ok(false),
                 Ok(_) => {}
-                Err(_) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                // Can't be looked at (access denied, say): what's below it wasn't checked, so no.
+                Err(_) => return Ok(false),
             }
         }
         Ok(true)
