@@ -80,21 +80,23 @@ export function Tile({
             aria-pressed={drag.moving ?? false}
             aria-keyshortcuts="Enter"
             onKeyDown={drag.onGripKeyDown}
-            className="flex h-5 w-3 cursor-grab items-center justify-center focus-visible:outline-offset-0"
+            className="flex h-5 w-3 shrink-0 cursor-grab items-center justify-center focus-visible:outline-offset-0"
           >
             <GripGlyph />
           </button>
         ) : (
           <GripGlyph />
         )}
-        <span className="sb-label shrink-0 font-bold">
+        {/* Shortened in a narrow tile, never pushing the tile's own buttons out of it (quality pass: a squeezed tile's
+            close button slid under the next tile's grip). The full name is the tile's label and this tooltip. */}
+        <span className="sb-label min-w-0 truncate font-bold" title={title}>
           {String(index).padStart(2, '0')} / {title}
         </span>
         {meta !== undefined && <span className="sb-label shrink-0 text-text-muted">{meta}</span>}
 
         {hasTabs && (
           // Stretched to the title bar's content box, so the open tab stops at the rule instead of covering it.
-          <div role="tablist" aria-label={t('tile.tabs', { title })} className="ml-1.5 flex min-w-0 self-stretch">
+          <div role="tablist" aria-label={t('tile.tabs', { title })} className="ml-1.5 flex min-w-0 self-stretch overflow-hidden">
             {tabs.map((tab, i) => {
               const open = tab.id === activeTab;
               return (
@@ -114,14 +116,16 @@ export function Tile({
                     if (nextTab) onTabChange?.(nextTab.id);
                   }}
                   className={cx(
-                    'sb-label flex items-center border-r border-border px-2.5 focus-visible:-outline-offset-4',
+                    // Shortened like the title in a narrow tile, so the tabs never run under its buttons.
+                    'sb-label flex min-w-6 items-center border-r border-border px-2.5 focus-visible:-outline-offset-4',
                     i === 0 && 'border-l',
                     // Muted text never sits on oatmeal (3.8:1), so the open tab switches to ink. Bold is the second
                     // cue: the oatmeal fill alone sits too close to the panel to mark which tab is open.
                     open ? 'bg-surface-raised font-bold text-text' : 'text-text-muted',
                   )}
                 >
-                  {tab.label}
+                  {/* Its own box, so a shortened label shows its ellipsis. */}
+                  <span className="truncate">{tab.label}</span>
                 </button>
               );
             })}

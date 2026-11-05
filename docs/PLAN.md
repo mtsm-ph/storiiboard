@@ -108,7 +108,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | #63 | Done (decisions marked for review) |
 | Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
-| Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | | Planned |
+| Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -300,6 +300,24 @@ fixes, and the numbers (Windows PC, Chromium, every frame with its own 1920 by 1
 - Next if boards grow past a few hundred frames: every card is drawn again on each change (the rest of the 960-frame
   times); drawing only the cards that changed would cut most of them. Not measured: the desktop's calls from the
   window to Rust themselves.
+
+Q3 as built (Nov 5): e2e/a11ySweep.spec.ts goes through every screen in light and dark, English and Spanish: the
+shell, onboarding, the board's three views with a frame selected, the inspector with a picture (framing, the scene's
+palette, a field's warning), the slash menu, the sketch editor, every workspace, both menus, the History, Trash and
+Color script tiles, the Empty Trash question, every Settings tab, Export, Watermark Settings, Import script and the
+Projects screen. On each: axe's WCAG 2.2 A and AA rules; contrast axe can't settle worked out against the fill behind
+the text and held to AA; and a walk with Tab from the screen's first stop, every stop showing its ring, not covered,
+and focus never falling to nothing.
+- Found and fixed: at the end of a Tab cycle focus fell to nothing (a browser hands it to its address bar; the desktop
+  webview has none, so a keyboard user lost their place). Tab and Shift+Tab now go round the page, or the window on
+  top (src/ui/tabWrap.ts), in the desktop and dev builds; a plain browser build (the web companion) keeps the
+  browser's own Tab. A narrow tile's title, and its tabs, now shorten rather than push its close button out under the
+  next tile's grip (axe: target size, in Spanish with several tiles open).
+- For Kevin, on the Mac: with macOS's Keyboard navigation off (the default), Tab skips buttons, so the wrap may not
+  trigger from the last text field of a window; Option+Tab is handled. Try Settings → Profile, Tab past the last field.
+- Not covered by the sweep yet: stacked tabs in a narrow tile, the hidden sidebar's strip, a maximized tile, the
+  keyboard tile move, a note being edited, the archived banner. Truncated tile titles pass this sweep but the Spanish
+  sweep (e2e/spanish.spec.ts) counts any cut-off label as a failure; it opens one tile at a time, so both hold today.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
