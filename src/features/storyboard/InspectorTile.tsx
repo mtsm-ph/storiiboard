@@ -10,6 +10,7 @@ import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
 import { copyHex, editPalette, generatePalette } from './palette/actions';
 import { PaletteEditor } from './palette/PaletteEditor';
+import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from './palette/Eyedropper';
 import { framesWithPictures } from './palette/read';
 import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
@@ -39,6 +40,7 @@ export function InspectorTile() {
   // What this person can approve here (polish 6): their role on this project, else their usual one.
   const role = useProjectRole(project?.projectId);
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
+  const picking = useEyedropperScene();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -112,6 +114,12 @@ export function InspectorTile() {
               onGenerate={() => generatePalette(scene.id)}
               onEdit={(edit) => editPalette(scene.id, edit)}
               onCopy={copyHex}
+              picking={picking === scene.id}
+              onPick={() => {
+                if (picking === scene.id) stopEyedropper();
+                else startEyedropper(scene.id);
+              }}
+              onAddHex={(hex) => addColour(scene.id, hex)}
             />
           ) : undefined
         }

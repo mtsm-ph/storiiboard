@@ -215,6 +215,12 @@
   filter: drop-shadow(0 0 2.5px var(--state-done));
 }
 
+/* The palette's eyedropper is on (polish PP): a crosshair everywhere, so the mode is plain wherever the pointer is. */
+html[data-eyedropper],
+html[data-eyedropper] * {
+  cursor: crosshair !important;
+}
+
 /* The kit's grain class fills with --sb-paper; the app's background follows the theme instead. */
 .sb-grain {
   background-color: var(--bg);

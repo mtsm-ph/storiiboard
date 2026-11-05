@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -7,7 +8,7 @@ import { chooseExportFile, chooseExportFolder } from '../../core/storage/exportF
 import { Button } from '../../ui/Button';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { NoticeBar } from '../../app/NoticeBar';
-import { Select } from '../../ui/fields';
+import { Select, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { board } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
@@ -60,6 +61,8 @@ function ExportDialog() {
   const records = useProject((s) => s.records);
   const [formatId, setFormatId] = useState(FORMATS[0]?.id ?? '');
   const [sceneId, setSceneId] = useState('');
+  // Remembered on this computer, as last chosen (polish PP).
+  const [scenePalettes, setScenePalettes] = useState(() => loadSettings().pdfScenePalettes);
   const [running, setRunning] = useState<string | null>(null);
   // Why the last run failed, said here: the shell's notice sits under the modal's backdrop, inert and unannounced.
   const [failed, setFailed] = useState<string | null>(null);
@@ -133,6 +136,7 @@ function ExportDialog() {
           setRunning(doing ?? t('export.exportingCount', { done, of }));
         },
         signal: controller.signal,
+        scenePalettes: format.options?.scenePalettes === true && scenePalettes,
       });
       closeExportDialog();
       const said = t('export.done', { what, label: target.label });
@@ -162,6 +166,17 @@ function ExportDialog() {
         onChange={setFormatId}
       />
       {format && <p className="-mt-2 text-[12px] text-text-muted">{format.description}</p>}
+      {format?.options?.scenePalettes && (
+        <Toggle
+          label={t('exportDialog.scenePalettes')}
+          checked={scenePalettes}
+          disabled={running !== null}
+          onChange={(on) => {
+            setScenePalettes(on);
+            saveSettings({ pdfScenePalettes: on });
+          }}
+        />
+      )}
       <Select
         label={t('exportDialog.scenes')}
         value={sceneId}

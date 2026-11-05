@@ -452,6 +452,19 @@ describe('the PDF storyboard', () => {
     expect(draft.y).toBeGreaterThan(title.y + 14);
   });
 
+  it('prints each scene’s palette in its heading when asked, and none when not (polish PP)', async () => {
+    await scene('sc4', '4', 1);
+    const fills = async (palettes?: readonly (readonly string[])[]) => {
+      const { bytes } = await storyboardPdf({ ...board(), ...(palettes ? { palettes } : {}) });
+      const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+      const ops = await (await pdf.getPage(1)).getOperatorList();
+      await pdf.destroy();
+      return ops.fnArray.flatMap((fn, i) => (fn === OPS.setFillRGBColor ? [String((ops.argsArray[i] as unknown[])[0]).toLowerCase()] : []));
+    };
+    expect(await fills([['#A35139', '#1F2F4D']])).toEqual(expect.arrayContaining(['#a35139', '#1f2f4d']));
+    expect(await fills()).not.toContain('#a35139');
+  });
+
   it('prints status as the board’s shapes, and STORYBOARD tracked as the kit’s labels are', async () => {
     const [have = '', need = '', source = ''] = await scene('sc4', '4', 3);
     await store.getState().apply([

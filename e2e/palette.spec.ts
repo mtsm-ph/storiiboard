@@ -108,6 +108,90 @@ test('keeps a locked colour in its place when the rest are generated again, and 
   await expect(swatches(page).nth(1)).toBeFocused();
 });
 
+test('the eyedropper adds the colour under the pointer from any frame’s picture; Esc stops it; a typed hex adds too', async ({ page }) => {
+  await choosePicture(page, 'p3-red.jpg');
+  await inspector(page).getByRole('button', { name: 'Pick from a frame' }).click();
+  await expect(inspector(page).getByRole('button', { name: 'Pick from a frame' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(inspector(page).getByRole('status').filter({ hasText: 'Click a picture on any frame' })).toBeVisible();
+  // A click on the frame's picture picks, and doesn't select or drag the frame.
+  await board(page).locator('[data-shot-id] img[data-frame-image]').first().click();
+  await expect(page.getByRole('status').getByText(/^Added #[0-9A-F]{6} to SC 01’s palette\.$/)).toBeVisible();
+  await expect(swatches(page)).toHaveCount(1);
+  const picked = /#([0-9A-F]{6})/.exec((await swatches(page).first().getAttribute('aria-label')) ?? '')?.[1] ?? '000000';
+  expect(parseInt(picked.slice(0, 2), 16)).toBeGreaterThan(240);
+  await expect(inspector(page).getByRole('button', { name: 'Pick from a frame' })).toHaveAttribute('aria-pressed', 'false');
+
+  // While picking, a menu drawn over the board still works: its item runs, nothing is picked through it.
+  await inspector(page).getByRole('button', { name: 'Pick from a frame' }).click();
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Color script', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Color script', exact: true })).toBeVisible();
+  await expect(swatches(page)).toHaveCount(1);
+
+  await expect(page.locator('html[data-eyedropper]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  // Escape stops it without picking.
+  await inspector(page).getByRole('button', { name: 'Pick from a frame' }).click();
+  await page.keyboard.press('Escape');
+  await expect(inspector(page).getByRole('button', { name: 'Pick from a frame' })).toHaveAttribute('aria-pressed', 'false');
+
+  // Picking stops when the inspector moves on to another scene: it never picks for a scene that isn't on screen.
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  await scenesTile(page).getByRole('list', { name: 'Scenes' }).locator('[data-scene-row]').first().click();
+  await board(page).locator('[data-shot-id]').first().click();
+  await inspector(page).getByRole('button', { name: 'Pick from a frame' }).click();
+  await expect(page.locator('html[data-eyedropper]')).toHaveCount(1);
+  await scenesTile(page).getByRole('list', { name: 'Scenes' }).locator('[data-scene-row]').nth(1).click();
+  await expect(page.locator('html[data-eyedropper]')).toHaveCount(0);
+  await scenesTile(page).getByRole('list', { name: 'Scenes' }).locator('[data-scene-row]').first().click();
+  await board(page).locator('[data-shot-id]').first().click();
+
+  // The keyboard's way: a typed hex.
+  const field = inspector(page).getByLabel('Add a colour');
+  await field.fill('nope');
+  await field.press('Enter');
+  await expect(inspector(page).getByRole('alert')).toHaveText('A colour as six hex digits, such as #A35139.');
+  await field.fill('1f2f4d');
+  await field.press('Enter');
+  await expect(swatches(page)).toHaveCount(2);
+  await expect(swatches(page).nth(1)).toHaveAccessibleName('Colour 2 of 2, #1F2F4D');
+  await expect(swatches(page).nth(1)).toBeFocused();
+});
+
+test('the Color script lists every scene’s palette in script order, and opens a scene', async ({ page }) => {
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Color script', exact: true }).click();
+  const tile = page.getByRole('region', { name: 'Color script', exact: true });
+  const rows = tile.getByRole('list', { name: 'Scene palettes in script order' }).getByRole('button');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toContainText('No palette');
+
+  await board(page).locator('[data-shot-id]').first().click();
+  await inspector(page).getByLabel('Add a colour').fill('#A35139');
+  await inspector(page).getByLabel('Add a colour').press('Enter');
+  await expect(rows.first()).toContainText('1 colour: #A35139');
+  await rows.nth(1).click();
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
+});
+
+test('Export offers the PDF storyboard’s scene palettes, and remembers the choice', async ({ page }) => {
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…' }).click();
+  const exportWindow = page.getByRole('dialog', { name: 'Export' });
+  const toggle = exportWindow.getByRole('switch', { name: 'Print each scene’s palette in its heading' });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await exportWindow.getByRole('radio', { name: 'Shot list (CSV)' }).click();
+  await expect(toggle).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…' }).click();
+  await expect(page.getByRole('dialog', { name: 'Export' }).getByRole('switch', { name: 'Print each scene’s palette in its heading' })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('the palette editor passes the axe checks', async ({ page }) => {
   await choosePicture(page, 'srgb.jpg');
   await inspector(page).getByRole('button', { name: 'Generate palette' }).click();

@@ -1,4 +1,5 @@
 import { canvasBlob } from '../../core/media/canvas';
+import { paletteOf } from '../../core/model/palette';
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { exportName } from './names';
 import { missingWarning } from './pngFrames';
@@ -43,8 +44,9 @@ export const pdfStoryboard: ExportFormat = {
   },
   output: 'file',
   watermark: 'pdf',
+  options: { scenePalettes: true },
   name: (title, scene) => exportName(title, scene, t('export.pdf.fileWord'), 'pdf'),
-  run: async ({ records, projectId, scope, file, target, title, progress, signal }) => {
+  run: async ({ records, projectId, scope, file, target, title, progress, signal, scenePalettes = false }) => {
     const [{ storyboardPdf, frameBox }, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
       import('./pdfStoryboard'),
       fontBytes(() => import('./fonts/InterTight-Regular.ttf?url')),
@@ -66,6 +68,8 @@ export const pdfStoryboard: ExportFormat = {
       scenes,
       aspect,
       watermark: watermarkFor(props, 'pdf'),
+      // Each scene's palette in its heading, when chosen (polish PP); a scene without one prints none.
+      ...(scenePalettes ? { palettes: scenes.map((scene) => paletteOf(scene.record.props)?.colors.map((c) => c.hex) ?? []) } : {}),
       fonts: { sans, sansSemiBold, sansBold, mono, monoBold },
       signal,
       frame: async (sceneIndex, shotIndex) => {

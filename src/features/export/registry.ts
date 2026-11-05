@@ -23,6 +23,13 @@ export interface ExportContext {
   progress: (done: number, total: number, doing?: string) => void;
   /** Aborted when the person stops the export: a format checks it between files and stops there. */
   signal: AbortSignal;
+  /** Print each scene's palette in its heading (polish PP); formats without headings ignore it. */
+  scenePalettes?: boolean;
+}
+
+export interface ExportFormatOptions {
+  /** The format can print scene palettes, so Export offers the choice. */
+  scenePalettes?: boolean;
 }
 
 export interface ExportFormat {
@@ -33,6 +40,8 @@ export interface ExportFormat {
   output: 'file' | 'folder';
   /** The watermark it carries, when Watermark Settings say so; none for a report. */
   watermark?: WatermarkUse;
+  /** The choices Export offers for it. */
+  options?: ExportFormatOptions;
   /** The file's name, or the new folder's, for this scope. */
   name: (title: string, sceneNumber: string | null) => string;
   /** Resolves to what it wrote. */

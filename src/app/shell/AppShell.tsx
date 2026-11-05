@@ -26,6 +26,7 @@ import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
 import { openExportDialog } from '../../features/export/exportStore';
 import { MarkSeen } from '../../features/storyboard/useMarkSeen';
+import { EyedropperHost } from '../../features/storyboard/palette/Eyedropper';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
 import { NoticeBar } from '../NoticeBar';
@@ -191,6 +192,8 @@ export function AppShell() {
       {/* A frame opened marks it Seen by this person's department (polish 6b), whichever tile opened it. Its own
           component, so a new selection re-renders it alone, never the shell. */}
       <MarkSeen />
+      {/* The palette's eyedropper (polish PP): on while a scene's palette is picking from a frame. */}
+      <EyedropperHost />
       <TopBar projectName={projectTitle} workspace={workspace} onOpenHistory={openHistoryHere} />
       <div className="flex min-h-0 flex-1">
         {sidebarHidden ? (

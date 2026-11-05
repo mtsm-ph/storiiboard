@@ -29,6 +29,7 @@ describe('backup settings', () => {
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null },
       projectRoles: {},
+      pdfScenePalettes: false,
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
@@ -57,6 +58,7 @@ describe('backup settings', () => {
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null },
       projectRoles: {},
+      pdfScenePalettes: false,
     });
   });
 });
