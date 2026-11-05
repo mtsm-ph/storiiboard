@@ -18,8 +18,8 @@ import { GearButton, ProfileButton, WebVersionItem } from './SidebarFoot';
 import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
-// its scenes inline. Arrow keys move through every entry and Enter opens one; Tab enters at the active section, then
-// goes to the foot's Hide sidebar and on to the tiles.
+// its scenes inline. Arrow keys move through every entry (the foot's Web version too) and Enter opens one; Tab enters
+// at the active section, then goes to the foot's Hide sidebar, the gear and the profile, and on to the tiles.
 
 interface SidebarProps {
   workspaces: readonly Workspace[];

@@ -2,7 +2,8 @@ import { t } from '../../../core/i18n';
 import { IconButton } from '../../../ui/Button';
 import { cx } from '../../../ui/cx';
 import { GearGlyph } from '../../../ui/glyphs';
-import { shownInitials, useProfile } from '../../settings/profile';
+import { shownInitials, useProfile } from '../../settings/profileStore';
+import { onNavKeyDown } from './navKeys';
 import { openSettings } from '../../settings/SettingsWindow';
 import { isMac } from '../undoShortcuts';
 
@@ -41,12 +42,13 @@ export function ProfileButton() {
       onClick={() => {
         openSettings('profile');
       }}
-      className="flex size-[24px] shrink-0 items-center justify-center"
+      // Its ring inside, as the gear's and Hide sidebar's are, so it fits the 36px strip.
+      className="flex size-[24px] shrink-0 items-center justify-center hover:bg-surface-raised focus-visible:-outline-offset-2"
     >
       <span
         aria-hidden="true"
         className={cx(
-          'flex size-[22px] items-center justify-center rounded-full border border-text font-mono text-[9px] font-bold',
+          'flex size-[22px] items-center justify-center rounded-full border border-text font-mono text-[10px] font-bold',
           initials === '' && 'border-dashed',
         )}
       >
@@ -57,13 +59,17 @@ export function ProfileButton() {
 }
 
 /**
- * The web companion's link, visible and to come: it stays focusable (aria-disabled), so a keyboard or screen-reader
- * user hears that it arrives in Phase 9. It goes nowhere yet; the site at that address still shows the old prototype.
+ * The web companion's link, visible and to come: like the sections still to come, it's on the sidebar's arrow keys
+ * (aria-disabled, not disabled), so a keyboard or screen-reader user hears that it arrives in Phase 9, without adding
+ * a Tab stop. It goes nowhere yet; the site at that address still shows the old prototype.
  */
 export function WebVersionItem() {
   return (
     <button
       type="button"
+      data-nav-item=""
+      tabIndex={-1}
+      onKeyDown={onNavKeyDown}
       aria-disabled="true"
       className="sb-label flex h-9 w-full cursor-default items-center px-4 text-left text-text-muted focus-visible:-outline-offset-4"
     >

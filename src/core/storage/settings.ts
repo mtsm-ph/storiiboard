@@ -8,8 +8,8 @@ import { DEFAULT_KEEP, type BackupKeep } from './backups';
 // tools may read, like the recent projects, go in app data files instead (appData.ts).
 
 /**
- * The person on this computer (polish C): shown wherever the app says who did something, and recorded as the author of
- * their edits. Local until accounts come with the web companion (Phase 9). Empty until they fill it in.
+ * The person on this computer (polish C), kept in these settings and never in a project file. Local until accounts
+ * come with the web companion (Phase 9). Empty until they fill it in.
  */
 export interface Profile {
   name: string;
@@ -21,12 +21,24 @@ export interface Profile {
 
 export const EMPTY_PROFILE: Profile = { name: '', initials: '', role: null };
 
-/** At most this long: a name has to fit the sidebar's tooltip and a History row. */
+/** At most this long, in characters: a name has to fit the sidebar's tooltip. */
 export const MAX_PROFILE_NAME = 60;
+
+/**
+ * Profile text as kept: trimmed, without control or direction-override characters (which would flip the text beside a
+ * name), and cut to `max` characters as people count them, never through the middle of an emoji.
+ */
+export function cleanProfileText(text: string, max: number): string {
+  // Control characters and the bidi overrides and isolates; joiners stay (ZWJ in emoji, ZWNJ in Persian names).
+  return Array.from(text.replace(/[\p{Cc}‪-‮⁦-⁩‎‏؜]/gu, '').trim())
+    .slice(0, max)
+    .join('')
+    .trim();
+}
 
 function profileOf(value: unknown): Profile {
   const saved = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
-  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? cleanProfileText(v, max) : '');
   return { name: text(saved.name, MAX_PROFILE_NAME), initials: text(saved.initials, 3), role: isRole(saved.role) ? saved.role : null };
 }
 

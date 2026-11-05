@@ -1,36 +1,11 @@
 import { useId, useState } from 'react';
-import { useStore } from 'zustand';
-import { createStore } from 'zustand/vanilla';
 import { t } from '../../core/i18n';
 import { initialsOf, isRole, ROLE_LABELS, ROLES } from '../../core/model/role';
-import { loadSettings, MAX_PROFILE_NAME, saveSettings, type Profile } from '../../core/storage/settings';
+import { cleanProfileText, MAX_PROFILE_NAME } from '../../core/storage/settings';
 import { Select, TextField } from '../../ui/fields';
+import { setProfile, useProfile } from './profileStore';
 
-// The local profile (polish C): the person on this computer, until accounts come with the web companion (Phase 9).
-// Edited in Settings → Profile, shown on the sidebar's profile button, and written as the author of each edit, so a
-// shared file's History says who did what.
-
-export const profileStore = createStore<Profile>()(() => loadSettings().profile);
-
-export function setProfile(patch: Partial<Profile>): void {
-  const next = { ...profileStore.getState(), ...patch };
-  profileStore.setState(next);
-  saveSettings({ profile: next });
-}
-
-export function useProfile(): Profile {
-  return useStore(profileStore);
-}
-
-/** The initials the avatar shows: typed, or worked out from the name. Empty with no profile yet. */
-export function shownInitials(profile: Profile): string {
-  return profile.initials || initialsOf(profile.name);
-}
-
-/** Who an edit is by, as the file records it: the profile's name, or `local` until there is one. */
-export function currentAuthor(): string {
-  return profileStore.getState().name || 'local';
-}
+// Settings → Profile (polish C): the person's name, initials and usual role, kept on this computer (profileStore.ts).
 
 export function ProfileTab() {
   const profile = useProfile();
@@ -39,12 +14,13 @@ export function ProfileTab() {
   const [name, setName] = useState(profile.name);
   const [initials, setInitials] = useState(profile.initials);
   const commitName = () => {
-    const next = name.trim().slice(0, MAX_PROFILE_NAME);
+    const next = cleanProfileText(name, MAX_PROFILE_NAME);
     setName(next);
     if (next !== profile.name) setProfile({ name: next });
   };
   const commitInitials = () => {
-    const next = initials.trim().toLocaleUpperCase().slice(0, 3);
+    // Upper-cased first, then cut: ß becomes SS, and the ring holds three letters at most.
+    const next = cleanProfileText(initials.toLocaleUpperCase(), 3);
     setInitials(next);
     if (next !== profile.initials) setProfile({ initials: next });
   };

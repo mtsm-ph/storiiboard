@@ -3,8 +3,6 @@ import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-// Each edit is written with who made it (polish C): the profile's name, or `local` until there is one.
-import { currentAuthor } from './settings/profile';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
@@ -206,7 +204,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         }),
       apply: async (changes, options) => {
         await edit(async (project) => {
-          const touched = await apply(project.file, changes, { author: currentAuthor(), ...options });
+          const touched = await apply(project.file, changes, options);
           if (options?.alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         });
@@ -215,17 +213,17 @@ export function createProjectStore(): StoreApi<ProjectState> {
         edit(async (project) => {
           const { changes, alsoWrite } = build(get().records, get().slateNumbers);
           if (changes.length === 0) return null;
-          const touched = await apply(project.file, changes, { author: currentAuthor(), ...(alsoWrite ? { alsoWrite } : {}) });
+          const touched = await apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
           if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         }),
       undo: async () => {
-        await edit((project) => undo(project.file, { author: currentAuthor() }));
+        await edit((project) => undo(project.file));
       },
       emptyTrash: async (only) => {
         let result: { removed: number; freed: number } | null = null;
         await edit(async (project) => {
-          const done = await emptyTrash(project.file, { author: currentAuthor(), ...(only ? { only } : {}) });
+          const done = await emptyTrash(project.file, only ? { only } : {});
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
@@ -241,7 +239,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         set({ restoring: true });
         try {
           await edit(async (project) => {
-            const touched = await restoreTo(project.file, groupId, { author: currentAuthor() });
+            const touched = await restoreTo(project.file, groupId);
             changed = touched !== null;
             return touched;
           });
@@ -264,7 +262,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         return result;
       },
       redo: async () => {
-        await edit((project) => redo(project.file, { author: currentAuthor() }));
+        await edit((project) => redo(project.file));
       },
       compact: async () => {
         if (get().compacting) return null;
