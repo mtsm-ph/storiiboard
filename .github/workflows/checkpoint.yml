@@ -47,7 +47,8 @@ jobs:
         if: ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
         run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
       # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
-      # workflow's own token starts no CI run, so the new baselines would go unchecked.
+      # workflow's own token starts no CI run, so the new baselines would go unchecked. The artifact holds the PNGs
+      # without their folder: they go back into e2e/visual.spec.ts-snapshots.
       - name: Look for new or changed Linux baselines
         id: baselines
         if: ${{ !cancelled() && (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
@@ -69,7 +70,9 @@ jobs:
 
   smoke-mac:
     name: Smoke (macOS, WebKit)
-    runs-on: macos-latest
+    # Pinned like the Linux job: the darwin baselines come from this image (macOS 26), and WebKit and font rendering
+    # change between macOS versions. A Mac on another major version may need its own run of the screenshot tests.
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7

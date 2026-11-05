@@ -1,8 +1,8 @@
 name: CI
 
 # Quick checks on Linux for every pull request (Kevin, Nov 4): lint, types, unit tests and the Rust tests, the Rust
-# data-safety tests among them. A push to v2 runs them once more on the merged result. The end-to-end smoke set and
-# the installers run at a checkpoint instead (checkpoint.yml), and the deeper end-to-end specs run locally before each
+# data-safety tests among them. A push to v2 runs them once more on the merged result. The end-to-end smoke set, the
+# screenshot tests and the installers run at a checkpoint instead (checkpoint.yml), and the deeper end-to-end specs run locally before each
 # merge (`npm run e2e`). Changes to docs alone skip CI.
 on:
   push:

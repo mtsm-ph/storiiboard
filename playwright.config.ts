@@ -10,8 +10,8 @@ export default defineConfig({
   timeout: process.env.CI ? 60_000 : 30_000,
   expect: { timeout: process.env.CI ? 10_000 : 5_000 },
   // On CI a missing screenshot baseline fails instead of being written: written on the first attempt, it would let
-  // the retry compare the screenshot with itself and pass. Linux baselines come from the CI workflow's
-  // update_visual_baselines option.
+  // the retry compare the screenshot with itself and pass. Linux and macOS baselines come from the Checkpoint workflow,
+  // on a push to checkpoint/baselines-<name>; Windows ones from the Windows gate.
   updateSnapshots: process.env.CI ? 'none' : 'missing',
   // On CI, list prints each test to the log and github annotates the failing lines.
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
