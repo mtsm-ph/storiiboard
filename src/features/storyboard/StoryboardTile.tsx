@@ -37,6 +37,9 @@ import {
 import { useBoardDrops } from './useBoardDrops';
 import { t } from '../../core/i18n';
 
+/** No department has opened the frame yet (polish 6b). */
+const NOTHING_SEEN: readonly string[] = [];
+
 /** Which view the board shows is the person's choice, not the project's: kept in this browser, like the layouts. */
 export const BOARD_VIEW_KEY = 'storiiboard.board-view';
 
@@ -161,6 +164,7 @@ export function StoryboardTile() {
   // Worked out once per edit, keeping each shot's list as it was while its strokes are unchanged, so a card's
   // sketch redraws only when its own strokes do.
   const strokes = useMemo(() => stableStrokesByShot(records), [records]);
+  const seen = useProject((s) => s.seen);
   const frameCard = (shot: BoardShot): FrameCard => ({
     id: shot.record.id,
     number: shot.fields.number,
@@ -170,6 +174,7 @@ export function StoryboardTile() {
     picture: pictureView(records, shot.fields),
     strokes: strokes.get(shot.record.id) ?? [],
     custom: customFieldsOf(shot.record.props),
+    seen: seen[shot.record.id] ?? NOTHING_SEEN,
   });
 
   const groups: SceneGroup[] = scenes.map((scene) => ({

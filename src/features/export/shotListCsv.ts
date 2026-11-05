@@ -1,6 +1,6 @@
 import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/customFields';
-import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
-import { priorityDepartments } from '../../core/model/departmentStatus';
+import { departmentName, departmentStates, departmentStatesText } from '../../core/model/departmentStatus';
+import { loadSeen, NO_SEEN, type Seen } from '../../core/storage/seen';
 import type { SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel } from '../../core/model/storyboard';
@@ -44,7 +44,7 @@ export function csvCell(value: string): string {
   return /[",\r\n]|^\s|\s$/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function shotListCsv(records: Records, projectId: string, scope: ExportScope): string {
+export function shotListCsv(records: Records, projectId: string, scope: ExportScope, seen: Seen = NO_SEEN): string {
   const scenes = scenesIn(records, projectId, scope);
   // Columns from the frames that go out: trashing a scene leaves its frames live, and a field only they use (or only
   // another scene's frames use) would be a column of blanks, or the Trash going out by its name.
@@ -71,7 +71,10 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
         SHOT_STATUS_LABELS[f.status],
         f.action,
         f.dialogue,
-        priorityDepartments(f.departmentStatus).map((d) => DEPARTMENT_LABELS[d as Department] as string | undefined ?? d).join(', '),
+        // Each department with anything set or seen (polish 6b), Priority first: "Camera: Priority, Done; Art: Working on it".
+        departmentStates(f.departmentStatus, seen[shot.record.id] ?? [])
+          .map(({ department }) => t('export.csv.department', { department: departmentName(department), states: departmentStatesText(f.departmentStatus, seen[shot.record.id] ?? [], department) }))
+          .join('; '),
         // The column has the spelling most frames use; a frame that spells it `drone` still fills `Drone`.
         ...custom.map((name) => customValue(own, name)),
       ]);
@@ -90,11 +93,11 @@ export const shotListCsvFormat: ExportFormat = {
   },
   output: 'file',
   name: (title, scene) => exportName(title, scene, t('export.csv.fileWord'), 'csv'),
-  run: async ({ records, projectId, scope, target, title, signal }) => {
+  run: async ({ records, projectId, scope, target, title, signal, file }) => {
     const frames = scenesIn(records, projectId, scope).reduce((n, s) => n + s.shots.length, 0);
     const scene = scope.kind === 'scene' ? (scenesIn(records, projectId, scope)[0]?.fields.number ?? null) : null;
     signal.throwIfAborted();
-    await target.write(exportName(title, scene, t('export.csv.fileWord'), 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope)));
+    await target.write(exportName(title, scene, t('export.csv.fileWord'), 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope, await loadSeen(file))));
     return { what: tn('count.frames', frames) };
   },
 };

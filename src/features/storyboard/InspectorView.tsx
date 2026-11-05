@@ -1,8 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
-
-const NO_ROLES: readonly Approver[] = [];
 import type { JsonValue } from '../../core/model/record';
 import {
   choiceLabel,
@@ -94,6 +92,8 @@ export interface InspectorViewProps {
   /** A value to set, or null to take the field off the frame. */
   /** Settles once the edit has landed, so focus can go to what it made. */
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
+  /** The departments that have opened this frame (polish 6b). */
+  seen?: readonly string[];
   /** A department status edit (polish 6), worked out from the frame as it is when the edit lands. */
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
   /** The approval this person would give a department now (polish 6); null when their role doesn't approve. */
@@ -101,6 +101,9 @@ export interface InspectorViewProps {
   /** The roles their role on the project approves in: director, DP, both, or none. */
   myRoles?: readonly Approver[];
 }
+
+const NO_ROLES: readonly Approver[] = [];
+const NOTHING_SEEN: readonly string[] = [];
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = labels({ have: 'shotStatus.have', need: 'inspector.need', source: 'shotStatus.source' });
 
@@ -374,6 +377,7 @@ export function InspectorView({
   approval,
   myRoles = NO_ROLES,
   onDepartmentStatus,
+  seen = NOTHING_SEEN,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -559,6 +563,7 @@ export function InspectorView({
             <DepartmentStatusTable
               key={shot.id}
               statuses={shot.fields.departmentStatus}
+              seen={seen}
               approval={approval ?? (() => null)}
               myRoles={myRoles}
               onEdit={(edit) => {

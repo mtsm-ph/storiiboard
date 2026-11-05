@@ -25,6 +25,7 @@ import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
 import { openExportDialog } from '../../features/export/exportStore';
+import { MarkSeen } from '../../features/storyboard/useMarkSeen';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
 import { NoticeBar } from '../NoticeBar';
@@ -187,6 +188,9 @@ export function AppShell() {
 
   return (
     <div className="sb-grain flex h-full flex-col text-text">
+      {/* A frame opened marks it Seen by this person's department (polish 6b), whichever tile opened it. Its own
+          component, so a new selection re-renders it alone, never the shell. */}
+      <MarkSeen />
       <TopBar projectName={projectTitle} workspace={workspace} onOpenHistory={openHistoryHere} />
       <div className="flex min-h-0 flex-1">
         {sidebarHidden ? (

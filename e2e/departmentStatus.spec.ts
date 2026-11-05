@@ -36,7 +36,9 @@ test('ticks a department’s status by click and by keyboard, undoes it, and kee
   // One Tab stop: the arrows move between boxes, Space ticks.
   await box(page, 'Camera: Priority').focus();
   await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
+  await expect(box(page, 'Camera: Seen')).toBeFocused();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
   await expect(box(page, 'Camera: Done')).toBeFocused();
   await page.keyboard.press('Space');
   await expect(box(page, 'Camera: Done')).toHaveAttribute('aria-checked', 'true');
@@ -55,9 +57,9 @@ test('ticks a department’s status by click and by keyboard, undoes it, and kee
     'Camera', 'Sound', 'Direction', 'Grip & electric', 'Art', 'HMU', 'Wardrobe', 'Production', 'Post', 'Cast', 'Client',
   ]);
 
-  // The shot list names the departments the frame depends on most.
+  // The shot list names each department with its shapes (words for a screen reader), Priority first.
   await board(page).getByRole('radio', { name: 'Shot list' }).click();
-  await expect(board(page).getByRole('table', { name: 'Shot list' }).locator('tr:has([data-shot-id])').first()).toContainText('Camera, Sound');
+  await expect(board(page).getByRole('table', { name: 'Shot list' }).locator('tr:has([data-shot-id])').first()).toContainText('Camera(priority)Sound(priority)');
 });
 
 test('only the director or the DP approves, and the approval shows who', async ({ page }) => {
@@ -105,11 +107,47 @@ test('two quick ticks both stay, each worked out from the frame as it is when it
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Space');
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Space');
   await expect(box(page, 'Art: Priority')).toHaveAttribute('aria-checked', 'true');
   await expect(box(page, 'Art: Working on it')).toHaveAttribute('aria-checked', 'true');
   await expect(box(page, 'Art: Done')).toHaveAttribute('aria-checked', 'true');
+});
+
+test('opening a frame marks it Seen by your department, shown on its card and in the shot list, and undo leaves it', async ({ page }) => {
+  // No role yet: opening a frame marks nothing.
+  await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-readonly', 'true');
+  await page.waitForTimeout(800);
+  await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-checked', 'false');
+
+  const project = await openSettings(page, 'Project');
+  await project.getByLabel('Your role on this project').selectOption({ label: 'Director of photography' });
+  await closeSettings(page);
+  // The frame open as the role was set is marked; arrowing past the next one doesn't count as opening it.
+  const second = board(page).locator('[data-shot-id]').nth(1);
+  await expect(board(page).locator('[data-shot-id]').first()).toHaveAccessibleDescription('Departments: 1 seen');
+  await board(page).locator('[data-shot-id]').first().focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(800);
+  await expect(second).toHaveAccessibleDescription('');
+  await second.click();
+  await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-checked', 'true');
+  await expect(box(page, 'Direction: Seen')).toHaveAttribute('aria-checked', 'false');
+  // Seen is automatic: a click or Space doesn't untick it.
+  await box(page, 'Camera: Seen').click();
+  await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-checked', 'true');
+
+  // The card says how far the departments have got, in shapes and in words.
+  await box(page, 'Camera: Priority').click();
+  const card = board(page).locator('[data-shot-id]').nth(1);
+  await expect(card).toHaveAccessibleDescription('Departments: 1 priority and 1 seen');
+  // Undo takes back the Priority tick, never Seen.
+  await page.keyboard.press(await undoKey(page));
+  await expect(card).toHaveAccessibleDescription('Departments: 1 seen');
+
+  await board(page).getByRole('radio', { name: 'Shot list' }).click();
+  await expect(board(page).getByRole('table', { name: 'Shot list' }).locator('tr:has([data-shot-id])').nth(1)).toContainText('Camera(seen)');
 });
 
 test('the department status grid passes the axe checks', async ({ page }) => {

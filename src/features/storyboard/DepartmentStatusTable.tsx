@@ -5,7 +5,7 @@ import {
   approvalWho,
   approvedByMe,
   DEPARTMENT_STATE_LABELS,
-  hasState,
+  inState,
   orderedDepartments,
   statusIn,
   withMyApproval,
@@ -20,15 +20,17 @@ import { DepartmentStateGlyph } from '../../ui/glyphs';
 // stop for the whole table; the arrows move between boxes and Space ticks, as in a spreadsheet. Approved is the
 // director's or the DP's: for anyone else it says why it can't be ticked, rather than hiding.
 
-/** The columns a person ticks here. Seen, automatic, comes with polish 6b. */
-const COLUMNS = ['priority', 'working', 'done', 'approved'] as const;
+/** The columns, in order. Seen is automatic (polish 6b): shown, never ticked by hand. */
+const COLUMNS = ['priority', 'seen', 'working', 'done', 'approved'] as const;
 type Column = (typeof COLUMNS)[number];
 
 /** The department's name, then a 28px column per state. */
-const ROW = 'grid grid-cols-[minmax(0,1fr)_repeat(4,28px)] items-center';
+const ROW = 'grid grid-cols-[minmax(0,1fr)_repeat(5,28px)] items-center';
 
 interface DepartmentStatusTableProps {
   statuses: DepartmentStatuses;
+  /** The departments that have opened this frame (polish 6b). */
+  seen: readonly string[];
   /** The approval this person would give, or null when their role on the project doesn't approve. */
   approval: () => Approval | null;
   /** The roles this person approves in on this project: director, DP, both, or none. */
@@ -40,7 +42,7 @@ interface DepartmentStatusTableProps {
   onEdit: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
 }
 
-export function DepartmentStatusTable({ statuses, approval, myRoles, onEdit }: DepartmentStatusTableProps) {
+export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdit }: DepartmentStatusTableProps) {
   const canApprove = myRoles.length > 0;
   // The order is fixed while the inspector shows this frame: ticking Priority mustn't move the row away from focus.
   const [order] = useState(() => orderedDepartments(statuses));
@@ -48,6 +50,7 @@ export function DepartmentStatusTable({ statuses, approval, myRoles, onEdit }: D
   const table = useRef<HTMLDivElement>(null);
 
   const toggle = (department: Department, column: Column) => {
+    if (column === 'seen') return;
     if (column !== 'approved') {
       onEdit((now) => withState(now, department, column, !statusIn(now, department)[column]));
       return;
@@ -106,8 +109,9 @@ export function DepartmentStatusTable({ statuses, approval, myRoles, onEdit }: D
                 {DEPARTMENT_LABELS[department]}
               </span>
               {COLUMNS.map((column, col) => {
-                const on = hasState(status, column);
+                const on = inState(statuses, seen, department, column);
                 const off = column === 'approved' && !canApprove;
+                const automatic = column === 'seen';
                 // For a director or DP, Approved is their own sign-off: ticked when they've given it, mixed when only
                 // someone else has, so a click always changes what the box says. For anyone else, whether it's approved.
                 const checked = column === 'approved' && canApprove ? (approvedByMe(status, myRoles) ? true : on ? 'mixed' : false) : on;
@@ -120,7 +124,8 @@ export function DepartmentStatusTable({ statuses, approval, myRoles, onEdit }: D
                       aria-checked={checked}
                       aria-label={label}
                       aria-disabled={off || undefined}
-                      title={off ? t('departmentStatus.approveWho') : label}
+                      aria-readonly={automatic || undefined}
+                      title={off ? t('departmentStatus.approveWho') : automatic ? t('departmentStatus.seenHow') : label}
                       data-cell={`${String(row)}-${String(col)}`}
                       tabIndex={at.row === row && at.col === col ? 0 : -1}
                       onFocus={() => {
@@ -132,7 +137,7 @@ export function DepartmentStatusTable({ statuses, approval, myRoles, onEdit }: D
                       onClick={() => {
                         toggle(department, column);
                       }}
-                      className={`inline-flex size-[22px] items-center justify-center border border-text focus-visible:outline-offset-1 ${off ? 'border-dashed' : ''}`}
+                      className={`inline-flex size-[22px] items-center justify-center border-text focus-visible:outline-offset-1 ${off ? 'border border-dashed' : automatic ? 'border border-dotted' : 'border'}`}
                     >
                       {on && <DepartmentStateGlyph state={column} hollow={checked === 'mixed'} />}
                     </button>

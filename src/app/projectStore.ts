@@ -7,6 +7,7 @@ import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restore
 import { CHANGED_ON_DISK } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
+import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage/seen';
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
@@ -20,6 +21,8 @@ export interface ProjectState {
   slateNumbers: SlateNumbers;
   /** Whether some numbers given out before schema 5 are unknown (an Empty Trash had run); the Empty Trash confirm says so. */
   slateUnknown: boolean;
+  /** Which departments have opened each frame (schema 7, polish 6b): automatic, outside the edit log. */
+  seen: Seen;
   canUndo: boolean;
   canRedo: boolean;
   /** The last edit that failed, in words a person can read. */
@@ -79,6 +82,11 @@ export interface ProjectState {
   cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
   /** Compact project (1.27): a backup, then the file rewritten without its free space. Null when it failed (`error` says why). */
   compact: () => Promise<Compacted | null>;
+  /**
+   * Marks a frame seen by these departments (polish 6b): when someone opens it. Not an op, so never undone; written
+   * once per frame and department, in the queue with the edits so it never lands in a project switched to since.
+   */
+  markSeen: (shotId: string, departments: readonly string[]) => Promise<void>;
 }
 
 export function createProjectStore(): StoreApi<ProjectState> {
@@ -141,6 +149,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       records: {},
       slateNumbers: NO_SLATE_NUMBERS,
       slateUnknown: false,
+      seen: NO_SEEN,
       canUndo: false,
       canRedo: false,
       error: null,
@@ -151,7 +160,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       compacting: false,
       open: (project) =>
         enqueue(async () => {
-          let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'canUndo' | 'canRedo'>;
+          let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'seen' | 'canUndo' | 'canRedo'>;
           let read = 0;
           try {
             const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
@@ -161,6 +170,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
               records,
               slateNumbers: slate.rows,
               slateUnknown: await slateNumbersUnknown(project.file),
+              seen: await loadSeen(project.file),
               ...(await history(project.file)),
             };
           } catch (error) {
@@ -195,6 +205,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
               records: {},
               slateNumbers: NO_SLATE_NUMBERS,
               slateUnknown: false,
+              seen: NO_SEEN,
               canUndo: false,
               canRedo: false,
               error: null,
@@ -220,6 +231,26 @@ export function createProjectStore(): StoreApi<ProjectState> {
       undo: async () => {
         await edit((project) => undo(project.file));
       },
+      markSeen: (shotId, departments) => {
+        const madeIn = get().project;
+        return enqueue(async () => {
+          const { project, seen, records } = get();
+          if (!project || project !== madeIn) return;
+          // A live frame only: one trashed, emptied or undone away while this waited its turn gets no rows.
+          const shot = records[shotId];
+          if (shot?.type !== 'shot' || shot.trashedAt !== null) return;
+          const missing = departments.filter((d) => !(seen[shotId] ?? []).includes(d));
+          if (missing.length === 0) return;
+          try {
+            await project.file.tx([markSeenStatement(shotId, missing, new Date().toISOString())]);
+            set((s) => ({ seen: { ...s.seen, [shotId]: [...(s.seen[shotId] ?? []), ...missing] } }));
+          } catch (error) {
+            // Seen is best-effort: a write that fails is tried again on the next opening, and never shown as an
+            // edit that failed. A file a sync replaced is still reopened, as for any write.
+            if (error instanceof Error && error.message === CHANGED_ON_DISK) set({ changedOnDisk: true });
+          }
+        });
+      },
       emptyTrash: async (only) => {
         let result: { removed: number; freed: number } | null = null;
         await edit(async (project) => {
@@ -230,6 +261,9 @@ export function createProjectStore(): StoreApi<ProjectState> {
           set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return done.touched;
         });
+        // Seen rows went with the frames deleted for good, in the same transaction: drop them here too (a frame no
+        // longer in the records is one of them, or one undone away, which shows nothing either way).
+        set((s) => ({ seen: Object.fromEntries(Object.entries(s.seen).filter(([id]) => id in s.records)) }));
         return result;
       },
       restoreTo: async (groupId) => {

@@ -1,5 +1,5 @@
 import { labels, list, t } from '../i18n';
-import { DEPARTMENTS, type Department } from './department';
+import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from './department';
 import type { JsonValue, Props } from './record';
 import { isRole, type Role } from './role';
 
@@ -137,7 +137,7 @@ export function statusText(value: JsonValue | undefined): string {
 
 export const statusIn = (statuses: DepartmentStatuses, department: string): DepartmentStatus => statuses[department] ?? EMPTY;
 
-/** Whether a department is in a state. Seen isn't kept here (see seenDepartments, polish 6b). */
+/** Whether a department is in a state. Seen isn't kept here, but in its own table (inState, polish 6b). */
 export function hasState(status: DepartmentStatus, state: Exclude<DepartmentState, 'seen'>): boolean {
   return state === 'approved' ? status.approvals.length > 0 : status[state];
 }
@@ -193,11 +193,45 @@ export function orderedDepartments(statuses: DepartmentStatuses): Department[] {
   return [...priority, ...DEPARTMENTS.filter((d) => !statusIn(statuses, d).priority)];
 }
 
-/** The departments a shot depends on most, in call-sheet order; unknown ids after them, as stored. */
-export function priorityDepartments(statuses: DepartmentStatuses): string[] {
-  const known = DEPARTMENTS.filter((d) => statusIn(statuses, d).priority);
-  const unknown = Object.keys(statuses).filter((id) => !(DEPARTMENTS as readonly string[]).includes(id) && statusIn(statuses, id).priority);
-  return [...known, ...unknown];
+/** Whether a department is in a state, Seen included (`seen`: the departments that have opened the frame). */
+export function inState(statuses: DepartmentStatuses, seen: readonly string[], department: string, state: DepartmentState): boolean {
+  return state === 'seen' ? seen.includes(department) : hasState(statusIn(statuses, department), state);
+}
+
+/** Every department id the frame names: the known ones in the inspector's order, then any a newer version added. */
+function allDepartments(statuses: DepartmentStatuses, seen: readonly string[]): string[] {
+  const known: readonly string[] = DEPARTMENTS;
+  const unknown = [...new Set([...Object.keys(statuses), ...seen])].filter((id) => !known.includes(id));
+  return [...orderedDepartments(statuses), ...unknown];
+}
+
+/** The departments with anything set or seen, Priority first (ids a newer version added come last), each with its states in column order. */
+export function departmentStates(statuses: DepartmentStatuses, seen: readonly string[]): { department: string; states: DepartmentState[] }[] {
+  return allDepartments(statuses, seen)
+    .map((department) => ({ department, states: DEPARTMENT_STATES.filter((state) => inState(statuses, seen, department, state)) }))
+    .filter((row) => row.states.length > 0);
+}
+
+/** How many departments are in each state, for a frame card's summary; states nobody is in left out. */
+export function stateCounts(statuses: DepartmentStatuses, seen: readonly string[]): { state: DepartmentState; count: number }[] {
+  const all = allDepartments(statuses, seen);
+  return DEPARTMENT_STATES.map((state) => ({ state, count: all.filter((d) => inState(statuses, seen, d, state)).length })).filter(
+    (row) => row.count > 0,
+  );
+}
+
+/** A department by its name; an id this version doesn't know (a newer one's), as stored. */
+export function departmentName(id: string): string {
+  return Object.hasOwn(DEPARTMENT_LABELS, id) ? DEPARTMENT_LABELS[id as Department] : id;
+}
+
+/** One department's states for the CSV: "Priority, Seen, Done, approved by Kevin Matos (DP)". */
+export function departmentStatesText(statuses: DepartmentStatuses, seen: readonly string[], department: string): string {
+  const status = statusIn(statuses, department);
+  const states = (['priority', 'seen', 'working', 'done'] as const)
+    .filter((state) => inState(statuses, seen, department, state))
+    .map((state) => DEPARTMENT_STATE_LABELS[state]);
+  return [...states, ...status.approvals.map((a) => t('departmentStatus.approvedByWho', { who: approvalWho(a) }))].join(', ');
 }
 
 /**

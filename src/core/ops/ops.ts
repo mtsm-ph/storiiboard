@@ -1,4 +1,5 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
+import { forgetSeenStatement } from '../storage/seen';
 import type { ProjectFile, Row, Statement } from '../storage/driver';
 import { recordSlateNumbers } from '../storage/slateNumbers';
 
@@ -628,6 +629,8 @@ export async function emptyTrash(
   await file.tx([
     { sql: 'UPDATE ops SET before = NULL, after = NULL WHERE record_id IN (SELECT value FROM json_each(?))', params: [gone] },
     { sql: 'DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))', params: [gone] },
+    // A frame's Seen goes with it (schema 7); nothing else reads those rows.
+    forgetSeenStatement(gone),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
         timestamp, created_at, updated_at) VALUES (?, ?, 'empty_trash', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,

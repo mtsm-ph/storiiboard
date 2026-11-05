@@ -75,8 +75,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
     only someone else has approved (the box reads "mixed").
   - In the inspector, a grid: a row per department, Priority first (fixed while the frame stays open), a 22px box per
     state with the glyph inside when ticked. One Tab stop; the arrows move, Space ticks. Approved has a dashed box and
-    says why when the person's role on the project isn't the director or the DP. Below the grid, who approved, and a
-    key naming each shape in words.
+    says why when the person's role on the project isn't the director or the DP. Seen has a dotted box: automatic,
+    never ticked by hand. Below the grid, who approved, and a key naming each shape in words.
+  - On a frame card, a line under the strip with a 10px shape and a mono count per state ("▲2 👁1 ✓1"). The line
+    keeps its height when empty, so no card grows when Seen lands; its words are the card's description. In the shot list's Departments column, each such department
+    with its shapes, Priority first.
 
 ## Type (all SIL Open Font License)
 - **App:**
