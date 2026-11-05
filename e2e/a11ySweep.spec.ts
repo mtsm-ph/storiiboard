@@ -58,13 +58,26 @@ async function audit(page: Page, screen: string, problems: string[], { tabs = 25
       if (!el) continue;
       // The fills behind it, nearest first, down to the first solid one.
       const fills: ReturnType<typeof rgba>[] = [];
+      const raw: string[] = [];
       for (let node: Element | null = el; node; node = node.parentElement) {
-        const fill = rgba(getComputedStyle(node).backgroundColor);
+        const colour = getComputedStyle(node).backgroundColor;
+        raw.push(colour);
+        const fill = rgba(colour);
         if (fill.a > 0) fills.push(fill);
         if (fill.a >= 1) break;
       }
-      const background = fills.reverse().reduce((under, top) => over(top, under), { r: 255, g: 255, b: 255, a: 1 });
       const style = getComputedStyle(el);
+      // Only colours this reads (rgb and rgba); anything else (a color-mix, oklab) is said, not measured wrongly.
+      const unread = [style.color, ...raw].find((c) => !c.startsWith('rgb'));
+      if (unread !== undefined) {
+        out.push(`${selector} has a colour this can't read (${unread})`);
+        continue;
+      }
+      // Only text whose fills are what's behind it: under something else (a picture, a box over it), skipped.
+      const box = el.getBoundingClientRect();
+      const at = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      if (at && at !== el && !at.contains(el) && !el.contains(at)) continue;
+      const background = fills.reverse().reduce((under, top) => over(top, under), { r: 255, g: 255, b: 255, a: 1 });
       const foreground = over(rgba(style.color), background);
       const [hi, lo] = [luminance(foreground), luminance(background)].sort((x, y) => y - x) as [number, number];
       const ratio = (hi + 0.05) / (lo + 0.05);
@@ -307,4 +320,19 @@ test('Tab goes round the page and a window, never out of them', async ({ page })
   });
   await page.keyboard.press('Tab');
   expect(await focused()).toBe(first);
+
+  // A click on blank space at the end of a window (below Storage's last control): Tab comes round to its first stop.
+  await page.getByRole('button', { name: /^Settings \(/ }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('tab', { name: 'Storage', exact: true }).click();
+  const box = await settings.boundingBox();
+  if (!box) throw new Error('Settings not on screen');
+  await page.mouse.click(box.x + box.width - 20, box.y + box.height - 12);
+  const windowFirst = await focusStop('first');
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  });
+  await page.mouse.click(box.x + box.width - 20, box.y + box.height - 12);
+  await page.keyboard.press('Tab');
+  expect(await focused()).toBe(windowFirst);
 });

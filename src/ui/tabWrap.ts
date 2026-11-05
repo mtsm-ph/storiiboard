@@ -30,7 +30,8 @@ const precedes = (stop: Element, from: Element) => (from.compareDocumentPosition
 /** Whether this keyboard reaches every control with Option+Tab (a Mac with Keyboard navigation off). */
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
-// Where the last click landed: with focus on the page after a click on blank space, the browser carries on from there.
+// Where the last click on blank space landed: with focus on the page after it, the browser carries on from there. Any
+// element taking focus clears it, so it never stands in for where focus fell later for another reason.
 let lastPointer: Element | null = null;
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -80,4 +81,7 @@ export function installTabWrap(): void {
     },
     true,
   );
+  window.addEventListener('focusin', () => {
+    lastPointer = null;
+  });
 }
