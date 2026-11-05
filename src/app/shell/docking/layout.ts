@@ -110,7 +110,7 @@ function map(node: LayoutNode, change: (node: LayoutNode) => LayoutNode): Layout
  * Takes a tile out of the layout. A stack left empty gives its space to the neighbour before it in its split (the
  * one after it if it was first), which is the neighbour it shared its whole edge with.
  */
-export function removeTile(layout: Layout, tile: TileId): Layout {
+export function removeTile(layout: Layout, tile: TileId, spread = false): Layout {
   // A workspace always keeps at least one tile.
   if (tilesIn(layout).length <= 1) return layout;
   const emptied = stackOf(layout, tile);
@@ -119,8 +119,12 @@ export function removeTile(layout: Layout, tile: TileId): Layout {
     const index = node.children.findIndex((child) => child.kind === 'stack' && child.id === emptied?.id && child.tiles.length === 0);
     if (index < 0) return node;
     const sizes = [...node.sizes];
-    const heir = index > 0 ? index - 1 : index + 1;
-    sizes[heir] = (sizes[heir] ?? 0) + (sizes[index] ?? 0);
+    // Spread: every neighbour in the split grows by its share (tidy renormalises). Otherwise the one it shared its
+    // longest edge with takes all of it.
+    if (!spread) {
+      const heir = index > 0 ? index - 1 : index + 1;
+      sizes[heir] = (sizes[heir] ?? 0) + (sizes[index] ?? 0);
+    }
     sizes[index] = 0;
     return { ...node, sizes };
   });
@@ -165,7 +169,9 @@ export const EDGE_SHARE = 0.25;
 export function dockToEdge(layout: Layout, tile: TileId, edge: WindowEdge): Layout {
   // A workspace's only tile has nothing to dock beside.
   if (!tilesIn(layout).includes(tile) || tilesIn(layout).length <= 1) return layout;
-  const rest = removeTile(layout, tile).root;
+  if (dockedAt(layout, tile) === edge) return layout;
+  // What it leaves is shared out among its neighbours by their sizes, so the rest keeps its proportions.
+  const rest = removeTile(layout, tile, true).root;
   const incoming = stack([tile]);
   const direction = edge === 'right' ? 'row' : 'column';
   const root =
@@ -174,6 +180,17 @@ export function dockToEdge(layout: Layout, tile: TileId, edge: WindowEdge): Layo
       : split(direction, [rest, incoming], [1 - EDGE_SHARE, EDGE_SHARE]);
   // A rest split the same way merges into this one, each of its tiles keeping its share of what's left.
   return { root: tidy(root) ?? root, maximized: null };
+}
+
+/** The window edge a tile already spans on its own, if any: alone in the first or last place of the root. */
+export function dockedAt(layout: Layout, tile: TileId): WindowEdge | null {
+  const root = layout.root;
+  if (root.kind !== 'split') return null;
+  const alone = (node: LayoutNode | undefined) => node?.kind === 'stack' && node.tiles.length === 1 && node.tiles[0] === tile;
+  if (root.direction === 'column' && alone(root.children[0])) return 'top';
+  if (root.direction === 'column' && alone(root.children.at(-1))) return 'bottom';
+  if (root.direction === 'row' && alone(root.children.at(-1))) return 'right';
+  return null;
 }
 
 /**

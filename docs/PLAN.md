@@ -147,12 +147,14 @@ P3 as built (Nov 4): a History button (a clock glyph and the word) right after t
 disabled with no project open. It opens the History tile in the workspace on screen, or brings it to the front, as
 the project menu's History does.
 
-P4 as built (Nov 5): within 24px of the workspace's top, right or bottom edge (the 8px gap and 16px into the tiles),
-a dragged tile docks along that whole side at a quarter of the space; everything else keeps its arrangement in the
-rest. A row or column the same way merges rather than nesting, so each tile keeps its share. The left edge has no
-band: there the tile under the pointer splits as before. A keyboard move offers the window after every tile; the
-arrows pick top, right or bottom, and Left says the edge is the sidebar's. A workspace's only tile, or a maximized
-layout, has no edge to dock to.
+P4 as built (Nov 5): dragged past the tiles (into the gap around them, over the top bar or the status bar, or to the
+window's right edge) a tile docks along that whole side at a quarter of the space; inside the tiles each tile's own
+zones apply as before, so a tile let go on its own title bar stays where it was. Nothing to the left of the tiles
+docks: that side is the sidebar's. What the tile leaves is shared among its neighbours by their sizes, so the rest
+keeps its proportions, and a tile already along that edge stays exactly as it is. A keyboard move offers the window
+after every tile; the arrows pick top, right or bottom, Left and Space say why they can't. A workspace's only tile,
+or a maximized layout, has no edge to dock to. A top or bottom dock redraws the workspace's tiles, so a tile's
+scroll position starts over (to revisit if Phase 2's player minds).
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
