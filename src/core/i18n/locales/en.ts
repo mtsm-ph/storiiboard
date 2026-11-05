@@ -991,5 +991,9 @@ export const en = {
   'sidebar.profile': 'Profile: {name}',
   'sidebar.profileEmpty': 'Set up your profile',
   'sidebar.web': 'Web version',
+  // src/app/settings/SettingsWindow.tsx
+  'settings.sections': 'Settings sections',
+  // src/app/ask.tsx
+  'window.closePlain': 'Close',
   // codemod: new entries above this line
 };

@@ -151,6 +151,8 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   useEffect(() => {
     if (!keyMove) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // A window of the app's opened meanwhile (⌘,) keeps its own keys: the move waits behind it.
+      if (inModalDialog(event.target)) return;
       const move = keyMove;
       let next: KeyMove | null = move;
       if (event.key === 'Escape') next = null;

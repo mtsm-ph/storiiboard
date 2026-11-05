@@ -5,8 +5,8 @@ import type { Page } from '@playwright/test';
  * what it said. `yes` picks the action, the last button; otherwise Cancel.
  */
 export async function answerAsk(page: Page, yes: boolean): Promise<string> {
-  // The window with a Cancel among its buttons; on top of Settings when it's open there.
-  const asked = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Cancel', exact: true }) }).last();
+  // A question is an alertdialog, on top of Settings when it's open there.
+  const asked = page.getByRole('alertdialog').last();
   await asked.waitFor();
   const said = (await asked.locator('p').first().textContent()) ?? '';
   if (yes) await asked.getByRole('button').last().click();

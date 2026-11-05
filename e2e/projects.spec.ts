@@ -121,3 +121,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
   });
 }
+
+test('Escape in Settings keeps what was typed in a field not yet left', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  const tile = await openSettings(page, 'Project');
+  await tile.getByLabel('Notes').fill('Call at 6');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
+  await expect((await openSettings(page, 'Project')).getByLabel('Notes')).toHaveValue('Call at 6');
+});

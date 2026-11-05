@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (P4 edge docking merged) |
+| Last updated | Nov 5, 2026 (PB in-app windows merged) |
 
 | Phase | State |
 |---|---|
@@ -95,7 +95,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P2 Hide and show the sidebar: a button and a shortcut, the layout reflows, the choice remembered | #50 | Done |
 | P3 History button in the top bar, beside the project name | #51 | Done |
 | P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | #52 | Done |
-| PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Building |
+| PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | #53 | Done |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Building |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
