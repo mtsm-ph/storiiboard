@@ -199,15 +199,20 @@ impl Lock {
         let (stop, stopped) = mpsc::channel::<()>();
         let path = self.path.clone();
         let mut info = self.info.clone();
-        let thread = thread::spawn(move || {
-            while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every) {
-                info.refreshed_at = now_ms();
-                let _ = write_info(&path, &info);
-            }
-        });
+        // Builder rather than thread::spawn, which panics when the system can't make a thread: this runs under the open
+        // files' lock, and a panic there would poison it. No thread just means no heartbeat, as before.
+        let thread = thread::Builder::new()
+            .name("storiiboard-lock-heartbeat".into())
+            .spawn(move || {
+                while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every) {
+                    info.refreshed_at = now_ms();
+                    let _ = write_info(&path, &info);
+                }
+            })
+            .ok();
         Heartbeat {
             stop: Some(stop),
-            thread: Some(thread),
+            thread,
         }
     }
 }
@@ -268,10 +273,16 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         drop(beat);
         let refreshed = read(&lock_path(&project).unwrap()).unwrap().refreshed_at;
-        assert!(refreshed > 1_000, "the lock was refreshed while the heartbeat ran");
+        assert!(
+            refreshed > 1_000,
+            "the lock was refreshed while the heartbeat ran"
+        );
         // Stopped: nothing writes after the drop.
         std::thread::sleep(Duration::from_millis(80));
-        assert_eq!(read(&lock_path(&project).unwrap()).unwrap().refreshed_at, refreshed);
+        assert_eq!(
+            read(&lock_path(&project).unwrap()).unwrap().refreshed_at,
+            refreshed
+        );
         // Seen from another computer, still held.
         assert!(holder(&project, &machine("other", "Laptop"), now_ms()).is_some());
         drop(lock);

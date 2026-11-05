@@ -161,8 +161,9 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
               className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text"
             />
           </div>
+          {/* Beside the fields, for reading; not a live region, since the window's notice announces the same failure. */}
           {error && (
-            <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+            <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
               {localizeError(error)}
             </p>
           )}

@@ -94,6 +94,18 @@ describe('slate numbers', () => {
     expect(numbers()).toEqual(['4A', '4B', '4C', '4D']);
   });
 
+  it('never gives a restored frame a slate number from before its scene was renumbered', async () => {
+    await lock('sc4'); // 4A to 4C on slates
+    await lock('sc4', false);
+    const c = idOf('sc4', '4C');
+    await trashLast(); // c in the Trash, unlocked
+    await renumberScene('sc4', '9'); // 9A, 9B
+    await lock('sc4');
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, project.projectId, c, slate) }));
+    // Not 4C, on a board reading 9A 9B: a relock would never give it back either.
+    expect(records()[c]?.props.number).toBe('9C');
+  });
+
   it('keeps, as it locks, the number of a frame trashed while the scene was locked before', async () => {
     await lock('sc4');
     const c = idOf('sc4', '4C');

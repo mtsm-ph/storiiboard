@@ -46,10 +46,13 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
     let placed: ReturnType<typeof placePictures> | null = null;
     // Worked out in the edit queue, after any edit still landing: two drops close together never number frames from
     // the same records.
-    await projectStore.getState().applyWith((records, slate) => {
+    const saved = await projectStore.getState().applyWith((records, slate) => {
       placed = placePictures(records, project.projectId, target, prepared, project.file.path, slate);
       return placed;
     });
+    // Not written (a full disk, say): the store has said why, and none of the pictures went in, so the count of files
+    // left out below would read as if the rest had. Its notice stays (quality pass).
+    if (!saved) return;
     const result = placed as ReturnType<typeof placePictures> | null;
     // Selected only once written: an edit that failed has said why already, and leaves nothing to select.
     const written = result?.selectShotId ? projectStore.getState().records[result.selectShotId] : undefined;

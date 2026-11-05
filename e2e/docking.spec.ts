@@ -278,6 +278,25 @@ test('docking along the bottom keeps where the board was scrolled to (P4’s low
   await expect.poll(scrolled).toBe(240);
 });
 
+test('a scene picked in the sidebar from another workspace still opens the board on that scene', async ({ page }) => {
+  await page.goto('/?files=memory');
+  page.once('dialog', (dialog) => void dialog.accept('Bey County'));
+  await page.getByRole('button', { name: 'New project…' }).click();
+  await page.getByRole('dialog', { name: /^Set up / }).getByRole('button', { name: 'Skip' }).click();
+  for (let s = 1; s <= 3; s += 1) {
+    await tile(page, 'Scenes').getByRole('button', { name: '+ New scene' }).click();
+    for (let i = 0; i < 8; i += 1) await tile(page, 'Storyboard').getByRole('button', { name: `+ Frame in SC 0${String(s)}` }).click();
+  }
+  // The board scrolled to its end, then another workspace, then SC 01 from the sidebar.
+  const scroller = `(() => { let el = document.querySelector('[data-board]'); while (el && !/auto|scroll/.test(getComputedStyle(el).overflowY)) el = el.parentElement; return el; })()`;
+  await page.evaluate(`${scroller}.scrollTo(0, 1e6)`);
+  const sections = page.getByRole('navigation', { name: 'Sections' });
+  await sections.getByRole('button', { name: /^Production/ }).click();
+  await sections.getByRole('button', { name: /^SC 01/ }).click();
+  // Its heading is in view: the remembered scroll position never overrides the scene picked (Q1 review).
+  await expect(tile(page, 'Storyboard').getByText('SC 01', { exact: true }).first()).toBeInViewport();
+});
+
 test('the Layout menu: four labelled groups, shortcuts at the right, Undo layout change alone at the bottom (polish A)', async ({ page }) => {
   const layout = page.getByRole('button', { name: /^Layout/ });
   await layout.click();

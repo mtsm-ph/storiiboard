@@ -15,17 +15,25 @@ interface NoticeState {
   kind: NoticeKind;
   /** Counts notices shown, so a bar drawn again for the same one (a window opened over it) knows it was said. */
   seq: number;
+  /** About an edit just made ("Deleted SC 03…"): an undo or redo of something takes it away, as it no longer holds. */
+  step: boolean;
 }
 
-export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0 }));
+export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false }));
 
 export function showNotice(error: unknown): void {
   // Errors from below the UI arrive in English; they show in the app's language where a translation has them.
-  noticeStore.setState((s) => ({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning', seq: s.seq + 1 }));
+  noticeStore.setState((s) => ({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning', seq: s.seq + 1, step: false }));
 }
 
-export function showInfo(message: string): void {
-  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1 }));
+/** `step`: the notice tells of an edit just made, so an undo or redo takes it away (1.28's low). */
+export function showInfo(message: string, { step = false }: { step?: boolean } = {}): void {
+  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1, step }));
+}
+
+/** After an undo or a redo that changed something: a notice about a step no longer describes the project. */
+export function clearStepNotice(): void {
+  if (noticeStore.getState().step) noticeStore.setState({ message: null, step: false });
 }
 
 export function clearNotice(): void {

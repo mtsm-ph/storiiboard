@@ -86,40 +86,48 @@ export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intEx
       break;
     }
   }
-  // A full stop after the time ("NOCHE.") is the writer's, not part of it.
-  const timeOf = (part: string) => {
+  // A full stop after the time ("NOCHE.") is the writer's, not part of it. `exact`: the whole part is the time word,
+  // not a part starting with one (`DÍA DE LA INDEPENDENCIA` is a place).
+  const timeOf = (part: string, exact = false) => {
     const said = part.toUpperCase().replace(/\.+$/, '');
-    return Object.entries(TIMES).find(([word]) => said === word || said.startsWith(`${word} `))?.[1] ?? null;
-  };
-  // The last part that's a time of day, never the first (that's the place).
-  const lastTime = (some: readonly string[]) => {
-    for (let i = some.length - 1; i >= 1; i -= 1) if (timeOf(some[i] ?? '') !== null) return i;
-    return -1;
+    return Object.entries(TIMES).find(([word]) => said === word || (!exact && said.startsWith(`${word} `)))?.[1] ?? null;
   };
   // The place, then the time of day, then anything after it, split at dashes with spaces round them:
   // `KITCHEN - NIGHT - FLASHBACK` is KITCHEN, NIGHT and FLASHBACK.
-  let parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
-  let joiner = ' - ';
-  let at = lastTime(parts);
-  // Many Spanish scripts separate them with full stops instead (`INT. CASA. NOCHE`, P7's low). Only when the dashes
-  // give no time, and only if a time follows a full stop, so `ST. JAMES CHURCH` stays one place.
-  if (at === -1 && intExt !== null) {
-    const dotted = rest.split(/\.\s+/).map((part) => part.trim());
-    const found = lastTime(dotted);
-    if (found !== -1) {
-      parts = dotted;
-      joiner = '. ';
-      at = found;
-    }
-  }
+  const parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
   let location = rest.trim();
   let dayNight: DayNight | null = null;
   let otherTime: string | null = null;
+  // The last part that's a time of day, never the first (that's the place).
+  let at = -1;
+  for (let i = parts.length - 1; i >= 1; i -= 1) {
+    if (timeOf(parts[i] ?? '') !== null) {
+      at = i;
+      break;
+    }
+  }
   if (at !== -1) {
-    location = parts.slice(0, at).join(joiner);
+    location = parts.slice(0, at).join(' - ');
     dayNight = timeOf(parts[at] ?? '');
-    otherTime = parts.slice(at + 1).join(joiner).replace(/\.+$/, '') || null;
-  } else if (intExt !== null && parts.length > 1) {
+    otherTime = parts.slice(at + 1).join(' - ') || null;
+  } else if (intExt !== null) {
+    // Many Spanish scripts separate them with full stops instead (`INT. CASA. NOCHE`, P7's low), sometimes with dashes
+    // after (`CASA. NOCHE - CONTINUO`). Only an exact time word after a full stop counts, so `EXT. ST. JAMES` and
+    // `EXT. AV. DÍA DE LA INDEPENDENCIA` stay one place.
+    for (let i = parts.length - 1; i >= 0 && dayNight === null; i -= 1) {
+      const pieces = (parts[i] ?? '').split(/\.\s+/).map((piece) => piece.trim());
+      for (let j = pieces.length - 1; j >= 1; j -= 1) {
+        const time = timeOf(pieces[j] ?? '', true);
+        if (time === null) continue;
+        location = [...parts.slice(0, i), pieces.slice(0, j).join('. ')].join(' - ');
+        dayNight = time;
+        const after = [pieces.slice(j + 1).join('. '), ...parts.slice(i + 1)].filter((bit) => bit !== '');
+        otherTime = after.join(' - ').replace(/\.+$/, '') || null;
+        break;
+      }
+    }
+  }
+  if (dayNight === null && at === -1 && intExt !== null && parts.length > 1) {
     // No time the board knows (CONTINUOUS, LATER): kept so the heading still says it. Without INT or EXT (a forced
     // `FLASHBACK - THE BRIDGE`) the whole text is the place.
     location = parts.slice(0, -1).join(' - ');

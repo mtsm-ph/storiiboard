@@ -105,9 +105,10 @@ export function StorageTile() {
         });
       } else if (state.project !== madeIn) {
         showInfo(t('storage.compactSwitched'));
-      } else if (!state.changedOnDisk) {
-        // Focus stays on the button, to try again.
-        showNotice(new Error(state.error ?? t('storage.compactFailed')));
+      } else if (!state.changedOnDisk && state.error === null) {
+        // Focus stays on the button, to try again. A failed write has its notice from the store already; this words
+        // only a failure it didn't, so nothing is said twice.
+        showNotice(new Error(t('storage.compactFailed')));
       }
     } finally {
       setGeneration((n) => n + 1);

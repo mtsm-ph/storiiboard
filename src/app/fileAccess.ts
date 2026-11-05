@@ -7,7 +7,9 @@ import { tauriDriver } from '../core/storage/tauriDriver';
 // - desktop: the Tauri app, through the Rust commands. Every native feature works.
 // - memory: development only, with `?files=memory` in the address: projects live in the page (sql.js, saved to
 //   localStorage), so the end-to-end tests can create, edit and reopen real projects in a browser. There are no
-//   native dialogs; New project and Open… ask for a name in a prompt.
+//   native dialogs; New project and Open… ask for a name in a prompt. Adding `&keep=page` keeps them in the page
+//   only: localStorage holds about 5 MB and is rewritten whole after every edit, which a performance run with
+//   hundreds of pictures can neither fit nor afford (e2e/perf.spec.ts).
 // - none: the browser build otherwise. It shows the shell with placeholder tiles and opens no files.
 
 export type FileMode = 'desktop' | 'memory' | 'none';
@@ -19,7 +21,8 @@ const loadMemoryDriver = import.meta.env.DEV
         import('../core/storage/memoryDriver'),
         import('sql.js/dist/sql-wasm.wasm?url'),
       ]);
-      return createMemoryDriver({ wasm, storage: globalThis.localStorage });
+      const pageOnly = new URLSearchParams(window.location.search).get('keep') === 'page';
+      return createMemoryDriver(pageOnly ? { wasm } : { wasm, storage: globalThis.localStorage });
     }
   : null;
 

@@ -74,7 +74,7 @@ export async function addColour(sceneId: string, hex: string): Promise<AddOutcom
     return next;
   });
   const outcome = written ? result.outcome : 'none';
-  if (outcome === 'added') showInfo(t('palette.added', { hex, scene: name }));
+  if (outcome === 'added') showInfo(t('palette.added', { hex, scene: name }), { step: true });
   else if (outcome === 'there') showInfo(t('palette.alreadyThere', { hex, scene: name }));
   else if (outcome === 'full') showInfo(t('palette.full', { hex, scene: name, max: MAX_PALETTE }));
   return outcome;

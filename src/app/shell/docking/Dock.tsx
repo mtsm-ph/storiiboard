@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type CSSProperties, type Pointer
 import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
 import { TILE_CONTENT } from '../tileContent';
-import { ScrollMemory } from './ScrollMemory';
+import { ScrollMemory, ScrollMemoryScope } from './ScrollMemory';
 import { inModalDialog, isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
 import { edgePreviewBox, previewBox, windowEdgeAt, zoneAt, type Box } from './geometry';
 import {
@@ -443,6 +443,8 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         : null;
 
   return (
+    // Scroll positions kept while this workspace's layout redraws its tiles (P4's low); a new workspace starts clean.
+    <ScrollMemoryScope>
     <div
       id={WORKSPACE_PANEL_ID}
       // Focus can land on the workspace itself, after Alt+number with the sidebar hidden (polish 2).
@@ -512,6 +514,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         {announcement}
       </p>
     </div>
+    </ScrollMemoryScope>
   );
 }
 

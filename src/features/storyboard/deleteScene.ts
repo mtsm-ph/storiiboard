@@ -46,6 +46,6 @@ export async function deleteScene(sceneId: string): Promise<{ written: boolean; 
   // Nothing to write (the scene went already: a second click or a held key before the list caught up) is no delete.
   if (!written || said === '') return { written: false, next: null };
   if (selectionStore.getState().sceneId === sceneId) selectionStore.getState().selectScene(next);
-  showInfo(said);
+  showInfo(said, { step: true });
   return { written: true, next };
 }

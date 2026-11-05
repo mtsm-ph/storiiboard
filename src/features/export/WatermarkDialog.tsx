@@ -5,7 +5,7 @@ import { Select, TextField, Toggle } from '../../ui/fields';
 import { closeExportDialog } from './exportStore';
 import { Modal } from './ExportDialog';
 import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkSave, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
-import { localizeError, t } from '../../core/i18n';
+import { t } from '../../core/i18n';
 
 // Watermark Settings (1.24, the project menu): the text, where it sits, how strong, and which exports carry it. Saved
 // as one edit to the project record, so it undoes like any other and every export reads the same watermark.
@@ -117,9 +117,11 @@ export function WatermarkDialog() {
         ))}
       </fieldset>
       <p className="text-[12px] text-text-muted">{t('watermarkDialog.leaveTheTextEmptyFor')}</p>
-      {refused && (
+      {/* A failed write is said by the window's notice already (the store's error); this says only a refusal the store
+          didn't word, so nothing is read out twice. */}
+      {refused && error === null && (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-          {error === null ? t('watermark.notSaved') : localizeError(error)}
+          {t('watermark.notSaved')}
         </p>
       )}
       <div className="flex justify-end gap-2">

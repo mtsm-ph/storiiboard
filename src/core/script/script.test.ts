@@ -110,6 +110,9 @@ describe('Spanish scene headings (polish 7)', () => {
     expect(read('INT. CASA - COCINA. DÍA')).toEqual(['INT', 'CASA - COCINA', 'DAY', null]);
     expect(read('EXT. ST. JAMES CHURCH')).toEqual(['EXT', 'ST. JAMES CHURCH', null, null]);
     expect(read('INT. DR. LÓPEZ CONSULTORIO. NOCHE')).toEqual(['INT', 'DR. LÓPEZ CONSULTORIO', 'NIGHT', null]);
+    expect(read('INT. CASA. NOCHE - CONTINUO')).toEqual(['INT', 'CASA', 'NIGHT', 'CONTINUO']);
+    expect(read('EXT. AV. DÍA DE LA INDEPENDENCIA')).toEqual(['EXT', 'AV. DÍA DE LA INDEPENDENCIA', null, null]);
+    expect(read('EXT. AV. DÍA DE LA INDEPENDENCIA. DÍA')).toEqual(['EXT', 'AV. DÍA DE LA INDEPENDENCIA', 'DAY', null]);
   });
 
   it('reads INTERIOR and EXTERIOR spelled out, in capitals as a heading writes them, and never an action line', () => {

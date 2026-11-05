@@ -83,7 +83,7 @@ export function TrashTile() {
       .then((written) => {
         if (!written || !restored) return;
         // As it's numbered now: a restore can give a frame or a scene a new number.
-        showInfo(t('trash.restored', { name: restoredName(projectStore.getState().records, id) ?? name }));
+        showInfo(t('trash.restored', { name: restoredName(projectStore.getState().records, id) ?? name }), { step: true });
         // Focus stays in the list: on the row that took this one's place, or the one before at the end, or on the
         // message that the list is empty now.
         requestAnimationFrame(() => {

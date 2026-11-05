@@ -320,7 +320,9 @@ export function restoredScene(
     if (number === '' && locked) {
       // No number, yet slated here before: a restore that was undone took its number away with the record, while the
       // slate row stayed (1.26's low). It takes that number back rather than a new letter, if it's still free.
-      const own = slate.filter((row) => row.sceneId === sceneId && row.shotId === s.id).at(-1)?.number;
+      // Under the scene's number now, as a relock gives numbers back: a 4C from before the scene became 9 stays put.
+      const sceneNumber = sceneFields(props).number;
+      const own = slate.filter((row) => row.sceneId === sceneId && row.shotId === s.id && lettersOf(row.number, sceneNumber) !== null).at(-1)?.number;
       if (own && !liveNumbers.has(own) && !slatedWithOther(slate, s.id, own)) {
         reclaimed.push({ kind: 'update', id: s.id, set: { number: own } });
         return { ...s, trashedAt: null, props: { ...s.props, number: own } };
