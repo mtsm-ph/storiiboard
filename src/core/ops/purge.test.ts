@@ -6,13 +6,14 @@ import { createProjectStore } from '../../app/projectStore';
 import { addScene, addShot, moveItem, setSceneLocation, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { setPicture, type FramePicture } from '../../features/storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../../features/storyboard/sketch/strokes';
-import { readOriginal, readThumbnail, type PreparedImage } from '../media/store';
+import { imageStatements, mediaProps, readOriginal, readThumbnail, type PreparedImage } from '../media/store';
+import { videoProps } from '../media/video';
 import { shotFields } from '../model/storyboard';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, openProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
 import { deleteVersion, listVersions, nameVersion } from '../storage/versions';
-import { historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
+import { cleanUpPictures, historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
 
 function picture(seed: number): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -74,6 +75,37 @@ const fileHolds = (seed: number) => {
   const bytes = Buffer.from(picture(seed).image.original.bytes.slice(1000, 1200));
   return readFileSync(folder.path('Bey County.sbd')).includes(bytes);
 };
+
+describe('a video’s poster (schema 8)', () => {
+  it('is a picture in use, so neither Empty Trash nor Clean up old pictures deletes it', async () => {
+    // A video under the project, its poster an image record under it, as 2.2b links one; and a trashed frame, so
+    // Empty Trash has something to do.
+    const poster = picture(7);
+    const probe = {
+      codec: 'h264', width: 2560, height: 1440, sarNum: 1, sarDen: 1, fpsNum: 24000, fpsDen: 1001, durationFrames: 48,
+      startTimecode: null, rotation: 0, hasAudio: false, hdr: false, bitDepth: 8,
+    };
+    await store.getState().apply(
+      [
+        { kind: 'create', record: { id: 'v', type: 'media', parentId: project.projectId, sortKey: 'X', props: videoProps(probe, { name: 'C0042.MP4' }, '', 'p') } },
+        { kind: 'create', record: { id: 'p', type: 'media', parentId: 'v', sortKey: 'V', props: mediaProps(poster.image, poster.source) } },
+      ],
+      { alsoWrite: imageStatements(poster.image, new Date()) },
+    );
+    const gone = await frame();
+    const trashed = await withPicture(gone, 1);
+    await trash(gone);
+    const sha = poster.image.original.sha256;
+
+    await store.getState().emptyTrash();
+    // Empty Trash ran: the trashed frame's picture is gone for good, and the poster's isn't.
+    expect(await readOriginal(project.file, trashed)).toBeNull();
+    expect(await readOriginal(project.file, sha)).not.toBeNull();
+    expect((await historyOnlyPictures(project.file, { fresh: true })).map((p) => p.sha256)).not.toContain(sha);
+    expect((await cleanUpPictures(project.file)).pictures).not.toContain(sha);
+    expect(await readOriginal(project.file, sha)).not.toBeNull();
+  });
+});
 
 describe('Empty Trash', () => {
   it('deletes trashed frames with their sketch and pictures for good, and keeps a picture another frame still uses', async () => {

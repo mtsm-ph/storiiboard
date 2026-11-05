@@ -25,4 +25,14 @@ describe('the browser build’s MP4 reader', () => {
     // Cut short halfway: no movie box left whole.
     expect(probeMp4(bytes.slice(0, 64))).toBeNull();
   });
+
+  it('returns nothing, never an error, for a movie box whose insides lie about their size', () => {
+    // Every byte of the movie box in turn set to 0xFF: sizes, counts and offsets all wrong somewhere.
+    const at = Buffer.from(bytes).indexOf('moov') - 4;
+    for (let i = at; i < at + 400; i++) {
+      const broken = new Uint8Array(bytes.slice(0));
+      broken[i] = 0xff;
+      expect(() => probeMp4(broken.buffer)).not.toThrow();
+    }
+  });
 });

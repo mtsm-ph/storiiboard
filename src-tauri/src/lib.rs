@@ -78,6 +78,8 @@ pub fn run() {
             // This computer's id and name, for the lock files next to open projects (lock.rs).
             let data_dir = app.path().app_data_dir().unwrap_or_default();
             app.manage(lock::Machine::load(&data_dir));
+            // Videos the person has handed over, so a reopened project reads its footage (video.rs).
+            app.manage(video::KnownVideos::load(&data_dir));
             // A double-click on Windows launches the app with the file as an argument.
             let cwd = std::env::current_dir().unwrap_or_default();
             opened::queue(

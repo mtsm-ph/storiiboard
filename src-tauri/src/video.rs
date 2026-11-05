@@ -6,6 +6,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -313,8 +314,8 @@ fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
         .ok_or_else(|| CANT_READ.to_string())
 }
 
-/// Runs ffprobe on a file. The path is one argument of the list, never part of a shell string, and ffprobe may open
-/// local files only (a playlist named like a video can't send it to the network).
+/// Runs ffprobe on a file. The path is one argument of the list, after `-i`, never part of a shell string, and ffprobe
+/// may open local files only (a playlist named like a video can't send it to the network).
 pub fn probe(path: &Path) -> Result<Probe, String> {
     let mut command = command("ffprobe");
     command
@@ -327,11 +328,31 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
             "json",
             "-show_format",
             "-show_streams",
+            "-i",
         ])
         .arg(path);
     let bytes = run(command, PROBE_TIMEOUT)?;
     let json = serde_json::from_slice::<Value>(&bytes).map_err(|_| CANT_READ.to_string())?;
     read_probe(&json)
+}
+
+/// Where the video stream starts and where the file starts, in the file's own seconds. Frame 0 is the video stream's
+/// first frame, but a file's start is its earliest stream: sound that starts before the picture (AVCHD, an MP4 without
+/// an edit list) would otherwise move every still a few frames early. The playback copy (2.3) and the Player (2.4)
+/// count frame 0 the same way.
+fn starts(path: &Path) -> Result<(f64, f64), String> {
+    let mut command = command("ffprobe");
+    command
+        .args(["-v", "error", "-protocol_whitelist", "file"])
+        .args(["-select_streams", "V:0"])
+        .args(["-show_entries", "stream=start_time:format=start_time"])
+        .args(["-print_format", "json", "-i"])
+        .arg(path);
+    let json: Value =
+        serde_json::from_slice(&run(command, PROBE_TIMEOUT)?).map_err(|_| CANT_READ.to_string())?;
+    let file = number(&json["format"]["start_time"]).unwrap_or(0.0);
+    let stream = number(&json["streams"][0]["start_time"]).unwrap_or(file);
+    Ok((stream, file))
 }
 
 /// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
@@ -340,30 +361,36 @@ const STILL_LONG_EDGE: u32 = 2560;
 /// How far before a still the quick seek lands: longer than any camera's keyframe interval.
 const STILL_PREROLL: f64 = 3.0;
 
-/// Frame `frame` of a video, counted from 0 at its exact rate, as a PNG: from the original, turned upright, its pixels
-/// made square, at most 2560 px on the long edge. Two seeks: a quick one to a few seconds before (some containers, a
-/// transport stream among them, can land on the keyframe after the time asked for, never before it by much), then
-/// decoding up to the frame. The time asked for is a quarter frame early, so rounding can't skip the frame.
+/// Frame `frame` of a video, counted from 0 at its exact rate from the video's first frame, as a PNG: from the
+/// original, turned upright, deinterlaced if it's interlaced, its pixels made square, at most 2560 px on the long edge.
+/// Two seeks: a quick one to a few seconds before (some containers, a transport stream among them, can land on the
+/// keyframe after the time asked for, never before it by much), counted from the file's start; then decoding up to
+/// the frame's own timestamp, which `-copyts` keeps as the file has it. The time asked for is a quarter frame early, so
+/// rounding can't skip the frame.
 pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<u8>, String> {
     if fps_num == 0 || fps_den == 0 {
         return Err("That video's frame rate can't be read.".into());
     }
-    let seconds = ((frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num)).max(0.0);
-    // Square pixels first (an anamorphic or HDV frame), then the cap; quoted, so the commas in min() stay inside it.
+    let (stream_start, file_start) = starts(path)?;
+    let into = ((frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num)).max(0.0);
+    // One scale: square pixels and the cap together, so an 8K 2x anamorphic frame never makes a 16K one on the way.
+    // Quoted, so the commas in min() and max() stay inside the expressions.
+    let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
     let filter = format!(
-        "scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=w='min({STILL_LONG_EDGE},iw)':h='min({STILL_LONG_EDGE},ih)':force_original_aspect_ratio=decrease"
+        "bwdif=mode=send_frame:deint=interlaced,scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
     );
-    let early = (seconds - STILL_PREROLL).max(0.0);
+    let early = (stream_start - file_start + into - STILL_PREROLL).max(0.0);
     let mut command = command("ffmpeg");
     command
-        .args(["-hide_banner", "-loglevel", "error"])
+        .args(["-hide_banner", "-loglevel", "error", "-copyts"])
         .args(["-protocol_whitelist", "file", "-ss"])
         .arg(format!("{early:.6}"))
         .arg("-i")
         .arg(path)
         .arg("-ss")
-        .arg(format!("{:.6}", seconds - early))
-        .args(["-map", "0:v:0", "-frames:v", "1", "-vf", &filter])
+        .arg(format!("{:.6}", stream_start + into))
+        // V, not v: never a cover picture stored as a video stream.
+        .args(["-map", "0:V:0", "-frames:v", "1", "-vf", &filter])
         .args(["-pix_fmt", "rgb24", "-c:v", "png", "-f", "image2pipe", "-"]);
     let bytes = run(command, STILL_TIMEOUT)?;
     // A frame past the end gives no picture at all.
@@ -384,34 +411,137 @@ fn is_video_name(path: &Path) -> bool {
         .is_some_and(|e| VIDEO_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// Whether the page may read this file as a video: one the person dropped or chose this session, or one named like a
-/// video that a video record of the open project links (`handle`), so footage linked last week still plays. A page
-/// gone wrong could reach only a video file a record names, and only its frames and facts.
-fn may_read(offered: &Offered, files: &OpenFiles, handle: Option<u32>, path: &Path) -> bool {
-    offered.has(path)
-        || (is_video_name(path)
-            && handle.is_some_and(|handle| files.names_video(handle, path).unwrap_or(false)))
+/// The most videos remembered; the oldest go first.
+const KNOWN_LIMIT: usize = 20_000;
+
+/// Videos the person handed over (dropped or chosen) that the app has read, remembered on this computer, so a project
+/// reopened next week reads its footage again. Rust keeps the list, in the app's data folder, and only Rust adds to
+/// it: neither the page nor a project file someone sent can name a path into it, so neither can make the app read,
+/// or reach across the network for, a file the person never gave it.
+pub struct KnownVideos {
+    file: Option<PathBuf>,
+    paths: Mutex<Vec<PathBuf>>,
 }
 
-fn readable(
-    offered: &Offered,
-    files: &OpenFiles,
+impl KnownVideos {
+    pub fn load(data_dir: &Path) -> Self {
+        let file = data_dir.join("known-videos.json");
+        let paths = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<PathBuf>>(&bytes).ok())
+            .unwrap_or_default();
+        Self {
+            file: Some(file),
+            paths: Mutex::new(paths),
+        }
+    }
+
+    #[cfg(test)]
+    fn in_memory() -> Self {
+        Self {
+            file: None,
+            paths: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn has(&self, path: &Path) -> bool {
+        self.paths
+            .lock()
+            .is_ok_and(|paths| paths.iter().any(|known| known == path))
+    }
+
+    /// Remembers a video read for the person. Written whole to a new file, then renamed over the old one, so a crash
+    /// never leaves half a list.
+    fn remember(&self, path: &Path) {
+        let Ok(mut paths) = self.paths.lock() else {
+            return;
+        };
+        if paths.iter().any(|known| known == path) {
+            return;
+        }
+        paths.push(path.to_path_buf());
+        if paths.len() > KNOWN_LIMIT {
+            let extra = paths.len() - KNOWN_LIMIT;
+            paths.drain(..extra);
+        }
+        let (Some(file), Ok(json)) = (&self.file, serde_json::to_vec(&*paths)) else {
+            return;
+        };
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let partial = file.with_extension("json.partial");
+        if std::fs::write(&partial, json).is_ok() {
+            let _ = std::fs::rename(&partial, file);
+        }
+    }
+}
+
+/// What a request to read a video is checked against.
+struct Access<'a> {
+    offered: &'a Offered,
+    known: &'a KnownVideos,
+    files: &'a OpenFiles,
+    /// The open project asking (ProjectFile.nativeHandle), if any.
     handle: Option<u32>,
-    path: &Path,
-) -> Result<(), String> {
-    if !may_read(offered, files, handle, path) {
-        return Err("Storiiboard reads only the files you drop on it or choose.".into());
-    }
-    if path.is_dir() {
-        return Err("That's a folder, not a file.".into());
-    }
-    if !path.is_file() {
-        return Err("That file isn't there any more.".into());
-    }
-    Ok(())
 }
 
-/// What ffprobe says about a video the person dropped or chose, or one the open project links.
+impl<'a> Access<'a> {
+    fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
+        Self {
+            offered: app.state::<Offered>().inner(),
+            known: app.state::<KnownVideos>().inner(),
+            files: app.state::<OpenFiles>().inner(),
+            handle,
+        }
+    }
+
+    /// Whether the page may read this file as a video: one the person dropped or chose this session; one they handed
+    /// over before, which this computer remembers; or one inside the open project's own folder that a video record of
+    /// it links, as when a project folder is copied with its footage. Always an absolute path named like a video.
+    fn may_read(&self, path: &Path) -> bool {
+        if self.offered.has(path) {
+            return true;
+        }
+        if !path.is_absolute() || !is_video_name(path) {
+            return false;
+        }
+        self.known.has(path)
+            || self
+                .handle
+                .is_some_and(|handle| self.files.links_video_inside(handle, path).unwrap_or(false))
+    }
+
+    fn readable(&self, path: &Path) -> Result<(), String> {
+        if !self.may_read(path) {
+            return Err("Storiiboard reads only the files you drop on it or choose.".into());
+        }
+        if path.is_dir() {
+            return Err("That's a folder, not a file.".into());
+        }
+        if !path.is_file() {
+            return Err("That file isn't there any more.".into());
+        }
+        Ok(())
+    }
+
+    /// Whether a linked video's file is where the project says; None for one the page may not ask about.
+    fn status(&self, path: &Path) -> Option<FileStatus> {
+        if !self.may_read(path) {
+            return None;
+        }
+        let meta = std::fs::metadata(path)
+            .ok()
+            .filter(std::fs::Metadata::is_file);
+        Some(FileStatus {
+            exists: meta.is_some(),
+            size: meta.map(|meta| meta.len()),
+        })
+    }
+}
+
+/// What ffprobe says about a video the person dropped or chose, or one the open project links. A video the person
+/// handed over this session is remembered once it reads, so it reads again next time.
 #[tauri::command]
 pub async fn video_probe(
     app: AppHandle,
@@ -420,13 +550,13 @@ pub async fn video_probe(
 ) -> Result<Probe, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
-        readable(
-            &app.state::<Offered>(),
-            &app.state::<OpenFiles>(),
-            handle,
-            path,
-        )?;
-        probe(path)
+        let access = Access::of(&app, handle);
+        access.readable(path)?;
+        let probe = probe(path)?;
+        if access.offered.has(path) && path.is_absolute() && is_video_name(path) {
+            access.known.remember(path);
+        }
+        Ok(probe)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -444,12 +574,7 @@ pub async fn video_still(
 ) -> Result<Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
-        readable(
-            &app.state::<Offered>(),
-            &app.state::<OpenFiles>(),
-            handle,
-            path,
-        )?;
+        Access::of(&app, handle).readable(path)?;
         still(path, frame, fps_num, fps_den).map(Response::new)
     })
     .await
@@ -463,24 +588,6 @@ pub struct FileStatus {
     pub size: Option<u64>,
 }
 
-fn status(
-    offered: &Offered,
-    files: &OpenFiles,
-    handle: Option<u32>,
-    path: &Path,
-) -> Option<FileStatus> {
-    if !may_read(offered, files, handle, path) {
-        return None;
-    }
-    let meta = std::fs::metadata(path)
-        .ok()
-        .filter(std::fs::Metadata::is_file);
-    Some(FileStatus {
-        exists: meta.is_some(),
-        size: meta.map(|meta| meta.len()),
-    })
-}
-
 /// The status of each path, in order: null for one the page may not ask about.
 #[tauri::command]
 pub async fn video_status(
@@ -489,10 +596,10 @@ pub async fn video_status(
     handle: Option<u32>,
 ) -> Result<Vec<Option<FileStatus>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let (offered, files) = (app.state::<Offered>(), app.state::<OpenFiles>());
+        let access = Access::of(&app, handle);
         paths
             .iter()
-            .map(|path| status(&offered, &files, handle, Path::new(path)))
+            .map(|path| access.status(Path::new(path)))
             .collect()
     })
     .await
@@ -766,13 +873,23 @@ mod tests {
             ],
             &["-c:v", "mpeg4"],
         );
-        let (offered, files) = (Offered::default(), OpenFiles::default());
-        assert!(readable(&offered, &files, None, &clip).is_err());
+        let (offered, known, files) = (
+            Offered::default(),
+            KnownVideos::in_memory(),
+            OpenFiles::default(),
+        );
+        let access = Access {
+            offered: &offered,
+            known: &known,
+            files: &files,
+            handle: None,
+        };
+        assert!(access.readable(&clip).is_err());
         offered.offer(std::slice::from_ref(&clip));
-        assert!(readable(&offered, &files, None, &clip).is_ok());
+        assert!(access.readable(&clip).is_ok());
         offered.offer(std::slice::from_ref(&dir));
         assert_eq!(
-            readable(&offered, &files, None, &dir).unwrap_err(),
+            access.readable(&dir).unwrap_err(),
             "That's a folder, not a file."
         );
         let sound = make(
@@ -788,65 +905,108 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// An open project, `Bey County.sbd` in `dir`, whose one video record names `source_path`.
-    fn project_linking(dir: &Path, files: &OpenFiles, source_path: &str) -> u32 {
+    /// An open project, `Bey County.sbd` in `dir`, with a video record for each `(source_path, trashed)`.
+    fn project_linking(dir: &Path, files: &OpenFiles, links: &[(&str, bool)]) -> u32 {
         let mut file = crate::sbd::SbdFile::create(&dir.join("Bey County.sbd")).unwrap();
         let statement = |sql: &str, params: Vec<Value>| crate::sbd::Statement {
             sql: sql.into(),
             params,
         };
-        file.tx(&[
-            statement(
-                "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT, props TEXT)",
-                vec![],
-            ),
-            statement(
-                "INSERT INTO records VALUES ('v', 'media', ?)",
-                vec![Value::String(
-                    serde_json::json!({ "kind": "video", "source_path": source_path }).to_string(),
-                )],
-            ),
-            // A picture's source path isn't a link to read a video through.
-            statement(
-                "INSERT INTO records VALUES ('p', 'media', ?)",
-                vec![Value::String(
-                    serde_json::json!({ "kind": "image", "source_path": "Stills/frame.mov" })
-                        .to_string(),
-                )],
-            ),
-        ])
-        .unwrap();
+        let mut statements = vec![statement(
+            "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT, props TEXT, trashed_at TEXT)",
+            vec![],
+        )];
+        for (i, (path, trashed)) in links.iter().enumerate() {
+            statements.push(statement(
+                "INSERT INTO records VALUES (?, 'media', ?, ?)",
+                vec![
+                    Value::String(format!("v{i}")),
+                    Value::String(
+                        serde_json::json!({ "kind": "video", "source_path": path }).to_string(),
+                    ),
+                    if *trashed {
+                        Value::String("2026-11-05".into())
+                    } else {
+                        Value::Null
+                    },
+                ],
+            ));
+        }
+        // A picture's source path isn't a link to read a video through.
+        statements.push(statement(
+            "INSERT INTO records VALUES ('p', 'media', ?, NULL)",
+            vec![Value::String(
+                serde_json::json!({ "kind": "image", "source_path": "Stills/frame.mov" })
+                    .to_string(),
+            )],
+        ));
+        file.tx(&statements).unwrap();
         files.add_for_test(file)
     }
 
     #[test]
-    fn reads_a_video_the_open_project_links_by_a_path_relative_to_it_but_nothing_else() {
+    fn reads_a_video_inside_the_project_folder_that_it_links_and_nothing_a_project_file_could_point_at(
+    ) {
         let dir = temp_dir("linked");
-        fs::create_dir_all(dir.join("Footage")).unwrap();
-        fs::create_dir_all(dir.join("Stills")).unwrap();
-        let (offered, files) = (Offered::default(), OpenFiles::default());
-        let handle = project_linking(&dir, &files, "Footage/C0042.MP4");
+        for folder in ["Footage", "Stills"] {
+            fs::create_dir_all(dir.join(folder)).unwrap();
+        }
+        let (offered, known, files) = (
+            Offered::default(),
+            KnownVideos::in_memory(),
+            OpenFiles::default(),
+        );
+        let handle = project_linking(
+            &dir,
+            &files,
+            &[
+                ("Footage/C0042.MP4", false),
+                ("Footage/C0043.MP4", true),
+                ("Footage/notes.txt", false),
+                (r"\\server\share\A001.mov", false),
+                ("/net/server/A001.mov", false),
+                ("../Elsewhere/C0050.MP4", false),
+            ],
+        );
+        let access = Access {
+            offered: &offered,
+            known: &known,
+            files: &files,
+            handle: Some(handle),
+        };
         let linked = dir.join("Footage").join("C0042.MP4");
         fs::write(&linked, "").unwrap();
-        assert!(may_read(&offered, &files, Some(handle), &linked));
-        // Not without the project, not another file, not one a picture names, not a non-video under a video's name.
-        assert!(!may_read(&offered, &files, None, &linked));
-        assert!(!may_read(
-            &offered,
-            &files,
-            Some(handle),
-            &dir.join("Footage").join("C0043.MP4")
+        assert!(access.may_read(&linked));
+        // Not without the project, nor for another project's handle.
+        assert!(!Access {
+            handle: None,
+            ..access
+        }
+        .may_read(&linked));
+        assert!(!Access {
+            handle: Some(handle + 1),
+            ..access
+        }
+        .may_read(&linked));
+        // Not a trashed record's, a picture's, a file not named like a video, one the project doesn't link.
+        assert!(!access.may_read(&dir.join("Footage").join("C0043.MP4")));
+        assert!(!access.may_read(&dir.join("Stills").join("frame.mov")));
+        assert!(!access.may_read(&dir.join("Footage").join("notes.txt")));
+        assert!(!access.may_read(&dir.join("Footage").join("C0044.MP4")));
+        // Not a network path a shared project names, not a climb out of the folder, not a relative path.
+        assert!(!access.may_read(Path::new(r"\\server\share\A001.mov")));
+        assert!(!access.may_read(Path::new("/net/server/A001.mov")));
+        assert!(!access.may_read(&dir.join("..").join("Elsewhere").join("C0050.MP4")));
+        assert!(!access.may_read(
+            &dir.join("Footage")
+                .join("..")
+                .join("Footage")
+                .join("C0042.MP4")
         ));
-        assert!(!may_read(
-            &offered,
-            &files,
-            Some(handle),
-            &dir.join("Stills").join("frame.mov")
-        ));
-        assert!(!may_read(&offered, &files, Some(handle + 1), &linked));
+        assert!(!access.may_read(Path::new("Footage/C0042.MP4")));
         // The status of a linked file, and of one moved away; none for a file the page may not ask about.
         assert_eq!(
-            status(&offered, &files, Some(handle), &linked),
+            access.status(&linked),
             Some(FileStatus {
                 exists: true,
                 size: Some(0)
@@ -854,26 +1014,45 @@ mod tests {
         );
         fs::remove_file(&linked).unwrap();
         assert_eq!(
-            status(&offered, &files, Some(handle), &linked),
+            access.status(&linked),
             Some(FileStatus {
                 exists: false,
                 size: None
             })
         );
-        assert_eq!(
-            status(&offered, &files, Some(handle), &dir.join("secret.txt")),
-            None
-        );
-
-        // An absolute path outside the project's folder, as a card or another drive is linked.
-        let elsewhere = temp_dir("card");
-        let files = OpenFiles::default();
-        let card = elsewhere.join("A001_C003.mov");
-        let handle = project_linking(&dir.join("Footage"), &files, &card.to_string_lossy());
-        assert!(may_read(&offered, &files, Some(handle), &card));
+        assert_eq!(access.status(&dir.join("secret.txt")), None);
         files.close_all();
         let _ = fs::remove_dir_all(&dir);
-        let _ = fs::remove_dir_all(&elsewhere);
+    }
+
+    #[test]
+    fn remembers_a_video_the_person_handed_over_so_it_reads_after_a_restart() {
+        let dir = temp_dir("known");
+        let card = dir.join("A001_C003.mov");
+        let (offered, files) = (Offered::default(), OpenFiles::default());
+        let known = KnownVideos::load(&dir.join("data"));
+        let access = Access {
+            offered: &offered,
+            known: &known,
+            files: &files,
+            handle: None,
+        };
+        assert!(!access.may_read(&card));
+        known.remember(&card);
+        known.remember(&card);
+        // Another session: nothing offered, a fresh list read from disk.
+        let known = KnownVideos::load(&dir.join("data"));
+        let access = Access {
+            known: &known,
+            ..access
+        };
+        assert!(access.may_read(&card));
+        assert!(!access.may_read(&dir.join("A001_C004.mov")));
+        let saved: Vec<PathBuf> =
+            serde_json::from_slice(&fs::read(dir.join("data").join("known-videos.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved, [card]);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// The grey level of a one-colour PNG, read back with the sidecar.
@@ -899,31 +1078,34 @@ mod tests {
         // Each frame its own grey: frame n is 8 (n mod 32). An MPEG transport stream starts its clock at 1.4 s, as camera
         // AVCHD files do, so the seek has to count from the file's own start.
         // The same frames from a camera's own container, a QuickTime file, with long gaps between keyframes.
-        for name in ["00001.MTS", "A001_C003.mov"] {
-            let clip = make(
-                &dir,
-                name,
-                &[
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "color=c=black:size=64x36:rate=24000/1001:duration=6",
-                ],
-                &[
-                    "-vf",
-                    "format=gray,geq=lum='mod(N,32)*8',format=yuv420p",
-                    "-c:v",
-                    if name.ends_with("MTS") {
-                        "mpeg2video"
-                    } else {
-                        "mpeg4"
-                    },
-                    "-q:v",
-                    "1",
-                    "-g",
-                    if name.ends_with("MTS") { "12" } else { "48" },
-                ],
-            );
+        // And an AVCHD file whose sound starts a tenth of a second before its picture: frame 0 is the picture's first.
+        for name in ["00001.MTS", "A001_C003.mov", "00002.MTS"] {
+            let audio_first = name == "00002.MTS";
+            let mut input = vec![
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:size=64x36:rate=24000/1001:duration=6",
+            ];
+            let mut output = vec![
+                "-vf",
+                "format=gray,geq=lum='mod(N,32)*8',format=yuv420p",
+                "-c:v",
+                if name.ends_with("MTS") {
+                    "mpeg2video"
+                } else {
+                    "mpeg4"
+                },
+                "-q:v",
+                "1",
+                "-g",
+                if name.ends_with("MTS") { "12" } else { "48" },
+            ];
+            if audio_first {
+                input.extend(["-itsoffset", "-0.1", "-f", "lavfi", "-i", "sine=duration=6"]);
+                output.extend(["-map", "0:v", "-map", "1:a", "-c:a", "mp2"]);
+            }
+            let clip = make(&dir, name, &input, &output);
             let untouched = (
                 fs::read(&clip).unwrap(),
                 fs::metadata(&clip).unwrap().modified().unwrap(),

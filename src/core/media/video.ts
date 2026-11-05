@@ -1,5 +1,6 @@
 import type { JsonValue, Props } from '../model/record';
 import type { Change } from '../ops/ops';
+import { cropProp, isDefaultCrop, readCrop, type Crop } from './crop';
 import { relativeToProject } from './store';
 import { frameTimecode, type Rational } from './timecode';
 
@@ -54,13 +55,14 @@ export interface VideoFields {
   hasAudio: boolean;
   hdr: boolean;
   bitDepth: number;
-  /** media_files.sha256 of a still shown for the video where there's no frame to show yet. */
+  /**
+   * The id of an image `media` record under the video: a still shown for it where there's no frame yet. A record, not
+   * a hash, so Empty Trash and Clean up old pictures count its picture as used like any other.
+   */
   poster: string | null;
   /** A row of the `luts` table (2.5); null for none. */
   lutId: string | null;
 }
-
-const SHA256 = /^[0-9a-f]{64}$/;
 
 function wholeNumber(value: JsonValue | undefined, min = 0): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value >= min ? value : null;
@@ -137,7 +139,7 @@ export function videoFields(props: Props): VideoFields | null {
     hasAudio: props.has_audio === true,
     hdr: props.hdr === true,
     bitDepth: wholeNumber(props.bit_depth, 1) ?? 8,
-    poster: typeof props.poster === 'string' && SHA256.test(props.poster) ? props.poster : null,
+    poster: typeof props.poster === 'string' && props.poster !== '' ? props.poster : null,
     lutId: typeof props.lut === 'string' && props.lut !== '' ? props.lut : null,
   };
 }
@@ -156,16 +158,25 @@ export function resolveSourcePath(stored: string, projectPath: string): string {
   return [...folder, ...stored.split('/')].join(separator);
 }
 
-/** The part of a video a frame plays: frames `inFrame` to `outFrame`, both included, at the video's rate. */
+/**
+ * The part of a video a frame plays: frames `inFrame` to `outFrame`, both included, at the video's rate, framed by
+ * `crop` (2.6; the frame-picture crop model of 1.11). The frame's picture keeps its own crop.
+ */
 export interface Clip {
   videoId: string;
   inFrame: number;
   outFrame: number;
+  crop: Crop;
 }
 
-/** A frame's `clip` prop as stored. */
+/** A frame's `clip` prop as stored; the centred crop is stored as none. */
 export function clipProp(clip: Clip): Props {
-  return { video_id: clip.videoId, in_frame: clip.inFrame, out_frame: clip.outFrame };
+  return {
+    video_id: clip.videoId,
+    in_frame: clip.inFrame,
+    out_frame: clip.outFrame,
+    ...(isDefaultCrop(clip.crop) ? {} : { crop: cropProp(clip.crop) }),
+  };
 }
 
 /** A shot's clip, or null when it has none or its prop can't be read. */
@@ -176,7 +187,7 @@ export function readClip(props: Props): Clip | null {
   const outFrame = wholeNumber(clip.out_frame);
   if (typeof clip.video_id !== 'string' || clip.video_id === '' || inFrame === null || outFrame === null) return null;
   if (outFrame < inFrame) return null;
-  return { videoId: clip.video_id, inFrame, outFrame };
+  return { videoId: clip.video_id, inFrame, outFrame, crop: readCrop(clip) };
 }
 
 /** Where a picture grabbed from a video came from: enough to grab the same frame again. */

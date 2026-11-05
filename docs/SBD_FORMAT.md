@@ -332,7 +332,7 @@ than show its frames without their clips. The one new table holds LUTs (2.5).
 | codec | text | ffprobe's name: `h264`, `hevc`, `prores` |
 | has_audio, hdr | boolean | HDR is PQ or HLG; shown as SDR once tone-mapped (2.3) |
 | bit_depth | integer | 8, 10, 12 |
-| poster | text | media_files.sha256 of a still shown for the video where there's no frame yet; optional |
+| poster | text | The id of an image `media` record under the video: a still shown for it where there's no frame yet; optional. A record, not a hash, so Empty Trash and Clean up old pictures count its picture as used like any other |
 | lut | text | A `luts` id (2.5); missing for none |
 
 - Frames are counted from 0 at the video's own rate. Timecode is worked out from `start_timecode` and a frame number
@@ -340,8 +340,12 @@ than show its frames without their clips. The one new table holds LUTs (2.5).
 - Relink sets the file's props from the new file and takes off the ones it lacks (`source_path`, `source_size`,
   `start_timecode`); `poster` and `lut` stay, and so do the frames that play the video. One op, so undo puts the old
   file back.
-- The page reads a video's file only through Rust (src-tauri/src/video.rs): one the person dropped or chose this
-  session, or one named like a video that a video record of the open project links. Never opened for writing.
+- The page reads a video's file only through Rust (src-tauri/src/video.rs), never for writing, and only one the
+  person dropped or chose this session; one they handed over before, which Rust remembers in this computer's app data
+  (`known-videos.json`, which only Rust writes); or one inside the open project's own folder that a live video record
+  links (relative path, no `..`, not a symbolic link), as when a project folder is copied with its footage. A path a
+  project file names elsewhere, a network share among them, is never read until the person relinks it, so a project
+  someone sends can't make the app reach for a file or a server.
 
 `clip`, a shot prop: the part of a video the frame plays (2.8).
 
@@ -349,6 +353,7 @@ than show its frames without their clips. The one new table holds LUTs (2.5).
 |---|---|---|
 | video_id | text | The video's media record |
 | in_frame, out_frame | integer | Both included, at the video's `fps`; `out_frame` ≥ `in_frame` |
+| crop | `{ x, y, zoom }` | How the clip sits in the frame (2.6), the frame-picture crop of 1.11; missing when centred |
 
 `from_video`, a prop of a picture's media record: where a still came from (2.7), enough to grab the same frame again
 after the video is relinked or its LUT changes.
@@ -356,7 +361,7 @@ after the video is relinked or its LUT changes.
 | Field | Value | Notes |
 |---|---|---|
 | video_id | text | The video's media record |
-| frame | integer | At `fps` |
+| frame | integer | At `fps`, counted from the video stream's first frame (not the file's start, which sound can lead) |
 | fps | `{ num, den }` | The video's rate when it was grabbed |
 | timecode | text | The frame's source timecode, as on the slate and in the edit |
 | source_name | text | The clip's file name when it was grabbed |

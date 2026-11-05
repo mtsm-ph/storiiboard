@@ -63,19 +63,26 @@ const desktop: VideoDriver = {
   },
 };
 
-/** Waits for one event from a media element, or fails on its error. */
-function once(element: HTMLMediaElement, event: string): Promise<void> {
+/** Waits for one event from a media element; fails on its error, or when it never comes. */
+function once(element: HTMLMediaElement, event: string, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    const done = () => {
+    const stop = () => {
+      clearTimeout(timer);
       element.removeEventListener(event, done);
       element.removeEventListener('error', failed);
+    };
+    const done = () => {
+      stop();
       resolve();
     };
     const failed = () => {
-      element.removeEventListener(event, done);
-      element.removeEventListener('error', failed);
+      stop();
       reject(new Error(t('error.notAVideo')));
     };
+    const timer = setTimeout(() => {
+      stop();
+      reject(new Error(t('error.videoTooSlow')));
+    }, timeoutMs);
     element.addEventListener(event, done);
     element.addEventListener('error', failed);
   });

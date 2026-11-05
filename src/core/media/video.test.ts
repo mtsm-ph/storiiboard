@@ -29,7 +29,8 @@ const fx3: VideoProbe = {
   bitDepth: 10,
 };
 
-const poster = 'b'.repeat(64);
+// The poster is an image media record under the video, named by id.
+const poster = 'poster-record';
 
 describe('video records', () => {
   it('keep what ffprobe read, with the rate as an exact fraction and the path relative to the project', () => {
@@ -90,8 +91,12 @@ describe('video records', () => {
 
 describe('clips and grabbed pictures', () => {
   it('read a frame’s clip back, and refuse one that runs backwards', () => {
-    const clip = { videoId: 'v', inFrame: 24, outFrame: 96 };
+    const clip = { videoId: 'v', inFrame: 24, outFrame: 96, crop: { x: 0.5, y: 0.5, zoom: 1 } };
+    expect(clipProp(clip)).toEqual({ video_id: 'v', in_frame: 24, out_frame: 96 });
     expect(readClip({ clip: clipProp(clip) })).toEqual(clip);
+    const framed = { ...clip, crop: { x: 0.25, y: 0.5, zoom: 2 } };
+    expect(clipProp(framed)).toMatchObject({ crop: { x: 0.25, y: 0.5, zoom: 2 } });
+    expect(readClip({ clip: clipProp(framed) })).toEqual(framed);
     expect(readClip({ clip: { video_id: 'v', in_frame: 96, out_frame: 24 } })).toBeNull();
     expect(readClip({ clip: { video_id: 'v', in_frame: 1.5, out_frame: 24 } })).toBeNull();
     expect(readClip({})).toBeNull();
