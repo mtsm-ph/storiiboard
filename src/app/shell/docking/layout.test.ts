@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { previewBox, snap, zoneAt } from './geometry';
+import { edgePreviewBox, previewBox, snap, windowEdgeAt, zoneAt } from './geometry';
 import {
+  dockedAt,
+  dockToEdge,
   dropTile,
+  EDGE_SHARE,
   evenOut,
   isLayout,
   openTile,
@@ -172,6 +175,79 @@ describe('layouts', () => {
   });
 });
 
+describe('docking along a window edge (polish 4)', () => {
+  it('spans the whole bottom, under every other tile, at a quarter of the height', () => {
+    const next = dockToEdge(storyboard(), 'inspector', 'bottom');
+    expect(next.root.kind).toBe('split');
+    if (next.root.kind !== 'split') return;
+    expect(next.root.direction).toBe('column');
+    expect(next.root.children.at(-1)).toMatchObject({ kind: 'stack', tiles: ['inspector'] });
+    expect(next.root.sizes.at(-1)).toBeCloseTo(EDGE_SHARE);
+    // The rest keeps its shape: scenes | (board over player) side by side above.
+    expect(tilesIn(next)).toEqual(['scenes', 'board', 'player', 'inspector']);
+  });
+
+  it('spans the whole top, above everything', () => {
+    const next = dockToEdge(storyboard(), 'player', 'top');
+    if (next.root.kind !== 'split') throw new Error('expected a split');
+    expect(next.root.direction).toBe('column');
+    expect(next.root.children[0]).toMatchObject({ kind: 'stack', tiles: ['player'] });
+    expect(next.root.sizes[0]).toBeCloseTo(EDGE_SHARE);
+  });
+
+  it('along the right, merges into a row of tiles rather than nesting, each keeping its share of the rest', () => {
+    // storyboard(): scenes 1/5, board and player 3/5, inspector 1/5. Without scenes, the rest is 3:1.
+    const next = dockToEdge(storyboard(), 'scenes', 'right');
+    if (next.root.kind !== 'split') throw new Error('expected a split');
+    expect(next.root.direction).toBe('row');
+    expect(stacks(next.root).map((s) => s.tiles[0])).toEqual(['board', 'player', 'inspector', 'scenes']);
+    const [middle = 0, inspector = 0, scenes = 0] = next.root.sizes;
+    expect(scenes).toBeCloseTo(EDGE_SHARE);
+    expect(middle / inspector).toBeCloseTo(3);
+  });
+
+  it('leaves a tile already along that edge exactly as it is, sizes and all', () => {
+    const docked = dockToEdge(storyboard(), 'scenes', 'right');
+    expect(dockToEdge(docked, 'scenes', 'right')).toBe(docked);
+    const bottom = dockToEdge(storyboard(), 'player', 'bottom');
+    const resized = { ...bottom, root: bottom.root.kind === 'split' ? { ...bottom.root, sizes: [0.6, 0.4] } : bottom.root };
+    expect(dockToEdge(resized, 'player', 'bottom')).toBe(resized);
+    expect(dockedAt(resized, 'player')).toBe('bottom');
+    expect(dockedAt(storyboard(), 'inspector')).toBe('right');
+    expect(dockedAt(storyboard(), 'board')).toBeNull();
+  });
+
+  it('takes one tab out of a stack, leaving the others', () => {
+    const tabbed = dropTile(storyboard(), 'player', 's-board', 'center');
+    const next = dockToEdge(tabbed, 'player', 'bottom');
+    expect(stackOf(next, 'board')?.tiles).toEqual(['board']);
+    expect(stackOf(next, 'player')?.tiles).toEqual(['player']);
+  });
+
+  it('leaves a workspace’s only tile where it is, and restores a maximized layout', () => {
+    const one: Layout = { root: stack(['team'], 's-team'), maximized: null };
+    expect(dockToEdge(one, 'team', 'bottom')).toBe(one);
+    const max = toggleMaximize(storyboard(), 's-board');
+    expect(dockToEdge(max, 'inspector', 'bottom').maximized).toBeNull();
+  });
+
+  it('finds the window edge past the tiles: above, below, to the right, never to the left', () => {
+    // The tiles' own box, inside the 8px gap.
+    const tiles = { left: 256, top: 52, width: 1176, height: 816 };
+    expect(windowEdgeAt(tiles, 600, 48)).toBe('top');
+    // Over the top bar and the status bar too, past the workspace itself.
+    expect(windowEdgeAt(tiles, 600, 10)).toBe('top');
+    expect(windowEdgeAt(tiles, 600, 52 + 816 + 20)).toBe('bottom');
+    expect(windowEdgeAt(tiles, 256 + 1176 + 4, 400)).toBe('right');
+    // Inside the tiles, each tile's own zones apply: a tile let go on its own title bar stays.
+    expect(windowEdgeAt(tiles, 600, 52 + 13)).toBeNull();
+    expect(windowEdgeAt(tiles, 600, 400)).toBeNull();
+    // Left of the tiles is the sidebar's, even above or below it.
+    expect(windowEdgeAt(tiles, 250, 400)).toBeNull();
+    expect(windowEdgeAt(tiles, 100, 10)).toBeNull();
+    expect(edgePreviewBox(tiles, 'right')).toEqual({ left: 256 + 1176 * 0.75, top: 52, width: 1176 * 0.25, height: 816 });
+  });
+});
 describe('opening a tile that is already there (polish 3)', () => {
   it('brings it to the front: its tab picked, a maximized tile that hides it restored', () => {
     const tabbed = dropTile(storyboard(), 'player', 's-board', 'center');

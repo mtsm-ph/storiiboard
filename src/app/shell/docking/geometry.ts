@@ -1,4 +1,4 @@
-import type { DropZone } from './layout';
+import { EDGE_SHARE, type DropZone, type WindowEdge } from './layout';
 
 export interface Box {
   left: number;
@@ -39,6 +39,31 @@ export function previewBox(box: Box, zone: DropZone): Box {
       return { ...box, top: box.top + halfH, height: halfH };
     case 'center':
       return box;
+  }
+}
+
+/**
+ * The window edge a dragged tile would dock along (polish 4): past the tiles themselves, in the gap around them, over
+ * the top bar or the status bar, or at the window's right edge. Inside the tiles each tile's own zones apply, so a
+ * tile let go on its own title bar stays where it was. Never the left, the sidebar's: there is no left edge.
+ */
+export function windowEdgeAt(tiles: Box, x: number, y: number): WindowEdge | null {
+  if (x < tiles.left) return null;
+  if (y < tiles.top) return 'top';
+  if (y > tiles.top + tiles.height) return 'bottom';
+  if (x > tiles.left + tiles.width) return 'right';
+  return null;
+}
+
+/** Where a tile docked along a window edge would go: that whole side, at the share it will take. */
+export function edgePreviewBox(panel: Box, edge: WindowEdge, share = EDGE_SHARE): Box {
+  switch (edge) {
+    case 'top':
+      return { ...panel, height: panel.height * share };
+    case 'bottom':
+      return { ...panel, top: panel.top + panel.height * (1 - share), height: panel.height * share };
+    case 'right':
+      return { ...panel, left: panel.left + panel.width * (1 - share), width: panel.width * share };
   }
 }
 

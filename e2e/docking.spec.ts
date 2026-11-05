@@ -151,3 +151,86 @@ test('passes axe with tiles docked as tabs and the Layout menu open', async ({ p
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
   expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
 });
+
+test('docks a tile along the whole bottom, top or right of the window, spanning that side (polish 4)', async ({ page }) => {
+  const root = await box(page.locator('[data-dock-root]'));
+  const statusBar = await box(page.getByRole('contentinfo'));
+  // Thrown at the window's bottom, onto the status bar: the preview spans the whole width at a quarter of the height.
+  await drag(page, tile(page, 'Frame inspector'), { x: root.x + root.width / 2, y: statusBar.y + statusBar.height / 2 }, false);
+  await expect(page.getByText('Dock along the bottom', { exact: true })).toBeVisible();
+  await page.mouse.up();
+  const inspector = await box(tile(page, 'Frame inspector'));
+  expect(Math.abs(inspector.x - root.x)).toBeLessThan(2);
+  expect(Math.abs(inspector.width - root.width)).toBeLessThan(2);
+  expect(Math.abs(inspector.y + inspector.height - (root.y + root.height))).toBeLessThan(2);
+  expect(Math.abs(inspector.height - (root.height - 8) / 4)).toBeLessThan(12);
+  // Every other tile sits above it.
+  for (const name of ['Scenes', 'Storyboard', 'Player']) {
+    const other = await box(tile(page, name));
+    expect(other.y + other.height).toBeLessThanOrEqual(inspector.y);
+  }
+
+  // Along the top: past the tiles, over the top bar.
+  await drag(page, tile(page, 'Player'), { x: root.x + root.width / 2, y: root.y - 20 });
+  const player = await box(tile(page, 'Player'));
+  expect(Math.abs(player.y - root.y)).toBeLessThan(2);
+  expect(Math.abs(player.width - root.width)).toBeLessThan(2);
+
+  // Along the right, at the window's edge: the whole height.
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('no viewport');
+  await drag(page, tile(page, 'Frame inspector'), { x: viewport.width - 2, y: root.y + root.height / 2 });
+  const right = await box(tile(page, 'Frame inspector'));
+  expect(Math.abs(right.y - root.y)).toBeLessThan(2);
+  expect(Math.abs(right.height - root.height)).toBeLessThan(2);
+  expect(Math.abs(right.x + right.width - (root.x + root.width))).toBeLessThan(2);
+});
+
+test('a tile let go on its own title bar, near the top, stays where it was', async ({ page }) => {
+  const before = await box(tile(page, 'Scenes'));
+  const bar = await box(tile(page, 'Scenes').locator('div').first());
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bar.x + bar.width / 2 + 12, bar.y + bar.height / 2, { steps: 3 });
+  await expect(page.getByText(/^Dock along/)).toHaveCount(0);
+  await page.mouse.up();
+  expect(await box(tile(page, 'Scenes'))).toEqual(before);
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await expect(page.getByRole('button', { name: 'Undo layout change' })).toBeDisabled();
+});
+
+test('never docks along the left edge, the sidebar’s: there a tile splits the tile under it', async ({ page }) => {
+  const panel = await box(page.getByRole('region', { name: 'Storyboard workspace' }));
+  // Inside the leftmost tile, as near the window's left edge as a tile reaches.
+  await drag(page, tile(page, 'Player'), { x: panel.x + 14, y: panel.y + panel.height / 2 }, false);
+  await expect(page.getByText(/^Dock along/)).toHaveCount(0);
+  await expect(page.getByText('Split left', { exact: true })).toBeVisible();
+  // Over the sidebar itself: nothing at all.
+  await page.mouse.move(panel.x - 40, panel.y + panel.height / 2, { steps: 4 });
+  await expect(page.getByText(/^Dock along|^Split/)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+});
+
+test('docks along a window edge from the keyboard, after every tile, never on the left', async ({ page }) => {
+  const said = page.getByRole('region', { name: 'Storyboard workspace' }).locator('[aria-live="polite"]');
+  await page.getByRole('button', { name: 'Move Player' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(said).toContainText('the window’s own edges');
+  // Scenes, Storyboard, Frame inspector, then the window.
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Tab');
+  await expect(page.getByText('Dock along the right', { exact: true })).toBeVisible();
+  await expect(said).toHaveText('Dock along the right of the window.');
+  await page.keyboard.press('ArrowLeft');
+  await expect(said).toHaveText('The window’s left edge is the sidebar’s: pick top, right or bottom.');
+  await expect(page.getByText('Dock along the right', { exact: true })).toBeVisible();
+  await page.keyboard.press(' ');
+  await expect(said).toHaveText('The window has no centre: pick top, right or bottom.');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByText('Dock along the bottom', { exact: true })).toBeVisible();
+  await page.keyboard.press('Enter');
+  const root = await box(page.locator('[data-dock-root]'));
+  const player = await box(tile(page, 'Player'));
+  expect(Math.abs(player.width - root.width)).toBeLessThan(2);
+  await expect(page.getByRole('button', { name: 'Move Player' })).toBeFocused();
+});

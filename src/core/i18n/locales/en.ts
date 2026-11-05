@@ -281,7 +281,7 @@ export const en = {
   'dock.moveCancelled': 'Move cancelled.',
   'dock.zoneOf': '{zone} of {title}.',
   'dock.noOtherTile': 'There is no other tile to move it next to.',
-  'dock.moving': 'Moving {title}. Tab picks a tile, arrow keys an edge, Space adds it as a tab. Enter drops, Escape cancels.',
+  'dock.moving': 'Moving {title}. Tab picks a tile, then the window’s own edges; arrow keys an edge, Space adds it as a tab. Enter drops, Escape cancels.',
   'dock.closed': '{title} closed.',
   'dock.resize': 'Resize {first} and {second}',
   'dock.workspace': '{name} workspace',
@@ -957,5 +957,15 @@ export const en = {
   'sidebar.show': 'Show sidebar ({keys})',
   // src/app/shell/sidebar/SidebarStrip.tsx
   'sidebar.foldedStrip': 'Sidebar, folded',
+  // src/app/shell/docking/Dock.tsx
+  'dock.edge.top': 'Dock along the top',
+  'dock.edge.right': 'Dock along the right',
+  'dock.edge.bottom': 'Dock along the bottom',
+  'dock.edgeOfWindow': '{edge} of the window.',
+  // src/app/shell/docking/Dock.tsx
+  'dock.leftIsSidebar': 'The window’s left edge is the sidebar’s: pick top, right or bottom.',
+  'dock.noWindowCentre': 'The window has no centre: pick top, right or bottom.',
+  // src/app/shell/docking/Dock.tsx
+  'dock.stayed': '{title} is along that edge already.',
   // codemod: new entries above this line
 };
