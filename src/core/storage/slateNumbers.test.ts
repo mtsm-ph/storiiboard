@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
-import { addScene, addShot, board, moveItem, setNumbersLocked, setSceneNumber, trashShot } from '../../features/storyboard/board';
+import { addScene, addShot, board, lockNotice, moveItem, relettered, setNumbersLocked, setSceneNumber, trashShot } from '../../features/storyboard/board';
 import { emptyTrashMessage, restoreChanges } from '../../features/trash/trash';
 import { log } from '../ops/ops';
 import { backupFileName } from './backups';
@@ -209,12 +209,33 @@ describe('slate numbers', () => {
     await frame('sc4b');
     expect(numbers('sc4b')).toEqual(['4A', '4B']);
     expect(await stored('sc4b')).toEqual([]);
-    // Locked, they go onto slates: 4A and 4B are on footage from the old scene 4, so they take the next free letters.
+    // Locked, they go onto slates: 4A and 4B are on footage from the old scene 4, so they take the next free letters,
+    // and the person is told each change.
+    const changes = setNumbersLocked(records(), project.projectId, 'sc4b', true, store.getState().slateNumbers);
+    expect(relettered(records(), project.projectId, changes)).toEqual([
+      { from: '4A', to: '4D' },
+      { from: '4B', to: '4E' },
+    ]);
+    expect(lockNotice('4', relettered(records(), project.projectId, changes))).toBe(
+      'Locked SC 04. To keep slate numbers unique, 4A is now 4D and 4B is now 4E.',
+    );
     await lock('sc4b');
     expect(numbers('sc4b')).toEqual(['4D', '4E']);
     expect(await stored('sc4b')).toEqual(['4D', '4E']);
     await frame('sc4b');
     expect(numbers('sc4b')).toEqual(['4D', '4E', '4F']);
+  });
+
+  it('says nothing when a lock changes no number, and lists one, two or more changes in plain words', () => {
+    const changes = setNumbersLocked(records(), project.projectId, 'sc4', true, store.getState().slateNumbers);
+    expect(relettered(records(), project.projectId, changes)).toEqual([]);
+    expect(lockNotice('4', [])).toBeNull();
+    expect(lockNotice('12', [{ from: '12C', to: '12E' }])).toBe('Locked SC 12. To keep slate numbers unique, 12C is now 12E.');
+    expect(lockNotice('4A', [
+      { from: '4AA', to: '4AD' },
+      { from: '4AB', to: '4AE' },
+      { from: '4AC', to: '4AF' },
+    ])).toBe('Locked SC 4A. To keep slate numbers unique, 4AA is now 4AD, 4AB is now 4AE and 4AC is now 4AF.');
   });
 
   it('renumbers, as it locks, a frame holding the number of a live frame in a scene renumbered while locked', async () => {

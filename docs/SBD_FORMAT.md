@@ -252,6 +252,9 @@ rules in src/features/storyboard/board.ts).
     scene's highest, so the board still reads in order; a frame in the Trash that clashes loses its number and takes
     one when it's restored. A lock that keeps every number writes only the lock. Undo takes the lock back with its new
     numbers.
+  - A lock that re-letters frames says which, once it's saved: "Locked SC 04. To keep slate numbers unique, 4C is now
+    4E." (Kevin, Nov 4, 1.28).
+  - A frame in the Trash that gave its letter up takes the next free one when restored (approved, Nov 4).
 - A frame restored from the Trash into a locked scene keeps its number only while no live frame holds it and no other
   shot was slated with it; otherwise it takes the next free letter. A frame moved back into a locked scene it was
   slated in takes back the number it had there, while it's free. A locked scene restored under a new number (its own was taken
@@ -416,7 +419,8 @@ the board again.
 - Every 5 minutes while a project is open, and only if it changed since the last backup, a copy is written to
   `Backups/<Project> YYYY-MM-DD HH-mm.sbd` in the folder that holds the .sbd. `<Project>` is the .sbd's file name and
   the time is local, for example `Backups/Bey County 2026-11-02 14-05.sbd`. A second backup in the same minute (Back
-  up now, Compact project) takes the next free minute's name, so a name can run a minute or two ahead of the clock.
+  up now, Compact project) is `Bey County 2026-11-02 14-05 (2).sbd`, then `(3)`: a name never carries a time that
+  hasn't come yet (Kevin, Nov 4, 1.28). Pruning orders a minute's copies by their number.
 - A project in a synced folder (iCloud Drive, Dropbox, Google Drive, OneDrive) keeps them in the app's data folder on
   this computer instead (1.4), so a full copy doesn't upload every 5 minutes or sync into conflicts. The folder is
   `Backups/<Project> <key>/` there; Files next to a project, below, has the key. Settings → Backups can keep them next
@@ -545,8 +549,8 @@ project file; the backup made first keeps them until it's pruned. Nothing compac
 1. A backup of the file as it is, as one of the project's scheduled backups (`Backups/`, or the local folder for a
    synced project), taking its turn with them: no other copy of the file is made until the compaction ends. When
    nothing has changed since the schedule's newest backup, that one stands for it. A new one is named for this minute,
-   or the next free minute when a backup made earlier this minute has the name (scheduled runs name theirs the same
-   way); backups are never overwritten, and pruning never deletes the one just made. The newest stands only while
+   with `(2)` on when a backup made earlier this minute has the name (see Backups); backups are never overwritten, and
+   pruning never deletes the one just made. The newest stands only while
    it's still in the Backups folder. A failed backup compacts nothing.
 2. SQLite's VACUUM on the open file, in place, after the same on-disk check as a write; refused while a backup copy of
    the file is still being made. It's one write through the rollback journal, so a crash or a kill partway leaves the

@@ -1,7 +1,7 @@
 import { hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
 import { lettersOf, NO_SLATE_NUMBERS, sceneNumberBetween, shotNumbers, type SlateNumbers } from '../../core/model/shotNumbers';
-import { projectStoryboard, sceneFields, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
+import { projectStoryboard, sceneFields, sceneLabel, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
@@ -493,6 +493,38 @@ export function setNumbersLocked(
     .filter((s) => numbers.get(s.id) !== shotFields(s.props).number)
     .map((s): Change => ({ kind: 'update', id: s.id, set: { number: numbers.get(s.id) ?? '' } }));
   return [toggle, ...changes];
+}
+
+/** A live frame whose number a group of changes gives another: `4C` is now `4E`. */
+export interface Relettered {
+  from: string;
+  to: string;
+}
+
+/**
+ * The live frames `changes` give a different number, in board order: what a lock that settled clashes (1.26) tells
+ * the person. Frames without a number before or after (one in the Trash giving its letter up) aren't listed.
+ */
+export function relettered(records: Records, projectId: string, changes: readonly Change[]): Relettered[] {
+  const next = new Map<string, string>();
+  for (const change of changes) {
+    const number = change.kind === 'update' ? change.set?.number : undefined;
+    if (change.kind === 'update' && typeof number === 'string') next.set(change.id, number);
+  }
+  return board(records, projectId)
+    .flatMap((scene) => scene.shots)
+    .flatMap(({ record, fields }) => {
+      const to = next.get(record.id);
+      return to !== undefined && to !== '' && fields.number !== '' && to !== fields.number ? [{ from: fields.number, to }] : [];
+    });
+}
+
+/** The notice for a lock that re-lettered frames: "Locked SC 04. To keep slate numbers unique, 4C is now 4E." */
+export function lockNotice(sceneNumber: string, changed: readonly Relettered[]): string | null {
+  if (changed.length === 0) return null;
+  const each = changed.map(({ from, to }) => `${from} is now ${to}`);
+  const list = each.length === 1 ? (each[0] ?? '') : `${each.slice(0, -1).join(', ')} and ${each.at(-1) ?? ''}`;
+  return `Locked ${sceneLabel(sceneNumber)}. To keep slate numbers unique, ${list}.`;
 }
 
 /**

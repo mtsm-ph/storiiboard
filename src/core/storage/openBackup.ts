@@ -94,6 +94,8 @@ function fits(path: string): boolean {
 
 /** Any time: the stamp in a backup's name is always the same length. */
 const ANY_TIME = new Date(2026, 10, 4, 9, 0);
+/** A minute's 99th backup, the longest copy number worth allowing for. */
+const MANY_COPIES = 99;
 /** A two-digit schema, so a copy made now can still be upgraded for years. */
 const LATER_SCHEMA = 99;
 
@@ -108,7 +110,7 @@ function backupsFit(path: string): boolean {
   const folder = folderOf(path);
   const separator = path[lastSeparator(path)] ?? '/';
   const name = path.slice(lastSeparator(path) + 1);
-  const scheduled = `${backupFileName(fileStem(path), ANY_TIME)}.partial`;
+  const scheduled = `${backupFileName(fileStem(path), ANY_TIME, MANY_COPIES)}.partial`;
   const migration = `${migrationBackupName(name, LATER_SCHEMA, ANY_TIME)}.partial`;
   if (![scheduled, migration].every(nameFits)) return false;
   if (!isWindowsPath(path)) return true;

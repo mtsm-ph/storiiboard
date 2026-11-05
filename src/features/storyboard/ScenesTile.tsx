@@ -1,6 +1,8 @@
+import { showInfo } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
+import { sceneFields } from '../../core/model/storyboard';
 import { chooseScriptToImport } from '../script/chooseAndRead';
-import { addScene, board, coverage, setNumbersLocked } from './board';
+import { addScene, board, coverage, lockNotice, relettered, setNumbersLocked } from './board';
 import { ScenesView } from './ScenesView';
 import { useSelection } from './selection';
 
@@ -26,8 +28,17 @@ export function ScenesTile() {
       canAdd={project !== null}
       onSelect={selectScene}
       onToggleLock={(id, locked) => {
-        // From the records and slate numbers as they are at its turn: locking may renumber a frame (1.26).
-        if (project) void applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, id, locked, slate) }));
+        if (!project) return;
+        // From the records and slate numbers as they are at its turn: locking may re-letter frames (1.26), and the
+        // person is told which, once it's written.
+        let notice: string | null = null;
+        void applyWith((now, slate) => {
+          const changes = setNumbersLocked(now, project.projectId, id, locked, slate);
+          if (locked) notice = lockNotice(sceneFields(now[id]?.props ?? {}).number, relettered(now, project.projectId, changes));
+          return { changes };
+        }).then((written) => {
+          if (written && notice) showInfo(notice);
+        });
       }}
       onImport={() => {
         void chooseScriptToImport();
