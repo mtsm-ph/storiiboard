@@ -519,3 +519,52 @@ for (const scheme of ['light', 'dark'] as const) {
     expect((await new AxeBuilder({ page }).withTags(tags).analyze()).violations).toEqual([]);
   });
 }
+
+test('the project menu in groups, and its shortcuts: ⌘⇧H History, ⌘E Export, ⌘, Settings (polish A)', async ({ page }) => {
+  const project = page.getByRole('button', { name: 'Project', exact: true });
+  await project.click();
+  const panel = page.locator(`[id="${(await project.getAttribute('aria-controls')) ?? ''}"]`);
+  await expect(panel.getByRole('group')).toHaveCount(2);
+  await expect(panel.getByRole('group').nth(0).getByRole('button')).toHaveText([/^History/, /^Settings…/]);
+  await expect(panel.getByRole('group').nth(1).getByRole('button')).toHaveText([/^Export Project…/, 'Watermark Settings…']);
+  // Archive on its own at the bottom.
+  await expect(panel.getByRole('button').last()).toHaveText('Archive Project');
+  await page.keyboard.press('Escape');
+
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+  await page.keyboard.press(`${mod}+Shift+KeyH`);
+  await expect(history(page)).toBeVisible();
+  await page.keyboard.press(`${mod}+KeyE`);
+  await expect(page.getByRole('dialog', { name: 'Export' })).toBeVisible();
+  // Inside a window the app's shortcuts wait: ⌘, does nothing over Export.
+  await page.keyboard.press(`${mod}+Comma`);
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press(`${mod}+Comma`);
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+test('a shortcut the menu shows, pressed with the menu open, closes it and leaves focus where it went', async ({ page }) => {
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+  const project = page.getByRole('button', { name: 'Project', exact: true });
+  await project.click();
+  const panel = page.locator(`[id="${(await project.getAttribute('aria-controls')) ?? ''}"]`);
+  await page.keyboard.press(`${mod}+Shift+KeyH`);
+  await expect(history(page)).toBeVisible();
+  await expect(panel).toHaveCount(0);
+  expect(await history(page).evaluate((tile) => tile.contains(document.activeElement))).toBe(true);
+
+  // ⌘E over an open menu: Escape closes Export alone, and the menu stays closed.
+  await project.click();
+  await page.keyboard.press(`${mod}+KeyE`);
+  await expect(page.getByRole('dialog', { name: 'Export' })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Export' })).toHaveCount(0);
+  // The menu item that opened it went with the menu: focus lands on the workspace rather than the page.
+  await expect(page.locator('#workspace-panel')).toBeFocused();
+  // Typing in a field: ⌘E still opens Export, as menus' shortcuts do anywhere.
+  await history(page).getByLabel('Name this point').focus();
+  await page.keyboard.press(`${mod}+KeyE`);
+  await expect(page.getByRole('dialog', { name: 'Export' })).toBeVisible();
+});

@@ -2,7 +2,9 @@ import { cx } from '../../ui/cx';
 import { SMark } from '../../ui/logo/SMark';
 import { HistoryGlyph } from '../../ui/glyphs';
 import { projectStateOf } from '../../core/model/project';
-import { Menu, menuItemClass } from '../../ui/Menu';
+import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../ui/Menu';
+import { openSettings } from '../settings/SettingsWindow';
+import { isMac } from './undoShortcuts';
 import { setProjectState } from '../projects/actions';
 import { useProject } from '../projectStore';
 import { LayoutMenu } from './docking/LayoutMenu';
@@ -22,6 +24,7 @@ interface TopBarProps {
 export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
   const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
   const open = useProject((s) => s.project !== null);
+  const mac = isMac();
   return (
     <header className="flex h-topbar shrink-0 items-center border-b border-border-top">
       <h1 className="sr-only">{t('topBar.storiiboard')}</h1>
@@ -51,7 +54,7 @@ export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
       </button>
       <div className="ml-auto flex h-full">
         <LayoutMenu workspace={workspace} />
-        {/* The project menu (DESIGN.md, Navigation). Each command shows its phase until it's built. */}
+        {/* The project menu (DESIGN.md, Menus): in groups, what isn't built yet left out. */}
         <Menu
           align="right"
           label={t('topBar.project')}
@@ -59,52 +62,61 @@ export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
         >
           {(close) => (
             <>
-              {/* The same tile as the History button beside the project name. */}
-              <button
-                type="button"
-                className={menuItemClass}
-                disabled={!open}
-                onClick={() => {
-                  close();
-                  onOpenHistory();
-                }}
-              >
-                {t('topBar.history')}
-              </button>
-              <button
-                type="button"
-                className={menuItemClass}
-                disabled={!open}
-                onClick={() => {
-                  close();
-                  openExportDialog('watermark');
-                }}
-              >
-                {t('topBar.watermarkSettings')}
-              </button>
-              <button
-                type="button"
-                className={menuItemClass}
-                disabled={!open}
-                onClick={() => {
-                  close();
-                  openExportDialog('export');
-                }}
-              >
-                {t('topBar.exportProject')}
-              </button>
+              <MenuGroup label={t('topBar.groupProject')}>
+                {/* The same tile as the History button beside the project name. */}
+                <MenuItem
+                  disabled={!open}
+                  shortcut={commandShortcut('H', { shift: true, mac })}
+                  onClick={() => {
+                    close();
+                    onOpenHistory();
+                  }}
+                >
+                  {t('topBar.history')}
+                </MenuItem>
+                <MenuItem
+                  shortcut={commandShortcut(',', { mac })}
+                  onClick={() => {
+                    close();
+                    openSettings();
+                  }}
+                >
+                  {t('topBar.settings')}
+                </MenuItem>
+              </MenuGroup>
+              <MenuGroup label={t('topBar.groupExport')}>
+                <MenuItem
+                  disabled={!open}
+                  shortcut={commandShortcut('E', { mac })}
+                  onClick={() => {
+                    close();
+                    openExportDialog('export');
+                  }}
+                >
+                  {t('topBar.exportProject')}
+                </MenuItem>
+                <MenuItem
+                  disabled={!open}
+                  onClick={() => {
+                    close();
+                    openExportDialog('watermark');
+                  }}
+                >
+                  {t('topBar.watermarkSettingsDots')}
+                </MenuItem>
+              </MenuGroup>
               {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}
-              <button
-                type="button"
-                className={menuItemClass}
-                disabled={state === null}
-                onClick={() => {
-                  close();
-                  void setProjectState(state === 'archived' ? 'active' : 'archived');
-                }}
-              >
-                {state === 'archived' ? t('topBar.unarchiveProject') : t('topBar.archiveProject')}
-              </button>
+              <MenuGroup>
+                <MenuItem
+                  disabled={state === null}
+                  onClick={() => {
+                    close();
+                    void setProjectState(state === 'archived' ? 'active' : 'archived');
+                  }}
+                >
+                  {state === 'archived' ? t('topBar.unarchiveProject') : t('topBar.archiveProject')}
+                </MenuItem>
+              </MenuGroup>
             </>
           )}
         </Menu>

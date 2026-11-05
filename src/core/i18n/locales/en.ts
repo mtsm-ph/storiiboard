@@ -52,7 +52,6 @@ export const en = {
   'topBar.storiiboard': 'Storiiboard',
   'topBar.project': 'Project',
   'topBar.history': 'History',
-  'topBar.watermarkSettings': 'Watermark Settings',
   'topBar.exportProject': 'Export Project…',
   // src/app/shell/docking/Dock.tsx
   'dock.foldedTiles': 'Folded tiles',
@@ -284,7 +283,6 @@ export const en = {
   'tile.close': 'Close {title}',
   // src/app/shell/docking/LayoutMenu.tsx
   'layoutMenu.layout': 'Layout',
-  'layoutMenu.update': 'Update “{name}”',
   // src/app/shell/docking/Splitter.tsx
   'unit.px': '{n} px',
   // src/app/shell/sidebar/SceneList.tsx
@@ -995,5 +993,19 @@ export const en = {
   'settings.sections': 'Settings sections',
   // src/app/ask.tsx
   'window.closePlain': 'Close',
+  // src/app/shell (polish A: menus)
+  'layoutMenu.groupWorkspace': 'Workspace · {name}',
+  'layoutMenu.save': 'Save layout',
+  'layoutMenu.groupView': 'View',
+  'layoutMenu.showSidebar': 'Show sidebar',
+  'layoutMenu.hideSidebar': 'Hide sidebar',
+  'layoutMenu.restoreTile': 'Restore tile',
+  'layoutMenu.maximizeTile': 'Maximize tile',
+  'topBar.groupProject': 'Project',
+  'topBar.groupExport': 'Export',
+  'topBar.settings': 'Settings…',
+  'topBar.watermarkSettingsDots': 'Watermark Settings…',
+  // src/app/shell/docking/LayoutMenu.tsx
+  'layoutMenu.maximizeNamed': 'Maximize {title}',
   // codemod: new entries above this line
 };

@@ -80,8 +80,16 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 
 ## Navigation
 - **Top bar (44px):** the S mark, the project name, a History button beside it (the same tile as the menu's), and at
-  the right the Layout menu and the project menu (History, Watermark Settings, Export Project, Archive Project). Like
-  the sidebar, it keeps the paper outline in dark.
+  the right the Layout menu and the project menu. Like the sidebar, it keeps the paper outline in dark.
+- **Menus:** short, most-used first, in at most four groups, each under a 10px mono label with a 1.5px rule above it;
+  anything that undoes or deletes sits in a group of its own at the bottom. Shortcuts at the right in mono (⌘ on a
+  Mac, Ctrl elsewhere), and "…" on items that open a window. What isn't built yet isn't listed: phase placeholders
+  stay in tiles and the sidebar only.
+  - Layout: Workspace · {name} (Save layout ⌘⇧S, Reset to saved layout, Reset to default layout); View (Hide or Show
+    sidebar ⌘\, Maximize or Restore tile `, on the tile last focused); Open tile (each tile not open); Undo layout
+    change.
+  - Project: Project (History ⌘⇧H, Settings… ⌘,); Export (Export Project… ⌘E, Watermark Settings…); Archive or
+    Unarchive Project.
 - **Sidebar (248px, left, between the top bar and the status bar):**
   - The project switcher at the top: a dot in the project's accent, then its name. It opens recent projects, All
     projects… and New project….

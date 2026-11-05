@@ -24,6 +24,7 @@ import { inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, worksp
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
+import { openExportDialog } from '../../features/export/exportStore';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
 import { NoticeBar } from '../NoticeBar';
@@ -146,23 +147,47 @@ export function AppShell() {
     };
   }, [workspaceId]);
 
+  /** History, from the top bar's button, the project menu or ⌘⇧H: the tile in front, focus inside it. */
+  const openHistoryHere = () => {
+    // From the Projects screen too: back to the workspace, with History in front.
+    const { layouts, change } = layoutStore.getState();
+    change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+    setProjectsAsked(false);
+    // Focus goes into the tile, on its first control, so the keyboard needn't cross the workspace to reach it.
+    requestAnimationFrame(() => {
+      const tile = document.querySelector(`section[aria-label="${CSS.escape(TILES.history?.title ?? '')}"]`);
+      tile?.querySelector<HTMLElement>('[data-scroll-root] :is(button, input, select, textarea, [tabindex]):not(:disabled):not([tabindex="-1"])')?.focus();
+    });
+  };
+
+  // The project menu's shortcuts (polish A): ⌘⇧H History, ⌘E Export, with a project open and no window of the app's up.
+  const onMenuKey = useEffectEvent((event: KeyboardEvent) => {
+    // Not mid-drag, nor while an input method composes; the key read where it sits too, for layouts without Latin letters.
+    if (projectPath === null || inModalDialog(event.target) || event.repeat || event.isComposing || isDragging()) return;
+    const mac = isMac();
+    const command = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+    if (!command || event.altKey) return;
+    // The letter typed, on any Latin layout (Dvorak, Colemak); the key's place only where the layout has no Latin letters.
+    const typed = event.key.toLowerCase();
+    const key = /^[a-z]$/.test(typed) ? typed : event.code === 'KeyH' ? 'h' : event.code === 'KeyE' ? 'e' : typed;
+    if (key === 'h' && event.shiftKey) {
+      event.preventDefault();
+      openHistoryHere();
+    } else if (key === 'e' && !event.shiftKey) {
+      event.preventDefault();
+      openExportDialog('export');
+    }
+  });
+  useEffect(() => {
+    window.addEventListener('keydown', onMenuKey);
+    return () => {
+      window.removeEventListener('keydown', onMenuKey);
+    };
+  }, []);
+
   return (
     <div className="sb-grain flex h-full flex-col text-text">
-      <TopBar
-        projectName={projectTitle}
-        workspace={workspace}
-        onOpenHistory={() => {
-          // From the Projects screen too: back to the workspace, with History in front.
-          const { layouts, change } = layoutStore.getState();
-          change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
-          setProjectsAsked(false);
-          // Focus goes into the tile, on its first control, so the keyboard needn't cross the workspace to reach it.
-          requestAnimationFrame(() => {
-            const tile = document.querySelector(`section[aria-label="${CSS.escape(TILES.history?.title ?? '')}"]`);
-            tile?.querySelector<HTMLElement>('[data-scroll-root] :is(button, input, select, textarea, [tabindex]):not(:disabled):not([tabindex="-1"])')?.focus();
-          });
-        }}
-      />
+      <TopBar projectName={projectTitle} workspace={workspace} onOpenHistory={openHistoryHere} />
       <div className="flex min-h-0 flex-1">
         {sidebarHidden ? (
           <SidebarStrip
