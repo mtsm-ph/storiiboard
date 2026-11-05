@@ -14,6 +14,8 @@ export interface SceneRow {
   frames: number;
   /** Frames whose picture is in hand, 0–100; null with no frames. */
   coverage: number | null;
+  /** The scene's palette colours (polish PP), shown as a thin strip; empty for none. */
+  palette?: readonly string[];
 }
 
 export interface ScenesViewProps {
@@ -80,7 +82,17 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
             const active = row.id === activeSceneId;
             const label = sceneLabel(row.fields.number);
             return (
-              <li key={row.id} className="flex items-stretch border-b border-border">
+              <li key={row.id} className="relative flex items-stretch border-b border-border">
+                {/* The scene's palette as a thin strip along the row's foot (polish PP): a look, not a control, so
+                    hidden from screen readers; the inspector lists it in words. 2px, clear of the row's focus ring,
+                    which sits 2 to 4px inside the edge. */}
+                {row.palette && row.palette.length > 0 && (
+                  <span aria-hidden="true" data-palette-strip="" className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[2px]">
+                    {row.palette.map((color, i) => (
+                      <span key={`${color}-${String(i)}`} className="flex-1" style={{ backgroundColor: color }} />
+                    ))}
+                  </span>
+                )}
                 <button
                   type="button"
                   data-scene-row={row.id}

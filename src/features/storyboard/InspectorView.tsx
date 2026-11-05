@@ -94,6 +94,8 @@ export interface InspectorViewProps {
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
   /** The departments that have opened this frame (polish 6b). */
   seen?: readonly string[];
+  /** The scene's palette editor (polish PP), under the scene's own section. */
+  palette?: ReactNode;
   /** A department status edit (polish 6), worked out from the frame as it is when the edit lands. */
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
   /** The approval this person would give a department now (polish 6); null when their role doesn't approve. */
@@ -378,6 +380,7 @@ export function InspectorView({
   myRoles = NO_ROLES,
   onDepartmentStatus,
   seen = NOTHING_SEEN,
+  palette,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -640,6 +643,8 @@ export function InspectorView({
           />
         </div>
       </Section>
+
+      {palette && <Section title={t('palette.title')}>{palette}</Section>}
 
       <Section title={t('inspectorView.links')}>
         <ul className="flex flex-col gap-1.5 text-[13px]">

@@ -67,6 +67,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   notes: 'history.field.notes',
   aspect_ratio: 'history.field.aspectRatio',
   state: 'history.field.state',
+  palette: 'history.field.palette',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -110,6 +111,15 @@ function describeWatermark(before: JsonValue | undefined, after: JsonValue | und
     return only === 'text' ? t('history.watermark.textChange', change) : t('history.watermark.partChange', { ...change, text: text(after) });
   }
   return t('history.watermark.changed', { text: text(after), parts: parts.map((part) => WATERMARK_PART[part] ?? part).join(', ') });
+}
+
+/** A palette in a step: "#A35139 (locked), #1F2F4D (count 8)", or "no colours (count 8)". */
+function paletteText(value: JsonObject): string {
+  const colors = Array.isArray(value.colors) ? value.colors.filter(isObject) : [];
+  const named = colors.flatMap((c) => (typeof c.hex === 'string' ? [c.locked === true ? t('history.paletteLocked', { hex: c.hex }) : c.hex] : []));
+  const list = named.length > 0 ? named.join(', ') : t('history.paletteEmpty');
+  // The count too, so a step that only changed it reads apart from its neighbours.
+  return typeof value.size === 'number' ? t('history.paletteWithCount', { colours: list, count: value.size }) : list;
 }
 
 /** Whether a field's values are technical ones, shown in mono. */
@@ -159,6 +169,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
   if (prop === 'page_eighths' && typeof value === 'number') return pageLabel(value);
   if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
+  // A scene's palette (polish PP): its colours in order, a locked one marked, so steps can be told apart.
+  if (prop === 'palette' && isObject(value)) return paletteText(value);
   if (typeof value === 'object') return prop === 'custom' ? Object.keys(value).join(', ') || '—' : t('history.changed');
   if (typeof value === 'boolean') return value ? t('history.on') : t('history.off');
   return typeof value === 'string' ? choiceLabel(prop, value) : String(value);

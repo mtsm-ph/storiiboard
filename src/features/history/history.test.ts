@@ -248,6 +248,15 @@ describe('Put back', () => {
     expect(await stepCount()).toBe(steps);
   });
 
+  it('reads a palette step by its colours, a locked one marked (polish PP)', async () => {
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { palette: { size: 8, colors: [{ hex: '#A35139' }, { hex: '#1F2F4D' }] } } }]);
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { palette: { size: 8, colors: [{ hex: '#A35139', locked: true }, { hex: '#1F2F4D' }] } } }]);
+    expect((await lines()).slice(-2)).toEqual([
+      'SC 04: palette — → #A35139, #1F2F4D (count 8)',
+      'SC 04: palette #A35139, #1F2F4D (count 8) → #A35139 (locked), #1F2F4D (count 8)',
+    ]);
+  });
+
   it('lists each department’s status on its own, and never offers one to put back (polish 6)', async () => {
     const a = await frame();
     const approval = { name: 'Kevin Matos', roles: ['director', 'dp'], at: '2026-11-05T10:00:00.000Z' };

@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (P6b Seen and status summary merged) |
+| Last updated | Nov 5, 2026 (PPa scene palettes merged) |
 
 | Phase | State |
 |---|---|
@@ -101,7 +101,8 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | #56 | Done |
 | P6a Department status per shot (Priority, Working on it, Done, Approved) in place of on/off tags; schema 6 with migration; "Your role on this project" | #57 | Done |
 | P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | #58 | Done |
-| PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
+| PPa Scene colour palettes from the frames' pictures: generate, lock and regenerate, reorder, delete, copy the hex, all undoable; in the inspector and the Scenes tile | #59 | Done |
+| PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | | Planned |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
 
@@ -213,6 +214,13 @@ the person's role on the project stands for (the DP: Camera; Director and DP: bo
 its own (schema 7, `shot_seen`), not an op, so undo never takes it back; Empty Trash deletes it with the frame. The
 inspector's grid gains a Seen column (read-only). Frame cards get a summary line (a shape and a count per state), the
 shot list each department with its shapes, and the CSV each department with its states in words.
+
+PPa as built (Nov 5): palettes are a scene prop (`palette`, no table change). Generate reads each frame's stored
+thumbnail as it's framed (its crop, the project's aspect ratio) onto an sRGB canvas, so a Display P3 picture comes out
+colour-managed; letterbox and pillarbox bars are left out; every frame weighs the same; colours are clustered in OKLab
+(the project theme's k-means) and kept at least three just-visible steps apart, the ones covering most of the scene
+first. Regenerate keeps locked colours in their places. Edited in the inspector under the scene; a 2px strip on the
+scene's row in the Scenes tile. PPb adds the Color script tile, the eyedropper and the PDF option.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

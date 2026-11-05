@@ -369,6 +369,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | scene | location_id | record id | A `location` record (1.12, script import). Set from the board's "/" menu, by name |
 | scene | page_eighths | integer | Script length in eighths of a page (1.17); shown as "1 3/8 pg" |
 | scene | characters | array of text | Speaking characters, from script import (1.17) |
+| scene | palette | `{ size, colors: [{ hex, locked? }] }` | Polish PP (approved Nov 5; a prop, no table change). The scene's colours from its frames' pictures: `hex` is sRGB `#RRGGBB` as shown on screen (a Display P3 picture is converted colour-managed), `locked` keeps a colour in place when the rest are generated again, `size` (1 to 16, default 8) is how many Generate makes. Missing for a scene without one, as in every older file. With no colours it keeps only its `size`. Fields this version doesn't know are kept |
 | location | name | text | 1.12. As typed in the "/" menu, or as the script writes the place (`DINER - BACK ROOM`) |
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |

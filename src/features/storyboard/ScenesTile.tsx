@@ -4,6 +4,7 @@ import { sceneFields } from '../../core/model/storyboard';
 import { chooseScriptToImport } from '../script/chooseAndRead';
 import { addScene, board, coverage, lockNotice, relettered, setNumbersLocked } from './board';
 import { ScenesView } from './ScenesView';
+import { paletteOf } from '../../core/model/palette';
 import { deleteScene, focusSceneAfterDelete } from './deleteScene';
 import { useSelection } from './selection';
 
@@ -23,6 +24,7 @@ export function ScenesTile() {
         fields: scene.fields,
         frames: scene.shots.length,
         coverage: coverage([scene]),
+        palette: paletteOf(scene.record.props)?.colors.map((c) => c.hex) ?? [],
       }))}
       activeSceneId={activeSceneId}
       coverage={coverage(scenes)}

@@ -1060,5 +1060,34 @@ export const en = {
   'departmentSummary.approved.one': '{count} approved',
   'departmentSummary.approved.other': '{count} approved',
   'departmentSummary.states': '({states})',
+  // src/features/storyboard/palette (polish PP: scene colour palettes)
+  'palette.title': 'Palette',
+  'palette.list': 'Palette for {scene}',
+  'palette.swatch': 'Colour {n} of {of}, {hex}',
+  'palette.swatchLocked': 'Colour {n} of {of}, {hex}, locked',
+  'palette.copyHint': '{hex}: click to copy',
+  'palette.copy': 'Copy',
+  'palette.lock': 'Lock',
+  'palette.moveLeft': 'Move colour left',
+  'palette.moveRight': 'Move colour right',
+  'palette.delete': 'Delete',
+  'palette.none': 'No palette yet. Generate one from this scene’s frames.',
+  'palette.noPicturesYet': 'Add pictures to this scene’s frames to make its palette.',
+  'palette.noPictures': 'None of this scene’s frame pictures could be read, so there’s no palette to make.',
+  'palette.colours': 'Colours',
+  'palette.generate': 'Generate palette',
+  'palette.regenerate': 'Regenerate',
+  'palette.generating': 'Reading the frames…',
+  'palette.copied': 'Copied {hex}.',
+  'palette.copyFailed': 'Couldn’t copy {hex}. Select it and copy it by hand.',
+  // src/features/storyboard/palette/actions.ts
+  'palette.allLocked': 'Every colour is locked. Raise the count, or unlock some, to get new ones.',
+  'palette.nothingNew': 'These frames have no other colours to offer. Lock the ones you like, or add pictures.',
+  // src/features/history/summary.ts
+  'history.field.palette': 'palette',
+  'history.paletteLocked': '{hex} (locked)',
+  'history.paletteEmpty': 'no colours',
+  // src/features/history/summary.ts
+  'history.paletteWithCount': '{colours} (count {count})',
   // codemod: new entries above this line
 };
