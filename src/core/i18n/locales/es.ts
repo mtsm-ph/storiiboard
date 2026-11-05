@@ -945,6 +945,10 @@ export const es: Messages = {
   'error.inFolderAlready': '{name} ya está en esa carpeta.',
   'error.unfinishedExports': 'Hay muchas exportaciones sin terminar en esa carpeta.',
   'error.projectNotOpen': 'Ese proyecto no está abierto.',
+  // src-tauri/src/video.rs
+  'error.noVideoStream': 'Ese archivo no tiene video.',
+  'error.noFrameRate': 'No se puede leer la cadencia de ese video.',
+  'error.notAVideo': 'Ese archivo no se puede leer como video.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',
   // src/app/shell/sidebar/Sidebar.tsx

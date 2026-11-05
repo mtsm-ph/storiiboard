@@ -295,18 +295,25 @@ mod tests {
     #[test]
     fn reads_a_phone_clips_rotation_and_an_hlg_clips_depth() {
         let dir = temp_dir("phone");
-        let phone = make(
+        let flat = make(
             &dir,
-            "IMG_0001.mov",
+            "flat.mov",
             &[
-                "-display_rotation",
-                "90",
                 "-f",
                 "lavfi",
                 "-i",
                 "testsrc2=size=320x180:rate=30:duration=1",
             ],
             &["-c:v", "mpeg4"],
+        );
+        // A phone stores its rotation as a display matrix. Re-encoding would turn the pictures instead (ffmpeg
+        // auto-rotates), so the matrix is added by copying the stream, as a phone's file has it.
+        let flat_path = flat.to_string_lossy().into_owned();
+        let phone = make(
+            &dir,
+            "IMG_0001.mov",
+            &["-display_rotation", "90", "-i", &flat_path],
+            &["-c", "copy"],
         );
         assert_eq!(probe(&phone).unwrap().rotation.abs(), 90);
         let hlg = make(

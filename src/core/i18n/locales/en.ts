@@ -943,6 +943,10 @@ export const en = {
   'error.inFolderAlready': '{name} is in that folder already.',
   'error.unfinishedExports': 'There are many unfinished exports in that folder.',
   'error.projectNotOpen': 'That project isn\'t open.',
+  // src-tauri/src/video.rs
+  'error.noVideoStream': 'That file has no video in it.',
+  'error.noFrameRate': 'That video\'s frame rate can\'t be read.',
+  'error.notAVideo': 'That file can\'t be read as a video.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx

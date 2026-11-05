@@ -27,6 +27,34 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
 
+### Phase 2 milestones
+
+Plan approved Nov 5, 2026: ffmpeg as LGPL sidecars (the one new dependency), schema 8 for video, a playback-copy
+cache (about 50 GB, oldest out first, movable in Settings → Storage), LUTs as `.cube` files applied to the playback
+copy and stills, never the original. One PR per milestone, each into `v2`. Two review stops: after 2.4 (the Player
+plays real footage) and at the gate; at each, a checkpoint and a checklist, and the work goes on.
+
+| Milestone | PR | State |
+|---|---|---|
+| 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | In review |
+| 2.2 Schema 8: video media, LUTs, clip and grab records; link a video, Relink | | Not started |
+| 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
+| 2.4 The Player plays real footage (Stop A) | | Not started |
+| 2.5 LUTs per video | | Not started |
+| 2.6 Crop | | Not started |
+| 2.7 Still capture into a frame | | Not started |
+| 2.8 Clip capture into a frame | | Not started |
+| 2.9 JSON export and import carry all of it | | Not started |
+
+2.1 as built: `scripts/ffmpeg/build.sh` builds FFmpeg 8.1.3 (checksum pinned) with `--disable-autodetect`, static,
+no `--enable-gpl`, and checks itself (the LGPL licence, no GPL flag, the `lut3d` filter). VideoToolbox on a Mac,
+Media Foundation on Windows (built in MSYS2's MINGW64, linked statically). CI builds once per change of the script
+(cached) for Linux, the Mac and Windows; the installers ship the binaries as Tauri sidecars with the licence and the
+exact source and configure line. `src-tauri/src/video.rs` runs ffprobe and returns the codec, size, exact rational
+frame rate, length in frames, source timecode, rotation, audio, HDR and bit depth; its tests make their own clips
+with the sidecar (23.976 with timecode, 29.97 drop-frame with audio, a phone's rotation, 10-bit HLG, a variable rate,
+a path with spaces and a semicolon).
+
 ### Phase 1 milestones
 
 Plan approved Nov 2, 2026 (one panel per shot; numbers follow board order until Lock numbers; storyboard before

@@ -67,7 +67,8 @@ case "$triple" in
 esac
 
 ./configure "${flags[@]}"
-make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4)" ffmpeg ffprobe
+# The make targets carry the extension: ffmpeg.exe on Windows.
+make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4)" "ffmpeg${exe}" "ffprobe${exe}"
 
 # Checked, not trusted: an LGPL build, with the LUT filter. Each output is read whole first: grep -q stopping early
 # would end ffmpeg with SIGPIPE, which pipefail counts as a failure.
