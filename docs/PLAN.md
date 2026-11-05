@@ -7,21 +7,21 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.28 built and tested by Kevin (Nov 4); the polish step, then the gate |
+| **Current phase** | **Phase 2 · Video and images**: plan approved Nov 5 (PHASE2_PLAN, below); Phase 1's polish is done and its gate (a real scene boarded in one sitting) is Kevin's to run |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (PPb merged; review stop 2) |
+| Last updated | Nov 5, 2026 (Phase 2 plan approved; roadmap: canvas flow becomes Phase 5) |
 
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
-| 1 · Storyboard | **Current**, building |
-| 2 · Video and images | Not started |
+| 1 · Storyboard | Built and polished; the gate is Kevin's |
+| 2 · Video and images | **Current**, building |
 | 3 · Production data | Not started |
 | 4 · Call sheets | Not started |
-| 5 · Bird's-eye view | Not started |
-| 6 · Moodboards and decks | Not started |
+| 5 · Canvas flow (moodboards and decks) | Not started |
+| 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
@@ -130,7 +130,7 @@ Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo
 - The department status colours stay the kit's navy, mustard and sage. They match the department tags' colours, but
   no screen shows a department tag today (only the developer catalogue), and every status carries its own shape.
   Revisit when tags come back on screen (Phase 3's department workspaces) and when the plan icons, drawn in the same
-  colours, reach the bird's-eye view (Phase 5). Changing them is the three state-* tokens in src/ui/theme.css (four
+  colours, reach the bird's-eye view (Phase 6). Changing them is the three state-* tokens in src/ui/theme.css (four
   values with dark mode's Seen; Done's glow follows its token).
 - Not decided, for Kevin (decided Nov 5: names recorded, see PE below): whether each edit carries who made it (the op
   and op group `author`, still `local`, so History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
@@ -348,7 +348,7 @@ Later phases, added Nov 4 (not built now):
   the .sbd, so a shared file carries them. Phase 4's call sheets pull from these.
 - Phase 3: a workspace per department, opened from that department's row on a shot, showing its view of the shot and
   the scene.
-- Phase 6: scene palettes can also be generated from a scene's moodboard, and exported as swatches (a PNG strip and
+- Phase 5 (canvas flow): scene palettes can also be generated from a scene's moodboard, and exported as swatches (a PNG strip and
   Adobe .ase) with decks.
 - Phase 9: a view for each team member on the web companion, with Seen set automatically per person.
 
@@ -414,7 +414,7 @@ Phase 0 calls, Nov 1 and 2, 2026:
   - The Layout menu sits in the top bar beside the project menu, and the unsaved-layout dot moved to the section.
   - Layouts saved under D2's four workspaces start over (a new settings key); nobody has used them outside testing.
   - Scenes list under Storyboard, and + Add Scene creates the next scene number as one op. Nothing opens a project
-    until 0.7, so the list is tested against a project file in unit tests. Setup's setups by scene come in Phase 5
+    until 0.7, so the list is tested against a project file in unit tests. Setup's setups by scene come in Phase 6
     with setups, and the status bar's unread count in Phase 3 with notifications.
 - 0.6 as built (Nov 2): the installers register .sbd as "Storiiboard Project" (macOS type `app.storiiboard.project`,
   the app as its owner). A double-click arrives as an Apple Event on a Mac and as a launch argument on Windows; with
@@ -954,11 +954,11 @@ demo data.**
 |---|---|---|
 | **0 · Foundation and .sbd** (done) | Desktop shell with sidebar navigation, .sbd file with autosave, history and backups every 5 minutes, Projects screen with project state, installers from CI, prototype archived | A project survives a force-quit, and double-clicking a .sbd opens it |
 | 1 · Storyboard | Project themes and onboarding, script import into scene shells, frames, shot specs, sketching, "/" menu, custom fields, Trash tile, History and named versions, export (PDF, PNG, shot list CSV) with watermark | A real scene is boarded in one sitting |
-| 2 · Video and images | Playback copies, frame stepping, in and out, crop, still and clip capture, attachments, Assets section | A still from a reference clip lands in a frame in a few clicks |
-| 3 · Production data | Locations, cast and crew, departments, gear lists, shoot days, Team section, Calendar and Notifications tiles | A real shoot's people, places and gear are entered |
+| 2 · Video and images | Playback copies (a cache per computer, about 50 GB, movable), frame stepping, in and out, crop, LUTs for log footage, still and clip capture, the lossless JSON export | A still from a reference clip lands in a frame in a few clicks |
+| 3 · Production data | Project details and company profiles; locations, cast and crew, departments and department workspaces; shoot days, Calendar tile; gear per day; client contact and deliverables; notification history; Team section; Assets and attachments (from Phase 2) | A real shoot's people, places and gear are entered |
 | 4 · Call sheets | Call sheet per day with weather, sun times, map and hospital; PDF | Used on a real shoot day |
-| 5 · Bird's-eye view | Setup section: top-down plans with walls, cast, cameras with true field of view, lights, department layers | A gaffer plans a real setup with it |
-| 6 · Moodboards and decks | Department moodboards, pitch decks from frames | A deck built in under an hour |
+| 5 · Canvas flow | One infinite canvas for moodboards and decks (Kevin, Nov 5): see Phase 5 notes | A deck built in under an hour |
+| 6 · Bird's-eye view | Setup section: top-down plans with walls, cast, cameras with true field of view, lights, department layers, on the canvas foundation | A gaffer plans a real setup with it |
 | 7 · AI assistant | MCP server, mistake checks, review screen for AI suggestions and imported change files | The checks catch a real scheduling or gear mistake |
 | 8 · Cloud links and release | Dropbox and Google Drive links, Collect Project, signed installers, public repo, Patreon | A stranger installs it and opens a shared project |
 | 9 · Web companion | Review copy in the project's theme: call sheets, compressed storyboard, bird's-eye viewer; availability, comments, suggested deletions downloaded as change files, company workspaces, Calendar, Notifications and Trash | Cast and crew get their call sheet from the site and send a suggestion |
@@ -970,7 +970,19 @@ demo data.**
   supervisor work from them from then on. The lock is the same `numbers_locked` prop the Scenes tile sets (1.6), set
   in the op group that issues the call sheet, so undoing the issue unlocks it again. Unlocking by hand stays possible.
 
-### Phase 5 notes
+### Phase 5 notes (canvas flow; Kevin, Nov 5)
+
+Moodboards and decks merge into one canvas flow, like Figma and FigJam, and the bird's-eye view moves to Phase 6 so it
+can reuse the canvas foundation. Not built now. The canvas should have:
+- an infinite canvas with pan, zoom and a minimap; text boxes, sticky notes and shapes in any colour; pictures and video
+  links; scene palettes; brand-kit cards (colours, fonts, logo, from Phase 3's company profiles);
+- connectors that snap to items and move with them (straight, bent or curved, with arrowheads and labels), and
+  quick-create of a connected item;
+- sections that group items and move with their contents;
+- Tidy up (rows, columns, grid), align and distribute, and snap guides;
+- shots and scenes from the storyboard as live linked cards that jump back to the board when clicked.
+
+### Phase 6 notes (bird's-eye view)
 
 Field of view is `2 * atan(sensor_width / (2 * focal_length))` (CLAUDE.md), so both numbers have to be real (Kevin,
 Nov 3):
@@ -980,13 +992,15 @@ Nov 3):
 - **Lenses can be zooms and anamorphic.** A zoom records its range and the focal length used for the shot. An
   anamorphic lens records its squeeze factor, such as 1.33x or 2x, which widens the horizontal field of view by that
   factor at the same focal length. The shot's `lens_mm` stays the focal length used; the range and squeeze are new
-  props, proposed for approval in Phase 5's plan.
+  props, proposed for approval in Phase 6's plan.
 
 ### Phase 8 release checklist
 
 - [ ] Run the Phase 0 gate's force-quit, undo-after-restart and backup steps on Windows (Phase 0 ran them on the Mac
   only).
 - [ ] Choose the license, Patreon tiers and signing (also in Next steps).
+- [ ] An option to save a copy of a project without contact details (Kevin, Nov 5): call sheets hold phone numbers
+  and addresses, so a copy to share widely can leave them out.
 - [ ] First-run profile setup tells new users their name (or initials) is saved with each edit they make (Kevin, Nov 5;
   no one-time notice for existing profiles, as Kevin is the only user so far).
 - [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
@@ -1079,7 +1093,7 @@ Phase 1 planning numbers its milestones; the order above is the recommendation.
 | Where | What | Fix |
 |---|---|---|
 | src/ui/logo/SMark.tsx, Wordmark.tsx | The orange dots use the accent class, so a project theme would recolour them, which DESIGN.md forbids | A fixed brand token, Signal Orange #E0612B (decided Nov 2) |
-| src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes. The ink strokes already disappear on a dark plan | Phase 5 recolours them as they render: ink, oatmeal, white and orange become tokens, and department fills stay fixed |
+| src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes. The ink strokes already disappear on a dark plan | Phase 6 recolours them as they render: ink, oatmeal, white and orange become tokens, and department fills stay fixed |
 | src/ui/theme.css | `--color-paper-fixed: #eee9df` | Move it into the fixed token set |
 | src-tauri/tauri.conf.json | Window `backgroundColor` #EEE9DF | Set it from the project theme at runtime, so resizing a dark project never shows paper at the edges |
 | public/theme-boot.js | Sets only `data-theme` before first paint | Also apply the last project's tokens, cached in settings |
@@ -1204,11 +1218,11 @@ Left sidebar, top to bottom:
   place and runs the theme change.
 - **Storyboard:** expands to its scenes inline, as "SC 04  Scene Name" with the number in JetBrains Mono, then
   "+ Add Scene". The active scene's marker is orange, and its bold name is the second cue.
-- **Assets** (Phase 2), **Team** (Phase 3: who's on the project and, from Phase 9, what each person can see on the
-  web), **Setup** (Phase 5: home of the bird's-eye view, setups listed by scene).
+- **Assets** (Phase 3, moved from Phase 2 on Nov 5), **Team** (Phase 3: who's on the project and, from Phase 9, what
+  each person can see on the web), **Setup** (Phase 6: home of the bird's-eye view, setups listed by scene).
 - **Production** (Phases 3 and 4): schedule, calendar, call sheets, locations, gear, and cast and crew. Its cast and
   crew tile and the Team section read the same person records.
-- **Moodboard** (Phase 6) and **Settings**.
+- **Moodboard** (Phase 5, the canvas flow) and **Settings**.
 
 Top-right project menu: History, Watermark Settings, Export Project, Archive Project. There is no Moodboard entry.
 
@@ -1233,7 +1247,7 @@ src/features/export holds a registry of formats, so adding one is a new file plu
   - Shot list CSV: a report with one row per shot.
 - Later formats register the same way:
   - Project data as JSON and CSV, the lossless round-trip export (Phase 2).
-  - Call sheet PDF (Phase 4) and deck PDF (Phase 6).
+  - Call sheet PDF (Phase 4) and deck PDF (Phase 5).
   - The web review package (Phase 9).
   - Resolve and Premiere markers (after Phase 10).
 - Watermark Settings (project menu) sets the text, position and opacity. The watermark goes on PDF and PNG exports,
