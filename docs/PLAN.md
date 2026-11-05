@@ -280,18 +280,26 @@ Q1 as built (Nov 5): the lows the reviews left open, fixed.
   full stops between the parts (`INT. CASA. NOCHE`).
 - Checked and already fixed: ⌘, with a menu open closes the menu (now tested).
 
-Q2 as built (Nov 5): two performance checks, run on request, and the numbers (Windows PC, 10 scenes of 30 frames,
-each with a 1920 by 1080 picture).
-- `SB_PERF=1 npx playwright test e2e/perf.spec.ts --project=chromium`, the screen side, in the memory build with the
-  project kept in the page: scrolling the whole board (20,000 px) draws at 60 fps (16.7 ms a frame, the slowest 21
-  ms); Grid, Strip and Shot list switch in 54 to 84 ms; the next frame with → shows in 31 ms; an edit is saved and
-  shown in 34 ms; undo and redo about 75 ms as the test sees them; the project opens from Recent in 0.32 s; 30 pictures
-  dropped at once take about 2 s to prepare and save.
-- `SB_PERF=1 npx vitest run src/core/storage/perf.test.ts`, saving on native SQLite (the desktop's engine, without
-  the window): an edit 13.6 ms, undo 13.2 ms, redo 13.2 ms, opening 19 ms, for an 83 MB file.
-- Nothing in the app was slow. The memory build's driver was (1.5 s an edit: it exported the whole project after
-  every write), and it's a dev-only tool; Q1 fixed it so these numbers measure the app. Not measured: the desktop's
-  window-to-Rust calls, which these runs leave out; pictures far larger than 1920 by 1080 take longer to prepare.
+Q2 as built (Nov 5): two performance checks, run on request (`SB_PERF=1`; in PowerShell `$env:SB_PERF='1'`), two
+fixes, and the numbers (Windows PC, Chromium, every frame with its own 1920 by 1080 picture).
+- `e2e/perf.spec.ts`, the screen side, in the memory build with the project kept in the page ("saved" there means
+  written to sql.js in the page, no file, no Rust calls). At 300 frames (10 scenes of 30): scrolling the whole board
+  (20,000 px) keeps the page's frames at 16.7 ms, the first time too, while its pictures load (every one checked
+  loaded after); Grid, Strip and Shot list are drawn in 59 to 87 ms, with the pictures in view shown by 77 ms; back to
+  the Storyboard workspace 75 ms; the next frame with → 27 ms; an edit saved and shown 30 ms; undo and redo about 70 ms
+  as the test sees them; opening from Recent 0.32 s; 30 pictures dropped at once about 2 s to prepare and save.
+- At a feature film's shape, 960 frames in 120 scenes (`SB_PERF_SCENES=120 SB_PERF_PER_SCENE=8`): the next frame 81 ms,
+  an edit 107 ms, undo about 210 ms, Grid and Strip 250 to 350 ms, opening 0.85 s; scrolling still 16.7 ms a frame.
+- `src/core/storage/perf.test.ts`, saving on native SQLite (the desktop's engine, without the window) at 300 frames: an
+  edit 13.7 ms, undo 12.9 ms, redo 12.8 ms, opening 17 ms, for a 98 MB file.
+- Fixed: the board's scenes read their frames from an index built once per change, not by scanning every record for
+  each scene (at 960 frames that halved the next frame, the edit and undo); and an edit reads the records it changes
+  in one query rather than one each (each one is a round trip from the window to Rust on the desktop: a 30-picture
+  drop was 60, renumbering a long scene hundreds). The memory build's driver was slow too (1.5 s an edit), a dev-only
+  tool, fixed in #64.
+- Next if boards grow past a few hundred frames: every card is drawn again on each change (the rest of the 960-frame
+  times); drawing only the cards that changed would cut most of them. Not measured: the desktop's calls from the
+  window to Rust themselves.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

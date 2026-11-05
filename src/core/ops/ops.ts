@@ -260,11 +260,20 @@ export async function apply(file: ProjectFile, changes: readonly Change[], optio
   if (changes.length === 0) return new Map();
   const at = now().toISOString();
 
+  // Every record the changes name, as it is now, read in one query rather than one a change (each is a round trip in
+  // the desktop app: a drop of 30 pictures was 60 of them, renumbering a long scene hundreds; quality pass).
+  const ids = [...new Set(changes.map(changeId).filter((id): id is string => id !== undefined))];
+  const stored = new Map(
+    (await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [JSON.stringify(ids)])).map((row) => {
+      const record = fromRow(row);
+      return [record.id, record] as const;
+    }),
+  );
   const state: Touched = new Map();
   const ops: PendingOp[] = [];
   for (const change of changes) {
     const id = changeId(change);
-    const before = id === undefined ? null : state.has(id) ? (state.get(id) ?? null) : await getRecord(file, id);
+    const before = id === undefined ? null : state.has(id) ? (state.get(id) ?? null) : (stored.get(id) ?? null);
     const after = changed(change, before, at, author);
     state.set(after.id, after);
     ops.push({ recordId: after.id, kind: change.kind, before, after });

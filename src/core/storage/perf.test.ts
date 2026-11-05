@@ -10,14 +10,18 @@ import { makeTestFolder } from './testFolder';
 
 // Saving on native SQLite with a 300-frame project with pictures (quality pass, Nov 5): the same edit, undo and open
 // code the desktop runs, on node:sqlite in place of rusqlite (no window, no IPC). Run on request:
-// `SB_PERF=1 npx vitest run src/core/storage/perf.test.ts`. The screen side is e2e/perf.spec.ts.
+// `SB_PERF=1 npx vitest run src/core/storage/perf.test.ts` (PowerShell: `$env:SB_PERF='1'; npx vitest run …`, and set
+// it back to '' before the gate). The screen side is e2e/perf.spec.ts.
 
 const SCENES = 10;
 const PER_SCENE = 30;
 
-/** Bytes with every value in them, as a JPEG has: 300 KB for the picture, 20 KB for its thumbnail. */
+/** Bytes with every value in them, as a JPEG has: 300 KB for the picture, 20 KB for its thumbnail; no two alike. */
 function bytes(length: number, seed: number): Uint8Array {
-  return new Uint8Array(length).map((_, i) => (i * seed + (i >> 8) + seed * 7) % 256);
+  const out = new Uint8Array(length).map((_, i) => (i * (seed % 251) + (i >> 8) + seed * 7) % 256);
+  // The seed itself at the front, so seeds the pattern above repeats on still differ.
+  new DataView(out.buffer).setUint32(0, seed);
+  return out;
 }
 
 function picture(seed: number): FramePicture {
@@ -73,6 +77,9 @@ describe.skipIf(!process.env.SB_PERF)('a 300-frame project with pictures, saved 
         edits.push(await timed(() => store.getState().apply([{ kind: 'update', id, set: { shot_size: size } }])));
         undos.push(await timed(() => store.getState().undo()));
         redos.push(await timed(() => store.getState().redo()));
+        // A failed write is caught and only noted in the store: timed as quick, it would read as a fast save.
+        expect(store.getState().error).toBeNull();
+        expect(store.getState().records[id]?.props.shot_size).toBe(size);
       }
       results['edit saved (median, slowest)'] = `${ms(median(edits))}, ${ms(Math.max(...edits))}`;
       results['undo (median, slowest)'] = `${ms(median(undos))}, ${ms(Math.max(...undos))}`;

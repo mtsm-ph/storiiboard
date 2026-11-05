@@ -2,25 +2,30 @@ import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 
 // A 300-frame project with pictures (quality pass, Nov 5): how long the things people do all day take on a big board.
-// Run on request, not in the gate (`SB_PERF=1 npx playwright test e2e/perf.spec.ts --project=chromium`); it prints
-// its numbers and fails only past budgets set well above what a person notices, so a slow machine doesn't flake it.
-// The memory build stands in for the desktop: the same React and edit code, with sql.js in the page in place of
-// rusqlite behind the Rust commands. Projects stay in the page (`keep=page`), as localStorage can't hold 300 pictures.
-// Saving on the desktop's SQLite is measured on its own, in src/core/storage/perf.test.ts.
+// Run on request, not in the gate, in Chromium (WebView2's engine):
+//   SB_PERF=1 npx playwright test e2e/perf.spec.ts --project=chromium            (macOS, Linux)
+//   $env:SB_PERF='1'; npx playwright test e2e/perf.spec.ts --project=chromium    (PowerShell; the variable lasts the
+//   session, so close it or set it to '' before the gate)
+// It prints its numbers and fails only past budgets set well above what a person notices, so a slow machine doesn't
+// flake it. The memory build stands in for the desktop: the same React and edit code, with sql.js in the page in place
+// of rusqlite behind the Rust commands, and the project kept in the page (`keep=page`): "saved" here means written to
+// sql.js, with no file and no Rust calls. Saving on the desktop's SQLite is measured in src/core/storage/perf.test.ts.
+// SB_PERF_SCENES and SB_PERF_PER_SCENE change the board's shape (e.g. 120 scenes of 8, a feature film's shape).
 
 test.skip(!process.env.SB_PERF, 'Performance run, on request: SB_PERF=1');
+test.skip(({ browserName }) => browserName !== 'chromium', 'Performance run in Chromium only');
 test.setTimeout(900_000);
 test.use({ viewport: { width: 1440, height: 900 } });
 
-// SB_PERF_SCENES and SB_PERF_PER_SCENE make a smaller board, to try the spec quickly.
 const SCENES = Number(process.env.SB_PERF_SCENES ?? 10);
 const PER_SCENE = Number(process.env.SB_PERF_PER_SCENE ?? 30);
+const FRAMES = SCENES * PER_SCENE;
 
 const board = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });
 const cards = (page: Page) => board(page).locator('[data-shot-id]');
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 
-/** `count` different 1920 by 1080 JPEGs, made in the page, as a drop would carry them. */
+/** `count` 1920 by 1080 JPEGs, made in the page, as a drop would carry them; every one in the project different. */
 function pictures(page: Page, scene: number, count: number) {
   return page.evaluateHandle(
     async ({ scene, count }) => {
@@ -40,6 +45,10 @@ function pictures(page: Page, scene: number, count: number) {
           g.fillStyle = `hsl(${String((hue + k * 7) % 360)} 70% ${String(20 + (k % 60))}%)`;
           g.fillRect((k * 197) % 1920, (k * 113) % 1080, 40 + (k % 90), 30 + (k % 70));
         }
+        // Its scene and place written in, so no two pictures are alike even where the hues repeat.
+        g.fillStyle = '#000';
+        g.font = '120px sans-serif';
+        g.fillText(`${String(scene)}-${String(i)}`, 80, 200);
         const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
         transfer.items.add(new File([blob], `sc${String(scene)}_${String(i)}.jpg`, { type: 'image/jpeg' }));
       }
@@ -49,15 +58,39 @@ function pictures(page: Page, scene: number, count: number) {
   );
 }
 
-/** Runs `act` in the page and returns how long until the screen has drawn the result (two frames later). */
-async function timed(page: Page, act: string): Promise<number> {
-  return page.evaluate(async (act) => {
-    const start = performance.now();
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
-    await (new Function(`return (async () => { ${act} })()`) as () => Promise<void>)();
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return Math.round(performance.now() - start);
-  }, act);
+/**
+ * Runs `act` in the page, then waits until the screen has drawn it (two frames later) and, with `pictures`, until
+ * every frame picture in view has loaded and decoded. Returns both times, in milliseconds.
+ */
+async function timed(page: Page, act: string, pictures = false): Promise<{ drawn: number; shown: number }> {
+  return page.evaluate(
+    async ({ act, pictures }) => {
+      const start = performance.now();
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
+      await (new Function(`return (async () => { ${act} })()`) as () => Promise<void>)();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const drawn = performance.now() - start;
+      if (!pictures) return { drawn, shown: drawn };
+      // In view of the board's own scroll box, not the window: a card under the tile's edge isn't on screen.
+      let scroller = document.querySelector('[data-board]')?.parentElement ?? null;
+      while (scroller && !/auto|scroll/.test(`${getComputedStyle(scroller).overflowY} ${getComputedStyle(scroller).overflowX}`)) scroller = scroller.parentElement;
+      const view = scroller?.getBoundingClientRect() ?? new DOMRect(0, 0, innerWidth, innerHeight);
+      const visible = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return box.bottom > view.top && box.top < view.bottom && box.right > view.left && box.left < view.right;
+      };
+      // Each frame card in view holds a picture once its turn comes; done when all of them are decoded.
+      const deadline = performance.now() + 10_000;
+      while (performance.now() < deadline) {
+        const shown = [...document.querySelectorAll<HTMLImageElement>('[data-board] img[data-frame-image]')].filter(visible);
+        const cardsInView = [...document.querySelectorAll('[data-shot-id]')].filter(visible).length;
+        if (shown.length >= cardsInView && shown.every((img) => img.complete && img.naturalWidth > 0)) break;
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+      return { drawn, shown: performance.now() - start };
+    },
+    { act, pictures },
+  );
 }
 
 /** Times from an action until `done` holds, in milliseconds. */
@@ -68,8 +101,8 @@ async function untilAfter(act: () => Promise<void>, done: () => Promise<boolean>
   return Date.now() - start;
 }
 
-const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
-const p95 = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length * 0.95)] ?? 0;
+const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Number.NaN;
+const p95 = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length * 0.95)] ?? Number.NaN;
 const ms = (value: number) => `${String(Math.round(value))} ms`;
 
 async function newProject(page: Page, name: string) {
@@ -78,10 +111,11 @@ async function newProject(page: Page, name: string) {
   await skipOnboarding(page);
 }
 
-test('a 300-frame project with pictures stays quick', async ({ page }) => {
+test(`a ${String(FRAMES)}-frame project with pictures stays quick`, async ({ page }) => {
   const results: Record<string, string> = {};
+  const errors: string[] = [];
   page.on('pageerror', (error) => {
-    console.log('page error:', error.message);
+    errors.push(error.message);
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?files=memory&keep=page');
@@ -93,19 +127,23 @@ test('a 300-frame project with pictures stays quick', async ({ page }) => {
   const scenes = page.getByRole('region', { name: 'Scenes', exact: true });
   for (let s = 0; s < SCENES; s += 1) await scenes.getByRole('button', { name: '+ New scene' }).click();
 
-  // Pictures dropped on each scene, 30 at a time, as from Finder or Explorer.
+  // Pictures dropped on each scene, as from Finder or Explorer.
   const imports: number[] = [];
   for (let s = 1; s <= SCENES; s += 1) {
     const transfer = await pictures(page, s, PER_SCENE);
     const label = `+ Frame in SC ${String(s).padStart(2, '0')}`;
     const start = Date.now();
-    await board(page).getByRole('button', { name: label }).dispatchEvent('drop', { dataTransfer: transfer });
+    await board(page).getByRole('button', { name: label, exact: true }).dispatchEvent('drop', { dataTransfer: transfer });
     await expect(cards(page)).toHaveCount(s * PER_SCENE, { timeout: 120_000 });
     imports.push(Date.now() - start);
+    // The files stay alive in the page otherwise, through every measurement after.
+    await transfer.dispose();
   }
   results[`import, ${String(PER_SCENE)} pictures a drop (median, slowest)`] = `${ms(median(imports))}, ${ms(Math.max(...imports))}`;
 
-  // Scrolling the whole board, top to bottom, a step a frame: how long each frame took to draw.
+  // Scrolling the whole board, top to bottom, a step a frame: how long each frame took to draw. The first time loads
+  // and decodes every picture on the way; the main thread's frames are what's timed, so afterwards every picture is
+  // checked to be there, not left blank.
   const scrollRun = () =>
     page.evaluate(async () => {
       let scroller = document.querySelector('[data-board]')?.parentElement ?? null;
@@ -115,7 +153,7 @@ test('a 300-frame project with pictures stays quick', async ({ page }) => {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const gaps: number[] = [];
       let last = performance.now();
-      while (scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) {
+      for (let step = 0; step < 5000 && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1; step += 1) {
         scroller.scrollBy(0, 120);
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const now = performance.now();
@@ -125,45 +163,54 @@ test('a 300-frame project with pictures stays quick', async ({ page }) => {
       return { gaps, height: scroller.scrollHeight };
     });
   const first = await scrollRun();
+  const loaded = () =>
+    page.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('[data-board] img[data-frame-image]')].filter((img) => img.complete && img.naturalWidth > 0).length);
+  await expect.poll(loaded, { timeout: 30_000 }).toBe(FRAMES);
   const again = await scrollRun();
   const describe = ({ gaps, height }: { gaps: number[]; height: number }) =>
     `median ${median(gaps).toFixed(1)} ms, p95 ${p95(gaps).toFixed(1)} ms, slowest ${Math.max(...gaps).toFixed(1)} ms; ${String(gaps.length)} frames over ${String(height)} px`;
-  results['scroll top to bottom, first time (frame time)'] = describe(first);
+  results['scroll top to bottom, first time, loading pictures (frame time)'] = describe(first);
   results['scroll top to bottom, again (frame time)'] = describe(again);
 
-  // Switching the board's views and the workspaces.
+  // Switching the board's views and the workspaces: drawn, then with every picture in view shown.
   const tab = (name: string) =>
     `[...document.querySelectorAll('[role="tab"], [role="radio"], button')].find((b) => b.textContent.trim() === ${JSON.stringify(name)}).click();`;
   const section = (name: string) =>
     `[...document.querySelectorAll('nav[aria-label="Sections"] button')].find((b) => b.textContent.trim().startsWith(${JSON.stringify(name)})).click();`;
-  const views: Record<string, number[]> = { strip: [], 'shot list': [], grid: [] };
-  for (let i = 0; i < 3; i += 1) {
-    views.strip?.push(await timed(page, tab('Strip')));
-    views['shot list']?.push(await timed(page, tab('Shot list')));
-    views.grid?.push(await timed(page, tab('Grid')));
+  const views: Record<string, { drawn: number; shown: number }[]> = { Strip: [], 'Shot list': [], Grid: [] };
+  for (let i = 0; i < 3; i += 1) for (const [name, runs] of Object.entries(views)) runs.push(await timed(page, tab(name), name !== 'Shot list'));
+  for (const [name, runs] of Object.entries(views)) {
+    results[`switch to ${name} (median of 3)`] = `drawn ${ms(median(runs.map((r) => r.drawn)))}, pictures shown ${ms(median(runs.map((r) => r.shown)))}`;
   }
-  for (const [name, values] of Object.entries(views)) results[`switch to ${name} (median of 3)`] = ms(median(values));
-  const workspaces: number[] = [];
+  const workspaces: { drawn: number; shown: number }[] = [];
   for (let i = 0; i < 3; i += 1) {
     await timed(page, section('Assets'));
-    workspaces.push(await timed(page, section('Storyboard')));
+    workspaces.push(await timed(page, section('Storyboard'), true));
   }
-  results['back to the Storyboard workspace (median of 3)'] = ms(median(workspaces));
+  results['back to the Storyboard workspace (median of 3)'] = `drawn ${ms(median(workspaces.map((r) => r.drawn)))}, pictures shown ${ms(median(workspaces.map((r) => r.shown)))}`;
 
-  // Selecting frames with the arrow keys, timed in the page: from the key's event to the next frame drawn after the
-  // selection moved, without the test runner's own round trips.
+  // Selecting frames with the arrow keys, inside the first scene (past its last frame → reaches + Frame, not a frame),
+  // timed in the page: from the key's event to the next frame drawn after the selection moved.
   await cards(page).nth(0).click();
   await page.evaluate(() => {
     const w = window as unknown as { __keyAt: number; __lags: number[] };
     w.__lags = [];
-    window.addEventListener('keydown', (event) => { w.__keyAt = event.timeStamp; }, true);
+    window.addEventListener(
+      'keydown',
+      (event) => {
+        w.__keyAt = event.timeStamp;
+      },
+      true,
+    );
     new MutationObserver((records) => {
       if (!records.some((r) => r.attributeName === 'aria-current' && (r.target as Element).getAttribute('aria-current') === 'true')) return;
-      requestAnimationFrame(() => { w.__lags.push(performance.now() - w.__keyAt); });
+      requestAnimationFrame(() => {
+        w.__lags.push(performance.now() - w.__keyAt);
+      });
     }).observe(document.body, { attributes: true, attributeFilter: ['aria-current'], subtree: true });
   });
   const arrows: number[] = [];
-  for (let i = 1; i <= Math.min(20, SCENES * PER_SCENE - 1); i += 1) {
+  for (let i = 1; i <= Math.min(20, PER_SCENE - 1); i += 1) {
     arrows.push(
       await untilAfter(
         () => page.keyboard.press('ArrowRight'),
@@ -172,42 +219,40 @@ test('a 300-frame project with pictures stays quick', async ({ page }) => {
     );
   }
   const lags = await page.evaluate(() => (window as unknown as { __lags: number[] }).__lags);
+  expect(lags).toHaveLength(arrows.length);
   results['next frame with →, in the page (median, slowest)'] = `${ms(median(lags))}, ${ms(Math.max(...lags))}`;
-  results['next frame with →, seen by the test (median)'] = ms(median(arrows));
 
-  // An edit (written to the file before the screen shows it), its undo and its redo.
-  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
-  const size = (name: string) => inspector.getByRole('radiogroup', { name: 'Size' }).getByRole('radio', { name, exact: true });
-  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
-  const edits: number[] = [];
-  const undos: number[] = [];
-  const redos: number[] = [];
-  for (const name of ['CU', 'WS', 'MS', 'ECU', 'MCU']) {
-    edits.push(await untilAfter(() => size(name).click(), async () => (await size(name).getAttribute('aria-checked')) === 'true'));
-    undos.push(await untilAfter(() => page.keyboard.press(`${mod}+z`), async () => (await size(name).getAttribute('aria-checked')) !== 'true'));
-    redos.push(await untilAfter(() => page.keyboard.press(`${mod}+Shift+z`), async () => (await size(name).getAttribute('aria-checked')) === 'true'));
-  }
-  // The same in the page: from the click or key to the next frame drawn after the size changed.
+  // An edit, timed in the page from the click to the next frame drawn after the size changed; then undo and redo.
   const editLags = await page.evaluate(async () => {
     const lags: number[] = [];
-    const group = document.querySelector('section[aria-label="Frame inspector"]');
-    if (!group) return lags;
-    const radio = (name: string) => [...group.querySelectorAll<HTMLElement>('[role="radio"]')].find((r) => r.textContent.trim() === name);
+    const inspector = document.querySelector('section[aria-label="Frame inspector"]');
+    const radio = (name: string) => [...(inspector?.querySelectorAll<HTMLElement>('[role="radio"]') ?? [])].find((r) => r.textContent.trim() === name);
     for (const name of ['CU', 'WS', 'MS', 'ECU', 'MCU']) {
       const target = radio(name);
       if (!target) continue;
       const start = performance.now();
       target.click();
-      while (target.getAttribute('aria-checked') !== 'true') await new Promise((resolve) => setTimeout(resolve, 1));
+      for (let wait = 0; wait < 5000 && target.getAttribute('aria-checked') !== 'true'; wait += 1) await new Promise((resolve) => setTimeout(resolve, 1));
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      lags.push(performance.now() - start);
+      if (target.getAttribute('aria-checked') === 'true') lags.push(performance.now() - start);
     }
     return lags;
   });
+  expect(editLags).toHaveLength(5);
   results['edit saved and shown, in the page (median, slowest)'] = `${ms(median(editLags))}, ${ms(Math.max(...editLags))}`;
-  results['edit saved and shown, seen by the test (median, slowest)'] = `${ms(median(edits))}, ${ms(Math.max(...edits))}`;
-  results['undo (median, slowest)'] = `${ms(median(undos))}, ${ms(Math.max(...undos))}`;
-  results['redo (median, slowest)'] = `${ms(median(redos))}, ${ms(Math.max(...redos))}`;
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  const size = (name: string) => inspector.getByRole('radiogroup', { name: 'Size' }).getByRole('radio', { name, exact: true });
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+  const undos: number[] = [];
+  const redos: number[] = [];
+  for (const name of ['CU', 'WS', 'MS', 'ECU', 'MCU']) {
+    await size(name).click();
+    await expect(size(name)).toHaveAttribute('aria-checked', 'true');
+    undos.push(await untilAfter(() => page.keyboard.press(`${mod}+z`), async () => (await size(name).getAttribute('aria-checked')) !== 'true'));
+    redos.push(await untilAfter(() => page.keyboard.press(`${mod}+Shift+z`), async () => (await size(name).getAttribute('aria-checked')) === 'true'));
+  }
+  results['undo, as the test sees it (median, slowest)'] = `${ms(median(undos))}, ${ms(Math.max(...undos))}`;
+  results['redo, as the test sees it (median, slowest)'] = `${ms(median(redos))}, ${ms(Math.max(...redos))}`;
 
   // Opening it again: switch to another project, then back from Recent.
   await sidebar(page).getByRole('button', { name: /^Project:/ }).click();
@@ -216,16 +261,19 @@ test('a 300-frame project with pictures stays quick', async ({ page }) => {
   await page.getByRole('button', { name: 'All projects…' }).click();
   const reopen = Date.now();
   await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Big Board/ }).click();
-  await expect(cards(page)).toHaveCount(SCENES * PER_SCENE, { timeout: 120_000 });
+  await expect(cards(page)).toHaveCount(FRAMES, { timeout: 120_000 });
   results['open the project from Recent'] = ms(Date.now() - reopen);
 
-  console.log(`\n${String(SCENES * PER_SCENE)}-frame project, ${test.info().project.name}:`);
+  console.log(`\n${String(FRAMES)}-frame project (${String(SCENES)} scenes), ${test.info().project.name}:`);
   for (const [name, value] of Object.entries(results)) console.log(`  ${name}: ${value}`);
 
+  // Numbers measured on a broken page mean nothing.
+  expect(errors).toEqual([]);
   // Budgets: what a person would call slow, not what this machine does.
+  expect(median(first.gaps)).toBeLessThan(50);
   expect(median(again.gaps)).toBeLessThan(50);
-  expect(median(views.grid ?? [])).toBeLessThan(1000);
+  expect(median((views.Grid ?? []).map((r) => r.shown))).toBeLessThan(1500);
   expect(median(lags)).toBeLessThan(150);
-  expect(median(edits)).toBeLessThan(500);
+  expect(median(editLags)).toBeLessThan(250);
   expect(median(undos)).toBeLessThan(500);
 });
