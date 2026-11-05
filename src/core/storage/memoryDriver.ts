@@ -63,9 +63,20 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
   };
   /** Each file's bytes, by path; base64 only in storage. */
   const files = read();
+  // Each file's base64, made once per change of its bytes, so a write encodes only the file it changed, not every
+  // backup and copy beside it.
+  const encoded = new WeakMap<Uint8Array, string>();
   const persist = () => {
     if (!storage) return;
-    storage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries([...files].map(([path, bytes]) => [path, toBase64(bytes)]))));
+    const text = (bytes: Uint8Array) => {
+      let made = encoded.get(bytes);
+      if (made === undefined) {
+        made = toBase64(bytes);
+        encoded.set(bytes, made);
+      }
+      return made;
+    };
+    storage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries([...files].map(([path, bytes]) => [path, text(bytes)]))));
   };
   // Without storage (a performance run, `keep=page`), an open file's bytes are copied out only when something needs
   // them (a reopen, a copy, a close) rather than after every write: a whole export per edit costs a second on a
