@@ -148,8 +148,9 @@ describe('errors raised below the UI', () => {
         const text = readFileSync(join(root, 'src-tauri', 'src', name), 'utf8');
         // Each file's test module comes last; its strings are fixtures, not messages.
         const code = text.split(/^#\[cfg\(test\)\]\r?\nmod tests/m)[0] ?? '';
-        // Err("…"), format!("…"), ok_or("…") and "…".to_string() or .into(); a format's {…} reads as X.
-        const found = code.matchAll(/(?:Err\(|format!\(|ok_or\()\s*"((?:[^"\\]|\\.)*)"|"((?:[^"\\]|\\.)*)"\.(?:to_string|into)\(\)/g);
+        // Err("…"), format!("…"), ok_or("…") and "…".to_string() or .into(), which rustfmt may put on the next line; a
+        // format's {…} reads as X.
+        const found = code.matchAll(/(?:Err\(|format!\(|ok_or\()\s*"((?:[^"\\]|\\.)*)"|"((?:[^"\\]|\\.)*)"\s*\.(?:to_string|into)\(\)/g);
         return [...found].map((m) => (m[1] ?? m[2] ?? '').replace(/\\"/g, '"').replace(/\{[^}]*\}/g, 'X'));
       })
       // Messages for people end a sentence; SQL, paths and names don't.

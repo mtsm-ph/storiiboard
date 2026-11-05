@@ -27,6 +27,39 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
 
+### Phase 2 milestones
+
+Plan approved Nov 5, 2026: ffmpeg as LGPL sidecars (the one new dependency), schema 8 for video, a playback-copy
+cache (about 50 GB, oldest out first, movable in Settings → Storage), LUTs as `.cube` files applied to the playback
+copy and stills, never the original. One PR per milestone, each into `v2`. Two review stops: after 2.4 (the Player
+plays real footage) and at the gate; at each, a checkpoint and a checklist, and the work goes on.
+
+| Milestone | PR | State |
+|---|---|---|
+| 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | In review |
+| 2.2 Schema 8: video media, LUTs, clip and grab records; link a video, Relink | | Not started |
+| 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
+| 2.4 The Player plays real footage (Stop A) | | Not started |
+| 2.5 LUTs per video | | Not started |
+| 2.6 Crop | | Not started |
+| 2.7 Still capture into a frame | | Not started |
+| 2.8 Clip capture into a frame | | Not started |
+| 2.9 JSON export and import carry all of it | | Not started |
+
+2.1 as built: `scripts/ffmpeg/build.sh` builds FFmpeg 8.1.3 (checksum pinned) with `--disable-autodetect`, static,
+and checks itself: the LGPL 2.1, no GPL, nonfree or version3 flag, the `lut3d` filter. VideoToolbox on a Mac, Media
+Foundation on Windows (built in MSYS2's MINGW64, linked statically). CI builds once per change of the script or its
+action and saves the cache as soon as a build succeeds; each new checkpoint branch builds the Mac and Windows sidecars
+once. The installers ship the binaries as Tauri sidecars with the LGPL, FFmpeg's licence notes, and the exact source,
+commit, compiler and configure line; the source tarball rides in every CI artifact. `src-tauri/src/video.rs` starts
+the tools with no console window on Windows (a release build looks only beside its executable), lets ffprobe open
+local files only, gives up after 30 seconds, and returns the codec, size, pixel shape, exact rational frame rate,
+length in frames, source timecode, rotation (clockwise, 0/90/180/270), audio, HDR and bit depth. Interlaced footage
+reads at its frame rate, not its field rate; a variable-rate phone clip at the nearest standard rate, counted by its
+length. Its tests make their own clips with the sidecar: 23.976 with timecode, 29.97 drop-frame with audio in a file
+named in Spanish and Japanese, a phone's three rotations, 10-bit HLG, 25i HDV (its pixel shape; field rates are unit-tested from ffprobe's JSON), a clip with dropped frames, and an
+inverting LUT that turns black white.
+
 ### Phase 1 milestones
 
 Plan approved Nov 2, 2026 (one panel per shot; numbers follow board order until Lock numbers; storyboard before
@@ -1005,6 +1038,8 @@ Nov 3):
   no one-time notice for existing profiles, as Kevin is the only user so far).
 - [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
   quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
+- [ ] Attach the FFmpeg source tarball (`ffmpeg-<version>.tar.xz`, in each ffmpeg CI artifact) to every release beside
+  the installers, as the LGPL asks of whoever hands out the binaries (2.1).
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.

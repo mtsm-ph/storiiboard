@@ -21,3 +21,5 @@ Storiiboard Design Kit/
 
 # The running build report for Kevin, kept on this computer only
 REPORT.local.md
+# ffmpeg and ffprobe sidecars, built by scripts/ffmpeg/build.sh (CI caches them); never committed.
+src-tauri/binaries/
