@@ -431,8 +431,8 @@ export function describeGroup(
   }
 }
 
-/** Who made a step: "You" until people have names (Phase 9). */
-export const who = (author: string): string => (author === 'local' ? t('history.you') : author);
+/** Who a step is by: the name the edit carried, or nothing for one without (every edit before names were kept). */
+export const who = (author: string): string => (author === 'local' ? '' : author);
 
 /** One line of an item's own history: a field's change, or a whole step (added, moved, deleted). */
 export interface FrameRow {

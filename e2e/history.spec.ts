@@ -95,16 +95,34 @@ test('History from the Projects screen goes back to the workspace, with History 
   await expect(history(page)).toBeVisible();
 });
 
-test('the profile stays on this computer: steps still read “You”, never the name', async ({ page }) => {
-  const profile = await openSettings(page, 'Profile');
+test('each edit carries the profile’s name, or only its initials; edits made before carry none (Kevin, Nov 5)', async ({ page }) => {
+  // The edits in beforeEach were made with no name in the profile: no name on them.
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('Added frame 1C');
+  await expect(steps(page).first()).not.toContainText(' · ');
+
+  let profile = await openSettings(page, 'Profile');
+  await expect(profile.getByText('people you share a project with can see it in History', { exact: false })).toBeVisible();
   await profile.getByLabel('Your name').fill('Kevin Matos');
   await profile.getByLabel('Your name').press('Enter');
   await page.keyboard.press('Escape');
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
-  await openHistory(page);
   await expect(steps(page).first()).toContainText('Added frame 1D');
-  await expect(steps(page).first()).toContainText('You');
-  await expect(history(page).getByText('Kevin Matos')).toHaveCount(0);
+  await expect(steps(page).first()).toContainText('Kevin Matos ·');
+  // The earlier step still has none.
+  await expect(steps(page).nth(1)).not.toContainText('Kevin Matos');
+
+  // Initials only, from here on.
+  profile = await openSettings(page, 'Profile');
+  await profile.getByRole('switch', { name: 'Sign my edits with my initials only' }).click();
+  await page.keyboard.press('Escape');
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(steps(page).first()).toContainText('Added frame 1E');
+  await expect(steps(page).first()).toContainText('KM ·');
+  await expect(steps(page).first()).not.toContainText('Kevin Matos');
+  // Undo is an edit of its own, by the same person.
+  await page.keyboard.press(`${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`);
+  await expect(steps(page).first()).toContainText('KM ·');
 });
 
 test('lists every step in words, newest first, and Restore to here is a step undo takes back', async ({ page }) => {
@@ -207,6 +225,11 @@ test('one frame’s own changes, field by field, with an old value to put back',
 });
 
 test('a named version opens as a copy at that point, and the original keeps every frame', async ({ page }) => {
+  // With a name in the profile, so the copy's restore step says who opened it.
+  const profile = await openSettings(page, 'Profile');
+  await profile.getByLabel('Your name').fill('Kevin Matos');
+  await profile.getByLabel('Your name').press('Enter');
+  await page.keyboard.press('Escape');
   await openHistory(page);
   await history(page).getByLabel('Name this point').fill('Board sent to client');
   await history(page).getByRole('button', { name: 'Name version' }).click();
@@ -227,6 +250,8 @@ test('a named version opens as a copy at that point, and the original keeps ever
   // The copy shares the project's title; the notice names its file.
   await expect(page.getByRole('status').getByText(/Opened version “Board sent to client” as a separate project, “Bey County \(Board sent to client\)”/)).toBeVisible();
   await expect(frames(page)).toHaveCount(3);
+  // The copy's newest step, the restore Open version made, is signed like any other.
+  await expect(steps(page).first()).toContainText('Kevin Matos ·');
   await expect(history(page).getByRole('status')).toHaveText('');
   await expect(history(page).locator('[aria-busy="true"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { openSaid: string[] }).openSaid)).toContain('Copying “Board sent to client”…');
@@ -379,7 +404,7 @@ test('a sketch names its frame in the steps, and shows in the frame’s own hist
   await expect(steps(page).first()).toContainText('Sketched on 1A');
   await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
   const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
-  await expect(changes.getByRole('row').nth(1)).toContainText(/Sketched\s*You/);
+  await expect(changes.getByRole('row').nth(1)).toContainText(/Sketched\s*—/); // no name: made with an empty profile
 });
 
 async function addField(page: Page, name: string, value: string) {
@@ -409,8 +434,8 @@ test('a custom field goes back on its own, its values shown, and the value alrea
 
   await history(page).getByRole('switch', { name: 'Only frame 1A' }).click();
   const changes = history(page).getByRole('table', { name: 'Changes to frame 1A, newest first' });
-  await expect(changes.getByRole('row').nth(2)).toContainText(/VFX\s*no field\s*—\s*You/);
-  await expect(changes.getByRole('row').nth(3)).toContainText(/Drone\s*Mavic 3\s*FPV\s*You/);
+  await expect(changes.getByRole('row').nth(2)).toContainText(/VFX\s*no field\s*—\s*—/);
+  await expect(changes.getByRole('row').nth(3)).toContainText(/Drone\s*Mavic 3\s*FPV\s*—/);
   await changes.getByRole('button', { name: 'Put back Drone Mavic 3', exact: true }).click();
   await expect(inspector(page).getByRole('textbox', { name: 'Drone', exact: true })).toHaveValue('Mavic 3');
   await expect(inspector(page).getByRole('textbox', { name: 'VFX', exact: true })).toHaveValue('Sky replace');

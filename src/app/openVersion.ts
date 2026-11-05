@@ -3,6 +3,7 @@ import { keepCopyAtFree, versionCopyPaths } from '../core/storage/openBackup';
 import { freshFileId, type NamedVersion } from '../core/storage/versions';
 import { openProjectFile, type OpenFileOptions } from './openFiles';
 import { t } from '../core/i18n';
+import { editAuthor, profileStore } from './settings/profileStore';
 
 // Open version (1.23, CLAUDE.md: Going back in time): copies the open project, restores the copy to the version's
 // step and opens it as a separate project. Everything up to the open happens on the copy's own connection, under a
@@ -29,7 +30,7 @@ export async function openVersionCopy(version: NamedVersion, options: OpenFileOp
       // Its own file id, so its backups never mix with the original's (docs/PLAN.md, F).
       await freshFileId(copy);
       // A step of its own in the copy's History, so ⌘Z there takes it back.
-      await restoreTo(copy, version.opGroupId);
+      await restoreTo(copy, version.opGroupId, { author: editAuthor(profileStore.getState()) });
     } finally {
       await copy.close();
     }

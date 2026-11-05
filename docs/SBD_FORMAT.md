@@ -48,7 +48,7 @@ the first time a file opens, which keys a synced project's local backup folder. 
 | sort_key | text | Fractional key that orders siblings, so a reorder rewrites one row instead of the parent |
 | props | JSON | The record's properties, custom ones included. Changing `type` keeps every prop |
 | trashed_at | text, null while live | When the record went to the Trash (see Trash) |
-| trashed_by | text, null while live | Who sent it there: the op author, `local` until people sign in |
+| trashed_by | text, null while live | Who sent it there: the op's author (see `ops.author`) |
 
 Indexes: `records_by_parent (parent_id, sort_key)` for ordered children, and `records_by_type (type)`.
 
@@ -68,7 +68,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | record_id | text | |
 | kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
-| author | text | `local` for now |
+| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
 | timestamp | text | When the edit happened |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
@@ -85,7 +85,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
 | undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
-| author | text | `local` for now |
+| author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
 | timestamp | text | When it happened |
 
 Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,
@@ -190,7 +190,7 @@ opens it as a separate project, as Open backup does. The original is never chang
 | name | text | "Board sent to client"; up to 80 characters |
 | note | text, null | |
 | op_group_id | text | The last op group included (op_groups.id). Index `versions_by_group` |
-| created_by | text | `local` for now |
+| created_by | text | Who named it, as `ops.author` says who made an edit |
 
 Versions are kept until someone deletes one (after a confirm). Naming, renaming and deleting a version aren't edits to
 the project, so they're not in History and undo leaves them alone. Empty Trash leaves versions, though a version
@@ -380,7 +380,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | support, height, move | text | From lists in the inspector (1.8); free text is kept |
 | shot | status | `have`, `need`, `source` | A new frame is `need` |
 | shot | action, dialogue | text | |
-| shot | department_status | object by department id | Polish 6 (schema 6). `{ "camera": { "priority": true, "working": true, "done": true, "approvals": [{ "name": "Kevin Matos", "roles": ["director", "dp"], "at": "<ISO time>" }] } }`: only what's set. `approvals` are the director's or the DP's sign-offs, with the approver's profile name as it was then (empty with none) and their roles; one person who is both is one approval with both roles. Ids, fields and approvals this version doesn't know are kept as they are; an approval is written back exactly as read (the app only adds or removes one). Department ids: src/core/model/department.ts |
+| shot | department_status | object by department id | Polish 6 (schema 6). `{ "camera": { "priority": true, "working": true, "done": true, "approvals": [{ "name": "Kevin Matos", "roles": ["director", "dp"], "at": "<ISO time>" }] } }`: only what's set. `approvals` are the director's or the DP's sign-offs, with the approver's name as it was then: their profile name, or their initials if they chose that or gave no name (the same rule as `ops.author`; empty with neither) and their roles; one person who is both is one approval with both roles. Ids, fields and approvals this version doesn't know are kept as they are; an approval is written back exactly as read (the app only adds or removes one). Department ids: src/core/model/department.ts |
 | shot | departments | array of department ids | Before schema 6 only: read as Priority, taken off by the migration |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |

@@ -109,6 +109,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
+| PE Who made each edit: the profile's name (or initials) on every edit, shown in History | #67 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -130,8 +131,8 @@ Decided by default (Nov 5, for Kevin to review; Kevin asked for the easy-to-undo
   Revisit when tags come back on screen (Phase 3's department workspaces) and when the plan icons, drawn in the same
   colours, reach the bird's-eye view (Phase 5). Changing them is the three state-* tokens in src/ui/theme.css (four
   values with dark mode's Seen; Done's glow follows its token).
-- Not decided, for Kevin: whether each edit carries who made it (the op and op group `author`, still `local`, so
-  History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
+- Not decided, for Kevin (decided Nov 5: names recorded, see PE below): whether each edit carries who made it (the op
+  and op group `author`, still `local`, so History reads "You"). Written into the append-only log, a name stays there for good, so it can't be taken back once
   shipped. Note that one name is already in the file: since P6a an approval keeps the approver's profile name and
   role, as the brief's "showing who" asked, and each Approved tick is an op, so that name is in the log too.
 
@@ -198,8 +199,8 @@ PC as built (Nov 5):
   out of the strip, as Kevin listed it, and is one click away once the sidebar shows.
 - The local profile (name, initials, usual role) lives in the person's settings and is edited in Settings → Profile,
   which the profile button opens. Roles are kept by id (src/core/model/role.ts) for P6's approvals.
-- The profile stays in this computer's settings, and History's steps still read
-  "You" (ops keep `author = local`). Writing a name into every op would put personal data in the append-only log
+- (Superseded by PE, Nov 5: edits now carry the profile's name.) The profile stays in this computer's settings, and
+  History's steps still read "You" (ops keep `author = local`). Writing a name into every op would put personal data in the append-only log
   for good, so it waits for Kevin's call at review stop 1: names in the file or not, and if so as a stable profile id
   with the name beside it (renames and shared names stay one person) rather than the bare name.
 - For stop 1 too: the role list (src/core/model/role.ts) before P6 saves role ids in settings and approvals.
@@ -318,6 +319,20 @@ and focus never falling to nothing.
 - Not covered by the sweep yet: stacked tabs in a narrow tile, the hidden sidebar's strip, a maximized tile, the
   keyboard tile move, a note being edited, the archived banner. Truncated tile titles pass this sweep but the Spanish
   sweep (e2e/spanish.spec.ts) counts any cut-off label as a failure; it opens one tile at a time, so both hold today.
+
+Decided Nov 5, after the meeting run (Kevin):
+- Who made each edit: recorded, with the profile's name; a profile option shows only the initials; Settings → Profile
+  says people you share a project with can see it in History. Older edits stay without a name. (PE, below.)
+- The defaults marked for review in PD stay as they are.
+- Phase 8, before the public release: stop every card redrawing on each change (the 960-frame times in Q2).
+
+PE as built (Nov 5): every edit, undo, redo, History restore and Empty Trash carries who made it in the file's
+existing `author` columns (and a deleted item's `trashed_by`): the profile's name, or its initials with "Sign my edits with my
+initials only" on, read as each edit is made. With an empty profile it stays `local`, as every edit before this
+did, and History shows no name for those (the step's time only; a dash in an item's own history), where it used to say
+"You". An approval is signed by the same rule (initials only when chosen), Open version signs the restore step it
+makes in the copy, and a named version records who named it. No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
+older build shows the names as they're written. docs/SBD_FORMAT.md says what the column now holds.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
@@ -680,7 +695,7 @@ src/app/openVersion.ts):
   halfway changing nothing, a restore after Empty Trash (src/core/ops/purge.test.ts), a frame's Trash state and the
   board's order brought back, Put back on custom fields and the action, no empty step, and paging.
 - Decided while building, to review: numbers, pictures and framing aren't put back on their own (the board keeps
-  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (Phase 9). A
+  them in step, so Restore to here is the way back for those); "who" is "You" until people have names (PE, Nov 5, gives them). A
   custom field taken off reads "no field", apart from an emptied one ("—"). Changes undone, redone or restored are
   marked by a word after the field rather than a column of their own. Clicks settle for 500 ms after a restore's rows
   are read again (about a double click). A point a restore can't change keeps its button and says so when pressed.
@@ -964,6 +979,8 @@ Nov 3):
 - [ ] Run the Phase 0 gate's force-quit, undo-after-restart and backup steps on Windows (Phase 0 ran them on the Mac
   only).
 - [ ] Choose the license, Patreon tiers and signing (also in Next steps).
+- [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
+  quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.

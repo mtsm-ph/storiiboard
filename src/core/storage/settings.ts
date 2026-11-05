@@ -9,8 +9,9 @@ import { DEFAULT_KEEP, type BackupKeep } from './backups';
 // tools may read, like the recent projects, go in app data files instead (appData.ts).
 
 /**
- * The person on this computer (polish C), kept in these settings and never in a project file. Local until accounts
- * come with the web companion (Phase 9). Empty until they fill it in.
+ * The person on this computer (polish C), kept in these settings. Their name (or initials) also goes with each edit
+ * they make into the project file's History (Kevin, Nov 5). Local until accounts come with the web companion (Phase 9).
+ * Empty until they fill it in.
  */
 export interface Profile {
   name: string;
@@ -18,9 +19,11 @@ export interface Profile {
   initials: string;
   /** Their usual role; a project's own "Your role" (polish 6) overrides it there. */
   role: Role | null;
+  /** Edits carry the initials rather than the name, for people who'd rather not share their name. */
+  historyInitials: boolean;
 }
 
-export const EMPTY_PROFILE: Profile = { name: '', initials: '', role: null };
+export const EMPTY_PROFILE: Profile = { name: '', initials: '', role: null, historyInitials: false };
 
 /** At most this long, in characters: a name has to fit the sidebar's tooltip. */
 export const MAX_PROFILE_NAME = 60;
@@ -40,7 +43,12 @@ export function cleanProfileText(text: string, max: number): string {
 function profileOf(value: unknown): Profile {
   const saved = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
   const text = (v: unknown, max: number) => (typeof v === 'string' ? cleanProfileText(v, max) : '');
-  return { name: text(saved.name, MAX_PROFILE_NAME), initials: text(saved.initials, 3), role: isRole(saved.role) ? saved.role : null };
+  return {
+    name: text(saved.name, MAX_PROFILE_NAME),
+    initials: text(saved.initials, 3),
+    role: isRole(saved.role) ? saved.role : null,
+    historyInitials: saved.historyInitials === true,
+  };
 }
 
 /** `project`, Follow project (the default since 1.15): the open project's own mode, or the OS with none open. */

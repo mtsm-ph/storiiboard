@@ -1,4 +1,5 @@
 import type { StoreApi } from 'zustand';
+import { editAuthor, profileStore } from '../../app/settings/profileStore';
 import { showNotice } from '../../app/notice';
 import type { ProjectState } from '../../app/projectStore';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
@@ -19,7 +20,7 @@ export async function nameThisPoint(store: StoreApi<ProjectState>, name: string,
   const project = store.getState().project;
   if (!project) return false;
   try {
-    await nameVersion(project.file, { name, opGroupId });
+    await nameVersion(project.file, { name, opGroupId, createdBy: editAuthor(profileStore.getState()) });
     // Pictures the new version's point shows aren't History's alone any more: Settings → Storage counts again.
     store.setState((s) => ({ deletedForGood: s.deletedForGood + 1 }));
     return true;

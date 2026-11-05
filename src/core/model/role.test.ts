@@ -20,9 +20,11 @@ describe('the local profile (polish C)', () => {
 
   it('reads a saved profile, trimming it and dropping what this version doesn’t know', () => {
     const storage = (value: unknown) => ({ getItem: () => JSON.stringify({ profile: value }) });
-    expect(loadSettings(storage({ name: ' Kevin Matos ', initials: 'kmx9', role: 'dp' })).profile).toEqual({ name: 'Kevin Matos', initials: 'kmx', role: 'dp' });
-    expect(loadSettings(storage({ name: 4, role: 'stunt double' })).profile).toEqual({ name: '', initials: '', role: null });
-    expect(loadSettings(storage(null)).profile).toEqual({ name: '', initials: '', role: null });
+    expect(loadSettings(storage({ name: ' Kevin Matos ', initials: 'kmx9', role: 'dp' })).profile).toEqual({ name: 'Kevin Matos', initials: 'kmx', role: 'dp', historyInitials: false });
+    expect(loadSettings(storage({ name: 4, role: 'stunt double' })).profile).toEqual({ name: '', initials: '', role: null, historyInitials: false });
+    expect(loadSettings(storage(null)).profile).toEqual({ name: '', initials: '', role: null, historyInitials: false });
+    expect(loadSettings(storage({ name: 'Kevin', historyInitials: true })).profile.historyInitials).toBe(true);
+    expect(loadSettings(storage({ name: 'Kevin', historyInitials: 'yes' })).profile.historyInitials).toBe(false);
   });
 });
 
