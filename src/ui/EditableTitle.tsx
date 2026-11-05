@@ -48,6 +48,8 @@ export function TitleField({ value, label, onDone, maxLength = 120, className }:
       // In the capture phase, so Enter and Escape are the field's before any panel's own keys (the inspector's Escape
       // goes back to the board, and would otherwise blur the field and save what was half typed).
       onKeyDownCapture={(event) => {
+        // The Enter that confirms an input method's conversion (Japanese, Chinese) is the conversion's, not a save.
+        if (event.nativeEvent.isComposing) return;
         if (event.key === 'Enter') {
           event.preventDefault();
           event.stopPropagation();

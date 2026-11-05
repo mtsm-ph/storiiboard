@@ -202,7 +202,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   frame's title reads under its number on the card, at 12px.
 - **Selected frame:** a 3px accent outline, with the shot number on an ink chip as the second cue. Focus keeps its ink
   ring outside it.
-- **Keyboard:** the board is one Tab stop. Arrows move through frames, notes and + Frame cards across scenes; Home and
+- **Keyboard:** the board is one Tab stop, with two pencils beside it (the frame's title, its scene's name). Arrows move through frames, notes and + Frame cards across scenes; Home and
   End go to the ends; Delete sends a frame or a note to the Trash; ⌘ (Ctrl on Windows) with an arrow moves it one
   place, crossing into the next scene at either end; "/" opens the insert menu. A frame stays in a scene whose
   numbers are locked.

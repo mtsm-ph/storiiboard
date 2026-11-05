@@ -113,7 +113,9 @@ export type FieldName = { ok: true; name: string } | { ok: false; problem: strin
 export function fieldName(typed: string, known: readonly string[], hidden: readonly string[] = []): FieldName {
   const name = typed.trim().replace(/\s+/g, ' ');
   if (name === '' || name.length > MAX_FIELD_NAME) return { ok: false, problem: t('field.nameLength', { max: MAX_FIELD_NAME }) };
-  if (builtIn().has(name.toLowerCase())) return { ok: false, problem: t('field.builtIn', { name }) };
+  // A name the project already uses stays usable, even one that became a built-in field later ("Title", Nov 5).
+  const already = known.some((k) => k.toLowerCase() === name.toLowerCase());
+  if (!already && builtIn().has(name.toLowerCase())) return { ok: false, problem: t('field.builtIn', { name }) };
   if (hidden.some((h) => h.toLowerCase() === name.toLowerCase())) {
     return { ok: false, problem: t('field.hidden', { name }) };
   }
