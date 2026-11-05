@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Crop } from '../../core/media/crop';
-import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
+import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
+
+const NO_ROLES: readonly Approver[] = [];
 import type { JsonValue } from '../../core/model/record';
 import {
   choiceLabel,
@@ -29,12 +31,11 @@ import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
-import { cx } from '../../ui/cx';
 import { Select, TextField } from '../../ui/fields';
 import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
-import { departmentTagClass } from '../../ui/tags';
 import { CropEditor } from './CropEditor';
+import { DepartmentStatusTable } from './DepartmentStatusTable';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
 import { labels, t } from '../../core/i18n';
@@ -93,6 +94,12 @@ export interface InspectorViewProps {
   /** A value to set, or null to take the field off the frame. */
   /** Settles once the edit has landed, so focus can go to what it made. */
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
+  /** A department status edit (polish 6), worked out from the frame as it is when the edit lands. */
+  onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
+  /** The approval this person would give a department now (polish 6); null when their role doesn't approve. */
+  approval?: () => Approval | null;
+  /** The roles their role on the project approves in: director, DP, both, or none. */
+  myRoles?: readonly Approver[];
 }
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = labels({ have: 'shotStatus.have', need: 'inspector.need', source: 'shotStatus.source' });
@@ -364,6 +371,9 @@ export function InspectorView({
   customNames = [],
   customHidden = [],
   onCustomChange,
+  approval,
+  myRoles = NO_ROLES,
+  onDepartmentStatus,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -545,30 +555,16 @@ export function InspectorView({
           </Section>
 
           <Section title={t('inspectorView.departments')}>
-            <ul aria-label={t('inspectorView.departmentsThisFrameNeeds')} className="flex flex-wrap gap-1.5">
-              {DEPARTMENTS.map((department: Department) => {
-                const on = shot.fields.departments.includes(department);
-                return (
-                  <li key={department}>
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => {
-                        const next = on
-                          ? shot.fields.departments.filter((d) => d !== department)
-                          : [...shot.fields.departments, department];
-                        onShotChange({ set: { departments: next } });
-                      }}
-                      // On, a tag in its department colour; off, an outline. Pressed state is announced, not shown
-                      // by colour alone: the fill itself is the second cue.
-                      className={cx('sb-label', on ? departmentTagClass(department) : 'border border-dashed border-text px-[5.5px] py-[2.5px]')}
-                    >
-                      {DEPARTMENT_LABELS[department]}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            {/* Keyed by frame: the rows keep their order while this frame is open, and start over for the next. */}
+            <DepartmentStatusTable
+              key={shot.id}
+              statuses={shot.fields.departmentStatus}
+              approval={approval ?? (() => null)}
+              myRoles={myRoles}
+              onEdit={(edit) => {
+                onDepartmentStatus?.(edit);
+              }}
+            />
           </Section>
 
           {onCustomChange && (

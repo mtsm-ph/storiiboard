@@ -1,5 +1,6 @@
 import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
+import { priorityDepartments } from '../../core/model/departmentStatus';
 import type { SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel } from '../../core/model/storyboard';
@@ -70,7 +71,7 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
         SHOT_STATUS_LABELS[f.status],
         f.action,
         f.dialogue,
-        f.departments.map((d) => DEPARTMENT_LABELS[d as Department] as string | undefined ?? d).join(', '),
+        priorityDepartments(f.departmentStatus).map((d) => DEPARTMENT_LABELS[d as Department] as string | undefined ?? d).join(', '),
         // The column has the spelling most frames use; a frame that spells it `drone` still fills `Drone`.
         ...custom.map((name) => customValue(own, name)),
       ]);

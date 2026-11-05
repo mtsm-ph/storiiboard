@@ -1,4 +1,8 @@
 import { useId } from 'react';
+import { isProjectRole, type ProjectRole } from '../../core/model/departmentStatus';
+import { ROLE_LABELS, ROLES } from '../../core/model/role';
+import { useProfile } from '../settings/profileStore';
+import { setProjectRole, useProjectRoleSet } from '../settings/projectRole';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { PROJECT_STATE_LABEL, PROJECT_STATES, projectStateOf } from '../../core/model/project';
 import { ASPECT_RATIOS, projectStoryboard } from '../../core/model/storyboard';
@@ -17,21 +21,60 @@ export function ProjectHome() {
   const apply = useProject((s) => s.apply);
   const records = useProject((s) => s.records);
   const error = useProject((s) => s.error);
-  if (!record) return <p className="sb-label p-3 text-text-muted">{t('projectHome.noProjectOpen')}</p>;
+  if (!record || !projectId) return <p className="sb-label p-3 text-text-muted">{t('projectHome.noProjectOpen')}</p>;
   return (
-    <ProjectFields
-      record={record}
-      error={error}
-      onChange={(set) => {
-        void apply([{ kind: 'update', id: record.id, set }]);
-      }}
-      onLettersChange={(allowIO) => {
-        // Renumbers every unlocked scene in the same edit.
-        void apply(setLettersAllowIO(records, record.id, allowIO));
-      }}
-    />
+    <>
+      <YourRole projectId={projectId} />
+      <ProjectFields
+        record={record}
+        error={error}
+        onChange={(set) => {
+          void apply([{ kind: 'update', id: record.id, set }]);
+        }}
+        onLettersChange={(allowIO) => {
+          // Renumbers every unlocked scene in the same edit.
+          void apply(setLettersAllowIO(records, record.id, allowIO));
+        }}
+      />
+    </>
   );
 }
+
+/**
+ * Your role on this project (polish 6): the person's, kept on this computer, so not an op and not in the file. It
+ * takes the place of the profile's usual role here: the director or the DP approves departments on a shot.
+ */
+function YourRole({ projectId }: { projectId: string }) {
+  const set = useProjectRoleSet(projectId);
+  const usual = useProfile().role;
+  const noteId = useId();
+  return (
+    <div className="flex max-w-[640px] flex-col gap-1.5 border-b border-text p-4">
+      <Select
+        label={t('projectHome.yourRole')}
+        aria-describedby={noteId}
+        value={set ?? ''}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          setProjectRole(projectId, isProjectRole(value) ? value : null);
+        }}
+      >
+        <option value="">{usual ? t('projectHome.usualRole', { role: ROLE_LABELS[usual] }) : t('projectHome.usualRoleNone')}</option>
+        {PROJECT_ROLES.map((role) => (
+          <option key={role} value={role}>
+            {role === 'director-dp' ? t('projectHome.directorAndDp') : ROLE_LABELS[role]}
+          </option>
+        ))}
+      </Select>
+      <p id={noteId} className="text-[12px] text-text-muted">
+        {t('projectHome.yourRoleNote')}
+      </p>
+    </div>
+  );
+}
+
+/** The roles in the profile's order, with director and DP together after the DP. */
+const PROJECT_ROLES: readonly ProjectRole[] = ROLES.flatMap((role): ProjectRole[] => (role === 'dp' ? [role, 'director-dp'] : [role]));
 
 interface ProjectFieldsProps {
   record: SbdRecord;

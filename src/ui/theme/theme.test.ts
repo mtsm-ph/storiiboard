@@ -28,8 +28,20 @@ describe('backup settings', () => {
       language: 'en',
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null },
+      projectRoles: {},
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
+  });
+
+  it('keeps each project’s role on this computer, dropping one that isn’t a role (polish 6)', () => {
+    const storage = memoryStorage('{"projectRoles":{"p1":"director-dp","p2":"boss","p3":"gaffer","p4":7}}');
+    expect(loadSettings(storage).projectRoles).toEqual({ p1: 'director-dp', p3: 'gaffer' });
+    const many = Object.fromEntries(Array.from({ length: 520 }, (_, i) => [`p${String(i)}`, 'dp']));
+    const kept = loadSettings(memoryStorage(JSON.stringify({ projectRoles: many }))).projectRoles;
+    // The newest 500, the oldest falling off first.
+    expect(Object.keys(kept)).toHaveLength(500);
+    expect(kept.p0).toBeUndefined();
+    expect(kept.p519).toBe('dp');
   });
 
   it('saves the keep numbers alongside the theme', () => {
@@ -44,6 +56,7 @@ describe('backup settings', () => {
       language: 'en',
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null },
+      projectRoles: {},
     });
   });
 });

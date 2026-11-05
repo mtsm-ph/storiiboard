@@ -19,7 +19,8 @@ describe('storyboard props', () => {
 
   it('read odd or missing values as empty, and a new frame as one still to shoot', () => {
     const shot = shotFields({ size: 'HUGE', lens_mm: 'fifty', status: 'maybe', departments: ['camera', 7] });
-    expect(shot).toMatchObject({ size: null, lensMm: null, status: 'need', departments: ['camera'] });
+    expect(shot).toMatchObject({ size: null, lensMm: null, status: 'need' });
+    expect(Object.keys(shot.departmentStatus)).toEqual(['camera']);
     expect(sceneFields({ number: '4', heading: 'INT. CABIN - NIGHT' }).name).toBe('INT. CABIN - NIGHT');
     expect(sceneFields({ number: '4', numbers_locked: 'yes' }).numbersLocked).toBe(false);
   });

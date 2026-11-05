@@ -65,6 +65,18 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Have: filled square
   - Need to shoot: empty square
   - Source: half-filled square
+- **Department status (polish 6)** is state, so it has colours of its own (`state-*` tokens, fixed), from the kit, and
+  a shape each, outlined in the text colour so the shape reads in both themes whatever the fill:
+  - Priority: a filled triangle, in ink (paper in dark).
+  - Seen: an eye with a navy pupil (lifted to a light blue in dark mode, where navy would vanish).
+  - Working on it: a circle half-filled with mustard.
+  - Done: a sage circle with a check and a soft sage glow: the one glow in the app, on this glyph only.
+  - Approved: a filled diamond, in ink; who approved is written next to it. A director or DP sees it hollow when
+    only someone else has approved (the box reads "mixed").
+  - In the inspector, a grid: a row per department, Priority first (fixed while the frame stays open), a 22px box per
+    state with the glyph inside when ticked. One Tab stop; the arrows move, Space ticks. Approved has a dashed box and
+    says why when the person's role on the project isn't the director or the DP. Below the grid, who approved, and a
+    key naming each shape in words.
 
 ## Type (all SIL Open Font License)
 - **App:**

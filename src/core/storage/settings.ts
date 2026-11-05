@@ -1,4 +1,5 @@
 import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
+import { isProjectRole, type ProjectRole } from '../model/departmentStatus';
 import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
@@ -63,10 +64,24 @@ export interface Settings {
   /** The sidebar folded to its strip (polish 2), as the person last left it. */
   sidebarHidden: boolean;
   profile: Profile;
+  /**
+   * "Your role on this project" (polish 6, Settings → Project), by project id: it takes the place of the profile's
+   * usual role there, until people and roles come with Phase 3. The person's, so it stays on this computer.
+   */
+  projectRoles: Readonly<Record<string, ProjectRole>>;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
 export const MAX_SYNC_NOTED = 500;
+
+/** The newest this many projects' roles are remembered; an older one falls back to the usual role. */
+export const MAX_PROJECT_ROLES = 500;
+
+function projectRolesOf(value: unknown): Record<string, ProjectRole> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const kept = Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, ProjectRole] => isProjectRole(entry[1]));
+  return Object.fromEntries(kept.slice(-MAX_PROJECT_ROLES));
+}
 
 /** The ranges the Backups tile accepts. Keeping no recent copies would leave nothing to open. */
 export const KEEP_LIMITS = { recent: { min: 1, max: 500 }, days: { min: 0, max: 365 } } as const;
@@ -90,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: DEFAULT_LOCALE,
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
+  projectRoles: {},
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -130,6 +146,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
+      projectRoles: projectRolesOf(saved.projectRoles),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

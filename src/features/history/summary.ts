@@ -1,5 +1,6 @@
 import { mediaFields } from '../../core/media/store';
-import { DEPARTMENT_LABELS } from '../../core/model/department';
+import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
+import { statusText } from '../../core/model/departmentStatus';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -49,6 +50,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   action: 'history.field.action',
   dialogue: 'history.field.dialogue',
   departments: 'history.field.departments',
+  department_status: 'history.field.departments',
   media_id: 'history.field.mediaId',
   crop: 'history.field.crop',
   custom: 'history.field.custom',
@@ -181,44 +183,54 @@ export function changedProps(before: SbdRecord, after: SbdRecord): string[] {
 
 /**
  * One field's change. A custom field is one entry of the frame's `custom` prop (1.19), so it's a change of its own,
- * named by the field's name: putting back "Drone" must leave "VFX" as it is now.
+ * named by the field's name: putting back "Drone" must leave "VFX" as it is now. A department's status (polish 6) is
+ * one entry of `department_status` in the same way, named by the department.
  */
 export interface FieldChange {
   prop: string;
-  /** For a custom field: its name in `custom`. */
+  /** For a custom field: its name in `custom`; for a department's status, the department's id. */
   key?: string;
   before: JsonValue | undefined;
   after: JsonValue | undefined;
 }
 
-const customOf = (props: Props): Readonly<Record<string, JsonValue>> => {
-  const custom = props.custom;
-  return typeof custom === 'object' && custom !== null && !Array.isArray(custom) ? custom : {};
+const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
+  const value = props[prop];
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 };
 
-/** Every field an op changed, each custom field on its own. */
+/** Props kept as one object whose entries History lists one by one. */
+const BY_ENTRY = new Set(['custom', 'department_status']);
+
+/** Every field an op changed, each custom field and each department's status on its own. */
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
   return changedProps(before, after).flatMap((prop): FieldChange[] => {
-    if (prop !== 'custom') return [{ prop, before: before.props[prop], after: after.props[prop] }];
-    const was = customOf(before.props);
-    const now = customOf(after.props);
+    if (!BY_ENTRY.has(prop)) return [{ prop, before: before.props[prop], after: after.props[prop] }];
+    const was = entriesOf(before.props, prop);
+    const now = entriesOf(after.props, prop);
     return [...new Set([...Object.keys(was), ...Object.keys(now)])]
       .filter((key) => JSON.stringify(was[key]) !== JSON.stringify(now[key]))
       .map((key) => ({ prop, key, before: was[key], after: now[key] }));
   });
 }
 
-/** A field's name in a line: a custom field by its own name. */
-export const changeLabel = (change: FieldChange): string => change.key ?? fieldLabel(change.prop);
+const isStatus = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'department_status' && change.key !== undefined;
+
+/** A field's name in a line: a custom field by its own name, a department's status by the department's. */
+export const changeLabel = (change: FieldChange): string =>
+  isStatus(change) ? departmentLabel(change.key) : (change.key ?? fieldLabel(change.prop));
+
+/** A department by its name; an id this version doesn't know, as stored. */
+const departmentLabel = (id: string): string => (Object.hasOwn(DEPARTMENT_LABELS, id) ? DEPARTMENT_LABELS[id as Department] : id);
 /**
  * A change's value. A custom field that isn't on the frame at all reads "no field", apart from an empty one (`—`):
  * putting back one takes the field off, the other keeps it.
  */
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
+  isStatus(change) ? statusText(value) : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
+  isStatus(change) ? statusText(value) : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
 
@@ -355,7 +367,8 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       const changes = fieldChanges(op.before, op.after);
       const who = capitalise(nameOf(op.after));
       const [only] = changes;
-      if (changes.length === 1 && only?.key !== undefined && (only.before === undefined || only.after === undefined)) {
+      // A custom field put on or taken off; a department's status reads as a change ("Camera: — → Priority") below.
+      if (changes.length === 1 && only?.prop === 'custom' && only.key !== undefined && (only.before === undefined || only.after === undefined)) {
         return line(only.before === undefined ? 'history.fieldAdded' : 'history.fieldRemoved', { who }, { field: only.key, tag });
       }
       if (changes.length === 1 && only?.prop === 'media_id') return line('history.whoDid', { who }, { what: pictureChange(only), tag });
