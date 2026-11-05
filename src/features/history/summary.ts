@@ -53,6 +53,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   department_status: 'history.field.departments',
   media_id: 'history.field.mediaId',
   crop: 'history.field.crop',
+  clip: 'history.field.clip',
   custom: 'history.field.custom',
   name: 'history.field.name',
   int_ext: 'history.field.intExt',
@@ -165,6 +166,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   // picture change reads as set, removed or replaced (pictureChange).
   if (prop === 'location_id') return t('history.aLocation');
   if (prop === 'media_id') return t('history.aPicture');
+  if (prop === 'clip') return t('history.aClip');
   if (prop === 'lens_mm' && typeof value === 'number') return t('history.lens', { mm: value });
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
@@ -337,6 +339,27 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
   }
   const watermark = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.watermark) !== JSON.stringify(op.after.props.watermark));
   if (watermark) return [`${describeWatermark(watermark.before?.props.watermark, watermark.after?.props.watermark)}${tag}`];
+
+  // A video linked to a frame (2.2b), found by the still it put there, so a video the project had already reads the
+  // same; or a video pointed at its file again.
+  const grabbed = ops.find((op) => op.kind === 'create' && op.after?.type === 'media' && isObject(op.after.props.from_video));
+  if (grabbed) {
+    const from = grabbed.after?.props.from_video;
+    const name = isObject(from) && typeof from.source_name === 'string' ? from.source_name : '';
+    const shot = ops.find((op) => record(op)?.type === 'shot');
+    return [...line('history.videoLinked', { name: { mono: name }, frame: nameOf(shot ? record(shot) : null) }), tag];
+  }
+  const relinked = ops.find(
+    (op) =>
+      op.kind === 'update' &&
+      op.after?.type === 'media' &&
+      op.after.props.kind === 'video' &&
+      op.before?.props.source_path !== op.after.props.source_path,
+  );
+  if (relinked) {
+    const name = relinked.after?.props.source_name;
+    return line('history.videoRelinked', { name: { mono: typeof name === 'string' ? name : '' } });
+  }
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {

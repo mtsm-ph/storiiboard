@@ -1,6 +1,6 @@
 import { cropProp, isDefaultCrop, type Crop } from '../../core/media/crop';
 import { imageStatements, mediaFields, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
-import type { SbdRecord } from '../../core/model/record';
+import type { Props, SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import { shotFields, type ShotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
@@ -20,6 +20,10 @@ type Records = Readonly<Record<string, SbdRecord>>;
 export interface FramePicture {
   image: PreparedImage;
   source: ImageSource;
+  /** A still from a video (Phase 2): the picture's `from_video` prop. */
+  fromVideo?: Props;
+  /** The part of a video the frame plays (Phase 2): the shot's `clip` prop. A picture without one takes a clip off. */
+  clip?: Props;
 }
 
 /** One edit's changes with the bytes they need. */
@@ -36,7 +40,10 @@ function mediaCreate(shotId: string, sortKey: string, picture: FramePicture, pro
       type: 'media',
       parentId: shotId,
       sortKey,
-      props: mediaProps(picture.image, picture.source, projectPath),
+      props: {
+        ...mediaProps(picture.image, picture.source, projectPath),
+        ...(picture.fromVideo ? { from_video: picture.fromVideo } : {}),
+      },
     },
   };
 }
@@ -89,7 +96,13 @@ export function setPicture(
   return {
     changes: [
       create,
-      { kind: 'update', id: shotId, set: { media_id: create.record.id ?? '' }, unset: ['crop'] },
+      {
+        kind: 'update',
+        id: shotId,
+        set: { media_id: create.record.id ?? '', ...(picture.clip ? { clip: picture.clip } : {}) },
+        // The new picture starts centred; a still that isn't from a video ends the frame's clip.
+        unset: picture.clip ? ['crop'] : ['crop', 'clip'],
+      },
       ...(old ? [{ kind: 'trash', id: old.id } as const] : []),
     ],
     alsoWrite: bytesFor([picture], now),
@@ -101,7 +114,7 @@ export function removePicture(records: Records, shotId: string): Change[] {
   const old = currentMedia(records, shotId);
   const shot = records[shotId];
   if (!shot || !shotFields(shot.props).mediaId) return [];
-  return [{ kind: 'update', id: shotId, unset: ['media_id', 'crop'] }, ...(old ? [{ kind: 'trash', id: old.id } as const] : [])];
+  return [{ kind: 'update', id: shotId, unset: ['media_id', 'crop', 'clip'] }, ...(old ? [{ kind: 'trash', id: old.id } as const] : [])];
 }
 
 /** A new framing for the picture; the centred default is stored as no prop at all. */
@@ -132,7 +145,7 @@ export function addFramesWithPictures(
     projectId,
     sceneId,
     afterShotId,
-    mediaIds.map((id) => ({ media_id: id })),
+    mediaIds.map((id, i) => ({ media_id: id, ...(pictures[i]?.clip ? { clip: pictures[i].clip } : {}) })),
     slate,
   );
   const media = pictures.map((picture, i): Change => {

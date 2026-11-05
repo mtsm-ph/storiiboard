@@ -1,7 +1,8 @@
-import { useStore } from 'zustand';
-import { createStore } from 'zustand/vanilla';
 import { showNotice } from '../../app/notice';
 import type { PictureFile } from '../../app/pictures';
+import { isVideoName } from '../../core/media/video';
+import { addVideos } from '../video/addVideos';
+import { picturesBusy } from './picturesBusy';
 import { projectStore } from '../../app/projectStore';
 import { prepareImage } from '../../core/media/image';
 import { placePictures, type FramePicture, type PictureTarget } from './framePictures';
@@ -12,16 +13,20 @@ import { localizeError, t } from '../../core/i18n';
 // then all of them land in one edit, so one undo takes back the whole drop. A file that can't be read is left out and
 // named in a notice; the rest still go in.
 
-/** How many pictures are being prepared now, so the board can say so; a 48 MP HEIC takes a second. */
-export const picturesBusy = createStore<{ count: number }>()(() => ({ count: 0 }));
-
-export function usePicturesBusy(): number {
-  return useStore(picturesBusy, (s) => s.count);
-}
+export { usePicturesBusy } from './picturesBusy';
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export async function addPictures(files: readonly PictureFile[], target: PictureTarget): Promise<void> {
+export async function addPictures(all: readonly PictureFile[], target: PictureTarget): Promise<void> {
+  // Videos go their own way (2.2b): linked, not copied in, their first frame as the picture.
+  const videos = all.filter((file) => isVideoName(file.name));
+  const files = all.filter((file) => !isVideoName(file.name));
+  if (videos.length > 0) {
+    await addVideos(
+      videos.map((file) => ({ name: file.name, ...(file.path ? { path: file.path } : {}), ...(file.file ? { file: file.file, size: file.file.size } : {}) })),
+      target,
+    );
+  }
   const { project } = projectStore.getState();
   if (!project || files.length === 0) return;
   picturesBusy.setState((s) => ({ count: s.count + files.length }));

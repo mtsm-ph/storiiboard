@@ -14,12 +14,18 @@ import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from '
 import { framesWithPictures } from './palette/read';
 import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
-import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
+import { InspectorView, type FieldChange, type InspectorPicture, type InspectorVideo } from './InspectorView';
+import { frameTimecode } from '../../core/media/timecode';
+import { readClip, videoFields } from '../../core/media/video';
+import { videoDriver } from '../../app/video';
+import { addVideos } from '../video/addVideos';
+import { fpsLabel, relinkVideo } from '../video/relink';
+import { useVideoMissing } from '../video/videoStatus';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
-import { t } from '../../core/i18n';
+import { t, tn } from '../../core/i18n';
 
 /** Escape from the inspector: focus goes back to the frame (or the scene) it was showing. */
 function focusBoard(shotId: string | null, sceneId: string | null) {
@@ -42,6 +48,9 @@ export function InspectorTile() {
   const role = useProjectRole(project?.projectId);
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
   const picking = useEyedropperScene();
+  // Before the early return, as every hook: whether the selected frame's video is missing here.
+  const clipVideoId = shotId ? (readClip(records[shotId]?.props ?? {})?.videoId ?? null) : null;
+  const videoMissing = useVideoMissing(clipVideoId);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -70,6 +79,25 @@ export function InspectorTile() {
       : view.sha256 === ''
         ? { view, sourceName: '', sourcePath: '' }
         : null;
+
+  // The video the frame plays (2.2b): its file, its rate and size, and the clip's timecode in to out.
+  const clip = shot ? readClip(shot.props) : null;
+  const videoRecord = clip ? records[clip.videoId] : undefined;
+  const linked = videoRecord && videoRecord.trashedAt === null ? videoFields(videoRecord.props) : null;
+  const video: InspectorVideo | null =
+    clip && linked
+      ? {
+          name: linked.sourceName,
+          details: t('inspector.videoDetails', { fps: fpsLabel(linked.fps), width: linked.width, height: linked.height, codec: linked.codec.toUpperCase() }),
+          range: t('inspector.videoRange', {
+            start: frameTimecode(clip.inFrame, linked.fps, linked.startTimecode),
+            end: frameTimecode(clip.outFrame, linked.fps, linked.startTimecode),
+          }),
+          frames: tn('inspector.videoFrames', clip.outFrame - clip.inFrame + 1),
+          path: linked.sourcePath,
+          missing: videoMissing,
+        }
+      : null;
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
   const location = locationId ? records[locationId] : undefined;
@@ -142,6 +170,21 @@ export function InspectorTile() {
         }}
         onRemovePicture={() => {
           if (shot) void apply(removePicture(records, shot.id));
+        }}
+        video={video}
+        onLinkVideo={() => {
+          if (!shot) return;
+          videoDriver
+            .choose(false)
+            .then((files) => addVideos(files, { kind: 'frame', shotId: shot.id }))
+            .catch(showNotice);
+        }}
+        onRelinkVideo={() => {
+          if (clip) void relinkVideo(clip.videoId);
+        }}
+        onUnlinkVideo={() => {
+          // The picture stays; the frame stops playing the video. The video's record stays for other frames.
+          if (shot) void apply([{ kind: 'update', id: shot.id, unset: ['clip'] }]);
         }}
         onCropChange={(crop) => {
           if (shot) void apply([setCrop(shot.id, crop)]);

@@ -99,7 +99,7 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
       return t('workspace.assets');
     },
     get phase() {
-      return t('phase.number', { phase: 2 });
+      return t('phase.number', { phase: 3 });
     },
     order: ['assets', 'player'],
     defaultLayout: () => layout(split('row', [stack(['assets']), stack(['player'])], [1056, 360])),
@@ -122,7 +122,7 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
       return t('workspace.setup');
     },
     get phase() {
-      return t('phase.number', { phase: 5 });
+      return t('phase.number', { phase: 6 });
     },
     order: ['layers', 'plan', 'selection', 'frames', 'library'],
     defaultLayout: () =>
@@ -166,7 +166,7 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
       return t('workspace.moodboard');
     },
     get phase() {
-      return t('phase.number', { phase: 6 });
+      return t('phase.number', { phase: 5 });
     },
     order: ['moodboard'],
     defaultLayout: () => layout(stack(['moodboard'])),

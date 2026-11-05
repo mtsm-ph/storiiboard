@@ -1,4 +1,5 @@
 import { mediaFields } from '../../core/media/store';
+import { videoFields } from '../../core/media/video';
 import type { SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
@@ -93,7 +94,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       return [plain(text === '' ? t('trash.emptyNote') : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
     }
     case 'picture': {
-      const file = plain(mediaFields(record.props)?.sourceName || t('trash.pastedPicture'));
+      // A picture, or a linked video (2.2b), by its file's name.
+      const file = plain(mediaFields(record.props)?.sourceName || videoFields(record.props)?.sourceName || t('trash.pastedPicture'));
       const parent = record.parentId ? records[record.parentId] : undefined;
       return parent?.type === 'shot' ? [file, plain(t('trash.pictureOf')), mono(shotFields(parent.props).number)] : [file, plain(t('trash.logoPicture'))];
     }

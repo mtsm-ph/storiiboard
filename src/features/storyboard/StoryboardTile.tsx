@@ -6,6 +6,8 @@ import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
 import { addPictures, usePicturesBusy } from './addPictures';
+import { readClip } from '../../core/media/video';
+import { useMissingVideos } from '../video/videoStatus';
 import {
   addNote,
   addScene,
@@ -165,17 +167,26 @@ export function StoryboardTile() {
   // sketch redraws only when its own strokes do.
   const strokes = useMemo(() => stableStrokesByShot(records), [records]);
   const seen = useProject((s) => s.seen);
-  const frameCard = (shot: BoardShot): FrameCard => ({
-    id: shot.record.id,
-    number: shot.fields.number,
-    spec: specLine(shot.fields),
-    status: shot.fields.status,
-    fields: shot.fields,
-    picture: pictureView(records, shot.fields),
-    strokes: strokes.get(shot.record.id) ?? [],
-    custom: customFieldsOf(shot.record.props),
-    seen: seen[shot.record.id] ?? NOTHING_SEEN,
-  });
+  const missingVideos = useMissingVideos();
+  const clipOf = (props: SbdRecord['props']): FrameCard['clip'] => {
+    const clip = readClip(props);
+    return clip ? { missing: missingVideos[clip.videoId] === true } : undefined;
+  };
+  const frameCard = (shot: BoardShot): FrameCard => {
+    const clip = clipOf(shot.record.props);
+    return {
+      id: shot.record.id,
+      number: shot.fields.number,
+      spec: specLine(shot.fields),
+      status: shot.fields.status,
+      fields: shot.fields,
+      picture: pictureView(records, shot.fields),
+      strokes: strokes.get(shot.record.id) ?? [],
+      custom: customFieldsOf(shot.record.props),
+      seen: seen[shot.record.id] ?? NOTHING_SEEN,
+      ...(clip ? { clip } : {}),
+    };
+  };
 
   const groups: SceneGroup[] = scenes.map((scene) => ({
     id: scene.record.id,

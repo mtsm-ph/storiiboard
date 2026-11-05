@@ -60,6 +60,8 @@ export interface FrameCard {
   custom?: Readonly<Record<string, string>>;
   /** The departments that have opened the frame (polish 6b). */
   seen?: readonly string[];
+  /** Set when the frame plays part of a video (2.2b); `missing` when its file can't be found on this computer. */
+  clip?: { missing: boolean };
 }
 
 const NOTHING_SEEN: readonly string[] = [];
@@ -468,6 +470,18 @@ export function StoryboardView({
           )}
           {frame.strokes && frame.strokes.length > 0 && (
             <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
+          )}
+          {frame.clip && (
+            // Words, not only colour: CLIP, or CLIP MISSING in the warning colour (CLAUDE.md: flag missing media).
+            <span
+              data-clip-tag=""
+              className={cx(
+                'sb-label absolute bottom-1 left-1 px-1',
+                frame.clip.missing ? 'bg-warning text-paper-fixed' : 'bg-text text-text-inverse',
+              )}
+            >
+              {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
+            </span>
           )}
           {hovered && <DropMark label={frame.picture ? t('board.replacePicture') : t('board.setPicture')} />}
         </span>
