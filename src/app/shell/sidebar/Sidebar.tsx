@@ -14,7 +14,7 @@ import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 import { IconButton } from '../../../ui/Button';
 import { SidebarGlyph } from '../../../ui/glyphs';
 import { isMac } from '../undoShortcuts';
-import { openSettings } from '../../settings/SettingsWindow';
+import { GearButton, ProfileButton, WebVersionItem } from './SidebarFoot';
 import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
@@ -187,34 +187,25 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
             </li>
           );
         })}
-        {/* Settings opens in a window of its own (polish B), not as a workspace. PC moves it to a gear at the foot. */}
-        <li className="border-b border-border-top">
-          <button
-            type="button"
-            data-nav-item=""
-            onKeyDown={onNavKeyDown}
-            tabIndex={-1}
-            aria-keyshortcuts={isMac() ? 'Meta+,' : 'Control+,'}
-            onClick={() => {
-              openSettings();
-            }}
-            className="sb-label flex h-9 w-full items-center px-4 text-left text-text hover:bg-surface-raised focus-visible:-outline-offset-4"
-          >
-            {t('sidebar.settings')}
-          </button>
-        </li>
       </ul>
-      {/* The foot: Hide sidebar at the bottom left, where the strip's Show sidebar sits once it's hidden. */}
-      <div className="flex h-9 shrink-0 items-center border-t border-border-top px-2">
-        <IconButton
-          id={HIDE_SIDEBAR_ID}
-          size="sm"
-          label={t('sidebar.hide', { keys: shortcut.label })}
-          aria-keyshortcuts={shortcut.aria}
-          onClick={onHide}
-        >
-          <SidebarGlyph shown />
-        </IconButton>
+      {/* The foot (polish C): the web version, still to come, then Hide sidebar at the bottom left, where the strip's
+          Show sidebar sits once it's hidden, and the Settings gear and the profile at the right. */}
+      <div className="shrink-0 border-t border-border-top">
+        <WebVersionItem />
+        <div className="flex h-9 items-center gap-1 border-t border-border-top px-2">
+          <IconButton
+            id={HIDE_SIDEBAR_ID}
+            size="sm"
+            label={t('sidebar.hide', { keys: shortcut.label })}
+            aria-keyshortcuts={shortcut.aria}
+            onClick={onHide}
+          >
+            <SidebarGlyph shown />
+          </IconButton>
+          <span className="flex-1" />
+          <GearButton />
+          <ProfileButton />
+        </div>
       </div>
     </nav>
   );

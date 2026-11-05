@@ -68,7 +68,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | record_id | text | |
 | kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
-| author | text | `local` for now |
+| author | text | Who made the edit: the local profile's name (polish C, Nov 5), or `local` before there was one. Accounts replace it with the web companion (Phase 9) |
 | timestamp | text | When the edit happened |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
@@ -85,7 +85,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
 | undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
-| author | text | `local` for now |
+| author | text | As on its ops: the local profile's name, or `local` |
 | timestamp | text | When it happened |
 
 Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,

@@ -96,7 +96,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P3 History button in the top bar, beside the project name | #51 | Done |
 | P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | #52 | Done |
 | PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Building |
-| PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Planned |
+| PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Building |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
 | P6 Department status per shot (Priority, Seen, Working on it, Done, Approved) in place of on/off tags; schema change approved; "Your role on this project" | | Planned |
@@ -167,6 +167,17 @@ PB as built (Nov 5):
   computer" ask in the app's own window (src/app/ask.tsx), the safe choice first. The Tauri `dialog:allow-message`
   permission is dropped; only the native Open and Save pickers remain.
 - Not built: Manage workspaces, until Phase 3 (Kevin, Nov 5).
+
+PC as built (Nov 5):
+- The sidebar's foot: Web version (muted, Phase 9, focusable but going nowhere: the site still shows the prototype),
+  then Hide sidebar, the Settings gear and the profile. The temporary Settings… entry from PB is gone, and CLAUDE.md's
+  navigation says so. Folded, the strip keeps the profile and the gear above Show sidebar; the project switcher stays
+  out of the strip, as Kevin listed it, and is one click away once the sidebar shows.
+- The local profile (name, initials, usual role) lives in the person's settings and is edited in Settings → Profile,
+  which the profile button opens. Roles are kept by id (src/core/model/role.ts) for P6's approvals.
+- Each new step records the profile's name as its author (ops and op groups; docs/SBD_FORMAT.md), so History in a
+  shared file says who did what; steps from before, and any made with no profile, read "You". No schema change.
+- A project's own "Your role" comes with P6, in Settings → Project, and takes the place of the usual role there.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

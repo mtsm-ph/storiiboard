@@ -159,7 +159,8 @@
   layout; Notifications and Trash are in none.
 - Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
   and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Production (schedule, calendar, call sheets,
-  locations, gear, cast and crew), Moodboard, Settings. Each section is a workspace.
+  locations, gear, cast and crew), Moodboard. Each section is a workspace. At its foot: the web version (Phase 9),
+  Hide sidebar, a Settings gear (Settings is an in-app window, not a section) and the person's local profile.
   - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
   - Switching projects opens the other .sbd in place, without reloading the window.
 - Project themes (Phase 1): colours come from the project's logo or key image, worked out on the device.

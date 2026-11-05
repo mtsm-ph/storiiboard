@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { openSettings, settingsWindow } from './settings';
+import { gear, openSettings, settingsWindow } from './settings';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -19,8 +19,8 @@ test('lists the six sections in order, each showing its phase, and opens one per
     'ProductionPhases 3–4',
     'MoodboardPhase 6',
   ]);
-  // Settings is a window of the app's own (polish B), not a section's workspace.
-  await expect(sidebar(page).getByRole('button', { name: 'Settings…' })).toBeVisible();
+  // Settings is a window of the app's own (polish B), behind the gear at the sidebar's foot (polish C).
+  await expect(gear(page)).toBeVisible();
   await expect(section(page, 'Storyboard')).toHaveAttribute('aria-current', 'page');
 
   await section(page, 'Production').click();
@@ -51,7 +51,7 @@ test('arrow keys move through the sidebar, Enter opens, and Tab enters at the ac
   await expect(section(page, 'Setup')).toHaveAttribute('aria-current', 'page');
 
   await page.keyboard.press('End');
-  await expect(section(page, 'Settings')).toBeFocused();
+  await expect(section(page, 'Moodboard')).toBeFocused();
   await page.keyboard.press('Home');
   await expect(section(page, 'Storyboard')).toBeFocused();
 });
@@ -94,8 +94,8 @@ test('Settings opens in a window of the app’s own: ⌘, or the sidebar, Escape
   await page.keyboard.press('Escape');
   await expect(settings).toBeHidden();
   await expect(page.getByRole('button', { name: 'Maximize Scenes' })).toBeFocused();
-  // It opens again at the tab last open, from the sidebar too.
-  await sidebar(page).getByRole('button', { name: 'Settings…' }).click();
+  // It opens again at the tab last open, from the gear too.
+  await gear(page).click();
   await expect(settings.getByRole('tab', { name: 'App' })).toHaveAttribute('aria-selected', 'true');
   await settings.getByRole('button', { name: 'Close Settings' }).click();
   await expect(settings).toBeHidden();
@@ -245,3 +245,41 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
   });
 }
+
+test('the sidebar’s foot holds the web version to come, Hide sidebar, the Settings gear and the profile', async ({ page }) => {
+  // Visible, marked with its phase, and going nowhere yet.
+  const web = sidebar(page).getByRole('button', { name: /^Web version/ });
+  await expect(web).toHaveText(/Web version\s*Phase 9/);
+  await expect(web).toHaveAttribute('aria-disabled', 'true');
+  // Reachable from the keyboard, so its phase is heard; Enter does nothing.
+  await web.focus();
+  await page.keyboard.press('Enter');
+  await expect(web).toBeFocused();
+  await expect(settingsWindow(page)).toHaveCount(0);
+
+  // The profile, empty at first: it opens Settings at its own tab.
+  const profile = page.getByRole('button', { name: 'Set up your profile' });
+  await profile.click();
+  const tab = settingsWindow(page).getByRole('tabpanel', { name: 'Profile' });
+  await tab.getByLabel('Your name').fill('Kevin Matos');
+  await tab.getByLabel('Your name').press('Enter');
+  await tab.getByLabel('Usual role').selectOption('dp');
+  await page.keyboard.press('Escape');
+  // The avatar shows the initials, the name is its label.
+  const filled = page.getByRole('button', { name: 'Profile: Kevin Matos' });
+  await expect(filled).toHaveText('KM');
+
+  // Remembered across a restart.
+  await page.reload();
+  await expect(filled).toHaveText('KM');
+  await filled.click();
+  await expect(settingsWindow(page).getByRole('tabpanel', { name: 'Profile' }).getByLabel('Usual role')).toHaveValue('dp');
+  await page.keyboard.press('Escape');
+
+  // Folded, the strip keeps the profile and the gear in reach.
+  await page.getByRole('button', { name: /^Hide sidebar/ }).click();
+  const strip = page.getByRole('complementary', { name: 'Sidebar, folded' });
+  await expect(strip.getByRole('button', { name: 'Profile: Kevin Matos' })).toBeVisible();
+  await strip.getByRole('button', { name: /^Settings \(/ }).click();
+  await expect(settingsWindow(page)).toBeVisible();
+});

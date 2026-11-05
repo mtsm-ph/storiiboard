@@ -95,6 +95,20 @@ test('History from the Projects screen goes back to the workspace, with History 
   await expect(history(page)).toBeVisible();
 });
 
+test('a step says who made it: the profile’s name once there is one, “You” before', async ({ page }) => {
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('You');
+  const profile = await openSettings(page, 'Profile');
+  await profile.getByLabel('Your name').fill('Kevin Matos');
+  await profile.getByLabel('Your name').press('Enter');
+  await page.keyboard.press('Escape');
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(steps(page).first()).toContainText('Added frame 1D');
+  await expect(steps(page).first()).toContainText('Kevin Matos');
+  // Steps made before keep reading as they were.
+  await expect(steps(page).nth(1)).toContainText('You');
+});
+
 test('lists every step in words, newest first, and Restore to here is a step undo takes back', async ({ page }) => {
   await openHistory(page);
   await expect(steps(page).first()).toContainText('Added frame 1C');

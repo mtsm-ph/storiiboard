@@ -1,10 +1,34 @@
 import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
+import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
 // App settings that belong to the person, not the project: they never go into a .sbd file.
 // They stay in the webview's localStorage, which the app keeps in its own data folder: public/theme-boot.js has to
 // read the theme synchronously before first paint, which a file behind a Rust command can't offer. Lists that other
 // tools may read, like the recent projects, go in app data files instead (appData.ts).
+
+/**
+ * The person on this computer (polish C): shown wherever the app says who did something, and recorded as the author of
+ * their edits. Local until accounts come with the web companion (Phase 9). Empty until they fill it in.
+ */
+export interface Profile {
+  name: string;
+  /** As the avatar shows them; worked out from the name until typed. */
+  initials: string;
+  /** Their usual role; a project's own "Your role" (polish 6) overrides it there. */
+  role: Role | null;
+}
+
+export const EMPTY_PROFILE: Profile = { name: '', initials: '', role: null };
+
+/** At most this long: a name has to fit the sidebar's tooltip and a History row. */
+export const MAX_PROFILE_NAME = 60;
+
+function profileOf(value: unknown): Profile {
+  const saved = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  return { name: text(saved.name, MAX_PROFILE_NAME), initials: text(saved.initials, 3), role: isRole(saved.role) ? saved.role : null };
+}
 
 /** `project`, Follow project (the default since 1.15): the open project's own mode, or the OS with none open. */
 export type ThemePreference = 'project' | 'system' | 'light' | 'dark';
@@ -26,6 +50,7 @@ export interface Settings {
   language: LocaleId;
   /** The sidebar folded to its strip (polish 2), as the person last left it. */
   sidebarHidden: boolean;
+  profile: Profile;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -52,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupsNextToProject: false,
   language: DEFAULT_LOCALE,
   sidebarHidden: false,
+  profile: EMPTY_PROFILE,
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -91,6 +117,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       // A language this version doesn't have (saved by a newer one, say) reads as the default.
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
       sidebarHidden: saved.sidebarHidden === true,
+      profile: profileOf(saved.profile),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
