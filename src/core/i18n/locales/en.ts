@@ -960,12 +960,37 @@ export const en = {
   'settings.tab.theme': 'Theme',
   'settings.tab.backups': 'Backups',
   'settings.tab.storage': 'Storage',
-  'sidebar.settings': 'Settings…',
   // src/app/shell/docking/Dock.tsx
   'dock.leftIsSidebar': 'The window’s left edge is the sidebar’s: pick top, right or bottom.',
   'dock.noWindowCentre': 'The window has no centre: pick top, right or bottom.',
   // src/app/shell/docking/Dock.tsx
   'dock.stayed': '{title} is along that edge already.',
+  // src/core/model/role.ts
+  'role.director': 'Director',
+  'role.dp': 'Director of photography',
+  'role.producer': 'Producer',
+  'role.firstAd': '1st AD',
+  'role.gaffer': 'Gaffer',
+  'role.keyGrip': 'Key grip',
+  'role.productionDesigner': 'Production designer',
+  'role.hmu': 'HMU',
+  'role.wardrobe': 'Wardrobe',
+  'role.sound': 'Sound',
+  'role.editor': 'Editor',
+  'role.cast': 'Cast',
+  'role.client': 'Client',
+  'role.otherRole': 'Other',
+  // src/app/settings/profile.tsx and the sidebar foot (polish C)
+  'profile.name': 'Your name',
+  'profile.initials': 'Initials',
+  'profile.role': 'Usual role',
+  'profile.noRole': 'Not set',
+  'profile.note': 'Shown on your profile button. It stays in this app’s settings on this computer and is never saved into a project file. Accounts come with the web companion.',
+  'settings.tab.profile': 'Profile',
+  'sidebar.gear': 'Settings ({keys})',
+  'sidebar.profile': 'Profile: {name}',
+  'sidebar.profileEmpty': 'Set up your profile',
+  'sidebar.web': 'Web version',
   // src/app/settings/SettingsWindow.tsx
   'settings.sections': 'Settings sections',
   // src/app/ask.tsx

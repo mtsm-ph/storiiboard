@@ -75,6 +75,22 @@ export function HistoryGlyph() {
   );
 }
 
+/** Settings: a gear, in the button's own colour. */
+export function GearGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="shrink-0">
+      <circle cx="7" cy="7" r="2.2" fill="none" className="stroke-current" strokeWidth="1.5" />
+      <path
+        d="M7 0.9v1.8M7 11.3v1.8M0.9 7h1.8M11.3 7h1.8M2.7 2.7l1.3 1.3M10 10l1.3 1.3M2.7 11.3L4 10M10 4l1.3-1.3"
+        fill="none"
+        className="stroke-current"
+        strokeWidth="1.5"
+      />
+      <circle cx="7" cy="7" r="4.6" fill="none" className="stroke-current" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (

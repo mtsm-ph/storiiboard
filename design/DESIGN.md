@@ -93,9 +93,14 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **States:** the active section is an accent fill with bold ink text. The active scene has an accent marker and a
   bold name. Sections not built yet are muted and show their phase.
 - **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section.
-- **Hide sidebar:** a button at the sidebar's foot, bottom left, and ⌘\ (Ctrl+\ on Windows) fold it to a 36px strip
-  at the window's left edge; Show sidebar sits in the strip's same corner. The workspace takes the room, each tile
-  keeping its share. The choice is the person's and is remembered.
+- **Foot:** first the web version, muted and marked with its phase until it exists (focusable, so its phase is
+  heard); then a row with Hide sidebar at the left, and at the right the Settings gear (⌘, or Ctrl+,) and the profile.
+- **Profile:** the person's initials in a 22px ink ring, round as avatars are (the accent dots are too); a dashed ring
+  until there's a profile. It opens Settings → Profile: name, initials and usual role, which stay in this
+  computer's settings and are never written into a project file.
+- **Hide sidebar:** the button at the foot, bottom left, and ⌘\ (Ctrl+\ on Windows) fold it to a 36px strip at the
+  window's left edge, keeping the profile and the gear, with Show sidebar in the bottom corner. The workspace takes
+  the room, each tile keeping its share. The choice is the person's and is remembered.
 - **Projects screen:** one tile with New project… (primary), Open…, Open backup… and a Recent or Archived list: an
   accent dot, the bold name, the path in mono, the state and when it was last opened. The open project is marked
   Open. It shows when nothing is open, and from the switcher's All projects….
@@ -131,7 +136,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   first, where focus starts, then the action, Truffle-outlined when it deletes for good or risks the work.
 - **Keyboard:** focus starts on the window's first control (Cancel, in a question), Tab and Shift+Tab stay inside,
   Escape closes, and focus goes back to what had it before.
-- **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups and Storage as tabs
+- **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups, Storage and Profile as tabs
   down its left side. ⌘, (Ctrl+,) opens it from anywhere, at the tab last open.
 
 ## Storyboard

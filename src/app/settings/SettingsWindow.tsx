@@ -10,12 +10,14 @@ import { BackupsPanel } from '../project/BackupsPanel';
 import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
+import { ProfileTab } from './profile';
 import { NoticeBar } from '../NoticeBar';
 
 // Settings in a window of the app's own (polish B), not a workspace of tiles: the project's settings and the person's
-// in one place, a tab each, opened from the sidebar or with ⌘, (Ctrl+,). It remembers the tab last open this session.
+// in one place, a tab each, opened from the sidebar's gear or with ⌘, (Ctrl+,), and from the profile button at its
+// Profile tab. It remembers the tab last open this session.
 
-export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage'] as const;
+export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'profile'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
@@ -24,6 +26,7 @@ const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   theme: 'settings.tab.theme',
   backups: 'settings.tab.backups',
   storage: 'settings.tab.storage',
+  profile: 'settings.tab.profile',
 });
 
 const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
@@ -32,6 +35,7 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   theme: ThemeTile,
   backups: BackupsPanel,
   storage: StorageTile,
+  profile: ProfileTab,
 };
 
 interface SettingsState {
