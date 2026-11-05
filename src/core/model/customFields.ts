@@ -22,6 +22,7 @@ export const BUILT_IN_FIELDS = [
   'field.shot',
   'field.number',
   'field.name',
+  'field.title',
   'field.size',
   'field.lens',
   'field.lensMm',

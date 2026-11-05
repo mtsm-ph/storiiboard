@@ -469,6 +469,7 @@ export const es: Messages = {
   'field.shot': 'Plano',
   'field.number': 'Número',
   'field.name': 'Nombre',
+  'field.title': 'Título',
   'field.size': 'Tamaño',
   'field.lens': 'Lente',
   'field.lensMm': 'Lente (mm)',

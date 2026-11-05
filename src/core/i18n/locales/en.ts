@@ -467,6 +467,7 @@ export const en = {
   'field.shot': 'Shot',
   'field.number': 'Number',
   'field.name': 'Name',
+  'field.title': 'Title',
   'field.size': 'Size',
   'field.lens': 'Lens',
   'field.lensMm': 'Lens (mm)',

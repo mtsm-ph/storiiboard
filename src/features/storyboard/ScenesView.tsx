@@ -104,9 +104,11 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                       value={row.fields.name}
                       label={t('title.sceneName', { scene: label })}
                       className="w-full"
-                      onDone={(text) => {
+                      onDone={(text, how) => {
                         setRenaming(null);
                         if (text !== null && text !== row.fields.name) onRename(row.id, text);
+                        // Back to the row after Enter or Escape; after a click or Tab, focus stays where it went.
+                        if (how === 'away') return;
                         requestAnimationFrame(() => {
                           document.querySelector<HTMLElement>(`[data-scene-row="${CSS.escape(row.id)}"]`)?.focus();
                         });

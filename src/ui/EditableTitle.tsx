@@ -8,12 +8,18 @@ import { t } from '../core/i18n';
 // leaving the field saves too, as every typed field in the app does. The save is one edit, so one undo takes it back.
 // The pencil is a button of its own, never inside another: frame cards and scene rows are buttons themselves.
 
+/** How a title field was left: Enter and Escape keep the keys where the edit began; a click or Tab goes on. */
+export type TitleDone = 'enter' | 'escape' | 'away';
+
 export interface TitleFieldProps {
   value: string;
   /** The field's name: "title of 1B", "name of SC 04". */
   label: string;
-  /** With the text to save (trimmed), or null when Escape put it back. */
-  onDone: (text: string | null) => void;
+  /**
+   * With the text to save (trimmed), or null when Escape put it back, and how it was left: only after Enter or Escape
+   * does focus go back to where the edit began; after a click or Tab it stays where the person sent it.
+   */
+  onDone: (text: string | null, how: TitleDone) => void;
   maxLength?: number;
   className?: string;
 }
@@ -27,30 +33,35 @@ export function TitleField({ value, label, onDone, maxLength = 120, className }:
     input.current?.focus();
     input.current?.select();
   }, []);
-  const finish = (text: string | null) => {
+  const finish = (text: string | null, how: TitleDone) => {
     if (done.current) return;
     done.current = true;
-    onDone(text);
+    onDone(text, how);
   };
   return (
     <input
       ref={input}
+      data-title-field=""
       defaultValue={value}
       aria-label={label}
       maxLength={maxLength}
-      onKeyDown={(event) => {
-        // The board's keys (arrows, Delete, /, S) are the field's while typing.
-        event.stopPropagation();
+      // In the capture phase, so Enter and Escape are the field's before any panel's own keys (the inspector's Escape
+      // goes back to the board, and would otherwise blur the field and save what was half typed).
+      onKeyDownCapture={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          finish(event.currentTarget.value.trim());
+          event.stopPropagation();
+          finish(event.currentTarget.value.trim(), 'enter');
         } else if (event.key === 'Escape') {
           event.preventDefault();
-          finish(null);
+          event.stopPropagation();
+          finish(null, 'escape');
         }
       }}
       onBlur={(event) => {
-        finish(event.currentTarget.value.trim());
+        // Switching to another app (to copy a line from the script, say) leaves the field open, not saved.
+        if (!document.hasFocus()) return;
+        finish(event.currentTarget.value.trim(), 'away');
       }}
       // Clicks stay in the field rather than selecting what's under it.
       onClick={(event) => {
@@ -124,13 +135,15 @@ export function EditableTitle({ value, shown, label, onSave, reveal = false, max
         label={label}
         {...(maxLength !== undefined ? { maxLength } : {})}
         {...(inputClassName !== undefined ? { className: inputClassName } : {})}
-        onDone={(text) => {
+        onDone={(text, how) => {
           setEditing(false);
           if (text !== null && text !== value) onSave(text);
-          // Back to the pencil, so the keys carry on from where the edit started.
-          requestAnimationFrame(() => {
-            pencil.current?.focus();
-          });
+          // Back to the pencil after Enter or Escape, so the keys carry on from where the edit started.
+          if (how !== 'away') {
+            requestAnimationFrame(() => {
+              pencil.current?.focus();
+            });
+          }
         }}
       />
     );

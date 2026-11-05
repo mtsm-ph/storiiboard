@@ -75,7 +75,7 @@ function placeAt(x: number, y: number, draggedId: string, vertical: boolean): { 
   // included), the nearest card in the same row decides (or in the shot list, the nearest row), so crossing a gap
   // doesn't jump to the scene's end; past the last card in a row that has none, the end again.
   const onAdd = under.some((node) => node instanceof HTMLElement && node.closest('[data-board-item]:not([data-item-id])'));
-  const onHeading = !direct && under.some((node) => node instanceof HTMLElement && node.closest('[data-drop-scene] h3'));
+  const onHeading = !direct && under.some((node) => node instanceof HTMLElement && node.closest('[data-drop-scene] h3, [data-drop-scene] [data-heading-row]'));
   if (onHeading && scene?.dataset.dropScene) {
     const first = sceneItems(scene.dataset.dropScene).find((node) => node.dataset.itemId !== draggedId);
     if (first?.dataset.itemId) {

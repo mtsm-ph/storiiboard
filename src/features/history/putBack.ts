@@ -12,7 +12,7 @@ import type { FieldChange } from './summary';
 const PUTTABLE: Readonly<Partial<Record<SbdRecord['type'], ReadonlySet<string>>>> = {
   // Not department status (polish 6): an approval is a sign-off with a name and a time, never one to put back by hand.
   // Not the older departments list either: a frame reads its status now, so putting the list back would change nothing.
-  shot: new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'custom']),
+  shot: new Set(['title', 'size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'custom']),
   scene: new Set(['name', 'int_ext', 'day_night', 'page_eighths']),
   note: new Set(['text']),
 };

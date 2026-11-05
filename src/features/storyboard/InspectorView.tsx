@@ -390,8 +390,15 @@ export function InspectorView({
     const element = root.current;
     if (!element) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
+      // In a typed field, the field's own Escape (put the text back) runs first, in React's handler further up the
+      // page: going back now would blur it and save what was half typed. So it goes back once that has run.
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        setTimeout(onBack, 0);
+        return;
+      }
       onBack();
     };
     element.addEventListener('keydown', onKeyDown);
@@ -411,6 +418,7 @@ export function InspectorView({
         {/* The frame's title, or the scene's name, edited in place (Nov 5): the pencil always shows here. */}
         {shot ? (
           <EditableTitle
+            key={shot.id}
             value={shot.fields.title}
             shown={shot.fields.title === '' ? <span className="text-text-muted">{t('title.none')}</span> : <span data-user-text="">{shot.fields.title}</span>}
             label={t('title.shotTitle', { number: shot.fields.number || t('history.aFrame') })}
@@ -427,6 +435,7 @@ export function InspectorView({
             t('inspector.sceneLine', { scene: sceneLabel(s.number), heading: headingOf(s) })
           ) : (
             <EditableTitle
+              key={scene.id}
               value={s.name}
               shown={headingOf(s)}
               label={t('title.sceneName', { scene: sceneLabel(s.number) })}
