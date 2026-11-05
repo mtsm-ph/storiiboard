@@ -21,10 +21,12 @@ import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
-import { sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
+import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
+import { AskHost } from '../ask';
 import { t } from '../../core/i18n';
 
 export function AppShell() {
@@ -109,6 +111,20 @@ export function AppShell() {
     const focused = document.activeElement;
     toggleSidebar(focused !== null && focused.closest('[data-sidebar]') !== null);
   });
+
+  useEffect(() => {
+    const mac = isMac();
+    // ⌘, (Ctrl+,): Settings, from anywhere but another window of the app's.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isSettingsShortcut(event, mac) || inModalDialog(event.target)) return;
+      event.preventDefault();
+      openSettings();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', onToggleKey);
@@ -226,6 +242,8 @@ export function AppShell() {
       <OnboardingHost />
       <ImportScriptHost />
       <ExportHost />
+      <SettingsHost />
+      <AskHost />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WORKSPACES } from '../workspaces';
-import { removeTile, sameLayout, split, stack, stackOf, tilesIn } from './layout';
-import { canUndoLayout, createLayoutStore, INTRODUCED_KEY, isUnsaved, LAYOUTS_KEY, NEW_TILES } from './layoutStore';
+import { removeTile, sameLayout, split, stack, tilesIn } from './layout';
+import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY, usable } from './layoutStore';
 
 function memory(initial: string | null = null) {
   let value = initial;
@@ -64,50 +64,18 @@ describe('saved layouts', () => {
   });
 });
 
-describe('tiles added after a layout was saved', () => {
-  function store(initial: Record<string, string> = {}) {
-    const values = new Map(Object.entries(initial));
-    return {
-      values,
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, next: string) => {
-        values.set(key, next);
-      },
-    };
-  }
-  // Settings as people saved it before the App tile (polish 1): project | theme | backups + storage.
-  const before = { root: split('row', [stack(['project']), stack(['theme']), stack(['backups', 'storage'])]), maximized: null };
-
-  it('join a saved layout once, as a tab beside the tile named, without opening it', () => {
-    const storage = store({ [LAYOUTS_KEY]: JSON.stringify({ settings: { current: before, saved: before } }) });
-    const settings = createLayoutStore(storage).getState().layouts.settings;
-    for (const layout of [settings.current, settings.saved]) {
-      expect(stackOf(layout, 'app')?.tiles).toEqual(['project', 'app']);
-      expect(stackOf(layout, 'app')?.active).toBe('project');
-    }
-    // Adding it is no change of the person's: no unsaved dot.
-    expect(isUnsaved(settings)).toBe(false);
+describe('a saved layout holding tiles this version no longer has', () => {
+  it('keeps everything else where it was (polish B: the Settings tiles became the Settings window)', () => {
+    const before = { root: split('row', [stack(['scenes', 'backups']), stack(['board']), stack(['theme'])]), maximized: null };
+    const values = new Map([[LAYOUTS_KEY, JSON.stringify({ storyboard: { current: before, saved: before } })]]);
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, next: string) => void values.set(key, next) };
+    const layouts = createLayoutStore(storage).getState().layouts.storyboard;
+    expect(tilesIn(layouts.current)).toEqual(['scenes', 'board']);
+    expect(tilesIn(layouts.saved)).toEqual(['scenes', 'board']);
   });
 
-  it('stay in the saved layout on the next launch, with nothing moved meanwhile', () => {
-    const storage = store({ [LAYOUTS_KEY]: JSON.stringify({ settings: { current: before, saved: before } }) });
-    createLayoutStore(storage);
-    const next = createLayoutStore(storage).getState().layouts.settings;
-    expect(stackOf(next.current, 'app')?.tiles).toEqual(['project', 'app']);
-    expect(stackOf(next.saved, 'app')?.tiles).toEqual(['project', 'app']);
-  });
-
-  it('stay closed once closed: they join only once', () => {
-    const storage = store({ [LAYOUTS_KEY]: JSON.stringify({ settings: { current: before, saved: before } }) });
-    const first = createLayoutStore(storage);
-    first.getState().change('settings', removeTile(first.getState().layouts.settings.current, 'app'));
-    first.getState().save('settings');
-    expect(tilesIn(createLayoutStore(storage).getState().layouts.settings.current)).not.toContain('app');
-    expect(JSON.parse(storage.values.get(INTRODUCED_KEY) ?? '[]')).toEqual(NEW_TILES.map((n) => `${n.workspace}:${n.tile}`));
-  });
-
-  it('are in a fresh default layout already', () => {
-    const settings = createLayoutStore(store()).getState().layouts.settings;
-    expect(tilesIn(settings.current).filter((tile) => tile === 'app')).toHaveLength(1);
+  it('falls back to the default when none of its tiles is left', () => {
+    expect(usable({ root: stack(['backups', 'storage']), maximized: null })).toBeNull();
+    expect(usable('not a layout')).toBeNull();
   });
 });

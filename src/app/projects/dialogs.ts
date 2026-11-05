@@ -1,5 +1,6 @@
 import { join } from '@tauri-apps/api/path';
-import { message, open, save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { ask } from '../ask';
 import type { LockHolder } from '../../core/storage/driver';
 import { fileStem } from '../../core/storage/paths';
 import { fileMode } from '../fileAccess';
@@ -53,18 +54,16 @@ export function pickBackupToOpen(): Promise<string | null> {
  * a sync service can't merge two computers' edits to one file, so one set ends up in a conflicted copy.
  */
 export async function askWhenLocked(holder: LockHolder, path: string): Promise<LockedChoice> {
-  const openACopy = t('dialogs.openACopy');
-  const openAnyway = t('dialogs.openAnyway');
-  const result = await message(
-    t('dialogs.lockedText', { name: fileStem(path), computer: holder.computer, since: localDateTime(new Date(holder.openedAt)) }),
-    {
-      title: t('dialogs.lockedTitle'),
-      kind: 'warning',
-      buttons: { yes: openACopy, no: openAnyway, cancel: t('common.cancel') },
-    },
-  );
-  // Custom buttons report either their label or the role they replace, depending on the platform.
-  if (result === openACopy || result === 'Yes') return 'copy';
-  if (result === openAnyway || result === 'No') return 'anyway';
-  return 'cancel';
+  // In a window of the app's own (polish B), never the system's message box.
+  const answer = await ask({
+    title: t('dialogs.lockedTitle'),
+    text: t('dialogs.lockedText', { name: fileStem(path), computer: holder.computer, since: localDateTime(new Date(holder.openedAt)) }),
+    choices: [
+      { id: 'cancel', label: t('common.cancel') },
+      { id: 'anyway', label: t('dialogs.openAnyway') },
+      { id: 'copy', label: t('dialogs.openACopy'), variant: 'primary' },
+    ],
+    cancel: 'cancel',
+  });
+  return answer === 'copy' || answer === 'anyway' ? answer : 'cancel';
 }

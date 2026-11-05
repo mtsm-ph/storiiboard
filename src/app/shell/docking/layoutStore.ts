@@ -1,7 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { TILES, WORKSPACES, type WorkspaceId } from '../workspaces';
-import { isLayout, openTile, sameLayout, stackOf, tilesIn, type Layout, type LayoutNode, type TileId } from './layout';
+import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
 // never in a .sbd. A workspace keeps its current layout and the one last saved; the tab shows a dot when they differ.
@@ -45,71 +45,33 @@ function browserStorage(): Storage | undefined {
   }
 }
 
-/** A saved layout is used only if it's well formed and holds no tile this app doesn't know. */
-function usable(value: unknown): value is Layout {
-  return isLayout(value) && tilesIn(value).every((tile) => tile in TILES);
-}
-
 /**
- * Tiles added to a workspace's default layout after people had saved their own. Each is put in once, as a tab beside
- * a tile they already have, so it shows without resetting their layout; closed after that, it stays closed.
+ * A saved layout as this version can use it: well formed, with any tile it no longer has taken out (polish B moved the
+ * Settings tiles into the Settings window), the rest keeping their places. Null when nothing it knows is left.
  */
-export const NEW_TILES: readonly { workspace: WorkspaceId; tile: TileId; beside: TileId }[] = [
-  // Settings → App (polish 1): the app's language.
-  { workspace: 'settings', tile: 'app', beside: 'project' },
-];
-
-/** Which of NEW_TILES this person's layouts have been given already, as `workspace:tile`. */
-export const INTRODUCED_KEY = 'storiiboard.layouts.introduced';
-
-function introduce(layout: Layout, tile: TileId, beside: TileId): Layout {
-  if (tilesIn(layout).includes(tile)) return layout;
-  const holder = stackOf(layout, beside);
-  // Added as a tab without opening it, so the layout looks as it did until the tab is picked.
-  return holder ? { ...layout, root: addTab(layout.root, holder.id, tile) } : openTile(layout, tile);
-}
-
-function addTab(node: LayoutNode, stackId: string, tile: TileId): LayoutNode {
-  if (node.kind === 'stack') return node.id === stackId ? { ...node, tiles: [...node.tiles, tile] } : node;
-  return { ...node, children: node.children.map((child) => addTab(child, stackId, tile)) };
+export function usable(value: unknown): Layout | null {
+  if (!isLayout(value)) return null;
+  const gone = tilesIn(value).filter((tile) => !(tile in TILES));
+  if (gone.length === tilesIn(value).length) return null;
+  // removeTile keeps a workspace's last tile, which can't be one of these: at least one known tile is left.
+  return gone.reduce((layout, tile) => removeTile(layout, tile), value);
 }
 
 function load(storage: Storage | undefined): Record<WorkspaceId, WorkspaceLayouts> {
   let saved: Record<string, unknown> = {};
-  let introduced: string[] = [];
   try {
     const parsed: unknown = JSON.parse(storage?.getItem(LAYOUTS_KEY) ?? '{}');
     if (typeof parsed === 'object' && parsed !== null) saved = parsed as Record<string, unknown>;
-    const marks: unknown = JSON.parse(storage?.getItem(INTRODUCED_KEY) ?? '[]');
-    if (Array.isArray(marks)) introduced = marks.filter((m): m is string => typeof m === 'string');
   } catch {
     // A corrupt entry only costs the custom layouts, never the session.
   }
-  const grew: WorkspaceId[] = [];
   const entries = WORKSPACES.map((workspace) => {
     const entry = saved[workspace.id] as Partial<Record<'current' | 'saved', unknown>> | undefined;
-    const fallback = workspace.defaultLayout();
-    let savedLayout = usable(entry?.saved) ? entry.saved : fallback;
-    let current = usable(entry?.current) ? entry.current : savedLayout;
-    for (const tile of NEW_TILES.filter((n) => n.workspace === workspace.id && !introduced.includes(`${n.workspace}:${n.tile}`))) {
-      const nextSaved = introduce(savedLayout, tile.tile, tile.beside);
-      const nextCurrent = introduce(current, tile.tile, tile.beside);
-      if (nextSaved !== savedLayout || nextCurrent !== current) grew.push(workspace.id);
-      savedLayout = nextSaved;
-      current = nextCurrent;
-    }
+    const savedLayout = usable(entry?.saved) ?? workspace.defaultLayout();
+    const current = usable(entry?.current) ?? savedLayout;
     return [workspace.id, { current, saved: savedLayout }] as const;
   });
-  const layouts = Object.fromEntries(entries) as Record<WorkspaceId, WorkspaceLayouts>;
-  try {
-    // The layouts with their new tiles first, then the note that they were given: a write that fails costs a second
-    // offer next time, never the tile itself.
-    if (grew.length > 0) storage?.setItem(LAYOUTS_KEY, JSON.stringify(layouts));
-    storage?.setItem(INTRODUCED_KEY, JSON.stringify([...new Set([...introduced, ...NEW_TILES.map((n) => `${n.workspace}:${n.tile}`)])]));
-  } catch {
-    // Not remembered: the tile is offered again next time, which is harmless.
-  }
-  return layouts;
+  return Object.fromEntries(entries) as Record<WorkspaceId, WorkspaceLayouts>;
 }
 
 export function createLayoutStore(storage: Storage | undefined = browserStorage()): StoreApi<LayoutState> {

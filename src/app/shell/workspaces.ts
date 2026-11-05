@@ -4,7 +4,7 @@ import { split, stack, type Layout, type TileId } from './docking/layout';
 // One workspace per sidebar section (D3), in the sidebar's order, with default layouts sized for the design boards'
 // 1440px. People rearrange them by docking (D2); the tiles stay empty until each tool's phase fills them.
 
-export type WorkspaceId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard' | 'settings';
+export type WorkspaceId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard';
 
 export interface TileInfo {
   title: string;
@@ -12,7 +12,8 @@ export interface TileInfo {
   note: string;
 }
 
-// Tiles the app has today. A new tile is one id here, plus its title and note in each translation file.
+// Tiles the app has today. A new tile is one id here, plus its title and note in each translation file. Settings'
+// project, app, theme, backups and storage are tabs in the Settings window (polish B), not tiles.
 const BUILT_IN_TILES = [
   'scenes',
   'board',
@@ -31,11 +32,6 @@ const BUILT_IN_TILES = [
   'assets',
   'team',
   'people',
-  'project',
-  'backups',
-  'storage',
-  'theme',
-  'app',
   'calendar',
   'notifications',
   'history',
@@ -173,15 +169,6 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
     order: ['moodboard'],
     defaultLayout: () => layout(stack(['moodboard'])),
   },
-  {
-    id: 'settings',
-    get label() {
-      return t('workspace.settings');
-    },
-    phase: null,
-    order: ['project', 'app', 'theme', 'backups', 'storage'],
-    defaultLayout: () => layout(split('row', [stack(['project', 'app']), stack(['theme']), stack(['backups', 'storage'])], [440, 560, 416])),
-  },
 ];
 
 export const WORKSPACE_PANEL_ID = 'workspace-panel';
@@ -217,7 +204,7 @@ export function inModalDialog(target: EventTarget | null, projectUndo = false): 
   return open !== null && !(projectUndo && open.hasAttribute('data-project-undo'));
 }
 
-/** Alt+1–7, in the sidebar's order. Read from event.code, because Option+number types ¡™£¢ on a Mac keyboard. */
+/** Alt+1–6, in the sidebar's order. Read from event.code, because Option+number types ¡™£¢ on a Mac keyboard. */
 export function workspaceForShortcut(event: ShortcutEvent): Workspace | undefined {
   if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTextEntry(event.target) || inModalDialog(event.target)) return undefined;
   const match = /^Digit([1-9])$/.exec(event.code);
