@@ -72,10 +72,13 @@ test('Alt+1 to Alt+7 jump to a section, and focus follows from the tiles', async
 });
 
 test('the project menu and switcher show what each command waits for', async ({ page }) => {
-  await page.getByRole('button', { name: 'Project', exact: true }).click();
-  // Every command is built; with no project open there's nothing for them to act on.
+  const project = page.getByRole('button', { name: 'Project', exact: true });
+  await project.click();
+  // Every command is built; with no project open there's nothing for them to act on. In the menu's own panel: the top
+  // bar has a History button too (polish 3).
+  const menu = page.locator(`[id="${(await project.getAttribute('aria-controls')) ?? ''}"]`);
   for (const name of ['History', 'Watermark Settings', 'Export Project…', 'Archive Project']) {
-    await expect(page.getByRole('button', { name, exact: true })).toBeDisabled();
+    await expect(menu.getByRole('button', { name, exact: true })).toBeDisabled();
   }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Project', exact: true })).toBeFocused();

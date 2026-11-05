@@ -40,21 +40,57 @@ async function setLens(page: Page, mm: string) {
 }
 
 test('the top bar’s History button, beside the project name, and the project menu open the same tile', async ({ page }) => {
-  const button = page.getByRole('banner').getByRole('button', { name: 'History', exact: true });
+  const banner = page.getByRole('banner');
+  const button = banner.getByRole('button', { name: 'History', exact: true });
   // Right after the project's name, as Kevin asked: name, then History.
-  const name = await page.getByRole('banner').locator('span.sb-label').first().boundingBox();
+  const name = await banner.getByText('Bey County', { exact: true }).locator('..').boundingBox();
   const box = await button.boundingBox();
-  expect(box && name && Math.abs(box.x - (name.x + name.width)) < 2).toBe(true);
+  if (!name || !box) throw new Error('not on screen');
+  expect(Math.abs(box.x - (name.x + name.width))).toBeLessThan(2);
 
   await button.click();
   await expect(history(page)).toBeVisible();
-  // Asked again, the tile is already there: it stays one tile, open.
+  // Focus goes into the tile, on its first control, so the keyboard needn't cross the workspace to reach it.
+  await expect(history(page).getByLabel('Name this point')).toBeFocused();
+  // Asked again while it's in view: still one History.
+  await button.click();
+  await expect(history(page)).toHaveCount(1);
+
+  // Hidden behind a maximized tile, it comes to the front.
+  await page.getByRole('button', { name: 'Maximize Storyboard' }).click();
+  await expect(history(page)).toHaveCount(0);
+  await button.click();
+  await expect(history(page)).toBeVisible();
+
+  // A background tab in a stack is picked.
+  const board = await page.getByRole('region', { name: 'Storyboard', exact: true }).boundingBox();
+  const bar = await history(page).locator('div').first().boundingBox();
+  if (!board || !bar) throw new Error('not on screen');
+  await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(board.x + board.width / 2, board.y + board.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.getByRole('tab', { name: 'Storyboard' }).click();
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'false');
+  await button.click();
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true');
+
+  // The project menu's History is the same tile.
   await page.getByRole('button', { name: 'Close History' }).click();
   await expect(history(page)).toHaveCount(0);
-  await page.getByRole('button', { name: 'Project', exact: true }).click();
-  // The menu's History comes after the top bar's in the page.
-  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).nth(1).click();
+  const project = page.getByRole('button', { name: 'Project', exact: true });
+  await project.click();
+  await page.locator(`[id="${(await project.getAttribute('aria-controls')) ?? ''}"]`).getByRole('button', { name: 'History', exact: true }).click();
   await expect(history(page)).toHaveCount(1);
+});
+
+test('History from the Projects screen goes back to the workspace, with History in front', async ({ page }) => {
+  await page.getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  await expect(page.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Projects', exact: true })).toHaveCount(0);
+  await expect(history(page)).toBeVisible();
 });
 
 test('lists every step in words, newest first, and Restore to here is a step undo takes back', async ({ page }) => {

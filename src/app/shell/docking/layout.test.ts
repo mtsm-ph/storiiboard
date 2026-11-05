@@ -10,6 +10,7 @@ import {
   removeTile,
   resizeSplit,
   sameLayout,
+  selectTab,
   split,
   stack,
   stackOf,
@@ -227,3 +228,28 @@ describe('docking along a window edge (polish 4)', () => {
     expect(edgePreviewBox(panel, 'right')).toEqual({ left: 248 + 1192 * 0.75, top: 44, width: 1192 * 0.25, height: 832 });
   });
 });
+describe('opening a tile that is already there (polish 3)', () => {
+  it('brings it to the front: its tab picked, a maximized tile that hides it restored', () => {
+    const tabbed = dropTile(storyboard(), 'player', 's-board', 'center');
+    const boardFront = selectTab(tabbed, stackOf(tabbed, 'board')?.id ?? '', 'board');
+    const picked = openTile(boardFront, 'player');
+    expect(stackOf(picked, 'player')?.active).toBe('player');
+
+    const hidden = toggleMaximize(storyboard(), 's-scenes');
+    expect(openTile(hidden, 'inspector').maximized).toBeNull();
+    // Maximized itself, it stays so; a background tab in the maximized stack is picked, and the stack stays maximized.
+    const shown = toggleMaximize(storyboard(), 's-inspector');
+    expect(openTile(shown, 'inspector')).toBe(shown);
+    const inMax = toggleMaximize(dropTile(storyboard(), 'player', 's-inspector', 'center'), 's-inspector');
+    const back = selectTab(inMax, 's-inspector', 'inspector');
+    const front = openTile(back, 'player');
+    expect(stackOf(front, 'player')?.active).toBe('player');
+    expect(front.maximized).toBe('s-inspector');
+  });
+
+  it('changes nothing when it’s in view already, so there is no layout step to undo', () => {
+    const layout = storyboard();
+    expect(openTile(layout, 'inspector')).toBe(layout);
+  });
+});
+

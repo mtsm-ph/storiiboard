@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (P2 sidebar toggle merged) |
+| Last updated | Nov 5, 2026 (P3 History button merged) |
 
 | Phase | State |
 |---|---|
@@ -93,7 +93,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 |---|---|---|
 | P1 Language layer: every word through translation files (src/core/i18n), English only; Settings → App language | #49 | Done |
 | P2 Hide and show the sidebar: a button and a shortcut, the layout reflows, the choice remembered | #50 | Done |
-| P3 History button in the top bar, beside the project name | | Building |
+| P3 History button in the top bar, beside the project name | #51 | Done |
 | P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | | Planned |
 | PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Planned |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Planned |
@@ -103,6 +103,14 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
+
+Decided Nov 5 (Kevin):
+- PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
+  workspaces; each menu short, most-used first, at most four groups, and anything that undoes or deletes in its own
+  group at the bottom; items not built yet are hidden, not greyed out (phase placeholders stay in tiles and the
+  sidebar only); shortcuts at the right, and "…" on items that open an in-app window.
+- P7's glossary offers Kevin one choice: shot size abbreviations in Spanish (PG, PM, PP…) or kept in English (WS, MS,
+  CU…), as many bilingual US crews use them. Stored values stay as they are either way.
 
 P1 as built (Nov 4):
 - The app's words live in one file per language, src/core/i18n/locales (English: `en.ts`). Code reads them through
