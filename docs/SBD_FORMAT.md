@@ -343,7 +343,8 @@ than show its frames without their clips. The one new table holds LUTs (2.5).
 - The page reads a video's file only through Rust (src-tauri/src/video.rs), never for writing, and only one the
   person dropped or chose this session; one they handed over before, which Rust remembers in this computer's app data
   (`known-videos.json`, which only Rust writes); or one inside the open project's own folder that a live video record
-  links (relative path, no `..`, not a symbolic link), as when a project folder is copied with its footage. A path a
+  links (relative path, no `..`, no symbolic link or junction anywhere below the project's folder), as when a
+  project folder is copied with its footage. Rust decides from the path and the records before it asks the disk. A path a
   project file names elsewhere, a network share among them, is never read until the person relinks it, so a project
   someone sends can't make the app reach for a file or a server.
 

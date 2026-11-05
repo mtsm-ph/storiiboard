@@ -372,7 +372,8 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
         return Err("That video's frame rate can't be read.".into());
     }
     let (stream_start, file_start) = starts(path)?;
-    let into = ((frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num)).max(0.0);
+    // A quarter frame early, frame 0 included: the output seek compares against the frame's own timestamp.
+    let into = (frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num);
     // One scale: square pixels and the cap together, so an 8K 2x anamorphic frame never makes a 16K one on the way.
     // Quoted, so the commas in min() and max() stay inside the expressions.
     let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
@@ -426,10 +427,14 @@ pub struct KnownVideos {
 impl KnownVideos {
     pub fn load(data_dir: &Path) -> Self {
         let file = data_dir.join("known-videos.json");
-        let paths = std::fs::read(&file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<PathBuf>>(&bytes).ok())
-            .unwrap_or_default();
+        let paths = match std::fs::read(&file) {
+            Ok(bytes) => serde_json::from_slice::<Vec<PathBuf>>(&bytes).unwrap_or_else(|_| {
+                // Kept aside, never written over: the next video remembered starts a new list.
+                let _ = std::fs::rename(&file, file.with_extension("json.unreadable"));
+                Vec::new()
+            }),
+            Err(_) => Vec::new(),
+        };
         Self {
             file: Some(file),
             paths: Mutex::new(paths),
@@ -470,8 +475,14 @@ impl KnownVideos {
         if let Some(dir) = file.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        // On disk before it takes the list's name, so a power cut leaves the old list or the new one, never an empty
+        // file.
         let partial = file.with_extension("json.partial");
-        if std::fs::write(&partial, json).is_ok() {
+        let written = std::fs::File::create(&partial).and_then(|mut out| {
+            std::io::Write::write_all(&mut out, &json)?;
+            out.sync_all()
+        });
+        if written.is_ok() {
             let _ = std::fs::rename(&partial, file);
         }
     }
@@ -963,8 +974,8 @@ mod tests {
                 ("Footage/C0042.MP4", false),
                 ("Footage/C0043.MP4", true),
                 ("Footage/notes.txt", false),
-                (r"\\server\share\A001.mov", false),
-                ("/net/server/A001.mov", false),
+                (r"\\192.0.2.1\share\A001.mov", false),
+                ("/net/192.0.2.1/share/A001.mov", false),
                 ("../Elsewhere/C0050.MP4", false),
             ],
         );
@@ -993,9 +1004,21 @@ mod tests {
         assert!(!access.may_read(&dir.join("Stills").join("frame.mov")));
         assert!(!access.may_read(&dir.join("Footage").join("notes.txt")));
         assert!(!access.may_read(&dir.join("Footage").join("C0044.MP4")));
-        // Not a network path a shared project names, not a climb out of the folder, not a relative path.
-        assert!(!access.may_read(Path::new(r"\\server\share\A001.mov")));
-        assert!(!access.may_read(Path::new("/net/server/A001.mov")));
+        // Not a network path a shared project names, decided from the path alone and at once, never by asking the
+        // network: 192.0.2.1 is a documentation address that never answers, so a lookup would take seconds.
+        for remote in [
+            r"\\192.0.2.1\share\A001.mov",
+            "/net/192.0.2.1/share/A001.mov",
+        ] {
+            let started = std::time::Instant::now();
+            assert!(!access.may_read(Path::new(remote)), "{remote}");
+            assert!(
+                started.elapsed() < std::time::Duration::from_millis(50),
+                "{remote} took {:?}",
+                started.elapsed()
+            );
+        }
+        // Not a climb out of the folder, not a relative path.
         assert!(!access.may_read(&dir.join("..").join("Elsewhere").join("C0050.MP4")));
         assert!(!access.may_read(
             &dir.join("Footage")
@@ -1022,6 +1045,39 @@ mod tests {
         );
         assert_eq!(access.status(&dir.join("secret.txt")), None);
         files.close_all();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refuses_a_video_reached_through_a_linked_folder_inside_the_project() {
+        let dir = temp_dir("linked-folder");
+        let elsewhere = temp_dir("private");
+        fs::write(elsewhere.join("C0042.MP4"), "").unwrap();
+        // A project folder that came with `Footage` pointing at another folder, as a zip or a git clone keeps it.
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&elsewhere, dir.join("Footage"));
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&elsewhere, dir.join("Footage"));
+        if made.is_err() {
+            // Windows without Developer Mode can't make a link; the Mac checkpoint runs this.
+            eprintln!("skipped: this computer can't make a symbolic link");
+            return;
+        }
+        let (offered, known, files) = (
+            Offered::default(),
+            KnownVideos::in_memory(),
+            OpenFiles::default(),
+        );
+        let handle = project_linking(&dir, &files, &[("Footage/C0042.MP4", false)]);
+        let access = Access {
+            offered: &offered,
+            known: &known,
+            files: &files,
+            handle: Some(handle),
+        };
+        assert!(!access.may_read(&dir.join("Footage").join("C0042.MP4")));
+        files.close_all();
+        let _ = fs::remove_dir_all(&elsewhere);
         let _ = fs::remove_dir_all(&dir);
     }
 

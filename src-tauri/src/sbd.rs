@@ -818,8 +818,10 @@ impl OpenFiles {
 
     /// Whether `video` is inside the open project `handle`'s own folder and a live video record of it links it there
     /// (Phase 2), as src/core/media/store.ts stores a path under the project: relative, with `/`. The case of a
-    /// project folder copied with its footage. Never a path that climbs out with `..`, and never a link: a file sent
-    /// with the project can't point the app at another place.
+    /// project folder copied with its footage. Path work and the project's records decide first, so a path elsewhere
+    /// (a network share a sent project names) is refused without the disk, or the network, ever being asked. Then the
+    /// folders from the project's down are checked one by one, and a symbolic link or junction anywhere on the way is
+    /// refused: a folder sent with the project can't point the app at another place.
     pub fn links_video_inside(&self, handle: u32, video: &Path) -> Result<bool, String> {
         use std::path::Component;
         if video
@@ -828,16 +830,12 @@ impl OpenFiles {
         {
             return Ok(false);
         }
-        if fs::symlink_metadata(video).is_ok_and(|meta| meta.file_type().is_symlink()) {
-            return Ok(false);
-        }
-        self.with(handle, |file| {
-            let Some(rest) = file
-                .path
-                .parent()
-                .and_then(|folder| video.strip_prefix(folder).ok())
-            else {
-                return Ok(false);
+        let folder = self.with(handle, |file| {
+            let Some(folder) = file.path.parent() else {
+                return Ok(None);
+            };
+            let Ok(rest) = video.strip_prefix(folder) else {
+                return Ok(None);
             };
             let relative: Vec<String> = rest
                 .components()
@@ -848,8 +846,23 @@ impl OpenFiles {
                   AND json_extract(props, '$.kind') = 'video' AND json_extract(props, '$.source_path') = ? LIMIT 1",
                 &[Json::String(relative.join("/"))],
             )?;
-            Ok(!rows.is_empty())
-        })
+            Ok((!rows.is_empty()).then(|| folder.to_path_buf()))
+        })?;
+        let Some(folder) = folder else {
+            return Ok(false);
+        };
+        // Only now the disk, and only inside the project's folder: each step down, without following a link. A part
+        // that isn't there ends the walk; the file is then missing, which the missing flag says.
+        let mut at = folder;
+        for part in video.strip_prefix(&at).map_err(text)?.components() {
+            at.push(part);
+            match fs::symlink_metadata(&at) {
+                Ok(meta) if meta.file_type().is_symlink() => return Ok(false),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        Ok(true)
     }
 
     #[cfg(test)]
