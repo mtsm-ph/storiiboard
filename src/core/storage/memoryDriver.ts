@@ -53,17 +53,26 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
   const { default: initSqlJs } = await import('sql.js');
   const SQL: SqlJsStatic = await initSqlJs({ locateFile: () => wasm });
 
-  const read = (): Map<string, string> => {
+  const read = (): Map<string, Uint8Array> => {
     try {
-      return new Map(Object.entries(JSON.parse(storage?.getItem(STORE_KEY) ?? '{}') as Record<string, string>));
+      const saved = Object.entries(JSON.parse(storage?.getItem(STORE_KEY) ?? '{}') as Record<string, string>);
+      return new Map(saved.map(([path, text]) => [path, fromBase64(text)]));
     } catch {
       return new Map();
     }
   };
-  /** Each file's bytes, base64, by path. */
+  /** Each file's bytes, by path; base64 only in storage. */
   const files = read();
   const persist = () => {
-    storage?.setItem(STORE_KEY, JSON.stringify(Object.fromEntries(files)));
+    if (!storage) return;
+    storage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries([...files].map(([path, bytes]) => [path, toBase64(bytes)]))));
+  };
+  // Without storage (a performance run, `keep=page`), an open file's bytes are copied out only when something needs
+  // them (a reopen, a copy, a close) rather than after every write: a whole export per edit costs a second on a
+  // project with hundreds of pictures, which the desktop never pays.
+  const flushers = new Map<string, Set<() => void>>();
+  const flush = (path: string) => {
+    for (const run of flushers.get(path) ?? []) run();
   };
   // Copies saveCopy made that keepCopy hasn't named yet, and how many connections each path has open, as sbd.rs
   // keeps them: only a closed draft can be renamed or deleted.
@@ -83,11 +92,12 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
   const openFile = (path: string, isNew: boolean): ProjectFile => {
     checkExtension(path);
     if (isNew && files.has(path)) throw new Error('A file already exists at that path.');
+    flush(path);
     const saved = files.get(path);
     if (!isNew && saved === undefined) throw new Error("There's no project file at that path.");
     let db: Database;
     try {
-      db = new SQL.Database(saved === undefined ? undefined : fromBase64(saved));
+      db = new SQL.Database(saved);
       configure(db);
     } catch (error) {
       throw new Error("This file isn't a Storiiboard project.", { cause: error });
@@ -110,12 +120,22 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
       configure(db);
       return bytes;
     };
-    const save = () => {
-      files.set(path, toBase64(exportBytes()));
+    let dirty = false;
+    const write = () => {
+      files.set(path, exportBytes());
+      dirty = false;
       persist();
     };
-    if (isNew) save();
+    const save = () => {
+      if (storage) write();
+      else dirty = true;
+    };
+    const flushThis = () => {
+      if (dirty) write();
+    };
+    if (isNew) write();
     open.set(path, (open.get(path) ?? 0) + 1);
+    flushers.set(path, (flushers.get(path) ?? new Set()).add(flushThis));
 
     const stem = fileStem(path);
     const backupsDir = `${folderOf(path)}/Backups`;
@@ -173,7 +193,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         settle(() => {
           const dest = backupPath(kind, name);
           if (files.has(dest)) throw new Error(`A backup named "${name}" already exists.`);
-          files.set(dest, toBase64(exportBytes()));
+          files.set(dest, exportBytes());
           persist();
         }),
       compact: () =>
@@ -185,7 +205,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         settle(() =>
           [...files.entries()]
             .filter(([key]) => key.startsWith(`${backupsDir}/`))
-            .map(([key, saved]) => ({ name: key.slice(backupsDir.length + 1), bytes: fromBase64(saved).length }))
+            .map(([key, saved]) => ({ name: key.slice(backupsDir.length + 1), bytes: saved.length }))
             .filter((backup) => isBackupName(stem, backup.name))
             .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
         ),
@@ -199,7 +219,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         settle(() => {
           checkExtension(dest);
           if (files.has(dest)) throw new Error('A file already exists at that path.');
-          files.set(dest, toBase64(exportBytes()));
+          files.set(dest, exportBytes());
           persist();
           drafts.add(dest);
         }),
@@ -209,6 +229,8 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
       refreshLock: () => settle(() => undefined),
       close: () =>
         settle(() => {
+          flushThis();
+          flushers.get(path)?.delete(flushThis);
           db.close();
           open.set(path, (open.get(path) ?? 1) - 1);
         }),
@@ -222,6 +244,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
       settle(() => {
         checkExtension(source);
         checkExtension(dest);
+        flush(source);
         const saved = files.get(source);
         if (saved === undefined) throw new Error("There's no project file at that path.");
         if (files.has(dest)) throw new Error('A file already exists at that path.');

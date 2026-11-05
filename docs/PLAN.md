@@ -106,7 +106,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
 | PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | #63 | Done (decisions marked for review) |
-| Q1 Quality pass: the low-severity review findings still open from Phase 1 | | In review |
+| Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | | Planned |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | | Planned |
 
