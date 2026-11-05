@@ -107,7 +107,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
 | PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | #63 | Done (decisions marked for review) |
 | Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
-| Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | | Planned |
+| Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | | Planned |
 
 Decided Nov 5 (Kevin):
@@ -279,6 +279,19 @@ Q1 as built (Nov 5): the lows the reviews left open, fixed.
   de planos de Bey County ESC 04.csv"); the PDF glyph test checks accented letters; script import reads headings with
   full stops between the parts (`INT. CASA. NOCHE`).
 - Checked and already fixed: ⌘, with a menu open closes the menu (now tested).
+
+Q2 as built (Nov 5): two performance checks, run on request, and the numbers (Windows PC, 10 scenes of 30 frames,
+each with a 1920 by 1080 picture).
+- `SB_PERF=1 npx playwright test e2e/perf.spec.ts --project=chromium`, the screen side, in the memory build with the
+  project kept in the page: scrolling the whole board (20,000 px) draws at 60 fps (16.7 ms a frame, the slowest 21
+  ms); Grid, Strip and Shot list switch in 54 to 84 ms; the next frame with → shows in 31 ms; an edit is saved and
+  shown in 34 ms; undo and redo about 75 ms as the test sees them; the project opens from Recent in 0.32 s; 30 pictures
+  dropped at once take about 2 s to prepare and save.
+- `SB_PERF=1 npx vitest run src/core/storage/perf.test.ts`, saving on native SQLite (the desktop's engine, without
+  the window): an edit 13.6 ms, undo 13.2 ms, redo 13.2 ms, opening 19 ms, for an 83 MB file.
+- Nothing in the app was slow. The memory build's driver was (1.5 s an edit: it exported the whole project after
+  every write), and it's a dev-only tool; Q1 fixed it so these numbers measure the app. Not measured: the desktop's
+  window-to-Rust calls, which these runs leave out; pictures far larger than 1920 by 1080 take longer to prepare.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
