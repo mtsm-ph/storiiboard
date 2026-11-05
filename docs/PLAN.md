@@ -104,7 +104,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PPa Scene colour palettes from the frames' pictures: generate, lock and regenerate, reorder, delete, copy the hex, all undoable; in the inspector and the Scenes tile | #59 | Done |
 | PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
-| P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
+| P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
