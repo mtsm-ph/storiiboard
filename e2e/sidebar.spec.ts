@@ -50,8 +50,9 @@ test('arrow keys move through the sidebar, Enter opens, and Tab enters at the ac
   await page.keyboard.press('Enter');
   await expect(section(page, 'Setup')).toHaveAttribute('aria-current', 'page');
 
+  // The last entry is the foot's Web version, still to come: on the arrows so its phase is heard.
   await page.keyboard.press('End');
-  await expect(section(page, 'Moodboard')).toBeFocused();
+  await expect(sidebar(page).getByRole('button', { name: /^Web version/ })).toBeFocused();
   await page.keyboard.press('Home');
   await expect(section(page, 'Storyboard')).toBeFocused();
 });

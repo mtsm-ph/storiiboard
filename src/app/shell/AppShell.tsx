@@ -1,5 +1,4 @@
 import { useEffect, useEffectEvent, useState } from 'react';
-import { clearNotice, useNotice } from '../notice';
 import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
 import { canOpenFiles, isTauriApp } from '../fileAccess';
@@ -27,6 +26,7 @@ import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
+import { NoticeBar } from '../NoticeBar';
 import { t } from '../../core/i18n';
 
 export function AppShell() {
@@ -36,7 +36,6 @@ export function AppShell() {
   const setActiveSceneId = useSelection((s) => s.selectScene);
   // All projects… asks for the Projects screen while a project is open; opening one, or a section, leaves it.
   const [projectsAsked, setProjectsAsked] = useState(false);
-  const notice = useNotice();
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
   const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
@@ -187,26 +186,7 @@ export function AppShell() {
           />
         )}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {notice.message !== null &&
-            (notice.kind === 'warning' ? (
-              <div role="alert" className="mx-gap mt-gap flex items-center gap-3 bg-warning px-3 py-2 text-paper-fixed">
-                <p className="text-[13px]">{notice.message}</p>
-                <button
-                  type="button"
-                  onClick={clearNotice}
-                  className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
-                >
-                  {t('appShell.dismiss')}
-                </button>
-              </div>
-            ) : (
-              <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
-                <p className="text-[13px]">{notice.message}</p>
-                <button type="button" onClick={clearNotice} className="sb-label ml-auto border border-text px-2 py-1">
-                  {t('appShell.gotIt')}
-                </button>
-              </div>
-            ))}
+          <NoticeBar />
           {!showProjects && projectState === 'archived' && (
             <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
               <p className="text-[13px]">

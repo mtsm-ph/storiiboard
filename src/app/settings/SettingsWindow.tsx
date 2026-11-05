@@ -11,6 +11,7 @@ import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
 import { ProfileTab } from './profile';
+import { NoticeBar } from '../NoticeBar';
 
 // Settings in a window of the app's own (polish B), not a workspace of tiles: the project's settings and the person's
 // in one place, a tab each, opened from the sidebar's gear or with ⌘, (Ctrl+,), and from the profile button at its
@@ -67,9 +68,11 @@ export function SettingsHost() {
   const tabId = (id: SettingsTab) => `${baseId}-tab-${id}`;
   return (
     <InAppWindow title={t('settings.title')} onClose={closeSettings} width={920} height={680} projectUndo>
+      {/* Above the tabs, out of the scrolling panel: a notice from the foot of a long panel never scrolls away. */}
+      <NoticeBar />
       <div className="flex min-h-0 flex-1">
         {/* Tabs down the side, as a settings window has them; arrows move through them, Tab goes on to the content. */}
-        <div role="tablist" aria-orientation="vertical" aria-label={t('settings.title')} className="flex w-44 shrink-0 flex-col border-r border-border">
+        <div role="tablist" aria-orientation="vertical" aria-label={t('settings.sections')} className="flex w-44 shrink-0 flex-col border-r border-border">
           {SETTINGS_TABS.map((id, i) => {
             const selected = id === tab;
             return (
@@ -100,7 +103,10 @@ export function SettingsHost() {
             );
           })}
         </div>
-        <div id={`${baseId}-panel`} role="tabpanel" aria-labelledby={tabId(tab)} className="min-h-0 min-w-0 flex-1 overflow-auto">
+        {/* Focusable itself, so its text is reached with Tab even when it has no control (Project, with none open):
+            the WAI-ARIA tabs pattern's own advice for a panel. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
+        <div id={`${baseId}-panel`} role="tabpanel" tabIndex={0} aria-labelledby={tabId(tab)} className="min-h-0 min-w-0 flex-1 overflow-auto focus-visible:-outline-offset-2">
           <Content />
         </div>
       </div>

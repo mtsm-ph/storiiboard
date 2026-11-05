@@ -985,11 +985,15 @@ export const en = {
   'profile.initials': 'Initials',
   'profile.role': 'Usual role',
   'profile.noRole': 'Not set',
-  'profile.note': 'Shown wherever the app says who did something, such as History and approvals, and saved with your edits. It stays on this computer; accounts come with the web companion. A project’s own role for you takes the place of your usual one there.',
+  'profile.note': 'Shown on your profile button. It stays in this app’s settings on this computer and is never saved into a project file. Accounts come with the web companion.',
   'settings.tab.profile': 'Profile',
   'sidebar.gear': 'Settings ({keys})',
   'sidebar.profile': 'Profile: {name}',
   'sidebar.profileEmpty': 'Set up your profile',
   'sidebar.web': 'Web version',
+  // src/app/settings/SettingsWindow.tsx
+  'settings.sections': 'Settings sections',
+  // src/app/ask.tsx
+  'window.closePlain': 'Close',
   // codemod: new entries above this line
 };

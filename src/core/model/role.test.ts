@@ -25,3 +25,12 @@ describe('the local profile (polish C)', () => {
     expect(loadSettings(storage(null)).profile).toEqual({ name: '', initials: '', role: null });
   });
 });
+
+describe('profile text as kept', () => {
+  it('drops controls and direction overrides but keeps joiners, and cuts by characters, never mid-emoji', async () => {
+    const { cleanProfileText } = await import('../storage/settings');
+    expect(cleanProfileText('Kevin\u202E Matos\u0007', 60)).toBe('Kevin Matos');
+    expect(cleanProfileText('می\u200Cخواهم', 60)).toBe('می\u200Cخواهم');
+    expect(cleanProfileText(`${'a'.repeat(59)}😀😀`, 60)).toBe(`${'a'.repeat(59)}😀`);
+  });
+});

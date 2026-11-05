@@ -9,6 +9,7 @@ import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout
 // survive restarts.
 
 // Versioned by the set of workspaces: D3's seven replaced D2's four, so layouts saved under the old key start over.
+// PB's six (Settings became a window) keep the key: the five left read as they were saved.
 export const LAYOUTS_KEY = 'storiiboard.layouts.2';
 
 interface WorkspaceLayouts {

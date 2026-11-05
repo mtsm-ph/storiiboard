@@ -95,18 +95,16 @@ test('History from the Projects screen goes back to the workspace, with History 
   await expect(history(page)).toBeVisible();
 });
 
-test('a step says who made it: the profile’s name once there is one, “You” before', async ({ page }) => {
-  await openHistory(page);
-  await expect(steps(page).first()).toContainText('You');
+test('the profile stays on this computer: steps still read “You”, never the name', async ({ page }) => {
   const profile = await openSettings(page, 'Profile');
   await profile.getByLabel('Your name').fill('Kevin Matos');
   await profile.getByLabel('Your name').press('Enter');
   await page.keyboard.press('Escape');
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await openHistory(page);
   await expect(steps(page).first()).toContainText('Added frame 1D');
-  await expect(steps(page).first()).toContainText('Kevin Matos');
-  // Steps made before keep reading as they were.
-  await expect(steps(page).nth(1)).toContainText('You');
+  await expect(steps(page).first()).toContainText('You');
+  await expect(history(page).getByText('Kevin Matos')).toHaveCount(0);
 });
 
 test('lists every step in words, newest first, and Restore to here is a step undo takes back', async ({ page }) => {
@@ -241,7 +239,7 @@ test('a named version opens as a copy at that point, and the original keeps ever
   // Deleting the version asks first, and leaves the steps: every one of them is still listed, only the name goes.
   const before = await steps(page).allTextContents();
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).click();
-  await expect(page.getByRole('dialog', { name: 'Delete version?' })).toBeVisible();
+  await expect(page.getByRole('alertdialog', { name: 'Delete version?' })).toBeVisible();
   const said = await answerAsk(page, true);
   await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
   expect(said).toContain('“Board sent to client” will be deleted');
@@ -320,7 +318,7 @@ test('Delete… from the keyboard moves focus to the next version, then to the h
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).focus();
   await page.keyboard.press('Enter');
   // The question takes the keyboard too: Tab to Delete version, and Enter.
-  const asked = page.getByRole('dialog', { name: 'Delete version?' });
+  const asked = page.getByRole('alertdialog', { name: 'Delete version?' });
   await asked.getByRole('button', { name: 'Delete version', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(versions).toHaveCount(1);

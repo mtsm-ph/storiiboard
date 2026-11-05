@@ -95,9 +95,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section.
 - **Foot:** first the web version, muted and marked with its phase until it exists (focusable, so its phase is
   heard); then a row with Hide sidebar at the left, and at the right the Settings gear (⌘, or Ctrl+,) and the profile.
-- **Profile:** the person's initials in a 22px ink ring, the one round shape in the app (an avatar); a dashed ring
-  until there's a profile. It opens Settings → Profile: name, initials and usual role, which stay on this computer.
-  The name is shown wherever the app says who did something, and saved as the author of each edit.
+- **Profile:** the person's initials in a 22px ink ring, round as avatars are (the accent dots are too); a dashed ring
+  until there's a profile. It opens Settings → Profile: name, initials and usual role, which stay in this
+  computer's settings and are never written into a project file.
 - **Hide sidebar:** the button at the foot, bottom left, and ⌘\ (Ctrl+\ on Windows) fold it to a 36px strip at the
   window's left edge, keeping the profile and the gear, with Show sidebar in the bottom corner. The workspace takes
   the room, each tile keeping its share. The choice is the person's and is remembered.
@@ -129,10 +129,14 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   as a window of the app's own. It moves with the app and stays behind other programs when they come forward. Only
   the system's Open and Save file pickers stay the system's.
 - **Anatomy:** like a tile: a 1.5px ink rule, no radius, no shadow, and a 26px title bar with the title as a bold
-  10px label and a close button at the right. The app behind dims and can't be reached.
+  10px label and a close button at the right. The app behind dims under an ink wash and can't be reached; a notice
+  raised from inside the window shows inside it. Import script, the onboarding and the sketch editor are windows of
+  the app's own too, with their own larger titles.
+- **Questions:** the question as the title, why below it (read aloud as it opens), the choices at the right: Cancel
+  first, where focus starts, then the action, Truffle-outlined when it deletes for good or risks the work.
 - **Keyboard:** focus starts on the window's first control (Cancel, in a question), Tab and Shift+Tab stay inside,
   Escape closes, and focus goes back to what had it before.
-- **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups and Storage as tabs
+- **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups, Storage and Profile as tabs
   down its left side. ⌘, (Ctrl+,) opens it from anywhere, at the tab last open.
 
 ## Storyboard
