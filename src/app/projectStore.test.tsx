@@ -136,6 +136,26 @@ describe('the project store', () => {
     await store.getState().close();
   });
 
+  it('writes who each edit, undo and redo is by, read at the moment each is made (Kevin, Nov 5)', async () => {
+    let name = 'Kevin Matos';
+    const store = createProjectStore({ author: () => name });
+    const project = await open();
+    await store.getState().open(project);
+    await store.getState().apply([{ kind: 'update', id: project.projectId, set: { title: 'Pilot' } }]);
+    name = 'KM';
+    await store.getState().undo();
+    await store.getState().redo();
+    const groups = await project.file.query('SELECT kind, author FROM op_groups ORDER BY seq');
+    expect(groups.map((g) => [g.kind, g.author])).toEqual([
+      ['edit', 'Kevin Matos'],
+      ['undo', 'KM'],
+      ['redo', 'KM'],
+    ]);
+    const ops = await project.file.query("SELECT DISTINCT author FROM ops WHERE group_id IN (SELECT id FROM op_groups WHERE author = 'Kevin Matos')");
+    expect(ops.map((o) => o.author)).toEqual(['Kevin Matos']);
+    await store.getState().close();
+  });
+
   it('takes away a notice about a step when that step is undone or redone, and no other notice (1.28’s low)', async () => {
     const store = createProjectStore();
     const project = await open();

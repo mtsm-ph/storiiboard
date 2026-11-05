@@ -27,7 +27,7 @@ describe('backup settings', () => {
       backupsNextToProject: false,
       language: 'en',
       sidebarHidden: false,
-      profile: { name: '', initials: '', role: null },
+      profile: { name: '', initials: '', role: null, historyInitials: false },
       projectRoles: {},
       pdfScenePalettes: false,
     });
@@ -56,7 +56,7 @@ describe('backup settings', () => {
       backupsNextToProject: false,
       language: 'en',
       sidebarHidden: false,
-      profile: { name: '', initials: '', role: null },
+      profile: { name: '', initials: '', role: null, historyInitials: false },
       projectRoles: {},
       pdfScenePalettes: false,
     });

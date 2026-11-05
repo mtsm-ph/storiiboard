@@ -70,7 +70,8 @@ export function ItemHistory({
               <td className="px-2 py-1.5 align-top">{change}</td>
               <td className={cell}>{field ? value(field, field.before) : ''}</td>
               <td className={cell}>{field ? value(field, field.after) : ''}</td>
-              <td className="px-2 py-1.5 align-top">{who(op.author)}</td>
+              {/* An edit from before names were kept has none: a dash, so the column still reads as one. */}
+              <td className="px-2 py-1.5 align-top">{who(op.author) || '—'}</td>
               <td className="px-2 py-1.5 align-top font-mono whitespace-nowrap">{localDateTime(new Date(op.timestamp))}</td>
               <td className="px-2 py-1 text-right align-top">
                 {offered && (

@@ -369,7 +369,10 @@ export function HistoryTile() {
                       ))}
                     </p>
                     <p className="font-mono text-[11px] text-text-muted">
-                      {who(group.author)} · {localDateTime(new Date(group.timestamp))}
+                      {/* Who, in the UI's type (a name isn't a technical value), then when; an edit from before names were
+                          kept says only when. */}
+                      {who(group.author) !== '' && <span className="font-sans">{who(group.author)} · </span>}
+                      {localDateTime(new Date(group.timestamp))}
                     </p>
                   </div>
                   {/* The newest step is how the project is now: nothing to go back to. */}

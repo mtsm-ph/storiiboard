@@ -2,10 +2,11 @@ import { useId, useState } from 'react';
 import { t } from '../../core/i18n';
 import { initialsOf, isRole, ROLE_LABELS, ROLES } from '../../core/model/role';
 import { cleanProfileText, MAX_PROFILE_NAME } from '../../core/storage/settings';
-import { Select, TextField } from '../../ui/fields';
+import { Select, TextField, Toggle } from '../../ui/fields';
 import { setProfile, useProfile } from './profileStore';
 
 // Settings → Profile (polish C): the person's name, initials and usual role, kept on this computer (profileStore.ts).
+// The name, or the initials if they choose, also goes with each edit they make, so History says who (Kevin, Nov 5).
 
 export function ProfileTab() {
   const profile = useProfile();
@@ -67,6 +68,13 @@ export function ProfileTab() {
           </option>
         ))}
       </Select>
+      <Toggle
+        label={t('profile.historyInitials')}
+        checked={profile.historyInitials}
+        onChange={(on) => {
+          setProfile({ historyInitials: on });
+        }}
+      />
       <p id={noteId} className="text-[12px] text-text-muted">
         {t('profile.note')}
       </p>

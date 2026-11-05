@@ -109,6 +109,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
+| PE Who made each edit: the profile's name (or initials) on every edit, shown in History | | In review |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -318,6 +319,19 @@ and focus never falling to nothing.
 - Not covered by the sweep yet: stacked tabs in a narrow tile, the hidden sidebar's strip, a maximized tile, the
   keyboard tile move, a note being edited, the archived banner. Truncated tile titles pass this sweep but the Spanish
   sweep (e2e/spanish.spec.ts) counts any cut-off label as a failure; it opens one tile at a time, so both hold today.
+
+Decided Nov 5, after the meeting run (Kevin):
+- Who made each edit: recorded, with the profile's name; a profile option shows only the initials; Settings → Profile
+  says people you share a project with can see it in History. Older edits stay without a name. (PE, below.)
+- The defaults marked for review in PD stay as they are.
+- Phase 8, before the public release: stop every card redrawing on each change (the 960-frame times in Q2).
+
+PE as built (Nov 5): every edit, undo, redo, History restore and Empty Trash carries who made it in the file's
+existing `author` columns (and a deleted item's `trashed_by`): the profile's name, or its initials with "Show only my
+initials in History" on, read as each edit is made. With an empty profile it stays `local`, as every edit before this
+did, and History shows no name for those (the step's time only; a dash in an item's own history), where it used to say
+"You". No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
+older build shows the names as they're written. docs/SBD_FORMAT.md says what the column now holds.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
@@ -964,6 +978,8 @@ Nov 3):
 - [ ] Run the Phase 0 gate's force-quit, undo-after-restart and backup steps on Windows (Phase 0 ran them on the Mac
   only).
 - [ ] Choose the license, Patreon tiers and signing (also in Next steps).
+- [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
+  quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.

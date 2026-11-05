@@ -10,6 +10,7 @@ import type { Project } from '../core/storage/project';
 import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage/seen';
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
 import { clearStepNotice, showNotice } from './notice';
+import { editAuthor, profileStore } from './settings/profileStore';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -90,7 +91,11 @@ export interface ProjectState {
   markSeen: (shotId: string, departments: readonly string[]) => Promise<void>;
 }
 
-export function createProjectStore(): StoreApi<ProjectState> {
+/**
+ * `author`: who each edit is by, read when it's made (the profile can change between edits); the app's store reads
+ * the profile, tests and tools write `local`, the log's word for no name.
+ */
+export function createProjectStore({ author = () => 'local' }: { author?: () => string } = {}): StoreApi<ProjectState> {
   // Edits run one at a time, in the order they were made: each reads the records the previous one wrote.
   let queue: Promise<unknown> = Promise.resolve();
   const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
@@ -221,7 +226,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         }),
       apply: async (changes, options) => {
         await edit(async (project) => {
-          const touched = await apply(project.file, changes, options);
+          const touched = await apply(project.file, changes, { ...options, author: author() });
           if (options?.alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         });
@@ -230,7 +235,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         edit(async (project) => {
           const { changes, alsoWrite } = build(get().records, get().slateNumbers);
           if (changes.length === 0) return null;
-          const touched = await apply(project.file, changes, alsoWrite ? { alsoWrite } : {});
+          const touched = await apply(project.file, changes, { author: author(), ...(alsoWrite ? { alsoWrite } : {}) });
           if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         }),
@@ -240,7 +245,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         // A holder, since the edit sets it inside a callback.
         const outcome = { changed: false };
         await edit(async (project) => {
-          const touched = await undo(project.file);
+          const touched = await undo(project.file, { author: author() });
           outcome.changed = touched !== null;
           return touched;
         });
@@ -269,7 +274,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
       emptyTrash: async (only) => {
         let result: { removed: number; freed: number } | null = null;
         await edit(async (project) => {
-          const done = await emptyTrash(project.file, only ? { only } : {});
+          const done = await emptyTrash(project.file, { author: author(), ...(only ? { only } : {}) });
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
@@ -288,7 +293,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         set({ restoring: true });
         try {
           await edit(async (project) => {
-            const touched = await restoreTo(project.file, groupId);
+            const touched = await restoreTo(project.file, groupId, { author: author() });
             changed = touched !== null;
             return touched;
           });
@@ -314,7 +319,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         // A holder, since the edit sets it inside a callback.
         const outcome = { changed: false };
         await edit(async (project) => {
-          const touched = await redo(project.file);
+          const touched = await redo(project.file, { author: author() });
           outcome.changed = touched !== null;
           return touched;
         });
@@ -344,7 +349,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
 }
 
 /** The app's one project store. Tests make their own with createProjectStore. */
-export const projectStore = createProjectStore();
+export const projectStore = createProjectStore({ author: () => editAuthor(profileStore.getState()) });
 
 export function useProject<T>(select: (state: ProjectState) => T): T {
   return useStore(projectStore, select);
