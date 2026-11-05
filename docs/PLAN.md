@@ -103,7 +103,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | #58 | Done |
 | PPa Scene colour palettes from the frames' pictures: generate, lock and regenerate, reorder, delete, copy the hex, all undoable; in the inspector and the Scenes tile | #59 | Done |
 | PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
-| P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
+| P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
 
 Decided Nov 5 (Kevin):
@@ -227,6 +227,12 @@ with its palette, a row opening its scene. "Pick from a frame" turns on an eyedr
 (board, strip or inspector) adds the colour under the pointer, read by the app (5 by 5 pixels averaged, colour-managed
 onto sRGB) since WebKit has no EyeDropper API; Escape stops it; a typed hex is the keyboard's way. Export's PDF
 storyboard can print each scene's palette as swatches in its heading, a choice remembered on this computer.
+
+P7 as built (Nov 5; merged with the glossary as built, at Kevin's word: his word changes come as a small follow-up PR): Español (Latinoamérica) in Settings → App
+(src/core/i18n/locales/es.ts, tag es-419 for plurals and dates), every key English has. The choices Kevin may want
+otherwise are in docs/i18n/es-glossary.md, shot size abbreviations first. Script import also reads Spanish headings
+(INTERIOR/EXTERIOR in capitals; DÍA, NOCHE, AMANECER, ATARDECER, HORA MÁGICA and more). An e2e sweep checks that no
+button, tab, label or title overflows in Spanish; a unit test keeps every PDF word inside the page.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

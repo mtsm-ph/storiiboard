@@ -26,14 +26,22 @@ export interface Script {
   scenes: ScriptScene[];
 }
 
-// INT./EXT. and its spellings first, so INT doesn't match the start of INT./EXT.
+// INT./EXT. and its spellings first, so INT doesn't match the start of INT./EXT. Spanish scripts (polish 7) write INT.
+// and EXT. too, or spell them out: those whole words only in capitals, as a heading writes them, so an action line
+// that starts "Exterior walls…" is never taken for one.
 const PREFIXES: readonly [RegExp, IntExt][] = [
   [/^(?:INT\.?\s*\/\s*EXT|EXT\.?\s*\/\s*INT|I\s*\/\s*E)\.?(?:\s+|$)/i, 'INT/EXT'],
+  [/^(?:INTERIOR\s*\/\s*EXTERIOR|EXTERIOR\s*\/\s*INTERIOR)\.?(?:\s+|$)/, 'INT/EXT'],
   [/^INT\.?(?:\s+|$)/i, 'INT'],
+  [/^INTERIOR\.?(?:\s+|$)/, 'INT'],
   [/^(?:EXT|EST)\.?(?:\s+|$)/i, 'EXT'],
+  [/^EXTERIOR\.?(?:\s+|$)/, 'EXT'],
 ];
 
-/** Times of day by the words scripts use; anything else is kept as written. */
+/**
+ * Times of day by the words scripts use, in English and in Spanish (polish 7), with or without accents; anything else
+ * (CONTINUOUS, MÁS TARDE, MAÑANA) is kept as written.
+ */
 const TIMES: Readonly<Record<string, DayNight>> = {
   DAY: 'DAY',
   NIGHT: 'NIGHT',
@@ -42,6 +50,21 @@ const TIMES: Readonly<Record<string, DayNight>> = {
   DUSK: 'DUSK',
   SUNSET: 'DUSK',
   'MAGIC HOUR': 'MAGIC HOUR',
+  DÍA: 'DAY',
+  DIA: 'DAY',
+  NOCHE: 'NIGHT',
+  AMANECER: 'DAWN',
+  ALBA: 'DAWN',
+  ATARDECER: 'DUSK',
+  ANOCHECER: 'DUSK',
+  CREPÚSCULO: 'DUSK',
+  CREPUSCULO: 'DUSK',
+  'HORA MÁGICA': 'MAGIC HOUR',
+  'HORA MAGICA': 'MAGIC HOUR',
+  'SALIDA DEL SOL': 'DAWN',
+  'PUESTA DE SOL': 'DUSK',
+  'PUESTA DEL SOL': 'DUSK',
+  OCASO: 'DUSK',
 };
 
 /** Whether a line starts like a scene heading: INT, EXT, EST, INT./EXT. or I/E, then a dot or a space. */
@@ -51,7 +74,8 @@ export function looksLikeHeading(line: string): boolean {
 
 /** Splits a heading into its parts: `INT. DINER - BACK ROOM - NIGHT` is INT, `DINER - BACK ROOM`, NIGHT. */
 export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intExt' | 'location' | 'dayNight' | 'otherTime'> {
-  const heading = text.trim().replace(/\s+/g, ' ');
+  // Composed, so an accent typed as a separate mark (D + ´ + A) reads as DÍA, and matches what the project has.
+  const heading = text.normalize('NFC').trim().replace(/\s+/g, ' ');
   let rest = heading;
   let intExt: IntExt | null = null;
   for (const [pattern, value] of PREFIXES) {
@@ -65,8 +89,11 @@ export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intEx
   // The place, then the time of day, then anything after it, split at dashes with spaces round them:
   // `KITCHEN - NIGHT - FLASHBACK` is KITCHEN, NIGHT and FLASHBACK.
   const parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
-  const timeOf = (part: string) =>
-    Object.entries(TIMES).find(([word]) => part.toUpperCase() === word || part.toUpperCase().startsWith(`${word} `))?.[1] ?? null;
+  // A full stop after the time ("NOCHE.") is the writer's, not part of it.
+  const timeOf = (part: string) => {
+    const said = part.toUpperCase().replace(/\.+$/, '');
+    return Object.entries(TIMES).find(([word]) => said === word || said.startsWith(`${word} `))?.[1] ?? null;
+  };
   // The last part that's a time of day, never the first (that's the place).
   let at = -1;
   for (let i = parts.length - 1; i >= 1; i -= 1) {
@@ -93,7 +120,9 @@ export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intEx
 
 /** A character cue without its extensions: `MARY (V.O.)` and `MARY (CONT'D)` are MARY; dual dialogue's ^ goes too. */
 export function characterName(cue: string): string {
+  // Composed, as headings are, so MARÍA typed two ways is one character.
   return cue
+    .normalize('NFC')
     .replace(/\^\s*$/, '')
     .replace(/\s*\([^)]*\)/g, '')
     .trim()

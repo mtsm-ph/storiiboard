@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { t } from '../core/i18n';
 import { isTauriApp } from './fileAccess';
 
 // A script file to import (1.17). In the desktop app it comes from Rust's Open dialog and is read through Rust, which
@@ -16,7 +17,7 @@ export const SCRIPT_EXTENSIONS = ['fountain', 'spmd', 'txt', 'fdx', 'pdf'] as co
 /** The Open dialog for a script; null when it's cancelled. */
 export async function chooseScript(): Promise<ScriptFile | null> {
   if (isTauriApp) {
-    const [path] = await invoke<string[]>('script_choose');
+    const [path] = await invoke<string[]>('script_choose', { title: t('dialogs.importScript'), kind: t('dialogs.scriptsFilter') });
     if (!path) return null;
     return { name: path.split(/[/\\]/).pop() ?? path, bytes: () => invoke<ArrayBuffer>('pictures_read', { path }) };
   }

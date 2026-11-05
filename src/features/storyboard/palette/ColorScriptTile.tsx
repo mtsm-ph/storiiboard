@@ -39,7 +39,7 @@ export function ColorScriptTile() {
                 <span className={cx('font-mono text-[12px] font-bold', active && 'bg-text px-1 text-text-inverse')}>
                   {sceneLabel(scene.fields.number)}
                 </span>
-                <span className="truncate text-[12px]">{headingOf(scene.fields)}</span>
+                <span data-user-text="" className="truncate text-[12px]">{headingOf(scene.fields)}</span>
               </span>
               {colors.length > 0 ? (
                 <>

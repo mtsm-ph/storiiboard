@@ -128,32 +128,31 @@ pub fn dragged(window: &Window, event: &DragDropEvent) {
 }
 
 /// Shows the Open dialog for pictures and returns what was picked, now readable; empty if the dialog was cancelled.
+/// The title and the filter's name come from the app, in the person's language (polish 7).
 #[tauri::command]
-pub async fn pictures_choose(app: AppHandle, multiple: bool) -> Result<Vec<String>, String> {
-    let title = if multiple {
-        "Choose pictures"
-    } else {
-        "Choose a picture"
-    };
-    choose(app, title, ("Pictures", EXTENSIONS), multiple).await
+pub async fn pictures_choose(
+    app: AppHandle,
+    multiple: bool,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    choose(app, title, (kind, EXTENSIONS), multiple).await
 }
 
 /// The Open dialog for a script to import; the file picked becomes readable through `pictures_read`.
 #[tauri::command]
-pub async fn script_choose(app: AppHandle) -> Result<Vec<String>, String> {
-    choose(
-        app,
-        "Import a script",
-        ("Scripts", SCRIPT_EXTENSIONS),
-        false,
-    )
-    .await
+pub async fn script_choose(
+    app: AppHandle,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    choose(app, title, (kind, SCRIPT_EXTENSIONS), false).await
 }
 
 async fn choose(
     app: AppHandle,
-    title: &'static str,
-    (kind, extensions): (&'static str, &'static [&'static str]),
+    title: String,
+    (kind, extensions): (String, &'static [&'static str]),
     multiple: bool,
 ) -> Result<Vec<String>, String> {
     // One dialog at a time: a second press while it's open does nothing.

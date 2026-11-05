@@ -68,6 +68,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   aspect_ratio: 'history.field.aspectRatio',
   state: 'history.field.state',
   palette: 'history.field.palette',
+  shot_letters_allow_io: 'history.field.lettersAllowIO',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */

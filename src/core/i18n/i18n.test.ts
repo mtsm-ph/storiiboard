@@ -95,6 +95,38 @@ describe('the English file', () => {
   });
 });
 
+describe('Spanish (polish 7)', () => {
+  afterEach(() => {
+    setLocale('en');
+  });
+
+  it('reads right whatever the count, in sentences built round a counted phrase', () => {
+    setLocale('es');
+    const at = (n: number) => [
+      t('trash.emptyConfirm', { what: tn('count.items', n) }),
+      t('export.done', { what: tn('count.frames', n), label: 'Escritorio' }),
+      t('scene.deleted', { scene: 'ESC 04', what: tn('count.frames', n), undo: 'Ctrl+Z' }),
+      t('history.erasedOn', { strokes: tn('count.strokes', n), frame: '4A' }),
+      t('script.imported', { scenes: tn('count.scenes', n), name: 'guion.fountain', undo: 'Ctrl+Z' }),
+    ];
+    expect(at(1)).toEqual([
+      'Esto borra para siempre 1 elemento, con sus bocetos e imágenes.',
+      'Exportación lista en “Escritorio”: 1 cuadro.',
+      'Se envió ESC 04 a la Papelera, junto con 1 cuadro. Ctrl+Z deshace el borrado.',
+      'Borrado en 4A: 1 trazo',
+      'Importado de “guion.fountain”: 1 escena. Ctrl+Z deshace la importación.',
+    ]);
+    expect(at(3)).toEqual([
+      'Esto borra para siempre 3 elementos, con sus bocetos e imágenes.',
+      'Exportación lista en “Escritorio”: 3 cuadros.',
+      'Se envió ESC 04 a la Papelera, junto con 3 cuadros. Ctrl+Z deshace el borrado.',
+      'Borrado en 4A: 3 trazos',
+      'Importado de “guion.fountain”: 3 escenas. Ctrl+Z deshace la importación.',
+    ]);
+    expect(list(['ESC 01', 'ESC 02', 'ESC 03'])).toBe('ESC 01, ESC 02 y ESC 03');
+  });
+});
+
 describe('errors raised below the UI', () => {
   const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const errorEntries = Object.entries(en)

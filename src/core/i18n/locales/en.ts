@@ -1111,5 +1111,13 @@ export const en = {
   'palette.pickFailed': 'Couldn’t read the colour there. Click another point of the picture, or press Esc to stop.',
   // src/features/export/ExportDialog.tsx
   'exportDialog.scenePalettes': 'Print each scene’s palette in its heading',
+  // src/features/history/summary.ts
+  'history.field.lettersAllowIO': 'I and O in shot letters',
+  // src/app/pictures.ts and scripts.ts: the native Open dialogs (polish 7)
+  'dialogs.choosePictures': 'Choose pictures',
+  'dialogs.choosePicture': 'Choose a picture',
+  'dialogs.picturesFilter': 'Pictures',
+  'dialogs.importScript': 'Import a script',
+  'dialogs.scriptsFilter': 'Scripts',
   // codemod: new entries above this line
 };

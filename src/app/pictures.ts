@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { t } from '../core/i18n';
 import { listen } from '@tauri-apps/api/event';
 import { isTauriApp } from './fileAccess';
 
@@ -55,7 +56,11 @@ export function fromFile(file: File): PictureFile {
 
 /** The Open dialog for pictures; empty when it's cancelled. */
 export async function choosePictures(multiple: boolean): Promise<PictureFile[]> {
-  if (isTauriApp) return (await invoke<string[]>('pictures_choose', { multiple })).map(fromPath);
+  if (isTauriApp) {
+    // The native dialog's words, in the app's language.
+    const title = multiple ? t('dialogs.choosePictures') : t('dialogs.choosePicture');
+    return (await invoke<string[]>('pictures_choose', { multiple, title, kind: t('dialogs.picturesFilter') })).map(fromPath);
+  }
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
