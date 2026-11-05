@@ -94,9 +94,12 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       return [plain(text === '' ? t('trash.emptyNote') : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
     }
     case 'picture': {
-      // A picture, or a linked video (2.2b), by its file's name.
-      const file = plain(mediaFields(record.props)?.sourceName || videoFields(record.props)?.sourceName || t('trash.pastedPicture'));
+      // A linked video (2.2b), by its file's name.
+      const video = videoFields(record.props);
+      if (video) return [plain(video.sourceName), plain(t('trash.video'))];
+      const file = plain(mediaFields(record.props)?.sourceName || t('trash.pastedPicture'));
       const parent = record.parentId ? records[record.parentId] : undefined;
+      if (parent?.type === 'media') return [file, plain(t('trash.videoPoster'))];
       return parent?.type === 'shot' ? [file, plain(t('trash.pictureOf')), mono(shotFields(parent.props).number)] : [file, plain(t('trash.logoPicture'))];
     }
   }

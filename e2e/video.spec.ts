@@ -71,3 +71,28 @@ test('a video dropped on the board becomes a frame; Unlink keeps its picture', a
   await expect(frames(page).first().locator('img[data-frame-image]')).toBeVisible();
   await expect(inspector(page).getByRole('button', { name: 'Link video…' })).toBeFocused();
 });
+
+test('a video and a picture dropped together on a frame land as one edit, in order, and one undo takes both back', async ({ page }) => {
+  const video = [...readFileSync(clipPath)];
+  const jpg = [...readFileSync(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)))];
+  const transfer = await page.evaluateHandle(
+    ({ video, jpg }) => {
+      const t = new DataTransfer();
+      t.items.add(new File([new Uint8Array(video)], 'A001_C003_2398.mp4', { type: 'video/mp4' }));
+      t.items.add(new File([new Uint8Array(jpg)], 'ref.jpg', { type: 'image/jpeg' }));
+      return t;
+    },
+    { video, jpg },
+  );
+  await frames(page).first().dispatchEvent('drop', { dataTransfer: transfer });
+  // The video on the frame it was dropped on, the picture a new frame after it.
+  await expect(frames(page)).toHaveCount(2);
+  await expect(frames(page).first().locator('[data-clip-tag]')).toHaveText('Clip');
+  await expect(frames(page).nth(1).locator('img[data-frame-image]')).toBeVisible();
+  await expect(frames(page).nth(1).locator('[data-clip-tag]')).toHaveCount(0);
+
+  await frames(page).first().focus();
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect(frames(page)).toHaveCount(1);
+  await expect(frames(page).first().locator('img[data-frame-image]')).toHaveCount(0);
+});

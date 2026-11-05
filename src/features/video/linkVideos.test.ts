@@ -11,8 +11,8 @@ import { addShot } from '../storyboard/board';
 import { removePicture, setPicture } from '../storyboard/framePictures';
 import { describeEdit, lineText } from '../history/summary';
 import { log, opsOfGroups } from '../../core/ops/ops';
-import { linkVideos, type PreparedVideo } from './linkVideos';
-import { fpsLabel, relinkMismatch } from './relink';
+import { linkVideos, placeFiles, type PreparedVideo } from './linkVideos';
+import { clipsPastEnd, fpsLabel, mismatchTitle, relinkMismatch } from './relink';
 
 function still(seed: number): PreparedImage {
   const bytes = new Uint8Array(3000).map((_, i) => (i * seed) % 256);
@@ -136,15 +136,78 @@ describe('linking a video to a frame', () => {
   });
 });
 
+describe('a drop of videos and pictures together', () => {
+  it('lands as one edit in the order dropped: the video on the frame, the picture a new frame after it', async () => {
+    const shotId = await frame();
+    const picture = { kind: 'picture' as const, picture: { image: still(5), source: { name: 'ref.jpg' } } };
+    await store.getState().applyWith((now, slate) =>
+      placeFiles(now, project.projectId, { kind: 'frame', shotId }, [{ kind: 'video', video: video('C0042.MP4', 1) }, picture], project.file.path, slate),
+    );
+    expect(readClip(records()[shotId]?.props ?? {})).not.toBeNull();
+    const shots = Object.values(records()).filter((r) => r.type === 'shot' && r.trashedAt === null);
+    expect(shots.map((s) => shotFields(s.props).number).sort()).toEqual(['4A', '4B']);
+    const after = shots.find((s) => s.id !== shotId);
+    expect(after && readClip(after.props)).toBeNull();
+    expect(await readOriginal(project.file, still(5).original.sha256)).not.toBeNull();
+
+    // One undo takes the whole drop back.
+    await store.getState().undo();
+    expect(readClip(records()[shotId]?.props ?? {})).toBeNull();
+    expect(Object.values(records()).filter((r) => r.type === 'shot' && r.trashedAt === null)).toHaveLength(1);
+    expect(videosIn()).toEqual([]);
+  });
+
+  it('gives a file re-exported to the same path with another length a record of its own', async () => {
+    const [a, b] = [await frame(), await frame()];
+    await link({ kind: 'frame', shotId: a }, [video('Selects.mov', 1)]);
+    const longer = { ...video('Selects.mov', 2), probe: { ...probe, durationFrames: 96, startTimecode: '02:00:00:00' } };
+    await link({ kind: 'frame', shotId: b }, [longer]);
+    expect(videosIn()).toHaveLength(2);
+    const clipB = readClip(records()[b]?.props ?? {});
+    const recordB = clipB ? videoFields(records()[clipB.videoId]?.props ?? {}) : null;
+    // The clip and the record it plays agree.
+    expect(clipB?.outFrame).toBe(95);
+    expect(recordB?.durationFrames).toBe(96);
+    expect(recordB?.startTimecode).toBe('02:00:00:00');
+  });
+});
+
 describe('relinking', () => {
-  it('asks only when the new file’s rate or length differs', () => {
-    const linked = videoFields({ kind: 'video', fps: { num: 24000, den: 1001 }, width: 10, height: 10, duration_frames: 48 });
-    if (!linked) throw new Error('a video');
-    expect(relinkMismatch(linked, probe)).toBeNull();
-    expect(relinkMismatch(linked, { ...probe, fpsNum: 25, fpsDen: 1 })).toEqual({ rate: true, length: false });
-    expect(relinkMismatch(linked, { ...probe, durationFrames: 47 })).toEqual({ rate: false, length: true });
-    // 48000/2002 is 24000/1001.
-    expect(relinkMismatch(linked, { ...probe, fpsNum: 48000, fpsDen: 2002 })).toBeNull();
+  const linked = () => {
+    const fields = videoFields({ kind: 'video', source_name: 'C0042.MP4', source_size: 1234, fps: { num: 24000, den: 1001 }, width: 10, height: 10, duration_frames: 48, start_timecode: '01:00:00:00' });
+    if (!fields) throw new Error('a video');
+    return fields;
+  };
+  const same = { name: 'C0042.MP4', size: 1234 };
+
+  it('asks only when the new file might not be the same clip, and says what differs most', () => {
+    expect(relinkMismatch(linked(), probe, same)).toBeNull();
+    // 48000/2002 is 24000/1001; a size this computer can't tell isn't a difference.
+    expect(relinkMismatch(linked(), { ...probe, fpsNum: 48000, fpsDen: 2002 }, { name: 'C0042.MP4', size: null })).toBeNull();
+    const rate = relinkMismatch(linked(), { ...probe, fpsNum: 25, fpsDen: 1 }, same);
+    expect(rate).toEqual({ rate: true, length: false, file: false });
+    expect(rate && mismatchTitle(rate)).toBe('relink.differentRate');
+    const length = relinkMismatch(linked(), { ...probe, durationFrames: 47 }, same);
+    expect(length && mismatchTitle(length)).toBe('relink.differentLength');
+    // Same rate and length, but another take: the name, the size or the start timecode.
+    for (const [changedProbe, file] of [
+      [probe, { name: 'C0043.MP4', size: 1234 }],
+      [probe, { name: 'C0042.MP4', size: 999 }],
+      [{ ...probe, startTimecode: '01:00:10:00' }, same],
+    ] as const) {
+      const other = relinkMismatch(linked(), changedProbe, file);
+      expect(other).toEqual({ rate: false, length: false, file: true });
+      expect(other && mismatchTitle(other)).toBe('relink.differentFile');
+    }
+  });
+
+  it('counts the clips a shorter file would leave running past its end', async () => {
+    const [a, b] = [await frame(), await frame()];
+    await link({ kind: 'frame', shotId: a }, [video('C0042.MP4', 1)]);
+    await link({ kind: 'frame', shotId: b }, [video('C0042.MP4', 1)]);
+    const videoId = readClip(records()[a]?.props ?? {})?.videoId ?? '';
+    expect(clipsPastEnd(records(), videoId, 48)).toBe(0);
+    expect(clipsPastEnd(records(), videoId, 40)).toBe(2);
   });
 
   it('writes a rate as a camera menu does', () => {

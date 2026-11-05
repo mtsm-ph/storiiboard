@@ -67,6 +67,8 @@ export interface InspectorVideo {
   path: string;
   /** Its file can't be found, or read, on this computer. */
   missing: boolean;
+  /** The video's record is gone (Empty Trash, a History restore): only Unlink is left to do. */
+  gone: boolean;
 }
 
 /** A set and an unset, as one update op takes them. */
@@ -540,31 +542,38 @@ export function InspectorView({
           {video && (
             <Section title={t('inspectorView.video')}>
               <div data-video-details="" className="flex min-w-0 flex-col gap-1">
-                <p data-user-text="" className="truncate font-mono text-[12px] font-bold" title={video.name}>
-                  {video.name}
-                </p>
-                {/* Missing media is flagged plainly, with the way back (CLAUDE.md); words, not only colour. */}
-                {video.missing && (
-                  <p role="status" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-                    {t('inspector.videoMissing')}
+                {video.gone ? (
+                  <p className="text-[12px] text-text-muted">{t('inspector.videoGone')}</p>
+                ) : (
+                  <p data-user-text="" className="truncate font-mono text-[12px] font-bold" title={video.name}>
+                    {video.name}
                   </p>
                 )}
-                <p className="flex min-w-0 flex-col font-mono text-[11px] text-text-muted">
-                  <span>{video.details}</span>
-                  <span>
-                    {video.range} · {video.frames}
-                  </span>
-                  {video.path && (
-                    <span className="truncate" title={video.path}>
-                      {video.path}
-                    </span>
+                {/* Missing media is flagged plainly, with the way back (CLAUDE.md); words, not only colour. The live
+                    region is always there, so a screen reader hears the line when it appears. */}
+                <div role="status" className="flex">
+                  {video.missing && !video.gone && (
+                    <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">{t('inspector.videoMissing')}</p>
                   )}
-                </p>
+                </div>
+                {!video.gone && (
+                  <p className="flex min-w-0 flex-col font-mono text-[11px] text-text-muted">
+                    <span>{video.details}</span>
+                    <span>{t('inspector.videoRangeFrames', { range: video.range, frames: video.frames })}</span>
+                    {video.path && (
+                      <span className="truncate" title={video.path}>
+                        {video.path}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>
-                  {t('inspector.relink')}
-                </Button>
+                {!video.gone && (
+                  <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>
+                    {t('inspector.relink')}
+                  </Button>
+                )}
                 <Button
                   onClick={(event) => {
                     // The section goes with the video; focus stays nearby, on Link video….
@@ -769,7 +778,7 @@ export function InspectorView({
           </li>
           {[
             [t('inspector.shootDay'), t('phase.number', { phase: 3 })],
-            [t('inspector.birdsEye'), t('phase.number', { phase: 5 })],
+            [t('inspector.birdsEye'), t('phase.number', { phase: 6 })],
           ].map(([name, phase]) => (
             <li key={name} className="flex justify-between">
               <span>{name}</span>

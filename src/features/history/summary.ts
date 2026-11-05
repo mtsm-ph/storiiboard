@@ -37,6 +37,9 @@ function line(key: MessageKey, parts: Readonly<Record<string, Part>> = {}, param
     .flatMap((piece, i): Part[] => (i % 2 === 1 ? [parts[piece] ?? ''] : piece === '' ? [] : [piece]));
 }
 
+/** What a relink changes on a video record: where its file is and what was read from it (src/core/media/video.ts). */
+const VIDEO_FILE_PROPS = ['source_path', 'source_name', 'source_size', 'duration_frames', 'fps', 'start_timecode', 'width', 'height', 'codec'] as const;
+
 /** Props by the names the inspector and the board give them. */
 const FIELD: Readonly<Record<string, string>> = labels({
   number: 'history.field.number',
@@ -342,7 +345,9 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
 
   // A video linked to a frame (2.2b), found by the still it put there, so a video the project had already reads the
   // same; or a video pointed at its file again.
-  const grabbed = ops.find((op) => op.kind === 'create' && op.after?.type === 'media' && isObject(op.after.props.from_video));
+  const grabs = ops.filter((op) => op.kind === 'create' && op.after?.type === 'media' && isObject(op.after.props.from_video));
+  if (grabs.length > 1) return [t('history.videosLinked', { count: grabs.length }), tag];
+  const [grabbed] = grabs;
   if (grabbed) {
     const from = grabbed.after?.props.from_video;
     const name = isObject(from) && typeof from.source_name === 'string' ? from.source_name : '';
@@ -354,7 +359,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       op.kind === 'update' &&
       op.after?.type === 'media' &&
       op.after.props.kind === 'video' &&
-      op.before?.props.source_path !== op.after.props.source_path,
+      VIDEO_FILE_PROPS.some((prop) => JSON.stringify(op.before?.props[prop]) !== JSON.stringify(op.after?.props[prop])),
   );
   if (relinked) {
     const name = relinked.after?.props.source_name;

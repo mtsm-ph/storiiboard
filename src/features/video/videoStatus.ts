@@ -30,15 +30,22 @@ function linked(records: Readonly<Record<string, SbdRecord>>, projectPath: strin
   return out;
 }
 
-let run = 0;
+/** Whether two maps of missing videos name the same ones. */
+function same(a: Readonly<Record<string, true>>, b: Readonly<Record<string, true>>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => b[key] === true);
+}
 
-/** Looks at every linked video's file now. */
-export async function checkVideos(): Promise<void> {
+/** Sets the map, keeping the old object when nothing changed, so the board doesn't redraw on every focus. */
+function setMissing(missing: Record<string, true>): void {
+  if (!same(videoStatusStore.getState().missing, missing)) videoStatusStore.setState({ missing });
+}
+
+async function checkOnce(): Promise<void> {
   const { project, records } = projectStore.getState();
-  const mine = ++run;
   const videos = project ? linked(records, project.file.path) : [];
   if (!project || videos.length === 0) {
-    videoStatusStore.setState({ missing: {} });
+    setMissing({});
     return;
   }
   let statuses: Awaited<ReturnType<typeof videoDriver.status>>;
@@ -50,13 +57,38 @@ export async function checkVideos(): Promise<void> {
   } catch {
     return;
   }
-  // A later check, or another project, has the last word.
-  if (mine !== run || projectStore.getState().project !== project) return;
+  // Another project opened meanwhile: the next check has the last word.
+  if (projectStore.getState().project !== project) return;
   const missing: Record<string, true> = {};
   videos.forEach((video, i) => {
     if (statuses[i]?.exists !== true) missing[video.id] = true;
   });
-  videoStatusStore.setState({ missing });
+  setMissing(missing);
+}
+
+let running: Promise<void> | null = null;
+let again = false;
+const askedAgain = () => again;
+
+/**
+ * Looks at every linked video's file now. One check at a time: asked again while one runs (a focus during a slow
+ * drive's answer), it runs once more after, never piling up calls on a drive that's slow to answer.
+ */
+export function checkVideos(): Promise<void> {
+  if (running) {
+    again = true;
+    return running;
+  }
+  running = (async () => {
+    do {
+      again = false;
+      await checkOnce();
+      // Read through a function: set by another call while this one awaited, which the type checker can't see.
+    } while (askedAgain());
+  })().finally(() => {
+    running = null;
+  });
+  return running;
 }
 
 /** What the check depends on: the project, and each live video's id and path. */
@@ -74,8 +106,12 @@ function watch(): void {
   if (watching || typeof window === 'undefined') return;
   watching = true;
   let last = signature();
+  let seen = { records: projectStore.getState().records, project: projectStore.getState().project };
   void checkVideos();
-  projectStore.subscribe(() => {
+  projectStore.subscribe((state) => {
+    // Most store changes aren't to records at all (an error, a busy flag): the same records and project, nothing to do.
+    if (state.records === seen.records && state.project === seen.project) return;
+    seen = { records: state.records, project: state.project };
     const next = signature();
     if (next === last) return;
     last = next;

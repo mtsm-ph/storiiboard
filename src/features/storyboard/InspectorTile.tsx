@@ -16,7 +16,7 @@ import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture, type InspectorVideo } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
-import { readClip, videoFields } from '../../core/media/video';
+import { readClip, readFromVideo, videoFields } from '../../core/media/video';
 import { videoDriver } from '../../app/video';
 import { addVideos } from '../video/addVideos';
 import { fpsLabel, relinkVideo } from '../video/relink';
@@ -72,21 +72,28 @@ export function InspectorTile() {
   const media = view && fields?.mediaId ? mediaFields(records[fields.mediaId]?.props ?? {}) : null;
   // A picture deleted for good and named again by a restore (sha256 '') shows as missing here too, as on the board,
   // with Remove to clear it.
+  // A still from the frame's video names no file of its own: the Video section names the video (2.2b).
+  const fromItsVideo = Boolean(fields?.mediaId && readFromVideo(records[fields.mediaId]?.props ?? {}));
   const picture: InspectorPicture | null = !view
     ? null
     : media
-      ? { view, sourceName: media.sourceName, sourcePath: media.sourcePath }
+      ? fromItsVideo
+        ? { view, sourceName: '', sourcePath: '' }
+        : { view, sourceName: media.sourceName, sourcePath: media.sourcePath }
       : view.sha256 === ''
         ? { view, sourceName: '', sourcePath: '' }
         : null;
 
-  // The video the frame plays (2.2b): its file, its rate and size, and the clip's timecode in to out.
+  // The video the frame plays (2.2b): its file, its rate and size, and the clip's timecode in to out. A clip whose
+  // video is gone (Empty Trash, a History restore) still shows, missing, with Unlink.
   const clip = shot ? readClip(shot.props) : null;
   const videoRecord = clip ? records[clip.videoId] : undefined;
   const linked = videoRecord && videoRecord.trashedAt === null ? videoFields(videoRecord.props) : null;
-  const video: InspectorVideo | null =
-    clip && linked
-      ? {
+  const video: InspectorVideo | null = !clip
+    ? null
+    : !linked
+      ? { name: '', details: '', range: '', frames: '', path: '', missing: true, gone: true }
+      : {
           name: linked.sourceName,
           details: t('inspector.videoDetails', { fps: fpsLabel(linked.fps), width: linked.width, height: linked.height, codec: linked.codec.toUpperCase() }),
           range: t('inspector.videoRange', {
@@ -96,8 +103,8 @@ export function InspectorTile() {
           frames: tn('inspector.videoFrames', clip.outFrame - clip.inFrame + 1),
           path: linked.sourcePath,
           missing: videoMissing,
-        }
-      : null;
+          gone: false,
+        };
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
   const location = locationId ? records[locationId] : undefined;

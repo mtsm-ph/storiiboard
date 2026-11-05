@@ -825,6 +825,15 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                         {frame.number}
                       </span>
                     </button>
+                    {/* The same cue as on the card (2.2b): words, the warning colour only with them. */}
+                    {frame.clip && (
+                      <span
+                        data-clip-tag=""
+                        className={cx('sb-label ml-2 px-1', frame.clip.missing ? 'bg-warning text-paper-fixed' : 'bg-text text-text-inverse')}
+                      >
+                        {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
+                      </span>
+                    )}
                   </td>
                   <td className={cx(cell, 'font-mono')}>{f.size ? SHOT_SIZE_LABEL[f.size] : '—'}</td>
                   <td className={cx(cell, 'font-mono')}>{f.lensMm === null ? '—' : t('history.lens', { mm: f.lensMm })}</td>

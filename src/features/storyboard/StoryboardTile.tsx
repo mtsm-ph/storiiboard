@@ -170,7 +170,11 @@ export function StoryboardTile() {
   const missingVideos = useMissingVideos();
   const clipOf = (props: SbdRecord['props']): FrameCard['clip'] => {
     const clip = readClip(props);
-    return clip ? { missing: missingVideos[clip.videoId] === true } : undefined;
+    if (!clip) return undefined;
+    // A video gone from the project (Empty Trash, a History restore) is as missing as one whose file moved.
+    const video = records[clip.videoId];
+    const gone = !video || video.trashedAt !== null || video.props.kind !== 'video';
+    return { missing: gone || missingVideos[clip.videoId] === true };
   };
   const frameCard = (shot: BoardShot): FrameCard => {
     const clip = clipOf(shot.record.props);

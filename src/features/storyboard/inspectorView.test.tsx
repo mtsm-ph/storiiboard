@@ -61,3 +61,44 @@ describe('the Frame inspector', () => {
     expect(approved([])).toBe('true');
   });
 });
+
+describe('the Frame inspector’s Video section (2.2b)', () => {
+  const video = {
+    name: 'C0042.MP4',
+    details: '23.976 fps · 3840 × 2160 · H264',
+    range: '01:00:00:00 – 01:00:01:23',
+    frames: '48 frames',
+    path: 'Footage/C0042.MP4',
+    missing: false,
+    gone: false,
+  };
+  const render = (v: typeof video) =>
+    renderToString(
+      <InspectorView scene={scene} shot={shot} otherSceneNumbers={[]} onShotChange={noop} onSceneChange={noop} onSceneNumberChange={noop} onBack={noop} video={v} />,
+    );
+
+  it('reads the file, its rate and size, and the clip’s timecode, with Relink and Unlink', () => {
+    const html = render(video);
+    expect(html).toContain('C0042.MP4');
+    expect(html).toContain('23.976 fps · 3840 × 2160 · H264');
+    expect(html).toContain('01:00:00:00 – 01:00:01:23 · 48 frames');
+    expect(html).toContain('Relink…');
+    expect(html).toContain('Unlink video');
+    // The live region is there before anything is missing, so the line is heard when it appears.
+    expect(html).toMatch(/<div role="status" class="flex"><\/div>/);
+  });
+
+  it('says plainly when the file is missing, and makes Relink the way back', () => {
+    const html = render({ ...video, missing: true });
+    expect(html).toContain('Can’t be found or read on this computer. Relink to point at it again.');
+    expect(html).toMatch(/<div role="status"[^>]*><p[^>]*bg-warning[^>]*>/);
+    expect(html).toMatch(/<button[^>]*class="[^"]*bg-accent[^"]*"[^>]*data-relink-video=""/);
+  });
+
+  it('leaves only Unlink for a clip whose video is gone from the project', () => {
+    const html = render({ ...video, missing: true, gone: true });
+    expect(html).toContain('The video this frame played isn’t in the project any more.');
+    expect(html).not.toContain('Relink…');
+    expect(html).toContain('Unlink video');
+  });
+});
