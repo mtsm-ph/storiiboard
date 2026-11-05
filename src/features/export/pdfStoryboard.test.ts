@@ -81,8 +81,9 @@ function paintedGlyphs(doc: PDFDocument): { checked: string[]; wrong: string[] }
     checked.push(name);
     for (const [, glyph = '', unicode = ''] of toUnicode.matchAll(/<([0-9a-f]{4})> <([0-9a-f]{4})>/gi)) {
       const char = String.fromCharCode(parseInt(unicode, 16));
-      // Letters and digits: punctuation can take a contextual alternate (Inter Tight's raised dash between capitals).
-      if (!/^[A-Za-z0-9]$/.test(char)) continue;
+      // Letters and digits, accented ones too (Spanish, P7's low): punctuation can take a contextual alternate (Inter
+      // Tight's raised dash between capitals).
+      if (!/^[\p{L}\p{N}]$/u.test(char)) continue;
       const painted = embedded.getGlyph(parseInt(glyph, 16)).path.toSVG();
       if (painted !== source.glyphForCodePoint(char.charCodeAt(0)).path.toSVG()) wrong.push(`${name} ${char}`);
     }
@@ -295,7 +296,7 @@ describe('the PDF storyboard', () => {
     ]);
     const { bytes } = await storyboardPdf({
       ...board(),
-      title: 'Bey County ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+      title: 'Bey County ABCDEFGHIJKLMNOPQRSTUVWXYZ ÁÉÍÓÚÑÜ áéíóúñü',
       watermark: { text: 'CONFIDENTIAL DRAFT', position: 'center', opacity: 0.3, appliesTo: ['pdf'] },
     });
     const { checked, wrong } = paintedGlyphs(await PDFDocument.load(bytes));

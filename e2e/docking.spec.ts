@@ -143,6 +143,14 @@ test('opens any built tile in any workspace from the Layout menu, and only built
   await expect(group.getByText('Every built tile is open.')).toBeVisible();
 });
 
+test('Settings opened with its shortcut while a menu is open closes the menu (PB’s low)', async ({ page }) => {
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await expect(page.getByRole('group', { name: 'Open tile' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+Comma');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Open tile' })).toBeHidden();
+});
+
 test('moves a tile from the keyboard alone', async ({ page }) => {
   await page.getByRole('button', { name: 'Move Player' }).focus();
   await page.keyboard.press('Enter');
@@ -245,6 +253,29 @@ test('docks along a window edge from the keyboard, after every tile, never on th
   const player = await box(tile(page, 'Player'));
   expect(Math.abs(player.width - root.width)).toBeLessThan(2);
   await expect(page.getByRole('button', { name: 'Move Player' })).toBeFocused();
+});
+
+test('docking along the bottom keeps where the board was scrolled to (P4’s low)', async ({ page }) => {
+  await page.goto('/?files=memory');
+  page.once('dialog', (dialog) => void dialog.accept('Bey County'));
+  await page.getByRole('button', { name: 'New project…' }).click();
+  await page.getByRole('dialog', { name: /^Set up / }).getByRole('button', { name: 'Skip' }).click();
+  await tile(page, 'Scenes').getByRole('button', { name: '+ New scene' }).click();
+  for (let i = 0; i < 15; i += 1) await tile(page, 'Storyboard').getByRole('button', { name: '+ Frame in SC 01' }).click();
+  // The board's scroller: the nearest box round it that scrolls.
+  const scroller = `(() => { let el = document.querySelector('[data-board]'); while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement; return el; })()`;
+  const scrolled = () => page.evaluate(`${scroller}?.scrollTop ?? -1`);
+  await page.evaluate(`${scroller}.scrollTo(0, 240)`);
+  await expect.poll(scrolled).toBe(240);
+  // Player along the bottom, from the keyboard: the whole workspace is drawn again in a new split.
+  await page.getByRole('button', { name: 'Move Player' }).focus();
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Tab');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const root = await box(page.locator('[data-dock-root]'));
+  expect(Math.abs((await box(tile(page, 'Player'))).width - root.width)).toBeLessThan(2);
+  await expect.poll(scrolled).toBe(240);
 });
 
 test('the Layout menu: four labelled groups, shortcuts at the right, Undo layout change alone at the bottom (polish A)', async ({ page }) => {

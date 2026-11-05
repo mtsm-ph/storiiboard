@@ -106,6 +106,9 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
 | PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | #63 | Done (decisions marked for review) |
+| Q1 Quality pass: the low-severity review findings still open from Phase 1 | | In review |
+| Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | | Planned |
+| Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | | Planned |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -258,6 +261,24 @@ over the board), each in light and dark, English and Spanish: 12 screenshots per
 baselines come from the Windows gate; the Linux and macOS ones from a push to `checkpoint/baselines-<name>`, which
 regenerates them and hands them back as artifacts to commit. Every baseline was looked at before it was committed.
 Looking found one Spanish fit the overflow sweep had missed (the Scenes tile's coverage label ran into its figure).
+
+Q1 as built (Nov 5): the lows the reviews left open, fixed.
+- An edit that fails to save now says so wherever it was made (a warning notice), not only in Settings → Project.
+  Found while building the 300-frame project: a drop of 30 pictures failed to save and the board showed nothing.
+- Undo and redo clear an info notice about the step they took back ("Locked SC 04 …", "Deleted SC 03 …").
+- A relock after an unlock says frames take back the numbers on their slates, not that they dodge a clash.
+- Restoring a frame from the Trash again, after its first restore was undone, gives it back the number it was slated
+  with, not a new letter. Renumbering edits (scene number, deleting a frame, the I and O setting) all take the slate
+  numbers. A v4 file's migration writes each frame's slate numbers in the order it held them, so a relock gives back
+  its later number.
+- Compact project keeps the lock file fresh every minute while it runs, so a long one never reads as stale to another
+  computer. The Node test driver checks for a file replaced during compaction as the desktop does.
+- A notice is read out once: drawn again as windows open and close, it shows without a second announcement.
+- Docking a tile along the top or bottom keeps where each tile was scrolled to.
+- Spanish: History never names a record by its English type; export names follow the language's word order ("lista
+  de planos de Bey County ESC 04.csv"); the PDF glyph test checks accented letters; script import reads headings with
+  full stops between the parts (`INT. CASA. NOCHE`).
+- Checked and already fixed: ⌘, with a menu open closes the menu (now tested).
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

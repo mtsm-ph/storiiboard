@@ -9,6 +9,7 @@ import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
 import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage/seen';
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
+import { clearNotice, noticeStore, showNotice } from './notice';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -89,6 +90,15 @@ export interface ProjectState {
   markSeen: (shotId: string, departments: readonly string[]) => Promise<void>;
 }
 
+/**
+ * After an undo or a redo, a notice about what was just done ("Locked SC 04. … 4C is now 4E.", "Deleted SC 03…")
+ * would describe a step that's no longer there (1.28's low). Info notices go; a warning, about something that failed,
+ * stays until dismissed.
+ */
+function clearInfoNotice(): void {
+  if (noticeStore.getState().kind === 'info') clearNotice();
+}
+
 export function createProjectStore(): StoreApi<ProjectState> {
   // Edits run one at a time, in the order they were made: each reads the records the previous one wrote.
   let queue: Promise<unknown> = Promise.resolve();
@@ -138,7 +148,12 @@ export function createProjectStore(): StoreApi<ProjectState> {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (message === CHANGED_ON_DISK) set({ changedOnDisk: true });
-          else set({ error: message });
+          else {
+            set({ error: message });
+            // Said wherever the edit was made: the board has no field of its own to show it in, and an edit that
+            // didn't save must never look as if it had (found with a 300-frame project, quality pass).
+            showNotice(new Error(message));
+          }
           return false;
         }
       });
@@ -229,7 +244,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
           return touched;
         }),
       undo: async () => {
-        await edit((project) => undo(project.file));
+        if (await edit((project) => undo(project.file))) clearInfoNotice();
       },
       markSeen: (shotId, departments) => {
         const madeIn = get().project;
@@ -296,7 +311,7 @@ export function createProjectStore(): StoreApi<ProjectState> {
         return result;
       },
       redo: async () => {
-        await edit((project) => redo(project.file));
+        if (await edit((project) => redo(project.file))) clearInfoNotice();
       },
       compact: async () => {
         if (get().compacting) return null;

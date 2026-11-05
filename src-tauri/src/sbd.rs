@@ -283,10 +283,16 @@ impl SbdFile {
             return Err("A backup of this project is being made. Try again when it's done.".into());
         }
         self.check_unchanged()?;
-        // Fresh, so the lock reads as held for as long as possible while the file is half rewritten.
+        // Fresh, and kept fresh every minute while VACUUM holds this thread (1.27's low), so the lock never reads as
+        // stale to another computer while the file is half rewritten, however long it takes.
         let _ = self.refresh_lock();
+        let heartbeat = self
+            .lock
+            .as_ref()
+            .map(|lock| lock.heartbeat(std::time::Duration::from_secs(60)));
         let before = self.fingerprint.id;
         let result = self.conn.execute_batch("VACUUM").map_err(text);
+        drop(heartbeat);
         self.fingerprint = fingerprint(&self.path)?;
         // A sync that renamed another file over the project while it was rewritten (seconds, on a large one) must not
         // be taken for the file this app wrote: every write after refuses, and this says so now, so the app reopens the

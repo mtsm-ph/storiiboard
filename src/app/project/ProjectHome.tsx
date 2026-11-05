@@ -19,7 +19,7 @@ export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
   const record = useProject((s) => (projectId ? s.records[projectId] : undefined));
   const apply = useProject((s) => s.apply);
-  const records = useProject((s) => s.records);
+  const applyWith = useProject((s) => s.applyWith);
   const error = useProject((s) => s.error);
   if (!record || !projectId) return <p className="sb-label p-3 text-text-muted">{t('projectHome.noProjectOpen')}</p>;
   return (
@@ -33,7 +33,8 @@ export function ProjectHome() {
         }}
         onLettersChange={(allowIO) => {
           // Renumbers every unlocked scene in the same edit.
-          void apply(setLettersAllowIO(records, record.id, allowIO));
+          // From the records and slate numbers as they are at its turn, like every renumbering edit.
+          void applyWith((now, slate) => ({ changes: setLettersAllowIO(now, record.id, allowIO, slate) }));
         }}
       />
     </>

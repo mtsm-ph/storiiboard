@@ -10,6 +10,8 @@ use std::fs;
 use std::hash::{BuildHasher, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -187,8 +189,47 @@ impl Lock {
     }
 
     fn write(&self) -> std::io::Result<()> {
-        let json = serde_json::to_string(&self.info).map_err(std::io::Error::other)?;
-        create(&self.path)?.write_all(json.as_bytes())
+        write_info(&self.path, &self.info)
+    }
+
+    /// Keeps the lock fresh from another thread, every `every`, until the heartbeat is dropped: for work that holds
+    /// this thread longer than STALE, such as Compact project on a large file (1.27's low). Otherwise another computer
+    /// would read the lock as stale and could open the project while it's half rewritten.
+    pub fn heartbeat(&self, every: Duration) -> Heartbeat {
+        let (stop, stopped) = mpsc::channel::<()>();
+        let path = self.path.clone();
+        let mut info = self.info.clone();
+        let thread = thread::spawn(move || {
+            while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every) {
+                info.refreshed_at = now_ms();
+                let _ = write_info(&path, &info);
+            }
+        });
+        Heartbeat {
+            stop: Some(stop),
+            thread: Some(thread),
+        }
+    }
+}
+
+fn write_info(path: &Path, info: &LockInfo) -> std::io::Result<()> {
+    let json = serde_json::to_string(info).map_err(std::io::Error::other)?;
+    create(path)?.write_all(json.as_bytes())
+}
+
+/// A lock being kept fresh in the background; dropping it stops the refreshing and waits for the thread.
+pub struct Heartbeat {
+    stop: Option<mpsc::Sender<()>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for Heartbeat {
+    fn drop(&mut self) {
+        // Dropping the sender wakes the thread at once (the channel disconnects), whatever the interval.
+        drop(self.stop.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -216,6 +257,25 @@ mod tests {
             id: id.into(),
             name: name.into(),
         }
+    }
+
+    #[test]
+    fn a_heartbeat_keeps_the_lock_fresh_until_it_is_dropped() {
+        let dir = temp_dir("heartbeat");
+        let project = dir.join("Bey County.sbd");
+        let lock = Lock::take(&project, &machine("mine", "Studio Mac"), 1_000).unwrap();
+        let beat = lock.heartbeat(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(200));
+        drop(beat);
+        let refreshed = read(&lock_path(&project).unwrap()).unwrap().refreshed_at;
+        assert!(refreshed > 1_000, "the lock was refreshed while the heartbeat ran");
+        // Stopped: nothing writes after the drop.
+        std::thread::sleep(Duration::from_millis(80));
+        assert_eq!(read(&lock_path(&project).unwrap()).unwrap().refreshed_at, refreshed);
+        // Seen from another computer, still held.
+        assert!(holder(&project, &machine("other", "Laptop"), now_ms()).is_some());
+        drop(lock);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

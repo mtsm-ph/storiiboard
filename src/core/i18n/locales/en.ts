@@ -484,6 +484,8 @@ export const en = {
   // src/features/export/shotListCsv.ts
   'export.csv.label': 'Shot list (CSV)',
   'export.csv.description': 'One row per frame, with its scene, specs, status and custom fields, for a spreadsheet.',
+  // src/features/export/names.ts: an export's file or folder name, `what` being one of the words below.
+  'export.fileName': '{name} {what}',
   'export.csv.fileWord': 'shot list',
   'count.frames.one': '{count} frame',
   'count.frames.other': '{count} frames',
@@ -839,6 +841,8 @@ export const en = {
   // src/features/storyboard/board.ts
   'board.relettered': '{from} is now {to}',
   'board.lockNotice': 'Locked {scene}. To keep slate numbers unique, {list}.',
+  'board.lockNoticeOwn': 'Locked {scene}. Frames take back the numbers on their slates: {list}.',
+  'board.lockNoticeBoth': 'Locked {scene}. Frames take back the numbers on their slates: {own}. To keep slate numbers unique, {list}.',
   // src/features/storyboard/CropEditor.tsx
   'crop.said': 'Zoom {zoom}%, centred {x}% across and {y}% down.',
   'crop.label': 'Framing, zoom {zoom}%',
@@ -934,8 +938,6 @@ export const en = {
   'error.inFolderAlready': '{name} is in that folder already.',
   'error.unfinishedExports': 'There are many unfinished exports in that folder.',
   'error.projectNotOpen': 'That project isn\'t open.',
-  // src/features/history/summary.ts
-  'history.aRecord': 'a {type}',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx

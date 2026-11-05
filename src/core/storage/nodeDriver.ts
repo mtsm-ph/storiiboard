@@ -183,10 +183,17 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
     compact: () =>
       settle(() => {
         checkUnchanged();
+        // As sbd.rs does (1.27's low): a file renamed over the project while it was rewritten has another inode, and
+        // is never taken for the one this driver wrote; every write after refuses. Windows has no inode to compare.
+        const before = lastWrite.split('|')[2] ?? '';
         try {
           db.exec('VACUUM');
         } finally {
           lastWrite = fingerprint(path);
+        }
+        if (before !== '' && lastWrite.split('|')[2] !== before) {
+          lastWrite = 'replaced';
+          throw new Error(CHANGED_ON_DISK);
         }
       }),
     saveCopy: (dest) =>

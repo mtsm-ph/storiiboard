@@ -78,6 +78,22 @@ describe('slate numbers', () => {
     expect(numbers()).toEqual(['4A', '4B', '4D', '4C']);
   });
 
+  it('gives a frame its own slate number back when a restore that was undone is done again (1.26’s low)', async () => {
+    const trashed = shotsIn('sc4')[2]?.record.id ?? '';
+    await trashLast(); // trashed while unlocked: no number once the scene locks
+    await lock('sc4');
+    const restore = () => store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, project.projectId, trashed, slate) }));
+    await restore();
+    expect(records()[trashed]?.props.number).toBe('4C');
+    await store.getState().undo();
+    expect(records()[trashed]?.props.number).toBe('');
+    // 4C went onto a slate with this frame when it came back; it takes 4C again, not 4D.
+    await restore();
+    expect(records()[trashed]?.props.number).toBe('4C');
+    await frame('sc4');
+    expect(numbers()).toEqual(['4A', '4B', '4C', '4D']);
+  });
+
   it('keeps, as it locks, the number of a frame trashed while the scene was locked before', async () => {
     await lock('sc4');
     const c = idOf('sc4', '4C');
@@ -237,6 +253,26 @@ describe('slate numbers', () => {
       { from: '4AB', to: '4AE' },
       { from: '4AC', to: '4AF' },
     ])).toBe('Locked SC 4A. To keep slate numbers unique, 4AA is now 4AD, 4AB is now 4AE and 4AC is now 4AF.');
+  });
+
+  it('says frames take back their own slate numbers on a relock, not that they dodge a clash (1.28’s low)', async () => {
+    await lock('sc4');
+    await lock('sc4', false);
+    // Unlocked, deleting 4A closes the letters up: 4B reads 4A, 4C reads 4B.
+    const first = idOf('sc4', '4A');
+    await store.getState().applyWith((now) => ({ changes: trashShot(now, project.projectId, first) }));
+    expect(numbers()).toEqual(['4A', '4B']);
+    const slate = store.getState().slateNumbers;
+    const changes = setNumbersLocked(records(), project.projectId, 'sc4', true, slate);
+    const changed = relettered(records(), project.projectId, changes, slate);
+    expect(changed).toEqual([
+      { from: '4A', to: '4B', own: true },
+      { from: '4B', to: '4C', own: true },
+    ]);
+    expect(lockNotice('4', changed)).toBe('Locked SC 04. Frames take back the numbers on their slates: 4A is now 4B and 4B is now 4C.');
+    expect(lockNotice('4', [{ from: '4A', to: '4B', own: true }, { from: '4D', to: '4E' }])).toBe(
+      'Locked SC 04. Frames take back the numbers on their slates: 4A is now 4B. To keep slate numbers unique, 4D is now 4E.',
+    );
   });
 
   it('renumbers, as it locks, a frame holding the number of a live frame in a scene renumbered while locked', async () => {
@@ -628,6 +664,21 @@ describe('the schema 5 migration', () => {
     expect((await loadSlateNumbers(project.file)).find((row) => row.number === '4C')?.shotId).toBe(c);
     await lock('sc4');
     expect(records()[d]?.props.number).toBe('4D');
+  });
+
+  it('gives a frame a v4 file slated twice its later number on a relock, not its first (1.26’s low)', async () => {
+    const a = idOf('sc4', '4A');
+    const b = idOf('sc4', '4B');
+    const c = idOf('sc4', '4C');
+    await lockAsV4('sc4'); // a 4A, b 4B, c 4C on slates
+    await lock('sc4', false);
+    await store.getState().applyWith((now) => ({ changes: trashShot(now, project.projectId, a) })); // b reads 4A, c 4B
+    await lockAsV4('sc4'); // and onto slates again: b as 4A, c as 4B
+    await lock('sc4', false);
+    await asV4ThenReopen();
+    await lock('sc4');
+    expect(records()[b]?.props.number).toBe('4A');
+    expect(records()[c]?.props.number).toBe('4B');
   });
 
   it('gives a v4 number given twice to the shot slated with it, in the Trash, over one numbered after an unlock', async () => {

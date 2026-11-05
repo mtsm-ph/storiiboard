@@ -86,29 +86,39 @@ export function parseHeading(text: string): Pick<ScriptScene, 'heading' | 'intEx
       break;
     }
   }
-  // The place, then the time of day, then anything after it, split at dashes with spaces round them:
-  // `KITCHEN - NIGHT - FLASHBACK` is KITCHEN, NIGHT and FLASHBACK.
-  const parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
   // A full stop after the time ("NOCHE.") is the writer's, not part of it.
   const timeOf = (part: string) => {
     const said = part.toUpperCase().replace(/\.+$/, '');
     return Object.entries(TIMES).find(([word]) => said === word || said.startsWith(`${word} `))?.[1] ?? null;
   };
   // The last part that's a time of day, never the first (that's the place).
-  let at = -1;
-  for (let i = parts.length - 1; i >= 1; i -= 1) {
-    if (timeOf(parts[i] ?? '') !== null) {
-      at = i;
-      break;
+  const lastTime = (some: readonly string[]) => {
+    for (let i = some.length - 1; i >= 1; i -= 1) if (timeOf(some[i] ?? '') !== null) return i;
+    return -1;
+  };
+  // The place, then the time of day, then anything after it, split at dashes with spaces round them:
+  // `KITCHEN - NIGHT - FLASHBACK` is KITCHEN, NIGHT and FLASHBACK.
+  let parts = rest.split(/\s+[-–—]+\s+/).map((part) => part.trim());
+  let joiner = ' - ';
+  let at = lastTime(parts);
+  // Many Spanish scripts separate them with full stops instead (`INT. CASA. NOCHE`, P7's low). Only when the dashes
+  // give no time, and only if a time follows a full stop, so `ST. JAMES CHURCH` stays one place.
+  if (at === -1 && intExt !== null) {
+    const dotted = rest.split(/\.\s+/).map((part) => part.trim());
+    const found = lastTime(dotted);
+    if (found !== -1) {
+      parts = dotted;
+      joiner = '. ';
+      at = found;
     }
   }
   let location = rest.trim();
   let dayNight: DayNight | null = null;
   let otherTime: string | null = null;
   if (at !== -1) {
-    location = parts.slice(0, at).join(' - ');
+    location = parts.slice(0, at).join(joiner);
     dayNight = timeOf(parts[at] ?? '');
-    otherTime = parts.slice(at + 1).join(' - ') || null;
+    otherTime = parts.slice(at + 1).join(joiner).replace(/\.+$/, '') || null;
   } else if (intExt !== null && parts.length > 1) {
     // No time the board knows (CONTINUOUS, LATER): kept so the heading still says it. Without INT or EXT (a forced
     // `FLASHBACK - THE BRIDGE`) the whole text is the place.
