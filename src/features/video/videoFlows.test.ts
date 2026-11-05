@@ -19,7 +19,7 @@ const asked = vi.hoisted(() => ({ ask: vi.fn() }));
 vi.mock('../../app/ask', () => asked);
 
 const { projectStore } = await import('../../app/projectStore');
-const { CHECK_TIMEOUT_MS, checkVideos, videoStatusStore } = await import('./videoStatus');
+const { CHECK_BATCH, CHECK_TIMEOUT_MS, checkVideos, videoStatusStore } = await import('./videoStatus');
 const { relinkVideo } = await import('./relink');
 
 const probe: VideoProbe = {
@@ -120,6 +120,16 @@ describe('a check that never answers', () => {
       vi.useRealTimers();
     }
     expect(videoStatusStore.getState().missing).toEqual({ v: true });
+  });
+
+  it('checks a large project a batch at a time, each batch in time on its own', async () => {
+    const many = Array.from({ length: CHECK_BATCH + 5 }, (_, i) => video(`v${String(i)}`, `C${String(i).padStart(4, '0')}.MP4`));
+    await projectStore.getState().apply(many);
+    driver.status.mockImplementation((paths: string[]) => Promise.resolve(paths.map(() => ({ exists: false, size: null }))));
+    await checkVideos();
+    expect(driver.status).toHaveBeenCalledTimes(2);
+    expect((driver.status.mock.calls[0] as [string[]])[0]).toHaveLength(CHECK_BATCH);
+    expect(Object.keys(videoStatusStore.getState().missing)).toHaveLength(CHECK_BATCH + 5);
   });
 
   it('never holds up another project’s check', async () => {

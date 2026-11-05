@@ -42,10 +42,33 @@ function setMissing(missing: Record<string, true>): void {
 }
 
 /**
- * How long one look at the files may take before it's given up on, keeping what was known: a network share that
+ * How long one batch of files may take before it's given up on, keeping what was known for them: a network share that
  * stopped answering can take tens of seconds a file.
  */
 export const CHECK_TIMEOUT_MS = 8000;
+/** Files asked about in one call, so a large project on a slow share is checked a batch at a time, each in time. */
+export const CHECK_BATCH = 100;
+
+type Statuses = Awaited<ReturnType<typeof videoDriver.status>>;
+
+/** One batch's statuses, or null when it errs or takes too long. */
+async function statusesOf(paths: readonly string[], handle: number | undefined): Promise<Statuses | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      videoDriver.status(paths, handle),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(null);
+        }, CHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function checkOnce(): Promise<void> {
   const { project, records } = projectStore.getState();
@@ -54,32 +77,22 @@ async function checkOnce(): Promise<void> {
     setMissing({});
     return;
   }
-  let statuses: Awaited<ReturnType<typeof videoDriver.status>> | null;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    statuses = await Promise.race([
-      videoDriver.status(
-        videos.map((v) => v.path),
-        project.file.nativeHandle,
-      ),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => {
-          resolve(null);
-        }, CHECK_TIMEOUT_MS);
-      }),
-    ]);
-  } catch {
-    return;
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!statuses) return;
-  // Another project opened meanwhile: the next check has the last word.
-  if (projectStore.getState().project !== project) return;
+  const before = videoStatusStore.getState().missing;
   const missing: Record<string, true> = {};
-  videos.forEach((video, i) => {
-    if (statuses[i]?.exists !== true) missing[video.id] = true;
-  });
+  for (let at = 0; at < videos.length; at += CHECK_BATCH) {
+    const batch = videos.slice(at, at + CHECK_BATCH);
+    const statuses = await statusesOf(
+      batch.map((v) => v.path),
+      project.file.nativeHandle,
+    );
+    // Another project opened meanwhile: its own check has the last word.
+    if (projectStore.getState().project !== project) return;
+    batch.forEach((video, i) => {
+      // A batch that couldn't be answered keeps what was known about its videos.
+      const flagged = statuses ? statuses[i]?.exists !== true : before[video.id] === true;
+      if (flagged) missing[video.id] = true;
+    });
+  }
   setMissing(missing);
 }
 
@@ -89,7 +102,8 @@ const askedAgain = () => again;
 
 /**
  * Looks at every linked video's file now. One check at a time for a project: asked again while one runs (a focus
- * during a slow drive's answer), it runs once more after, never piling up calls on a drive that's slow to answer.
+ * during a slow drive's answer), it runs once more after, rather than piling up checks. A batch given up on after its
+ * time limit still runs to its end in Rust, so a share that stays unreachable can have a few of those going at once.
  * Another project doesn't wait behind the last one's check: its flags clear at once and its own check starts.
  */
 export function checkVideos(): Promise<void> {
