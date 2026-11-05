@@ -100,6 +100,60 @@ export function TrashGlyph() {
   );
 }
 
+/**
+ * A department's status on a shot (polish 6), each its own shape so colour is never the only cue: Priority a
+ * triangle, Seen an eye, Working on it a half-filled circle, Done a checked circle with a soft glow, Approved a
+ * diamond. Outlined in the text colour; filled with the status colour (DESIGN.md, Department status).
+ */
+export function DepartmentStateGlyph({
+  state,
+  size = 12,
+  hollow = false,
+}: {
+  state: 'priority' | 'seen' | 'working' | 'done' | 'approved';
+  size?: number;
+  /** Approved by someone else, not by the person looking: the diamond's outline only. */
+  hollow?: boolean;
+}) {
+  const shape = (() => {
+    switch (state) {
+      case 'priority':
+        return <path d="M6 1.25 11 10.75H1Z" className="fill-text stroke-text" strokeWidth="1.5" strokeLinejoin="miter" />;
+      case 'seen':
+        return (
+          <>
+            <path d="M0.75 6C2.25 3.25 4 2 6 2s3.75 1.25 5.25 4C9.75 8.75 8 10 6 10S2.25 8.75 0.75 6Z" className="fill-none stroke-text" strokeWidth="1.5" />
+            <circle cx="6" cy="6" r="2" className="fill-state-seen stroke-text" strokeWidth="1" />
+          </>
+        );
+      case 'working':
+        return (
+          <>
+            <path d="M6 1.25a4.75 4.75 0 0 0 0 9.5Z" className="fill-state-working" />
+            {/* The dividing line in the text colour: the half reads as a half even where mustard is faint. */}
+            <path d="M6 1.25v9.5" className="stroke-text" strokeWidth="1.5" />
+            <circle cx="6" cy="6" r="4.75" className="fill-none stroke-text" strokeWidth="1.5" />
+          </>
+        );
+      case 'done':
+        return (
+          <g className="sb-glow-done">
+            <circle cx="6" cy="6" r="4.75" className="fill-state-done stroke-text" strokeWidth="1.5" />
+            {/* Ink on sage in both themes: paper on sage would be too faint in dark mode. */}
+            <path d="M3.75 6.1 5.3 7.6 8.3 4.5" className="fill-none stroke-ink-fixed" strokeWidth="1.5" />
+          </g>
+        );
+      case 'approved':
+        return <path d="M6 0.9 11.1 6 6 11.1 0.9 6Z" className={hollow ? 'fill-none stroke-text' : 'fill-text stroke-text'} strokeWidth="1.5" />;
+    }
+  })();
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true" className="shrink-0 overflow-visible">
+      {shape}
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (

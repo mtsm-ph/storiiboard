@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (P5 delete scene merged) |
+| Last updated | Nov 5, 2026 (P6a department status merged) |
 
 | Phase | State |
 |---|---|
@@ -99,7 +99,8 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | #54 | Done |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | #55 | Done |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | #56 | Done |
-| P6 Department status per shot (Priority, Seen, Working on it, Done, Approved) in place of on/off tags; schema change approved; "Your role on this project" | | Planned |
+| P6a Department status per shot (Priority, Working on it, Done, Approved) in place of on/off tags; schema 6 with migration; "Your role on this project" | #57 | Done |
+| P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | | Planned |
 | PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
@@ -196,6 +197,16 @@ the active scene moves with it. The Trash lists the scene as one row with its fr
 back. A frame already in the Trash stays its own row; its Restore brings the scene back whole. One delete per press
 and per click: a held key or a double-click never runs on into the next scene. A locked scene's slate numbers stay
 used through delete, restore and undo, and a new scene never takes a deleted one's number.
+
+P6a as built (Nov 5): P6 is two PRs, to keep each reviewable. The inspector's department tags became a grid: a row
+per department, Priority first, with boxes for Priority, Working on it, Done and Approved (src/core/model/
+departmentStatus.ts, src/features/storyboard/DepartmentStatusTable.tsx). Each tick is an edit; History lists each
+department's change on its own and never offers one to put back (an approval is a sign-off). Approved: only the
+director or the DP (or one person who is both, counted once), with their profile name and role; each sign-off is
+its approver's to take back, and the director's and the DP's can sit side by side. "Your role on this project" in Settings → Project, kept on this computer by project (like the profile), takes
+the place of the usual role there; its list adds "Director and DP". Schema 6 turns each department that was on into
+Priority, after a backup. The shot list and the CSV list the Priority departments for now; P6b adds Seen and the
+compact summary. Status colours from the kit as `state-*` tokens (navy, mustard, sage), each with its own shape.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

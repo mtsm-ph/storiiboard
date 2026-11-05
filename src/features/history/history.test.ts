@@ -9,7 +9,7 @@ import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, tr
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
-import { changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
+import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
 
 let folder: TestFolder;
 let project: Project;
@@ -248,45 +248,29 @@ describe('Put back', () => {
     expect(await stepCount()).toBe(steps);
   });
 
-  it('counts no departments ticked as the same as none ever set, so it isn’t offered to put back', async () => {
+  it('lists each department’s status on its own, and never offers one to put back (polish 6)', async () => {
     const a = await frame();
-    await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['camera'] } }]);
-    await store.getState().apply([{ kind: 'update', id: a, set: { departments: [] } }]);
-    const rows = frameRows(await opsOfRecord(project.file, a), a).flatMap((r) => (r.field?.prop === 'departments' ? [r.field] : []));
-    // Newest first: the untick (Camera → —), then the tick (— → Camera), whose old value reads as the frame does now.
-    expect(rows.map((f) => [changeValue(f, f.before), changeValue(f, f.after)])).toEqual([
-      ['Camera', '—'],
-      ['—', 'Camera'],
+    const approval = { name: 'Kevin Matos', roles: ['director', 'dp'], at: '2026-11-05T10:00:00.000Z' };
+    await store.getState().apply([{ kind: 'update', id: a, set: { department_status: { camera: { priority: true } } } }]);
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { department_status: { camera: { priority: true, done: true, approvals: [approval] }, art: { working: true } } } },
     ]);
-    const [untick, tick] = rows;
-    if (!untick || !tick) throw new Error('no department rows');
-    expect(putBackChange(records()[a], tick)).toBeNull();
-    const steps = await stepCount();
-    expect(await putBack(a, tick)).toBe(false);
-    expect(await stepCount()).toBe(steps);
-    // The untick's old value is a real one, and goes back.
-    expect(await putBack(a, untick)).toBe(true);
-    expect(records()[a]?.props.departments).toEqual(['camera']);
-  });
-
-  it('counts the same departments in another order as the same, so it isn’t offered to put back', async () => {
-    const a = await frame();
-    // As the inspector ticks them: each one ticked goes on the end of the list.
-    for (const departments of [['camera'], ['camera', 'grip-electric'], ['grip-electric'], ['grip-electric', 'camera']]) {
-      await store.getState().apply([{ kind: 'update', id: a, set: { departments } }]);
-    }
-    const untick = (await opsOfRecord(project.file, a))
-      .flatMap((op) => (op.before && op.after ? fieldChanges(op.before, op.after) : []))
-      .find((f) => f.prop === 'departments' && JSON.stringify(f.after) === JSON.stringify(['grip-electric']));
-    if (!untick) throw new Error('no untick');
-    expect(untick.before).toEqual(['camera', 'grip-electric']);
-    expect(putBackChange(records()[a], untick)).toBeNull();
-    const steps = await stepCount();
-    expect(await putBack(a, untick)).toBe(false);
-    expect(await stepCount()).toBe(steps);
-    // Another set of departments still goes back.
-    expect(await putBack(a, await lastChange(a, 'departments'))).toBe(true);
-    expect(records()[a]?.props.departments).toEqual(['grip-electric']);
+    const done = await lastChange(a, 'department_status', 'camera');
+    expect(changeLabel(done)).toBe('Camera');
+    expect(changeValue(done, done.before)).toBe('Priority');
+    expect(changeValue(done, done.after)).toBe('Priority, Done, approved by Kevin Matos (Director and DP)');
+    const art = await lastChange(a, 'department_status', 'art');
+    expect([changeLabel(art), changeValue(art, art.before), changeValue(art, art.after)]).toEqual(['Art', '—', 'Working on it']);
+    // A first tick reads as a change in the board's words, never as a field put on by its stored id.
+    expect((await lines()).slice(-2)).toEqual([
+      '4A: Camera — → Priority',
+      '4A: Camera, Art',
+    ]);
+    // A sign-off has a name and a time: it goes back only with Restore to here, never by hand.
+    expect(putBackChange(records()[a], done)).toBeNull();
+    // Nor does the list a frame kept before polish 6: the frame reads its status now.
+    await store.getState().apply([{ kind: 'update', id: a, set: { departments: ['sound'] } }]);
+    expect(putBackChange(records()[a], await lastChange(a, 'departments'))).toBeNull();
   });
 
   it('takes a custom field off again when it wasn’t on the frame, even emptied', async () => {

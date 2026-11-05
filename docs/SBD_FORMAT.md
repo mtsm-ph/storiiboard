@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v5 (milestone 1.26); sections marked planned aren't built yet. Every
+**Status:** schema v6 (polish 6); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -271,6 +271,20 @@ rules in src/features/storyboard/board.ts).
 - They're part of the file, so backups and Open version copies carry them. The JSON export (Phase 2) must carry them
   too.
 
+## Schema v6: department status (polish 6)
+
+Approved by Kevin, Nov 5. A shot kept `departments`, the departments it needed as on/off tags. Every department is
+involved in every shot, so a shot now keeps how far each one has got with it: `department_status` (Storyboard props,
+below; src/core/model/departmentStatus.ts). No table changes.
+
+- The migration turns each department that was on into Priority (`{ "camera": { "priority": true } }`), each id once,
+  text ids only, and takes `departments` off. Only shots: no other record ever had it. migrate() backs the file up
+  first, as before every migration.
+- The edit log is append-only and keeps the old lists. A point restored from before v6 (Restore to here, Open
+  version) has `departments` again, and the app reads it as Priority; the next status edit on that shot takes the
+  list off.
+- Seen (automatic, when someone from a department opens a shot) comes with polish 6b and isn't an op.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project
@@ -343,7 +357,8 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | support, height, move | text | From lists in the inspector (1.8); free text is kept |
 | shot | status | `have`, `need`, `source` | A new frame is `need` |
 | shot | action, dialogue | text | |
-| shot | departments | array of department ids | src/core/model/department.ts |
+| shot | department_status | object by department id | Polish 6 (schema 6). `{ "camera": { "priority": true, "working": true, "done": true, "approvals": [{ "name": "Kevin Matos", "roles": ["director", "dp"], "at": "<ISO time>" }] } }`: only what's set. `approvals` are the director's or the DP's sign-offs, with the approver's profile name as it was then (empty with none) and their roles; one person who is both is one approval with both roles. Ids, fields and approvals this version doesn't know are kept as they are; an approval is written back exactly as read (the app only adds or removes one). Department ids: src/core/model/department.ts |
+| shot | departments | array of department ids | Before schema 6 only: read as Priority, taken off by the migration |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
 | shot | custom | object of text by field name | 1.19. The frame's own fields (`{ "Drone": "Mavic 3" }`), in the order added. Missing when it has none. The project's list of field names isn't stored: it's every name its live shots use |
@@ -605,7 +620,7 @@ merge a database, so two guards sit around every open project:
 
 ## Planned changes
 
-### Schema 6: notification read state (Phase 3)
+### Schema 7 or later: notification read state (Phase 3)
 
 The notification feed isn't stored: like every rollup, it's computed from ops, suggestions and comments. What is stored
 is each person's read state, in two tables.
@@ -640,7 +655,8 @@ is each person's read state, in two tables.
 | 3 | 1.10 | Pictures: `media_files` and `thumbnails`, addressed by SHA-256; record types `note`, `character` and `stroke` |
 | 4 | 1.23 | Named versions: `versions` |
 | 5 | 1.26 | Slate numbers: `slate_numbers`; `meta.slate_numbers_unknown` |
-| 6 | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
+| 6 | Polish 6 | Department status: each shot's `departments` list becomes `department_status`, the departments that were on as Priority. No table change |
+| later | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

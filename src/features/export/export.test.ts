@@ -271,7 +271,7 @@ describe('the shot list CSV', () => {
     }
     const [a = '', b = '', c = ''] = ids;
     await store.getState().apply([
-      { kind: 'update', id: a, set: { size: 'MCU', lens_mm: 35, t_stop: 2.8, status: 'have', action: 'Mary wipes the counter, "slowly".', departments: ['camera', 'art'] } },
+      { kind: 'update', id: a, set: { size: 'MCU', lens_mm: 35, t_stop: 2.8, status: 'have', action: 'Mary wipes the counter, "slowly".', department_status: { art: { priority: true }, sound: { done: true }, camera: { priority: true } } } },
       { kind: 'update', id: a, ...withField(store.getState().records[a]?.props ?? {}, 'Drone', 'no') },
     ]);
     await store.getState().apply([{ kind: 'update', id: c, set: { size: 'WS', dialogue: 'We’re closed.' } }]);

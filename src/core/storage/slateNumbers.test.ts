@@ -5,6 +5,7 @@ import { createProjectStore } from '../../app/projectStore';
 import { addScene, addShot, board, lockNotice, moveItem, relettered, setNumbersLocked, setSceneNumber, trashScene as trashSceneChanges, trashShot } from '../../features/storyboard/board';
 import { emptyTrashMessage, restoreChanges } from '../../features/trash/trash';
 import { log } from '../ops/ops';
+import { SCHEMA_VERSION } from './migrations';
 import { backupFileName } from './backups';
 import { nodeDriver } from './nodeDriver';
 import { createProject, openProject, type Project } from './project';
@@ -506,7 +507,7 @@ describe('the schema 5 migration', () => {
     await scene('sc6', '6', 'X');
     await frame('sc6'); // unlocked: nothing to keep
     const migration = await asV4ThenReopen();
-    expect(migration).toEqual({ from: 4, to: 5, backup: 'Bey County.sbd.bak-v4-2026-11-04 16-00' });
+    expect(migration).toEqual({ from: 4, to: SCHEMA_VERSION, backup: 'Bey County.sbd.bak-v4-2026-11-04 16-00' });
     expect(existsSync(folder.path('Bey County.sbd.bak-v4-2026-11-04 16-00'))).toBe(true);
     expect(await stored()).toEqual(['4A', '4B', '4C', '4D']);
     expect(await stored('sc6')).toEqual([]);

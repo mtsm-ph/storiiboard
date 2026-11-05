@@ -1,6 +1,7 @@
 import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { customValue } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
+import { priorityDepartments } from '../../core/model/departmentStatus';
 import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
@@ -679,10 +680,11 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                     <StatusGlyph status={f.status} showLabel />
                   </td>
                   <td className={cx(cell, 'max-w-[28ch]', f.action === '' && quiet)}>{dash(f.action)}</td>
-                  <td className={cx(cell, f.departments.length === 0 && quiet)}>
-                    {f.departments.length === 0
+                  {/* The departments this frame depends on most (polish 6), as the on/off tags read before. */}
+                  <td className={cx(cell, priorityDepartments(f.departmentStatus).length === 0 && quiet)}>
+                    {priorityDepartments(f.departmentStatus).length === 0
                       ? '—'
-                      : f.departments.map(departmentName).join(', ')}
+                      : priorityDepartments(f.departmentStatus).map(departmentName).join(', ')}
                   </td>
                   {customNames.map((name) => {
                     // The frame may spell the name in another case; it's the same field.

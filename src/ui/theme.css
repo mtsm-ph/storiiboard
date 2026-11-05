@@ -122,6 +122,10 @@
   --color-dept-art: var(--sb-dept-art);
   --color-dept-wardrobe: var(--sb-dept-wardrobe);
   --color-dept-sound: var(--sb-dept-sound);
+  /* Department status (polish 6): state, so kept apart from the department tags; always with its own shape. */
+  --color-state-seen: var(--state-seen);
+  --color-state-working: var(--state-working);
+  --color-state-done: var(--state-done);
   /* Text that keeps its colour in both themes, on department tags and chips. */
   --color-paper-fixed: #eee9df;
   --color-ink-fixed: var(--sb-on-accent);
@@ -190,6 +194,25 @@
     outline: 2px solid var(--text);
     outline-offset: 2px;
   }
+}
+
+/*
+ * Department status colours (polish 6, Kevin Nov 5: Seen blue, Working on it yellow, Done green), from the kit: navy,
+ * mustard and sage. Fixed, never themed. Each sits inside an outline in the text colour, so the shape reads in both
+ * themes whatever the fill; dark mode lifts the navy, which would vanish on the abyssal panels.
+ */
+:root {
+  --state-seen: #1f2f4d;
+  --state-working: #d9a23d;
+  --state-done: #8fa38e;
+}
+:root[data-theme='dark'] {
+  --state-seen: #8da6c8;
+}
+
+/* Done's soft glow (Kevin, Nov 5): the one glow in the app, on the glyph only, never on a tile or a control. */
+.sb-glow-done {
+  filter: drop-shadow(0 0 2.5px var(--state-done));
 }
 
 /* The kit's grain class fills with --sb-paper; the app's background follows the theme instead. */

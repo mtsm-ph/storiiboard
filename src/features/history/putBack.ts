@@ -10,21 +10,17 @@ import type { FieldChange } from './summary';
 
 /** Fields a person sets by hand, by kind of item, so an old value can go back on its own without leaving the board inconsistent. */
 const PUTTABLE: Readonly<Partial<Record<SbdRecord['type'], ReadonlySet<string>>>> = {
-  shot: new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'departments', 'custom']),
+  // Not department status (polish 6): an approval is a sign-off with a name and a time, never one to put back by hand.
+  // Not the older departments list either: a frame reads its status now, so putting the list back would change nothing.
+  shot: new Set(['size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'custom']),
   scene: new Set(['name', 'int_ext', 'day_night', 'page_eighths']),
   note: new Set(['text']),
 };
 
 // A frame's own empty and unset fields read the same in the inspector and in History (`—`), so neither is put back
-// over the other: an empty text, or no departments ticked (an empty list, once a department was ticked and unticked).
-const blank = (v: JsonValue | undefined) => (v === undefined || v === '' || (Array.isArray(v) && v.length === 0) ? null : v);
-// Departments are a set: the inspector adds one to the end when it's ticked, so the same departments in another
-// order are the same value, and putting the old order back would be a step that changes nothing a person sees.
-const asSet = (v: JsonValue | null) => (Array.isArray(v) ? [...new Set(v.map((d) => JSON.stringify(d)))].sort() : v);
-const same = (prop: string, a: JsonValue | undefined, b: JsonValue | undefined) => {
-  const [x, y] = prop === 'departments' ? [asSet(blank(a)), asSet(blank(b))] : [blank(a), blank(b)];
-  return JSON.stringify(x) === JSON.stringify(y);
-};
+// over the other: an empty text, say.
+const blank = (v: JsonValue | undefined) => (v === undefined || v === '' ? null : v);
+const same = (a: JsonValue | undefined, b: JsonValue | undefined) => JSON.stringify(blank(a)) === JSON.stringify(blank(b));
 
 /** Whether this change's old value can be put back by hand on this kind of item. A custom field holding more than text never is (1.19). */
 export function canPutBack(type: SbdRecord['type'], field: FieldChange): boolean {
@@ -47,6 +43,6 @@ export function putBackChange(record: SbdRecord | undefined, field: FieldChange)
     if (customFieldsOf(record.props)[key] === before) return null;
     return { kind: 'update', id: record.id, ...(typeof before === 'string' ? withField(record.props, key, before) : withoutField(record.props, key)) };
   }
-  if (same(field.prop, record.props[field.prop], before)) return null;
+  if (same(record.props[field.prop], before)) return null;
   return { kind: 'update', id: record.id, ...(before === undefined ? { unset: [field.prop] } : { set: { [field.prop]: before } }) };
 }

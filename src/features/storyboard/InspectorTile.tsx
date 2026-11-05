@@ -4,6 +4,8 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
 import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
+import { approvalNow, useProjectRole } from '../../app/settings/projectRole';
+import { approverRoles, departmentStatusChange, departmentStatuses } from '../../core/model/departmentStatus';
 import { addPictures } from './addPictures';
 import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
@@ -30,6 +32,8 @@ export function InspectorTile() {
   const apply = useProject((s) => s.apply);
   const sceneId = useSelection((s) => s.sceneId);
   const shotId = useSelection((s) => s.shotId);
+  // What this person can approve here (polish 6): their role on this project, else their usual one.
+  const role = useProjectRole(project?.projectId);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -84,6 +88,17 @@ export function InspectorTile() {
         onBack={() => {
           focusBoard(shot?.id ?? null, scene?.id ?? null);
         }}
+        onDepartmentStatus={(edit) => {
+          if (!shot) return;
+          // From the frame as it is when this lands, as custom fields are: two quick ticks both stay.
+          void projectStore.getState().applyWith((now) => {
+            const current = now[shot.id];
+            const next = current ? edit(departmentStatuses(current.props)) : null;
+            return { changes: current && next ? [{ kind: 'update', id: shot.id, ...departmentStatusChange(next) }] : [] };
+          });
+        }}
+        approval={() => approvalNow(role)}
+        myRoles={approverRoles(role)}
         picture={picture}
         locationName={locationName}
         strokeCount={shot ? strokesOf(records, shot.id).length : 0}
