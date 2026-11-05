@@ -27,9 +27,9 @@ const steps = (page: Page) => history(page).getByRole('list', { name: 'Steps, ne
 const frames = (page: Page) => board(page).locator('[data-shot-id]');
 const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
 
+// The top bar's History button (polish 3), beside the project name.
 async function openHistory(page: Page) {
-  await page.getByRole('button', { name: 'Project', exact: true }).click();
-  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
   await expect(history(page)).toBeVisible();
 }
 
@@ -38,6 +38,24 @@ async function setLens(page: Page, mm: string) {
   await lens.fill(mm);
   await lens.press('Enter');
 }
+
+test('the top bar’s History button, beside the project name, and the project menu open the same tile', async ({ page }) => {
+  const button = page.getByRole('banner').getByRole('button', { name: 'History', exact: true });
+  // Right after the project's name, as Kevin asked: name, then History.
+  const name = await page.getByRole('banner').locator('span.sb-label').first().boundingBox();
+  const box = await button.boundingBox();
+  expect(box && name && Math.abs(box.x - (name.x + name.width)) < 2).toBe(true);
+
+  await button.click();
+  await expect(history(page)).toBeVisible();
+  // Asked again, the tile is already there: it stays one tile, open.
+  await page.getByRole('button', { name: 'Close History' }).click();
+  await expect(history(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  // The menu's History comes after the top bar's in the page.
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).nth(1).click();
+  await expect(history(page)).toHaveCount(1);
+});
 
 test('lists every step in words, newest first, and Restore to here is a step undo takes back', async ({ page }) => {
   await openHistory(page);

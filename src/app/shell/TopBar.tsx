@@ -1,5 +1,6 @@
 import { cx } from '../../ui/cx';
 import { SMark } from '../../ui/logo/SMark';
+import { HistoryGlyph } from '../../ui/glyphs';
 import { projectStateOf } from '../../core/model/project';
 import { Menu, menuItemClass } from '../../ui/Menu';
 import { setProjectState } from '../projects/actions';
@@ -17,7 +18,13 @@ interface TopBarProps {
 }
 
 // The top bar keeps paper-coloured outlines in dark mode (rule-top): with the sidebar it is the "guiding board".
-// Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name and the menus.
+/** History is a tile (1.22): it opens in the workspace on screen, beside what's there, or comes to the front. */
+function openHistory(workspace: Workspace) {
+  const { layouts, change } = layoutStore.getState();
+  change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+}
+
+// Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name, History (polish 3) and the menus.
 export function TopBar({ projectName, workspace }: TopBarProps) {
   const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
   const open = useProject((s) => s.project !== null);
@@ -35,6 +42,18 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
       >
         {projectName ?? t('project.noneOpen')}
       </span>
+      {/* Beside the name it's the history of (polish 3): the same tile as the project menu's History. */}
+      <button
+        type="button"
+        disabled={!open}
+        onClick={() => {
+          openHistory(workspace);
+        }}
+        className="sb-label flex h-full items-center gap-1.5 border-r border-border-top px-4 enabled:hover:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
+      >
+        <HistoryGlyph />
+        {t('topBar.history')}
+      </button>
       <div className="ml-auto flex h-full">
         <LayoutMenu workspace={workspace} />
         {/* The project menu (DESIGN.md, Navigation). Each command shows its phase until it's built. */}
@@ -45,15 +64,14 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
         >
           {(close) => (
             <>
-              {/* History is a tile (1.22): it opens in the workspace on screen, beside what's there. */}
+              {/* The same tile as the History button beside the project name. */}
               <button
                 type="button"
                 className={menuItemClass}
                 disabled={!open}
                 onClick={() => {
                   close();
-                  const { layouts, change } = layoutStore.getState();
-                  change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+                  openHistory(workspace);
                 }}
               >
                 {t('topBar.history')}

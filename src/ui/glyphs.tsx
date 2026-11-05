@@ -64,6 +64,17 @@ export function SidebarGlyph({ shown }: { shown: boolean }) {
   );
 }
 
+/** History: a clock face whose hand turns back. */
+export function HistoryGlyph() {
+  return (
+    <svg width="13" height="12" viewBox="0 0 13 12" aria-hidden="true">
+      <path d="M2.4 3.2A5 5 0 1 1 2 7.4" fill="none" className="stroke-text" strokeWidth="1.5" />
+      <path d="M1 1.2v2.8h2.8" fill="none" className="stroke-text" strokeWidth="1.5" />
+      <path d="M7 3.5V6.5l2 1.2" fill="none" className="stroke-text" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (

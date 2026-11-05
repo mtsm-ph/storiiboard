@@ -37,3 +37,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(await dot.evaluate((el) => getComputedStyle(el).fill)).toBe('rgb(224, 97, 43)');
   });
 }
+
+test('History in the top bar waits for a project', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('banner').getByRole('button', { name: 'History', exact: true })).toBeDisabled();
+});
