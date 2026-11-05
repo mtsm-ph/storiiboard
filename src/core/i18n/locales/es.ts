@@ -979,6 +979,11 @@ export const es: Messages = {
   'error.notAVideo': 'Ese archivo no se puede leer como video.',
   'error.videoToolMissing': 'El lector de video de Storiiboard no pudo iniciarse. Reinstalar Storiiboard lo restablece.',
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
+  // src-tauri/src/playback.rs
+  'error.copyFailed': 'No se pudo hacer una copia de reproducción de ese video.',
+  'error.copyCancelled': 'Se canceló la copia de reproducción.',
+  'error.copyCap': 'El límite de las copias de reproducción va de 1 a 10.000 GB.',
+  'error.copyBusy': 'Se está haciendo una copia de reproducción; mueve las copias cuando termine.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',
   // src/app/shell/sidebar/Sidebar.tsx

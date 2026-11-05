@@ -341,7 +341,7 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
 /// first frame, but a file's start is its earliest stream: sound that starts before the picture (AVCHD, an MP4 without
 /// an edit list) would otherwise move every still a few frames early. The playback copy (2.3) and the Player (2.4)
 /// count frame 0 the same way.
-fn starts(path: &Path) -> Result<(f64, f64), String> {
+pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     let mut command = command("ffprobe");
     command
         .args(["-v", "error", "-protocol_whitelist", "file"])
@@ -462,6 +462,20 @@ impl KnownVideos {
             .is_ok_and(|paths| paths.iter().any(|known| known == path))
     }
 
+    fn count(&self) -> usize {
+        self.paths.lock().map_or(0, |paths| paths.len())
+    }
+
+    /// Forgets every video remembered (Settings → Storage): each reads again once dropped, chosen or relinked.
+    fn forget_all(&self) -> Result<(), String> {
+        let mut paths = self.paths.lock().map_err(|e| e.to_string())?;
+        paths.clear();
+        if let Some(file) = &self.file {
+            crate::playback::write_atomically(file, b"[]").map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     /// Remembers a video read for the person. Written whole to a new file, then renamed over the old one, so a crash
     /// never leaves half a list.
     fn remember(&self, path: &Path) {
@@ -496,7 +510,7 @@ impl KnownVideos {
 }
 
 /// What a request to read a video is checked against.
-struct Access<'a> {
+pub(crate) struct Access<'a> {
     offered: &'a Offered,
     known: &'a KnownVideos,
     files: &'a OpenFiles,
@@ -505,7 +519,7 @@ struct Access<'a> {
 }
 
 impl<'a> Access<'a> {
-    fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
+    pub(crate) fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
         Self {
             offered: app.state::<Offered>().inner(),
             known: app.state::<KnownVideos>().inner(),
@@ -530,7 +544,7 @@ impl<'a> Access<'a> {
                 .is_some_and(|handle| self.files.links_video_inside(handle, path).unwrap_or(false))
     }
 
-    fn readable(&self, path: &Path) -> Result<(), String> {
+    pub(crate) fn readable(&self, path: &Path) -> Result<(), String> {
         if !self.may_read(path) {
             return Err("Storiiboard reads only the files you drop on it or choose.".into());
         }
@@ -622,6 +636,18 @@ pub async fn video_status(
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// How many videos this computer remembers the person handed over.
+#[tauri::command]
+pub fn known_videos_count(app: AppHandle) -> usize {
+    app.state::<KnownVideos>().count()
+}
+
+/// Forgets them all; a project's videos outside its folder then need Relink (or a drop) to read again.
+#[tauri::command]
+pub fn known_videos_forget(app: AppHandle) -> Result<(), String> {
+    app.state::<KnownVideos>().forget_all()
 }
 
 /// The Open dialog for videos; the files picked become readable.
@@ -1114,7 +1140,18 @@ mod tests {
         let saved: Vec<PathBuf> =
             serde_json::from_slice(&fs::read(dir.join("data").join("known-videos.json")).unwrap())
                 .unwrap();
-        assert_eq!(saved, [card]);
+        assert_eq!(saved, std::slice::from_ref(&card));
+        assert_eq!(known.count(), 1);
+        known.forget_all().unwrap();
+        assert!(!Access {
+            known: &known,
+            ..access
+        }
+        .may_read(&card));
+        assert!(
+            !KnownVideos::load(&dir.join("data")).has(&card),
+            "forgotten on disk too"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

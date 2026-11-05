@@ -38,14 +38,19 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 |---|---|---|
 | 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | Done |
 | 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | #72 | Done |
-| 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | | In review |
-| 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
+| 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | #73 | Done |
+| 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | | In review |
+| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
 | 2.6 Crop | | Not started |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
+
+2.3 decision for Kevin (not taken by default: a new dependency): HDR tone-mapping. FFmpeg's own scaler doesn't map
+PQ or HLG to SDR, and its `tonemap` filter needs linear light, which in practice means zimg (`zscale`; WTFPL licence,
+fits the LGPL build). Until then HDR copies are made as they are, and the app says they aren't tone-mapped.
 
 2.1 as built: `scripts/ffmpeg/build.sh` builds FFmpeg 8.1.3 (checksum pinned) with `--disable-autodetect`, static,
 and checks itself: the LGPL 2.1, no GPL, nonfree or version3 flag, the `lut3d` filter. VideoToolbox on a Mac, Media

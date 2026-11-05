@@ -8,6 +8,7 @@ mod export;
 mod lock;
 mod opened;
 mod pictures;
+mod playback;
 mod sbd;
 mod synced;
 mod video;
@@ -61,6 +62,16 @@ pub fn run() {
             video::video_still,
             video::video_status,
             video::video_choose,
+            video::known_videos_count,
+            video::known_videos_forget,
+            playback::playback_make,
+            playback::playback_find,
+            playback::playback_cancel,
+            playback::playback_info,
+            playback::playback_clear,
+            playback::playback_set_cap,
+            playback::playback_move,
+            playback::playback_move_back,
             pictures::script_choose,
             export::export_choose_file,
             export::export_choose_folder,
@@ -80,6 +91,12 @@ pub fn run() {
             app.manage(lock::Machine::load(&data_dir));
             // Videos the person has handed over, so a reopened project reads its footage (video.rs).
             app.manage(video::KnownVideos::load(&data_dir));
+            // Playback copies (playback.rs): in the app's cache folder unless the person moved them.
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| data_dir.join("cache"));
+            app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
             // A double-click on Windows launches the app with the file as an argument.
             let cwd = std::env::current_dir().unwrap_or_default();
             opened::queue(
