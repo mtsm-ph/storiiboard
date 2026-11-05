@@ -43,7 +43,9 @@ describe('backup names', () => {
     expect(backupFileName('Bey', at, 2)).toBe('Bey 2026-11-04 18-30 (2).sbd');
     expect(backupFileName('Bey', at, 1)).toBe('Bey 2026-11-04 18-30.sbd');
     for (const copy of ['(2)', '(9)', '(10)', '(99)']) expect(isBackupName('Bey', `Bey 2026-11-04 18-30 ${copy}.sbd`)).toBe(true);
-    for (const copy of ['(1)', '(0)', '(02)', '()', '(2a)', '(-2)']) expect(isBackupName('Bey', `Bey 2026-11-04 18-30 ${copy}.sbd`)).toBe(false);
+    for (const copy of ['(1)', '(0)', '(02)', '()', '(2a)', '(-2)', '(2', '2)', '(100)']) {
+      expect(isBackupName('Bey', `Bey 2026-11-04 18-30 ${copy}.sbd`)).toBe(false);
+    }
     expect(parseBackupFileName('Bey', 'Bey 2026-11-04 18-30 (2).sbd')).toEqual(at);
   });
 
@@ -54,8 +56,10 @@ describe('backup names', () => {
     expect(byNewest('Bey', [minute[1] ?? '', earlier, minute[0] ?? '', minute[2] ?? ''])).toEqual([...minute].reverse().concat(earlier));
     // Keeping the newest one keeps the minute's last copy.
     expect(backupsToDelete([earlier, ...minute], 'Bey', at, { recent: 1, days: 1 }).sort()).toEqual([earlier, minute[0], minute[1]].sort());
-    const cap = backupsOverCap([earlier, ...minute].map((name) => ({ name, bytes: 10 })), 'Bey', 25);
-    expect(cap).toEqual([earlier]);
+    // The cap deletes a minute's earliest copies first, whatever order they're listed in.
+    const shuffled = [10, 3, 1, 2, 4].map((copy) => backupFileName('Bey', at, copy));
+    const capped = backupsOverCap(shuffled.map((name) => ({ name, bytes: 10 })), 'Bey', 25);
+    expect(capped).toEqual([backupFileName('Bey', at), backupFileName('Bey', at, 2)]);
   });
 });
 

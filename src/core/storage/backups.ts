@@ -48,8 +48,10 @@ export function migrationBackupName(projectFileName: string, from: number, at: D
 }
 
 const STAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2})$/;
-/** A scheduled backup's stamp, with the copy number a second one in the same minute takes: ` (2)` on. */
-const BACKUP_STAMP = /^((\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2}))(?: \(([2-9]|[1-9]\d+)\))?$/;
+/** The most backups one minute can hold: its copy numbers run to ` (99)`, the room openBackup.ts leaves for them. */
+export const MAX_COPIES = 99;
+/** A scheduled backup's stamp, with the copy number a second one in the same minute takes: ` (2)` to ` (99)`. */
+const BACKUP_STAMP = /^((\d{4})-(\d{2})-(\d{2}) (\d{2})-(\d{2}))(?: \(([2-9]|[1-9]\d)\))?$/;
 
 /** The shape check src-tauri/src/sbd.rs makes before it writes or deletes a backup; nodeDriver.ts makes it too. */
 export function isBackupName(projectStem: string, name: string): boolean {
@@ -65,7 +67,7 @@ export function isMigrationBackupName(projectFileName: string, name: string): bo
 }
 
 /** When a backup of this project was made and which copy of that minute it is, or null if it isn't one of its backups. */
-function parseBackup(projectStem: string, name: string): { at: Date; copy: number } | null {
+export function parseBackup(projectStem: string, name: string): { at: Date; copy: number } | null {
   const prefix = `${projectStem} `;
   if (!name.startsWith(prefix) || !name.endsWith('.sbd')) return null;
   const match = BACKUP_STAMP.exec(name.slice(prefix.length, -'.sbd'.length));
@@ -180,10 +182,11 @@ export interface BackupSchedule {
 export async function freshBackupName(file: ProjectFile, at: Date): Promise<string> {
   const stem = fileStem(file.path);
   const taken = new Set((await file.listBackups()).map((backup) => backup.name));
-  for (let copy = 1; ; copy += 1) {
+  for (let copy = 1; copy <= MAX_COPIES; copy += 1) {
     const name = backupFileName(stem, at, copy);
     if (!taken.has(name)) return name;
   }
+  throw new Error(`This project already has ${String(MAX_COPIES)} backups from this minute. Try again in a minute.`);
 }
 
 /**

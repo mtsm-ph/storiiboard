@@ -12,6 +12,14 @@ export interface BackupEntry {
   name: string;
   /** From the file name; null for a name that doesn't parse, which then sorts last. */
   at: Date | null;
+  /** Which backup of that minute: 1, or 2 for `… (2).sbd` (1.28). */
+  copy?: number;
+}
+
+/** "2026-11-04 18:30", or "2026-11-04 18:30 (2)" for that minute's second backup, so no two rows read alike. */
+function backupLabel(backup: BackupEntry): string {
+  if (!backup.at) return backup.name;
+  return `${localDateTime(backup.at)}${backup.copy && backup.copy > 1 ? ` (${String(backup.copy)})` : ''}`;
 }
 
 export interface BackupsViewProps {
@@ -128,10 +136,10 @@ export function BackupsView({
             <ul aria-label="Backups" className="border-t border-border">
               {project.backups.map((backup) => (
                 <li key={backup.name} className="flex items-center gap-3 border-b border-border py-1.5">
-                  <span className="font-mono text-[12px]">{backup.at ? localDateTime(backup.at) : backup.name}</span>
+                  <span className="font-mono text-[12px]">{backupLabel(backup)}</span>
                   <Button
                     className="ml-auto"
-                    aria-label={`Open the ${backup.at ? localDateTime(backup.at) : backup.name} backup as a separate project`}
+                    aria-label={`Open the ${backupLabel(backup)} backup as a separate project`}
                     onClick={() => {
                       onOpen(backup.name);
                     }}

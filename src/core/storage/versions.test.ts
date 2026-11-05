@@ -4,7 +4,7 @@ import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
 import { addShot, board } from '../../features/storyboard/board';
 import { log } from '../ops/ops';
-import { backupFileName, migrationBackupName } from './backups';
+import { backupFileName, MAX_COPIES, migrationBackupName } from './backups';
 import type { SqlDriver } from './driver';
 import { migrate } from './migrate';
 import { MIGRATIONS, SCHEMA_VERSION } from './migrations';
@@ -244,6 +244,8 @@ describe('Open version’s file names', () => {
     const separator = folder.at(-1) ?? '/';
     return [
       `${folder}Backups${separator}${backupFileName(name.slice(0, -'.sbd'.length), at)}.partial`,
+      // A minute's last copy, the longest a scheduled backup's name gets.
+      `${folder}Backups${separator}${backupFileName(name.slice(0, -'.sbd'.length), at, MAX_COPIES)}.partial`,
       `${folder}${migrationBackupName(name, 99, at)}.partial`,
     ];
   };
@@ -264,8 +266,8 @@ describe('Open version’s file names', () => {
     const folderPath = `C:\\Users\\kevma\\Documents\\${'Commercials\\'.repeat(14)}Spring`;
     const paths = versionCopyPaths(`${folderPath}\\Bey County.sbd`, 'Board sent to client after the second recce', '0a1b2c3d');
     for (const path of longest(paths)) expect(`${path}-journal`.length).toBeLessThanOrEqual(259);
-    // Shortened, with room left for a minute's 99th backup beside it, but never dropped.
-    expect(paths.path(1).startsWith(`${folderPath}\\Bey County (B`)).toBe(true);
+    // Shortened to leave room for a minute's last backup copy beside it, but never dropped.
+    expect(paths.path(1)).toBe(`${folderPath}\\Bey County (B).sbd`);
     // A Mac path that long is fine as it is.
     const mac = versionCopyPaths(`${folderPath.replace(/\\/g, '/').slice(2)}/Bey County.sbd`, 'Board sent to client after the second recce', '0a1b2c3d');
     expect(mac.path(1).endsWith('(Board sent to client after the second recce).sbd')).toBe(true);

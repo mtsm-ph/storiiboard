@@ -575,8 +575,9 @@ fn check_extension(path: &Path) -> Result<(), String> {
     }
 }
 
-/// `<Project> YYYY-MM-DD HH-mm.sbd`, where `<Project>` is the .sbd's name without the extension. src/core/storage/
-/// backups.ts makes these names; this check is the guard that keeps a bug there from touching other files.
+/// `<Project> YYYY-MM-DD HH-mm.sbd`, or `… HH-mm (2).sbd` to `(99)` for a minute's later copies, where `<Project>` is
+/// the .sbd's name without the extension. src/core/storage/backups.ts makes these names; this check is the guard that
+/// keeps a bug there from touching other files.
 pub fn is_backup_name(stem: &str, name: &str) -> bool {
     name.strip_prefix(stem)
         .and_then(|rest| rest.strip_prefix(' '))
@@ -584,8 +585,8 @@ pub fn is_backup_name(stem: &str, name: &str) -> bool {
         .is_some_and(|rest| is_stamp(rest) || is_stamp_copy(rest))
 }
 
-/// `YYYY-MM-DD HH-mm (2)`: a second backup in the same minute, and on (backups.ts). A copy number is 2 or more, with
-/// no leading zero, so each name has one spelling.
+/// `YYYY-MM-DD HH-mm (2)`: a second backup in the same minute, and on to `(99)` (backups.ts MAX_COPIES). A copy number
+/// is 2 to 99, with no leading zero, so each name has one spelling.
 fn is_stamp_copy(rest: &str) -> bool {
     let Some((stamp, copy)) = rest.split_at_checked(16) else {
         return false;
@@ -594,7 +595,7 @@ fn is_stamp_copy(rest: &str) -> bool {
         return false;
     };
     is_stamp(stamp)
-        && !digits.is_empty()
+        && (1..=2).contains(&digits.len())
         && digits.bytes().all(|b| b.is_ascii_digit())
         && !digits.starts_with('0')
         && digits != "1"
@@ -2130,7 +2131,9 @@ mod tests {
                 &format!("Bey County 2026-11-02 14-05 {copy}.sbd")
             ));
         }
-        for copy in ["(1)", "(0)", "(02)", "()", "(2a)", "(2", "2)", "(-2)"] {
+        for copy in [
+            "(1)", "(0)", "(02)", "()", "(2a)", "(2", "2)", "(-2)", "(100)",
+        ] {
             assert!(!is_backup_name(
                 "Bey County",
                 &format!("Bey County 2026-11-02 14-05 {copy}.sbd")

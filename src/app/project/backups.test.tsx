@@ -45,6 +45,33 @@ describe('the Backups tile', () => {
     expect(html).toContain('value="14"');
   });
 
+  it('tells apart two backups from the same minute, on screen and to a screen reader', () => {
+    const at = new Date(2026, 10, 4, 18, 30);
+    const html = renderToString(
+      <BackupsView
+        keep={keep}
+        onKeepChange={noop}
+        project={{
+          folder: '/Films/Backups',
+          backups: [
+            { name: 'Bey County 2026-11-04 18-30 (2).sbd', at, copy: 2 },
+            { name: 'Bey County 2026-11-04 18-30.sbd', at, copy: 1 },
+          ],
+          synced: null,
+        }}
+        nextToProject={false}
+        onNextToProjectChange={noop}
+        status={null}
+        onBackUpNow={noop}
+        onShowBackups={noop}
+        onOpen={noop}
+      />,
+    );
+    expect(html).toContain('aria-label="Open the 2026-11-04 18:30 (2) backup as a separate project"');
+    expect(html).toContain('aria-label="Open the 2026-11-04 18:30 backup as a separate project"');
+    expect(html.indexOf('18:30 (2)')).toBeLessThan(html.indexOf('aria-label="Open the 2026-11-04 18:30 backup'));
+  });
+
   it('keeps the settings editable with no project open, since they apply to every project', () => {
     const html = renderToString(
       <BackupsView
