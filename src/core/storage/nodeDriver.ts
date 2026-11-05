@@ -190,7 +190,9 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
         try {
           db.exec('VACUUM');
         } catch (error) {
-          failed = error instanceof Error ? error : new Error('VACUUM failed.');
+          // node:sqlite throws Errors; anything else isn't one of its failures and goes straight up.
+          if (!(error instanceof Error)) throw error;
+          failed = error;
         }
         lastWrite = fingerprint(path);
         // A replaced file comes first, failed VACUUM or not, as in sbd.rs.
