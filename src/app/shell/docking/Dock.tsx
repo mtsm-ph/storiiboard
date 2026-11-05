@@ -319,9 +319,11 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   return (
     <div
       id={WORKSPACE_PANEL_ID}
+      // Focus can land on the workspace itself, after Alt+number with the sidebar hidden (polish 2).
+      tabIndex={-1}
       role="region"
       aria-label={t('dock.workspace', { name: workspace.label })}
-      className="flex min-h-0 flex-1 flex-col p-gap"
+      className="flex min-h-0 flex-1 flex-col p-gap focus-visible:outline-offset-[-2px]"
     >
       {maximized ? (
         <>

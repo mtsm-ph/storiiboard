@@ -11,7 +11,7 @@ import { SHOW_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 export function SidebarStrip({ onShow }: { onShow: () => void }) {
   const shortcut = sidebarShortcut(isMac());
   return (
-    <aside data-sidebar="" aria-label={t('sidebar.hiddenStrip')} className="flex w-sidebar-strip shrink-0 flex-col justify-end border-r border-border-top">
+    <aside data-sidebar="" aria-label={t('sidebar.foldedStrip')} className="flex w-sidebar-strip shrink-0 flex-col justify-end border-r border-border-top">
       <div className="flex h-9 items-center justify-center border-t border-border-top">
         <IconButton
           id={SHOW_SIDEBAR_ID}
