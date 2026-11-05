@@ -22,7 +22,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-curl -fsSL --retry 5 -o "$work/ffmpeg.tar.xz" "$SOURCE_URL"
+# A reset connection is retried too (--retry alone skips it); the checksum below still decides.
+curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$work/ffmpeg.tar.xz" "$SOURCE_URL"
 actual=$( (command -v sha256sum >/dev/null && sha256sum "$work/ffmpeg.tar.xz" || shasum -a 256 "$work/ffmpeg.tar.xz") | cut -d' ' -f1)
 if [ "$actual" != "$SHA256" ]; then
   echo "ffmpeg-${VERSION}.tar.xz: checksum $actual, expected $SHA256" >&2
