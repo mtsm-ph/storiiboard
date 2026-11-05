@@ -74,7 +74,8 @@ make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4
 licence=$(./ffmpeg -hide_banner -L)
 buildconf=$(./ffmpeg -hide_banner -buildconf)
 filters=$(./ffmpeg -hide_banner -filters)
-grep -q 'GNU Lesser General Public License' <<<"$licence" || { echo 'not an LGPL build' >&2; exit 1; }
+# The licence text wraps ("...GNU Lesser General Public" / "License..."), so only the words on one line.
+grep -q 'GNU Lesser General Public' <<<"$licence" || { echo 'not an LGPL build' >&2; exit 1; }
 if grep -q -- '--enable-gpl' <<<"$buildconf"; then echo 'built with --enable-gpl' >&2; exit 1; fi
 grep -qE '[[:space:]]lut3d[[:space:]]' <<<"$filters" || { echo 'lut3d missing' >&2; exit 1; }
 
