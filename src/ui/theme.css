@@ -140,6 +140,8 @@
   --spacing-statusbar: var(--sb-statusbar);
   /* Not in the kit's tokens yet: the sidebar's width from DESIGN.md (Navigation). */
   --spacing-sidebar: 248px;
+  /* The sidebar folded away (polish 2): wide enough for a 24px button with its ring. */
+  --spacing-sidebar-strip: 36px;
 
   --text-label: 10px;
   --text-label--letter-spacing: 0.08em;

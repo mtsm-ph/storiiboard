@@ -135,3 +135,82 @@ test('the Backups tile keeps its settings for every project, across a reload, an
   await section(page, 'Settings').click();
   await expect(page.getByRole('region', { name: 'Backups', exact: true }).getByLabel('Keep the last')).toHaveValue('20');
 });
+
+test('the sidebar hides to a strip and shows again, by button or shortcut, and stays as it was left', async ({ page }) => {
+  const shortcut = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+Backslash' : 'Control+Backslash';
+  const scenes = page.getByRole('region', { name: 'Scenes', exact: true });
+  await expect(scenes).toBeVisible();
+  const before = (await scenes.boundingBox())?.width ?? 0;
+  expect(before).toBeGreaterThan(0);
+  const strip = page.getByRole('complementary', { name: 'Sidebar, folded' });
+  const show = strip.getByRole('button', { name: /^Show sidebar/ });
+  const hide = page.getByRole('button', { name: /^Hide sidebar/ });
+
+  await hide.click();
+  await expect(sidebar(page)).toHaveCount(0);
+  // Focus goes to the button that brings it back, never to the page.
+  await expect(show).toBeFocused();
+  // The workspace takes the room: each tile keeps its share, so it widens.
+  await expect.poll(async () => (await scenes.boundingBox())?.width ?? 0).toBeGreaterThan(before);
+
+  await page.reload();
+  await expect(sidebar(page)).toHaveCount(0);
+  await show.click();
+  await expect(sidebar(page)).toBeVisible();
+  await expect(hide).toBeFocused();
+  await page.reload();
+  await expect(sidebar(page)).toBeVisible();
+
+  // From the keyboard, focus follows only from what folds away: in the sidebar, it goes to Show sidebar and back.
+  await section(page, 'Team').focus();
+  await page.keyboard.press(shortcut);
+  await expect(show).toBeFocused();
+  await page.keyboard.press(shortcut);
+  await expect(hide).toBeFocused();
+  // Anywhere else it stays where it was.
+  await page.getByRole('button', { name: 'Maximize Scenes' }).focus();
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Maximize Scenes' })).toBeFocused();
+
+  // Not mid-drag: the workspace would move from under the pointer.
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toBeVisible();
+  const line = await page.getByRole('separator', { name: 'Resize Scenes and Storyboard' }).boundingBox();
+  if (!line) throw new Error('no splitter');
+  await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(line.x + 40, line.y + line.height / 2, { steps: 4 });
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toBeVisible();
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Maximize Scenes' }).focus();
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toHaveCount(0);
+
+  // Alt+number still opens a section while it's hidden; with no section to land on, the workspace takes focus.
+  await page.keyboard.press('Alt+7');
+  await expect(page.getByText('Workspace: Settings')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Settings workspace' })).toBeFocused();
+});
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`the folded strip keeps an ink focus ring and passes axe (${colorScheme})`, async ({ page }) => {
+    // Without motion, so the ring is read at its colour rather than partway through the theme's 200ms ease.
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', colorScheme);
+    await page.getByRole('button', { name: /^Hide sidebar/ }).click();
+    const show = page.getByRole('button', { name: /^Show sidebar/ });
+    await expect(show).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const style = await show.evaluate((el) => ({ visible: el.matches(':focus-visible'), ring: getComputedStyle(el).outlineColor }));
+    expect(style.visible).toBe(true);
+    expect(style.ring).toBe(colorScheme === 'light' ? 'rgb(22, 21, 15)' : 'rgb(238, 233, 223)');
+    const { violations } = await new AxeBuilder({ page })
+      .include('aside')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
+  });
+}

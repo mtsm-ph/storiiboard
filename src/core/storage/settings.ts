@@ -24,6 +24,8 @@ export interface Settings {
   backupsNextToProject: boolean;
   /** The app's language (Settings → App). The person's, never the project's: a shared .sbd opens in each one's own. */
   language: LocaleId;
+  /** The sidebar folded to its strip (polish 2), as the person last left it. */
+  sidebarHidden: boolean;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -49,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   syncNoted: [],
   backupsNextToProject: false,
   language: DEFAULT_LOCALE,
+  sidebarHidden: false,
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -87,6 +90,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       backupsNextToProject: saved.backupsNextToProject === true,
       // A language this version doesn't have (saved by a newer one, say) reads as the default.
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
+      sidebarHidden: saved.sidebarHidden === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
