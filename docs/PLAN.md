@@ -110,7 +110,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
 | PE Who made each edit: the profile's name (or initials) on every edit, shown in History | #67 | Done |
-| PT Titles edited in place: a pencil beside every scene name and frame title; frames get an optional title | | In review |
+| PT Titles edited in place: a pencil beside every scene name and frame title; frames get an optional title | #69 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
