@@ -43,21 +43,16 @@ export function previewBox(box: Box, zone: DropZone): Box {
 }
 
 /**
- * How close to the workspace's top, right or bottom edge the pointer has to be for a tile to dock along that whole
- * side (polish 4): the 8px gap plus a band into the tiles, wide enough to find, narrow enough to leave each tile's
- * own edge zones their room. The left edge is the sidebar's, so it has none.
+ * The window edge a dragged tile would dock along (polish 4): past the tiles themselves, in the gap around them, over
+ * the top bar or the status bar, or at the window's right edge. Inside the tiles each tile's own zones apply, so a
+ * tile let go on its own title bar stays where it was. Never the left, the sidebar's: there is no left edge.
  */
-export const WINDOW_EDGE_PX = 24;
-
-export function windowEdgeAt(panel: Box, x: number, y: number): WindowEdge | null {
-  if (x < panel.left || x > panel.left + panel.width || y < panel.top || y > panel.top + panel.height) return null;
-  const distances: [WindowEdge, number][] = [
-    ['top', y - panel.top],
-    ['right', panel.left + panel.width - x],
-    ['bottom', panel.top + panel.height - y],
-  ];
-  const [edge, distance] = distances.reduce((nearest, next) => (next[1] < nearest[1] ? next : nearest));
-  return distance <= WINDOW_EDGE_PX ? edge : null;
+export function windowEdgeAt(tiles: Box, x: number, y: number): WindowEdge | null {
+  if (x < tiles.left) return null;
+  if (y < tiles.top) return 'top';
+  if (y > tiles.top + tiles.height) return 'bottom';
+  if (x > tiles.left + tiles.width) return 'right';
+  return null;
 }
 
 /** Where a tile docked along a window edge would go: that whole side, at the share it will take. */

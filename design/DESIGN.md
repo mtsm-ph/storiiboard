@@ -106,10 +106,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - 26px title bar: grip, "NN / Title" mono label, tabs (the open tab on Oatmeal), maximize, close.
   - 8px gap between tiles, 44px top bar, 24px status bar.
 - **Drag:** the tile lifts as a dashed ghost with a hard ink offset. The tile under the cursor shows five zones: four edges split, the centre adds a tab. The live zone turns to the accent and previews the split line. Escape cancels. There are no floating windows (decided Nov 2).
-- **Window edges:** dragged within 24px of the workspace's top, right or bottom edge, a tile docks along that whole
-  side, spanning its full width or height at a quarter of the space; the preview shows the band it will take. Never
-  the left edge, which belongs to the sidebar: there a tile splits the tile under it as usual. From the keyboard, the
-  window's edges come after every tile when moving one (Tab), with the arrows picking the side.
+- **Window edges:** dragged past the tiles (the gap around them, the top bar, the status bar, the window's right edge),
+  a tile docks along that whole side, spanning its full width or height at a quarter of the space; the preview shows
+  the band it will take. Never the left edge, which belongs to the sidebar. From the keyboard, the window's edges come
+  after every tile when moving one (Tab), with the arrows picking the side.
 - **Snap:** tiles snap within 8px and a dashed guide line shows. Hold Cmd to place freely.
 - **Splitter:** dragging it resizes both neighbours, with live widths in mono. Double-click evens them out.
 - **Maximize:** backtick (`) fills the app; the other tiles fold into chips along the bottom. Restore returns every tile to its exact size and position.
