@@ -1,0 +1,39 @@
+name: ffmpeg sidecars
+description: >
+  ffmpeg and ffprobe for Storiiboard's sidecars (Phase 2.1), built by scripts/ffmpeg/build.sh into src-tauri/binaries,
+  cached by the script's contents so each platform builds once per change.
+inputs:
+  triple:
+    description: The Rust target triple the sidecars are named for (x86_64-unknown-linux-gnu, aarch64-apple-darwin, x86_64-pc-windows-msvc)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Restore the ffmpeg build
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: src-tauri/binaries
+        key: ffmpeg-${{ inputs.triple }}-${{ hashFiles('scripts/ffmpeg/build.sh') }}
+    # Windows builds in MSYS2's MINGW64 shell, statically, so the .exe needs nothing beside it.
+    - name: Set up MSYS2
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          make diffutils tar xz curl
+          mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf mingw-w64-x86_64-zlib
+    - name: Build ffmpeg (Windows)
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: msys2 {0}
+      run: scripts/ffmpeg/build.sh "${{ inputs.triple }}" src-tauri/binaries
+    - name: Install nasm (Linux)
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get install -y nasm
+    - name: Build ffmpeg (macOS, Linux)
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      shell: bash
+      run: scripts/ffmpeg/build.sh "${{ inputs.triple }}" src-tauri/binaries

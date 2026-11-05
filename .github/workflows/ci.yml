@@ -42,6 +42,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
+      # The ffmpeg and ffprobe sidecars (Phase 2.1): Tauri's build needs them present, and the Rust tests run them.
+      # Built once per change of scripts/ffmpeg/build.sh, then cached.
+      - uses: ./.github/actions/ffmpeg
+        with:
+          triple: x86_64-unknown-linux-gnu
       # tsc, eslint, cargo fmt and clippy.
       - run: npm run lint
       # Vitest, then cargo test.

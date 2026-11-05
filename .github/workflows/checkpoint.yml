@@ -118,9 +118,11 @@ jobs:
         include:
           - name: macOS
             os: macos-latest
+            triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
           - name: Windows
             os: windows-latest
+            triple: x86_64-pc-windows-msvc
             bundles: |
               src-tauri/target/release/bundle/msi/*.msi
               src-tauri/target/release/bundle/nsis/*.exe
@@ -137,6 +139,16 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+      # The LGPL ffmpeg and ffprobe sidecars (Phase 2.1), built from one pinned release and cached.
+      - uses: ./.github/actions/ffmpeg
+        with:
+          triple: ${{ matrix.triple }}
+      # Kept a week, so a developer's computer can use the same build (scripts/ffmpeg/README.md).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-${{ matrix.triple }}
+          path: src-tauri/binaries
+          retention-days: 7
       - name: Rust tests
         run: cargo test --lib --manifest-path src-tauri/Cargo.toml
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature

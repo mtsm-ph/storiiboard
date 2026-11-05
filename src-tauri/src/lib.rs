@@ -10,6 +10,7 @@ mod opened;
 mod pictures;
 mod sbd;
 mod synced;
+mod video;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -56,6 +57,7 @@ pub fn run() {
             synced::projects_folder_for_new,
             pictures::pictures_choose,
             pictures::pictures_read,
+            video::video_probe,
             pictures::script_choose,
             export::export_choose_file,
             export::export_choose_folder,

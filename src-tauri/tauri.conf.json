@@ -29,6 +29,11 @@
     "active": true,
     "targets": ["dmg", "app", "msi", "nsis"],
     "category": "Video",
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
+    "resources": {
+      "binaries/ffmpeg-LICENSE.txt": "ffmpeg-LICENSE.txt",
+      "binaries/ffmpeg-SOURCE.txt": "ffmpeg-SOURCE.txt"
+    },
     "shortDescription": "Open-source pre-production for filmmakers",
     "icon": [
       "icons/32x32.png",

@@ -50,7 +50,7 @@ pub struct Offered {
 impl Offered {
     /// Makes the paths readable and returns them as text. A path that isn't valid text (rare, but possible on
     /// Windows) can't reach the page, so it isn't offered either.
-    fn offer(&self, paths: &[PathBuf]) -> Vec<String> {
+    pub(crate) fn offer(&self, paths: &[PathBuf]) -> Vec<String> {
         let usable: Vec<(PathBuf, String)> = paths
             .iter()
             .filter_map(|path| Some((path.clone(), path.to_str()?.to_owned())))
@@ -61,7 +61,7 @@ impl Offered {
         usable.into_iter().map(|(_, text)| text).collect()
     }
 
-    fn has(&self, path: &Path) -> bool {
+    pub(crate) fn has(&self, path: &Path) -> bool {
         self.paths
             .lock()
             .is_ok_and(|offered| offered.contains(path))
