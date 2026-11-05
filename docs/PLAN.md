@@ -979,6 +979,8 @@ Nov 3):
 - [ ] Run the Phase 0 gate's force-quit, undo-after-restart and backup steps on Windows (Phase 0 ran them on the Mac
   only).
 - [ ] Choose the license, Patreon tiers and signing (also in Next steps).
+- [ ] First-run profile setup tells new users their name (or initials) is saved with each edit they make (Kevin, Nov 5;
+  no one-time notice for existing profiles, as Kevin is the only user so far).
 - [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
   quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
 
