@@ -109,7 +109,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | Q1 Quality pass: the low-severity review findings still open from Phase 1 | #64 | Done |
 | Q2 Quality pass: a 300-frame project with pictures stays fast (scrolling, views, undo, saving) | #65 | Done |
 | Q3 Quality pass: accessibility on every screen (keyboard only, focus, contrast in both themes and languages) | #66 | Done |
-| PE Who made each edit: the profile's name (or initials) on every edit, shown in History | | In review |
+| PE Who made each edit: the profile's name (or initials) on every edit, shown in History | #67 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
