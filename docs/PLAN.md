@@ -129,7 +129,10 @@ P2 as built (Nov 4):
   dialog. Hidden, the sidebar leaves a 36px strip with Show sidebar in the same corner (PC adds the gear and the
   profile there). Tab still goes from the switcher to the active section.
 - Focus follows a click to the button that brings the sidebar back; from the keyboard it moves only if it was in what
-  folded away. Alt+1 to 7 keep working while it's hidden.
+  folded away. Alt+1 to 7 keep working while it's hidden, and focus lands on the new workspace itself. A held key
+  toggles once, and nothing toggles mid-drag or in a modal dialog.
+- Hidden, the project switcher (All projects…, New project…) is out of reach until the sidebar shows again. PC
+  decides whether the strip keeps a way to it, beside the gear and the profile.
 - The choice is the person's (`sidebarHidden` in their settings), remembered across restarts.
 
 Later phases, added Nov 4 (not built now):

@@ -17,7 +17,7 @@ describe('App shell', () => {
   });
 
   it('lists the seven sections in the sidebar, each with its phase until built', () => {
-    const nav = /<nav aria-label="Sections".*<\/nav>/.exec(html)?.[0] ?? '';
+    const nav = /<nav[^>]*aria-label="Sections".*<\/nav>/.exec(html)?.[0] ?? '';
     const sections = [...nav.matchAll(/id="section-([a-z]+)"/g)].map((m) => m[1]);
     expect(sections).toEqual(['storyboard', 'assets', 'team', 'setup', 'production', 'moodboard', 'settings']);
     expect(nav).toContain('Phase 5');

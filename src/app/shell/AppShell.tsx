@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { clearNotice, useNotice } from '../notice';
 import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
@@ -10,6 +10,7 @@ import { projectStore, useProject } from '../projectStore';
 import { OnboardingHost } from '../theme/OnboardingDialog';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
+import { isDragging } from './docking/textSelection';
 import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
 import { SidebarStrip } from './sidebar/SidebarStrip';
@@ -89,30 +90,30 @@ export function AppShell() {
   }, []);
 
   /** Hides or shows the sidebar. `focusFollows`: focus moves to the button that brings it back, never to <body>. */
+  const hiddenRef = useRef(sidebarHidden);
   const toggleSidebar = (focusFollows: boolean) => {
-    setSidebarHidden((hidden) => {
-      const next = !hidden;
-      saveSettings({ sidebarHidden: next });
-      return next;
-    });
-    if (focusFollows) requestAnimationFrame(() => document.getElementById(sidebarHidden ? HIDE_SIDEBAR_ID : SHOW_SIDEBAR_ID)?.focus());
+    const next = !hiddenRef.current;
+    hiddenRef.current = next;
+    setSidebarHidden(next);
+    saveSettings({ sidebarHidden: next });
+    // Whichever of the two buttons is drawn now: Show sidebar in the strip, or Hide sidebar at the sidebar's foot.
+    if (focusFollows) requestAnimationFrame(() => (document.getElementById(SHOW_SIDEBAR_ID) ?? document.getElementById(HIDE_SIDEBAR_ID))?.focus());
   };
+  const onToggleKey = useEffectEvent((event: KeyboardEvent) => {
+    // Not while a tile or a splitter is being dragged: the workspace would move from under the pointer.
+    if (!isSidebarToggle(event, isMac()) || isDragging()) return;
+    event.preventDefault();
+    // From the keyboard, focus moves only if it was in what's folding away.
+    const focused = document.activeElement;
+    toggleSidebar(focused !== null && focused.closest('[data-sidebar]') !== null);
+  });
 
   useEffect(() => {
-    const mac = isMac();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!isSidebarToggle(event, mac)) return;
-      event.preventDefault();
-      // From the keyboard, focus moves only if it was in what's folding away.
-      const focused = document.activeElement;
-      const inSidebar = focused !== null && focused.closest('nav[data-sidebar], aside[data-sidebar]') !== null;
-      toggleSidebar(inSidebar);
-    };
-    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onToggleKey);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keydown', onToggleKey);
     };
-  });
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -129,7 +130,8 @@ export function AppShell() {
           WORKSPACES.some((w) => sectionId(w.id) === focused.id));
       setWorkspaceId(target.id);
       setProjectsAsked(false);
-      if (follow) requestAnimationFrame(() => document.getElementById(sectionId(target.id))?.focus());
+      // With the sidebar hidden there's no section to land on: the new workspace itself takes focus.
+      if (follow) requestAnimationFrame(() => (document.getElementById(sectionId(target.id)) ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus());
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
@@ -194,7 +196,7 @@ export function AppShell() {
             </div>
           )}
           {showProjects ? (
-            <div id={WORKSPACE_PANEL_ID} className="flex min-h-0 flex-1 flex-col">
+            <div id={WORKSPACE_PANEL_ID} tabIndex={-1} className="flex min-h-0 flex-1 flex-col focus-visible:outline-offset-[-2px]">
               <ProjectsScreen />
             </div>
           ) : (

@@ -10,3 +10,8 @@ export function holdTextSelection(): void {
 export function releaseTextSelection(): void {
   document.documentElement.classList.remove('sb-dragging');
 }
+
+/** A tile or splitter drag is under way: other commands that move the workspace wait until it's let go. */
+export function isDragging(): boolean {
+  return document.documentElement.classList.contains('sb-dragging');
+}

@@ -17,8 +17,8 @@ import { isMac } from '../undoShortcuts';
 import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
-// its scenes inline. Arrow keys move through every entry and Enter opens one; Tab enters at the active section and
-// leaves the sidebar, so it's one stop on the way to the tiles.
+// its scenes inline. Arrow keys move through every entry and Enter opens one; Tab enters at the active section, then
+// goes to the foot's Hide sidebar and on to the tiles.
 
 interface SidebarProps {
   workspaces: readonly Workspace[];

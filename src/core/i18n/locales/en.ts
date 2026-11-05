@@ -955,6 +955,7 @@ export const en = {
   // src/app/shell/sidebar/Sidebar.tsx
   'sidebar.hide': 'Hide sidebar ({keys})',
   'sidebar.show': 'Show sidebar ({keys})',
-  'sidebar.hiddenStrip': 'Sidebar, hidden',
+  // src/app/shell/sidebar/SidebarStrip.tsx
+  'sidebar.foldedStrip': 'Sidebar, folded',
   // codemod: new entries above this line
 };
