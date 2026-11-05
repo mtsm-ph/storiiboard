@@ -9,6 +9,7 @@ import { closeOnboarding, useOnboardingProject } from './onboarding';
 import { ThemeChooser, type ThemeChoice } from './ThemeChooser';
 import { prepareThemeImage, setTheme, type ThemeImage } from './themeEdits';
 import { ThemeImageWell } from './ThemeImageWell';
+import { t } from '../../core/i18n';
 
 // The new project's first step (1.16, docs/PLAN.md B): an optional logo or key image, an accent from it, light or
 // dark, with the theme previewed live. Create writes the image and the theme in the project's first op group; Skip
@@ -160,10 +161,10 @@ function OnboardingDialog({ name }: { name: string }) {
     >
       <div className="flex flex-col gap-4 p-4">
         <h2 id={titleId} className="text-[20px] font-bold">
-          Set up {name}
+          {t('onboarding.setUp', { name })}
         </h2>
         <p className="text-[13px] text-text-muted">
-          A logo or key image gives the project its colours. You can skip this and change it later in Settings → Theme.
+          {t('onboardingDialog.aLogoOrKeyImage')}
         </p>
         <ThemeChooser
           candidates={image?.candidates ?? []}
@@ -173,9 +174,9 @@ function OnboardingDialog({ name }: { name: string }) {
           image={<ThemeImageWell url={image?.previewUrl ?? null} name={image?.source.name ?? null} onFiles={onFiles} takeAnyDrop />}
         />
         <div className="flex justify-end gap-2">
-          <Button onClick={closeOnboarding}>Skip</Button>
+          <Button onClick={closeOnboarding}>{t('onboardingDialog.skip')}</Button>
           <Button variant="primary" disabled={busy || saving} onClick={create}>
-            Create
+            {t('onboardingDialog.create')}
           </Button>
         </div>
       </div>

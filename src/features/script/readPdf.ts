@@ -1,4 +1,5 @@
 import type { PdfText } from '../../core/script/pdfLayout';
+import { t } from '../../core/i18n';
 
 // A PDF's text with where it sits on each page (1.18), read with pdf.js (pdfjs-dist 5.7.284, the last release built
 // for Safari 16.4, which macOS 13's webview is). Loaded on first use: it's large, and only script import needs it.
@@ -26,7 +27,7 @@ export async function readPdfText(bytes: ArrayBuffer, name: string): Promise<Pdf
     timer = setTimeout(() => {
       // A worker stuck in a page never answers a polite stop: it's ended first.
       port.terminate();
-      reject(new Error(`“${name}” took too long to read. Export the script as a PDF again from the writing app, and try that.`));
+      reject(new Error(t('script.pdfTimeout', { name })));
     }, TIMEOUT_MS);
   });
   try {
@@ -72,7 +73,7 @@ async function read(pdfjs: PdfJs, task: ReturnType<PdfJs['getDocument']>): Promi
 /** pdf.js's failures in words that say what to do, naming the file. */
 function readable(error: unknown, name: string): Error {
   const kind = error instanceof Error ? error.name : '';
-  if (kind === 'PasswordException') return new Error(`“${name}” is protected by a password. Save a copy without one (Preview can) and import that.`);
-  if (kind === 'InvalidPDFException') return new Error(`“${name}” isn’t a PDF Storiiboard can read. Export the script as a PDF again from the writing app.`);
+  if (kind === 'PasswordException') return new Error(t('script.pdfPassword', { name }));
+  if (kind === 'InvalidPDFException') return new Error(t('script.pdfInvalid', { name }));
   return error instanceof Error ? error : new Error(String(error));
 }

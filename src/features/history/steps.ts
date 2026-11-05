@@ -3,6 +3,7 @@ import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, rec
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, type Line } from './summary';
+import { t } from '../../core/i18n';
 
 /** Steps shown at a time; older ones load on asking (Show older steps), so a long project opens its History at once. */
 export const PAGE = 100;
@@ -135,9 +136,9 @@ export async function moreItemLog(file: ProjectFile, item: SbdRecord, known: Ite
  */
 export function restoreNotice(steps: Steps['steps'], groupId: string, changed: boolean, undoKey: string): string {
   const index = steps.findIndex((step) => step.group.id === groupId);
-  const said = lineText(steps[index]?.line ?? ['that step']);
+  const said = lineText(steps[index]?.line ?? [t('history.thatStep')]);
   const emptied = steps.slice(0, Math.max(index, 0)).some((step) => step.group.kind === 'empty_trash');
-  const lost = emptied ? ' What Empty Trash deleted can’t come back.' : '';
-  if (changed) return `Restored the project to after “${said}”.${lost} ${undoKey} takes it back.`;
-  return `Nothing to restore: the project is already as it was after “${said}”.${lost}`;
+  const lost = emptied ? t('history.lostForGood') : '';
+  if (changed) return t('history.restoredNotice', { step: said, lost, undo: undoKey });
+  return t('history.nothingToRestore', { step: said, lost });
 }

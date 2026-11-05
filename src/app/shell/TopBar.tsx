@@ -9,6 +9,7 @@ import { layoutStore } from './docking/layoutStore';
 import { LayoutMenu } from './docking/LayoutMenu';
 import { openExportDialog } from '../../features/export/exportStore';
 import type { Workspace } from './workspaces';
+import { t } from '../../core/i18n';
 
 interface TopBarProps {
   projectName: string | null;
@@ -22,7 +23,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
   const open = useProject((s) => s.project !== null);
   return (
     <header className="flex h-topbar shrink-0 items-center border-b border-border-top">
-      <h1 className="sr-only">Storiiboard</h1>
+      <h1 className="sr-only">{t('topBar.storiiboard')}</h1>
       <div className="flex h-full items-center border-r border-border-top px-4">
         <SMark size={24} decorative />
       </div>
@@ -32,14 +33,14 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
           projectName === null && 'text-text-muted',
         )}
       >
-        {projectName ?? 'No project open'}
+        {projectName ?? t('project.noneOpen')}
       </span>
       <div className="ml-auto flex h-full">
         <LayoutMenu workspace={workspace} />
         {/* The project menu (DESIGN.md, Navigation). Each command shows its phase until it's built. */}
         <Menu
           align="right"
-          label="Project"
+          label={t('topBar.project')}
           buttonClassName="sb-label flex h-full items-center border-l border-border-top px-4 focus-visible:-outline-offset-4"
         >
           {(close) => (
@@ -55,7 +56,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
                   change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
                 }}
               >
-                History
+                {t('topBar.history')}
               </button>
               <button
                 type="button"
@@ -66,7 +67,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
                   openExportDialog('watermark');
                 }}
               >
-                Watermark Settings
+                {t('topBar.watermarkSettings')}
               </button>
               <button
                 type="button"
@@ -77,7 +78,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
                   openExportDialog('export');
                 }}
               >
-                Export Project…
+                {t('topBar.exportProject')}
               </button>
               {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}
               <button
@@ -89,7 +90,7 @@ export function TopBar({ projectName, workspace }: TopBarProps) {
                   void setProjectState(state === 'archived' ? 'active' : 'archived');
                 }}
               >
-                {state === 'archived' ? 'Unarchive Project' : 'Archive Project'}
+                {state === 'archived' ? t('topBar.unarchiveProject') : t('topBar.archiveProject')}
               </button>
             </>
           )}

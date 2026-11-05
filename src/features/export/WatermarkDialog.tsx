@@ -5,14 +5,30 @@ import { Select, TextField, Toggle } from '../../ui/fields';
 import { closeExportDialog } from './exportStore';
 import { Modal } from './ExportDialog';
 import { DEFAULT_WATERMARK, POSITION_LABEL, POSITIONS, readWatermark, watermarkSave, type Watermark, type WatermarkPosition, type WatermarkUse } from './watermark';
+import { localizeError, t } from '../../core/i18n';
 
 // Watermark Settings (1.24, the project menu): the text, where it sits, how strong, and which exports carry it. Saved
 // as one edit to the project record, so it undoes like any other and every export reads the same watermark.
 
 const USES: readonly { use: WatermarkUse; label: string }[] = [
-  { use: 'pdf', label: 'PDF storyboard' },
-  { use: 'png', label: 'PNG frames' },
-  { use: 'review', label: 'Web review copy (Phase 9)' },
+  {
+    use: 'pdf',
+    get label() {
+      return t('watermark.usePdf');
+    },
+  },
+  {
+    use: 'png',
+    get label() {
+      return t('watermark.usePng');
+    },
+  },
+  {
+    use: 'review',
+    get label() {
+      return t('watermark.useReview');
+    },
+  },
 ];
 
 /**
@@ -43,19 +59,19 @@ export function WatermarkDialog() {
   };
 
   return (
-    <Modal title="Watermark Settings" onClose={closeExportDialog}>
+    <Modal title={t('watermarkDialog.watermarkSettings')} onClose={closeExportDialog}>
       <TextField
-        label="Text"
+        label={t('watermarkDialog.text')}
         value={draft.text}
         maxLength={80}
-        placeholder="DRAFT — not for distribution"
+        placeholder={t('watermarkDialog.draftNotForDistribution')}
         onChange={(event) => {
           setDraft({ ...draft, text: event.currentTarget.value });
         }}
       />
       <div className="flex flex-wrap gap-3">
         <Select
-          label="Position"
+          label={t('watermarkDialog.position')}
           value={draft.position}
           onChange={(event) => {
             setDraft({ ...draft, position: event.currentTarget.value as WatermarkPosition });
@@ -68,7 +84,7 @@ export function WatermarkDialog() {
           ))}
         </Select>
         <label className="flex min-w-[180px] flex-1 flex-col gap-[5px]">
-          <span className="sb-label">Strength</span>
+          <span className="sb-label">{t('watermarkDialog.strength')}</span>
           <span className="flex h-[30px] items-center gap-2">
             {/* The kit's ruled range, as the frame inspector's Zoom: square thumb, no radius in either webview. */}
             <input
@@ -88,7 +104,7 @@ export function WatermarkDialog() {
         </label>
       </div>
       <fieldset className="flex flex-col gap-2">
-        <legend className="sb-label mb-1">On</legend>
+        <legend className="sb-label mb-1">{t('watermarkDialog.on')}</legend>
         {USES.map(({ use, label }) => (
           <Toggle
             key={use}
@@ -100,16 +116,16 @@ export function WatermarkDialog() {
           />
         ))}
       </fieldset>
-      <p className="text-[12px] text-text-muted">Leave the text empty for no watermark.</p>
+      <p className="text-[12px] text-text-muted">{t('watermarkDialog.leaveTheTextEmptyFor')}</p>
       {refused && (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-          {error ?? 'Not saved: the project file changed on disk.'}
+          {error === null ? t('watermark.notSaved') : localizeError(error)}
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button onClick={closeExportDialog}>Cancel</Button>
+        <Button onClick={closeExportDialog}>{t('watermarkDialog.cancel')}</Button>
         <Button variant="primary" onClick={onSave}>
-          Save
+          {t('watermarkDialog.save')}
         </Button>
       </div>
     </Modal>

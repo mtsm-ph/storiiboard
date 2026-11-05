@@ -2,6 +2,7 @@ import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from '
 import { DEFAULT_CROP, isDefaultCrop, MAX_ZOOM, panCrop, zoomCrop, type Crop } from '../../core/media/crop';
 import { Button } from '../../ui/Button';
 import { FrameImage, type FramePictureView } from './FrameImage';
+import { t } from '../../core/i18n';
 
 // Framing a frame's picture (1.11): drag it, or with the frame focused use the arrow keys (Shift for bigger steps),
 // + and − to zoom and 0 to centre it again. The picture always covers the frame. Like the inspector's other
@@ -35,7 +36,7 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
     onCommit(next);
     // Said once it's saved, not on every step: where the picture's centre now is, and the zoom.
     setSaid(
-      `Zoom ${String(Math.round(next.zoom * 100))}%, centred ${String(Math.round(next.x * 100))}% across and ${String(Math.round(next.y * 100))}% down.`,
+      t('crop.said', { zoom: Math.round(next.zoom * 100), x: Math.round(next.x * 100), y: Math.round(next.y * 100) }),
     );
   };
   const pan = (from: Crop, dx: number, dy: number) => panCrop(from, dx, dy, picture.aspect, frameAspect);
@@ -90,7 +91,7 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
         role="application"
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
-        aria-label={`Framing, zoom ${String(percent)}%`}
+        aria-label={t('crop.label', { zoom: percent })}
         aria-describedby={hintId}
         data-crop-editor=""
         className="relative w-full cursor-grab touch-none overflow-hidden border border-text active:cursor-grabbing"
@@ -116,11 +117,11 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
         {said}
       </p>
       <p id={hintId} className="text-[12px] text-text-muted">
-        Drag to move the picture, or use the arrow keys; + and − zoom, 0 centres it.
+        {t('cropEditor.dragToMoveThePicture')}
       </p>
       <div className="flex items-center gap-3">
         <label htmlFor={zoomId} className="sb-label">
-          Zoom
+          {t('cropEditor.zoom')}
         </label>
         <input
           id={zoomId}
@@ -151,7 +152,7 @@ export function CropEditor({ picture, frameAspect, onCommit }: CropEditorProps) 
             commit(DEFAULT_CROP);
           }}
         >
-          Centre
+          {t('cropEditor.centre')}
         </Button>
       </div>
     </div>

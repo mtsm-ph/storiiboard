@@ -3,6 +3,7 @@ import { IconButton } from './Button';
 import { cx } from './cx';
 import { CloseGlyph, GripGlyph, MaximizeGlyph, RestoreGlyph } from './glyphs';
 import { roveFocus } from './roving';
+import { t } from '../core/i18n';
 
 export interface TileTab {
   id: string;
@@ -75,7 +76,7 @@ export function Tile({
           <button
             type="button"
             data-grip=""
-            aria-label={`Move ${title}`}
+            aria-label={t('tile.move', { title })}
             aria-pressed={drag.moving ?? false}
             aria-keyshortcuts="Enter"
             onKeyDown={drag.onGripKeyDown}
@@ -93,7 +94,7 @@ export function Tile({
 
         {hasTabs && (
           // Stretched to the title bar's content box, so the open tab stops at the rule instead of covering it.
-          <div role="tablist" aria-label={`${title} tabs`} className="ml-1.5 flex min-w-0 self-stretch">
+          <div role="tablist" aria-label={t('tile.tabs', { title })} className="ml-1.5 flex min-w-0 self-stretch">
             {tabs.map((tab, i) => {
               const open = tab.id === activeTab;
               return (
@@ -129,12 +130,12 @@ export function Tile({
 
         <div className="ml-auto flex shrink-0">
           {onToggleMaximize && (
-            <IconButton size="sm" label={`${maximized ? 'Restore' : 'Maximize'} ${title}`} onClick={onToggleMaximize}>
+            <IconButton size="sm" label={t(maximized ? 'tile.restore' : 'tile.maximize', { title })} onClick={onToggleMaximize}>
               {maximized ? <RestoreGlyph /> : <MaximizeGlyph />}
             </IconButton>
           )}
           {onClose && (
-            <IconButton size="sm" label={`Close ${title}`} onClick={onClose}>
+            <IconButton size="sm" label={t('tile.close', { title })} onClick={onClose}>
               <CloseGlyph />
             </IconButton>
           )}

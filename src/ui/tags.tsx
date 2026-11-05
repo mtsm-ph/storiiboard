@@ -1,6 +1,7 @@
 import { DEPARTMENT_LABELS, type Department } from '../core/model/department';
 import { SHOT_STATUS_LABELS, type ShotStatus } from '../core/model/shotStatus';
 import { cx } from './cx';
+import { t } from '../core/i18n';
 
 // Department colours are labels only, never state (DESIGN.md). Text colour is fixed per tag, so it holds in
 // both themes: paper on navy and rust, ink on mustard, sage and blush.
@@ -69,14 +70,15 @@ export function StatusGlyph({ status, showLabel = false }: StatusGlyphProps) {
 
 /** Golden hour on Burning Flame with ink text; the time is mono like every technical value. */
 export function GoldenHourChip({ time }: { time: string }) {
-  return <span className="sb-label inline-block bg-highlight px-[7px] py-1 text-ink-fixed">Golden hr {time}</span>;
+  return <span className="sb-label inline-block bg-highlight px-[7px] py-1 text-ink-fixed">{t('tags.goldenHour', { time })}</span>;
 }
 
 /** Conflicts on Truffle with paper text. The ▲ keeps the warning readable without colour. */
 export function ConflictChip({ children }: { children: string }) {
   return (
     <span className="sb-label inline-block bg-warning px-[7px] py-1 text-paper-fixed">
-      <span aria-hidden="true">▲ </span>Conflict — {children}
+      <span aria-hidden="true">▲ </span>
+      {t('tags.conflict', { what: children })}
     </span>
   );
 }

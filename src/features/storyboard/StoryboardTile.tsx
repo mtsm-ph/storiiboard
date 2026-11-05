@@ -35,6 +35,7 @@ import {
   type SceneGroup,
 } from './StoryboardView';
 import { useBoardDrops } from './useBoardDrops';
+import { t } from '../../core/i18n';
 
 /** Which view the board shows is the person's choice, not the project's: kept in this browser, like the layouts. */
 export const BOARD_VIEW_KEY = 'storiiboard.board-view';
@@ -118,7 +119,7 @@ export function StoryboardTile() {
   }, [activeSceneId]);
 
   const lockedNotice = () => {
-    showInfo('This scene’s shot numbers are locked, so its frames stay in it. Unlock them to move a frame out.');
+    showInfo(t('board.lockedStays'));
   };
 
   /** Selects a frame or a note where it now is, once an edit has put it there. */

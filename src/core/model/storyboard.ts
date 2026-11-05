@@ -1,21 +1,23 @@
 import { readCrop, type Crop } from '../media/crop';
 import type { Props } from './record';
 import { SHOT_STATUSES, type ShotStatus } from './shotStatus';
+import { labels, t } from '../i18n';
 
 // The storyboard's records, read from their props (docs/SBD_FORMAT.md, Storyboard props). Props stay open JSON, so
 // these readers never trust a value: a missing or odd one reads as empty, and custom props pass through untouched.
 
 export const SHOT_SIZES = ['EWS', 'WS', 'MS', 'MCU', 'CU', 'ECU', 'INSERT'] as const;
 export type ShotSize = (typeof SHOT_SIZES)[number];
-export const SHOT_SIZE_LABEL: Readonly<Record<ShotSize, string>> = {
-  EWS: 'EWS',
-  WS: 'WS',
-  MS: 'MS',
-  MCU: 'MCU',
-  CU: 'CU',
-  ECU: 'ECU',
-  INSERT: 'INS',
-};
+/** How each size reads on a card and in the shot list, in the app's language; the stored value stays as above. */
+export const SHOT_SIZE_LABEL: Readonly<Record<ShotSize, string>> = labels({
+  EWS: 'shotSize.ews',
+  WS: 'shotSize.ws',
+  MS: 'shotSize.ms',
+  MCU: 'shotSize.mcu',
+  CU: 'shotSize.cu',
+  ECU: 'shotSize.ecu',
+  INSERT: 'shotSize.insert',
+});
 
 export const SUPPORTS = ['sticks', 'handheld', 'shoulder', 'gimbal', 'steadicam', 'dolly', 'slider', 'crane', 'drone', 'car'] as const;
 export const HEIGHTS = ['ground', 'low', 'hip', 'chest', 'eye', 'high', 'overhead'] as const;
@@ -34,10 +36,69 @@ export const MOVES = [
   'follow',
 ] as const;
 
+export type Support = (typeof SUPPORTS)[number];
+export type Height = (typeof HEIGHTS)[number];
+export type Move = (typeof MOVES)[number];
+
 export const INT_EXT = ['INT', 'EXT', 'INT/EXT'] as const;
 export type IntExt = (typeof INT_EXT)[number];
 export const DAY_NIGHT = ['DAY', 'NIGHT', 'DAWN', 'DUSK', 'MAGIC HOUR'] as const;
 export type DayNight = (typeof DAY_NIGHT)[number];
+
+// The words for each choice in the app's language. The file keeps the English value above, so a project reads the
+// same in every language and exports from one language import into another.
+export const SUPPORT_LABEL: Readonly<Record<Support, string>> = labels({
+  sticks: 'support.sticks',
+  handheld: 'support.handheld',
+  shoulder: 'support.shoulder',
+  gimbal: 'support.gimbal',
+  steadicam: 'support.steadicam',
+  dolly: 'support.dolly',
+  slider: 'support.slider',
+  crane: 'support.crane',
+  drone: 'support.drone',
+  car: 'support.car',
+});
+export const HEIGHT_LABEL: Readonly<Record<Height, string>> = labels({
+  ground: 'height.ground',
+  low: 'height.low',
+  hip: 'height.hip',
+  chest: 'height.chest',
+  eye: 'height.eye',
+  high: 'height.high',
+  overhead: 'height.overhead',
+});
+export const MOVE_LABEL: Readonly<Record<Move, string>> = labels({
+  static: 'move.static',
+  pan: 'move.pan',
+  tilt: 'move.tilt',
+  'push in': 'move.push-in',
+  'pull out': 'move.pull-out',
+  track: 'move.track',
+  arc: 'move.arc',
+  'crane up': 'move.crane-up',
+  'crane down': 'move.crane-down',
+  'zoom in': 'move.zoom-in',
+  'zoom out': 'move.zoom-out',
+  follow: 'move.follow',
+});
+export const INT_EXT_LABEL: Readonly<Record<IntExt, string>> = labels({
+  INT: 'intExt.int',
+  EXT: 'intExt.ext',
+  'INT/EXT': 'intExt.int-ext',
+});
+export const DAY_NIGHT_LABEL: Readonly<Record<DayNight, string>> = labels({
+  DAY: 'dayNight.day',
+  NIGHT: 'dayNight.night',
+  DAWN: 'dayNight.dawn',
+  DUSK: 'dayNight.dusk',
+  'MAGIC HOUR': 'dayNight.magic-hour',
+});
+
+/** A stored choice in the app's language; a value from a later version or a hand edit reads as it is. */
+export function choiceLabel(table: Readonly<Record<string, string>>, value: string): string {
+  return Object.hasOwn(table, value) ? (table[value] ?? value) : value;
+}
 
 /** The project's frame shape (approved Nov 2), as written on a camera report, with its width over height. */
 export const ASPECT_RATIOS = [
@@ -143,17 +204,22 @@ export function shotFields(props: Props): ShotFields {
 /** "6/8 pg", "1 pg", "1 3/8 pg": how page counts read on a breakdown sheet. */
 export function pageLabel(eighths: number | null): string {
   if (eighths === null) return '—';
+  return t('pages.label', { pages: pagesText(eighths) });
+}
+
+/** "6/8", "1", "1 3/8": a page count without its unit, as the inspector's Length field takes it. */
+export function pagesText(eighths: number): string {
   const pages = Math.floor(eighths / 8);
   const rest = eighths % 8;
-  if (rest === 0) return `${String(pages)} pg`;
-  return pages === 0 ? `${String(rest)}/8 pg` : `${String(pages)} ${String(rest)}/8 pg`;
+  if (rest === 0) return String(pages);
+  return pages === 0 ? `${String(rest)}/8` : `${String(pages)} ${String(rest)}/8`;
 }
 
 /** "WS · 24MM · T2.8": a frame card's spec line, leaving out what isn't set. */
 export function specLine(shot: ShotFields): string {
   const parts = [
     shot.size ? SHOT_SIZE_LABEL[shot.size] : null,
-    shot.lensMm === null ? null : `${String(shot.lensMm)}MM`,
+    shot.lensMm === null ? null : t('spec.lens', { mm: shot.lensMm }),
     shot.tStop === null ? null : tStopLabel(shot.tStop),
   ];
   return parts.filter((p) => p !== null).join(' · ');
@@ -166,7 +232,12 @@ export function tStopLabel(stop: number): string {
 
 /** "SC 04": a plain number gets two digits, as on the boards; a lettered one ("4A") is kept as the slate has it. */
 export function sceneLabel(number: string): string {
-  return `SC ${/^\d$/.test(number) ? number.padStart(2, '0') : number}`;
+  return t('scene.label', { number: sceneNumberLabel(number) });
+}
+
+/** "04", "4A": a scene's number as its label shows it, without the "SC". */
+export function sceneNumberLabel(number: string): string {
+  return /^\d$/.test(number) ? number.padStart(2, '0') : number;
 }
 
 /** Every stop in thirds, as cine lenses are marked, from T1 to T22. */
@@ -192,8 +263,8 @@ export function isSceneNumber(text: string): boolean {
  * it, live or in the Trash (a trashed scene comes back with its number, so it stays taken until the Trash is emptied).
  */
 export function sceneNumberProblem(number: string, live: readonly string[], trashed: readonly string[]): string | null {
-  if (!isSceneNumber(number)) return 'Scene numbers look like 4, 4A or A1.';
-  if (live.includes(number)) return `There's already a scene ${number}.`;
-  if (trashed.includes(number)) return `Scene ${number} is in the Trash. Restore it, or choose another number.`;
+  if (!isSceneNumber(number)) return t('scene.numberShape');
+  if (live.includes(number)) return t('scene.numberTaken', { number });
+  if (trashed.includes(number)) return t('scene.numberInTrash', { number });
   return null;
 }

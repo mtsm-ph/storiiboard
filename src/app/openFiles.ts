@@ -6,6 +6,7 @@ import { copyBeside } from '../core/storage/openBackup';
 import { fileName } from '../core/storage/paths';
 import { createProject, openProject, type Project } from '../core/storage/project';
 import type { ProjectState } from './projectStore';
+import { localizeError, t } from '../core/i18n';
 
 // Opening or making a .sbd the person asked for: a double-click (0.6), the Projects screen or the switcher (0.7).
 // One window holds one project, so the new one replaces the open one. Every edit is already on disk, so closing
@@ -34,7 +35,7 @@ export class OpenFileError extends Error {
     readonly path: string,
     cause: unknown,
   ) {
-    super(`Couldn’t open “${fileName(path)}”. ${cause instanceof Error ? cause.message : String(cause)}`);
+    super(t('open.failed', { name: fileName(path), reason: localizeError(cause instanceof Error ? cause.message : String(cause)) }));
     this.name = 'OpenFileError';
   }
 }

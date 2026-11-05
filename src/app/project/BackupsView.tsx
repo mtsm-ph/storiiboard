@@ -4,6 +4,7 @@ import { KEEP_LIMITS } from '../../core/storage/settings';
 import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { localDateTime } from '../format';
+import { t } from '../../core/i18n';
 
 // The Backups tile in Settings: how many copies to keep (the person's setting, for every project), and the open
 // project's backups, newest first, each of which opens as a separate project. This part only draws.
@@ -39,10 +40,8 @@ export interface BackupsViewProps {
 
 /** Where this project's backups are, and why, in a line. */
 export function placeNote(synced: string | null, nextToProject: boolean): string {
-  if (synced === null) return 'Kept in a Backups folder next to the project.';
-  return nextToProject
-    ? `This project is in ${synced}; its backups are next to it and sync with it.`
-    : `This project is in ${synced}, so its backups stay on this computer instead of uploading every 5 minutes.`;
+  if (synced === null) return t('backups.placeLocal');
+  return nextToProject ? t('backups.placeSyncedNext', { service: synced }) : t('backups.placeSyncedLocal', { service: synced });
 }
 
 /** A whole number in range, or null for anything else, which leaves the setting as it was. */
@@ -99,31 +98,29 @@ export function BackupsView({
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="grid max-w-[420px] grid-cols-2 gap-3">
-        <KeepField key={`r${String(keep.recent)}`} label="Keep the last" field="recent" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
-        <KeepField key={`d${String(keep.days)}`} label="Plus one a day for" field="days" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
+        <KeepField key={`r${String(keep.recent)}`} label={t('backupsView.keepTheLast')} field="recent" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
+        <KeepField key={`d${String(keep.days)}`} label={t('backupsView.plusOneADayFor')} field="days" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
       </div>
       <p id={helpId} className="text-[12px] text-text-muted">
-        Copies, then days. Every 5 minutes, if anything changed, a full copy goes to a Backups folder next to the
-        project. Older copies are deleted; these numbers apply to every project.
+        {t('backupsView.copiesThenDaysEvery5')}
       </p>
       <div className="flex max-w-[420px] flex-col gap-1.5">
         <Toggle
-          label="Keep synced projects’ backups next to them"
+          label={t('backupsView.keepSyncedProjectsBackupsNext')}
           checked={nextToProject}
           onChange={onNextToProjectChange}
         />
         <p className="text-[12px] text-text-muted">
-          Off, backups of a project in iCloud Drive, Dropbox, Google Drive or OneDrive stay on this computer. On, they
-          go in a Backups folder beside the project and sync with it.
+          {t('backupsView.offBackupsOfAProject')}
         </p>
       </div>
       {project === null ? (
-        <p className="sb-label text-text-muted">No project open.</p>
+        <p className="sb-label text-text-muted">{t('backupsView.noProjectOpen')}</p>
       ) : (
         <>
           <div className="flex items-center gap-3">
-            <Button onClick={onBackUpNow}>Back up now</Button>
-            <Button onClick={onShowBackups}>Show backups</Button>
+            <Button onClick={onBackUpNow}>{t('backupsView.backUpNow')}</Button>
+            <Button onClick={onShowBackups}>{t('backupsView.showBackups')}</Button>
             <p role="status" className="text-[12px]">
               {status}
             </p>
@@ -131,20 +128,20 @@ export function BackupsView({
           <p className="text-[12px]">{placeNote(project.synced, nextToProject)}</p>
           <p className="font-mono text-[11px] text-text-muted">{project.folder}</p>
           {project.backups.length === 0 ? (
-            <p className="text-[13px] text-text-muted">No backups yet. The first comes 5 minutes after an edit.</p>
+            <p className="text-[13px] text-text-muted">{t('backupsView.noBackupsYetTheFirst')}</p>
           ) : (
-            <ul aria-label="Backups" className="border-t border-border">
+            <ul aria-label={t('backupsView.backups')} className="border-t border-border">
               {project.backups.map((backup) => (
                 <li key={backup.name} className="flex items-center gap-3 border-b border-border py-1.5">
                   <span className="font-mono text-[12px]">{backupLabel(backup)}</span>
                   <Button
                     className="ml-auto"
-                    aria-label={`Open the ${backupLabel(backup)} backup as a separate project`}
+                    aria-label={t('backups.openLabel', { name: backupLabel(backup) })}
                     onClick={() => {
                       onOpen(backup.name);
                     }}
                   >
-                    Open
+                    {t('backupsView.open')}
                   </Button>
                 </li>
               ))}

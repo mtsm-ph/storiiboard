@@ -3,6 +3,7 @@ import { trashedRoots } from '../core/ops/ops';
 import { emptyTrashMessage, rowsGone, trashItems } from '../features/trash/trash';
 import { forGood, type ForGood } from './forGood';
 import type { ProjectState } from './projectStore';
+import { tn } from '../core/i18n';
 
 // The two deletes for good (1.21), as the Trash tile and Settings → Storage run them: what the confirm counts is taken
 // from the project as it is at the click, and only that goes, only in that project. Kept out of the tiles so the tests
@@ -48,7 +49,7 @@ export function cleanUpConfirmed(
     running,
     () =>
       ask(
-        `${String(n)} ${n === 1 ? 'picture' : 'pictures'} only History uses will be deleted for good. This can’t be undone: a redo or a History restore that brings one back shows “Picture missing”.`,
+        tn('storage.cleanUpConfirm', n),
       ),
     () => store.getState().project === project,
     () => store.getState().cleanUpPictures(counted),

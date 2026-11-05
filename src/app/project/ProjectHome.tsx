@@ -6,6 +6,7 @@ import { setLettersAllowIO } from '../../features/storyboard/board';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
+import { localizeError, t } from '../../core/i18n';
 
 // The Project tile in Settings: the project's state, title and notes, and the storyboard's frame shape and shot
 // letters. Every change is an op, so ⌘Z takes it back.
@@ -16,7 +17,7 @@ export function ProjectHome() {
   const apply = useProject((s) => s.apply);
   const records = useProject((s) => s.records);
   const error = useProject((s) => s.error);
-  if (!record) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!record) return <p className="sb-label p-3 text-text-muted">{t('projectHome.noProjectOpen')}</p>;
   return (
     <ProjectFields
       record={record}
@@ -56,7 +57,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
         {/* An op like any edit: archiving undoes with ⌘Z. It sits outside the keyed block below, so arrowing
             through the states keeps focus on the control. */}
         <SegmentedControl
-          label="State"
+          label={t('projectHome.state')}
           options={PROJECT_STATES.map((value) => ({ value, label: PROJECT_STATE_LABEL[value] }))}
           value={projectStateOf(record.props)}
           onChange={(state) => {
@@ -65,7 +66,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
         />
         <div className="grid grid-cols-[minmax(0,200px)_1fr] items-end gap-4">
           <Select
-            label="Aspect ratio"
+            label={t('projectHome.aspectRatio')}
             mono
             value={storyboard.aspectRatio}
             onChange={(event) => {
@@ -79,7 +80,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
             ))}
           </Select>
           <Toggle
-            label="Use I and O in shot letters"
+            label={t('projectHome.useIAndOIn')}
             checked={!storyboard.skipIO}
             onChange={(allow) => {
               if (onLettersChange) onLettersChange(allow);
@@ -88,12 +89,12 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
           />
         </div>
         <p className="-mt-2 text-[12px] text-text-muted">
-          Frames take the scene number and a letter: 4A, 4B. Most slates skip I and O, which read as 1 and 0.
+          {t('projectHome.framesTakeTheSceneNumber')}
         </p>
         {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
         <div key={record.updatedAt} className="flex flex-col gap-4">
           <TextField
-            label="Title"
+            label={t('projectHome.title')}
             defaultValue={title}
             onBlur={(event) => {
               commit('title', event.currentTarget.value, title);
@@ -104,7 +105,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
           />
           <div className="flex flex-col gap-[5px]">
             <label htmlFor={notesId} className="sb-label">
-              Notes
+              {t('projectHome.notes')}
             </label>
             <textarea
               id={notesId}
@@ -118,7 +119,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
           </div>
           {error && (
             <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
-              {error}
+              {localizeError(error)}
             </p>
           )}
         </div>

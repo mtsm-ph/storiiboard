@@ -5,6 +5,7 @@ import { parseScreenplayPdf } from '../../core/script/pdfLayout';
 import { parseScript } from '../../core/script/parse';
 import type { Script } from '../../core/script/script';
 import { showImport } from './importStore';
+import { t } from '../../core/i18n';
 
 /** A PDF by its layout (pdf.js loads only for one); Fountain and Final Draft by their text. */
 async function read(name: string, bytes: ArrayBuffer): Promise<Script> {
@@ -27,8 +28,8 @@ export async function chooseScriptToImport(): Promise<void> {
     if (script.scenes.length === 0) {
       showNotice(
         file.name.toLowerCase().endsWith('.pdf')
-          ? `No scene headings in “${file.name}”. A scanned PDF has no text to read; export the script as a PDF from the writing app instead.`
-          : `No scene headings in “${file.name}”. Scenes start with INT. or EXT., as in “INT. DINER - NIGHT”.`,
+          ? t('script.noHeadingsPdf', { name: file.name })
+          : t('script.noHeadings', { name: file.name }),
       );
       return;
     }

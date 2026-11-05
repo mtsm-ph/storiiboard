@@ -7,6 +7,7 @@ import { addPictures } from './addPictures';
 import { canPlace, type PictureTarget } from './framePictures';
 import { selectionStore } from './selection';
 import type { DropHover } from './StoryboardView';
+import { t } from '../../core/i18n';
 
 // Pictures dropped on the board or pasted (1.11). Whatever carries the drop, frames and scenes say what they are
 // with data-drop-shot and data-drop-scene, so the board, the strip, the shot list and the inspector's Picture section
@@ -40,7 +41,7 @@ function hoverOf(target: PictureTarget | null): DropHover {
 function drop(files: PictureFile[], target: PictureTarget | null) {
   if (files.length === 0) return;
   if (!target) {
-    showInfo('Drop pictures on a frame to set its picture, or on a scene to add frames.');
+    showInfo(t('pictures.dropWhere'));
     return;
   }
   void addPictures(files, target);
@@ -68,7 +69,7 @@ function onPaste(event: ClipboardEvent) {
   const scene: PictureTarget | null = sceneId ? { kind: 'scene', sceneId, afterShotId: null } : null;
   const target = [frame, scene].find((t): t is PictureTarget => t !== null && canPlace(records, projectId, t)) ?? null;
   if (!target) {
-    showInfo('Select a frame or a scene, then paste the picture.');
+    showInfo(t('pictures.selectFirst'));
     return;
   }
   void addPictures(files.map(fromFile), target);

@@ -5,6 +5,7 @@ import { projectStoryboard, sceneFields, sceneLabel, shotFields, type SceneField
 import type { ShotStatus } from '../../core/model/shotStatus';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
+import { list, t } from '../../core/i18n';
 
 // The storyboard as views read it, and the changes the board makes. Views read records and never copy them
 // (CLAUDE.md); counts and coverage are computed here each time, never stored. Every change that moves, adds or
@@ -522,9 +523,8 @@ export function relettered(records: Records, projectId: string, changes: readonl
 /** The notice for a lock that re-lettered frames: "Locked SC 04. To keep slate numbers unique, 4C is now 4E." */
 export function lockNotice(sceneNumber: string, changed: readonly Relettered[]): string | null {
   if (changed.length === 0) return null;
-  const each = changed.map(({ from, to }) => `${from} is now ${to}`);
-  const list = each.length === 1 ? (each[0] ?? '') : `${each.slice(0, -1).join(', ')} and ${each.at(-1) ?? ''}`;
-  return `Locked ${sceneLabel(sceneNumber)}. To keep slate numbers unique, ${list}.`;
+  const each = changed.map(({ from, to }) => t('board.relettered', { from, to }));
+  return t('board.lockNotice', { scene: sceneLabel(sceneNumber), list: list(each) });
 }
 
 /**

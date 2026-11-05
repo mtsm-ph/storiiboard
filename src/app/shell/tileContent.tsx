@@ -8,6 +8,7 @@ import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
 import { HistoryTile } from '../../features/history/HistoryTile';
 import { TrashTile } from '../../features/trash/TrashTile';
+import { AppTile } from '../preferences/AppTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -21,4 +22,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   trash: TrashTile,
   storage: StorageTile,
   history: HistoryTile,
+  app: AppTile,
 };

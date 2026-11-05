@@ -1,12 +1,13 @@
 import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { emptyTrashConfirmed } from '../../app/deleteForGood';
-import { SWITCHED_MESSAGE } from '../../app/forGood';
+import { switchedMessage } from '../../app/forGood';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { restoreChanges, restoredName, TRASH_KIND_LABEL, trashItems, type TrashKind } from './trash';
+import { restoreChanges, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
@@ -17,12 +18,12 @@ const KINDS: readonly TrashKind[] = ['scene', 'frame', 'note', 'picture'];
 /** "Today 14:05", "Yesterday 09:12", or "Nov 2 14:05", in the person's own time. */
 function when(iso: string, now = new Date()): string {
   const at = new Date(iso);
-  const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = formatDate(at, { hour: '2-digit', minute: '2-digit' });
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((day(now) - day(at)) / 86_400_000);
-  if (days === 0) return `Today ${time}`;
-  if (days === 1) return `Yesterday ${time}`;
-  return `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+  if (days === 0) return t('time.today', { time });
+  if (days === 1) return t('time.yesterday', { time });
+  return t('time.dayAndTime', { day: formatDate(at, { month: 'short', day: 'numeric' }), time });
 }
 
 export function TrashTile() {
@@ -38,7 +39,7 @@ export function TrashTile() {
   const emptying = useRef(false);
   const captionId = useId();
 
-  if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!project) return <p className="sb-label p-3 text-text-muted">{t('trashTile.noProjectOpen')}</p>;
   const all = trashItems(records, project.projectId);
   const scenes = [...new Map(all.filter((i) => i.sceneId !== null).map((i) => [i.sceneId ?? '', i.sceneName ?? ''])).entries()].sort((a, b) =>
     a[1].localeCompare(b[1], undefined, { numeric: true }),
@@ -50,15 +51,17 @@ export function TrashTile() {
   const shown = all.filter((i) => (kind === '' || i.kind === kind) && (sceneId === '' || i.sceneId === sceneId));
 
   const emptyAll = async (hidden: number) => {
-    const done = await emptyTrashConfirmed(projectStore, emptying, (text) => confirmForGood('Empty Trash?', text, 'Empty Trash'), hidden);
+    const done = await emptyTrashConfirmed(projectStore, emptying, (text) => confirmForGood(t('trash.emptyTitle'), text, t('trash.emptyAction')), hidden);
     if (!done.ran) {
-      if (done.why === 'switched') showInfo(SWITCHED_MESSAGE);
+      if (done.why === 'switched') showInfo(switchedMessage());
       return;
     }
     if (!done.result) return;
     const { items, freed } = done.result;
     showInfo(
-      `Emptied the Trash: ${String(items)} ${items === 1 ? 'item' : 'items'} deleted for good${freed > 0 ? `, with ${sizeLabel(freed)} of pictures` : ''}.`,
+      freed > 0
+        ? t('trash.emptiedFreed', { items: tn('count.items', items), size: sizeLabel(freed) })
+        : t('trash.emptiedCount', { items: tn('count.items', items) }),
     );
     // The button turns off with nothing left; focus goes to the message that says so.
     requestAnimationFrame(() => {
@@ -80,7 +83,7 @@ export function TrashTile() {
       .then((written) => {
         if (!written || !restored) return;
         // As it's numbered now: a restore can give a frame or a scene a new number.
-        showInfo(`Restored ${restoredName(projectStore.getState().records, id) ?? name}.`);
+        showInfo(t('trash.restored', { name: restoredName(projectStore.getState().records, id) ?? name }));
         // Focus stays in the list: on the row that took this one's place, or the one before at the end, or on the
         // message that the list is empty now.
         requestAnimationFrame(() => {
@@ -98,57 +101,57 @@ export function TrashTile() {
     <div className="flex min-h-full flex-col">
       <div className="flex flex-wrap items-end gap-3 border-b border-border p-3">
         <Select
-          label="Type"
+          label={t('trashTile.type')}
           value={kind}
           onChange={(event) => {
             setKind(event.currentTarget.value as TrashKind | '');
           }}
         >
-          <option value="">Everything</option>
+          <option value="">{t('trashTile.everything')}</option>
           {KINDS.map((k) => (
             <option key={k} value={k}>
-              {TRASH_KIND_LABEL[k]}s
+              {TRASH_KIND_PLURAL[k]}
             </option>
           ))}
         </Select>
         <Select
-          label="Scene"
+          label={t('trashTile.scene')}
           mono
           value={sceneId}
           onChange={(event) => {
             setSceneId(event.currentTarget.value);
           }}
         >
-          <option value="">All scenes</option>
+          <option value="">{t('trashTile.allScenes')}</option>
           {scenes.map(([id, name]) => (
             <option key={id} value={id}>
               {name}
             </option>
           ))}
         </Select>
-        <p className="sb-label ml-auto font-mono">{`${String(all.length)} in the Trash`}</p>
+        <p className="sb-label ml-auto font-mono">{t('trash.count', { count: all.length })}</p>
         <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length - shown.length)}>
-          Empty Trash…
+          {t('trashTile.emptyTrash')}
         </Button>
       </div>
       {all.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
-          The Trash is empty. Frames, notes and pictures you delete wait here until it’s emptied.
+          {t('trashTile.theTrashIsEmptyFrames')}
         </p>
       ) : shown.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
-          Nothing in the Trash matches these filters.
+          {t('trashTile.nothingInTheTrashMatches')}
         </p>
       ) : (
         <table className="w-full border-collapse text-[12px]" aria-describedby={captionId}>
           <caption id={captionId} className="sr-only">
-            Deleted items, newest first
+            {t('trashTile.deletedItemsNewestFirst')}
           </caption>
           <thead>
             <tr className="border-b border-border">
-              {['Type', 'Item', 'Scene', 'Deleted', ''].map((head) => (
+              {[t('trashTile.type'), t('trash.item'), t('trashTile.scene'), t('trash.deleted'), ''].map((head) => (
                 <th key={head} scope="col" className="sb-label px-2 py-1.5 text-left font-normal whitespace-nowrap text-text-muted">
-                  {head === '' ? <span className="sr-only">Restore</span> : head}
+                  {head === '' ? <span className="sr-only">{t('trashTile.restore')}</span> : head}
                 </th>
               ))}
             </tr>
@@ -175,14 +178,14 @@ export function TrashTile() {
                 <td className="px-2 py-1 text-right">
                   <Button
                     data-restore=""
-                    aria-label={`Restore ${TRASH_KIND_LABEL[item.kind].toLowerCase()} ${item.name}`}
+                    aria-label={t('trash.restoreLabel', { kind: TRASH_KIND_IN_SENTENCE[item.kind], name: item.name })}
                     onClick={(event) => {
                       // The second click of a double click lands on the row that took this one's place.
                       if (event.detail > 1) return;
                       restore(item.id, item.name, index);
                     }}
                   >
-                    Restore
+                    {t('trashTile.restore')}
                   </Button>
                 </td>
               </tr>

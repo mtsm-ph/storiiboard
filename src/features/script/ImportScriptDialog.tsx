@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocale } from '../../ui/useLocale';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -8,6 +9,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { selectionStore } from '../storyboard/selection';
 import { closeImport, usePendingImport, type PendingImport } from './importStore';
 import { importChanges, planImport, type PlannedStatus } from './importScript';
+import { labels, t, tn } from '../../core/i18n';
 
 // The script import preview (1.17): every scene the script has, with its number, heading, length and speaking
 // characters, and what the import will create. Nothing is written until Import, which is one op group: one undo takes
@@ -15,6 +17,7 @@ import { importChanges, planImport, type PlannedStatus } from './importScript';
 
 export function ImportScriptHost() {
   const pending = usePendingImport();
+  const locale = useLocale();
   const project = useProject((s) => s.project);
   const mine = pending !== null && project?.projectId === pending.projectId && project.file.path === pending.path;
   // For the project it was opened in only: another opened meanwhile (from Finder, say) closes it.
@@ -22,17 +25,16 @@ export function ImportScriptHost() {
     if (pending && !mine) closeImport();
   }, [pending, mine]);
   if (!pending || !mine) return null;
-  return <ImportScriptDialog key={`${pending.path}:${pending.fileName}`} pending={pending} projectId={pending.projectId} />;
+  // Keyed by the language too: the plan's notes are in words, worked out once per dialog.
+  return <ImportScriptDialog key={`${locale}:${pending.path}:${pending.fileName}`} pending={pending} projectId={pending.projectId} />;
 }
 
 /** What a row says when its scene isn't imported. */
-const LEFT_OUT: Readonly<Record<Exclude<PlannedStatus, 'new'>, string>> = {
-  same: 'On the board',
-  taken: 'Number taken on the board',
-  trashed: 'Number in the Trash',
-};
-
-const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
+const LEFT_OUT: Readonly<Record<Exclude<PlannedStatus, 'new'>, string>> = labels({
+  same: 'script.onBoard',
+  taken: 'script.numberTaken',
+  trashed: 'script.numberInTrash',
+});
 
 function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; projectId: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -66,7 +68,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
         closeImport();
         if (!written || made.length === 0) return;
         selectionStore.getState().selectScene(made[0] ?? null);
-        showInfo(`Imported ${plural(made.length, 'scene')} from “${pending.fileName}”. ${undoKey} takes the import back.`);
+        showInfo(t('script.imported', { scenes: tn('count.scenes', made.length), name: pending.fileName, undo: undoKey }));
       })
       .finally(() => {
         setImporting(false);
@@ -74,11 +76,11 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
   };
 
   const counts = [
-    plural(fresh.length, 'new scene'),
-    plan.locations.created.length > 0 ? plural(plan.locations.created.length, 'new location') : null,
-    plan.locations.linked.length > 0 ? `${plural(plan.locations.linked.length, 'location')} already in the project` : null,
-    plan.characters.created.length > 0 ? plural(plan.characters.created.length, 'new character') : null,
-    plan.characters.linked.length > 0 ? `${plural(plan.characters.linked.length, 'character')} already in the project` : null,
+    tn('script.newScenes', fresh.length),
+    plan.locations.created.length > 0 ? tn('script.newLocations', plan.locations.created.length) : null,
+    plan.locations.linked.length > 0 ? tn('script.locationsInProject', plan.locations.linked.length) : null,
+    plan.characters.created.length > 0 ? tn('script.newCharacters', plan.characters.created.length) : null,
+    plan.characters.linked.length > 0 ? tn('script.charactersInProject', plan.characters.linked.length) : null,
   ].filter((part) => part !== null);
 
   return (
@@ -94,26 +96,26 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
     >
       <div className="flex max-h-[calc(100vh-52px)] flex-col gap-3 p-4">
         <h2 id={titleId} className="text-[20px] font-bold">
-          Import {pending.script.title ?? pending.fileName}
+          {t('script.importTitle', { name: pending.script.title ?? pending.fileName })}
         </h2>
         <p className="text-[13px]">{counts.join(' · ')}</p>
-        {fresh.length === 0 && <p className="text-[13px]">Every scene in this script is on the board already, or its number is taken there.</p>}
+        {fresh.length === 0 && <p className="text-[13px]">{t('importScriptDialog.everySceneInThisScript')}</p>}
         <div className="min-h-0 overflow-auto border border-border">
           <table className="w-full border-collapse text-left text-[13px]">
-            <caption className="sr-only">Scenes in the script</caption>
+            <caption className="sr-only">{t('importScriptDialog.scenesInTheScript')}</caption>
             <thead>
               <tr className="sb-label border-b border-border">
                 <th scope="col" className="px-2 py-1.5 font-normal">
-                  SC
+                  {t('importScriptDialog.sc')}
                 </th>
                 <th scope="col" className="px-2 py-1.5 font-normal">
-                  Heading
+                  {t('importScriptDialog.heading')}
                 </th>
                 <th scope="col" className="px-2 py-1.5 font-normal">
-                  Length
+                  {t('importScriptDialog.length')}
                 </th>
                 <th scope="col" className="px-2 py-1.5 font-normal">
-                  Speaking
+                  {t('importScriptDialog.speaking')}
                 </th>
               </tr>
             </thead>
@@ -125,7 +127,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
                   <td className="px-2 py-1.5">
                     {headingOf({
                       number,
-                      name: scene.otherTime ? `${scene.location} — ${scene.otherTime}` : scene.location,
+                      name: scene.otherTime ? t('script.placeAndTime', { place: scene.location, time: scene.otherTime }) : scene.location,
                       intExt: scene.intExt,
                       dayNight: scene.dayNight,
                       locationId: null,
@@ -134,7 +136,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
                       characters: scene.characters,
                     })}
                     {status !== 'new' && <span className="sb-label ml-2 border border-text px-1">{LEFT_OUT[status]}</span>}
-                    {note && <span className="block text-[12px]">{note}; numbered {number}.</span>}
+                    {note && <span className="block text-[12px]">{t('script.noteNumbered', { note, number })}</span>}
                   </td>
                   <td className="px-2 py-1.5 font-mono whitespace-nowrap">{pageLabel(scene.eighths)}</td>
                   <td className="px-2 py-1.5">{scene.characters.join(', ') || '—'}</td>
@@ -144,15 +146,14 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
           </table>
         </div>
         <p className="text-[12px] text-text-muted">
-          Headings are read by rule: INT or EXT, the place, then the time of day. Lengths are estimated in eighths of a
-          page{pending.fileName.toLowerCase().endsWith('.fdx') ? ', or taken from Final Draft where it has them' : ''}.
+          {pending.fileName.toLowerCase().endsWith('.fdx') ? t('script.rulesFdx') : t('script.rules')}
         </p>
         <div className="flex justify-end gap-2">
           <Button disabled={importing} onClick={closeImport}>
-            Cancel
+            {t('importScriptDialog.cancel')}
           </Button>
           <Button variant="primary" disabled={fresh.length === 0 || importing} onClick={run}>
-            {fresh.length === 0 ? 'Nothing to import' : `Import ${plural(fresh.length, 'scene')}`}
+            {fresh.length === 0 ? t('script.nothingToImport') : t('script.importCount', { scenes: tn('count.scenes', fresh.length) })}
           </Button>
         </div>
       </div>

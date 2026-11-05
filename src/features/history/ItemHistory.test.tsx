@@ -66,7 +66,7 @@ describe('an item’s own history', () => {
         onPutBack={putBack}
       />,
     );
-    expect(html).toContain('Changes to <!-- -->scene SC 04<!-- -->, newest first');
+    expect(html).toContain('Changes to scene SC 04, newest first');
     expect(html).toMatch(/location<\/td><td[^>]*>—<\/td><td[^>]*>Dock<\/td>/);
     expect(html).not.toContain('>dock<');
   });

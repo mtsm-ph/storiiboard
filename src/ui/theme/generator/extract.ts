@@ -1,5 +1,6 @@
 import { accentCandidates } from './generate';
 import { samplePixels } from './sample';
+import { t } from '../../../core/i18n';
 
 // Reading an image's accents (1.14): decoded and shrunk to about 96px, then clustered (generate.ts). It runs in a Web
 // Worker so a large key image never holds up the window; when there's no worker, it fails or it takes too long, the
@@ -30,7 +31,7 @@ function askWorker(image: Blob): Promise<string[] | null> {
       done();
       // The worker read the file and couldn't: the page would fail the same way, so that's the answer.
       if (event.data.accents) resolve(event.data.accents);
-      else reject(new Error(event.data.error ?? 'The image’s colours couldn’t be read.'));
+      else reject(new Error(event.data.error ?? t('error.imageColoursUnread')));
     };
     worker.onerror = () => {
       done();

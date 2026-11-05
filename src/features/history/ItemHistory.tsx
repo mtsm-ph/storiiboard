@@ -6,6 +6,7 @@ import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { canPutBack, putBackChange } from './putBack';
 import { changeLabel, changeText, frameRows, isMono, who, type FieldChange } from './summary';
+import { t } from '../../core/i18n';
 
 // One item's own history (1.22): a frame, a scene or a note, every change to it newest first, field by field, each
 // with its old value to put back. Values show in full, line breaks and all: an old action or dialogue is read here
@@ -33,7 +34,7 @@ export function ItemHistory({
 }) {
   const table = useRef<HTMLTableElement>(null);
   const rows = frameRows(ops, item.id);
-  if (rows.length === 0) return <p className="p-3 text-[13px] text-text-muted">No changes to {title} yet.</p>;
+  if (rows.length === 0) return <p className="p-3 text-[13px] text-text-muted">{t('history.noChangesTo', { title })}</p>;
   const putBack = (recordId: string, field: FieldChange) => {
     void onPutBack(recordId, field).then(() => {
       // The pressed button goes once its value is back: focus stays on the table rather than falling out of the
@@ -45,15 +46,15 @@ export function ItemHistory({
   };
   // A scene keeps its location by id, which means nothing to a person.
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
-    field.prop === 'location_id' && typeof v === 'string' && v !== '' ? (places(v) ?? 'a location') : changeText(field, v);
+    field.prop === 'location_id' && typeof v === 'string' && v !== '' ? (places(v) ?? t('history.aLocation')) : changeText(field, v);
   return (
     <table ref={table} tabIndex={-1} aria-busy={busy} className="w-full border-collapse text-[12px]">
-      <caption className="sr-only">Changes to {title}, newest first</caption>
+      <caption className="sr-only">{t('history.changesTo', { title })}</caption>
       <thead>
         <tr className="border-b border-border">
-          {['Change', 'Before', 'After', 'Who', 'When', ''].map((head) => (
+          {[t('history.col.change'), t('history.col.before'), t('history.col.after'), t('history.col.who'), t('history.col.when'), ''].map((head) => (
             <th key={head} scope="col" className="sb-label px-2 py-1.5 text-left font-normal text-text-muted">
-              {head === '' ? <span className="sr-only">Put back</span> : head}
+              {head === '' ? <span className="sr-only">{t('itemHistory.putBack')}</span> : head}
             </th>
           ))}
         </tr>
@@ -74,13 +75,13 @@ export function ItemHistory({
               <td className="px-2 py-1 text-right align-top">
                 {offered && (
                   <Button
-                    aria-label={`Put back ${changeLabel(field)} ${value(field, field.before)}`}
+                    aria-label={t('history.putBackLabel', { field: changeLabel(field), value: value(field, field.before) })}
                     aria-disabled={busy || undefined}
                     onClick={() => {
                       putBack(op.recordId, field);
                     }}
                   >
-                    Put back
+                    {t('itemHistory.putBack')}
                   </Button>
                 )}
               </td>

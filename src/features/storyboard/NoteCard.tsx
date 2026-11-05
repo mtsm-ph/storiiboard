@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent } from 'react';
 import { cx } from '../../ui/cx';
+import { t } from '../../core/i18n';
 
 // A note among a scene's frames (1.12): what a board says between panels, "Rain starts" or "Cut to black". It's a
 // board item like a frame, so the arrows, Delete, ⌘ with an arrow and "/" work on it. Enter (or a double click)
@@ -53,7 +54,7 @@ export function NoteCard({ id, text, editing, itemProps, onEdit, onSave, onCance
       {editing ? (
         <>
           <label htmlFor={`note-${id}`} className="sb-label px-2 pt-1.5">
-            Note
+            {t('noteCard.note')}
           </label>
           <textarea
             ref={field}
@@ -74,9 +75,9 @@ export function NoteCard({ id, text, editing, itemProps, onEdit, onSave, onCance
           onDoubleClick={onEdit}
           className="flex w-full flex-1 flex-col items-start gap-1 px-2 py-1.5 text-left"
         >
-          <span className="sb-label">Note</span>
+          <span className="sb-label">{t('noteCard.note')}</span>
           <span className={cx('text-[13px] whitespace-pre-wrap', text === '' && 'text-text-muted')}>
-            {text === '' ? 'Empty note. Enter to write.' : text}
+            {text === '' ? t('note.empty') : text}
           </span>
         </button>
       )}

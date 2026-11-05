@@ -1,6 +1,7 @@
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { createStore } from 'zustand/vanilla';
+import { localizeError } from '../core/i18n';
 
 // One message at a time about something the person asked for that didn't happen: a project that wouldn't open, a
 // folder that couldn't be written. The shell shows it above the workspace until it's dismissed or the next action
@@ -17,7 +18,8 @@ interface NoticeState {
 export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning' }));
 
 export function showNotice(error: unknown): void {
-  noticeStore.setState({ message: error instanceof Error ? error.message : String(error), kind: 'warning' });
+  // Errors from below the UI arrive in English; they show in the app's language where a translation has them.
+  noticeStore.setState({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning' });
 }
 
 export function showInfo(message: string): void {

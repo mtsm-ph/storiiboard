@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { cropBox, type Crop } from '../../core/media/crop';
 import type { ImageSize } from '../../core/media/urls';
+import { t } from '../../core/i18n';
 
 // A frame's picture, cropped to the project's aspect ratio as the shot says. Cards draw the 640px thumbnail and only
 // once they come near the screen, so a 1000-frame board reads only the pictures it shows; the crop is CSS on a plain
@@ -90,7 +91,7 @@ export function FrameImage({ picture, frameAspect, size = 'thumbnail', eager = f
       {url === null && (
         // Missing media is flagged plainly (CLAUDE.md). Relinking arrives with linked files in Phase 2.
         <span className="sb-label absolute inset-0 flex items-center justify-center text-warning dark:text-text">
-          Picture missing
+          {t('frameImage.pictureMissing')}
         </span>
       )}
     </span>

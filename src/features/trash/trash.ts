@@ -5,6 +5,7 @@ import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard
 import type { Change } from '../../core/ops/ops';
 import { restoredScene, restoreShot } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
+import { labels, t, tn } from '../../core/i18n';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
 // (1.21), each restorable with one click. Never mixed with an archived project, which is the project's `state`.
@@ -14,12 +15,28 @@ type Records = Readonly<Record<string, SbdRecord>>;
 
 export type TrashKind = 'scene' | 'frame' | 'note' | 'picture';
 
-export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = {
-  scene: 'Scene',
-  frame: 'Frame',
-  note: 'Note',
-  picture: 'Picture',
-};
+export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
+  scene: 'trash.kind.scene',
+  frame: 'trash.kind.frame',
+  note: 'trash.kind.note',
+  picture: 'trash.kind.picture',
+});
+
+/** The Type filter's choices: every scene, every frame… */
+export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
+  scene: 'trash.kinds.scene',
+  frame: 'trash.kinds.frame',
+  note: 'trash.kinds.note',
+  picture: 'trash.kinds.picture',
+});
+
+/** "Restore frame 4A": the kind as it reads inside a sentence. */
+export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = labels({
+  scene: 'trash.kindLower.scene',
+  frame: 'trash.kindLower.frame',
+  note: 'trash.kindLower.note',
+  picture: 'trash.kindLower.picture',
+});
 
 export interface NamePart {
   text: string;
@@ -65,20 +82,20 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
   switch (kind) {
     case 'scene': {
       const fields = sceneFields(record.props);
-      return [mono(sceneLabel(fields.number)), plain(`  ${headingOf(fields)}`)];
+      return [mono(sceneLabel(fields.number)), plain(t('trash.sceneHeading', { heading: headingOf(fields) }))];
     }
     case 'frame': {
       const number = shotFields(record.props).number;
-      return [number ? mono(number) : plain('Unnumbered frame')];
+      return [number ? mono(number) : plain(t('trash.unnumberedFrame'))];
     }
     case 'note': {
       const text = typeof record.props.text === 'string' ? record.props.text.trim().replace(/\s+/g, ' ') : '';
-      return [plain(text === '' ? 'Empty note' : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
+      return [plain(text === '' ? t('trash.emptyNote') : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
     }
     case 'picture': {
-      const file = plain(mediaFields(record.props)?.sourceName || 'Pasted picture');
+      const file = plain(mediaFields(record.props)?.sourceName || t('trash.pastedPicture'));
       const parent = record.parentId ? records[record.parentId] : undefined;
-      return parent?.type === 'shot' ? [file, plain(' of '), mono(shotFields(parent.props).number)] : [file, plain(' (logo or key image)')];
+      return parent?.type === 'shot' ? [file, plain(t('trash.pictureOf')), mono(shotFields(parent.props).number)] : [file, plain(t('trash.logoPicture'))];
     }
   }
 }
@@ -114,7 +131,7 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     while (top?.parentId) top = records[top.parentId];
     if (top?.id !== projectId) continue;
     const inside = kind === 'scene' ? trashedWith(records, record).filter((r) => r.type === 'shot').length : 0;
-    const parts = [...partsOf(records, record, kind), ...(inside > 0 ? [plain(` (with ${String(inside)} ${inside === 1 ? 'frame' : 'frames'})`)] : [])];
+    const parts = [...partsOf(records, record, kind), ...(inside > 0 ? [plain(tn('trash.withFrames', inside))] : [])];
     items.push({
       id: record.id,
       kind,
@@ -174,18 +191,14 @@ export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
  * filters hide, since it empties them too. `unknown`: some slate numbers from before schema 5 couldn't be recovered.
  */
 export function emptyTrashMessage(records: Records, count: number, hidden = 0, unknown = false): string {
-  const what = `${String(count)} ${count === 1 ? 'item' : 'items'}${hidden > 0 ? ` (${String(hidden)} hidden by the filters)` : ''}`;
+  const items = tn('count.items', count);
+  const what = hidden > 0 ? t('trash.itemsHidden', { items, hidden }) : items;
   // A locked scene keeps every number it has given out (1.26), so emptying the Trash can't free one. The exception is
   // what an Empty Trash deleted before that: gone, numbers and all. Said while any scene is locked.
   const locked = Object.values(records).some((r) => r.type === 'scene' && r.trashedAt === null && sceneFields(r.props).numbersLocked);
   return [
-    `${what} will be deleted for good, with their sketches and pictures.`,
-    'This can’t be undone, History can’t bring them back, and Undo won’t go back past it.',
-    ...(unknown && locked
-      ? [
-          'Frames an Empty Trash deleted before this version of Storiiboard may have had letters it no longer knows, so ' +
-            'a locked scene could give one of them out again.',
-        ]
-      : []),
+    t('trash.emptyConfirm', { what }),
+    t('trash.emptyCantUndo'),
+    ...(unknown && locked ? [t('trash.emptyLettersUnknown')] : []),
   ].join(' ');
 }

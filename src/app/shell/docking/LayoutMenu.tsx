@@ -3,6 +3,7 @@ import { Menu, menuItemClass } from '../../../ui/Menu';
 import { inModalDialog, TILES, type Workspace } from '../workspaces';
 import { openTile, tilesIn, type Layout } from './layout';
 import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore';
+import { t } from '../../../core/i18n';
 
 // The workspace's layout commands (DESIGN.md, State 05): save, reset, undo, and open any tile in this workspace.
 // Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
@@ -36,7 +37,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   return (
     <Menu
       align="right"
-      label={<>Layout{unsaved && <span className="sr-only"> (unsaved changes)</span>}</>}
+      label={<>{t('layoutMenu.layout')}{unsaved && <span className="sr-only">{' '}{t('layoutMenu.unsavedChanges')}</span>}</>}
       buttonClassName="sb-label flex h-full items-center border-l border-border-top px-4 focus-visible:-outline-offset-4"
     >
       {(close) => {
@@ -52,13 +53,13 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
         return (
           <>
             <button type="button" className={menuItemClass} disabled={!unsaved} onClick={run(save)} aria-keyshortcuts="Meta+Shift+S Control+Shift+S">
-              Update “{workspace.label}”
+              {t('layoutMenu.update', { name: workspace.label })}
             </button>
             <button type="button" className={menuItemClass} disabled={!unsaved} onClick={run(() => { change(layouts.saved); })}>
-              Reset to saved layout
+              {t('layoutMenu.resetToSavedLayout')}
             </button>
             <button type="button" className={menuItemClass} onClick={run(() => { change(workspace.defaultLayout()); })}>
-              Reset to default layout
+              {t('layoutMenu.resetToDefaultLayout')}
             </button>
             <button
               type="button"
@@ -68,11 +69,11 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
                 layoutStore.getState().undo(workspace.id);
               })}
             >
-              Undo layout change
+              {t('layoutMenu.undoLayoutChange')}
             </button>
-            <p className="sb-label px-3 pt-3 pb-1 text-text-muted">Open tile</p>
+            <p className="sb-label px-3 pt-3 pb-1 text-text-muted">{t('layoutMenu.openTile')}</p>
             {missing.length === 0 ? (
-              <p className="sb-label px-3 pb-3 text-text-muted">Every tile is open.</p>
+              <p className="sb-label px-3 pb-3 text-text-muted">{t('layoutMenu.everyTileIsOpen')}</p>
             ) : (
               missing.map((tile) => (
                 <button key={tile} type="button" className={menuItemClass} data-tile={tile} onClick={onOpenTile}>

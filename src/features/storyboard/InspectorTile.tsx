@@ -12,6 +12,7 @@ import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
+import { t } from '../../core/i18n';
 
 /** Escape from the inspector: focus goes back to the frame (or the scene) it was showing. */
 function focusBoard(shotId: string | null, sceneId: string | null) {
@@ -30,7 +31,7 @@ export function InspectorTile() {
   const sceneId = useSelection((s) => s.sceneId);
   const shotId = useSelection((s) => s.shotId);
 
-  if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
   const scene = sceneRecord?.type === 'scene' && sceneRecord.trashedAt === null ? sceneRecord : undefined;
   const shotRecord = shotId ? records[shotId] : undefined;

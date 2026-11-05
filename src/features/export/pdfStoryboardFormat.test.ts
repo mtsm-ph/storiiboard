@@ -11,7 +11,7 @@ import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot } from '../storyboard/board';
 import { frameBox } from './pdfStoryboard';
-import { FRAME_PIXELS_PER_POINT, pdfStoryboard, REPLACED_WARNING, WRITING_STATUS } from './pdfStoryboardFormat';
+import { FRAME_PIXELS_PER_POINT, pdfStoryboard } from './pdfStoryboardFormat';
 import { watermarkProp, type WatermarkUse } from './watermark';
 
 // The PDF format as the Export dialog runs it: the project's watermark taken for the PDF (or not, as Watermark
@@ -160,7 +160,7 @@ describe('the PDF storyboard export', () => {
     drawn.lostPictures.add(b);
     await store.getState().apply([{ kind: 'update', id: a, set: { action: 'Mary waves 👋 at the door.' } }]);
     const said = await exportPdf();
-    expect(said.warning).toBe(`1 has a missing picture: 4B. ${REPLACED_WARNING}`);
+    expect(said.warning).toBe('1 has a missing picture: 4B. Characters its fonts don’t have (emoji; Chinese, Japanese or Korean) print as ?.');
   });
 
   it('draws each frame at three pixels a point of its printed size, not the 1200 px that made a feature’s PDF 200 MB', async () => {
@@ -179,7 +179,7 @@ describe('the PDF storyboard export', () => {
     await scene('sc4', '4', 3);
     const said: string[] = [];
     await run(new AbortController().signal, (done, total, doing) => said.push(doing ?? `${String(done)} of ${String(total)}`));
-    expect(said).toEqual(['0 of 3', '1 of 3', '2 of 3', WRITING_STATUS]);
+    expect(said).toEqual(['0 of 3', '1 of 3', '2 of 3', 'Writing the PDF…']);
   });
 
   it('writes nothing when Stop is pressed while the PDF is saved, after the last frame', async () => {

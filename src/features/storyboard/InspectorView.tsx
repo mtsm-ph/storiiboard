@@ -3,16 +3,22 @@ import type { Crop } from '../../core/media/crop';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
 import {
+  choiceLabel,
   DAY_NIGHT,
+  DAY_NIGHT_LABEL,
+  HEIGHT_LABEL,
   HEIGHTS,
   INT_EXT,
+  INT_EXT_LABEL,
   sceneNumberProblem,
+  MOVE_LABEL,
   MOVES,
-  pageLabel,
+  pagesText,
   parsePages,
   sceneLabel,
   SHOT_SIZE_LABEL,
   SHOT_SIZES,
+  SUPPORT_LABEL,
   SUPPORTS,
   T_STOPS,
   tStopLabel,
@@ -31,6 +37,7 @@ import { departmentTagClass } from '../../ui/tags';
 import { CropEditor } from './CropEditor';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
+import { labels, t } from '../../core/i18n';
 
 // The Frame inspector (design board, Storyboard workspace): the selected frame's picture, camera and story, then its
 // scene.
@@ -88,7 +95,7 @@ export interface InspectorViewProps {
   onCustomChange?: (name: string, value: string | null) => Promise<void>;
 }
 
-const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = { have: 'Have', need: 'Need', source: 'Source' };
+const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = labels({ have: 'shotStatus.have', need: 'inspector.need', source: 'shotStatus.source' });
 
 /** A picked value, or the prop removed when the empty choice is picked. */
 function pick(prop: string, value: string, asNumber = false): FieldChange {
@@ -272,7 +279,7 @@ function CustomFields({
               />
             </div>
             <IconButton
-              label={`Remove ${field} from this frame`}
+              label={t('inspector.removeField', { field })}
               onClick={() => {
                 remove(field);
               }}
@@ -287,11 +294,11 @@ function CustomFields({
           <div className="min-w-0 flex-1">
             <TextField
               ref={newField}
-              label="New field"
+              label={t('inspectorView.newField')}
               value={name}
               list={listId}
               maxLength={MAX_FIELD_NAME}
-              placeholder="Drone, VFX, budget…"
+              placeholder={t('inspectorView.droneVfxBudget')}
               aria-invalid={error !== null}
               aria-describedby={error ? errorId : undefined}
               onChange={(event) => {
@@ -303,7 +310,7 @@ function CustomFields({
             />
           </div>
           <Button disabled={name.trim() === ''} onClick={add}>
-            Add field
+            {t('inspectorView.addField')}
           </Button>
         </div>
         <datalist id={listId}>
@@ -320,6 +327,9 @@ function CustomFields({
     </>
   );
 }
+
+/** A choice's word with a capital, as menus start them. */
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 const choices = (options: readonly string[], format: (v: string) => string = (v) => v.charAt(0).toUpperCase() + v.slice(1)) =>
   [
@@ -373,7 +383,7 @@ export function InspectorView({
   }, [onBack, scene]);
 
   if (!scene) {
-    return <p className="p-3 text-[13px] text-text-muted">Select a frame or a scene to see its details here.</p>;
+    return <p className="p-3 text-[13px] text-text-muted">{t('inspectorView.selectAFrameOrA')}</p>;
   }
   const s = scene.fields;
   return (
@@ -381,13 +391,13 @@ export function InspectorView({
       <header className="flex flex-col gap-0.5 border-b border-border p-3">
         <p className="font-mono text-[20px] font-bold">{shot ? shot.fields.number : sceneLabel(s.number)}</p>
         <p className="sb-label text-text-muted">
-          {shot ? `${sceneLabel(s.number)} · ${headingOf(s)}` : headingOf(s)}
+          {shot ? t('inspector.sceneLine', { scene: sceneLabel(s.number), heading: headingOf(s) }) : headingOf(s)}
         </p>
       </header>
 
       {shot && (
         <>
-          <Section title="Picture" dropShotId={shot.id}>
+          <Section title={t('inspectorView.picture')} dropShotId={shot.id}>
             {picture ? (
               <>
                 <CropEditor
@@ -416,14 +426,14 @@ export function InspectorView({
                 className="flex w-full items-center justify-center border border-dashed border-text"
                 style={{ aspectRatio: String(frameAspect) }}
               >
-                <span className="sb-label text-text-muted">No picture</span>
+                <span className="sb-label text-text-muted">{t('inspectorView.noPicture')}</span>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">
               <Button data-choose-picture="" onClick={onChoosePicture}>
-                {picture ? 'Replace…' : 'Choose picture…'}
+                {picture ? t('inspector.replace') : t('inspector.choosePicture')}
               </Button>
-              <Button onClick={onSketch}>{strokeCount > 0 ? 'Edit sketch' : 'Sketch'}</Button>
+              <Button onClick={onSketch}>{strokeCount > 0 ? t('inspector.editSketch') : t('inspector.sketch')}</Button>
               {picture && (
                 <Button
                   onClick={(event) => {
@@ -435,18 +445,18 @@ export function InspectorView({
                     });
                   }}
                 >
-                  Remove
+                  {t('inspectorView.remove')}
                 </Button>
               )}
             </div>
             {!picture && (
-              <p className="text-[12px] text-text-muted">Or drop one here, or paste it with {isMac() ? '⌘V' : 'Ctrl+V'}.</p>
+              <p className="text-[12px] text-text-muted">{t('inspector.dropOrPaste', { keys: isMac() ? '⌘V' : 'Ctrl+V' })}</p>
             )}
           </Section>
 
-          <Section title="Camera" start>
+          <Section title={t('inspectorView.camera')} start>
             <SegmentedControl
-              label="Size"
+              label={t('inspectorView.size')}
               options={SHOT_SIZES.map((value) => ({ value, label: SHOT_SIZE_LABEL[value] }))}
               value={shot.fields.size ?? ''}
               onChange={(size) => {
@@ -455,7 +465,7 @@ export function InspectorView({
             />
             <div className="grid grid-cols-2 gap-3">
               <CommitText
-                label="Lens (mm)"
+                label={t('inspectorView.lensMm')}
                 mono
                 value={shot.fields.lensMm === null ? '' : String(shot.fields.lensMm)}
                 placeholder="35"
@@ -466,13 +476,13 @@ export function InspectorView({
                     return null;
                   }
                   const mm = Number(trimmed.replace(/mm$/i, ''));
-                  if (!Number.isFinite(mm) || mm <= 0 || mm > 2000) return 'A focal length in mm, such as 35.';
+                  if (!Number.isFinite(mm) || mm <= 0 || mm > 2000) return t('inspector.lensProblem');
                   onShotChange({ set: { lens_mm: mm } });
                   return null;
                 }}
               />
               <Select
-                label="T-stop"
+                label={t('inspectorView.tStop')}
                 mono
                 value={shot.fields.tStop === null ? '' : String(shot.fields.tStop)}
                 onChange={(event) => {
@@ -485,29 +495,29 @@ export function InspectorView({
             <div className="grid grid-cols-3 gap-3">
               {(
                 [
-                  ['Support', 'support', SUPPORTS, shot.fields.support],
-                  ['Height', 'height', HEIGHTS, shot.fields.height],
-                  ['Move', 'move', MOVES, shot.fields.move],
+                  ['field.support', 'support', SUPPORTS, shot.fields.support, SUPPORT_LABEL],
+                  ['field.height', 'height', HEIGHTS, shot.fields.height, HEIGHT_LABEL],
+                  ['field.move', 'move', MOVES, shot.fields.move, MOVE_LABEL],
                 ] as const
-              ).map(([label, prop, options, value]) => (
+              ).map(([label, prop, options, value, words]) => (
                 <Select
                   key={prop}
-                  label={label}
+                  label={t(label)}
                   value={value}
                   onChange={(event) => {
                     onShotChange(pick(prop, event.currentTarget.value));
                   }}
                 >
                   {/* A value typed elsewhere (an import, an older file) stays visible and selected. */}
-                  {choices(value === '' || (options as readonly string[]).includes(value) ? options : [...options, value])}
+                  {choices(value === '' || (options as readonly string[]).includes(value) ? options : [...options, value], (v) => capital(choiceLabel(words, v)))}
                 </Select>
               ))}
             </div>
           </Section>
 
-          <Section title="Status">
+          <Section title={t('inspectorView.status')}>
             <SegmentedControl
-              label="Picture"
+              label={t('inspectorView.picture')}
               // Short, as the board's counts write them; the card's status shape keeps the full name for readers.
               options={SHOT_STATUSES.map((value) => ({ value, label: SHORT_STATUS[value] }))}
               value={shot.fields.status}
@@ -517,16 +527,16 @@ export function InspectorView({
             />
           </Section>
 
-          <Section title="Story">
+          <Section title={t('inspectorView.story')}>
             <CommitArea
-              label="Action"
+              label={t('inspectorView.action')}
               value={shot.fields.action}
               onCommit={(action) => {
                 onShotChange({ set: { action } });
               }}
             />
             <CommitArea
-              label="Dialogue"
+              label={t('inspectorView.dialogue')}
               value={shot.fields.dialogue}
               onCommit={(dialogue) => {
                 onShotChange({ set: { dialogue } });
@@ -534,8 +544,8 @@ export function InspectorView({
             />
           </Section>
 
-          <Section title="Departments">
-            <ul aria-label="Departments this frame needs" className="flex flex-wrap gap-1.5">
+          <Section title={t('inspectorView.departments')}>
+            <ul aria-label={t('inspectorView.departmentsThisFrameNeeds')} className="flex flex-wrap gap-1.5">
               {DEPARTMENTS.map((department: Department) => {
                 const on = shot.fields.departments.includes(department);
                 return (
@@ -562,17 +572,17 @@ export function InspectorView({
           </Section>
 
           {onCustomChange && (
-            <Section title="Custom fields">
+            <Section title={t('inspectorView.customFields')}>
               <CustomFields key={shot.id} fields={customFields} known={customNames} hidden={customHidden} onChange={onCustomChange} />
             </Section>
           )}
         </>
       )}
 
-      <Section title={`Scene ${sceneLabel(s.number)}`}>
+      <Section title={t('inspector.sceneSection', { scene: sceneLabel(s.number) })}>
         <div className="grid grid-cols-[96px_1fr] gap-3">
           <CommitText
-            label="Number"
+            label={t('inspectorView.number')}
             mono
             value={s.number}
             onCommit={(text) => {
@@ -584,9 +594,9 @@ export function InspectorView({
             }}
           />
           <CommitText
-            label="Name"
+            label={t('inspectorView.name')}
             value={s.name}
-            placeholder="Penn Station"
+            placeholder={t('inspectorView.pennStation')}
             onCommit={(name) => {
               onSceneChange({ set: { name: name.trim() } });
               return null;
@@ -594,8 +604,8 @@ export function InspectorView({
           />
         </div>
         <SegmentedControl
-          label="INT / EXT"
-          options={INT_EXT.map((value) => ({ value, label: value }))}
+          label={t('inspectorView.intExt')}
+          options={INT_EXT.map((value) => ({ value, label: INT_EXT_LABEL[value] }))}
           value={s.intExt ?? ''}
           onChange={(intExt) => {
             onSceneChange({ set: { int_ext: intExt } });
@@ -603,18 +613,18 @@ export function InspectorView({
         />
         <div className="grid grid-cols-2 gap-3">
           <Select
-            label="Time"
+            label={t('inspectorView.time')}
             value={s.dayNight ?? ''}
             onChange={(event) => {
               onSceneChange(pick('day_night', event.currentTarget.value));
             }}
           >
-            {choices(DAY_NIGHT, (v) => v)}
+            {choices(DAY_NIGHT, (v) => choiceLabel(DAY_NIGHT_LABEL, v))}
           </Select>
           <CommitText
-            label="Length"
+            label={t('inspectorView.length')}
             mono
-            value={s.pageEighths === null ? '' : pageLabel(s.pageEighths).replace(/ pg$/, '')}
+            value={s.pageEighths === null ? '' : pagesText(s.pageEighths)}
             placeholder="1 3/8"
             onCommit={(text) => {
               if (text.trim() === '') {
@@ -622,7 +632,7 @@ export function InspectorView({
                 return null;
               }
               const eighths = parsePages(text);
-              if (eighths === null) return 'Pages and eighths, such as 1 3/8 or 6/8.';
+              if (eighths === null) return t('inspector.pagesProblem');
               onSceneChange({ set: { page_eighths: eighths } });
               return null;
             }}
@@ -630,20 +640,20 @@ export function InspectorView({
         </div>
       </Section>
 
-      <Section title="Links">
+      <Section title={t('inspectorView.links')}>
         <ul className="flex flex-col gap-1.5 text-[13px]">
           <li className="flex justify-between gap-3">
-            <span>Location</span>
+            <span>{t('inspectorView.location')}</span>
             {/* Linked from the board's "/" menu; addresses, contacts and parking arrive in Phase 3. */}
             {locationName ? (
               <span className="truncate font-semibold">{locationName}</span>
             ) : (
-              <span className="sb-label text-text-muted">/ on the board</span>
+              <span className="sb-label text-text-muted">{t('inspectorView.onTheBoard')}</span>
             )}
           </li>
           {[
-            ['Shoot day', 'Phase 3'],
-            ["Bird's-eye setup", 'Phase 5'],
+            [t('inspector.shootDay'), t('phase.number', { phase: 3 })],
+            [t('inspector.birdsEye'), t('phase.number', { phase: 5 })],
           ].map(([name, phase]) => (
             <li key={name} className="flex justify-between">
               <span>{name}</span>

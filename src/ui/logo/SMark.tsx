@@ -1,3 +1,4 @@
+import { t } from '../../core/i18n';
 // The S mark from design/logo. It stands alone: never next to or inside the wordmark.
 const S_PATH =
   'M79 33 C75 21 64 14 50 14 C34 14 23 22 23 35 C23 49 37 54 50 57.5 C64 61 78 66 78 82 C78 96 66 105 50 105 C35 105 24 97 21 85';
@@ -19,7 +20,7 @@ interface SMarkProps {
 export function SMark({
   size = 32,
   inline = 'var(--bg)',
-  label = 'Storiiboard',
+  label = t('app.name'),
   decorative = false,
   className,
 }: SMarkProps) {

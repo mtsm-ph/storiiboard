@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { cx } from '../../ui/cx';
+import { t } from '../../core/i18n';
 
 // The "/" menu (1.12): press / on the board to insert a frame, a scene, a note or a location right where the keys
 // are, without the mouse. It's a combobox: typing narrows the list, the arrows pick, Enter inserts, Escape closes and
@@ -43,18 +44,18 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
     step === 'insert'
       ? (
           [
-            { id: 'frame', label: 'Frame', hint: atEnd ? `At the end of ${sceneLabel}` : 'After this one', choice: { kind: 'frame' } },
-            { id: 'scene', label: 'Scene', hint: `After ${sceneLabel}`, choice: { kind: 'scene' } },
-            { id: 'note', label: 'Note', hint: atEnd ? `At the end of ${sceneLabel}` : 'After this one', choice: { kind: 'note' } },
-            { id: 'location', label: 'Location…', hint: `For ${sceneLabel}`, choice: 'location' },
+            { id: 'frame', label: t('slash.frame'), hint: atEnd ? t('slash.atEndOf', { scene: sceneLabel }) : t('slash.afterThis'), choice: { kind: 'frame' } },
+            { id: 'scene', label: t('slash.scene'), hint: t('slash.after', { scene: sceneLabel }), choice: { kind: 'scene' } },
+            { id: 'note', label: t('slash.note'), hint: atEnd ? t('slash.atEndOf', { scene: sceneLabel }) : t('slash.afterThis'), choice: { kind: 'note' } },
+            { id: 'location', label: t('slash.location'), hint: t('slash.for', { scene: sceneLabel }), choice: 'location' },
           ] satisfies Option[]
         ).filter((option) => option.label.toLowerCase().includes(typed.toLowerCase()))
       : [
           ...locationNames
             .filter((name) => name.toLowerCase().includes(typed.toLowerCase()))
-            .map((name, i): Option => ({ id: `location-${String(i)}`, label: name, hint: 'In this project', choice: { kind: 'location', name } })),
+            .map((name, i): Option => ({ id: `location-${String(i)}`, label: name, hint: t('slash.inProject'), choice: { kind: 'location', name } })),
           ...(typed !== '' && !locationNames.some((name) => name.toLowerCase() === typed.toLowerCase())
-            ? [{ id: 'location-new', label: `New location “${typed}”`, hint: 'Adds it to the project', choice: { kind: 'location', name: typed } } satisfies Option]
+            ? [{ id: 'location-new', label: t('slash.newLocation', { name: typed }), hint: t('slash.addsIt'), choice: { kind: 'location', name: typed } } satisfies Option]
             : []),
         ];
   const current = options[Math.min(active, options.length - 1)];
@@ -118,7 +119,7 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
       style={{ left: place.left, top: place.top, width: WIDTH }}
     >
       <label htmlFor={`${listId}-input`} className="sb-label px-2 pt-1.5 text-text-muted">
-        {step === 'insert' ? 'Insert' : `Location for ${sceneLabel}`}
+        {step === 'insert' ? t('slash.insert') : t('slash.locationFor', { scene: sceneLabel })}
       </label>
       <input
         key={step}
@@ -130,7 +131,7 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
         aria-autocomplete="list"
         aria-activedescendant={current ? `${listId}-${current.id}` : undefined}
         value={query}
-        placeholder={step === 'insert' ? 'Frame, scene, note, location' : 'Location name'}
+        placeholder={step === 'insert' ? t('slash.placeholder') : t('slash.locationName')}
         onChange={(event) => {
           setQuery(event.currentTarget.value);
           setActive(0);
@@ -139,7 +140,7 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
         // Placeholder at 70% ink, as src/ui/fields.tsx has it: the browser's own grey falls below AA on oatmeal.
         className="mx-2 my-1.5 border border-text bg-surface-raised px-2 py-1 text-[13px] text-text placeholder:text-text/70"
       />
-      <div id={listId} role="listbox" aria-label={step === 'insert' ? 'Insert' : 'Locations'} className="flex flex-col pb-1">
+      <div id={listId} role="listbox" aria-label={step === 'insert' ? t('slash.insert') : t('slash.locations')} className="flex flex-col pb-1">
         {options.map((option) => {
           const selected = option === current;
           return (
@@ -162,7 +163,7 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
         })}
       </div>
       {options.length === 0 && (
-        <p className="px-2 pb-1.5 text-[12px] text-text-muted">{step === 'insert' ? 'Nothing matches.' : 'Type a name.'}</p>
+        <p className="px-2 pb-1.5 text-[12px] text-text-muted">{step === 'insert' ? t('slash.nothing') : t('slash.typeName')}</p>
       )}
     </div>
   );

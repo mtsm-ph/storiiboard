@@ -2,6 +2,7 @@ import { restoreTo } from '../core/ops/ops';
 import { keepCopyAtFree, versionCopyPaths } from '../core/storage/openBackup';
 import { freshFileId, type NamedVersion } from '../core/storage/versions';
 import { openProjectFile, type OpenFileOptions } from './openFiles';
+import { t } from '../core/i18n';
 
 // Open version (1.23, CLAUDE.md: Going back in time): copies the open project, restores the copy to the version's
 // step and opens it as a separate project. Everything up to the open happens on the copy's own connection, under a
@@ -17,7 +18,7 @@ export interface VersionCopy {
 
 export async function openVersionCopy(version: NamedVersion, options: OpenFileOptions): Promise<VersionCopy> {
   const project = options.store.getState().project;
-  if (!project) throw new Error('No project is open.');
+  if (!project) throw new Error(t('project.noneOpenSentence'));
   const { draft, path: pathFor } = versionCopyPaths(project.file.path, version.name, crypto.randomUUID().slice(0, 8));
   // Through the open project's own connection, with the same on-disk check as a write (driver.ts).
   await project.file.saveCopy(draft);

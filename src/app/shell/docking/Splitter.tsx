@@ -2,6 +2,7 @@ import { useRef, useState, type PointerEvent } from 'react';
 import { cx } from '../../../ui/cx';
 import { snap, SNAP_PX } from './geometry';
 import { holdTextSelection, releaseTextSelection } from './textSelection';
+import { t } from '../../../core/i18n';
 
 interface SplitterProps {
   /** row: the splitter is a vertical line between tiles side by side. */
@@ -126,8 +127,8 @@ export function Splitter({ direction, before, after, label, onResize, onEvenOut,
             row ? 'top-2 left-1/2 -translate-x-1/2' : 'top-1/2 left-2 -translate-y-1/2',
           )}
         >
-          <span className="bg-text px-1 text-text-inverse">{live[0]} px</span>
-          <span className="bg-text px-1 text-text-inverse">{live[1]} px</span>
+          <span className="bg-text px-1 text-text-inverse">{t('unit.px', { n: live[0] })}</span>
+          <span className="bg-text px-1 text-text-inverse">{t('unit.px', { n: live[1] })}</span>
         </span>
       )}
     </div>

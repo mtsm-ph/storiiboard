@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.28 built; Kevin tests the batch; then the polish step and the gate |
+| **Current phase** | **Phase 1 · Storyboard**: plan approved Nov 2; 1.11 to 1.28 built and tested by Kevin (Nov 4); the polish step, then the gate |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 4, 2026 (1.28 merged; checkpoint for 1.11 to 1.28) |
+| Last updated | Nov 4, 2026 (P1 language layer merged) |
 
 | Phase | State |
 |---|---|
@@ -81,6 +81,58 @@ Decided Nov 4 (Kevin):
   builds left and shrinks the file after big deletions.
 - 9:16 PDF frames: Kevin prints a page and reports back.
 - pdf-lib 1.17.1 and @pdf-lib/fontkit 1.1.1 (MIT): confirmed.
+
+### Phase 1 polish (Kevin, Nov 4)
+
+Kevin tested 1.11 to 1.28 on Windows: all passed. The polish step comes before the gate, one PR per milestone into
+`v2`, each reviewed until no high or medium finding is left, then merged with a merge commit once the quick checks
+pass. Kevin reviews at three stops, each with a checkpoint for fresh installers and a short checklist: after the
+first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its glossary.
+
+| Milestone | PR | State |
+|---|---|---|
+| P1 Language layer: every word through translation files (src/core/i18n), English only; Settings → App language | #49 | Done |
+| P2 Hide and show the sidebar: a button and a shortcut, the layout reflows, the choice remembered | | Planned |
+| P3 History button in the top bar, beside the project name | | Planned |
+| P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | | Planned |
+| PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Planned |
+| PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Planned |
+| PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
+| P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
+| P6 Department status per shot (Priority, Seen, Working on it, Done, Approved) in place of on/off tags; schema change approved; "Your role on this project" | | Planned |
+| PP Scene colour palettes from the frames' pictures: editable, undoable, in the inspector, the Scenes tile, a Color script tile and the PDF; schema change approved | | Planned |
+| P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
+| P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
+
+P1 as built (Nov 4):
+- The app's words live in one file per language, src/core/i18n/locales (English: `en.ts`). Code reads them through
+  `t()` and `tn()` (counted phrases, by the language's plural rules); a language is one file plus one line in
+  `LOCALES`. No dependency: plain functions, since notices, History lines and exports are built outside React, and
+  the app's root re-renders on a change of language.
+- The language is the person's (Settings → App, a new App tile beside Project), never the project's: a shared .sbd
+  opens in each person's own language. A saved language this version doesn't have opens in English.
+- Errors raised below the UI (the Rust commands, the storage drivers that stand in for them) stay English, so every
+  driver says the same and `CHANGED_ON_DISK` still compares; they're translated where they're shown, from the
+  `error.*` entries. A test fails when a Rust or driver message has no entry.
+- Stored values never change with the language: a shot's size stays `MCU`, a scene's time `NIGHT`, a support
+  `sticks`, and a script's scene name keeps the script's words; only how they read does. File names other tools rely
+  on (backups, `SC004_4A.png`, "(from backup)" copies) stay as they are, so editors and the backup pruning find them
+  in any language. Export names ("Bey County storyboard.pdf") and a new project's "Untitled" follow the language.
+- Dates and times keep the computer's own format in English, as before; another language writes them its own way.
+- A tile added to a default layout joins a layout people saved earlier once, as a tab (Settings: App beside
+  Project), so it shows without a reset; closed after that, it stays closed.
+- A test fails on any word in a screen that doesn't come from the translation files (the dev-only UI catalogue
+  aside), and on any English entry the code no longer uses.
+
+Later phases, added Nov 4 (not built now):
+- Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
+  profiles are saved once in the app's settings and can be attached to any project; attaching copies the details into
+  the .sbd, so a shared file carries them. Phase 4's call sheets pull from these.
+- Phase 3: a workspace per department, opened from that department's row on a shot, showing its view of the shot and
+  the scene.
+- Phase 6: scene palettes can also be generated from a scene's moodboard, and exported as swatches (a PNG strip and
+  Adobe .ase) with decks.
+- Phase 9: a view for each team member on the web companion, with Seen set automatically per person.
 
 Testing from Nov 4: every PR runs quick checks on Linux (lint, types, unit tests, Rust tests, the Rust data-safety
 tests among them), and a newer push cancels the outdated run. The end-to-end smoke set (create, open, add a scene and

@@ -2,6 +2,7 @@ import { command } from '../../core/storage/tauriDriver';
 import { fileStem } from '../../core/storage/paths';
 import { loadSettings, MAX_SYNC_NOTED, saveSettings } from '../../core/storage/settings';
 import { showInfo } from '../notice';
+import { t } from '../../core/i18n';
 
 // Projects in synced folders (docs/PLAN.md, F). They work, but should be open on one computer at a time, so the app
 // says so once per project. The detection is on disk, in Rust (src-tauri/src/synced.rs); nothing goes on the network.
@@ -17,10 +18,7 @@ export function projectsFolderForNew(): Promise<string> {
 }
 
 export function syncNote(path: string, service: string): string {
-  return (
-    `“${fileStem(path)}” is in ${service}. That works, but keep it open on one computer at a time: ` +
-    'Storiiboard warns you when another computer has it open.'
-  );
+  return t('synced.note', { name: fileStem(path), service });
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem'>;

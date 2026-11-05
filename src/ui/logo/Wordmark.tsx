@@ -1,4 +1,5 @@
 import { WORDMARK_LETTERS, WORDMARK_VIEWBOX } from './wordmarkPaths';
+import { t } from '../../core/i18n';
 
 const [, , VIEW_WIDTH = 1, VIEW_HEIGHT = 1] = WORDMARK_VIEWBOX.split(' ').map(Number);
 
@@ -13,7 +14,7 @@ interface WordmarkProps {
  * STORIIBOARD in outlined Inter Tight 900. The letters take the theme's ink, so one component covers paper and
  * dark. Use it wherever the name must be read; it is never combined with the S mark.
  */
-export function Wordmark({ height = 24, label = 'Storiiboard', className }: WordmarkProps) {
+export function Wordmark({ height = 24, label = t('app.name'), className }: WordmarkProps) {
   return (
     <svg
       height={height}

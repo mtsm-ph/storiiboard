@@ -6,6 +6,7 @@ import { projectStore } from '../../app/projectStore';
 import { prepareImage } from '../../core/media/image';
 import { placePictures, type FramePicture, type PictureTarget } from './framePictures';
 import { selectionStore } from './selection';
+import { localizeError, t } from '../../core/i18n';
 
 // Dropped, pasted or chosen files into the board: each is read and prepared (capped, colour kept, thumbnail made),
 // then all of them land in one edit, so one undo takes back the whole drop. A file that can't be read is left out and
@@ -53,14 +54,14 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
     // Selected only once written: an edit that failed has said why already, and leaves nothing to select.
     const written = result?.selectShotId ? projectStore.getState().records[result.selectShotId] : undefined;
     if (result?.selectShotId && written) selectionStore.getState().selectShot(result.selectShotId, result.sceneId);
-    else if (result && !result.selectShotId) showNotice('The frame or scene those pictures were for isn’t on the board any more.');
+    else if (result && !result.selectShotId) showNotice(t('pictures.targetGone'));
   }
   const [first] = problems;
   if (first) {
     showNotice(
       files.length === 1
-        ? first.reason
-        : `${String(problems.length)} of ${String(files.length)} files weren’t added. ${first.name}: ${first.reason}`,
+        ? localizeError(first.reason)
+        : t('pictures.someNotAdded', { failed: problems.length, total: files.length, name: first.name, reason: localizeError(first.reason) }),
     );
   }
 }
