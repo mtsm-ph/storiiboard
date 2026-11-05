@@ -1,10 +1,11 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { isMac } from '../../../app/shell/undoShortcuts';
 import { t } from '../../../core/i18n';
-import { DEFAULT_PALETTE_SIZE, MAX_PALETTE, movedColor, removedColor, toggledLock, withSize, type Palette } from '../../../core/model/palette';
+import { DEFAULT_PALETTE_SIZE, MAX_PALETTE, movedColor, normalHex, removedColor, toggledLock, withSize, type Palette } from '../../../core/model/palette';
 import { Button, IconButton } from '../../../ui/Button';
-import { Select } from '../../../ui/fields';
+import { Select, TextField } from '../../../ui/fields';
 import { LockGlyph } from '../../../ui/glyphs';
+import { stopEyedropper, type AddOutcome } from './Eyedropper';
 
 // A scene's palette in the inspector (polish PP): its colours as swatches, the one picked shown by its hex. Click a
 // swatch to copy its hex. One Tab stop for the swatches, a toolbar: the arrows pick, ⌘ (Ctrl) with an arrow moves the
@@ -21,11 +22,46 @@ interface PaletteEditorProps {
   /** Resolves once the edit has landed (or was refused), so focus can follow the colour. */
   onEdit: (edit: (palette: Palette) => Palette | null) => Promise<unknown>;
   onCopy: (hex: string) => void;
+  /** The eyedropper is on for this scene. */
+  picking: boolean;
+  /** Turns the eyedropper on for this scene, or off. */
+  onPick: () => void;
+  /** Adds a colour typed as hex: the eyedropper's keyboard way. Resolves to what happened. */
+  onAddHex: (hex: string) => Promise<AddOutcome>;
 }
 
 const SHORTCUTS = 'Enter ArrowLeft ArrowRight Home End L Delete Backspace Control+ArrowLeft Control+ArrowRight Meta+ArrowLeft Meta+ArrowRight';
 
-export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit, onCopy }: PaletteEditorProps) {
+export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit, onCopy, picking, onPick, onAddHex }: PaletteEditorProps) {
+  const [typed, setTyped] = useState('');
+  const [typedProblem, setTypedProblem] = useState<string | null>(null);
+  const problemId = useId();
+  const addTyped = () => {
+    const hex = normalHex(typed);
+    if (!hex) {
+      setTypedProblem(t('palette.hexProblem'));
+      return;
+    }
+    setTypedProblem(null);
+    // Cleared, and focus on the new swatch, only once it's in: a full palette or a refused write keeps what was typed.
+    void onAddHex(hex).then((outcome) => {
+      if (outcome !== 'added') return;
+      setTyped('');
+      focusAfter(Promise.resolve(), hex);
+    });
+  };
+  // The eyedropper is this scene's: it stops when the inspector shows another scene or closes, so it never picks for a
+  // scene that isn't on screen.
+  const pickingNow = useRef(picking);
+  useEffect(() => {
+    pickingNow.current = picking;
+  }, [picking]);
+  useEffect(
+    () => () => {
+      if (pickingNow.current) stopEyedropper();
+    },
+    [],
+  );
   const colors = palette?.colors ?? [];
   // The picked colour by its hex, which stays with it when it moves; a palette lists each colour once.
   const [pickedHex, setPickedHex] = useState<string | null>(null);
@@ -169,6 +205,37 @@ export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit,
       ) : (
         <p className="text-[12px] text-text-muted">{canGenerate ? t('palette.none') : t('palette.noPicturesYet')}</p>
       )}
+      {/* Add a colour: from a frame's picture with the eyedropper, or typed. */}
+      <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+        <TextField
+          label={t('palette.addHex')}
+          mono
+          value={typed}
+          placeholder={t('palette.hexExample')}
+          maxLength={7}
+          aria-invalid={typedProblem !== null || undefined}
+          {...(typedProblem ? { 'aria-describedby': problemId } : {})}
+          onChange={(event) => {
+            setTyped(event.currentTarget.value);
+            setTypedProblem(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') addTyped();
+          }}
+        />
+        <Button aria-pressed={picking} onClick={onPick}>
+          {t('palette.pick')}
+        </Button>
+      </div>
+      {typedProblem && (
+        <p id={problemId} role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {typedProblem}
+        </p>
+      )}
+      {/* Always there, its words swapped, so a screen reader announces them when picking starts. */}
+      <p role="status" className="text-[12px] empty:hidden">
+        {picking ? t('palette.picking') : ''}
+      </p>
       <div className="grid grid-cols-[96px_1fr] items-end gap-3">
         <Select
           label={t('palette.colours')}

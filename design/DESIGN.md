@@ -69,6 +69,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   touch the app's theme. In the inspector, under the scene: 24px swatches outlined in the text colour, the picked one
   ringed in ink, its hex below in mono; a lock shows under a swatch, never drawn on the colour. One Tab stop for the
   swatches (arrows pick, ⌘ or Ctrl with an arrow moves, L locks, Delete takes out); a click copies the hex.
+  "Pick from a frame" makes the pointer a crosshair everywhere until a picture is clicked or Escape is pressed; a hex
+  field adds a colour from the keyboard. The Color script tile: a row per scene, its label in mono and its palette as
+  a strip of cells ruled in ink. The PDF storyboard prints 9pt swatches ruled in ink before a heading's page length.
 - **Department status (polish 6)** is state, so it has colours of its own (`state-*` tokens, fixed), from the kit, and
   a shape each, outlined in the text colour so the shape reads in both themes whatever the fill:
   - Priority: a filled triangle, in ink (paper in dark).

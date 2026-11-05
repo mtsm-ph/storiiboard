@@ -36,6 +36,7 @@ const BUILT_IN_TILES = [
   'notifications',
   'history',
   'trash',
+  'colorScript',
 ] as const;
 type BuiltInTile = (typeof BUILT_IN_TILES)[number];
 

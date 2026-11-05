@@ -69,6 +69,8 @@ export interface Settings {
    * usual role there, until people and roles come with Phase 3. The person's, so it stays on this computer.
    */
   projectRoles: Readonly<Record<string, ProjectRole>>;
+  /** The PDF storyboard prints each scene's palette in its heading (polish PP), as last chosen in Export. */
+  pdfScenePalettes: boolean;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -106,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
   projectRoles: {},
+  pdfScenePalettes: false,
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -147,6 +150,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),
+      pdfScenePalettes: saved.pdfScenePalettes === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

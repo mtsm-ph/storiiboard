@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (PPa scene palettes merged) |
+| Last updated | Nov 5, 2026 (PPb merged; review stop 2) |
 
 | Phase | State |
 |---|---|
@@ -102,7 +102,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P6a Department status per shot (Priority, Working on it, Done, Approved) in place of on/off tags; schema 6 with migration; "Your role on this project" | #57 | Done |
 | P6b Seen (automatic, by your department) and a compact status summary on frame cards, the shot list and the CSV | #58 | Done |
 | PPa Scene colour palettes from the frames' pictures: generate, lock and regenerate, reorder, delete, copy the hex, all undoable; in the inspector and the Scenes tile | #59 | Done |
-| PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | | Planned |
+| PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
 
@@ -221,6 +221,12 @@ colour-managed; letterbox and pillarbox bars are left out; every frame weighs th
 (the project theme's k-means) and kept at least three just-visible steps apart, the ones covering most of the scene
 first. Regenerate keeps locked colours in their places. Edited in the inspector under the scene; a 2px strip on the
 scene's row in the Scenes tile. PPb adds the Color script tile, the eyedropper and the PDF option.
+
+PPb as built (Nov 5): the Color script tile (in Open tile; in no default layout) lists every scene in script order
+with its palette, a row opening its scene. "Pick from a frame" turns on an eyedropper: a click on any frame's picture
+(board, strip or inspector) adds the colour under the pointer, read by the app (5 by 5 pixels averaged, colour-managed
+onto sRGB) since WebKit has no EyeDropper API; Escape stops it; a typed hex is the keyboard's way. Export's PDF
+storyboard can print each scene's palette as swatches in its heading, a choice remembered on this computer.
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

@@ -1089,5 +1089,27 @@ export const en = {
   'history.paletteEmpty': 'no colours',
   // src/features/history/summary.ts
   'history.paletteWithCount': '{colours} (count {count})',
+  // src/features/storyboard/palette/ColorScriptTile.tsx (polish PP: the Color script tile)
+  'tile.colorScript.title': 'Color script',
+  'tile.colorScript.note': 'Every scene’s palette in script order.',
+  'colorScript.noProject': 'No project open',
+  'colorScript.noScenes': 'No scenes yet. Each scene’s palette shows here, in script order.',
+  'colorScript.list': 'Scene palettes in script order',
+  'colorScript.noPalette': 'No palette',
+  'colorScript.colours': '{count}: {hexes}',
+  'count.colours.one': '{count} colour',
+  'count.colours.other': '{count} colours',
+  // src/features/storyboard/palette/Eyedropper.tsx and PaletteEditor.tsx (polish PP: adding colours)
+  'palette.addHex': 'Add a colour',
+  'palette.hexExample': '#A35139',
+  'palette.hexProblem': 'A colour as six hex digits, such as #A35139.',
+  'palette.pick': 'Pick from a frame',
+  'palette.picking': 'Click a picture on any frame to add its colour. Esc stops.',
+  'palette.added': 'Added {hex} to {scene}’s palette.',
+  'palette.alreadyThere': '{hex} is in {scene}’s palette already.',
+  'palette.full': '{scene}’s palette has {max} colours, the most it takes. Delete one to add {hex}.',
+  'palette.pickFailed': 'Couldn’t read the colour there. Click another point of the picture, or press Esc to stop.',
+  // src/features/export/ExportDialog.tsx
+  'exportDialog.scenePalettes': 'Print each scene’s palette in its heading',
   // codemod: new entries above this line
 };

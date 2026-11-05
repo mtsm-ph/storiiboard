@@ -55,6 +55,8 @@ export interface StoryboardInput {
   now?: Date;
   /** Checked before each frame: a stopped export ends there and writes nothing. */
   signal?: AbortSignal;
+  /** Each scene's palette colours as hex, by scene index, to print in its heading (polish PP); none when left out. */
+  palettes?: readonly (readonly string[])[];
 }
 
 export interface StoryboardPdf {
@@ -147,6 +149,15 @@ const DIALOGUE_LINES = 2;
 const CAPTION_HEIGHT = CAPTION.leading * (2 + ACTION_LINES + DIALOGUE_LINES) + 4;
 /** A scene heading's line. */
 const HEADING = 22;
+/** A palette swatch in a scene heading, and the gap after it. */
+const SWATCH = 9;
+const SWATCH_GAP = 1.5;
+
+/** A palette colour for pdf-lib. */
+function pdfColour(hex: string) {
+  const value = parseInt(hex.slice(1), 16);
+  return rgb(((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255);
+}
 /** The frames' band: under the header, over the footer. */
 const TOP = PAGE.height - MARGIN - 28;
 const BOTTOM = MARGIN + 18;
@@ -259,10 +270,26 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
       const length = scene.fields.pageEighths === null ? '' : pageLabel(scene.fields.pageEighths);
       const lengthWidth = length ? fonts.mono.widthOfTextAtSize(length, 8) : 0;
       if (length) current.drawText(length, { x: PAGE.width - MARGIN - lengthWidth, y: y - 11, size: 8, font: fonts.mono, color: MUTED });
+      // The scene's palette (polish PP): a swatch per colour before the length, each ruled in ink so a pale one shows
+      // on paper.
+      const palette = input.palettes?.[sceneIndex] ?? [];
+      const swatchesWidth = palette.length > 0 ? palette.length * (SWATCH + SWATCH_GAP) + 8 : 0;
+      const swatchesRight = PAGE.width - MARGIN - lengthWidth - (length ? 8 : 0);
+      palette.forEach((hex, i) => {
+        current.drawRectangle({
+          x: swatchesRight - swatchesWidth + 8 + i * (SWATCH + SWATCH_GAP),
+          y: y - 13,
+          width: SWATCH,
+          height: SWATCH,
+          color: pdfColour(hex),
+          borderColor: INK,
+          borderWidth: 0.5,
+        });
+      });
       // The suffix gets its room first and the heading is cut to what's left: wrapped together, a long location's
       // name cut " (continued)" off with …, and the carried-on page no longer said it was one.
       const suffix = continued ? t('export.pdf.continued') : '';
-      const room = PAGE.width - MARGIN - after - lengthWidth - 12 - fonts.semi.widthOfTextAtSize(suffix, 11);
+      const room = PAGE.width - MARGIN - after - lengthWidth - swatchesWidth - 12 - fonts.semi.widthOfTextAtSize(suffix, 11);
       const [text = ''] = wrap(printable(fonts.semi, headingOf(scene.fields)), fonts.semi, 11, room, 1);
       current.drawText(`${text}${suffix}`, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
       y -= HEADING;
