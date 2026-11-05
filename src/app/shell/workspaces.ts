@@ -1,3 +1,4 @@
+import { t } from '../../core/i18n';
 import { split, stack, type Layout, type TileId } from './docking/layout';
 
 // One workspace per sidebar section (D3), in the sidebar's order, with default layouts sized for the design boards'
@@ -11,36 +12,55 @@ export interface TileInfo {
   note: string;
 }
 
-/** Every tile, by an id unique across workspaces, so any tile can open in any workspace. */
-export const TILES: Readonly<Record<TileId, TileInfo>> = {
-  scenes: { title: 'Scenes', note: 'Scene list from script import. Phase 1.' },
-  board: { title: 'Storyboard', note: 'Frames by scene, auto shot numbers. Phase 1.' },
-  inspector: { title: 'Frame inspector', note: 'Shot size, lens, T-stop, status. Phase 1.' },
-  player: { title: 'Player', note: 'Proxy playback, in and out, capture. Phase 2.' },
-  moodboard: { title: 'Moodboard', note: 'Department boards and references. Phase 6.' },
-  gear: { title: 'Gear', note: 'Packages per shoot day, linked to shots. Phase 3.' },
-  locations: { title: 'Locations', note: 'Addresses, contacts, parking, power. Phase 3.' },
-  layers: { title: 'Layers', note: 'Camera, lighting, grip, art, cast. Phase 5.' },
-  plan: { title: 'Set plan', note: 'Top-down plan in real units. Phase 5.' },
-  selection: { title: 'Selection', note: 'Camera lens, field of view, light beam. Phase 5.' },
-  frames: { title: 'Frames in setup', note: 'The shots this setup covers. Phase 5.' },
-  library: { title: 'Library', note: '68 plan icons by department. Phase 5.' },
-  days: { title: 'Shoot days', note: 'Frames grouped into days, golden hour. Phase 3.' },
-  sheet: { title: 'Call sheet', note: 'Calls, weather, sun times, map. Phase 4.' },
-  assets: { title: 'Assets', note: 'Images, clips and attachments, linked to frames. Phase 2.' },
-  team: { title: 'Team', note: 'Who is on the project; from Phase 9, what each person sees on the web. Phase 3.' },
-  // Production's cast and crew tile and the Team section read the same person records.
-  people: { title: 'Cast and crew', note: 'People by department, characters, contacts. Phase 3.' },
-  project: { title: 'Project', note: 'Title and notes.' },
-  backups: { title: 'Backups', note: 'How many copies to keep, and Open backup.' },
-  storage: { title: 'Storage', note: 'What pictures take, Empty Trash and Clean up old pictures.' },
-  theme: { title: 'Theme', note: 'The logo or key image, accent and mode the project’s colours come from.' },
-  // Notifications and Trash are in no default layout, and Calendar only in Production's: any workspace opens them.
-  calendar: { title: 'Calendar', note: 'Shoot days and availability by month and week. Phase 3.' },
-  notifications: { title: 'Notifications', note: 'What changed, who, when. Phase 3.' },
-  history: { title: 'History', note: 'Every step, who and when; restore any point, or one frame’s old value.' },
-  trash: { title: 'Trash', note: 'Deleted frames, notes and pictures, restorable.' },
-};
+// Tiles the app has today. A new tile is one id here, plus its title and note in each translation file.
+const BUILT_IN_TILES = [
+  'scenes',
+  'board',
+  'inspector',
+  'player',
+  'moodboard',
+  'gear',
+  'locations',
+  'layers',
+  'plan',
+  'selection',
+  'frames',
+  'library',
+  'days',
+  'sheet',
+  'assets',
+  'team',
+  'people',
+  'project',
+  'backups',
+  'storage',
+  'theme',
+  'app',
+  'calendar',
+  'notifications',
+  'history',
+  'trash',
+] as const;
+type BuiltInTile = (typeof BUILT_IN_TILES)[number];
+
+// Getters, so a tile's words follow the app's language wherever they're read.
+function tileInfo(id: BuiltInTile): TileInfo {
+  return {
+    get title() {
+      return t(`tile.${id}.title`);
+    },
+    get note() {
+      return t(`tile.${id}.note`);
+    },
+  };
+}
+
+/**
+ * Every tile, by an id unique across workspaces, so any tile can open in any workspace. Notifications and Trash are
+ * in no default layout, and Calendar only in Production's: any workspace opens them. Production's cast and crew tile
+ * and the Team section read the same person records.
+ */
+export const TILES: Readonly<Record<TileId, TileInfo>> = Object.fromEntries(BUILT_IN_TILES.map((id) => [id, tileInfo(id)]));
 
 export interface Workspace {
   id: WorkspaceId;
@@ -59,8 +79,12 @@ const layout = (root: Layout['root']): Layout => ({ root, maximized: null });
 export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   {
     id: 'storyboard',
-    label: 'Storyboard',
-    phase: 'Phase 1',
+    get label() {
+      return t('workspace.storyboard');
+    },
+    get phase() {
+      return t('phase.number', { phase: 1 });
+    },
     order: ['scenes', 'board', 'inspector', 'player'],
     defaultLayout: () =>
       layout(
@@ -73,23 +97,35 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   },
   {
     id: 'assets',
-    label: 'Assets',
-    phase: 'Phase 2',
+    get label() {
+      return t('workspace.assets');
+    },
+    get phase() {
+      return t('phase.number', { phase: 2 });
+    },
     order: ['assets', 'player'],
     defaultLayout: () => layout(split('row', [stack(['assets']), stack(['player'])], [1056, 360])),
   },
   {
     id: 'team',
-    label: 'Team',
-    phase: 'Phase 3',
+    get label() {
+      return t('workspace.team');
+    },
+    get phase() {
+      return t('phase.number', { phase: 3 });
+    },
     order: ['team'],
     defaultLayout: () => layout(stack(['team'])),
   },
   {
     // Home of the bird's-eye view (CLAUDE.md, Navigation).
     id: 'setup',
-    label: 'Setup',
-    phase: 'Phase 5',
+    get label() {
+      return t('workspace.setup');
+    },
+    get phase() {
+      return t('phase.number', { phase: 5 });
+    },
     order: ['layers', 'plan', 'selection', 'frames', 'library'],
     defaultLayout: () =>
       layout(
@@ -106,8 +142,12 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   },
   {
     id: 'production',
-    label: 'Production',
-    phase: 'Phases 3–4',
+    get label() {
+      return t('workspace.production');
+    },
+    get phase() {
+      return t('phase.range', { from: 3, to: 4 });
+    },
     order: ['days', 'calendar', 'sheet', 'locations', 'gear', 'people'],
     defaultLayout: () =>
       layout(
@@ -124,17 +164,23 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
   },
   {
     id: 'moodboard',
-    label: 'Moodboard',
-    phase: 'Phase 6',
+    get label() {
+      return t('workspace.moodboard');
+    },
+    get phase() {
+      return t('phase.number', { phase: 6 });
+    },
     order: ['moodboard'],
     defaultLayout: () => layout(stack(['moodboard'])),
   },
   {
     id: 'settings',
-    label: 'Settings',
+    get label() {
+      return t('workspace.settings');
+    },
     phase: null,
-    order: ['project', 'theme', 'backups', 'storage'],
-    defaultLayout: () => layout(split('row', [stack(['project']), stack(['theme']), stack(['backups', 'storage'])], [440, 560, 416])),
+    order: ['project', 'app', 'theme', 'backups', 'storage'],
+    defaultLayout: () => layout(split('row', [stack(['project', 'app']), stack(['theme']), stack(['backups', 'storage'])], [440, 560, 416])),
   },
 ];
 

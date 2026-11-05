@@ -1,4 +1,5 @@
 import { characterName, eighthsFromLength, eighthsFromLines, parseHeading, printedLines, type Script, type ScriptScene } from './script';
+import { t } from '../i18n';
 
 // Final Draft (.fdx), an XML file of typed paragraphs: Scene Heading, Action, Character, Dialogue and so on, with each
 // scene's number and length on the heading. Read with a small tag scanner rather than DOMParser, so it runs the same in
@@ -81,7 +82,7 @@ const WIDTH: Readonly<Record<string, number>> = { Action: 61, Dialogue: 35, Pare
 
 /** A Final Draft script's scenes, in order. */
 export function parseFdx(xml: string): Script {
-  if (!/<FinalDraft\b/.test(xml)) throw new Error('This isn’t a Final Draft file.');
+  if (!/<FinalDraft\b/.test(xml)) throw new Error(t('script.notFdx'));
   const scenes: ScriptScene[] = [];
   let current: (ScriptScene & { lines: number; length: number | null }) | null = null;
   const close = () => {

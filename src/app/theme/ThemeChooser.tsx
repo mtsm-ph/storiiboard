@@ -3,6 +3,7 @@ import { cx } from '../../ui/cx';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { cssVariables, DEFAULT_ACCENT, themeFor, type ModeTokens } from '../../ui/theme/generator/generate';
 import type { ResolvedTheme } from '../../ui/theme/theme';
+import { t } from '../../core/i18n';
 
 // Choosing a project's look (1.16, docs/PLAN.md B): the logo or key image, the accents it offers, light or dark, and
 // a live preview of the app in both modes. Shared by onboarding and Settings → Theme; this part only draws.
@@ -77,7 +78,7 @@ export function ThemeChooser({ candidates, choice, onChange, image, busy = false
       {image}
       <div className="flex flex-col gap-[5px]">
         <span id={groupId} className="sb-label">
-          Accent
+          {t('themeChooser.accent')}
         </span>
         <div role="radiogroup" aria-labelledby={groupId} aria-busy={busy} className="flex flex-wrap gap-2">
           {options.map((option, index) => {
@@ -100,21 +101,21 @@ export function ThemeChooser({ candidates, choice, onChange, image, busy = false
               >
                 {/* The swatch is the colour; the hex beside it is the second cue, and the name for readers. */}
                 <span aria-hidden="true" className="block h-[16px] w-[16px] border border-text" style={{ backgroundColor: hex }} />
-                <span className="font-mono text-[12px]">{option ? hex : `${hex} kit`}</span>
+                <span className="font-mono text-[12px]">{option ? hex : t('themeChooser.kitAccent', { hex })}</span>
               </button>
             );
           })}
         </div>
-        {busy && <p className="text-[12px] text-text-muted">Reading the image’s colours…</p>}
+        {busy && <p className="text-[12px] text-text-muted">{t('themeChooser.readingTheImagesColours')}</p>}
         {!busy && candidates.length === 0 && (
-          <p className="text-[12px] text-text-muted">Add a logo or key image for accents from it; the kit’s orange works on its own.</p>
+          <p className="text-[12px] text-text-muted">{t('themeChooser.addALogoOrKey')}</p>
         )}
       </div>
       <SegmentedControl
-        label="Mode"
+        label={t('themeChooser.mode')}
         options={[
-          { value: 'light', label: 'Light' },
-          { value: 'dark', label: 'Dark' },
+          { value: 'light', label: t('themeChooser.light') },
+          { value: 'dark', label: t('themeChooser.dark') },
         ]}
         value={choice.mode}
         onChange={(mode) => {
@@ -122,8 +123,8 @@ export function ThemeChooser({ candidates, choice, onChange, image, busy = false
         }}
       />
       <div className="flex flex-wrap gap-4">
-        <Preview tokens={theme.light} label="Light" />
-        <Preview tokens={theme.dark} label="Dark" />
+        <Preview tokens={theme.light} label={t('themeChooser.light')} />
+        <Preview tokens={theme.dark} label={t('themeChooser.dark')} />
       </div>
     </div>
   );

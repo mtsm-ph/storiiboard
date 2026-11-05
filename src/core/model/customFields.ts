@@ -1,4 +1,6 @@
+import { en } from '../i18n/locales/en';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { t, type MessageKey } from '../i18n';
 
 // Custom fields on shots (1.19, CLAUDE.md: users add their own props to shots): drone, VFX, budget, anything the
 // built-in specs don't cover. A shot keeps its own as one prop, `custom`, of text by field name. The project's list of
@@ -13,32 +15,38 @@ export const MAX_FIELD_NAME = 40;
  * one, so no column or label is ever there twice.
  */
 export const BUILT_IN_FIELDS = [
-  'Scene',
-  'Heading',
-  'Length',
-  'Location',
-  'Shot',
-  'Number',
-  'Name',
-  'Size',
-  'Lens',
-  'Lens (mm)',
-  'T-stop',
-  'Support',
-  'Height',
-  'Move',
-  'Status',
-  'Action',
-  'Dialogue',
-  'Departments',
-  'Departments this frame needs',
-  'Picture',
-  'INT / EXT',
-  'Time',
-  'New field',
-] as const;
+  'field.scene',
+  'field.heading',
+  'field.length',
+  'field.location',
+  'field.shot',
+  'field.number',
+  'field.name',
+  'field.size',
+  'field.lens',
+  'field.lensMm',
+  'field.tStop',
+  'field.support',
+  'field.height',
+  'field.move',
+  'field.status',
+  'field.action',
+  'field.dialogue',
+  'field.departments',
+  'field.departmentsThisFrameNeeds',
+  'field.picture',
+  'field.intExt',
+  'field.time',
+  'field.newField',
+] as const satisfies readonly MessageKey[];
 
-const BUILT_IN = new Set(BUILT_IN_FIELDS.map((name) => name.toLowerCase()));
+/**
+ * The reserved names, lower-cased: in English, so a field named in one language never collides when the project is
+ * opened in another, and in the app's language, the words its columns and labels show now.
+ */
+function builtIn(): Set<string> {
+  return new Set(BUILT_IN_FIELDS.flatMap((key) => [en[key].toLowerCase(), t(key).toLowerCase()]));
+}
 
 /** The `custom` prop as stored, anything in it kept: a later version or a hand edit may hold more than text. */
 function storedCustom(props: Props): Record<string, JsonValue> {
@@ -103,10 +111,10 @@ export type FieldName = { ok: true; name: string } | { ok: false; problem: strin
  */
 export function fieldName(typed: string, known: readonly string[], hidden: readonly string[] = []): FieldName {
   const name = typed.trim().replace(/\s+/g, ' ');
-  if (name === '' || name.length > MAX_FIELD_NAME) return { ok: false, problem: `A name of 1 to ${String(MAX_FIELD_NAME)} characters.` };
-  if (BUILT_IN.has(name.toLowerCase())) return { ok: false, problem: `${name} is one of the frame’s own fields. Choose another name.` };
+  if (name === '' || name.length > MAX_FIELD_NAME) return { ok: false, problem: t('field.nameLength', { max: MAX_FIELD_NAME }) };
+  if (builtIn().has(name.toLowerCase())) return { ok: false, problem: t('field.builtIn', { name }) };
   if (hidden.some((h) => h.toLowerCase() === name.toLowerCase())) {
-    return { ok: false, problem: `This frame keeps something under ${name} that this version can’t show. Choose another name.` };
+    return { ok: false, problem: t('field.hidden', { name }) };
   }
   return { ok: true, name: known.find((k) => k.toLowerCase() === name.toLowerCase()) ?? name };
 }

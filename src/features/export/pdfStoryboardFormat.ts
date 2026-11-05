@@ -6,6 +6,7 @@ import type { ExportFormat } from './registry';
 import { renderFrame } from './renderFrame';
 import { scenesIn } from './scope';
 import { watermarkFor } from './watermark';
+import { t, tn } from '../../core/i18n';
 
 // The PDF storyboard in the registry (1.25). pdf-lib and the fonts load only when a PDF is exported; the layout is in
 // pdfStoryboard.ts.
@@ -18,10 +19,14 @@ import { watermarkFor } from './watermark';
 export const FRAME_PIXELS_PER_POINT = 3;
 
 /** The status while the PDF is put together and written, after the last frame: seconds for a long board. */
-export const WRITING_STATUS = 'Writing the PDF…';
+export function writingStatus(): string {
+  return t('export.pdf.writing');
+}
 
 /** Said when some text printed as ?, so a blank in the PDF isn't taken for a lost word. */
-export const REPLACED_WARNING = 'Characters its fonts don’t have (emoji; Chinese, Japanese or Korean) print as ?.';
+export function replacedWarning(): string {
+  return t('export.pdf.replaced');
+}
 
 async function fontBytes(load: () => Promise<{ default: string }>): Promise<Uint8Array> {
   const { default: url } = await load();
@@ -30,11 +35,15 @@ async function fontBytes(load: () => Promise<{ default: string }>): Promise<Uint
 
 export const pdfStoryboard: ExportFormat = {
   id: 'pdf-storyboard',
-  label: 'Storyboard (PDF)',
-  description: 'Three frames a row with their numbers, status, specs, action and dialogue, scene by scene, on US Letter. Board notes stay out.',
+  get label() {
+    return t('export.pdf.label');
+  },
+  get description() {
+    return t('export.pdf.description');
+  },
   output: 'file',
   watermark: 'pdf',
-  name: (title, scene) => exportName(title, scene, 'storyboard', 'pdf'),
+  name: (title, scene) => exportName(title, scene, t('export.pdf.fileWord'), 'pdf'),
   run: async ({ records, projectId, scope, file, target, title, progress, signal }) => {
     const [{ storyboardPdf, frameBox }, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
       import('./pdfStoryboard'),
@@ -68,16 +77,16 @@ export const pdfStoryboard: ExportFormat = {
           return blob ? { jpeg: new Uint8Array(await blob.arrayBuffer()), pictureMissing } : null;
         } finally {
           done += 1;
-          progress(done, total, done === total ? WRITING_STATUS : undefined);
+          progress(done, total, done === total ? writingStatus() : undefined);
         }
       },
     });
     const scene = scope.kind === 'scene' ? (scenes[0]?.fields.number ?? null) : null;
     // A Stop pressed while the PDF was saved: nothing goes to disk, so a file chosen to be replaced is left as it was.
     signal.throwIfAborted();
-    await target.write(exportName(title, scene, 'storyboard', 'pdf'), pdf.bytes);
-    const warnings = [pdf.missing.length > 0 ? missingWarning(pdf.missing) : '', pdf.replaced ? REPLACED_WARNING : ''].filter((w) => w !== '');
-    const what = `${String(total)} ${total === 1 ? 'frame' : 'frames'}`;
+    await target.write(exportName(title, scene, t('export.pdf.fileWord'), 'pdf'), pdf.bytes);
+    const warnings = [pdf.missing.length > 0 ? missingWarning(pdf.missing) : '', pdf.replaced ? replacedWarning() : ''].filter((w) => w !== '');
+    const what = tn('count.frames', total);
     return warnings.length === 0 ? { what } : { what, warning: warnings.join(' ') };
   },
 };

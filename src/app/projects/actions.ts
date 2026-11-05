@@ -16,6 +16,7 @@ import { openOnboarding } from '../theme/onboarding';
 import { askWhenLocked, pickBackupToOpen, pickNewProjectPath, pickProjectToOpen } from './dialogs';
 import { createRecentStore } from './recentStore';
 import { projectsFolderForNew } from './synced';
+import { localizeError, t } from '../../core/i18n';
 
 // What the Projects screen and the switcher do: in the desktop app, or in the end-to-end tests' memory build
 // (src/app/fileAccess.ts). The plain browser build has no files to open, and says so instead of failing.
@@ -35,7 +36,7 @@ export const files: OpenFileOptions = {
     onError: (error) => {
       // A backup refused because a sync replaced the file is handled like a refused edit: reopen the new version.
       if (error instanceof Error && error.message === CHANGED_ON_DISK) projectStore.setState({ changedOnDisk: true });
-      else showNotice(`The last backup didn’t complete. ${error instanceof Error ? error.message : String(error)}`);
+      else showNotice(t('backups.failed', { reason: localizeError(error instanceof Error ? error.message : String(error)) }));
     },
   },
 };
@@ -55,16 +56,10 @@ export async function reopenChangedProject(): Promise<void> {
       // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved to,
       // so it closes rather than refuse every edit without a word.
       await projectStore.getState().close();
-      showNotice(
-        'This project changed on disk, most likely from another computer, and wasn’t opened again. Storiiboard ' +
-          'closed the old version, which can’t be saved to. Your last change wasn’t saved.',
-      );
+      showNotice(t('open.changedNotReopened'));
       return;
     }
-    showNotice(
-      'This project changed on disk, most likely from another computer, so Storiiboard opened the newest version. ' +
-        'Your last change wasn’t saved; please make it again.',
-    );
+    showNotice(t('open.changedReopened'));
   } catch (error) {
     // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says why.
     await projectStore.getState().close();
@@ -150,14 +145,14 @@ export async function openVersion(version: NamedVersion): Promise<void> {
   if (!ran || !made.worked || !copy) return;
   showInfo(
     copy.opened
-      ? `Opened version “${version.name}” as a separate project, “${fileStem(copy.path)}”. The original is unchanged.`
-      : `Saved version “${version.name}” as a separate project, “${fileStem(copy.path)}”, beside the original, without opening it. The original is unchanged.`,
+      ? t('versions.opened', { version: version.name, name: fileStem(copy.path) })
+      : t('versions.saved', { version: version.name, name: fileStem(copy.path) }),
   );
 }
 
 /** A backup's copy keeps the project's title, so the notice says which file is open and that the original is safe. */
 function announceBackupCopy(copy: string): void {
-  showInfo(`Opened a backup as a separate project, “${fileStem(copy)}”. The original is unchanged.`);
+  showInfo(t('backups.openedCopy', { name: fileStem(copy) }));
 }
 
 /**

@@ -2,11 +2,12 @@ import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/cust
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
-import { pageLabel, SHOT_SIZE_LABEL, tStopLabel } from '../../core/model/storyboard';
+import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel } from '../../core/model/storyboard';
 import { headingOf } from '../storyboard/ScenesView';
 import { exportName } from './names';
 import type { ExportFormat } from './registry';
 import { scenesIn, type ExportScope } from './scope';
+import { t, tn } from '../../core/i18n';
 
 // The shot list as CSV (1.24): one row per frame, the way a 1st AD prints it, in board order, with the project's custom
 // fields as columns after the built-in ones. A report, not the lossless project export (that's Phase 2's JSON and
@@ -14,7 +15,24 @@ import { scenesIn, type ExportScope } from './scope';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-const COLUMNS = ['Scene', 'Heading', 'Length', 'Location', 'Shot', 'Size', 'Lens (mm)', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Dialogue', 'Departments'];
+// The built-in columns, headed in the app's language with the same words the inspector uses.
+const COLUMNS = [
+  'field.scene',
+  'field.heading',
+  'field.length',
+  'field.location',
+  'field.shot',
+  'field.size',
+  'field.lensMm',
+  'field.tStop',
+  'field.support',
+  'field.height',
+  'field.move',
+  'field.status',
+  'field.action',
+  'field.dialogue',
+  'field.departments',
+] as const;
 
 /**
  * One cell: quoted when it holds a comma, a quote, a line end or edge spaces. A cell that starts like a formula
@@ -30,7 +48,7 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
   // Columns from the frames that go out: trashing a scene leaves its frames live, and a field only they use (or only
   // another scene's frames use) would be a column of blanks, or the Trash going out by its name.
   const custom = fieldNamesOf(scenes.flatMap((scene) => scene.shots.map((shot) => shot.record)));
-  const rows: string[][] = [[...COLUMNS, ...custom]];
+  const rows: string[][] = [[...COLUMNS.map((key) => t(key)), ...custom]];
   for (const scene of scenes) {
     const location = scene.fields.locationId ? records[scene.fields.locationId] : undefined;
     const place = location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : '';
@@ -46,9 +64,9 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
         f.size ? SHOT_SIZE_LABEL[f.size] : '',
         f.lensMm === null ? '' : String(f.lensMm),
         f.tStop === null ? '' : tStopLabel(f.tStop),
-        f.support,
-        f.height,
-        f.move,
+        choiceLabel(SUPPORT_LABEL, f.support),
+        choiceLabel(HEIGHT_LABEL, f.height),
+        choiceLabel(MOVE_LABEL, f.move),
         SHOT_STATUS_LABELS[f.status],
         f.action,
         f.dialogue,
@@ -63,15 +81,19 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
 
 export const shotListCsvFormat: ExportFormat = {
   id: 'shot-list-csv',
-  label: 'Shot list (CSV)',
-  description: 'One row per frame, with its scene, specs, status and custom fields, for a spreadsheet.',
+  get label() {
+    return t('export.csv.label');
+  },
+  get description() {
+    return t('export.csv.description');
+  },
   output: 'file',
-  name: (title, scene) => exportName(title, scene, 'shot list', 'csv'),
+  name: (title, scene) => exportName(title, scene, t('export.csv.fileWord'), 'csv'),
   run: async ({ records, projectId, scope, target, title, signal }) => {
     const frames = scenesIn(records, projectId, scope).reduce((n, s) => n + s.shots.length, 0);
     const scene = scope.kind === 'scene' ? (scenesIn(records, projectId, scope)[0]?.fields.number ?? null) : null;
     signal.throwIfAborted();
-    await target.write(exportName(title, scene, 'shot list', 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope)));
-    return { what: `${String(frames)} ${frames === 1 ? 'frame' : 'frames'}` };
+    await target.write(exportName(title, scene, t('export.csv.fileWord'), 'csv'), new TextEncoder().encode(shotListCsv(records, projectId, scope)));
+    return { what: tn('count.frames', frames) };
   },
 };

@@ -21,6 +21,7 @@ import {
   type Stroke,
   type WidthName,
 } from './strokes';
+import { labels, t, tn } from '../../../core/i18n';
 
 // The sketch editor (1.13): the frame large, over its picture, in a modal dialog. Pen, arrow and box draw; the eraser
 // takes off whole strokes it touches. Each stroke, and each pass of the eraser, is one op group, so the app's undo
@@ -29,18 +30,30 @@ import {
 
 type Tool = SketchTool | 'eraser';
 
-const TOOLS: readonly { value: Tool; label: string; key: string }[] = [
-  { value: 'pen', label: 'Pen', key: 'p' },
-  { value: 'arrow', label: 'Arrow', key: 'a' },
-  { value: 'box', label: 'Box', key: 'b' },
-  { value: 'eraser', label: 'Eraser', key: 'e' },
-];
+// The keys stay P, A, B and E in every language, so muscle memory carries across; the hint names them.
+const TOOL_LABEL: Readonly<Record<Tool, string>> = labels({ pen: 'sketch.pen', arrow: 'sketch.arrow', box: 'sketch.box', eraser: 'sketch.eraser' });
+const TOOLS: readonly { value: Tool; label: string; key: string }[] = (
+  [
+    ['pen', 'p'],
+    ['arrow', 'a'],
+    ['box', 'b'],
+    ['eraser', 'e'],
+  ] as const
+).map(([value, key]) => ({
+  value,
+  key,
+  get label() {
+    return TOOL_LABEL[value];
+  },
+}));
 
-const WIDTH_OPTIONS: readonly { value: WidthName; label: string }[] = [
-  { value: 'thin', label: 'Thin' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'bold', label: 'Bold' },
-];
+const WIDTH_LABEL: Readonly<Record<WidthName, string>> = labels({ thin: 'sketch.thin', medium: 'sketch.medium', bold: 'sketch.bold' });
+const WIDTH_OPTIONS: readonly { value: WidthName; label: string }[] = (['thin', 'medium', 'bold'] as const).map((value) => ({
+  value,
+  get label() {
+    return WIDTH_LABEL[value];
+  },
+}));
 
 /** How near the eraser has to come to a stroke: 1.5% of the frame's height. */
 const ERASER_RADIUS = 0.015;
@@ -281,7 +294,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
           erased.count = still.length;
           return { changes: eraseStrokes(still) };
         }).then((written) => {
-          if (written && erased.count > 0) setSaid(`${String(erased.count)} ${erased.count === 1 ? 'stroke' : 'strokes'} erased.`);
+          if (written && erased.count > 0) setSaid(tn('sketch.erased', erased.count));
         });
         return;
       }
@@ -297,7 +310,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
         if (!first || isClick([first.x, first.y, x, y])) {
           if (latest.current.tool === stroke.tool) {
             setAnchor({ x, y });
-            setSaid('Click again where it ends.');
+            setSaid(t('sketch.clickAgain'));
           } else setAnchor(null);
           return;
         }
@@ -311,7 +324,7 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
       const made = { tool: stroke.tool, points: tidy.points, pressures, width: WIDTHS[latest.current.widthName] };
       // Ordered after whatever strokes landed before it, even ones drawn faster than they're saved.
       void applyWith((records) => ({ changes: [addStroke(records, shotId, made)] })).then((written) => {
-        if (written) setSaid(`${TOOLS.find((t) => t.value === stroke.tool)?.label ?? 'Stroke'} drawn.`);
+        if (written) setSaid(t('sketch.drawn', { tool: TOOL_LABEL[stroke.tool] }));
       });
     };
     const cancel = () => {
@@ -373,17 +386,17 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
       <div className="flex flex-col gap-3 p-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 id={titleId} className="font-mono text-[16px] font-bold">
-            Sketch {number}
+            {t('sketch.title', { number })}
           </h2>
-          <SegmentedControl label="Tool" size="sm" options={TOOLS} value={tool} onChange={pickTool} />
-          <SegmentedControl label="Line" size="sm" options={WIDTH_OPTIONS} value={widthName} onChange={setWidthName} />
+          <SegmentedControl label={t('sketchEditor.tool')} size="sm" options={TOOLS} value={tool} onChange={pickTool} />
+          <SegmentedControl label={t('sketchEditor.line')} size="sm" options={WIDTH_OPTIONS} value={widthName} onChange={setWidthName} />
           <span className="ml-auto flex items-center gap-2">
             {/* The app's own undo, as the shortcut is: the last edit anywhere in the project. */}
             <Button disabled={!canUndo} onClick={() => void undo()}>
-              Undo
+              {t('sketchEditor.undo')}
             </Button>
             <Button disabled={!canRedo} onClick={() => void redo()}>
-              Redo
+              {t('sketchEditor.redo')}
             </Button>
             <Button
               disabled={strokes.length === 0}
@@ -391,19 +404,18 @@ export default function SketchEditor({ shotId, onClose }: SketchEditorProps) {
                 // Undoable like any edit, so it needs no confirm; worked out when it lands, so a stroke still being
                 // saved goes too.
                 void applyWith((records) => ({ changes: eraseStrokes(strokesOf(records, shotId).map((s) => s.id)) }));
-                setSaid(`Sketch cleared. ${undoKey} brings it back.`);
+                setSaid(t('sketch.cleared', { undo: undoKey }));
               }}
             >
-              Clear
+              {t('sketchEditor.clear')}
             </Button>
             <Button variant="primary" onClick={onClose}>
-              Done
+              {t('sketchEditor.done')}
             </Button>
           </span>
         </div>
         <p id={hintId} className="text-[12px] text-text-muted">
-          Draw on the frame. P pen, A arrow, B box, E eraser. An arrow or a box can be two clicks, one at each end. {undoKey}{' '}
-          undoes the last edit, as it does anywhere in the app. Escape or Done closes.
+          {t('sketch.hint', { undo: undoKey })}
         </p>
         <ProjectPictures>
           {/* Sized by its content box, so the stage fills exactly the inside of the border. */}

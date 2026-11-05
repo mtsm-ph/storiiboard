@@ -1,7 +1,7 @@
 import { useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { customValue } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
-import { pageLabel, sceneLabel, SHOT_SIZE_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
+import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { Button } from '../../ui/Button';
@@ -16,6 +16,7 @@ import { SketchSvg } from './sketch/SketchSvg';
 import type { Stroke } from './sketch/strokes';
 import { SlashMenu, type SlashChoice } from './SlashMenu';
 import { useItemDrag, type DropPlace } from './useItemDrag';
+import { labels, t, tn } from '../../core/i18n';
 
 // The Storyboard tile (design board, Storyboard workspace) in its three views: Grid (frames by scene, wrapping),
 // Strip (one row through the whole board, like a filmstrip) and Shot list (a table, one row per shot). All three are
@@ -28,11 +29,18 @@ import { useItemDrag, type DropPlace } from './useItemDrag';
 
 export type BoardView = 'grid' | 'strip' | 'list';
 
-export const BOARD_VIEWS: readonly { value: BoardView; label: string }[] = [
-  { value: 'grid', label: 'Grid' },
-  { value: 'strip', label: 'Strip' },
-  { value: 'list', label: 'Shot list' },
-];
+const VIEW_LABEL: Readonly<Record<BoardView, string>> = labels({
+  grid: 'board.view.grid',
+  strip: 'board.view.strip',
+  list: 'storyboardView.shotList',
+});
+
+export const BOARD_VIEWS: readonly { value: BoardView; label: string }[] = (['grid', 'strip', 'list'] as const).map((value) => ({
+  value,
+  get label() {
+    return VIEW_LABEL[value];
+  },
+}));
 
 export interface FrameCard {
   id: string;
@@ -123,7 +131,7 @@ const NAV = '[data-board-item]';
 
 /** "4 have · 1 need · 1 source", leaving out what's zero. */
 export function countsLine(counts: Record<ShotStatus, number>): string {
-  const parts = (['have', 'need', 'source'] as const).filter((s) => counts[s] > 0).map((s) => `${String(counts[s])} ${s}`);
+  const parts = (['have', 'need', 'source'] as const).filter((s) => counts[s] > 0).map((s) => t(`board.counts.${s}`, { count: counts[s] }));
   return parts.join(' · ');
 }
 
@@ -151,7 +159,7 @@ function SceneHeading({ scene, className }: { scene: SceneGroup; className?: str
       </span>
       {scene.locked && (
         <span className="sb-label inline-flex items-center gap-1 text-text-muted">
-          <LockGlyph /> Numbers locked
+          <LockGlyph /> {t('storyboardView.numbersLocked')}
         </span>
       )}
     </span>
@@ -202,7 +210,7 @@ export function StoryboardView({
       (id: string, place: DropPlace) => {
         // Focus follows once the move is saved and drawn: into another scene, the item is drawn anew there.
         void onMoveTo?.(id, place).then((moved) => {
-          if (moved) setAnnouncement('Moved.');
+          if (moved) setAnnouncement(t('board.moved'));
           requestAnimationFrame(() => {
             document.querySelector<HTMLElement>(`[data-board] [data-item-id="${CSS.escape(id)}"]`)?.focus();
           });
@@ -235,13 +243,13 @@ export function StoryboardView({
     setSlash(null);
     if (choice.kind === 'location') {
       onSetLocation?.(place.sceneId, choice.name);
-      setAnnouncement(`${choice.name} is the location for this scene.`);
+      setAnnouncement(t('board.locationSet', { name: choice.name }));
       from.focus();
       return;
     }
     void onInsert?.(choice, place).then((id) => {
       if (!id) return;
-      setAnnouncement(choice.kind === 'scene' ? 'Scene added.' : choice.kind === 'note' ? 'Note added.' : 'Frame added.');
+      setAnnouncement(choice.kind === 'scene' ? t('board.sceneAdded') : choice.kind === 'note' ? t('board.noteAdded') : t('board.frameAdded'));
       if (choice.kind === 'note') setEditingNote(id);
       else if (choice.kind === 'scene') {
         requestAnimationFrame(() => {
@@ -334,7 +342,7 @@ export function StoryboardView({
     type: 'button' as const,
     'data-board-item': '',
     // The visible "+ Frame" leads the name, so speech control can say what it sees (WCAG 2.5.3).
-    'aria-label': `+ Frame in ${sceneLabel(scene.number)}`,
+    'aria-label': t('board.addFrameIn', { scene: sceneLabel(scene.number) }),
     'data-scene-id': scene.id,
     tabIndex: entriesOf(scene).length === 0 && tabStop === scene.id ? 0 : -1,
     onClick: () => {
@@ -362,14 +370,14 @@ export function StoryboardView({
             !frame.strokes?.length && (
               // Hidden from screen readers: the card is named by what follows, number, spec and status.
               <span aria-hidden="true" className="sb-label text-text-muted">
-                No image
+                {t('storyboardView.noImage')}
               </span>
             )
           )}
           {frame.strokes && frame.strokes.length > 0 && (
             <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
           )}
-          {hovered && <DropMark label={frame.picture ? 'Replace picture' : 'Set picture'} />}
+          {hovered && <DropMark label={frame.picture ? t('board.replacePicture') : t('board.setPicture')} />}
         </span>
         <span className="flex items-center gap-2 px-2 py-1.5">
           {/* The selected frame is one of the accent's few uses; the ink chip on its number is the second cue, so
@@ -378,7 +386,7 @@ export function StoryboardView({
             {frame.number}
           </span>
           {/* A frame with only a sketch says so, after its number; with a picture too, the picture is its look. */}
-          {!frame.picture && frame.strokes && frame.strokes.length > 0 && <span className="sr-only">Sketched</span>}
+          {!frame.picture && frame.strokes && frame.strokes.length > 0 && <span className="sr-only">{t('storyboardView.sketched')}</span>}
           <span className="truncate font-mono text-[10px] text-text-muted">{frame.spec}</span>
           <span className="ml-auto">
             <StatusGlyph status={frame.status} />
@@ -396,7 +404,7 @@ export function StoryboardView({
     'data-note-id': id,
     'data-scene-id': sceneId,
     tabIndex: id === tabStop ? 0 : -1,
-    ...dragHandlers(id, 'Note'),
+    ...dragHandlers(id, t('noteCard.note')),
     onClick: () => {
       onSelectScene?.(sceneId, id);
     },
@@ -431,7 +439,7 @@ export function StoryboardView({
   const entry = (item: BoardEntry, sceneId: string, className?: string) =>
     item.kind === 'frame' ? card(item.frame, sceneId, className) : note(item, sceneId, cx(className, 'h-full'));
 
-  if (!canEdit) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!canEdit) return <p className="sb-label p-3 text-text-muted">{t('storyboardView.noProjectOpen')}</p>;
 
   let body: ReactNode;
   if (view === 'grid') {
@@ -446,7 +454,7 @@ export function StoryboardView({
         <h3 id={`scene-${scene.id}`} className="mb-2.5">
           <SceneHeading scene={scene} />
         </h3>
-        <ul aria-label={`Frames in ${sceneLabel(scene.number)}`} className="grid grid-cols-[repeat(auto-fill,minmax(176px,1fr))] gap-gap">
+        <ul aria-label={t('board.framesIn', { scene: sceneLabel(scene.number) })} className="grid grid-cols-[repeat(auto-fill,minmax(176px,1fr))] gap-gap">
           {entriesOf(scene).map((item) => (
             <li key={entryId(item)}>{entry(item, scene.id, 'w-full')}</li>
           ))}
@@ -457,7 +465,7 @@ export function StoryboardView({
               className="flex h-full w-full items-center justify-center border border-dashed border-text hover:bg-surface-raised"
               style={{ aspectRatio: String(aspectRatio) }}
             >
-              <span className="sb-label">+ Frame</span>
+              <span className="sb-label">{t('storyboardView.frame')}</span>
             </button>
           </li>
         </ul>
@@ -479,7 +487,7 @@ export function StoryboardView({
             <h3 id={`scene-${scene.id}`} className="max-w-full">
               <SceneHeading scene={scene} className="flex-nowrap whitespace-nowrap" />
             </h3>
-            <ul aria-label={`Frames in ${sceneLabel(scene.number)}`} className="flex gap-gap">
+            <ul aria-label={t('board.framesIn', { scene: sceneLabel(scene.number) })} className="flex gap-gap">
               {entriesOf(scene).map((item) => (
                 <li key={entryId(item)} className="shrink-0" style={{ width }}>
                   {entry(item, scene.id, 'w-full')}
@@ -490,7 +498,7 @@ export function StoryboardView({
                   {...addProps(scene)}
                   className="flex h-full w-full items-center justify-center border border-dashed border-text hover:bg-surface-raised"
                 >
-                  <span className="sb-label">+ Frame</span>
+                  <span className="sb-label">{t('storyboardView.frame')}</span>
                 </button>
               </li>
             </ul>
@@ -515,7 +523,7 @@ export function StoryboardView({
   return (
     <div data-board="" className="flex min-h-full flex-col">
       <div className="flex items-center gap-3 border-b border-border px-3 py-1.5">
-        <SegmentedControl label="View" size="sm" options={BOARD_VIEWS} value={view} onChange={onViewChange} />
+        <SegmentedControl label={t('storyboardView.view')} size="sm" options={BOARD_VIEWS} value={view} onChange={onViewChange} />
         {onAddPictures && (
           // As small as the view switch beside it, so the header keeps its height.
           <button
@@ -524,17 +532,17 @@ export function StoryboardView({
             onClick={onAddPictures}
             className="sb-label h-[20px] border border-text px-2 hover:bg-surface-raised disabled:border-dashed disabled:border-text-muted disabled:text-text-muted"
           >
-            + Pictures…
+            {t('storyboardView.pictures')}
           </button>
         )}
         <span role="status" className="sb-label ml-auto font-mono">
-          {busy > 0 ? `Adding ${String(busy)} ${busy === 1 ? 'picture' : 'pictures'}…` : `${String(frameCount)} ${frameCount === 1 ? 'frame' : 'frames'}`}
+          {busy > 0 ? tn('board.addingPictures', busy) : tn('count.frames', frameCount)}
         </span>
       </div>
-      {scenes.length === 0 && <p className="p-3 text-[13px] text-text-muted">No scenes yet. Add a scene, then its frames.</p>}
+      {scenes.length === 0 && <p className="p-3 text-[13px] text-text-muted">{t('storyboardView.noScenesYetAddA')}</p>}
       {body}
       <div className="p-3">
-        <Button onClick={onAddScene}>+ Scene</Button>
+        <Button onClick={onAddScene}>{t('storyboardView.scene')}</Button>
       </div>
       {drag?.bar && (
         // Where the dragged item will land: an ink bar between items.
@@ -604,10 +612,10 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-[12px]">
-        <caption className="sr-only">Shot list</caption>
+        <caption className="sr-only">{t('storyboardView.shotList')}</caption>
         <thead>
           <tr className="border-b border-border">
-            {['Shot', 'Size', 'Lens', 'T-stop', 'Support', 'Height', 'Move', 'Status', 'Action', 'Departments'].map((name) => (
+            {(['field.shot', 'field.size', 'field.lens', 'field.tStop', 'field.support', 'field.height', 'field.move', 'field.status', 'field.action', 'field.departments'] as const).map((key) => t(key)).map((name) => (
               <th key={name} scope="col" className={head}>
                 {name}
               </th>
@@ -624,7 +632,7 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
             key={scene.id}
             data-scene-group={scene.id}
             data-drop-scene={scene.id}
-            aria-label={`Frames in ${sceneLabel(scene.number)}`}
+            aria-label={t('board.framesIn', { scene: sceneLabel(scene.number) })}
             className={cx(sceneHovered(scene.id) && 'outline-2 -outline-offset-2 outline-text outline-dashed')}
           >
             <tr className="border-b border-border">
@@ -662,11 +670,11 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                     </button>
                   </td>
                   <td className={cx(cell, 'font-mono')}>{f.size ? SHOT_SIZE_LABEL[f.size] : '—'}</td>
-                  <td className={cx(cell, 'font-mono')}>{f.lensMm === null ? '—' : `${String(f.lensMm)}mm`}</td>
+                  <td className={cx(cell, 'font-mono')}>{f.lensMm === null ? '—' : t('history.lens', { mm: f.lensMm })}</td>
                   <td className={cx(cell, 'font-mono')}>{f.tStop === null ? '—' : tStopLabel(f.tStop)}</td>
-                  <td className={cell}>{capital(f.support)}</td>
-                  <td className={cell}>{capital(f.height)}</td>
-                  <td className={cell}>{capital(f.move)}</td>
+                  <td className={cell}>{capital(choiceLabel(SUPPORT_LABEL, f.support))}</td>
+                  <td className={cell}>{capital(choiceLabel(HEIGHT_LABEL, f.height))}</td>
+                  <td className={cell}>{capital(choiceLabel(MOVE_LABEL, f.move))}</td>
                   <td className={cx(cell, 'whitespace-nowrap')}>
                     <StatusGlyph status={f.status} showLabel />
                   </td>
@@ -691,7 +699,7 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
             <tr className="border-b border-border">
               <td colSpan={columns} className={cell}>
                 <button {...addProps(scene)} className="sb-label border border-dashed border-text px-2 py-1 hover:bg-surface-raised">
-                  + Frame
+                  {t('storyboardView.frame')}
                 </button>
               </td>
             </tr>

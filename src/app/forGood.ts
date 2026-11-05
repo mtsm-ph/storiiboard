@@ -1,3 +1,4 @@
+import { t } from '../core/i18n';
 // The guard round a delete-for-good (1.21: Empty Trash, Clean up old pictures), kept apart from the tiles so it's
 // tested on its own: a confirm is async in the desktop app, and the project can change while it's up.
 
@@ -25,4 +26,7 @@ export async function forGood<T>(
   }
 }
 
-export const SWITCHED_MESSAGE = 'Another project opened while you were deciding, so nothing was deleted.';
+/** Said when the project changed while a for-good confirm was open. */
+export function switchedMessage(): string {
+  return t('storage.switched');
+}

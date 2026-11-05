@@ -2,6 +2,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { ProjectState } from '../../app/projectStore';
 import type { JsonValue, Props } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
+import { labels } from '../../core/i18n';
 
 // The watermark (1.24, Watermark Settings in the project menu): text, where it goes, how strong, and which exports
 // carry it. Stored as the project record's `watermark` prop (docs/SBD_FORMAT.md), so every export, and from Phase 9
@@ -9,13 +10,13 @@ import type { Change } from '../../core/ops/ops';
 
 export const POSITIONS = ['top-left', 'top-right', 'center', 'bottom-left', 'bottom-right'] as const;
 export type WatermarkPosition = (typeof POSITIONS)[number];
-export const POSITION_LABEL: Readonly<Record<WatermarkPosition, string>> = {
-  'top-left': 'Top left',
-  'top-right': 'Top right',
-  center: 'Centre',
-  'bottom-left': 'Bottom left',
-  'bottom-right': 'Bottom right',
-};
+export const POSITION_LABEL: Readonly<Record<WatermarkPosition, string>> = labels({
+  'top-left': 'watermark.topLeft',
+  'top-right': 'watermark.topRight',
+  center: 'watermark.centre',
+  'bottom-left': 'watermark.bottomLeft',
+  'bottom-right': 'watermark.bottomRight',
+});
 
 export const APPLIES = ['pdf', 'png', 'review'] as const;
 export type WatermarkUse = (typeof APPLIES)[number];

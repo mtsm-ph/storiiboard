@@ -19,6 +19,7 @@ import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type W
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
+import { t } from '../../core/i18n';
 
 export function AppShell() {
   const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
@@ -129,25 +130,24 @@ export function AppShell() {
                   onClick={clearNotice}
                   className="sb-label ml-auto border border-paper-fixed px-2 py-1 focus-visible:outline-paper-fixed"
                 >
-                  Dismiss
+                  {t('appShell.dismiss')}
                 </button>
               </div>
             ) : (
               <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
                 <p className="text-[13px]">{notice.message}</p>
                 <button type="button" onClick={clearNotice} className="sb-label ml-auto border border-text px-2 py-1">
-                  Got it
+                  {t('appShell.gotIt')}
                 </button>
               </div>
             ))}
           {!showProjects && projectState === 'archived' && (
             <div role="status" className="mx-gap mt-gap flex items-center gap-3 border border-text px-3 py-1.5">
               <p className="text-[13px]">
-                This project is archived: it’s off the switcher and under Archived on the Projects screen. It stays
-                editable.
+                {t('appShell.thisProjectIsArchivedIts')}
               </p>
               <Button className="ml-auto" onClick={() => void setProjectState('active')}>
-                Unarchive
+                {t('appShell.unarchive')}
               </Button>
             </div>
           )}

@@ -1,8 +1,9 @@
 import type { KeyboardEvent } from 'react';
-import { pageLabel, sceneLabel, type SceneFields } from '../../core/model/storyboard';
+import { DAY_NIGHT_LABEL, INT_EXT_LABEL, pageLabel, sceneLabel, sceneNumberLabel, type SceneFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { LockGlyph } from '../../ui/glyphs';
+import { t } from '../../core/i18n';
 
 // The Scenes tile (design board, Storyboard workspace): every scene in board order with its length, how many frames
 // it has, and how much of it is in hand; then the film's coverage and + New scene. This part only draws.
@@ -30,17 +31,17 @@ export interface ScenesViewProps {
 
 /** "INT. PENN STATION — DAY", as a scene heading reads; just the name until INT/EXT or DAY/NIGHT is set. */
 export function headingOf(fields: SceneFields): string {
-  const name = fields.name || 'Untitled';
+  const name = fields.name || t('scene.untitled');
   if (!fields.intExt && !fields.dayNight) return name;
-  return [fields.intExt ? `${fields.intExt}.` : null, name.toUpperCase(), fields.dayNight ? `— ${fields.dayNight}` : null]
+  return [fields.intExt ? `${INT_EXT_LABEL[fields.intExt]}.` : null, name.toUpperCase(), fields.dayNight ? `— ${DAY_NIGHT_LABEL[fields.dayNight]}` : null]
     .filter((part) => part !== null)
     .join(' ');
 }
 
 /** "1 3/8 pg · 6 fr · 67%", or "done" once every frame is in hand. */
 export function sceneSummary(row: SceneRow): string {
-  const parts = [pageLabel(row.fields.pageEighths), `${String(row.frames)} fr`];
-  if (row.coverage !== null) parts.push(row.coverage === 100 ? 'done' : `${String(row.coverage)}%`);
+  const parts = [pageLabel(row.fields.pageEighths), t('scenes.frames', { count: row.frames })];
+  if (row.coverage !== null) parts.push(row.coverage === 100 ? t('scenes.done') : t('scenes.coverage', { percent: row.coverage }));
   return parts.join(' · ');
 }
 
@@ -64,15 +65,15 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
     <div className="flex min-h-full flex-col">
       <p className="sb-label flex gap-3 border-b border-border px-3 py-2">
         <span className="font-mono">{String(scenes.length).padStart(2, '0')}</span>
-        <span className="text-text-muted">Board order</span>
+        <span className="text-text-muted">{t('scenesView.boardOrder')}</span>
         <span className="ml-auto font-mono">{pageLabel(totalEighths)}</span>
       </p>
       {scenes.length === 0 ? (
         <p className="p-3 text-[13px] text-text-muted">
-          {canAdd ? 'No scenes yet. Add one, or import a script.' : 'No project open.'}
+          {canAdd ? t('scenes.none') : t('storyboardView.noProjectOpen')}
         </p>
       ) : (
-        <ul aria-label="Scenes" className="flex-1">
+        <ul aria-label={t('scenesView.scenes')} className="flex-1">
           {scenes.map((row) => {
             const active = row.id === activeSceneId;
             const label = sceneLabel(row.fields.number);
@@ -90,7 +91,7 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                 >
                   {/* The active scene's marker is orange; its bold heading is the second cue. */}
                   <span aria-hidden="true" className={cx('mt-1.5 size-1.5 shrink-0', active ? 'bg-accent' : 'border border-text')} />
-                  <span className="font-mono text-[12px] font-bold">{label.replace('SC ', '')}</span>
+                  <span className="font-mono text-[12px] font-bold">{sceneNumberLabel(row.fields.number)}</span>
                   <span className="flex min-w-0 flex-col">
                     <span className={cx('truncate text-[13px]', active && 'font-bold')}>{headingOf(row.fields)}</span>
                     {/* Muted until hovered: muted text never sits on oatmeal. */}
@@ -100,8 +101,8 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                 <button
                   type="button"
                   aria-pressed={row.fields.numbersLocked}
-                  aria-label={`Lock shot numbers for ${label}`}
-                  title={row.fields.numbersLocked ? 'Shot numbers locked' : 'Lock shot numbers'}
+                  aria-label={t('scenes.lockFor', { scene: label })}
+                  title={row.fields.numbersLocked ? t('scenes.locked') : t('scenes.lock')}
                   onClick={() => {
                     onToggleLock(row.id, !row.fields.numbersLocked);
                   }}
@@ -117,15 +118,15 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
       )}
       <div className="mt-auto flex flex-col gap-2 border-t border-border p-3">
         <p className="sb-label flex">
-          Film coverage
+          {t('scenesView.filmCoverage')}
           <span className="ml-auto font-mono">{coverage === null ? '—' : `${String(coverage)}%`}</span>
         </p>
         <div className="flex flex-wrap gap-2">
           <Button disabled={!canAdd} onClick={onAdd}>
-            + New scene
+            {t('scenesView.newScene')}
           </Button>
           <Button disabled={!canAdd} onClick={onImport}>
-            Import script…
+            {t('scenesView.importScript')}
           </Button>
         </div>
       </div>

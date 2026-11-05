@@ -1,6 +1,7 @@
 import { cx } from '../../../ui/cx';
 import { sceneLabel, type SceneEntry } from './scenes';
 import { onNavKeyDown } from './navKeys';
+import { t } from '../../../core/i18n';
 
 interface SceneListProps {
   scenes: readonly SceneEntry[];
@@ -14,7 +15,7 @@ interface SceneListProps {
 /** Storyboard's scenes inline in the sidebar, "SC 04  Scene Name", then "+ Add Scene" (DESIGN.md, Navigation). */
 export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: SceneListProps) {
   return (
-    <ul aria-label="Scenes" className="pb-1">
+    <ul aria-label={t('sceneList.scenes')} className="pb-1">
       {scenes.map((scene) => {
         const current = scene.id === activeSceneId;
         return (
@@ -33,7 +34,7 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: Sc
               {/* The active scene's marker is orange; its bold name is the second cue. */}
               <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-text')} />
               <span className="font-mono text-[11px]">{sceneLabel(scene.number)}</span>
-              <span className={cx('truncate', current && 'font-bold')}>{scene.name || 'Untitled'}</span>
+              <span className={cx('truncate', current && 'font-bold')}>{scene.name || t('scene.untitled')}</span>
             </button>
           </li>
         );
@@ -48,7 +49,7 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: Sc
           onClick={onAdd}
           className="sb-label flex h-7 w-full items-center pl-[30px] text-left enabled:hover:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
         >
-          + Add Scene
+          {t('sceneList.addScene')}
         </button>
       </li>
     </ul>

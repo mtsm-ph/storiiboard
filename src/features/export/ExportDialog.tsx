@@ -14,6 +14,8 @@ import { FORMATS } from './registry';
 import type { ExportScope } from './scope';
 import { POSITION_LABEL, readWatermark } from './watermark';
 import { WatermarkDialog } from './WatermarkDialog';
+import { localizeError, pluralKey, t } from '../../core/i18n';
+import { Trans } from '../../ui/Trans';
 
 // Export Project (1.24, the project menu): a format from the registry, the whole project or one scene, then where it
 // goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash. The watermark, when the format
@@ -73,7 +75,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
-const CHOOSING = 'Choosing where…';
+/** The status while the system's Save or folder dialog is open: Cancel still reads Cancel then, not Stop. */
+const CHOOSING = 'choosing';
 
 /**
  * Why an export failed, for the dialog. A set of files says how far it got and where, since what it wrote stays: the
@@ -81,10 +84,10 @@ const CHOOSING = 'Choosing where…';
  * drawn: a PDF draws every frame before it writes its one file, so one that failed had written nothing.
  */
 function failureMessage(error: unknown, written: number, total: number, label: string): string {
-  const reason = error instanceof Error ? error.message : String(error);
-  if (label === '') return `Not exported: ${reason}`;
-  if (written === 0) return `Not exported to “${label}”: ${reason}`;
-  return `Stopped with ${String(written)} of ${String(total)} written to “${label}”: ${reason}`;
+  const reason = localizeError(error instanceof Error ? error.message : String(error));
+  if (label === '') return t('export.failed', { reason });
+  if (written === 0) return t('export.failedTo', { label, reason });
+  return t('export.failedPartway', { written, total, label, reason });
 }
 
 function ExportDialog() {
@@ -152,7 +155,7 @@ function ExportDialog() {
           written += 1;
         },
       };
-      setRunning('Exporting…');
+      setRunning(t('export.exporting'));
       const { what, warning } = await format.run({
         records,
         projectId: project.projectId,
@@ -162,19 +165,19 @@ function ExportDialog() {
         target,
         progress: (done, of, doing) => {
           total = of;
-          setRunning(doing ?? `Exporting ${String(done)} of ${String(of)}…`);
+          setRunning(doing ?? t('export.exportingCount', { done, of }));
         },
         signal: controller.signal,
       });
       closeExportDialog();
-      const said = `Exported ${what} to “${target.label}”.`;
+      const said = t('export.done', { what, label: target.label });
       // Something went out short: a warning, so it reads as one and stays until it's dismissed.
-      if (warning) showNotice(`${said} ${warning}`);
+      if (warning) showNotice(t('export.doneWarning', { said, warning }));
       else showInfo(said);
     } catch (error) {
       if (controller.signal.aborted) {
         showInfo(
-          written === 0 ? 'Export stopped. Nothing was written.' : `Export stopped: ${String(written)} of ${String(total)} written to “${label}”.`,
+          written === 0 ? t('export.stoppedNothing') : t('export.stoppedPartway', { written, total, label }),
         );
       } else setFailed(failureMessage(error, written, total, label));
     } finally {
@@ -185,32 +188,32 @@ function ExportDialog() {
   };
 
   return (
-    <Modal title="Export" onClose={stop}>
+    <Modal title={t('exportDialog.export')} onClose={stop}>
       {/* The kit's segmented control, square and ink-filled, rather than the webview's round radio dots. */}
       <SegmentedControl
-        label="Format"
+        label={t('exportDialog.format')}
         options={FORMATS.map((f) => ({ value: f.id, label: f.label, hint: f.description }))}
         value={format?.id ?? ''}
         onChange={setFormatId}
       />
       {format && <p className="-mt-2 text-[12px] text-text-muted">{format.description}</p>}
       <Select
-        label="Scenes"
+        label={t('exportDialog.scenes')}
         value={sceneId}
         onChange={(event) => {
           setSceneId(event.currentTarget.value);
         }}
       >
-        <option value="">Whole project</option>
+        <option value="">{t('exportDialog.wholeProject')}</option>
         {scenes.map((s) => (
           <option key={s.record.id} value={s.record.id}>
-            {`${sceneLabel(s.fields.number)}  ${headingOf(s.fields)}`}
+            {t('export.sceneOption', { scene: sceneLabel(s.fields.number), heading: headingOf(s.fields) })}
           </option>
         ))}
       </Select>
       <p className="text-[13px]">
-        <span className="font-mono">{String(frames)}</span> {frames === 1 ? 'frame' : 'frames'}, leaving out the Trash.{' '}
-        {carries ? `Watermark “${watermark.text}”, ${POSITION_LABEL[watermark.position].toLowerCase()}.` : 'No watermark.'}
+        <Trans k={pluralKey('export.framesNoTrash', frames)} parts={{ count: <span className="font-mono">{String(frames)}</span> }} />{' '}
+        {carries ? t('export.watermark', { text: watermark.text, position: POSITION_LABEL[watermark.position].toLowerCase() }) : t('export.noWatermark')}
       </p>
       {failed !== null && (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
@@ -219,13 +222,13 @@ function ExportDialog() {
       )}
       {running !== null && (
         <p role="status" className="font-mono text-[12px]">
-          {running}
+          {running === CHOOSING ? t('export.choosing') : running}
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button onClick={stop}>{running === null || running === CHOOSING ? 'Cancel' : 'Stop'}</Button>
+        <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
         <Button variant="primary" disabled={running !== null || frames === 0} onClick={() => void run()}>
-          {format?.output === 'folder' ? 'Choose folder…' : 'Save…'}
+          {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>
     </Modal>

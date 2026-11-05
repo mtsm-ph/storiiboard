@@ -2,8 +2,10 @@ import { mediaFields } from '../../core/media/store';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
-import { pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields } from '../../core/model/storyboard';
+import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
+import { POSITION_LABEL, POSITIONS } from '../export/watermark';
+import { labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
 // 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B"; the
@@ -20,36 +22,50 @@ export type Line = readonly Part[];
 /** A line as plain text: for labels, notices and tests. */
 export const lineText = (line: Line): string => line.map((part) => (typeof part === 'string' ? part : part.mono)).join('');
 
+/**
+ * A translated line whose placeholders can be parts: `{name}` takes parts.name, a frame's number in mono or words.
+ * The message stays one sentence, so a language can put the name where its grammar wants it.
+ */
+function line(key: MessageKey, parts: Readonly<Record<string, Part>> = {}, params?: Params): Part[] {
+  // The markers can't come from people's text: a NUL in a field's name is dropped, not taken for a part.
+  const marked: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(params ?? {})) marked[name] = typeof value === 'string' ? value.split('\u0000').join('') : value;
+  for (const name of Object.keys(parts)) marked[name] = `\u0000${name}\u0000`;
+  return t(key, marked)
+    .split('\u0000')
+    .flatMap((piece, i): Part[] => (i % 2 === 1 ? [parts[piece] ?? ''] : piece === '' ? [] : [piece]));
+}
+
 /** Props by the names the inspector and the board give them. */
-const FIELD: Readonly<Record<string, string>> = {
-  number: 'number',
-  size: 'size',
-  lens_mm: 'lens',
-  t_stop: 'T-stop',
-  support: 'support',
-  height: 'height',
-  move: 'move',
-  status: 'status',
-  action: 'action',
-  dialogue: 'dialogue',
-  departments: 'departments',
-  media_id: 'picture',
-  crop: 'framing',
-  custom: 'custom fields',
-  name: 'name',
-  int_ext: 'INT/EXT',
-  day_night: 'time of day',
-  location_id: 'location',
-  page_eighths: 'length',
-  numbers_locked: 'number lock',
-  characters: 'characters',
-  text: 'text',
-  theme: 'theme',
-  title: 'title',
-  notes: 'notes',
-  aspect_ratio: 'aspect ratio',
-  state: 'state',
-};
+const FIELD: Readonly<Record<string, string>> = labels({
+  number: 'history.field.number',
+  size: 'history.field.size',
+  lens_mm: 'history.field.lensMm',
+  t_stop: 'history.field.tStop',
+  support: 'history.field.support',
+  height: 'history.field.height',
+  move: 'history.field.move',
+  status: 'history.field.status',
+  action: 'history.field.action',
+  dialogue: 'history.field.dialogue',
+  departments: 'history.field.departments',
+  media_id: 'history.field.mediaId',
+  crop: 'history.field.crop',
+  custom: 'history.field.custom',
+  name: 'history.field.name',
+  int_ext: 'history.field.intExt',
+  day_night: 'history.field.dayNight',
+  location_id: 'history.field.locationId',
+  page_eighths: 'history.field.pageEighths',
+  numbers_locked: 'history.field.numbersLocked',
+  characters: 'history.field.characters',
+  text: 'history.field.text',
+  theme: 'history.field.theme',
+  title: 'history.field.title',
+  notes: 'history.field.notes',
+  aspect_ratio: 'history.field.aspectRatio',
+  state: 'history.field.state',
+});
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
 const MONO = new Set(['number', 'lens_mm', 't_stop']);
@@ -60,12 +76,20 @@ type JsonObject = { [key: string]: JsonValue };
 const isObject = (value: JsonValue | undefined): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The parts of a watermark (Watermark Settings, 1.24), by the names the dialog gives them. */
-const WATERMARK_PART: Readonly<Record<string, string>> = { text: 'text', position: 'position', opacity: 'strength', applies_to: 'on' };
+const WATERMARK_PART: Readonly<Record<string, string>> = labels({
+  text: 'history.watermark.text',
+  position: 'history.watermark.position',
+  opacity: 'history.watermark.strength',
+  applies_to: 'history.watermark.on',
+});
 
 function watermarkPart(part: string, value: JsonValue | undefined): string {
   if (part === 'text') return typeof value === 'string' ? `“${value.length > 30 ? `${value.slice(0, 29)}…` : value}”` : '—';
   if (part === 'opacity') return typeof value === 'number' ? `${String(Math.round(value * 100))}%` : '—';
-  if (part === 'position') return typeof value === 'string' ? value.replace(/-/g, ' ').replace('center', 'centre') : '—';
+  if (part === 'position') {
+    if (typeof value !== 'string') return '—';
+    return (POSITIONS as readonly string[]).includes(value) ? POSITION_LABEL[value as (typeof POSITIONS)[number]].toLowerCase() : value.replace(/-/g, ' ');
+  }
   return Array.isArray(value) && value.length > 0 ? value.map((v) => (typeof v === 'string' ? v.toUpperCase() : JSON.stringify(v))).join(', ') : '—';
 }
 
@@ -75,14 +99,15 @@ function watermarkPart(part: string, value: JsonValue | undefined): string {
  */
 function describeWatermark(before: JsonValue | undefined, after: JsonValue | undefined): string {
   const text = (value: JsonObject) => watermarkPart('text', value.text);
-  if (!isObject(after)) return isObject(before) ? `Removed the watermark ${text(before)}` : 'Removed the watermark';
-  if (!isObject(before)) return `Set the watermark ${text(after)}`;
+  if (!isObject(after)) return isObject(before) ? t('history.watermark.removedText', { text: text(before) }) : t('history.watermark.removed');
+  if (!isObject(before)) return t('history.watermark.set', { text: text(after) });
   const parts = Object.keys(WATERMARK_PART).filter((part) => JSON.stringify(before[part]) !== JSON.stringify(after[part]));
   const [only] = parts;
   if (parts.length === 1 && only) {
-    return `Watermark ${only === 'text' ? '' : `${text(after)} `}${WATERMARK_PART[only] ?? only}: ${watermarkPart(only, before[only])} → ${watermarkPart(only, after[only])}`;
+    const change = { part: WATERMARK_PART[only] ?? only, before: watermarkPart(only, before[only]), after: watermarkPart(only, after[only]) };
+    return only === 'text' ? t('history.watermark.textChange', change) : t('history.watermark.partChange', { ...change, text: text(after) });
   }
-  return `Changed the watermark ${text(after)}: ${parts.map((part) => WATERMARK_PART[part] ?? part).join(', ')}`;
+  return t('history.watermark.changed', { text: text(after), parts: parts.map((part) => WATERMARK_PART[part] ?? part).join(', ') });
 }
 
 /** Whether a field's values are technical ones, shown in mono. */
@@ -93,13 +118,16 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   departments: DEPARTMENT_LABELS,
   status: SHOT_STATUS_LABELS,
   size: SHOT_SIZE_LABEL,
+  support: SUPPORT_LABEL,
+  height: HEIGHT_LABEL,
+  move: MOVE_LABEL,
 };
-/** Support, height and move are words already; the inspector's menus start them with a capital. */
+/** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
 const choiceLabel = (prop: string, value: string): string => {
   const table = CHOICE[prop];
-  if (table && Object.hasOwn(table, value)) return table[value] ?? value;
-  return CAPITALISED.has(prop) ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+  const label = table && Object.hasOwn(table, value) ? (table[value] ?? value) : value;
+  return CAPITALISED.has(prop) ? label.charAt(0).toUpperCase() + label.slice(1) : label;
 };
 
 /** A value as a step's line shows it: in the board's words, `—` for nothing, and a long text cut to one short line. */
@@ -122,15 +150,15 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   }
   // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
   // picture change reads as set, removed or replaced (pictureChange).
-  if (prop === 'location_id') return 'a location';
-  if (prop === 'media_id') return 'a picture';
-  if (prop === 'lens_mm' && typeof value === 'number') return `${String(value)}mm`;
-  if (prop === 't_stop' && typeof value === 'number') return `T${String(value)}`;
+  if (prop === 'location_id') return t('history.aLocation');
+  if (prop === 'media_id') return t('history.aPicture');
+  if (prop === 'lens_mm' && typeof value === 'number') return t('history.lens', { mm: value });
+  if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
   if (prop === 'page_eighths' && typeof value === 'number') return pageLabel(value);
   if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
-  if (typeof value === 'object') return prop === 'custom' ? Object.keys(value).join(', ') || '—' : 'changed';
-  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  if (typeof value === 'object') return prop === 'custom' ? Object.keys(value).join(', ') || '—' : t('history.changed');
+  if (typeof value === 'boolean') return value ? t('history.on') : t('history.off');
   return typeof value === 'string' ? choiceLabel(prop, value) : String(value);
 }
 
@@ -143,7 +171,7 @@ const isBlank = (value: JsonValue | undefined) => value === undefined || value =
 
 /** What a change of a frame's picture did, since its value is only an id. */
 export const pictureChange = (change: FieldChange): string =>
-  isBlank(change.before) ? 'picture set' : isBlank(change.after) ? 'picture removed' : 'picture replaced';
+  isBlank(change.before) ? t('history.pictureSet') : isBlank(change.after) ? t('history.pictureRemoved') : t('history.pictureReplaced');
 
 /** The props an update changed, by name. */
 export function changedProps(before: SbdRecord, after: SbdRecord): string[] {
@@ -187,48 +215,73 @@ export const changeLabel = (change: FieldChange): string => change.key ?? fieldL
  * putting back one takes the field off, the other keeps it.
  */
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? 'no field' : valueLabel('', value);
+  change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined ? valueText(change.prop, value) : value === undefined ? 'no field' : valueText('', value);
+  change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null): Part {
-  if (!record) return 'an item';
+  if (!record) return t('history.anItem');
   switch (record.type) {
     case 'shot': {
       const number = shotFields(record.props).number;
-      return number ? { mono: number } : 'a frame';
+      return number ? { mono: number } : t('history.aFrame');
     }
     case 'scene':
       return { mono: sceneLabel(sceneFields(record.props).number) };
     case 'note':
-      return 'a note';
+      return t('history.aNote');
     case 'location':
-      return typeof record.props.name === 'string' ? record.props.name : 'a location';
+      return typeof record.props.name === 'string' ? record.props.name : t('history.aLocation');
     case 'character':
-      return typeof record.props.name === 'string' ? record.props.name : 'a character';
+      return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
     case 'project':
-      return 'the project';
+      return t('history.theProject');
     default:
-      return `a ${record.type}`;
+      return t('history.aRecord', { type: record.type });
   }
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
 const capitalise = (part: Part): Part => (typeof part === 'string' ? part.charAt(0).toUpperCase() + part.slice(1) : part);
 
-/** The word for a kind of record in a count: "3 frames", "a note". */
-const NOUN: Readonly<Partial<Record<SbdRecord['type'], string>>> = {
-  shot: 'frame',
-  scene: 'scene',
-  note: 'note',
-  location: 'location',
-  character: 'character',
-  stroke: 'stroke',
-  media: 'picture',
+/** A count of a kind of record: "3 frames". */
+const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
+  shot: 'count.frames',
+  scene: 'count.scenes',
+  note: 'count.notes',
+  location: 'count.locations',
+  character: 'count.characters',
+  stroke: 'count.strokes',
+  media: 'count.pictures',
+};
+const count = (type: SbdRecord['type'], n: number): string => {
+  const base = COUNT[type];
+  return base ? tn(base, n) : tn('count.items', n);
+};
+
+/** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character' },
+};
+const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
+  create: 'history.addedCount',
+  trash: 'history.deletedCount',
+  restore: 'history.restoredCount',
+};
+const A_NOTE: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
+  create: 'history.added.note',
+  trash: 'history.deleted.note',
+  restore: 'history.restored.note',
+};
+const LOST: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
+  create: 'history.lostAdded',
+  trash: 'history.lostDeleted',
+  restore: 'history.lostRestored',
 };
 
 /**
@@ -242,65 +295,60 @@ const purged = (op: LoggedOp) => op.kind !== 'purge' && op.before === null && op
  * names without writing them (a sketch's frame, a scene's location), as they were then.
  */
 export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
-  if (ops.length === 0) return ['No change'];
+  if (ops.length === 0) return [t('history.noChange')];
   const record = (op: LoggedOp) => op.after ?? op.before;
   const of = (kind: LoggedOp['kind'], type?: SbdRecord['type']) => ops.filter((op) => op.kind === kind && (!type || record(op)?.type === type));
-  const since = ', since deleted for good';
-  const items = (n: number) => (n === 1 ? 'an item' : plural(n, 'item'));
+  const items = (n: number) => tn('history.items', n);
   const removed = ops.some((op) => {
     const media = record(op);
     const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
     return sha !== undefined && !stored.has(sha);
   });
-  const tag = removed ? ' (picture removed)' : '';
+  const tag = removed ? t('history.pictureRemovedTag') : '';
   // A change of look: the theme, with or without a new logo.
   if (ops.some((op) => op.after?.type === 'project' && op.before && JSON.stringify(op.before.props.theme) !== JSON.stringify(op.after.props.theme))) {
-    return [`Changed the theme${tag}`];
+    return [t('history.changedTheme', { tag })];
   }
   const watermark = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.watermark) !== JSON.stringify(op.after.props.watermark));
   if (watermark) return [`${describeWatermark(watermark.before?.props.watermark, watermark.after?.props.watermark)}${tag}`];
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
-  for (const [kind, verb] of [
-    ['create', 'Added'],
-    ['trash', 'Deleted'],
-    ['restore', 'Restored'],
-  ] as const) {
+  for (const kind of ['create', 'trash', 'restore'] as const) {
     for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
-      const noun = NOUN[type] ?? type;
       if (type === 'media') {
         const shot = ops.find((op) => op.kind === 'update' && record(op)?.type === 'shot');
-        const what = kind === 'create' ? 'Set the picture of' : verb === 'Deleted' ? 'Removed the picture of' : 'Restored the picture of';
-        return [`${what} `, nameOf(shot ? record(shot) : null), tag];
+        const what = kind === 'create' ? 'history.pictureOf.set' : kind === 'trash' ? 'history.pictureOf.removed' : 'history.pictureOf.restored';
+        return [...line(what, { name: nameOf(shot ? record(shot) : null) }), tag];
       }
       if (type === 'stroke') {
         // A stroke is all a sketch writes, so its frame is named from the frame as it was then (`around`).
         const shotId = found[0]?.after?.parentId ?? found[0]?.before?.parentId ?? null;
         const written = ops.find((op) => op.recordId === shotId);
         const shot = written ? record(written) : shotId === null ? null : (around.get(shotId) ?? null);
-        const frame = shot ? nameOf(shot) : 'a frame';
-        return kind === 'create' ? ['Sketched on ', frame] : [`${kind === 'trash' ? 'Erased' : 'Restored'} ${plural(found.length, 'stroke')} on `, frame];
+        const frame = shot ? nameOf(shot) : t('history.aFrame');
+        if (kind === 'create') return line('history.sketchedOn', { frame });
+        return line(kind === 'trash' ? 'history.erasedOn' : 'history.restoredStrokesOn', { frame }, { strokes: tn('count.strokes', found.length) });
       }
       const first = found[0];
-      if (found.length > 1 || !first) return [`${verb} ${plural(found.length, noun)}`];
-      return type === 'note' ? [`${verb} a note`] : [`${verb} ${noun} `, nameOf(record(first))];
+      if (found.length > 1 || !first) return [t(MANY[kind], { things: count(type, found.length) })];
+      return type === 'note' ? [t(A_NOTE[kind])] : line(ONE[kind][type], { name: nameOf(record(first)) });
     }
     // Checked before the moves and updates below: a delete renumbers the frames after it in the same step, and once
     // the deleted frame is gone for good those renumbers are all that's left to read, so it would pass for an edit.
     const lost = ops.filter((op) => op.kind === kind && purged(op));
-    if (lost.length > 0) return [`${verb} ${items(lost.length)}${since}${tag}`];
+    if (lost.length > 0) return [t(LOST[kind], { items: items(lost.length), tag })];
   }
   const moves = of('move');
   const moved = moves[0];
   if (moved) {
-    if (moves.length > 1) return [`Moved ${plural(moves.length, 'item')}`];
-    return purged(moved) ? [`Moved an item${since}`] : ['Moved ', nameOf(record(moved))];
+    if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];
+    return purged(moved) ? [t('history.movedLost')] : line('history.moved', { name: nameOf(record(moved)) });
   }
   const updates = ops.filter((op) => op.kind === 'update' && op.before && op.after);
   const lostUpdates = ops.filter((op) => op.kind === 'update' && purged(op));
-  if (updates.length === 0 && lostUpdates.length > 0) return [`Changed ${items(new Set(lostUpdates.map((op) => op.recordId)).size)}${since}${tag}`];
+  if (updates.length === 0 && lostUpdates.length > 0) return [t('history.lostChanged', { items: items(new Set(lostUpdates.map((op) => op.recordId)).size), tag })];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
     const op = updates[0];
     if (op?.before && op.after) {
@@ -308,25 +356,25 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       const who = capitalise(nameOf(op.after));
       const [only] = changes;
       if (changes.length === 1 && only?.key !== undefined && (only.before === undefined || only.after === undefined)) {
-        return [who, `: ${only.before === undefined ? 'added' : 'removed'} the field ${only.key}${tag}`];
+        return line(only.before === undefined ? 'history.fieldAdded' : 'history.fieldRemoved', { who }, { field: only.key, tag });
       }
-      if (changes.length === 1 && only?.prop === 'media_id') return [who, `: ${pictureChange(only)}${tag}`];
+      if (changes.length === 1 && only?.prop === 'media_id') return line('history.whoDid', { who }, { what: pictureChange(only), tag });
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
           if (only.prop !== 'location_id' || typeof v !== 'string' || v === '') return changeValuePart(only, v);
           const place = around.get(v);
-          return place ? nameOf(place) : 'a location';
+          return place ? nameOf(place) : t('history.aLocation');
         };
-        return [who, `: ${changeLabel(only)} `, value(only.before), ' → ', value(only.after), tag];
+        return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only) }), tag];
       }
-      return [who, `: ${[...new Set(changes.map(changeLabel))].join(', ')}${tag}`];
+      return line('history.whoDid', { who }, { what: [...new Set(changes.map(changeLabel))].join(', '), tag });
     }
   }
   if (updates.length > 0) {
     // A renumber or a lock touches many frames: named by the scene they share when they share one.
-    return [`Changed ${plural(new Set(updates.map((op) => op.recordId)).size, 'item')}${tag}`];
+    return [t('history.changedCount', { things: tn('count.items', new Set(updates.map((op) => op.recordId)).size), tag })];
   }
-  return [`${plural(ops.length, 'change')}${tag}`];
+  return [t('history.changes', { things: tn('count.changes', ops.length), tag })];
 }
 
 /**
@@ -344,20 +392,20 @@ export function describeGroup(
     case 'edit':
       return describeEdit(ops, stored, around);
     case 'undo':
-      return ['Undid: ', ...(titles.get(group.targetGroupId ?? '') ?? ['a step'])];
+      return [t('history.undid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'redo':
-      return ['Redid: ', ...(titles.get(group.targetGroupId ?? '') ?? ['a step'])];
+      return [t('history.redid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'restore':
       return group.restoreTo === null
-        ? ['Restored the project to how it was created']
-        : ['Restored the project to: ', ...(titles.get(group.restoreTo) ?? ['an earlier step'])];
+        ? [t('history.restoredToStart')]
+        : [t('history.restoredTo'), ...(titles.get(group.restoreTo) ?? [t('history.anEarlierStep')])];
     case 'empty_trash':
-      return [`Emptied the Trash: ${plural(ops.length, 'item')} deleted for good`];
+      return [t('history.emptiedTrash', { items: tn('count.items', ops.length) })];
   }
 }
 
 /** Who made a step: "You" until people have names (Phase 9). */
-export const who = (author: string): string => (author === 'local' ? 'You' : author);
+export const who = (author: string): string => (author === 'local' ? t('history.you') : author);
 
 /** One line of an item's own history: a field's change, or a whole step (added, moved, deleted). */
 export interface FrameRow {
@@ -370,27 +418,33 @@ export interface FrameRow {
 }
 
 /** What a write did to a record as a whole, by the kind of edit it reversed or repeated. */
-const KIND_LINE: Readonly<Record<LoggedOp['kind'], string>> = {
-  create: 'Added',
-  update: 'Changed',
-  move: 'Moved',
-  retype: 'Changed type',
-  trash: 'Deleted',
-  restore: 'Restored from the Trash',
-  revert: 'Restore to here',
-  purge: 'Deleted for good',
-};
+const KIND_LINE: Readonly<Record<LoggedOp['kind'], string>> = labels({
+  create: 'history.kind.create',
+  update: 'history.kind.update',
+  move: 'history.kind.move',
+  retype: 'history.kind.retype',
+  trash: 'history.kind.trash',
+  restore: 'history.kind.restore',
+  revert: 'history.kind.revert',
+  purge: 'history.kind.purge',
+});
 
 /** A field changed by going back and forth through History says so beside its name. */
-const FIELD_HOW: Readonly<Record<GroupKind, string>> = { edit: '', undo: ', undone', redo: ', redone', restore: ', restored', empty_trash: '' };
+const FIELD_HOW: Readonly<Record<GroupKind, MessageKey>> = {
+  edit: 'history.how.edit',
+  undo: 'history.how.undo',
+  redo: 'history.how.redo',
+  restore: 'history.how.restore',
+  empty_trash: 'history.how.edit',
+};
 
 /** What Restore to here did to a record as a whole: its op is a `revert` whatever it changed. */
 function revertLine(before: SbdRecord | null, after: SbdRecord | null): string | null {
-  if (!before) return 'Restore to here: added back';
-  if (!after) return 'Restore to here: taken away';
-  if (before.trashedAt === null && after.trashedAt !== null) return 'Restore to here: back in the Trash';
-  if (before.trashedAt !== null && after.trashedAt === null) return 'Restore to here: out of the Trash';
-  if (before.parentId !== after.parentId || before.sortKey !== after.sortKey) return 'Restore to here: moved';
+  if (!before) return t('history.revert.added');
+  if (!after) return t('history.revert.taken');
+  if (before.trashedAt === null && after.trashedAt !== null) return t('history.revert.toTrash');
+  if (before.trashedAt !== null && after.trashedAt === null) return t('history.revert.fromTrash');
+  if (before.parentId !== after.parentId || before.sortKey !== after.sortKey) return t('history.revert.moved');
   return null;
 }
 
@@ -400,31 +454,32 @@ function stepLine(op: LoggedOp): string | null {
     const line = revertLine(op.before, op.after);
     // An undone restore's ops are reverts too: worded as the restore they take back, not what it did.
     if (op.groupKind === 'restore' || line === null) return line;
-    return op.groupKind === 'undo' ? 'Undid: Restore to here' : 'Redid: Restore to here';
+    return t(op.groupKind === 'undo' ? 'history.undidStep' : 'history.redidStep', { step: KIND_LINE.revert });
   }
   if (op.kind === 'update') return null;
   // Undo and redo ops keep the kind they reverse (src/core/ops/ops.ts), so the group says which way it went.
   const base = KIND_LINE[op.kind];
-  return op.groupKind === 'undo' ? `Undid: ${base}` : op.groupKind === 'redo' ? `Redid: ${base}` : base;
+  return op.groupKind === 'undo' ? t('history.undidStep', { step: base }) : op.groupKind === 'redo' ? t('history.redidStep', { step: base }) : base;
 }
 
 /** What a step did to a frame's sketch or picture, which are records of their own under it. */
 function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], n: number): string {
   if (type === 'media') {
-    const what: Partial<Record<LoggedOp['kind'], string>> = { create: 'Set the picture', trash: 'Removed the picture', restore: 'Restored the picture' };
-    return what[kind] ?? (kind === 'revert' ? 'Restore to here: the picture' : 'Changed the picture');
+    const what: Partial<Record<LoggedOp['kind'], MessageKey>> = { create: 'history.picture.set', trash: 'history.picture.removed', restore: 'history.picture.restored' };
+    const key = what[kind];
+    return key ? t(key) : kind === 'revert' ? t('history.revert.picture') : t('history.picture.changed');
   }
   switch (kind) {
     case 'create':
-      return n === 1 ? 'Sketched' : `Sketched ${plural(n, 'stroke')}`;
+      return n === 1 ? t('history.sketched') : t('history.sketchedStrokes', { strokes: tn('count.strokes', n) });
     case 'trash':
-      return `Erased ${plural(n, 'stroke')}`;
+      return t('history.erasedStrokes', { strokes: tn('count.strokes', n) });
     case 'restore':
-      return `Restored ${plural(n, 'stroke')}`;
+      return t('history.restoredStrokes', { strokes: tn('count.strokes', n) });
     case 'revert':
-      return 'Restore to here: the sketch';
+      return t('history.revert.sketch');
     default:
-      return 'Changed the sketch';
+      return t('history.sketchChanged');
   }
 }
 
@@ -467,8 +522,8 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
       const type = (first.after ?? first.before)?.type;
       const same = group.filter((o) => o.kind === first.kind && (o.after ?? o.before)?.type === type).length;
       const base = childLine(type, first.kind, same);
-      const how = op.groupKind === 'undo' ? 'Undid: ' : op.groupKind === 'redo' ? 'Redid: ' : '';
-      return [{ key: `${op.groupId}:children`, op, change: `${how}${base}`, field: null }];
+      const change = op.groupKind === 'undo' ? t('history.undidStep', { step: base }) : op.groupKind === 'redo' ? t('history.redidStep', { step: base }) : base;
+      return [{ key: `${op.groupId}:children`, op, change, field: null }];
     }
     const rows: FrameRow[] = [];
     const line = stepLine(op);
@@ -476,7 +531,7 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
     if (op.before && op.after) {
       for (const field of fieldChanges(op.before, op.after)) {
         const name = field.prop === 'media_id' ? pictureChange(field) : changeLabel(field);
-        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: `${name}${FIELD_HOW[op.groupKind]}`, field });
+        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: t(FIELD_HOW[op.groupKind], { field: name }), field });
       }
     }
     // An update that changed nothing a person sees still happened: say so rather than drop it.

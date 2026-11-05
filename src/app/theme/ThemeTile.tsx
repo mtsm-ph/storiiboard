@@ -12,6 +12,7 @@ import { projectStore, useProject } from '../projectStore';
 import { ThemeChooser } from './ThemeChooser';
 import { currentTheme, prepareThemeImage, resetTheme, setTheme, type ThemePatch } from './themeEdits';
 import { ThemeImageWell } from './ThemeImageWell';
+import { t } from '../../core/i18n';
 
 // Settings → Theme (1.16, docs/PLAN.md B): onboarding's controls for an open project, plus a manual accent (put
 // through the same AA fit, with what was picked and what's used side by side), Regenerate and Reset to default. Each
@@ -49,7 +50,7 @@ export function ThemeTile() {
   // Only the URL of the image the theme names now: a replaced one never shows while the new one loads.
   const url = loaded && loaded.sha256 === sha256 ? loaded.url : null;
 
-  if (!project || !current) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!project || !current) return <p className="sb-label p-3 text-text-muted">{t('themeTile.noProjectOpen')}</p>;
   const imageName = current.imageId ? (mediaFields(records[current.imageId]?.props ?? {})?.sourceName ?? null) : null;
   const osDark = resolved === 'dark';
 
@@ -117,13 +118,13 @@ export function ThemeTile() {
       />
 
       <section className="flex flex-col gap-2 border-t border-border pt-4">
-        <h3 className="sb-label">Accent by hand</h3>
+        <h3 className="sb-label">{t('themeTile.accentByHand')}</h3>
         <div className="flex flex-wrap items-end gap-3">
           <TextField
-            label="Hex"
+            label={t('themeTile.hex')}
             mono
             value={shown}
-            placeholder="#RRGGBB"
+            placeholder={t('themeTile.rrggbb')}
             onChange={(event) => {
               type(event.currentTarget.value);
             }}
@@ -132,7 +133,7 @@ export function ThemeTile() {
             }}
           />
           <label htmlFor={hexId} className="flex flex-col gap-[5px]">
-            <span className="sb-label">Picker</span>
+            <span className="sb-label">{t('themeTile.picker')}</span>
             <input
               id={hexId}
               type="color"
@@ -144,16 +145,16 @@ export function ThemeTile() {
             />
           </label>
           <Button disabled={!fitted} onClick={applyTyped}>
-            Use this accent
+            {t('themeTile.useThisAccent')}
           </Button>
         </div>
         {/* What was picked and what AA moved it to, in each mode. */}
         {fitted && (
           <p className="font-mono text-[12px]">
-            {fitted.source} → {fitted.light.accent} light, {fitted.dark.accent} dark
+            {t('themeTile.fitted', { source: fitted.source, light: fitted.light.accent, dark: fitted.dark.accent })}
           </p>
         )}
-        {!picked && shown.trim() !== '' && <p className="text-[12px] text-text-muted">A colour as six hex digits, #RRGGBB, or three, #RGB.</p>}
+        {!picked && shown.trim() !== '' && <p className="text-[12px] text-text-muted">{t('themeTile.aColourAsSixHex')}</p>}
       </section>
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-4">
@@ -164,7 +165,7 @@ export function ThemeTile() {
             void save({});
           }}
         >
-          Regenerate
+          {t('themeTile.regenerate')}
         </Button>
         <Button
           variant="warning"
@@ -174,7 +175,7 @@ export function ThemeTile() {
             void projectStore.getState().applyWith((now) => ({ changes: resetTheme(now, project.projectId) }));
           }}
         >
-          Reset to default
+          {t('themeTile.resetToDefault')}
         </Button>
       </div>
     </div>

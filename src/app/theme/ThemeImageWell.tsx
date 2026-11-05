@@ -4,6 +4,7 @@ import { cx } from '../../ui/cx';
 import { isTauriApp } from '../fileAccess';
 import { showNotice } from '../notice';
 import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../pictures';
+import { t } from '../../core/i18n';
 
 // Where a project's logo or key image goes (1.16): choose it, drop it or paste it, as frames take pictures (1.11). In
 // the desktop app a drop comes through Rust with the point it landed on, and the well takes it when that point is
@@ -102,7 +103,7 @@ export function ThemeImageWell({ url, missing = false, name, onFiles, takeAnyDro
 
   return (
     <div className="flex flex-col gap-[5px]">
-      <span className="sb-label">Logo or key image</span>
+      <span className="sb-label">{t('themeImageWell.logoOrKeyImage')}</span>
       <div
         ref={well}
         data-theme-well=""
@@ -114,7 +115,7 @@ export function ThemeImageWell({ url, missing = false, name, onFiles, takeAnyDro
         {url ? (
           <img src={url} alt="" className="block max-h-[80px] max-w-[160px] object-contain" />
         ) : (
-          <span className="sb-label text-text-muted">{missing ? 'Picture missing' : 'No image'}</span>
+          <span className="sb-label text-text-muted">{missing ? t('frameImage.pictureMissing') : t('storyboardView.noImage')}</span>
         )}
         <span className="flex flex-col gap-1">
           {name && <span className="truncate font-mono text-[11px] text-text-muted">{name}</span>}
@@ -128,9 +129,9 @@ export function ThemeImageWell({ url, missing = false, name, onFiles, takeAnyDro
                 .catch(showNotice);
             }}
           >
-            {url ? 'Replace image…' : 'Choose image…'}
+            {url ? t('themeImageWell.replaceImage') : t('themeImageWell.chooseImage')}
           </Button>
-          <span className="text-[12px] text-text-muted">Or drop or paste one here.</span>
+          <span className="text-[12px] text-text-muted">{t('themeImageWell.orDropOrPasteOne')}</span>
         </span>
       </div>
     </div>

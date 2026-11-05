@@ -7,6 +7,7 @@ import type { ProjectFile } from '../../core/storage/driver';
 import { pictureView } from '../storyboard/framePictures';
 import { arrowHead, pressureOutline, strokesOf, type Stroke } from '../storyboard/sketch/strokes';
 import type { Watermark } from './watermark';
+import { t } from '../../core/i18n';
 
 // A frame drawn as the board shows it (1.24), for PNG and PDF exports: its picture framed as the person framed it,
 // its sketch over it, and the watermark when the export carries one. Drawn at the size asked for, from the full-size
@@ -122,7 +123,7 @@ function drawPictureMissing(ctx: Canvas2D, width: number, height: number) {
   ctx.font = `600 ${String(Math.max(10, Math.round(Math.min(width, height) * 0.04)))}px "JetBrains Mono", Menlo, Consolas, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('PICTURE MISSING', width / 2, height / 2, width * 0.9);
+  ctx.fillText(t('export.pictureMissing'), width / 2, height / 2, width * 0.9);
   ctx.restore();
 }
 
@@ -160,7 +161,7 @@ export async function renderFrame(
 ): Promise<RenderedFrame> {
   const { width, height } = size;
   const { canvas, ctx } = makeCanvas(width, height);
-  if (!ctx) throw new Error('This computer can’t draw the frames for export.');
+  if (!ctx) throw new Error(t('export.cantDraw'));
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, width, height);
 

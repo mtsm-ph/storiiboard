@@ -1,4 +1,5 @@
 import { sceneLabel } from '../../core/model/storyboard';
+import { t } from '../../core/i18n';
 
 // Export file names (1.24, decided Nov 2): a frame is `SC004_4A.png`, its scene and shot numbers exactly as on the
 // slate, so an editor can match them. The scene's digits are padded to three so plain scene numbers line up in a
@@ -42,7 +43,7 @@ export function safeName(text: string): string {
       .replace(/\s+/g, ' ')
       // No dot first: it hides the file on a Mac and Linux, and the Rust side refuses such names outright, so
       // '...And Then There Were None' couldn't export at all. No dot or space last: Windows drops them from a name.
-      .replace(/^[.\s]+|[.\s]+$/g, '') || 'Storiiboard'
+      .replace(/^[.\s]+|[.\s]+$/g, '') || t('app.name')
   );
 }
 

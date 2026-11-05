@@ -6,11 +6,13 @@ import { fileMode } from '../fileAccess';
 import { localDateTime } from '../format';
 import type { LockedChoice } from '../openFiles';
 import { projectsFolderForNew } from './synced';
+import { t } from '../../core/i18n';
 
 // The native Save and Open dialogs (tauri-plugin-dialog), filtered to projects. Desktop only. Each returns null when
 // the person cancels.
 
-const PROJECT_FILTER = [{ name: 'Storiiboard Project', extensions: ['sbd'] }];
+// A function, so the filter's name follows the app's language.
+const projectFilter = () => [{ name: t('dialogs.projectFilter'), extensions: ['sbd'] }];
 
 /** The memory build's stand-in for both dialogs: a project name, kept under /memory. The tests answer it. */
 function promptForPath(title: string): Promise<string | null> {
@@ -25,46 +27,44 @@ export function withSbdExtension(path: string): string {
 
 /** Name and folder for a new project, in one dialog. It starts in Documents, or locally when Documents is synced. */
 export async function pickNewProjectPath(): Promise<string | null> {
-  if (fileMode === 'memory') return promptForPath('New project name');
+  if (fileMode === 'memory') return promptForPath(t('dialogs.newProjectName'));
   const path = await save({
-    title: 'New Project',
-    defaultPath: await join(await projectsFolderForNew(), 'Untitled.sbd'),
-    filters: PROJECT_FILTER,
+    title: t('dialogs.newProject'),
+    defaultPath: await join(await projectsFolderForNew(), `${t('dialogs.untitledFile')}.sbd`),
+    filters: projectFilter(),
   });
   return path === null ? null : withSbdExtension(path);
 }
 
-export async function pickProjectToOpen(title = 'Open Project'): Promise<string | null> {
+export async function pickProjectToOpen(title = t('dialogs.openProject')): Promise<string | null> {
   if (fileMode === 'memory') return promptForPath(title);
-  const path = await open({ title, multiple: false, directory: false, filters: PROJECT_FILTER });
+  const path = await open({ title, multiple: false, directory: false, filters: projectFilter() });
   return typeof path === 'string' ? path : null;
 }
 
 /** Open backup… starts nowhere in particular: backups sit in a Backups folder next to each project. */
 export function pickBackupToOpen(): Promise<string | null> {
-  return pickProjectToOpen('Open Backup');
+  return pickProjectToOpen(t('dialogs.openBackup'));
 }
 
-const OPEN_A_COPY = 'Open a Copy';
-const OPEN_ANYWAY = 'Open Anyway';
 
 /**
  * The warning before opening a project another computer has open. Open a copy is the safe choice and comes first:
  * a sync service can't merge two computers' edits to one file, so one set ends up in a conflicted copy.
  */
 export async function askWhenLocked(holder: LockHolder, path: string): Promise<LockedChoice> {
+  const openACopy = t('dialogs.openACopy');
+  const openAnyway = t('dialogs.openAnyway');
   const result = await message(
-    `“${fileStem(path)}” has been open on ${holder.computer} since ${localDateTime(new Date(holder.openedAt))}.\n\n` +
-      'Editing it on two computers at once can split the work into two conflicting files. Open a copy to work ' +
-      'separately, or open it anyway if it’s closed on the other computer.',
+    t('dialogs.lockedText', { name: fileStem(path), computer: holder.computer, since: localDateTime(new Date(holder.openedAt)) }),
     {
-      title: 'Open on another computer',
+      title: t('dialogs.lockedTitle'),
       kind: 'warning',
-      buttons: { yes: OPEN_A_COPY, no: OPEN_ANYWAY, cancel: 'Cancel' },
+      buttons: { yes: openACopy, no: openAnyway, cancel: t('common.cancel') },
     },
   );
   // Custom buttons report either their label or the role they replace, depending on the platform.
-  if (result === OPEN_A_COPY || result === 'Yes') return 'copy';
-  if (result === OPEN_ANYWAY || result === 'No') return 'anyway';
+  if (result === openACopy || result === 'Yes') return 'copy';
+  if (result === openAnyway || result === 'No') return 'anyway';
   return 'cancel';
 }

@@ -19,6 +19,9 @@ import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog,
 import { lineText, who, type FieldChange, type Line } from './summary';
 import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
+import { t, type MessageKey } from '../../core/i18n';
+import { Trans } from '../../ui/Trans';
+import { useLocale } from '../../ui/useLocale';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
 // did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects.
@@ -51,13 +54,14 @@ export function RestoreStatus({ restoring, opening = null }: { restoring: boolea
   // Always there, empty when idle, so a screen reader hears it start.
   return (
     <p role="status" className="text-[13px]">
-      {restoring ? 'Restoring the project…' : opening !== null ? `Copying “${opening}”…` : ''}
+      {restoring ? t('history.restoring') : opening !== null ? t('history.copying', { name: opening }) : ''}
     </p>
   );
 }
 
 export function HistoryTile() {
   const project = useProject((s) => s.project);
+  const locale = useLocale();
   const records = useProject((s) => s.records);
   const canUndo = useProject((s) => s.canUndo);
   // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
@@ -119,7 +123,8 @@ export function HistoryTile() {
     return () => {
       live = false;
     };
-  }, [gate, project, records, canUndo, deletedForGood, count, generation]);
+    // The language too: each step's line is worked out here, in the words of the moment.
+  }, [gate, project, records, canUndo, deletedForGood, count, generation, locale]);
 
   useEffect(() => {
     if (loaded) gate.read('steps', loaded.readFor);
@@ -178,7 +183,7 @@ export function HistoryTile() {
     if (!filtered) gate.gone('item');
   }, [gate, filtered]);
 
-  if (!project) return <p className="sb-label p-3 text-text-muted">No project open.</p>;
+  if (!project) return <p className="sb-label p-3 text-text-muted">{t('historyTile.noProjectOpen')}</p>;
   const undoKey = isMac() ? '⌘Z' : 'Ctrl+Z';
 
   const restore = (group: OpGroup) => {
@@ -221,17 +226,13 @@ export function HistoryTile() {
 
   const named = item ? itemName(item) : null;
   const label = named ? (
-    <>
-      Only {named.noun}
-      {named.mono !== '' && (
-        <>
-          {' '}
-          <span className="font-mono">{named.mono}</span>
-        </>
-      )}
-    </>
+    named.mono === '' ? (
+      t(named.only === 'history.only.shot' ? 'history.only.unnumbered' : named.only)
+    ) : (
+      <Trans k={named.only} parts={{ name: <span className="font-mono">{named.mono}</span> }} />
+    )
   ) : (
-    'Only the selected item'
+    t('history.onlySelected')
   );
   const places = (id: string): string | null => {
     const place = records[id];
@@ -247,7 +248,7 @@ export function HistoryTile() {
         if (!named) return;
         setNaming('');
         setGeneration((n) => n + 1);
-        showInfo(`Named this point “${versionNamed}”.`);
+        showInfo(t('history.named', { name: versionNamed }));
       })
       .finally(() => {
         savingVersion.current = false;
@@ -256,9 +257,9 @@ export function HistoryTile() {
   };
   const removeVersion = async (version: NamedVersion) => {
     const sure = await confirmForGood(
-      'Delete version?',
-      `The name “${version.name}” will be deleted. The steps stay in History; only the name goes, and it can’t be undone.`,
-      'Delete version',
+      t('history.deleteVersionTitle'),
+      t('history.deleteVersionText', { name: version.name }),
+      t('history.deleteVersionAction'),
     );
     if (!sure) return;
     // Worked out as pressed: the row below takes this one's place, so the next Delete… is where focus already was.
@@ -277,14 +278,14 @@ export function HistoryTile() {
     <div className="flex min-h-full flex-col">
       <section aria-labelledby={versionsId} aria-busy={opening !== null} className="flex flex-col gap-2 border-b border-border p-3">
         <h3 ref={versionsHeading} id={versionsId} tabIndex={-1} className="sb-label">
-          Named versions
+          {t('historyTile.namedVersions')}
         </h3>
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1">
             <TextField
-              label="Name this point"
+              label={t('historyTile.nameThisPoint')}
               value={naming}
-              placeholder="Board sent to client"
+              placeholder={t('historyTile.boardSentToClient')}
               maxLength={80}
               onChange={(event) => {
                 setNaming(event.currentTarget.value);
@@ -296,36 +297,42 @@ export function HistoryTile() {
             />
           </div>
           <Button disabled={!versionNamed || !loaded?.newest || saving} onClick={saveVersion}>
-            Name version
+            {t('historyTile.nameVersion')}
           </Button>
         </div>
         {(loaded?.versions.length ?? 0) > 0 && (
-          <ul ref={versionsList} aria-label="Named versions" className="flex flex-col">
+          <ul ref={versionsList} aria-label={t('historyTile.namedVersions')} className="flex flex-col">
             {loaded?.versions.map((version) => (
               <li key={version.id} className="flex items-center gap-3 border-t border-border py-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold">{version.name}</p>
                   <p className="text-[11px] text-text-muted">
-                    After “<LineText line={loaded.versionLines.get(version.id) ?? []} />” · <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>
+                    <Trans
+                      k="history.versionAfter"
+                      parts={{
+                        step: <LineText line={loaded.versionLines.get(version.id) ?? []} />,
+                        when: <span className="font-mono">{localDateTime(new Date(version.createdAt))}</span>,
+                      }}
+                    />
                   </p>
                 </div>
                 <Button
-                  aria-label={`Open version ${version.name}`}
+                  aria-label={t('history.openVersionLabel', { name: version.name })}
                   // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
                   aria-disabled={opening !== null || undefined}
                   onClick={() => {
                     void openVersion(version);
                   }}
                 >
-                  Open version
+                  {t('historyTile.openVersion')}
                 </Button>
                 <Button
                   variant="warning"
-                  aria-label={`Delete version ${version.name}`}
+                  aria-label={t('history.deleteVersionLabel', { name: version.name })}
                   data-delete-version={version.id}
                   onClick={() => void removeVersion(version)}
                 >
-                  Delete…
+                  {t('historyTile.delete')}
                 </Button>
               </li>
             ))}
@@ -340,16 +347,16 @@ export function HistoryTile() {
         itemOps?.id === item.id ? (
           <ItemHistory item={item} title={named.title} ops={itemOps.ops} places={places} busy={restoring} onPutBack={putBack} />
         ) : (
-          <p className="p-3 text-[13px] text-text-muted">Reading History…</p>
+          <p className="p-3 text-[13px] text-text-muted">{t('historyTile.readingHistory')}</p>
         )
       ) : (
         <>
           {loaded === null ? (
-            <p className="p-3 text-[13px] text-text-muted">Reading History…</p>
+            <p className="p-3 text-[13px] text-text-muted">{t('historyTile.readingHistory')}</p>
           ) : loaded.steps.length === 0 ? (
-            <p className="p-3 text-[13px] text-text-muted">No steps yet. Every change you make shows here.</p>
+            <p className="p-3 text-[13px] text-text-muted">{t('historyTile.noStepsYetEveryChange')}</p>
           ) : (
-            <ol ref={list} tabIndex={-1} aria-label="Steps, newest first" aria-busy={restoring} className="flex flex-col">
+            <ol ref={list} tabIndex={-1} aria-label={t('historyTile.stepsNewestFirst')} aria-busy={restoring} className="flex flex-col">
               {loaded.steps.map(({ group, line }, index) => (
                 <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
                   <div className="min-w-0 flex-1">
@@ -368,14 +375,14 @@ export function HistoryTile() {
                   {/* The newest step is how the project is now: nothing to go back to. */}
                   {index > 0 && group.kind !== 'empty_trash' && (
                     <Button
-                      aria-label={`Restore to here: after “${lineText(line)}”`}
+                      aria-label={t('history.restoreToLabel', { step: lineText(line) })}
                       // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
                       aria-disabled={restoring || undefined}
                       onClick={() => {
                         restore(group);
                       }}
                     >
-                      Restore to here
+                      {t('historyTile.restoreToHere')}
                     </Button>
                   )}
                 </li>
@@ -390,7 +397,7 @@ export function HistoryTile() {
                   setCount((n) => n + PAGE);
                 }}
               >
-                Show older steps
+                {t('historyTile.showOlderSteps')}
               </Button>
             </div>
           )}
@@ -401,14 +408,14 @@ export function HistoryTile() {
 }
 
 /** How the filter and the table name an item: "frame 4A", "scene SC 05", "this note". */
-function itemName(item: SbdRecord): { noun: string; mono: string; title: string } {
+function itemName(item: SbdRecord): { only: MessageKey; mono: string; title: string } {
   if (item.type === 'shot') {
     const number = shotFields(item.props).number;
-    return { noun: 'frame', mono: number, title: `frame ${number}` };
+    return { only: 'history.only.shot', mono: number, title: t('history.item.shot', { name: number }) };
   }
   if (item.type === 'scene') {
     const label = sceneLabel(sceneFields(item.props).number);
-    return { noun: 'scene', mono: label, title: `scene ${label}` };
+    return { only: 'history.only.scene', mono: label, title: t('history.item.scene', { name: label }) };
   }
-  return { noun: 'this note', mono: '', title: 'this note' };
+  return { only: 'history.only.note', mono: '', title: t('history.item.note') };
 }

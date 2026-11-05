@@ -5,6 +5,7 @@ import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import type { Script, ScriptScene } from '../../core/script/script';
 import { compareSceneNumbers, locations } from '../storyboard/board';
+import { t } from '../../core/i18n';
 
 // From a parsed script to the project (1.17): a scene shell for every scene the board doesn't have yet, with its
 // location and speaking characters found or created along the way, all in one op group so one undo takes the import
@@ -127,7 +128,7 @@ export function planImport(records: Records, projectId: string, script: Script):
         status = 'new';
       }
       if (scene.number !== null) {
-        note = own === null ? `The script’s number “${scene.number}” isn’t a scene number` : `The script prints ${own} twice`;
+        note = own === null ? t('script.notASceneNumber', { number: scene.number }) : t('script.printedTwice', { number: own });
       }
     }
     planned.push({ scene, number, status, note });
@@ -157,6 +158,7 @@ export function planImport(records: Records, projectId: string, script: Script):
 /** The scene's name as the board shows it after INT/EXT: its place, and a time of day the board has no value for. */
 function sceneName(scene: ScriptScene): string {
   const place = scene.location.trim();
+  // Stored as the scene's name, so it's the script's own words, never the app's language.
   return scene.otherTime ? `${place} — ${scene.otherTime}` : place;
 }
 

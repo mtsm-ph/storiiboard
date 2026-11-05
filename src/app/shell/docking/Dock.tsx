@@ -25,13 +25,9 @@ import { holdTextSelection, releaseTextSelection } from './textSelection';
 // Docking on pointer events, with no library and no HTML5 drag and drop: on Windows, Tauri's own file drop has to
 // stay on for Phase 2 (footage dragged into frames), and HTML5 drag and drop would need it off (decided Nov 2).
 
-const ZONE_LABEL: Record<DropZone, string> = {
-  left: 'Split left',
-  right: 'Split right',
-  top: 'Split top',
-  bottom: 'Split bottom',
-  center: 'Add as tab',
-};
+function zoneLabel(zone: DropZone): string {
+  return t(`dock.zone.${zone}`);
+}
 
 /** Pointer travel before a press on a title bar becomes a drag, so a click on it stays a click. */
 const DRAG_THRESHOLD_PX = 4;
@@ -142,10 +138,10 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         setKeyMove(null);
         if (target) {
           layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, move.tile, target, move.zone));
-          setAnnouncement(`${move.title} moved.`);
+          setAnnouncement(t('dock.moved', { title: move.title }));
           // Focus follows the tile to where it landed.
           requestAnimationFrame(() => {
-            document.querySelector<HTMLElement>(`[aria-label="Move ${CSS.escape(move.title)}"]`)?.focus();
+            document.querySelector<HTMLElement>(`[aria-label="${CSS.escape(t('tile.move', { title: move.title }))}"]`)?.focus();
           });
         }
         return;
@@ -154,14 +150,14 @@ export function Dock({ workspace }: { workspace: Workspace }) {
       event.stopPropagation();
       if (!next) {
         setKeyMove(null);
-        setAnnouncement('Move cancelled.');
+        setAnnouncement(t('dock.moveCancelled'));
         return;
       }
       const target = next.targets[next.index];
       setKeyMove({ ...next, box: target ? stackBox(target) : null });
       if (target) {
         const onto = findStack(layoutRef.current, target);
-        setAnnouncement(`${ZONE_LABEL[next.zone]} of ${title(onto?.active ?? '')}.`);
+        setAnnouncement(t('dock.zoneOf', { zone: zoneLabel(next.zone), title: title(onto?.active ?? '') }));
       }
     };
     window.addEventListener('keydown', onKeyDown, true);
@@ -176,14 +172,12 @@ export function Dock({ workspace }: { workspace: Workspace }) {
       .map((s) => s.id);
     const first = targets[0];
     if (!first) {
-      setAnnouncement('There is no other tile to move it next to.');
+      setAnnouncement(t('dock.noOtherTile'));
       return;
     }
     const tileTitle = title(stack.active);
     setKeyMove({ tile: stack.active, title: tileTitle, targets, index: 0, zone: 'right', box: stackBox(first) });
-    setAnnouncement(
-      `Moving ${tileTitle}. Tab picks a tile, arrow keys an edge, Space adds it as a tab. Enter drops, Escape cancels.`,
-    );
+    setAnnouncement(t('dock.moving', { title: tileTitle }));
   };
 
   const startDrag = (stack: Stack, event: PointerEvent<HTMLElement>) => {
@@ -253,7 +247,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
           ? {
               onClose: () => {
                 commit(removeTile(layout, active));
-                setAnnouncement(`${title(active)} closed.`);
+                setAnnouncement(t('dock.closed', { title: title(active) }));
               },
             }
           : {})}
@@ -288,7 +282,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
                 direction={node.direction}
                 before={node.sizes[i - 1] ?? 0}
                 after={node.sizes[i] ?? 0}
-                label={`Resize ${title(stacks(node.children[i - 1] ?? child)[0]?.active ?? '')} and ${title(stacks(child)[0]?.active ?? '')}`}
+                label={t('dock.resize', { first: title(stacks(node.children[i - 1] ?? child)[0]?.active ?? ''), second: title(stacks(child)[0]?.active ?? '') })}
                 onResize={(share, done) => {
                   const next = resizeSplit(stored, node.id, i - 1, share);
                   if (done) commit(next);
@@ -326,14 +320,14 @@ export function Dock({ workspace }: { workspace: Workspace }) {
     <div
       id={WORKSPACE_PANEL_ID}
       role="region"
-      aria-label={`${workspace.label} workspace`}
+      aria-label={t('dock.workspace', { name: workspace.label })}
       className="flex min-h-0 flex-1 flex-col p-gap"
     >
       {maximized ? (
         <>
           <div className="min-h-0 flex-1">{renderStack(maximized)}</div>
           {/* The other tiles wait as chips; restoring brings back every size and position as it was. */}
-          <ul aria-label="Folded tiles" className="mt-gap flex shrink-0 gap-gap">
+          <ul aria-label={t('dock.foldedTiles')} className="mt-gap flex shrink-0 gap-gap">
             {order
               .filter((tile) => !maximized.tiles.includes(tile))
               .map((tile) => (
@@ -362,7 +356,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
           style={preview}
         >
           {/* The label is the second cue: the orange outline alone never carries meaning (DESIGN.md). */}
-          <span className="sb-label bg-text px-1.5 py-1 text-text-inverse">{ZONE_LABEL[previewZone]}</span>
+          <span className="sb-label bg-text px-1.5 py-1 text-text-inverse">{zoneLabel(previewZone)}</span>
         </div>
       )}
       {drag?.started && (
@@ -392,3 +386,4 @@ export function Dock({ workspace }: { workspace: Workspace }) {
 }
 
 import { Splitter } from './Splitter';
+import { t } from '../../../core/i18n';

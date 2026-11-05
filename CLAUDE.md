@@ -227,6 +227,9 @@
 - TypeScript strict; no `any`.
 - Small components, one feature per folder.
 - Name things with the film terms users already know.
+- Every word people see (screens, notices, dialogs, PDF and CSV exports) comes from the translation files in
+  src/core/i18n/locales through `t()` or `tn()`. Stored values never change with the language, nor do the file names
+  other tools rely on (backups, `SC004_4A.png` frames, opened copies); export names and the PDF's words follow it.
 - Comment the why, not the what. People will fork this code.
 - Accessible: everything keyboard reachable, labels on icon buttons, AA contrast.
 

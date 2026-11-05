@@ -10,6 +10,7 @@ import { sectionId, type Workspace, type WorkspaceId } from '../workspaces';
 import { onNavKeyDown } from './navKeys';
 import { SceneList } from './SceneList';
 import { addSceneChange, sceneEntries } from './scenes';
+import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
 // its scenes inline. Arrow keys move through every entry and Enter opens one; Tab enters at the active section and
@@ -59,15 +60,15 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
 
   return (
     // The sidebar keeps paper outlines in dark, like the top bar: together they're the guiding board.
-    <nav aria-label="Sections" className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
+    <nav aria-label={t('sidebar.sections')} className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
       <div className="h-11 shrink-0 border-b border-border-top">
         <Menu
           label={
             <>
               {/* The project's accent; the name beside it is the second cue. */}
               <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent" />
-              <span className="sr-only">Project: </span>
-              <span className={cx('truncate', projectName === null && 'text-text-muted')}>{projectName ?? 'No project open'}</span>
+              <span className="sr-only">{t('sidebar.project')}{' '}</span>
+              <span className={cx('truncate', projectName === null && 'text-text-muted')}>{projectName ?? t('project.noneOpen')}</span>
             </>
           }
           buttonClassName="sb-label flex h-full w-full items-center gap-2 px-4 text-left focus-visible:-outline-offset-4"
@@ -77,7 +78,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
             canOpenFiles ? (
               <>
                 {recent.length > 0 && (
-                  <ul aria-label="Recent projects">
+                  <ul aria-label={t('sidebar.recentProjects')}>
                     {recent.map((entry) => (
                       <li key={entry.path}>
                         <button
@@ -105,7 +106,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                     onShowProjects();
                   }}
                 >
-                  All projects…
+                  {t('sidebar.allProjects')}
                 </button>
                 <button
                   type="button"
@@ -115,14 +116,14 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                     void newProject();
                   }}
                 >
-                  New project…
+                  {t('sidebar.newProject')}
                 </button>
               </>
             ) : (
               // The browser build has no files to open.
               <>
-                <ComingItem label="All projects…" phase="Desktop app" />
-                <ComingItem label="New project…" phase="Desktop app" />
+                <ComingItem label={t('sidebar.allProjects')} phase={t('sidebar.desktopApp')} />
+                <ComingItem label={t('sidebar.newProject')} phase={t('sidebar.desktopApp')} />
               </>
             )
           }
@@ -159,7 +160,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                 {workspace.label}
                 {isUnsaved(layouts[workspace.id]) && (
                   // The dot marks a layout changed since it was last saved (DESIGN.md, Workspaces).
-                  <span aria-label="unsaved layout" role="img" className="inline-block size-1.5 rounded-full bg-current" />
+                  <span aria-label={t('sidebar.unsavedLayout')} role="img" className="inline-block size-1.5 rounded-full bg-current" />
                 )}
                 {workspace.phase !== null && <span className="ml-auto font-normal">{workspace.phase}</span>}
               </button>

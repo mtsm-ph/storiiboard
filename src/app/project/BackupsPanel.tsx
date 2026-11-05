@@ -9,6 +9,7 @@ import { openBackup } from '../projects/actions';
 import { syncServiceOf } from '../projects/synced';
 import { useProject } from '../projectStore';
 import { BackupsView, type BackupEntry } from './BackupsView';
+import { t } from '../../core/i18n';
 
 export function BackupsPanel() {
   const project = useProject((s) => s.project);
@@ -66,7 +67,7 @@ export function BackupsPanel() {
         schedule
           .runNow()
           .then((run) => {
-            setStatus(run.created ? `Backed up at ${localDateTime(new Date())}.` : 'Nothing has changed since the last backup.');
+            setStatus(run.created ? t('backups.backedUpAt', { time: localDateTime(new Date()) }) : t('backups.nothingChanged'));
             setGeneration((n) => n + 1);
           })
           .catch(showNotice);

@@ -5,6 +5,7 @@ import type { ExportFormat } from './registry';
 import { renderFrame } from './renderFrame';
 import { scenesIn } from './scope';
 import { watermarkFor } from './watermark';
+import { t, tn } from '../../core/i18n';
 
 /** The long edge of an exported frame, in pixels: full HD for 16:9. */
 export const PNG_LONG_EDGE = 1920;
@@ -17,11 +18,15 @@ export function pngSize(aspect: number): { width: number; height: number } {
 
 export const pngFrames: ExportFormat = {
   id: 'png-frames',
-  label: 'Frames (PNG)',
-  description: 'One image per frame, named by scene and shot number as on the slate (SC004_4A.png), in a new folder.',
+  get label() {
+    return t('export.png.label');
+  },
+  get description() {
+    return t('export.png.description');
+  },
   output: 'folder',
   watermark: 'png',
-  name: (title, scene) => exportName(title, scene, 'frames'),
+  name: (title, scene) => exportName(title, scene, t('export.png.folderWord')),
   run: async ({ records, projectId, scope, file, target, progress, signal }) => {
     const props = records[projectId]?.props;
     const size = pngSize(aspectRatioValue(projectStoryboard(props).aspectRatio));
@@ -37,7 +42,7 @@ export const pngFrames: ExportFormat = {
       signal.throwIfAborted();
       const { canvas, pictureMissing } = await renderFrame(records, file, shot.record, size, watermark);
       const blob = await canvasBlob(canvas, 'image/png');
-      if (!blob) throw new Error(`This computer couldn’t save frame ${shot.fields.number || String(done + 1)} as a PNG.`);
+      if (!blob) throw new Error(t('export.png.cantSave', { frame: shot.fields.number || String(done + 1) }));
       // And once drawn: a frame being drawn when the person pressed Stop isn't written after it.
       signal.throwIfAborted();
       const name = unique(frameFileName(scene.fields.number, shot.fields.number || String(done + 1)));
@@ -46,7 +51,7 @@ export const pngFrames: ExportFormat = {
       done += 1;
       progress(done, frames.length);
     }
-    const what = `${String(done)} ${done === 1 ? 'frame' : 'frames'}`;
+    const what = tn('count.frames', done);
     return missing.length === 0 ? { what } : { what, warning: missingWarning(missing) };
   },
 };
@@ -55,8 +60,8 @@ export const pngFrames: ExportFormat = {
 export function missingWarning(names: readonly string[]): string {
   const shown = names.slice(0, MISSING_LISTED);
   const more = names.length - shown.length;
-  const which = more > 0 ? `${shown.join(', ')} and ${String(more)} more` : shown.join(', ');
-  return `${String(names.length)} ${names.length === 1 ? 'has' : 'have'} a missing picture: ${which}.`;
+  const which = more > 0 ? t('export.missingMore', { names: shown.join(', '), more }) : shown.join(', ');
+  return tn('export.missing', names.length, { which });
 }
 
 /** Enough names to find them in the folder, without a notice that fills the window. */

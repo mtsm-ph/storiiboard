@@ -22,6 +22,7 @@ import { SHOT_STATUS_LABELS, type ShotStatus } from '../../core/model/shotStatus
 import type { BoardScene } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import type { Watermark } from './watermark';
+import { t } from '../../core/i18n';
 
 // The PDF storyboard (1.25): US Letter, landscape, three frames a row with their number, specs, action and dialogue,
 // each scene starting on a fresh row under its heading. pdf-lib draws real text and lines and embeds each frame as a
@@ -209,7 +210,7 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const now = input.now ?? new Date();
-  pdf.setTitle(`${input.title} storyboard`);
+  pdf.setTitle(t('export.pdf.docTitle', { title: input.title }));
   pdf.setCreator('Storiiboard');
   pdf.setProducer('Storiiboard');
   pdf.setCreationDate(now);
@@ -233,7 +234,7 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
     const page = pdf.addPage([PAGE.width, PAGE.height]);
     pages.push(page);
     // The header: the project's title, and what this is, as the kit's tracked mono label.
-    const label = 'STORYBOARD';
+    const label = printable(fonts.mono, t('export.pdf.header'));
     const tracking = LABEL_TRACKING * 8;
     const labelWidth = fonts.mono.widthOfTextAtSize(label, 8) + tracking * (label.length - 1);
     const [title = ''] = wrap(printable(fonts.bold, input.title), fonts.bold, 14, PAGE.width - 2 * MARGIN - labelWidth - 16, 1);
@@ -260,7 +261,7 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
       if (length) current.drawText(length, { x: PAGE.width - MARGIN - lengthWidth, y: y - 11, size: 8, font: fonts.mono, color: MUTED });
       // The suffix gets its room first and the heading is cut to what's left: wrapped together, a long location's
       // name cut " (continued)" off with …, and the carried-on page no longer said it was one.
-      const suffix = continued ? ' (continued)' : '';
+      const suffix = continued ? t('export.pdf.continued') : '';
       const room = PAGE.width - MARGIN - after - lengthWidth - 12 - fonts.semi.widthOfTextAtSize(suffix, 11);
       const [text = ''] = wrap(printable(fonts.semi, headingOf(scene.fields)), fonts.semi, 11, room, 1);
       current.drawText(`${text}${suffix}`, { x: after, y: y - 12, size: 11, font: fonts.semi, color: INK });
@@ -294,7 +295,7 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
         }
         // The PDF's own 8pt label in both cases: the one drawn into a small frame's JPEG prints at 3 to 5pt.
         if (!drawn || pictureMissing) {
-          const said = 'PICTURE MISSING';
+          const said = printable(fonts.monoBold, t('export.pictureMissing'));
           const width = fonts.monoBold.widthOfTextAtSize(said, 8);
           current.drawText(said, { x: x + (frame.width - width) / 2, y: frameTop - frame.height / 2 - 3, size: 8, font: fonts.monoBold, color: INK });
           missing.push(f.number || String(start + column + 1));
@@ -334,7 +335,7 @@ export async function storyboardPdf(input: StoryboardInput): Promise<StoryboardP
   const watermark = input.watermark ? { ...input.watermark, text: printable(fonts.semi, input.watermark.text) } : null;
   const date = localDate(now);
   for (const [index, each] of pages.entries()) {
-    const label = `${String(index + 1)} / ${String(pages.length)}`;
+    const label = t('export.pdf.page', { page: index + 1, pages: pages.length });
     each.drawText(label, { x: PAGE.width - MARGIN - fonts.mono.widthOfTextAtSize(label, 8), y: MARGIN - 4, size: 8, font: fonts.mono, color: MUTED });
     each.drawText(date, { x: MARGIN, y: MARGIN - 4, size: 8, font: fonts.mono, color: MUTED });
     if (watermark) drawWatermark(pdf, each, watermark, fonts.semi);

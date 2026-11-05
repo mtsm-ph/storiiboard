@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
 // App settings that belong to the person, not the project: they never go into a .sbd file.
@@ -21,6 +22,8 @@ export interface Settings {
   syncNoted: string[];
   /** Keep a synced project's backups next to it, rather than in a folder on this computer (the default). */
   backupsNextToProject: boolean;
+  /** The app's language (Settings → App). The person's, never the project's: a shared .sbd opens in each one's own. */
+  language: LocaleId;
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -45,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backups: { ...DEFAULT_KEEP },
   syncNoted: [],
   backupsNextToProject: false,
+  language: DEFAULT_LOCALE,
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -81,6 +85,8 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
         ? saved.syncNoted.filter((p): p is string => typeof p === 'string').slice(-MAX_SYNC_NOTED)
         : [],
       backupsNextToProject: saved.backupsNextToProject === true,
+      // A language this version doesn't have (saved by a newer one, say) reads as the default.
+      language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
