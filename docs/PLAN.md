@@ -104,6 +104,14 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | | Planned |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
 
+Decided Nov 5 (Kevin):
+- PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
+  workspaces; each menu short, most-used first, at most four groups, and anything that undoes or deletes in its own
+  group at the bottom; items not built yet are hidden, not greyed out (phase placeholders stay in tiles and the
+  sidebar only); shortcuts at the right, and "…" on items that open an in-app window.
+- P7's glossary offers Kevin one choice: shot size abbreviations in Spanish (PG, PM, PP…) or kept in English (WS, MS,
+  CU…), as many bilingual US crews use them. Stored values stay as they are either way.
+
 P1 as built (Nov 4):
 - The app's words live in one file per language, src/core/i18n/locales (English: `en.ts`). Code reads them through
   `t()` and `tn()` (counted phrases, by the language's plural rules); a language is one file plus one line in

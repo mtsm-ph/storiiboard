@@ -10,6 +10,8 @@ import { projectStore, useProject } from '../projectStore';
 import { OnboardingHost } from '../theme/OnboardingDialog';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
+import { openTile } from './docking/layout';
+import { layoutStore } from './docking/layoutStore';
 import { isDragging } from './docking/textSelection';
 import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
@@ -19,7 +21,7 @@ import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
-import { sectionId, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
@@ -141,7 +143,21 @@ export function AppShell() {
 
   return (
     <div className="sb-grain flex h-full flex-col text-text">
-      <TopBar projectName={projectTitle} workspace={workspace} />
+      <TopBar
+        projectName={projectTitle}
+        workspace={workspace}
+        onOpenHistory={() => {
+          // From the Projects screen too: back to the workspace, with History in front.
+          const { layouts, change } = layoutStore.getState();
+          change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+          setProjectsAsked(false);
+          // Focus goes into the tile, on its first control, so the keyboard needn't cross the workspace to reach it.
+          requestAnimationFrame(() => {
+            const tile = document.querySelector(`section[aria-label="${CSS.escape(TILES.history?.title ?? '')}"]`);
+            tile?.querySelector<HTMLElement>('[data-scroll-root] :is(button, input, select, textarea, [tabindex]):not(:disabled):not([tabindex="-1"])')?.focus();
+          });
+        }}
+      />
       <div className="flex min-h-0 flex-1">
         {sidebarHidden ? (
           <SidebarStrip

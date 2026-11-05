@@ -80,8 +80,8 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 
 ## Navigation
 - **Top bar (44px):** the S mark, the project name, a History button beside it (the same tile as the menu's), and at
-  the right the Layout menu and the project menu (History,
-  Watermark Settings, Export Project, Archive Project). Like the sidebar, it keeps the paper outline in dark.
+  the right the Layout menu and the project menu (History, Watermark Settings, Export Project, Archive Project). Like
+  the sidebar, it keeps the paper outline in dark.
 - **Sidebar (248px, left, between the top bar and the status bar):**
   - The project switcher at the top: a dot in the project's accent, then its name. It opens recent projects, All
     projects… and New project….
