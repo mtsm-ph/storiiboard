@@ -54,6 +54,23 @@ export interface InspectorPicture {
   sourcePath: string;
 }
 
+/** The video a frame plays (2.2b), as the inspector shows it. */
+export interface InspectorVideo {
+  /** The clip's file name: `A001_C003_0101AB.MP4`. */
+  name: string;
+  /** "23.976 fps · 3840 × 2160 · H264". */
+  details: string;
+  /** The clip's timecode, in to out, and its length. */
+  range: string;
+  frames: string;
+  /** Where the project says it is: relative to the project's folder when inside it. */
+  path: string;
+  /** Its file can't be found, or read, on this computer. */
+  missing: boolean;
+  /** The video's record is gone (Empty Trash, a History restore): only Unlink is left to do. */
+  gone: boolean;
+}
+
 /** A set and an unset, as one update op takes them. */
 export interface FieldChange {
   set?: Record<string, JsonValue>;
@@ -77,6 +94,11 @@ export interface InspectorViewProps {
   frameAspect?: number;
   onChoosePicture?: () => void;
   onRemovePicture?: () => void;
+  /** The video the frame plays (2.2b); null for none. */
+  video?: InspectorVideo | null;
+  onLinkVideo?: () => void;
+  onRelinkVideo?: () => void;
+  onUnlinkVideo?: () => void;
   onCropChange?: (crop: Crop) => void;
   /** Opens the frame's sketch in the editor. */
   onSketch?: () => void;
@@ -369,6 +391,10 @@ export function InspectorView({
   frameAspect = 16 / 9,
   onChoosePicture,
   onRemovePicture,
+  video = null,
+  onLinkVideo,
+  onRelinkVideo,
+  onUnlinkVideo,
   onCropChange,
   locationName = null,
   onSketch,
@@ -487,6 +513,11 @@ export function InspectorView({
               <Button data-choose-picture="" onClick={onChoosePicture}>
                 {picture ? t('inspector.replace') : t('inspector.choosePicture')}
               </Button>
+              {onLinkVideo && (
+                <Button data-link-video="" onClick={onLinkVideo}>
+                  {t('inspector.linkVideo')}
+                </Button>
+              )}
               <Button onClick={onSketch}>{strokeCount > 0 ? t('inspector.editSketch') : t('inspector.sketch')}</Button>
               {picture && (
                 <Button
@@ -507,6 +538,57 @@ export function InspectorView({
               <p className="text-[12px] text-text-muted">{t('inspector.dropOrPaste', { keys: isMac() ? '⌘V' : 'Ctrl+V' })}</p>
             )}
           </Section>
+
+          {video && (
+            <Section title={t('inspectorView.video')}>
+              <div data-video-details="" className="flex min-w-0 flex-col gap-1">
+                {video.gone ? (
+                  <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">{t('inspector.videoGone')}</p>
+                ) : (
+                  <p data-user-text="" className="truncate font-mono text-[12px] font-bold" title={video.name}>
+                    {video.name}
+                  </p>
+                )}
+                {/* Missing media is flagged plainly, with the way back (CLAUDE.md); words, not only colour. The live
+                    region is always there, so a screen reader hears the line when it appears. */}
+                <div role="status" className="flex">
+                  {video.missing && !video.gone && (
+                    <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">{t('inspector.videoMissing')}</p>
+                  )}
+                </div>
+                {!video.gone && (
+                  <p className="flex min-w-0 flex-col font-mono text-[11px] text-text-muted">
+                    <span>{video.details}</span>
+                    <span>{t('inspector.videoRangeFrames', { range: video.range, frames: video.frames })}</span>
+                    {video.path && (
+                      <span className="truncate" title={video.path}>
+                        {video.path}
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {!video.gone && (
+                  <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>
+                    {t('inspector.relink')}
+                  </Button>
+                )}
+                <Button
+                  onClick={(event) => {
+                    // The section goes with the video; focus stays nearby, on Link video….
+                    const inspector = event.currentTarget.closest('[data-inspector]');
+                    onUnlinkVideo?.();
+                    requestAnimationFrame(() => {
+                      inspector?.querySelector<HTMLElement>('[data-link-video]')?.focus();
+                    });
+                  }}
+                >
+                  {t('inspector.unlinkVideo')}
+                </Button>
+              </div>
+            </Section>
+          )}
 
           <Section title={t('inspectorView.camera')} start>
             <SegmentedControl
@@ -696,7 +778,7 @@ export function InspectorView({
           </li>
           {[
             [t('inspector.shootDay'), t('phase.number', { phase: 3 })],
-            [t('inspector.birdsEye'), t('phase.number', { phase: 5 })],
+            [t('inspector.birdsEye'), t('phase.number', { phase: 6 })],
           ].map(([name, phase]) => (
             <li key={name} className="flex justify-between">
               <span>{name}</span>

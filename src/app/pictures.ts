@@ -13,6 +13,8 @@ export interface PictureFile {
   name: string;
   /** Where the file is on disk; desktop app only. */
   path?: string;
+  /** The browser build's file itself (a video's stand-in reads it whole). */
+  file?: File;
   read(): Promise<Blob>;
 }
 
@@ -51,7 +53,7 @@ export function fromPath(path: string): PictureFile {
 
 /** A file from a file input, a drop in the browser build, or the clipboard. */
 export function fromFile(file: File): PictureFile {
-  return { name: file.name, read: () => Promise.resolve(file) };
+  return { name: file.name, file, read: () => Promise.resolve(file) };
 }
 
 /** The Open dialog for pictures; empty when it's cancelled. */

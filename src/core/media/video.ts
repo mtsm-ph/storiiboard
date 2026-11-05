@@ -91,6 +91,7 @@ export function videoProps(probe: VideoProbe, source: VideoSource, projectPath: 
     ...(source.size !== undefined ? { source_size: source.size } : {}),
     duration_frames: probe.durationFrames,
     fps: rationalProp({ num: probe.fpsNum, den: probe.fpsDen }),
+    // An empty tag is no timecode at all.
     ...(probe.startTimecode ? { start_timecode: probe.startTimecode } : {}),
     width: probe.width,
     height: probe.height,

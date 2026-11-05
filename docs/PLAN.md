@@ -37,8 +37,8 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | Milestone | PR | State |
 |---|---|---|
 | 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | Done |
-| 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | | In review |
-| 2.2b Link a video to a frame by drop or browse, its poster as the picture; video details in the inspector; missing flag and Relink | | Not started |
+| 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | #72 | Done |
+| 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | | In review |
 | 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |

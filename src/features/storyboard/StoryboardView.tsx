@@ -60,6 +60,8 @@ export interface FrameCard {
   custom?: Readonly<Record<string, string>>;
   /** The departments that have opened the frame (polish 6b). */
   seen?: readonly string[];
+  /** Set when the frame plays part of a video (2.2b); `missing` when its file can't be found on this computer. */
+  clip?: { missing: boolean };
 }
 
 const NOTHING_SEEN: readonly string[] = [];
@@ -469,6 +471,18 @@ export function StoryboardView({
           {frame.strokes && frame.strokes.length > 0 && (
             <SketchSvg strokes={frame.strokes} aspect={aspectRatio} />
           )}
+          {frame.clip && (
+            // Words, not only colour: CLIP, or CLIP MISSING in the warning colour (CLAUDE.md: flag missing media).
+            <span
+              data-clip-tag=""
+              className={cx(
+                'sb-label absolute bottom-1 left-1 px-1',
+                frame.clip.missing ? 'bg-warning text-paper-fixed' : 'border border-text bg-surface text-text',
+              )}
+            >
+              {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
+            </span>
+          )}
           {hovered && <DropMark label={frame.picture ? t('board.replacePicture') : t('board.setPicture')} />}
         </span>
         <span className="flex items-center gap-2 px-2 py-1.5">
@@ -811,6 +825,15 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                         {frame.number}
                       </span>
                     </button>
+                    {/* The same cue as on the card (2.2b): words, the warning colour only with them. */}
+                    {frame.clip && (
+                      <span
+                        data-clip-tag=""
+                        className={cx('sb-label ml-2 px-1', frame.clip.missing ? 'bg-warning text-paper-fixed' : 'border border-text bg-surface text-text')}
+                      >
+                        {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
+                      </span>
+                    )}
                   </td>
                   <td className={cx(cell, 'font-mono')}>{f.size ? SHOT_SIZE_LABEL[f.size] : '—'}</td>
                   <td className={cx(cell, 'font-mono')}>{f.lensMm === null ? '—' : t('history.lens', { mm: f.lensMm })}</td>

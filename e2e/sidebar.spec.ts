@@ -13,11 +13,11 @@ test('lists the six sections in order, each showing its phase, and opens one per
   const sections = sidebar(page).locator('[id^="section-"]');
   await expect(sections).toHaveText([
     'StoryboardPhase 1',
-    'AssetsPhase 2',
+    'AssetsPhase 3',
     'TeamPhase 3',
-    'SetupPhase 5',
+    'SetupPhase 6',
     'ProductionPhases 3–4',
-    'MoodboardPhase 6',
+    'MoodboardPhase 5',
   ]);
   // Settings is a window of the app's own (polish B), behind the gear at the sidebar's foot (polish C).
   await expect(gear(page)).toBeVisible();
