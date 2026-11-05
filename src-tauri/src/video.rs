@@ -303,11 +303,14 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
             Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            _ => {
+            Ok(None) => {
+                // A read stuck on a share that stopped answering can hold the kill back until it returns, so the
+                // wait for the process happens on a thread of its own, never here.
                 let _ = child.kill();
-                let _ = child.wait();
+                std::thread::spawn(move || child.wait());
                 return Err("That video took too long to read. If it's on a network drive, copy it to this computer first.".into());
             }
+            Err(_) => return Err("That file can't be read as a video.".into()),
         }
     };
     let bytes = reader.join().ok().and_then(Result::ok);
