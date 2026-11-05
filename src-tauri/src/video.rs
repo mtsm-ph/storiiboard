@@ -482,7 +482,9 @@ mod tests {
     }
 
     #[test]
-    fn reads_interlaced_footage_at_its_frame_rate_and_anamorphic_pixels() {
+    fn reads_interlaced_hdv_with_its_anamorphic_pixels_and_a_ts_files_length() {
+        // mpeg2video's interlaced pictures read as 25/1 both ways; a field rate twice the average (H.264 1080i) is
+        // in chooses_frame_rates_from_what_ffprobe_reports, as this build can't encode H.264 to make one.
         let dir = temp_dir("interlaced");
         let clip = make(
             &dir,

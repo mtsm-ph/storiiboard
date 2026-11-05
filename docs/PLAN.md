@@ -57,7 +57,7 @@ local files only, gives up after 30 seconds, and returns the codec, size, pixel 
 length in frames, source timecode, rotation (clockwise, 0/90/180/270), audio, HDR and bit depth. Interlaced footage
 reads at its frame rate, not its field rate; a variable-rate phone clip at the nearest standard rate, counted by its
 length. Its tests make their own clips with the sidecar: 23.976 with timecode, 29.97 drop-frame with audio in a file
-named in Spanish and Japanese, a phone's three rotations, 10-bit HLG, 25i HDV, a clip with dropped frames, and an
+named in Spanish and Japanese, a phone's three rotations, 10-bit HLG, 25i HDV (its pixel shape; field rates are unit-tested from ffprobe's JSON), a clip with dropped frames, and an
 inverting LUT that turns black white.
 
 ### Phase 1 milestones
