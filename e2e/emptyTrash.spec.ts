@@ -92,7 +92,7 @@ test('Compact project backs up and shrinks the file without asking, and the boar
   await storage(page).getByRole('button', { name: 'Compact project' }).click();
   await expect(page.getByText(/^Compacted the project: .+ Backed up first as “Bey County \d{4}-\d{2}-\d{2} \d{2}-\d{2}\.sbd”\.$/)).toBeVisible();
   await expect(storage(page).getByText(/with no free space inside\.$/)).toBeFocused();
-  await expect(page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Cancel', exact: true }) })).toHaveCount(0);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   // The backup is listed with the project's others.
   await settingsWindow(page).getByRole('tab', { name: 'Backups' }).click();
   await expect(
@@ -173,4 +173,57 @@ test('a theme image deleted by Clean up reads as missing, and shows again when c
   await expect(theme.getByText('Picture missing')).toBeVisible();
   await choose();
   await expect(theme.locator('img')).toBeVisible();
+});
+
+test('a question opens on Cancel, says why, and Escape answers it: nothing is deleted', async ({ page }) => {
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('Delete');
+  await openTile(page, 'Trash');
+  await trashTile(page).getByRole('button', { name: 'Empty Trash…' }).click();
+  const asked = page.getByRole('alertdialog', { name: 'Empty Trash?' });
+  await expect(asked).toBeVisible();
+  // Read as it opens: the question and why.
+  await expect(asked).toHaveAccessibleDescription(/can’t be undone/);
+  await expect(asked.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(asked.getByRole('button', { name: 'Empty Trash', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(asked).toBeHidden();
+  await expect(trashTile(page).getByRole('button', { name: /^Restore frame/ })).toHaveCount(1);
+  await expect(trashTile(page).getByRole('button', { name: 'Empty Trash…' })).toBeFocused();
+});
+
+test('a question over Settings: Escape closes only the question, and focus goes back inside Settings', async ({ page }) => {
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('Delete');
+  await openStorage(page);
+  await storage(page).getByRole('button', { name: 'Empty Trash…' }).click();
+  await expect(page.getByRole('alertdialog', { name: 'Empty Trash?' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(settingsWindow(page)).toBeVisible();
+  await expect(storage(page).getByRole('button', { name: 'Empty Trash…' })).toBeFocused();
+  await expect(storage(page).getByText('1 item in the Trash.')).toBeVisible();
+});
+
+test('a notice raised inside Settings shows there, where it can be read and dismissed', async ({ page }) => {
+  await openStorage(page);
+  await storage(page).getByRole('button', { name: 'Compact project' }).click();
+  const said = settingsWindow(page).getByRole('status').filter({ hasText: /^Compacted the project/ });
+  await expect(said).toBeVisible();
+  await said.getByRole('button', { name: 'Got it' }).click();
+  await expect(said).toHaveCount(0);
+});
+
+test('a notice still showing doesn’t take a window’s first focus', async ({ page }) => {
+  await openStorage(page);
+  await storage(page).getByRole('button', { name: 'Compact project' }).click();
+  await expect(settingsWindow(page).getByRole('status').filter({ hasText: /^Compacted the project/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // The notice now shows above the workspace; Export opens on its own first control, the notice one Tab away.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…' }).click();
+  const exporting = page.getByRole('dialog', { name: 'Export' });
+  await expect(exporting.getByRole('radio', { name: 'Storyboard (PDF)' })).toBeFocused();
+  await expect(exporting.getByRole('status').filter({ hasText: /^Compacted the project/ })).toBeVisible();
 });

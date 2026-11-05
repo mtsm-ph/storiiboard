@@ -50,8 +50,9 @@ export function pickBackupToOpen(): Promise<string | null> {
 
 
 /**
- * The warning before opening a project another computer has open. Open a copy is the safe choice and comes first:
- * a sync service can't merge two computers' edits to one file, so one set ends up in a conflicted copy.
+ * The warning before opening a project another computer has open. Open a copy is the safe choice, the primary one;
+ * Open anyway is marked as the risk it is: a sync service can't merge two computers' edits to one file, so one set
+ * ends up in a conflicted copy. Cancel comes first, where focus starts.
  */
 export async function askWhenLocked(holder: LockHolder, path: string): Promise<LockedChoice> {
   // In a window of the app's own (polish B), never the system's message box.
@@ -60,7 +61,7 @@ export async function askWhenLocked(holder: LockHolder, path: string): Promise<L
     text: t('dialogs.lockedText', { name: fileStem(path), computer: holder.computer, since: localDateTime(new Date(holder.openedAt)) }),
     choices: [
       { id: 'cancel', label: t('common.cancel') },
-      { id: 'anyway', label: t('dialogs.openAnyway') },
+      { id: 'anyway', label: t('dialogs.openAnyway'), variant: 'warning' },
       { id: 'copy', label: t('dialogs.openACopy'), variant: 'primary' },
     ],
     cancel: 'cancel',

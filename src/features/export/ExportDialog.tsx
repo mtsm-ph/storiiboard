@@ -6,6 +6,7 @@ import { sceneLabel } from '../../core/model/storyboard';
 import { chooseExportFile, chooseExportFolder } from '../../core/storage/exportFiles';
 import { Button } from '../../ui/Button';
 import { InAppWindow } from '../../ui/InAppWindow';
+import { NoticeBar } from '../../app/NoticeBar';
 import { Select } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { board } from '../storyboard/board';
@@ -33,6 +34,7 @@ export function ExportHost() {
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
     <InAppWindow title={title} onClose={onClose}>
+      <NoticeBar />
       <div className="flex flex-col gap-4 p-4">{children}</div>
     </InAppWindow>
   );

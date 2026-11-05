@@ -200,7 +200,8 @@ export function isTextEntry(target: EventTarget | null): boolean {
  */
 export function inModalDialog(target: EventTarget | null, projectUndo = false): boolean {
   const own = target !== null && typeof (target as Partial<Element>).closest === 'function' ? (target as Element).closest('dialog[open]') : null;
-  const open = own ?? (typeof document === 'undefined' ? null : document.querySelector('dialog[open]'));
+  // The top one: a question over Settings blocks ⌘Z even though Settings would let it through.
+  const open = own ?? (typeof document === 'undefined' ? null : ([...document.querySelectorAll('dialog[open]')].at(-1) ?? null));
   return open !== null && !(projectUndo && open.hasAttribute('data-project-undo'));
 }
 

@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { t } from '../core/i18n';
@@ -25,6 +26,11 @@ interface Asked {
 }
 
 const askStore = createStore<{ asked: Asked | null }>()(() => ({ asked: null }));
+
+/** The question showing now, for tests that answer it as a person would. */
+export function currentQuestion(): Readonly<Omit<Asked, 'answer'>> & { answer: (id: string) => void } | null {
+  return askStore.getState().asked;
+}
 
 /** Asks, and resolves to the id of the choice picked, or `cancel` when the window was closed without one. */
 export function ask(question: Omit<Asked, 'answer'>): Promise<string> {
@@ -61,12 +67,26 @@ export async function confirmForGood(title: string, text: string, action: string
 /** Where the question shows: once, at the shell's root. */
 export function AskHost() {
   const asked = useStore(askStore, (s) => s.asked);
+  const textId = useId();
   if (!asked) return null;
   // The window opens with focus on its first button, Cancel: Enter never deletes by accident.
   return (
-    <InAppWindow key={asked.title + asked.text} title={asked.title} onClose={() => { asked.answer(asked.cancel); }} width={460}>
+    <InAppWindow
+      key={asked.title + asked.text}
+      title={asked.title}
+      onClose={() => {
+        asked.answer(asked.cancel);
+      }}
+      width={460}
+      // Read as it opens: the question and why, not just its title and the button focus lands on.
+      describedBy={textId}
+      // Plain "Close", which answers the cancel: "Close Empty Trash?" heard aloud sounds like the action itself.
+      closeLabel={t('window.closePlain')}
+    >
       <div className="flex flex-col gap-4 p-4">
-        <p className="text-[13px] whitespace-pre-line">{asked.text}</p>
+        <p id={textId} className="text-[13px] whitespace-pre-line">
+          {asked.text}
+        </p>
         <div className="flex flex-wrap justify-end gap-2">
           {asked.choices.map((choice) => (
             <Button

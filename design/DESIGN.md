@@ -124,7 +124,11 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   as a window of the app's own. It moves with the app and stays behind other programs when they come forward. Only
   the system's Open and Save file pickers stay the system's.
 - **Anatomy:** like a tile: a 1.5px ink rule, no radius, no shadow, and a 26px title bar with the title as a bold
-  10px label and a close button at the right. The app behind dims and can't be reached.
+  10px label and a close button at the right. The app behind dims under an ink wash and can't be reached; a notice
+  raised from inside the window shows inside it. Import script, the onboarding and the sketch editor are windows of
+  the app's own too, with their own larger titles.
+- **Questions:** the question as the title, why below it (read aloud as it opens), the choices at the right: Cancel
+  first, where focus starts, then the action, Truffle-outlined when it deletes for good or risks the work.
 - **Keyboard:** focus starts on the window's first control (Cancel, in a question), Tab and Shift+Tab stay inside,
   Escape closes, and focus goes back to what had it before.
 - **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups and Storage as tabs

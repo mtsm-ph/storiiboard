@@ -966,5 +966,9 @@ export const en = {
   'dock.noWindowCentre': 'The window has no centre: pick top, right or bottom.',
   // src/app/shell/docking/Dock.tsx
   'dock.stayed': '{title} is along that edge already.',
+  // src/app/settings/SettingsWindow.tsx
+  'settings.sections': 'Settings sections',
+  // src/app/ask.tsx
+  'window.closePlain': 'Close',
   // codemod: new entries above this line
 };

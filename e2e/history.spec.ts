@@ -227,7 +227,7 @@ test('a named version opens as a copy at that point, and the original keeps ever
   // Deleting the version asks first, and leaves the steps: every one of them is still listed, only the name goes.
   const before = await steps(page).allTextContents();
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).click();
-  await expect(page.getByRole('dialog', { name: 'Delete version?' })).toBeVisible();
+  await expect(page.getByRole('alertdialog', { name: 'Delete version?' })).toBeVisible();
   const said = await answerAsk(page, true);
   await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
   expect(said).toContain('“Board sent to client” will be deleted');
@@ -306,7 +306,7 @@ test('Delete… from the keyboard moves focus to the next version, then to the h
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).focus();
   await page.keyboard.press('Enter');
   // The question takes the keyboard too: Tab to Delete version, and Enter.
-  const asked = page.getByRole('dialog', { name: 'Delete version?' });
+  const asked = page.getByRole('alertdialog', { name: 'Delete version?' });
   await asked.getByRole('button', { name: 'Delete version', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(versions).toHaveCount(1);
