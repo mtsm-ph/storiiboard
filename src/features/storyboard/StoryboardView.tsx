@@ -477,7 +477,7 @@ export function StoryboardView({
               data-clip-tag=""
               className={cx(
                 'sb-label absolute bottom-1 left-1 px-1',
-                frame.clip.missing ? 'bg-warning text-paper-fixed' : 'bg-text text-text-inverse',
+                frame.clip.missing ? 'bg-warning text-paper-fixed' : 'border border-text bg-surface text-text',
               )}
             >
               {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
@@ -829,7 +829,7 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                     {frame.clip && (
                       <span
                         data-clip-tag=""
-                        className={cx('sb-label ml-2 px-1', frame.clip.missing ? 'bg-warning text-paper-fixed' : 'bg-text text-text-inverse')}
+                        className={cx('sb-label ml-2 px-1', frame.clip.missing ? 'bg-warning text-paper-fixed' : 'border border-text bg-surface text-text')}
                       >
                         {frame.clip.missing ? t('board.clipMissing') : t('board.clip')}
                       </span>

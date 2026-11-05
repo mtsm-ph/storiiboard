@@ -41,6 +41,12 @@ function setMissing(missing: Record<string, true>): void {
   if (!same(videoStatusStore.getState().missing, missing)) videoStatusStore.setState({ missing });
 }
 
+/**
+ * How long one look at the files may take before it's given up on, keeping what was known: a network share that
+ * stopped answering can take tens of seconds a file.
+ */
+export const CHECK_TIMEOUT_MS = 8000;
+
 async function checkOnce(): Promise<void> {
   const { project, records } = projectStore.getState();
   const videos = project ? linked(records, project.file.path) : [];
@@ -48,15 +54,26 @@ async function checkOnce(): Promise<void> {
     setMissing({});
     return;
   }
-  let statuses: Awaited<ReturnType<typeof videoDriver.status>>;
+  let statuses: Awaited<ReturnType<typeof videoDriver.status>> | null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    statuses = await videoDriver.status(
-      videos.map((v) => v.path),
-      project.file.nativeHandle,
-    );
+    statuses = await Promise.race([
+      videoDriver.status(
+        videos.map((v) => v.path),
+        project.file.nativeHandle,
+      ),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(null);
+        }, CHECK_TIMEOUT_MS);
+      }),
+    ]);
   } catch {
     return;
+  } finally {
+    clearTimeout(timer);
   }
+  if (!statuses) return;
   // Another project opened meanwhile: the next check has the last word.
   if (projectStore.getState().project !== project) return;
   const missing: Record<string, true> = {};
@@ -66,29 +83,34 @@ async function checkOnce(): Promise<void> {
   setMissing(missing);
 }
 
-let running: Promise<void> | null = null;
+let running: { project: unknown; done: Promise<void> } | null = null;
 let again = false;
 const askedAgain = () => again;
 
 /**
- * Looks at every linked video's file now. One check at a time: asked again while one runs (a focus during a slow
- * drive's answer), it runs once more after, never piling up calls on a drive that's slow to answer.
+ * Looks at every linked video's file now. One check at a time for a project: asked again while one runs (a focus
+ * during a slow drive's answer), it runs once more after, never piling up calls on a drive that's slow to answer.
+ * Another project doesn't wait behind the last one's check: its flags clear at once and its own check starts.
  */
 export function checkVideos(): Promise<void> {
-  if (running) {
+  const { project } = projectStore.getState();
+  if (running && running.project === project) {
     again = true;
-    return running;
+    return running.done;
   }
-  running = (async () => {
+  if (running) setMissing({});
+  const mine: { project: unknown; done: Promise<void> } = { project, done: Promise.resolve() };
+  mine.done = (async () => {
     do {
       again = false;
       await checkOnce();
       // Read through a function: set by another call while this one awaited, which the type checker can't see.
-    } while (askedAgain());
+    } while (askedAgain() && running === mine);
   })().finally(() => {
-    running = null;
+    if (running === mine) running = null;
   });
-  return running;
+  running = mine;
+  return mine.done;
 }
 
 /** What the check depends on: the project, and each live video's id and path. */

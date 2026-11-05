@@ -19,7 +19,7 @@ const asked = vi.hoisted(() => ({ ask: vi.fn() }));
 vi.mock('../../app/ask', () => asked);
 
 const { projectStore } = await import('../../app/projectStore');
-const { checkVideos, videoStatusStore } = await import('./videoStatus');
+const { CHECK_TIMEOUT_MS, checkVideos, videoStatusStore } = await import('./videoStatus');
 const { relinkVideo } = await import('./relink');
 
 const probe: VideoProbe = {
@@ -100,6 +100,40 @@ describe('the missing flag', () => {
     await projectStore.getState().close();
     await checkVideos();
     expect(videoStatusStore.getState().missing).toEqual({});
+  });
+});
+
+describe('a check that never answers', () => {
+  it('is given up on, keeping what was known', async () => {
+    await projectStore.getState().apply([video('v', 'C0042.MP4')]);
+    driver.status.mockResolvedValueOnce([{ exists: false, size: null }]);
+    await checkVideos();
+    expect(videoStatusStore.getState().missing).toEqual({ v: true });
+
+    driver.status.mockImplementation(() => new Promise(() => undefined));
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const hung = checkVideos();
+      await vi.advanceTimersByTimeAsync(CHECK_TIMEOUT_MS);
+      await hung;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(videoStatusStore.getState().missing).toEqual({ v: true });
+  });
+
+  it('never holds up another project’s check', async () => {
+    await projectStore.getState().apply([video('v', 'C0042.MP4')]);
+    driver.status.mockImplementationOnce(() => new Promise(() => undefined));
+    void checkVideos();
+    // Another project opens while the first one's check hangs.
+    const other = await createProject(folder.path('Other.sbd'), { driver: nodeDriver, backups: false });
+    await projectStore.getState().open(other);
+    project = other;
+    await projectStore.getState().apply([video('w', 'C0050.MP4')]);
+    driver.status.mockResolvedValue([{ exists: false, size: null }]);
+    await checkVideos();
+    expect(videoStatusStore.getState().missing).toEqual({ w: true });
   });
 });
 

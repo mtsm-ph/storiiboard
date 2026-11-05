@@ -346,7 +346,11 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
   // A video linked to a frame (2.2b), found by the still it put there, so a video the project had already reads the
   // same; or a video pointed at its file again.
   const grabs = ops.filter((op) => op.kind === 'create' && op.after?.type === 'media' && isObject(op.after.props.from_video));
-  if (grabs.length > 1) return [t('history.videosLinked', { count: grabs.length }), tag];
+  const linkedVideos = new Set(grabs.map((op) => {
+    const from = op.after?.props.from_video;
+    return isObject(from) && typeof from.video_id === 'string' ? from.video_id : op.recordId;
+  }));
+  if (linkedVideos.size > 1) return [t('history.videosLinked', { count: linkedVideos.size }), tag];
   const [grabbed] = grabs;
   if (grabbed) {
     const from = grabbed.after?.props.from_video;

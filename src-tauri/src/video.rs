@@ -230,7 +230,8 @@ pub fn read_probe(json: &Value) -> Result<Probe, String> {
     let start_timecode = std::iter::once(&video["tags"]["timecode"])
         .chain(std::iter::once(&json["format"]["tags"]["timecode"]))
         .chain(streams.iter().map(|s| &s["tags"]["timecode"]))
-        .find_map(|t| t.as_str().map(str::to_owned));
+        // An empty tag is no timecode at all.
+        .find_map(|t| t.as_str().filter(|t| !t.is_empty()).map(str::to_owned));
     let clockwise = video["side_data_list"]
         .as_array()
         .and_then(|list| list.iter().find_map(|d| number(&d["rotation"])))

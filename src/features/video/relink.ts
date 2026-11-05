@@ -33,7 +33,7 @@ export function relinkMismatch(linked: VideoFields, probe: VideoProbe, file: { n
   const length = linked.durationFrames !== probe.durationFrames;
   const size = linked.sourceSize !== null && file.size !== undefined && file.size !== null && linked.sourceSize !== file.size;
   const named = linked.sourceName !== '' && linked.sourceName !== file.name;
-  const timecode = linked.startTimecode !== probe.startTimecode;
+  const timecode = linked.startTimecode !== (probe.startTimecode || null);
   const other = size || named || timecode;
   return rate || length || other ? { rate, length, file: other } : null;
 }

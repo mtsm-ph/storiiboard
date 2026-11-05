@@ -40,7 +40,7 @@ function existingVideo(records: Records, projectId: string, storedPath: string, 
       video !== null &&
       video.fps.num * probe.fpsDen === probe.fpsNum * video.fps.den &&
       video.durationFrames === probe.durationFrames &&
-      video.startTimecode === probe.startTimecode
+      video.startTimecode === (probe.startTimecode || null)
     );
   });
 }

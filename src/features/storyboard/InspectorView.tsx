@@ -543,7 +543,7 @@ export function InspectorView({
             <Section title={t('inspectorView.video')}>
               <div data-video-details="" className="flex min-w-0 flex-col gap-1">
                 {video.gone ? (
-                  <p className="text-[12px] text-text-muted">{t('inspector.videoGone')}</p>
+                  <p className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">{t('inspector.videoGone')}</p>
                 ) : (
                   <p data-user-text="" className="truncate font-mono text-[12px] font-bold" title={video.name}>
                     {video.name}
