@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { cx } from './cx';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'warning';
@@ -21,6 +21,8 @@ const ARIA_DISABLED =
   'aria-disabled:border aria-disabled:border-dashed aria-disabled:border-text-muted aria-disabled:bg-surface-raised aria-disabled:text-text-muted aria-disabled:no-underline';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** React 19 passes a ref as a prop; it reaches the button. */
+  ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   /** Mono for technical commands such as "[ IN" and "OUT ]". */
   mono?: boolean;

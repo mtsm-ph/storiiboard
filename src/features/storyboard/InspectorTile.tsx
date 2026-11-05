@@ -3,10 +3,14 @@ import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
 import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
-import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
+import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { approvalNow, useProjectRole } from '../../app/settings/projectRole';
 import { approverRoles, departmentStatusChange, departmentStatuses } from '../../core/model/departmentStatus';
 import { addPictures } from './addPictures';
+import { paletteOf } from '../../core/model/palette';
+import { copyHex, editPalette, generatePalette } from './palette/actions';
+import { PaletteEditor } from './palette/PaletteEditor';
+import { framesWithPictures } from './palette/read';
 import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorPicture } from './InspectorView';
@@ -98,6 +102,19 @@ export function InspectorTile() {
             return { changes: current && next ? [{ kind: 'update', id: shot.id, ...departmentStatusChange(next) }] : [] };
           });
         }}
+        palette={
+          scene ? (
+            <PaletteEditor
+              key={scene.id}
+              scene={sceneLabel(sceneFields(scene.props).number)}
+              palette={paletteOf(scene.props)}
+              canGenerate={framesWithPictures(records, scene.id).length > 0}
+              onGenerate={() => generatePalette(scene.id)}
+              onEdit={(edit) => editPalette(scene.id, edit)}
+              onCopy={copyHex}
+            />
+          ) : undefined
+        }
         approval={() => approvalNow(role)}
         myRoles={approverRoles(role)}
         {...(seen ? { seen } : {})}

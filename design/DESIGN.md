@@ -65,6 +65,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Have: filled square
   - Need to shoot: empty square
   - Source: half-filled square
+- **Scene palettes (polish PP)** are the scene's own colours, the person's data: they show as they are and never
+  touch the app's theme. In the inspector, under the scene: 24px swatches outlined in the text colour, the picked one
+  ringed in ink, its hex below in mono; a lock shows under a swatch, never drawn on the colour. One Tab stop for the
+  swatches (arrows pick, ⌘ or Ctrl with an arrow moves, L locks, Delete takes out); a click copies the hex.
 - **Department status (polish 6)** is state, so it has colours of its own (`state-*` tokens, fixed), from the kit, and
   a shape each, outlined in the text colour so the shape reads in both themes whatever the fill:
   - Priority: a filled triangle, in ink (paper in dark).
@@ -165,7 +169,8 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 ## Storyboard
 - **Scenes tile:** each scene as number (mono, bold), heading ("INT. PENN STATION — DAY" once INT/EXT or DAY/NIGHT is
   set) and "1 3/8 pg · 6 fr · 67%" in mono ("done" at 100%). The active scene has the orange marker and a bold heading,
-  as in the sidebar. A padlock per scene locks its shot numbers: open or closed, never faded. A bin after it deletes
+  as in the sidebar. A 2px strip of the scene's palette runs along the row's foot when it has one (polish PP). A
+  padlock per scene locks its shot numbers: open or closed, never faded. A bin after it deletes
   the scene, with its frames, to the Trash (Delete on a focused row or sidebar scene does the same); no confirm, since
   undo and Restore bring it back.
 - **Grid:** frames by scene group, each group headed "SC 04  Heading  1 3/8 pg · 4 have · 1 need". Cards are 176px
