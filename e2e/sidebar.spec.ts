@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openSettings, settingsWindow } from './settings';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -8,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const section = (page: Page, name: string) => sidebar(page).getByRole('button', { name: new RegExp(`^${name}`) });
 
-test('lists the seven sections in order, each showing its phase, and opens one per click', async ({ page }) => {
+test('lists the six sections in order, each showing its phase, and opens one per click', async ({ page }) => {
   const sections = sidebar(page).locator('[id^="section-"]');
   await expect(sections).toHaveText([
     'StoryboardPhase 1',
@@ -17,9 +18,9 @@ test('lists the seven sections in order, each showing its phase, and opens one p
     'SetupPhase 5',
     'ProductionPhases 3–4',
     'MoodboardPhase 6',
-    // Built in 0.7, so no phase.
-    'Settings',
   ]);
+  // Settings is a window of the app's own (polish B), not a section's workspace.
+  await expect(sidebar(page).getByRole('button', { name: 'Settings…' })).toBeVisible();
   await expect(section(page, 'Storyboard')).toHaveAttribute('aria-current', 'page');
 
   await section(page, 'Production').click();
@@ -55,20 +56,49 @@ test('arrow keys move through the sidebar, Enter opens, and Tab enters at the ac
   await expect(section(page, 'Storyboard')).toBeFocused();
 });
 
-test('Alt+1 to Alt+7 jump to a section, and focus follows from the tiles', async ({ page }) => {
+test('Alt+1 to Alt+6 jump to a section, and focus follows from the tiles', async ({ page }) => {
   // Focus inside a tile: the switch unmounts that tile, so focus must not drop to <body>.
   await page.getByRole('button', { name: 'Maximize Scenes' }).focus();
   await page.keyboard.press('Alt+5');
   await expect(section(page, 'Production')).toHaveAttribute('aria-current', 'page');
   await expect(section(page, 'Production')).toBeFocused();
-  await page.keyboard.press('Alt+7');
-  await expect(page.getByRole('region', { name: 'Project', exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Project', exact: true })).toContainText('No project open.');
-  await expect(section(page, 'Settings')).toBeFocused();
+  await page.keyboard.press('Alt+6');
+  await expect(page.getByRole('region', { name: 'Moodboard', exact: true })).toBeVisible();
+  await expect(section(page, 'Moodboard')).toBeFocused();
   // The workspace already open: nothing unmounts, so focus stays where it is.
-  await page.getByRole('button', { name: 'Maximize Project' }).focus();
+  await page.getByRole('button', { name: 'Maximize Moodboard' }).focus();
+  await page.keyboard.press('Alt+6');
+  await expect(page.getByRole('button', { name: 'Maximize Moodboard' })).toBeFocused();
+  // Alt+7 is no section any more.
   await page.keyboard.press('Alt+7');
-  await expect(page.getByRole('button', { name: 'Maximize Project' })).toBeFocused();
+  await expect(section(page, 'Moodboard')).toHaveAttribute('aria-current', 'page');
+});
+
+test('Settings opens in a window of the app’s own: ⌘, or the sidebar, Escape closes, focus stays inside', async ({ page }) => {
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+  await page.getByRole('button', { name: 'Maximize Scenes' }).focus();
+  await page.keyboard.press(`${mod}+Comma`);
+  const settings = settingsWindow(page);
+  await expect(settings).toBeVisible();
+  await expect(settings.getByRole('tab', { name: 'Project' })).toHaveAttribute('aria-selected', 'true');
+  await expect(settings.getByRole('tabpanel', { name: 'Project' })).toContainText('No project open.');
+  // The arrows move through the tabs, which follow focus.
+  await settings.getByRole('tab', { name: 'Project' }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(settings.getByRole('tab', { name: 'App' })).toBeFocused();
+  await expect(settings.getByRole('tabpanel', { name: 'App' }).getByLabel('App language')).toBeVisible();
+  // Tab never leaves the window: twenty presses later, focus is still inside it.
+  for (let i = 0; i < 20; i += 1) await page.keyboard.press('Tab');
+  expect(await settings.evaluate((window) => window.contains(document.activeElement))).toBe(true);
+  // Escape closes it, and focus goes back to where it was.
+  await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Maximize Scenes' })).toBeFocused();
+  // It opens again at the tab last open, from the sidebar too.
+  await sidebar(page).getByRole('button', { name: 'Settings…' }).click();
+  await expect(settings.getByRole('tab', { name: 'App' })).toHaveAttribute('aria-selected', 'true');
+  await settings.getByRole('button', { name: 'Close Settings' }).click();
+  await expect(settings).toBeHidden();
 });
 
 test('the project menu and switcher show what each command waits for', async ({ page }) => {
@@ -123,8 +153,7 @@ test('a tile maximizes to fill the workspace and restores', async ({ page }) => 
 });
 
 test('the Backups tile keeps its settings for every project, across a reload, and refuses a bad number', async ({ page }) => {
-  await section(page, 'Settings').click();
-  const backups = page.getByRole('region', { name: 'Backups', exact: true });
+  const backups = await openSettings(page, 'Backups');
   const copies = backups.getByLabel('Keep the last');
   await expect(copies).toHaveValue('12');
   await copies.fill('20');
@@ -135,8 +164,7 @@ test('the Backups tile keeps its settings for every project, across a reload, an
   await expect(days).toHaveValue('14');
 
   await page.reload();
-  await section(page, 'Settings').click();
-  await expect(page.getByRole('region', { name: 'Backups', exact: true }).getByLabel('Keep the last')).toHaveValue('20');
+  await expect((await openSettings(page, 'Backups')).getByLabel('Keep the last')).toHaveValue('20');
 });
 
 test('the sidebar hides to a strip and shows again, by button or shortcut, and stays as it was left', async ({ page }) => {
@@ -192,9 +220,9 @@ test('the sidebar hides to a strip and shows again, by button or shortcut, and s
   await expect(sidebar(page)).toHaveCount(0);
 
   // Alt+number still opens a section while it's hidden; with no section to land on, the workspace takes focus.
-  await page.keyboard.press('Alt+7');
-  await expect(page.getByText('Workspace: Settings')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Settings workspace' })).toBeFocused();
+  await page.keyboard.press('Alt+6');
+  await expect(page.getByText('Workspace: Moodboard')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Moodboard workspace' })).toBeFocused();
 });
 
 for (const colorScheme of ['light', 'dark'] as const) {

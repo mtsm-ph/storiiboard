@@ -85,13 +85,14 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Sidebar (248px, left, between the top bar and the status bar):**
   - The project switcher at the top: a dot in the project's accent, then its name. It opens recent projects, All
     projects… and New project….
-  - Then one section per workspace, in this order: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings.
+  - Then one section per workspace, in this order: Storyboard, Assets, Team, Setup, Production, Moodboard. Settings
+    is a window of its own, not a section (Windows, below).
   - Storyboard expands to its scenes, "SC 04  Scene Name" with the number in JetBrains Mono, ending with "+ Add Scene".
     Setup expands to its setups by scene.
   - Production holds the schedule, calendar, call sheets, locations, gear, and cast and crew.
 - **States:** the active section is an accent fill with bold ink text. The active scene has an accent marker and a
   bold name. Sections not built yet are muted and show their phase.
-- **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 7 jump to a section.
+- **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section.
 - **Hide sidebar:** a button at the sidebar's foot, bottom left, and ⌘\ (Ctrl+\ on Windows) fold it to a 36px strip
   at the window's left edge; Show sidebar sits in the strip's same corner. The workspace takes the room, each tile
   keeping its share. The choice is the person's and is remembered.
@@ -114,8 +115,20 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 - **Splitter:** dragging it resizes both neighbours, with live widths in mono. Double-click evens them out.
 - **Maximize:** backtick (`) fills the app; the other tiles fold into chips along the bottom. Restore returns every tile to its exact size and position.
 - **Reflow:** a new tile takes space from the neighbour on the split it was dropped on. A closed tile gives its space to the neighbour that shared its longest edge. Layout menu → Undo layout change takes back this workspace's layout changes for the session; Cmd+Z undoes project edits only.
-- **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard, Settings (Alt+1 to
-  7). A dot marks unsaved layout changes.
+- **Workspaces:** one per sidebar section: Storyboard, Assets, Team, Setup, Production, Moodboard (Alt+1 to 6). A dot
+  marks unsaved layout changes.
+
+## Windows
+- **Inside the app, never the system's:** anything with deeper options (Settings, Watermark Settings, Export) and every
+  question the app asks (a confirm for what can't be undone, how to open a project another computer has open) opens
+  as a window of the app's own. It moves with the app and stays behind other programs when they come forward. Only
+  the system's Open and Save file pickers stay the system's.
+- **Anatomy:** like a tile: a 1.5px ink rule, no radius, no shadow, and a 26px title bar with the title as a bold
+  10px label and a close button at the right. The app behind dims and can't be reached.
+- **Keyboard:** focus starts on the window's first control (Cancel, in a question), Tab and Shift+Tab stay inside,
+  Escape closes, and focus goes back to what had it before.
+- **Settings:** one window, the project's settings and the person's: Project, App, Theme, Backups and Storage as tabs
+  down its left side. ⌘, (Ctrl+,) opens it from anywhere, at the tab last open.
 
 ## Storyboard
 - **Scenes tile:** each scene as number (mono, bold), heading ("INT. PENN STATION — DAY" once INT/EXT or DAY/NIGHT is

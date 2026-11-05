@@ -951,7 +951,6 @@ export const en = {
   'dock.edge.right': 'Dock along the right',
   'dock.edge.bottom': 'Dock along the bottom',
   'dock.edgeOfWindow': '{edge} of the window.',
-  'dock.notLeftEdge': 'The window’s left edge is the sidebar’s. {edge} of the window.',
   // src/ui/InAppWindow.tsx
   'window.close': 'Close {title}',
   // src/app/settings/SettingsWindow.tsx

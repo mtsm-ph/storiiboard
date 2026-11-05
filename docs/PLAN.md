@@ -95,7 +95,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | P2 Hide and show the sidebar: a button and a shortcut, the layout reflows, the choice remembered | #50 | Done |
 | P3 History button in the top bar, beside the project name | #51 | Done |
 | P4 Docking along the full top, right and bottom edges of the window (never the left, the sidebar's) | #52 | Done |
-| PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Planned |
+| PB In-app windows for deeper options (Settings, Watermark Settings…): move with the app, Escape closes, focus stays inside | | Building |
 | PC Sidebar foot: Settings gear (Settings leaves the sections), a local profile, the web version (Phase 9, disabled); a thin strip keeps them when the sidebar is hidden | | Planned |
 | PA Menus in labelled groups with separators, shortcuts at the right, "…" on what opens more options (grouping shown to Kevin first) | | Planned |
 | P5 Delete a whole scene to the Trash from the Scenes tile and the sidebar, with undo and Restore; a locked scene's letters stay used | | Planned |
@@ -155,6 +155,18 @@ keeps its proportions, and a tile already along that edge stays exactly as it is
 after every tile; the arrows pick top, right or bottom, Left and Space say why they can't. A workspace's only tile,
 or a maximized layout, has no edge to dock to. A top or bottom dock redraws the workspace's tiles, so a tile's
 scroll position starts over (to revisit if Phase 2's player minds).
+
+PB as built (Nov 5):
+- One in-app window (src/ui/InAppWindow.tsx) on <dialog> opened modal: a tile's 26px title bar and close button,
+  focus on its first control, Tab kept inside, Escape closes, focus back where it was. Export and Watermark Settings
+  use it. Import script, onboarding and the sketch editor were in-app modal dialogs already and keep their own look.
+- Settings is that window, not a workspace: Project, App, Theme, Backups and Storage as tabs, opened with ⌘, or from
+  the sidebar's Settings… (PC moves it to the gear). The sections are six, Alt+1 to 6. A saved layout that held a
+  Settings tile keeps its other tiles where they were.
+- The system's message boxes are gone: Empty Trash, Clean up old pictures, Delete version and "open on another
+  computer" ask in the app's own window (src/app/ask.tsx), the safe choice first. The Tauri `dialog:allow-message`
+  permission is dropped; only the native Open and Save pickers remain.
+- Not built: Manage workspaces, until Phase 3 (Kevin, Nov 5).
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company

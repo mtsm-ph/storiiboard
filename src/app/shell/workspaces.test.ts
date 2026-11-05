@@ -13,10 +13,8 @@ const element = (tagName: string, extra: { type?: string; isContentEditable?: bo
   ({ tagName, type: extra.type, isContentEditable: extra.isContentEditable ?? false }) as unknown as EventTarget;
 
 describe('workspaces', () => {
-  it("are the seven sidebar sections, in the sidebar's order", () => {
-    expect(WORKSPACES.map((w) => w.label)).toEqual([
-      'Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard', 'Settings',
-    ]);
+  it("are the six sidebar sections, in the sidebar's order (Settings is a window, polish B)", () => {
+    expect(WORKSPACES.map((w) => w.label)).toEqual(['Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard']);
   });
 
   it('put Calendar in Production, and Notifications and Trash in none', () => {
@@ -35,10 +33,11 @@ describe('workspaces', () => {
     }
   });
 
-  it('switch with Alt+1 to Alt+7 by key position, whatever character Option types', () => {
+  it('switch with Alt+1 to Alt+6 by key position, whatever character Option types', () => {
     expect(workspaceForShortcut(key('Digit1', { altKey: true }))?.id).toBe('storyboard');
     expect(workspaceForShortcut(key('Digit5', { altKey: true }))?.id).toBe('production');
-    expect(workspaceForShortcut(key('Digit7', { altKey: true }))?.id).toBe('settings');
+    expect(workspaceForShortcut(key('Digit6', { altKey: true }))?.id).toBe('moodboard');
+    expect(workspaceForShortcut(key('Digit7', { altKey: true }))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit8', { altKey: true }))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit2'))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit2', { altKey: true, metaKey: true }))).toBeUndefined();

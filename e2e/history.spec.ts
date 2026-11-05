@@ -1,7 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { answerAsk } from './ask';
 import { skipOnboarding } from './onboarding';
+import { openSettings } from './settings';
 
 // The History tile (1.22) in the memory build: every step in words, newest first; Restore to here as a step of its
 // own; one frame's own changes, field by field, with an old value to put back; and named versions (1.23).
@@ -224,14 +226,11 @@ test('a named version opens as a copy at that point, and the original keeps ever
 
   // Deleting the version asks first, and leaves the steps: every one of them is still listed, only the name goes.
   const before = await steps(page).allTextContents();
-  const asked: string[] = [];
-  page.once('dialog', (dialog) => {
-    asked.push(dialog.message());
-    void dialog.accept();
-  });
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).click();
+  await expect(page.getByRole('dialog', { name: 'Delete version?' })).toBeVisible();
+  const said = await answerAsk(page, true);
   await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
-  expect(asked).toEqual([expect.stringContaining('Delete version?')]);
+  expect(said).toContain('“Board sent to client” will be deleted');
   await expect(steps(page)).toHaveCount(before.length);
   expect(await steps(page).allTextContents()).toEqual(before.map((text) => text.replace('Board sent to client', '')));
 });
@@ -283,8 +282,8 @@ test('two versions with the same name on one step are both shown, each its own',
   }
   await expect(steps(page).first().getByText('Locked for shoot', { exact: true })).toHaveCount(2);
   // Deleting one leaves the other, in the list and on its step.
-  page.once('dialog', (dialog) => void dialog.accept());
   await history(page).getByRole('button', { name: 'Delete version Locked for shoot' }).first().click();
+  await answerAsk(page, true);
   await expect(history(page).getByRole('list', { name: 'Named versions' }).getByRole('listitem')).toHaveCount(1);
   await expect(steps(page).first().getByText('Locked for shoot', { exact: true })).toHaveCount(1);
   expect(duplicateKeys).toEqual([]);
@@ -304,12 +303,17 @@ test('Delete… from the keyboard moves focus to the next version, then to the h
   await expect(versions).toHaveCount(2);
   await expect(versions.first()).toContainText('Board sent to client');
 
-  page.on('dialog', (dialog) => void dialog.accept());
   await history(page).getByRole('button', { name: 'Delete version Board sent to client' }).focus();
+  await page.keyboard.press('Enter');
+  // The question takes the keyboard too: Tab to Delete version, and Enter.
+  const asked = page.getByRole('dialog', { name: 'Delete version?' });
+  await asked.getByRole('button', { name: 'Delete version', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(versions).toHaveCount(1);
   // The row that took its place: Enter again deletes the next one, as in a list of files.
   await expect(history(page).getByRole('button', { name: 'Delete version Locked for shoot' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await asked.getByRole('button', { name: 'Delete version', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(history(page).getByRole('list', { name: 'Named versions' })).toHaveCount(0);
   await expect(history(page).getByRole('heading', { name: 'Named versions' })).toBeFocused();
@@ -481,15 +485,15 @@ test('a step whose picture Clean up old pictures deleted says so at once, with H
   await page.keyboard.press(await undoKey(page));
   await expect(frames(page).first().locator('img[data-frame-image]')).toHaveCount(0);
 
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Settings/ }).click();
-  await page.getByRole('tab', { name: 'Storage' }).click();
   await openHistory(page);
   const pictureStep = steps(page).filter({ hasText: /^Set the picture of 1A/ });
   await expect(pictureStep).toHaveCount(1);
   await expect(pictureStep).not.toContainText('(picture removed)');
 
-  page.once('dialog', (dialog) => void dialog.accept());
-  await page.getByRole('region', { name: 'Storage', exact: true }).getByRole('button', { name: 'Clean up old pictures…' }).click();
+  // From Settings, which opens over the workspace: History stays in sight behind it.
+  const storage = await openSettings(page, 'Storage');
+  await storage.getByRole('button', { name: 'Clean up old pictures…' }).click();
+  await answerAsk(page, true);
   // No record and no undo state changed, yet the step reads again.
   await expect(pictureStep).toContainText('(picture removed)');
 });

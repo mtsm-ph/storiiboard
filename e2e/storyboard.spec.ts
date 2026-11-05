@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { closeSettings, openSettings } from './settings';
 
 // The storyboard on real projects (the memory build, as in projects.spec.ts).
 test.beforeEach(async ({ page }) => {
@@ -55,8 +56,7 @@ test('locks a scene’s shot numbers, and the lock survives a reload', async ({ 
 });
 
 test('sets the project’s aspect ratio and shot letters in Settings → Project', async ({ page }) => {
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
-  const tile = page.getByRole('region', { name: 'Project', exact: true });
+  const tile = await openSettings(page, 'Project');
   await tile.getByLabel('Aspect ratio').selectOption('2.39:1');
   const letters = tile.getByRole('switch', { name: 'Use I and O in shot letters' });
   await expect(letters).toHaveAttribute('aria-checked', 'false');
@@ -65,8 +65,7 @@ test('sets the project’s aspect ratio and shot letters in Settings → Project
 
   await page.reload();
   await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
-  await expect(page.getByRole('region', { name: 'Project', exact: true }).getByLabel('Aspect ratio')).toHaveValue('2.39:1');
+  await expect((await openSettings(page, 'Project')).getByLabel('Aspect ratio')).toHaveValue('2.39:1');
 });
 
 const grid = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });
@@ -153,9 +152,8 @@ test('draws frames at the project’s aspect ratio', async ({ page }) => {
   };
   expect(await ratio()).toBeCloseTo(16 / 9, 1);
 
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
-  await page.getByRole('region', { name: 'Project', exact: true }).getByLabel('Aspect ratio').selectOption('2.39:1');
-  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await (await openSettings(page, 'Project')).getByLabel('Aspect ratio').selectOption('2.39:1');
+  await closeSettings(page);
   expect(await ratio()).toBeCloseTo(2.39, 1);
 });
 

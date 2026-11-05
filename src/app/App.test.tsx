@@ -16,10 +16,11 @@ describe('App shell', () => {
     }
   });
 
-  it('lists the seven sections in the sidebar, each with its phase until built', () => {
+  it('lists the six sections in the sidebar, each with its phase until built, then Settings…', () => {
     const nav = /<nav[^>]*aria-label="Sections".*<\/nav>/.exec(html)?.[0] ?? '';
     const sections = [...nav.matchAll(/id="section-([a-z]+)"/g)].map((m) => m[1]);
-    expect(sections).toEqual(['storyboard', 'assets', 'team', 'setup', 'production', 'moodboard', 'settings']);
+    expect(sections).toEqual(['storyboard', 'assets', 'team', 'setup', 'production', 'moodboard']);
+    expect(nav).toContain('Settings…');
     expect(nav).toContain('Phase 5');
     expect(nav).toContain('No project open');
   });

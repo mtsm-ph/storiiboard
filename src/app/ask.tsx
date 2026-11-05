@@ -62,7 +62,7 @@ export async function confirmForGood(title: string, text: string, action: string
 export function AskHost() {
   const asked = useStore(askStore, (s) => s.asked);
   if (!asked) return null;
-  // The window opens with focus on its close button, which answers the cancel: Enter never deletes by accident.
+  // The window opens with focus on its first button, Cancel: Enter never deletes by accident.
   return (
     <InAppWindow key={asked.title + asked.text} title={asked.title} onClose={() => { asked.answer(asked.cancel); }} width={460}>
       <div className="flex flex-col gap-4 p-4">

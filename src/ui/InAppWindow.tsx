@@ -44,7 +44,13 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
       if (!element.open) latest.current();
     };
     element.addEventListener('close', closed);
-    if (!element.open) element.showModal();
+    if (!element.open) {
+      element.showModal();
+      // Focus starts on the window's first control, its work, not on its close button; in a question that's Cancel.
+      element
+        .querySelector<HTMLElement>('[data-window-body] :is(button, input, select, textarea, [tabindex]):not(:disabled):not([tabindex="-1"])')
+        ?.focus();
+    }
     return () => {
       // Going because the caller said so: no close event back to it, which may have opened another window by then.
       element.removeEventListener('close', closed);
@@ -79,7 +85,9 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
           <CloseGlyph />
         </IconButton>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto">{children}</div>
+      <div data-window-body="" className="flex min-h-0 flex-1 flex-col overflow-auto">
+        {children}
+      </div>
     </dialog>
   );
 }
