@@ -327,8 +327,8 @@ Decided Nov 5, after the meeting run (Kevin):
 - Phase 8, before the public release: stop every card redrawing on each change (the 960-frame times in Q2).
 
 PE as built (Nov 5): every edit, undo, redo, History restore and Empty Trash carries who made it in the file's
-existing `author` columns (and a deleted item's `trashed_by`): the profile's name, or its initials with "Show only my
-initials in History" on, read as each edit is made. With an empty profile it stays `local`, as every edit before this
+existing `author` columns (and a deleted item's `trashed_by`): the profile's name, or its initials with "Sign my edits with my
+initials only" on, read as each edit is made. With an empty profile it stays `local`, as every edit before this
 did, and History shows no name for those (the step's time only; a dash in an item's own history), where it used to say
 "You". An approval is signed by the same rule (initials only when chosen), Open version signs the restore step it
 makes in the copy, and a named version records who named it. No table or column changed, so there's no migration and no backup step: an older file reads as before, and an
