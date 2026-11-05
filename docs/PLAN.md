@@ -104,7 +104,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PPa Scene colour palettes from the frames' pictures: generate, lock and regenerate, reorder, delete, copy the hex, all undoable; in the inspector and the Scenes tile | #59 | Done |
 | PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
-| P8 Screenshot tests back on with fresh baselines, both languages, both themes | | Planned |
+| P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
@@ -233,6 +233,13 @@ P7 as built (Nov 5; merged with the glossary as built, at Kevin's word: his word
 otherwise are in docs/i18n/es-glossary.md, shot size abbreviations first. Script import also reads Spanish headings
 (INTERIOR/EXTERIOR in capitals; DÍA, NOCHE, AMANECER, ATARDECER, HORA MÁGICA and more). An e2e sweep checks that no
 button, tab, label or title overflows in Spanish; a unit test keeps every PDF word inside the page.
+
+P8 as built (Nov 5): e2e/visual.spec.ts runs again everywhere `npm run e2e` runs, and at every checkpoint beside the
+smoke set. Three screens (the shell with no project, the board with a frame selected and its inspector, and Settings
+over the board), each in light and dark, English and Spanish: 12 screenshots per browser and OS. Windows Chromium
+baselines come from the Windows gate; the Linux and macOS ones from a push to `checkpoint/baselines-<name>`, which
+regenerates them and hands them back as artifacts to commit. Every baseline was looked at before it was committed.
+Looking found one Spanish fit the overflow sweep had missed (the Scenes tile's coverage label ran into its figure).
 
 Later phases, added Nov 4 (not built now):
 - Phase 3: project details (title, logline, format, runtime, key crew) and an optional production company. Company
