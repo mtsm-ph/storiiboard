@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { clearNotice, useNotice } from '../notice';
 import { projectStateOf } from '../../core/model/project';
 import { Button } from '../../ui/Button';
@@ -16,8 +16,8 @@ import { isDragging } from './docking/textSelection';
 import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
 import { SidebarStrip } from './sidebar/SidebarStrip';
-import { HIDE_SIDEBAR_ID, isSidebarToggle, SHOW_SIDEBAR_ID } from './sidebar/sidebarToggle';
-import { loadSettings, saveSettings } from '../../core/storage/settings';
+import { isSidebarToggle } from './sidebar/sidebarToggle';
+import { toggleSidebar, useSidebarHidden } from './sidebar/sidebarStore';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
@@ -38,7 +38,7 @@ export function AppShell() {
   const [projectsAsked, setProjectsAsked] = useState(false);
   const notice = useNotice();
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
-  const [sidebarHidden, setSidebarHidden] = useState(() => loadSettings().sidebarHidden);
+  const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
   const workspace = WORKSPACES.find((w) => w.id === workspaceId) ?? WORKSPACES[0];
   const projectTitle = useProject((s) => {
@@ -93,16 +93,6 @@ export function AppShell() {
     };
   }, []);
 
-  /** Hides or shows the sidebar. `focusFollows`: focus moves to the button that brings it back, never to <body>. */
-  const hiddenRef = useRef(sidebarHidden);
-  const toggleSidebar = (focusFollows: boolean) => {
-    const next = !hiddenRef.current;
-    hiddenRef.current = next;
-    setSidebarHidden(next);
-    saveSettings({ sidebarHidden: next });
-    // Whichever of the two buttons is drawn now: Show sidebar in the strip, or Hide sidebar at the sidebar's foot.
-    if (focusFollows) requestAnimationFrame(() => (document.getElementById(SHOW_SIDEBAR_ID) ?? document.getElementById(HIDE_SIDEBAR_ID))?.focus());
-  };
   const onToggleKey = useEffectEvent((event: KeyboardEvent) => {
     // Not while a tile or a splitter is being dragged: the workspace would move from under the pointer.
     if (!isSidebarToggle(event, isMac()) || isDragging()) return;
