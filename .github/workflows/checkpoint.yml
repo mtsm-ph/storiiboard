@@ -5,14 +5,15 @@ name: Checkpoint
 # installers, each after its own Rust tests: clones and private sizes exist only on a Mac, and on Windows the
 # step-by-step copy is the only backup path, so Linux alone never runs them.
 # A workflow_dispatch run needs the file on the default branch, which is still main, so pushing a branch named
-# checkpoint/<anything> (git push origin v2:checkpoint/phase1) starts one too.
+# checkpoint/<anything> (git push origin v2:checkpoint/phase1) starts one too. A branch named checkpoint/baselines-<anything>
+# regenerates the screenshot baselines instead, as the update_visual_baselines option does, for the same reason.
 on:
   push:
     branches: ['checkpoint/**']
   workflow_dispatch:
     inputs:
       update_visual_baselines:
-        description: Regenerate the Linux visual baselines and upload them as an artifact to commit
+        description: Regenerate the Linux and macOS visual baselines and upload them as artifacts to commit
         type: boolean
         default: false
 
@@ -38,23 +39,21 @@ jobs:
       - run: npm ci
       - name: Install Playwright's browsers
         run: npx playwright install --with-deps chromium webkit
-      - name: Smoke tests
-        if: ${{ !inputs.update_visual_baselines }}
-        run: npm run e2e:smoke
-      # The screenshot tests are suppressed in every other run (e2e/visual.spec.ts) until the polish step.
+      # The screenshot tests (on again from polish 8) run beside the smoke set at every checkpoint.
+      - name: Smoke and screenshot tests
+        if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+        run: npx playwright test e2e/smoke.spec.ts e2e/visual.spec.ts
       - name: Regenerate the Linux visual baselines
-        if: ${{ inputs.update_visual_baselines }}
-        env:
-          SB_VISUAL: '1'
+        if: ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
         run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
       # Baselines come back as an artifact to commit rather than being committed here: a commit pushed with the
       # workflow's own token starts no CI run, so the new baselines would go unchecked.
       - name: Look for new or changed Linux baselines
         id: baselines
-        if: ${{ !cancelled() && inputs.update_visual_baselines }}
+        if: ${{ !cancelled() && (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
         run: echo "count=$(git status --porcelain --untracked-files=all -- 'e2e/*-snapshots/*-linux.png' | wc -l)" >> "$GITHUB_OUTPUT"
       - name: Upload the Linux baselines to commit
-        if: ${{ !cancelled() && inputs.update_visual_baselines && steps.baselines.outputs.count != '0' }}
+        if: ${{ !cancelled() && (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) && steps.baselines.outputs.count != '0' }}
         uses: actions/upload-artifact@v7
         with:
           name: visual-baselines-linux
@@ -70,7 +69,6 @@ jobs:
 
   smoke-mac:
     name: Smoke (macOS, WebKit)
-    if: ${{ !inputs.update_visual_baselines }}
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -80,10 +78,26 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install Playwright's WebKit
-        run: npx playwright install webkit
-      - name: Smoke tests
-        run: npm run e2e:smoke -- --project=webkit
+      # Chromium too when regenerating: the Mac's local gate runs both browsers, so both need darwin baselines.
+      - name: Install Playwright's browsers
+        run: npx playwright install webkit ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) && 'chromium' || '' }}
+      - name: Smoke and screenshot tests
+        if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+        run: npx playwright test e2e/smoke.spec.ts e2e/visual.spec.ts --project=webkit
+      - name: Regenerate the macOS visual baselines
+        if: ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+        run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
+      - name: Look for new or changed macOS baselines
+        id: baselines
+        if: ${{ !cancelled() && (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+        run: echo "count=$(git status --porcelain --untracked-files=all -- 'e2e/*-snapshots/*-darwin.png' | wc -l)" >> "$GITHUB_OUTPUT"
+      - name: Upload the macOS baselines to commit
+        if: ${{ !cancelled() && (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) && steps.baselines.outputs.count != '0' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines-macos
+          path: e2e/*-snapshots/*-darwin.png
+          retention-days: 7
       - name: Upload the Playwright results
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
@@ -94,7 +108,7 @@ jobs:
 
   installers:
     name: Installer (${{ matrix.name }})
-    if: ${{ !inputs.update_visual_baselines }}
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
     strategy:
       fail-fast: false
       matrix:

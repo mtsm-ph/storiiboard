@@ -153,9 +153,10 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
         </ul>
       )}
       <div className="mt-auto flex flex-col gap-2 border-t border-border p-3">
-        <p className="sb-label flex">
-          {t('scenesView.filmCoverage')}
-          <span className="ml-auto font-mono">{coverage === null ? '—' : `${String(coverage)}%`}</span>
+        {/* A gap, so a longer label ("Cobertura de la película") wraps rather than running into the figure. */}
+        <p className="sb-label flex gap-2">
+          <span className="min-w-0">{t('scenesView.filmCoverage')}</span>
+          <span className="ml-auto shrink-0 font-mono">{coverage === null ? '—' : `${String(coverage)}%`}</span>
         </p>
         <div className="flex flex-wrap gap-2">
           <Button data-new-scene="" disabled={!canAdd} onClick={onAdd}>

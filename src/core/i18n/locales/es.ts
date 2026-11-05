@@ -813,7 +813,7 @@ export const es: Messages = {
   // src/features/storyboard/ScenesView.tsx
   'scenes.frames': '{count} cdr.',
   'scenes.done': 'listo',
-  'scenes.coverage': '{percent} %',
+  'scenes.coverage': '{percent}%',
   'scenes.lockFor': 'Bloquear los números de plano de {scene}',
   'scenes.locked': 'Números de plano bloqueados',
   'scenes.lock': 'Bloquear números de plano',
@@ -842,8 +842,8 @@ export const es: Messages = {
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',
   // src/features/storyboard/CropEditor.tsx
-  'crop.said': 'Zoom {zoom} %, centrado a {x} % del ancho y {y} % del alto.',
-  'crop.label': 'Encuadre, zoom {zoom} %',
+  'crop.said': 'Zoom {zoom}%, centrado a {x}% del ancho y {y}% del alto.',
+  'crop.label': 'Encuadre, zoom {zoom}%',
   // src/features/storyboard/NoteCard.tsx
   'note.empty': 'Nota vacía. Enter para escribir.',
   // src/features/storyboard/sketch/SketchEditor.tsx
