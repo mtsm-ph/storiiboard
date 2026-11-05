@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openVersionCopy } from '../../app/openVersion';
 import { createProjectStore } from '../../app/projectStore';
-import { addScene, addShot, board, lockNotice, moveItem, relettered, setNumbersLocked, setSceneNumber, trashShot } from '../../features/storyboard/board';
+import { addScene, addShot, board, lockNotice, moveItem, relettered, setNumbersLocked, setSceneNumber, trashScene as trashSceneChanges, trashShot } from '../../features/storyboard/board';
 import { emptyTrashMessage, restoreChanges } from '../../features/trash/trash';
 import { log } from '../ops/ops';
 import { backupFileName } from './backups';
@@ -40,8 +40,8 @@ const lock = (sceneId: string, locked = true) =>
   store.getState().applyWith((now, slate) => ({ changes: setNumbersLocked(now, project.projectId, sceneId, locked, slate) }));
 const renumberScene = (sceneId: string, number: string) =>
   store.getState().applyWith((now) => ({ changes: setSceneNumber(now, project.projectId, sceneId, number) }));
-const trashScene = (sceneId: string) =>
-  store.getState().apply([{ kind: 'trash', id: sceneId }, ...shotsIn(sceneId).map((s) => ({ kind: 'trash' as const, id: s.record.id }))]);
+/** Delete scene, as the Scenes tile and the sidebar do it (polish 5). */
+const trashScene = (sceneId: string) => store.getState().apply(trashSceneChanges(records(), sceneId));
 const shotsIn = (sceneId: string) => board(records(), project.projectId).find((s) => s.record.id === sceneId)?.shots ?? [];
 const numbers = (sceneId = 'sc4') => shotsIn(sceneId).map((s) => s.fields.number);
 const trashLast = (sceneId = 'sc4') => {
@@ -247,6 +247,22 @@ describe('slate numbers', () => {
     await lock('sc4b');
     expect(numbers('sc4b')).toEqual(['4D']);
     expect(numbers()).toEqual(['4A', '4B', '4C']);
+  });
+
+  it('keeps a locked scene\'s letters used when the whole scene is deleted and restored (polish 5)', async () => {
+    await lock('sc4');
+    await trashLast(); // 4C was on a slate; its frame goes for good
+    await store.getState().emptyTrash();
+    await trashScene('sc4');
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, project.projectId, 'sc4', slate) }));
+    expect(numbers()).toEqual(['4A', '4B']);
+    await frame('sc4');
+    expect(numbers()).toEqual(['4A', '4B', '4D']);
+    await store.getState().undo();
+    await store.getState().undo(); // the restore
+    await store.getState().undo(); // the delete
+    expect(numbers()).toEqual(['4A', '4B']);
+    expect(await stored()).toEqual(['4A', '4B', '4C', '4D']);
   });
 
   it('numbers a locked scene restored under a new number past every slate number', async () => {

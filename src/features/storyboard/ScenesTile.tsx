@@ -4,6 +4,7 @@ import { sceneFields } from '../../core/model/storyboard';
 import { chooseScriptToImport } from '../script/chooseAndRead';
 import { addScene, board, coverage, lockNotice, relettered, setNumbersLocked } from './board';
 import { ScenesView } from './ScenesView';
+import { deleteScene, focusSceneAfterDelete } from './deleteScene';
 import { useSelection } from './selection';
 
 export function ScenesTile() {
@@ -38,6 +39,12 @@ export function ScenesTile() {
           return { changes };
         }).then((written) => {
           if (written && notice) showInfo(notice);
+        });
+      }}
+      onDelete={(id) => {
+        void deleteScene(id).then(({ written, next }) => {
+          // Focus to the scene that took its place, or + New scene once none is left.
+          if (written) focusSceneAfterDelete(next, 'data-scene-row', () => document.querySelector<HTMLElement>('[data-new-scene]'));
         });
       }}
       onImport={() => {

@@ -2,7 +2,7 @@ import type { KeyboardEvent } from 'react';
 import { DAY_NIGHT_LABEL, INT_EXT_LABEL, pageLabel, sceneLabel, sceneNumberLabel, type SceneFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
-import { LockGlyph } from '../../ui/glyphs';
+import { LockGlyph, TrashGlyph } from '../../ui/glyphs';
 import { t } from '../../core/i18n';
 
 // The Scenes tile (design board, Storyboard workspace): every scene in board order with its length, how many frames
@@ -24,6 +24,8 @@ export interface ScenesViewProps {
   canAdd: boolean;
   onSelect: (id: string) => void;
   onToggleLock: (id: string, locked: boolean) => void;
+  /** Delete scene (polish 5): it and its frames go to the Trash. */
+  onDelete: (id: string) => void;
   onAdd: () => void;
   /** Import script… (1.17): Fountain or Final Draft, previewed before anything is written. */
   onImport: () => void;
@@ -56,7 +58,7 @@ function onRowKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
   rows[next]?.focus();
 }
 
-export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onAdd, onImport }: ScenesViewProps) {
+export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, onToggleLock, onDelete, onAdd, onImport }: ScenesViewProps) {
   const totalEighths = scenes.reduce<number | null>(
     (sum, s) => (s.fields.pageEighths === null ? sum : (sum ?? 0) + s.fields.pageEighths),
     null,
@@ -81,12 +83,22 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
               <li key={row.id} className="flex items-stretch border-b border-border">
                 <button
                   type="button"
-                  data-scene-row=""
+                  data-scene-row={row.id}
                   aria-current={active ? 'true' : undefined}
+                  aria-keyshortcuts="Delete Backspace"
                   onClick={() => {
                     onSelect(row.id);
                   }}
-                  onKeyDown={onRowKeyDown}
+                  onKeyDown={(event) => {
+                    // Delete (or Backspace, a Mac's delete key) sends the scene to the Trash, as it does a frame.
+                    if (event.key === 'Delete' || event.key === 'Backspace') {
+                      event.preventDefault();
+                      // A held key would go on down the list, a whole scene at a time.
+                      if (!event.repeat) onDelete(row.id);
+                      return;
+                    }
+                    onRowKeyDown(event);
+                  }}
                   className="group flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2 text-left hover:bg-surface-raised focus-visible:-outline-offset-4"
                 >
                   {/* The active scene's marker is orange; its bold heading is the second cue. */}
@@ -111,6 +123,18 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
                 >
                   <LockGlyph open={!row.fields.numbersLocked} />
                 </button>
+                <button
+                  type="button"
+                  aria-label={t('scenes.deleteScene', { scene: label })}
+                  title={t('scenes.deleteScene', { scene: label })}
+                  onClick={(event) => {
+                    // A double-click's second click would land on the next scene's bin as the list closes up.
+                    if (event.detail <= 1) onDelete(row.id);
+                  }}
+                  className="flex w-8 shrink-0 items-center justify-center hover:bg-surface-raised focus-visible:-outline-offset-4"
+                >
+                  <TrashGlyph />
+                </button>
               </li>
             );
           })}
@@ -122,7 +146,7 @@ export function ScenesView({ scenes, activeSceneId, coverage, canAdd, onSelect, 
           <span className="ml-auto font-mono">{coverage === null ? '—' : `${String(coverage)}%`}</span>
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={!canAdd} onClick={onAdd}>
+          <Button data-new-scene="" disabled={!canAdd} onClick={onAdd}>
             {t('scenesView.newScene')}
           </Button>
           <Button disabled={!canAdd} onClick={onImport}>

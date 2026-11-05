@@ -3,7 +3,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
-import { restoredScene, restoreShot } from '../storyboard/board';
+import { restoredScene } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 
@@ -147,7 +147,8 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
 
 /**
  * The op group that brings one item back, with what it needs to be seen again:
- * - a frame or a note comes back with its scene, if that's in the Trash too; a frame's scene renumbers unless locked;
+ * - a frame or a note comes back with its scene, if that's in the Trash too, and with everything deleted with the
+ *   scene (polish 5); a frame's scene renumbers unless locked;
  * - a frame's picture comes back with its frame, as the frame's picture again, and the one it has now goes to the
  *   Trash in its place, so nothing is lost and undo swaps them back;
  * - the project's logo or key image comes back on its own; Settings → Theme makes it the theme's image again.
@@ -156,17 +157,23 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
   const record = records[id];
   if (!record || record.trashedAt === null) return [];
   const parent = record.parentId ? records[record.parentId] : undefined;
+  // A frame or note deleted before its scene, restored while the scene is in the Trash, brings the scene back whole:
+  // with what was deleted with it, not just this one (which would leave the rest as loose rows).
+  const withScene = (scene: SbdRecord | undefined, back: string): Change[] =>
+    scene?.type === 'scene'
+      ? restoredScene(records, projectId, scene.id, [...new Set([...(scene.trashedAt !== null ? trashedWith(records, scene).map((r) => r.id) : []), back])], slate)
+      : [];
   switch (record.type) {
     case 'shot':
-      return restoreShot(records, projectId, id, slate);
+      return withScene(parent, id);
     case 'note':
-      return parent?.type === 'scene' ? restoredScene(records, projectId, parent.id, [id], slate) : [{ kind: 'restore', id }];
+      return parent?.type === 'scene' ? withScene(parent, id) : [{ kind: 'restore', id }];
     case 'media': {
       if (parent?.type !== 'shot') return [{ kind: 'restore', id }];
       const current = shotFields(parent.props).mediaId;
       const showing = current ? records[current] : undefined;
       return [
-        ...(parent.trashedAt !== null ? restoreShot(records, projectId, parent.id, slate) : []),
+        ...(parent.trashedAt !== null ? withScene(parent.parentId ? records[parent.parentId] : undefined, parent.id) : []),
         { kind: 'restore', id },
         { kind: 'update', id: parent.id, set: { media_id: id }, unset: ['crop'] },
         ...(showing && showing.id !== id && showing.trashedAt === null ? [{ kind: 'trash' as const, id: showing.id }] : []),

@@ -18,8 +18,10 @@ import {
   setNumbersLocked,
   setSceneNumber,
   setSceneLocation,
+  trashScene,
   trashShot,
 } from './board';
+import { restoreChanges, trashItems } from '../trash/trash';
 
 let folder: TestFolder;
 const store = createProjectStore();
@@ -47,6 +49,66 @@ async function add(after: string | null = null): Promise<string> {
   await store.getState().apply(changes);
   return shotId;
 }
+
+describe('delete scene (polish 5)', () => {
+  it('sends the scene, its frames and its notes to the Trash in one step, and undo brings them all back', async () => {
+    const a = await add();
+    const b = await add(a);
+    await store.getState().apply([addNote(records(), 'sc4', a, 'Rain on the glass')]);
+    // A frame already in the Trash stays its own row there, not part of the scene's.
+    await store.getState().applyWith((now) => ({ changes: trashShot(now, projectId, b) }));
+    const changes = trashScene(records(), 'sc4');
+    expect(changes.map((c) => c.kind)).toEqual(['trash', 'trash', 'trash']);
+    expect(changes.some((c) => 'id' in c && c.id === b)).toBe(false);
+    await store.getState().apply(changes);
+    expect(board(records(), projectId)).toEqual([]);
+    expect(trashItems(records(), projectId).map((item) => item.id)).toEqual(['sc4', b]);
+    await store.getState().undo();
+    expect(numbers()).toEqual(['4A']);
+    expect(board(records(), projectId)[0]?.items.length).toBe(2);
+  });
+
+  it('restores the scene with the frames deleted with it from the Trash', async () => {
+    const a = await add();
+    await add(a);
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, projectId, 'sc4', slate) }));
+    expect(numbers()).toEqual(['4A', '4B']);
+    expect(trashItems(records(), projectId)).toEqual([]);
+  });
+
+  it('brings the notes deleted with the scene back with it', async () => {
+    const a = await add();
+    await store.getState().apply([addNote(records(), 'sc4', a, 'Rain on the glass')]);
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, projectId, 'sc4', slate) }));
+    expect(board(records(), projectId)[0]?.items.map((item) => item.kind)).toEqual(['shot', 'note']);
+  });
+
+  it('brings the scene back whole when a frame deleted before it is restored first', async () => {
+    const a = await add();
+    const b = await add(a);
+    const c = await add(b);
+    await store.getState().applyWith((now) => ({ changes: trashShot(now, projectId, c) }));
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    await store.getState().applyWith((now, slate) => ({ changes: restoreChanges(now, projectId, c, slate) }));
+    expect(numbers()).toEqual(['4A', '4B', '4C']);
+    expect(trashItems(records(), projectId)).toEqual([]);
+  });
+
+  it('does nothing for a scene already in the Trash, or for something that is not a scene', async () => {
+    const a = await add();
+    expect(trashScene(records(), a)).toEqual([]);
+    expect(trashScene(records(), 'nope')).toEqual([]);
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    expect(trashScene(records(), 'sc4')).toEqual([]);
+  });
+
+  it('never gives a deleted scene\'s number to a new one, so Restore has it to come back to', async () => {
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    expect(addScene(records(), projectId).record.props?.number).not.toBe('4');
+  });
+});
 
 describe('numbering on the board', () => {
   it('numbers new frames 4A, 4B, 4C, and renumbers an insert in the same edit', async () => {

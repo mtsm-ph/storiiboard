@@ -10,10 +10,12 @@ interface SceneListProps {
   canAdd: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  /** Delete scene (polish 5), from the keyboard: Delete on a scene sends it and its frames to the Trash. */
+  onDelete: (id: string) => void;
 }
 
 /** Storyboard's scenes inline in the sidebar, "SC 04  Scene Name", then "+ Add Scene" (DESIGN.md, Navigation). */
-export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: SceneListProps) {
+export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd, onDelete }: SceneListProps) {
   return (
     <ul aria-label={t('sceneList.scenes')} className="pb-1">
       {scenes.map((scene) => {
@@ -23,7 +25,17 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd }: Sc
             <button
               type="button"
               data-nav-item=""
-              onKeyDown={onNavKeyDown}
+              data-sidebar-scene={scene.id}
+              aria-keyshortcuts="Delete Backspace"
+              onKeyDown={(event) => {
+                if (event.key === 'Delete' || event.key === 'Backspace') {
+                  event.preventDefault();
+                  // A held key would go on down the list, a whole scene at a time.
+                  if (!event.repeat) onDelete(scene.id);
+                  return;
+                }
+                onNavKeyDown(event);
+              }}
               aria-current={current ? 'true' : undefined}
               tabIndex={-1}
               onClick={() => {
