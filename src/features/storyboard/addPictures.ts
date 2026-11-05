@@ -52,7 +52,8 @@ export async function addPictures(files: readonly PictureFile[], target: Picture
     });
     // Not written (a full disk, say): the store has said why, and none of the pictures went in, so the count of files
     // left out below would read as if the rest had. Its notice stays (quality pass).
-    if (!saved) return;
+    // A project switched meanwhile drops the edit without a word; the files left out are still worth saying.
+    if (!saved && projectStore.getState().project === project) return;
     const result = placed as ReturnType<typeof placePictures> | null;
     // Selected only once written: an edit that failed has said why already, and leaves nothing to select.
     const written = result?.selectShotId ? projectStore.getState().records[result.selectShotId] : undefined;
