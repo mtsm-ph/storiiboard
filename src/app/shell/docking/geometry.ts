@@ -1,4 +1,4 @@
-import type { DropZone } from './layout';
+import { EDGE_SHARE, type DropZone, type WindowEdge } from './layout';
 
 export interface Box {
   left: number;
@@ -39,6 +39,36 @@ export function previewBox(box: Box, zone: DropZone): Box {
       return { ...box, top: box.top + halfH, height: halfH };
     case 'center':
       return box;
+  }
+}
+
+/**
+ * How close to the workspace's top, right or bottom edge the pointer has to be for a tile to dock along that whole
+ * side (polish 4): the 8px gap plus a band into the tiles, wide enough to find, narrow enough to leave each tile's
+ * own edge zones their room. The left edge is the sidebar's, so it has none.
+ */
+export const WINDOW_EDGE_PX = 24;
+
+export function windowEdgeAt(panel: Box, x: number, y: number): WindowEdge | null {
+  if (x < panel.left || x > panel.left + panel.width || y < panel.top || y > panel.top + panel.height) return null;
+  const distances: [WindowEdge, number][] = [
+    ['top', y - panel.top],
+    ['right', panel.left + panel.width - x],
+    ['bottom', panel.top + panel.height - y],
+  ];
+  const [edge, distance] = distances.reduce((nearest, next) => (next[1] < nearest[1] ? next : nearest));
+  return distance <= WINDOW_EDGE_PX ? edge : null;
+}
+
+/** Where a tile docked along a window edge would go: that whole side, at the share it will take. */
+export function edgePreviewBox(panel: Box, edge: WindowEdge, share = EDGE_SHARE): Box {
+  switch (edge) {
+    case 'top':
+      return { ...panel, height: panel.height * share };
+    case 'bottom':
+      return { ...panel, top: panel.top + panel.height * (1 - share), height: panel.height * share };
+    case 'right':
+      return { ...panel, left: panel.left + panel.width * (1 - share), width: panel.width * share };
   }
 }
 

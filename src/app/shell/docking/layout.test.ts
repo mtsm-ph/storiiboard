@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { previewBox, snap, zoneAt } from './geometry';
+import { edgePreviewBox, previewBox, snap, windowEdgeAt, zoneAt } from './geometry';
 import {
+  dockToEdge,
   dropTile,
+  EDGE_SHARE,
   evenOut,
   isLayout,
   openTile,
@@ -168,5 +170,60 @@ describe('layouts', () => {
     expect(sameLayout(storyboard(), storyboard())).toBe(true);
     expect(sameLayout(storyboard(), removeTile(storyboard(), 'player'))).toBe(false);
     expect(stacks(storyboard().root)).toHaveLength(4);
+  });
+});
+
+describe('docking along a window edge (polish 4)', () => {
+  it('spans the whole bottom, under every other tile, at a quarter of the height', () => {
+    const next = dockToEdge(storyboard(), 'inspector', 'bottom');
+    expect(next.root.kind).toBe('split');
+    if (next.root.kind !== 'split') return;
+    expect(next.root.direction).toBe('column');
+    expect(next.root.children.at(-1)).toMatchObject({ kind: 'stack', tiles: ['inspector'] });
+    expect(next.root.sizes.at(-1)).toBeCloseTo(EDGE_SHARE);
+    // The rest keeps its shape: scenes | (board over player) side by side above.
+    expect(tilesIn(next)).toEqual(['scenes', 'board', 'player', 'inspector']);
+  });
+
+  it('spans the whole top, above everything', () => {
+    const next = dockToEdge(storyboard(), 'player', 'top');
+    if (next.root.kind !== 'split') throw new Error('expected a split');
+    expect(next.root.direction).toBe('column');
+    expect(next.root.children[0]).toMatchObject({ kind: 'stack', tiles: ['player'] });
+    expect(next.root.sizes[0]).toBeCloseTo(EDGE_SHARE);
+  });
+
+  it('along the right, merges into a row of tiles rather than nesting, each keeping its share of the rest', () => {
+    const next = dockToEdge(storyboard(), 'scenes', 'right');
+    if (next.root.kind !== 'split') throw new Error('expected a split');
+    expect(next.root.direction).toBe('row');
+    expect(stacks(next.root).map((s) => s.tiles[0])).toEqual(['board', 'player', 'inspector', 'scenes']);
+    expect(next.root.sizes.at(-1)).toBeCloseTo(EDGE_SHARE);
+    expect(next.root.sizes.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+  });
+
+  it('takes one tab out of a stack, leaving the others', () => {
+    const tabbed = dropTile(storyboard(), 'player', 's-board', 'center');
+    const next = dockToEdge(tabbed, 'player', 'bottom');
+    expect(stackOf(next, 'board')?.tiles).toEqual(['board']);
+    expect(stackOf(next, 'player')?.tiles).toEqual(['player']);
+  });
+
+  it('leaves a workspace’s only tile where it is, and restores a maximized layout', () => {
+    const one: Layout = { root: stack(['team'], 's-team'), maximized: null };
+    expect(dockToEdge(one, 'team', 'bottom')).toBe(one);
+    const max = toggleMaximize(storyboard(), 's-board');
+    expect(dockToEdge(max, 'inspector', 'right').maximized).toBeNull();
+  });
+
+  it('finds the edge band near the top, right and bottom, never the left', () => {
+    const panel = { left: 248, top: 44, width: 1192, height: 832 };
+    expect(windowEdgeAt(panel, 600, 44 + 10)).toBe('top');
+    expect(windowEdgeAt(panel, 248 + 1192 - 5, 400)).toBe('right');
+    expect(windowEdgeAt(panel, 600, 44 + 832 - 20)).toBe('bottom');
+    expect(windowEdgeAt(panel, 248 + 5, 400)).toBeNull();
+    expect(windowEdgeAt(panel, 600, 400)).toBeNull();
+    expect(windowEdgeAt(panel, 100, 400)).toBeNull();
+    expect(edgePreviewBox(panel, 'right')).toEqual({ left: 248 + 1192 * 0.75, top: 44, width: 1192 * 0.25, height: 832 });
   });
 });

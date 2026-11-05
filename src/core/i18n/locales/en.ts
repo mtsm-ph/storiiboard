@@ -957,5 +957,11 @@ export const en = {
   'sidebar.show': 'Show sidebar ({keys})',
   // src/app/shell/sidebar/SidebarStrip.tsx
   'sidebar.foldedStrip': 'Sidebar, folded',
+  // src/app/shell/docking/Dock.tsx
+  'dock.edge.top': 'Dock along the top',
+  'dock.edge.right': 'Dock along the right',
+  'dock.edge.bottom': 'Dock along the bottom',
+  'dock.edgeOfWindow': '{edge} of the window.',
+  'dock.notLeftEdge': 'The window’s left edge is the sidebar’s. {edge} of the window.',
   // codemod: new entries above this line
 };

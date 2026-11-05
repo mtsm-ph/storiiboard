@@ -3,8 +3,9 @@ import { cx } from '../../../ui/cx';
 import { Tile } from '../../../ui/Tile';
 import { TILE_CONTENT } from '../tileContent';
 import { inModalDialog, isTextEntry, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
-import { previewBox, zoneAt, type Box } from './geometry';
+import { edgePreviewBox, previewBox, windowEdgeAt, zoneAt, type Box } from './geometry';
 import {
+  dockToEdge,
   dropTile,
   findStack,
   removeTile,
@@ -18,7 +19,13 @@ import {
   type Layout,
   type LayoutNode,
   type Stack,
+  type WindowEdge,
 } from './layout';
+
+/** A drop zone that is also a window edge: top, right or bottom. */
+function asEdge(zone: DropZone): WindowEdge | null {
+  return zone === 'top' || zone === 'right' || zone === 'bottom' ? zone : null;
+}
 import { layoutStore, useLayouts } from './layoutStore';
 import { holdTextSelection, releaseTextSelection } from './textSelection';
 
@@ -29,14 +36,18 @@ function zoneLabel(zone: DropZone): string {
   return t(`dock.zone.${zone}`);
 }
 
+function edgeLabel(edge: WindowEdge): string {
+  return t(`dock.edge.${edge}`);
+}
+
+/** A keyboard move's last stop after every tile: the window's own edges (polish 4). */
+const WINDOW_TARGET = 'window';
+
 /** Pointer travel before a press on a title bar becomes a drag, so a click on it stays a click. */
 const DRAG_THRESHOLD_PX = 4;
 
-interface Target {
-  stackId: string;
-  zone: DropZone;
-  box: Box;
-}
+/** Where a drag would land: an edge or the centre of a tile, or a whole side of the window. */
+type Target = { stackId: string; zone: DropZone; box: Box } | { edge: WindowEdge; box: Box };
 
 interface Drag {
   tile: string;
@@ -66,8 +77,24 @@ function stackBox(stackId: string): Box | null {
   return { left, top, width, height };
 }
 
-/** The tile under the pointer, ignoring the drag ghost and preview drawn over everything. */
+function boxOf(el: Element | null): Box | null {
+  if (!el) return null;
+  const { left, top, width, height } = el.getBoundingClientRect();
+  return { left, top, width, height };
+}
+
+/** The space the tiles fill: a window-edge dock spans it. Absent while a tile is maximized. */
+const rootBox = () => boxOf(document.querySelector('[data-dock-root]'));
+
+/**
+ * The tile under the pointer, ignoring the drag ghost and preview drawn over everything. Close to the workspace's
+ * top, right or bottom edge, the window's side instead: the tile would span all of it.
+ */
 function targetAt(x: number, y: number): Target | null {
+  const panel = boxOf(document.getElementById(WORKSPACE_PANEL_ID));
+  const root = rootBox();
+  const edge = panel && root ? windowEdgeAt(panel, x, y) : null;
+  if (edge && root) return { edge, box: edgePreviewBox(root, edge) };
   const el = document.elementsFromPoint(x, y).find((node) => node instanceof HTMLElement && node.dataset.stackId);
   const stackId = el instanceof HTMLElement ? el.dataset.stackId : undefined;
   if (!stackId) return null;
@@ -137,7 +164,9 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         event.preventDefault();
         setKeyMove(null);
         if (target) {
-          layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, move.tile, target, move.zone));
+          const edge = target === WINDOW_TARGET ? asEdge(move.zone) : null;
+          const next = edge ? dockToEdge(layoutRef.current, move.tile, edge) : dropTile(layoutRef.current, move.tile, target, move.zone);
+          layoutStore.getState().change(workspace.id, next);
           setAnnouncement(t('dock.moved', { title: move.title }));
           // Focus follows the tile to where it landed.
           requestAnimationFrame(() => {
@@ -154,6 +183,14 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         return;
       }
       const target = next.targets[next.index];
+      if (target === WINDOW_TARGET) {
+        // The window's top, right and bottom: never its left, the sidebar's, nor its centre.
+        const edge = asEdge(next.zone) ?? asEdge(move.zone) ?? 'right';
+        const root = rootBox();
+        setKeyMove({ ...next, zone: edge, box: root ? edgePreviewBox(root, edge) : null });
+        setAnnouncement(asEdge(next.zone) ? t('dock.edgeOfWindow', { edge: edgeLabel(edge) }) : t('dock.notLeftEdge', { edge: edgeLabel(edge) }));
+        return;
+      }
       setKeyMove({ ...next, box: target ? stackBox(target) : null });
       if (target) {
         const onto = findStack(layoutRef.current, target);
@@ -167,9 +204,13 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   }, [keyMove, workspace.id]);
 
   const startKeyMove = (stack: Stack) => {
-    const targets = stacks(layout.root)
-      .filter((s) => s.id !== stack.id || s.tiles.length > 1)
-      .map((s) => s.id);
+    // Every other tile, then the window's edges, which take any tile but a workspace's only one.
+    const targets = [
+      ...stacks(layout.root)
+        .filter((s) => s.id !== stack.id || s.tiles.length > 1)
+        .map((s) => s.id),
+      ...(tilesIn(layout).length > 1 && !layout.maximized ? [WINDOW_TARGET] : []),
+    ];
     const first = targets[0];
     if (!first) {
       setAnnouncement(t('dock.noOtherTile'));
@@ -199,8 +240,10 @@ export function Dock({ workspace }: { workspace: Workspace }) {
       window.removeEventListener('keydown', onEscape, true);
       releaseTextSelection();
       setDrag(null);
-      if (drop && current.started && current.target) {
-        layoutStore.getState().change(workspace.id, dropTile(layoutRef.current, tile, current.target.stackId, current.target.zone));
+      const target = current.target;
+      if (drop && current.started && target) {
+        const next = 'edge' in target ? dockToEdge(layoutRef.current, tile, target.edge) : dropTile(layoutRef.current, tile, target.stackId, target.zone);
+        layoutStore.getState().change(workspace.id, next);
       }
     };
     const onUp = () => {
@@ -313,8 +356,28 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   };
 
   const maximized = layout.maximized ? findStack(layout, layout.maximized) : undefined;
-  const preview = drag?.target ? previewBox(drag.target.box, drag.target.zone) : keyMove?.box ? previewBox(keyMove.box, keyMove.zone) : null;
-  const previewZone = drag?.target?.zone ?? keyMove?.zone;
+  const dragTarget = drag?.target ?? null;
+  const keyOnWindow = keyMove?.targets[keyMove.index] === WINDOW_TARGET;
+  const keyEdge = keyMove?.targets[keyMove.index] === WINDOW_TARGET ? asEdge(keyMove.zone) : null;
+  // A window edge's box is already the side it would take; a tile's is cut to the half its zone would take.
+  const preview = dragTarget
+    ? 'edge' in dragTarget
+      ? dragTarget.box
+      : previewBox(dragTarget.box, dragTarget.zone)
+    : keyMove?.box
+      ? keyOnWindow
+        ? keyMove.box
+        : previewBox(keyMove.box, keyMove.zone)
+      : null;
+  const previewLabel = dragTarget
+    ? 'edge' in dragTarget
+      ? edgeLabel(dragTarget.edge)
+      : zoneLabel(dragTarget.zone)
+    : keyMove
+      ? keyEdge
+        ? edgeLabel(keyEdge)
+        : zoneLabel(keyMove.zone)
+      : null;
 
   return (
     <div
@@ -348,17 +411,19 @@ export function Dock({ workspace }: { workspace: Workspace }) {
           </ul>
         </>
       ) : (
-        <div className="min-h-0 flex-1">{renderNode(layout.root)}</div>
+        <div data-dock-root="" className="min-h-0 flex-1">
+          {renderNode(layout.root)}
+        </div>
       )}
 
-      {preview && previewZone && (
+      {preview && previewLabel !== null && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed z-40 flex items-center justify-center border-2 border-accent bg-accent/10"
           style={preview}
         >
           {/* The label is the second cue: the orange outline alone never carries meaning (DESIGN.md). */}
-          <span className="sb-label bg-text px-1.5 py-1 text-text-inverse">{zoneLabel(previewZone)}</span>
+          <span className="sb-label bg-text px-1.5 py-1 text-text-inverse">{previewLabel}</span>
         </div>
       )}
       {drag?.started && (

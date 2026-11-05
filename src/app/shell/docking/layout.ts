@@ -151,6 +151,31 @@ export function dropTile(layout: Layout, tile: TileId, targetStackId: string, zo
   return { root: tidy(root) ?? root, maximized: null };
 }
 
+/** The window's edges a tile can dock along (polish 4). Never the left: that edge is the sidebar's. */
+export type WindowEdge = 'top' | 'right' | 'bottom';
+
+/** How much of the workspace a tile docked along a window edge takes, across that side. */
+export const EDGE_SHARE = 0.25;
+
+/**
+ * Docks a tile along a whole side of the workspace: everything else stays as it is, in the rest of the space, and the
+ * tile spans the full width (top, bottom) or height (right). It comes out of wherever it was first, so a tile already
+ * along that edge just moves there again.
+ */
+export function dockToEdge(layout: Layout, tile: TileId, edge: WindowEdge): Layout {
+  // A workspace's only tile has nothing to dock beside.
+  if (!tilesIn(layout).includes(tile) || tilesIn(layout).length <= 1) return layout;
+  const rest = removeTile(layout, tile).root;
+  const incoming = stack([tile]);
+  const direction = edge === 'right' ? 'row' : 'column';
+  const root =
+    edge === 'top'
+      ? split(direction, [incoming, rest], [EDGE_SHARE, 1 - EDGE_SHARE])
+      : split(direction, [rest, incoming], [1 - EDGE_SHARE, EDGE_SHARE]);
+  // A rest split the same way merges into this one, each of its tiles keeping its share of what's left.
+  return { root: tidy(root) ?? root, maximized: null };
+}
+
 /** Adds a tile that isn't in the layout yet, to the right of the given stack (or of everything). */
 export function openTile(layout: Layout, tile: TileId, besideStackId?: string): Layout {
   if (tilesIn(layout).includes(tile)) {
