@@ -1,6 +1,6 @@
 # Spanish (Latin America) glossary
 
-For Kevin to review before the Spanish milestone (polish 7) merges. The translation is in
+For Kevin to review. Polish 7 merged with every choice as built (Kevin, Nov 5); his changes come as a small follow-up PR. The translation is in
 `src/core/i18n/locales/es.ts`; every choice below is a word or two there, so changing one is a one-line edit.
 Stored values never change with the language: a project saved in Spanish opens the same in English, and file names
 other tools rely on (`SC004_4A.png`, backups, opened copies) stay as they are.
