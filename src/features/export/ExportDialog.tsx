@@ -1,10 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
 import { sceneLabel } from '../../core/model/storyboard';
 import { chooseExportFile, chooseExportFolder } from '../../core/storage/exportFiles';
 import { Button } from '../../ui/Button';
+import { InAppWindow } from '../../ui/InAppWindow';
+import { NoticeBar } from '../../app/NoticeBar';
 import { Select } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { board } from '../storyboard/board';
@@ -28,50 +30,13 @@ export function ExportHost() {
   return open === 'export' ? <ExportDialog key={project.projectId} /> : <WatermarkDialog key={project.projectId} />;
 }
 
-/** A modal dialog of the kit: ink rule, no radius, Escape closes. */
+/** Export and Watermark Settings, each in a window of the app's own (polish B). */
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  const latest = useRef(onClose);
-  useLayoutEffect(() => {
-    latest.current = onClose;
-  });
-  useLayoutEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    // Chromium (so WebView2) closes a modal dialog on a second Escape without a cancel event the page can stop, so a
-    // page can't trap people in one. The close event comes either way: without it the store would still think the
-    // dialog open, and the project menu couldn't open it again.
-    const closed = () => {
-      // The event comes a moment after the close. Open again by then (Strict Mode runs this effect twice, closing
-      // the dialog in between), it's a close that no longer stands.
-      if (!element.open) latest.current();
-    };
-    element.addEventListener('close', closed);
-    if (!element.open) element.showModal();
-    return () => {
-      // Going because the store said so: no close event back to it, which may have opened another dialog by then.
-      element.removeEventListener('close', closed);
-      if (element.open) element.close();
-    };
-  }, []);
   return (
-    <dialog
-      ref={dialog}
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      className="m-auto w-[520px] max-w-[calc(100vw-32px)] border-[1.5px] border-text bg-surface p-0 text-text backdrop:bg-text/40"
-    >
-      <div className="flex flex-col gap-4 p-4">
-        <h2 id={titleId} className="text-[20px] font-bold">
-          {title}
-        </h2>
-        {children}
-      </div>
-    </dialog>
+    <InAppWindow title={title} onClose={onClose}>
+      <NoticeBar />
+      <div className="flex flex-col gap-4 p-4">{children}</div>
+    </InAppWindow>
   );
 }
 

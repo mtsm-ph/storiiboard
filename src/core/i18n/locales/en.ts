@@ -245,14 +245,6 @@ export const en = {
   'tile.team.note': 'Who is on the project; from Phase 9, what each person sees on the web. Phase 3.',
   'tile.people.title': 'Cast and crew',
   'tile.people.note': 'People by department, characters, contacts. Phase 3.',
-  'tile.project.title': 'Project',
-  'tile.project.note': 'Title and notes.',
-  'tile.backups.title': 'Backups',
-  'tile.backups.note': 'How many copies to keep, and Open backup.',
-  'tile.storage.title': 'Storage',
-  'tile.storage.note': 'What pictures take, Empty Trash and Clean up old pictures.',
-  'tile.theme.title': 'Theme',
-  'tile.theme.note': 'The logo or key image, accent and mode the project’s colours come from.',
   'tile.calendar.title': 'Calendar',
   'tile.calendar.note': 'Shoot days and availability by month and week. Phase 3.',
   'tile.notifications.title': 'Notifications',
@@ -268,7 +260,6 @@ export const en = {
   'workspace.setup': 'Setup',
   'workspace.production': 'Production',
   'workspace.moodboard': 'Moodboard',
-  'workspace.settings': 'Settings',
   'phase.number': 'Phase {phase}',
   'phase.range': 'Phases {from}–{to}',
   // src/app/shell/docking/Dock.tsx
@@ -938,8 +929,6 @@ export const en = {
   // src/app/preferences/AppTile.tsx
   'app.language': 'App language',
   'app.languageNote': 'Every screen, notice and export, for you on this computer. A project you share opens in each person’s own language.',
-  'tile.app.title': 'App',
-  'tile.app.note': 'Your language and other settings that belong to you, not the project.',
   // src/core/i18n (lists)
   'list.and': '{items} and {last}',
   'list.separator': ', ',
@@ -962,10 +951,24 @@ export const en = {
   'dock.edge.right': 'Dock along the right',
   'dock.edge.bottom': 'Dock along the bottom',
   'dock.edgeOfWindow': '{edge} of the window.',
+  // src/ui/InAppWindow.tsx
+  'window.close': 'Close {title}',
+  // src/app/settings/SettingsWindow.tsx
+  'settings.title': 'Settings',
+  'settings.tab.project': 'Project',
+  'settings.tab.app': 'App',
+  'settings.tab.theme': 'Theme',
+  'settings.tab.backups': 'Backups',
+  'settings.tab.storage': 'Storage',
+  'sidebar.settings': 'Settings…',
   // src/app/shell/docking/Dock.tsx
   'dock.leftIsSidebar': 'The window’s left edge is the sidebar’s: pick top, right or bottom.',
   'dock.noWindowCentre': 'The window has no centre: pick top, right or bottom.',
   // src/app/shell/docking/Dock.tsx
   'dock.stayed': '{title} is along that edge already.',
+  // src/app/settings/SettingsWindow.tsx
+  'settings.sections': 'Settings sections',
+  // src/app/ask.tsx
+  'window.closePlain': 'Close',
   // codemod: new entries above this line
 };

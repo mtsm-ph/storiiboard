@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { closeSettings, openSettings } from './settings';
 
 // Real projects in a browser: `?files=memory` swaps the desktop driver for the memory one (src/app/fileAccess.ts), so
 // these tests create, edit, reload and reopen projects through the same storage and ops code the app uses. A
@@ -56,14 +57,14 @@ test('keeps scenes across a reload, and undo still works after reopening from Re
 
 test('edits the project’s title and notes in Settings → Project, and ⌘Z takes an edit back', async ({ page }) => {
   await newProject(page, 'Bey County');
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
-  const tile = page.getByRole('region', { name: 'Project', exact: true });
+  const tile = await openSettings(page, 'Project');
   const title = tile.getByLabel('Title');
   await title.fill('Bey County: Pilot');
   await title.press('Enter');
   await expect(page.getByRole('banner').getByText('Bey County: Pilot')).toBeVisible();
 
-  await page.getByRole('banner').click();
+  // Out of the field, so ⌘Z is the project's rather than the field's own.
+  await closeSettings(page);
   await page.keyboard.press(await undoKey(page));
   await expect(page.getByRole('banner').getByText('Bey County', { exact: true })).toBeVisible();
 });
@@ -88,8 +89,7 @@ test('archives and unarchives from the project menu, and an archived project mov
 test('backs up now, and opens a backup as a separate project', async ({ page }) => {
   await newProject(page, 'Bey County');
   await sidebar(page).getByRole('button', { name: '+ Add Scene' }).click();
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
-  const backups = page.getByRole('region', { name: 'Backups', exact: true });
+  const backups = await openSettings(page, 'Backups');
   await backups.getByRole('button', { name: 'Back up now' }).click();
   await expect(backups.getByRole('status')).toContainText('Backed up at');
 
@@ -98,6 +98,7 @@ test('backs up now, and opens a backup as a separate project', async ({ page }) 
   await expect(page.getByRole('status').filter({ hasText: 'Opened a backup as a separate project' })).toContainText(
     /“Bey County \d{4}-\d{2}-\d{2} \d{2}-\d{2} \(from backup\)”/,
   );
+  await closeSettings(page);
   await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
   await expect(scenes(page)).toHaveText([/SC 01/]);
   await sidebar(page).getByRole('button', { name: /^Project:/ }).click();
@@ -120,3 +121,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((n) => n.target.join(' ')) }))).toEqual([]);
   });
 }
+
+test('Escape in Settings keeps what was typed in a field not yet left', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  const tile = await openSettings(page, 'Project');
+  await tile.getByLabel('Notes').fill('Call at 6');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
+  await expect((await openSettings(page, 'Project')).getByLabel('Notes')).toHaveValue('Call at 6');
+});

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { openSettings, settingsWindow } from './settings';
 
 // A new project's first step and Settings → Theme (1.16), in the memory build: a logo gives accents, Create writes the
 // image and the theme in one op group that one undo takes back, Skip writes nothing, and Settings takes an accent by
@@ -15,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 const onboarding = (page: Page) => page.getByRole('dialog', { name: 'Set up Bey County' });
-const themeTile = (page: Page) => page.getByRole('region', { name: 'Theme', exact: true });
+const themeTile = (page: Page) => settingsWindow(page).getByRole('tabpanel', { name: 'Theme', exact: true });
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const accent = (page: Page) => page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
 /** The open project's stored theme prop and whether anything can be undone, read from the app's own store. */
@@ -108,7 +109,7 @@ test('a logo offers its accent, the dialog previews it, and Create themes the pr
   // Follow project takes the project's own mode.
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
+  await openSettings(page, 'Theme');
   await expect(themeTile(page).getByText('logo.png')).toBeVisible();
 
   // One undo takes back the image and the theme together.
@@ -147,7 +148,7 @@ test('a picture dropped on the dialog is its image, never a frame on the board',
 test('Settings → Theme takes an accent by hand, shows what AA makes of it, and resets to the kit', async ({ page }) => {
   await newProject(page);
   await onboarding(page).getByRole('button', { name: 'Skip' }).click();
-  await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
+  await openSettings(page, 'Theme');
 
   const hex = themeTile(page).getByLabel('Hex');
   await hex.fill('#f60');
@@ -180,7 +181,7 @@ for (const scheme of ['light', 'dark'] as const) {
     expect((await new AxeBuilder({ page }).include('dialog').withTags(tags).analyze()).violations).toEqual([]);
 
     await onboarding(page).getByRole('button', { name: 'Create' }).click();
-    await sidebar(page).getByRole('button', { name: /^Settings/ }).click();
+    await openSettings(page, 'Theme');
     await expect(themeTile(page).getByText('logo.png')).toBeVisible();
     expect((await new AxeBuilder({ page }).withTags(tags).analyze()).violations).toEqual([]);
   });
