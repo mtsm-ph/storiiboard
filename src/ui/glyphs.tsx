@@ -54,6 +54,16 @@ export function PlayGlyph() {
   );
 }
 
+/** The sidebar: a window with its left column, filled while the sidebar shows, an outline while it's hidden. */
+export function SidebarGlyph({ shown }: { shown: boolean }) {
+  return (
+    <svg width="14" height="12" viewBox="0 0 14 12" aria-hidden="true">
+      <rect x="0.75" y="0.75" width="12.5" height="10.5" fill="none" className="stroke-text" strokeWidth="1.5" />
+      <rect x="0.75" y="0.75" width="4.5" height="10.5" className={shown ? 'fill-text stroke-text' : 'fill-none stroke-text'} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
 export function LockGlyph({ open = false }: { open?: boolean }) {
   return (

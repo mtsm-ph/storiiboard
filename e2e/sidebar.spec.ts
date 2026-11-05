@@ -135,3 +135,35 @@ test('the Backups tile keeps its settings for every project, across a reload, an
   await section(page, 'Settings').click();
   await expect(page.getByRole('region', { name: 'Backups', exact: true }).getByLabel('Keep the last')).toHaveValue('20');
 });
+
+test('the sidebar hides to a strip and shows again, by button or shortcut, and stays as it was left', async ({ page }) => {
+  const shortcut = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta+Backslash' : 'Control+Backslash';
+  const scenes = page.getByRole('region', { name: 'Scenes', exact: true });
+  const before = (await scenes.boundingBox())?.width ?? 0;
+
+  await page.getByRole('button', { name: /^Hide sidebar/ }).click();
+  await expect(sidebar(page)).toHaveCount(0);
+  const show = page.getByRole('complementary', { name: 'Sidebar, hidden' }).getByRole('button', { name: /^Show sidebar/ });
+  // Focus goes to the button that brings it back, never to the page.
+  await expect(show).toBeFocused();
+  // The workspace takes the room: each tile keeps its share, so it widens.
+  await expect.poll(async () => (await scenes.boundingBox())?.width ?? 0).toBeGreaterThan(before);
+
+  await page.reload();
+  await expect(sidebar(page)).toHaveCount(0);
+  await show.click();
+  await expect(sidebar(page)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Hide sidebar/ })).toBeFocused();
+
+  // From the keyboard, anywhere: focus stays where it is unless it was in what folds away.
+  await page.getByRole('button', { name: 'Maximize Scenes' }).focus();
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Maximize Scenes' })).toBeFocused();
+  await page.keyboard.press(shortcut);
+  await expect(sidebar(page)).toBeVisible();
+  // The sections still answer Alt+number while it's hidden.
+  await page.keyboard.press(shortcut);
+  await page.keyboard.press('Alt+7');
+  await expect(page.getByText('Workspace: Settings')).toBeVisible();
+});

@@ -26,6 +26,7 @@ describe('backup settings', () => {
       syncNoted: [],
       backupsNextToProject: false,
       language: 'en',
+      sidebarHidden: false,
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
@@ -40,6 +41,7 @@ describe('backup settings', () => {
       syncNoted: [],
       backupsNextToProject: false,
       language: 'en',
+      sidebarHidden: false,
     });
   });
 });

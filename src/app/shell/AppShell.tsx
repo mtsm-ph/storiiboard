@@ -12,6 +12,9 @@ import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
 import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
+import { SidebarStrip } from './sidebar/SidebarStrip';
+import { HIDE_SIDEBAR_ID, isSidebarToggle, SHOW_SIDEBAR_ID } from './sidebar/sidebarToggle';
+import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
@@ -29,6 +32,8 @@ export function AppShell() {
   // All projects… asks for the Projects screen while a project is open; opening one, or a section, leaves it.
   const [projectsAsked, setProjectsAsked] = useState(false);
   const notice = useNotice();
+  // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
+  const [sidebarHidden, setSidebarHidden] = useState(() => loadSettings().sidebarHidden);
   useOpenedFiles();
   const workspace = WORKSPACES.find((w) => w.id === workspaceId) ?? WORKSPACES[0];
   const projectTitle = useProject((s) => {
@@ -83,6 +88,32 @@ export function AppShell() {
     };
   }, []);
 
+  /** Hides or shows the sidebar. `focusFollows`: focus moves to the button that brings it back, never to <body>. */
+  const toggleSidebar = (focusFollows: boolean) => {
+    setSidebarHidden((hidden) => {
+      const next = !hidden;
+      saveSettings({ sidebarHidden: next });
+      return next;
+    });
+    if (focusFollows) requestAnimationFrame(() => document.getElementById(sidebarHidden ? HIDE_SIDEBAR_ID : SHOW_SIDEBAR_ID)?.focus());
+  };
+
+  useEffect(() => {
+    const mac = isMac();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isSidebarToggle(event, mac)) return;
+      event.preventDefault();
+      // From the keyboard, focus moves only if it was in what's folding away.
+      const focused = document.activeElement;
+      const inSidebar = focused !== null && focused.closest('nav[data-sidebar], aside[data-sidebar]') !== null;
+      toggleSidebar(inSidebar);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  });
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = workspaceForShortcut(event);
@@ -110,16 +141,27 @@ export function AppShell() {
     <div className="sb-grain flex h-full flex-col text-text">
       <TopBar projectName={projectTitle} workspace={workspace} />
       <div className="flex min-h-0 flex-1">
-        <Sidebar
-          workspaces={WORKSPACES}
-          activeId={workspace.id}
-          onSelect={selectWorkspace}
-          activeSceneId={activeSceneId}
-          onSelectScene={setActiveSceneId}
-          onShowProjects={() => {
-            setProjectsAsked(true);
-          }}
-        />
+        {sidebarHidden ? (
+          <SidebarStrip
+            onShow={() => {
+              toggleSidebar(true);
+            }}
+          />
+        ) : (
+          <Sidebar
+            workspaces={WORKSPACES}
+            activeId={workspace.id}
+            onSelect={selectWorkspace}
+            activeSceneId={activeSceneId}
+            onSelectScene={setActiveSceneId}
+            onShowProjects={() => {
+              setProjectsAsked(true);
+            }}
+            onHide={() => {
+              toggleSidebar(true);
+            }}
+          />
+        )}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {notice.message !== null &&
             (notice.kind === 'warning' ? (

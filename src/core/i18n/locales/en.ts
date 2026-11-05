@@ -952,5 +952,9 @@ export const en = {
   'history.aRecord': 'a {type}',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
+  // src/app/shell/sidebar/Sidebar.tsx
+  'sidebar.hide': 'Hide sidebar ({keys})',
+  'sidebar.show': 'Show sidebar ({keys})',
+  'sidebar.hiddenStrip': 'Sidebar, hidden',
   // codemod: new entries above this line
 };

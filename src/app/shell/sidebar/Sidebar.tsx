@@ -10,6 +10,10 @@ import { sectionId, type Workspace, type WorkspaceId } from '../workspaces';
 import { onNavKeyDown } from './navKeys';
 import { SceneList } from './SceneList';
 import { addSceneChange, sceneEntries } from './scenes';
+import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
+import { IconButton } from '../../../ui/Button';
+import { SidebarGlyph } from '../../../ui/glyphs';
+import { isMac } from '../undoShortcuts';
 import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
@@ -24,12 +28,15 @@ interface SidebarProps {
   onSelectScene: (id: string) => void;
   /** All projects…: the Projects screen. */
   onShowProjects: () => void;
+  /** Hide sidebar (polish 2): fold it to the thin strip. */
+  onHide: () => void;
 }
 
 /** How many recent projects the switcher lists; All projects… has the rest. */
 const SWITCHER_RECENT = 8;
 
-export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelectScene, onShowProjects }: SidebarProps) {
+export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelectScene, onShowProjects, onHide }: SidebarProps) {
+  const shortcut = sidebarShortcut(isMac());
   const layouts = useLayouts((s) => s.layouts);
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
@@ -60,7 +67,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
 
   return (
     // The sidebar keeps paper outlines in dark, like the top bar: together they're the guiding board.
-    <nav aria-label={t('sidebar.sections')} className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
+    <nav data-sidebar="" aria-label={t('sidebar.sections')} className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
       <div className="h-11 shrink-0 border-b border-border-top">
         <Menu
           label={
@@ -180,6 +187,18 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
           );
         })}
       </ul>
+      {/* The foot: Hide sidebar at the bottom left, where the strip's Show sidebar sits once it's hidden. */}
+      <div className="flex h-9 shrink-0 items-center border-t border-border-top px-2">
+        <IconButton
+          id={HIDE_SIDEBAR_ID}
+          size="sm"
+          label={t('sidebar.hide', { keys: shortcut.label })}
+          aria-keyshortcuts={shortcut.aria}
+          onClick={onHide}
+        >
+          <SidebarGlyph shown />
+        </IconButton>
+      </div>
     </nav>
   );
 }
