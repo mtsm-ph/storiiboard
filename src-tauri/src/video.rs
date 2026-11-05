@@ -469,12 +469,9 @@ mod tests {
                 "prores_ks",
                 "-pix_fmt",
                 "yuv422p10le",
-                "-color_trc",
-                "arib-std-b67",
-                "-color_primaries",
-                "bt2020",
-                "-colorspace",
-                "bt2020nc",
+                // Tagged on the frames: since FFmpeg 7 the frames' own colour (unset here) overrides -color_trc.
+                "-vf",
+                "setparams=color_trc=arib-std-b67:color_primaries=bt2020:colorspace=bt2020nc",
             ],
         );
         let probe = probe(&hlg).unwrap();

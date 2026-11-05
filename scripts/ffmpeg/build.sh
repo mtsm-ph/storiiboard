@@ -54,8 +54,9 @@ case "$triple" in
     ;;
   *windows*)
     # Media Foundation: the hardware H.264 encoder on Windows, with Microsoft's own software encoder where there's no
-    # GPU. Linked statically, so the .exe needs no MinGW DLLs beside it.
-    flags+=(--enable-w32threads --enable-mediafoundation --extra-ldflags=-static)
+    # GPU. FFmpeg 8's Media Foundation encoder takes D3D11 frames, so D3D11VA comes with it (Windows' own headers;
+    # it also decodes on the GPU). Linked statically, so the .exe needs no MinGW DLLs beside it.
+    flags+=(--enable-w32threads --enable-d3d11va --enable-mediafoundation --extra-ldflags=-static)
     exe=".exe"
     ;;
   *linux*)
@@ -77,6 +78,7 @@ make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4
 licence=$(./ffmpeg -hide_banner -L)
 buildconf=$(./ffmpeg -hide_banner -buildconf)
 filters=$(./ffmpeg -hide_banner -filters)
+about=$(./ffmpeg -version)
 # The licence text wraps ("...GNU Lesser General Public" / "License..."), so only the words on one line; "version 2.1"
 # tells it from the LGPL 3 that --enable-version3 would bring, which the shipped COPYING.LGPLv2.1 wouldn't cover.
 grep -q 'GNU Lesser General Public' <<<"$licence" || { echo 'not an LGPL build' >&2; exit 1; }
@@ -93,15 +95,19 @@ cp LICENSE.md "$out/ffmpeg-LICENSE.md"
 # source from the same place (the LGPL's section 4); the Phase 8 release attaches it to each release.
 cp "$work/ffmpeg.tar.xz" "$out/ffmpeg-${VERSION}.tar.xz"
 commit=${GITHUB_SHA:-$(git -C "$here" rev-parse HEAD 2>/dev/null || echo unknown)}
-compiler=$( (cc --version 2>/dev/null || gcc --version) | head -n 1 || true)
+# The compiler configure actually used, as ffmpeg reports it ("built with ..."), and the script's own hash, which stays
+# findable if the commit isn't.
+compiler=$(sed -n 's/^built with //p' <<<"$about")
+script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
 {
   echo "Storiiboard includes ffmpeg and ffprobe from FFmpeg ${VERSION}, under the GNU Lesser General Public License"
   echo "version 2.1 or later (ffmpeg-LICENSE.txt; FFmpeg's notes on its licences: ffmpeg-LICENSE.md). They run as"
   echo "separate programs; Storiiboard doesn't link them."
   echo
-  echo "Source: ffmpeg-${VERSION}.tar.xz, published with each Storiiboard release, and ${SOURCE_URL}"
+  echo "Source: ffmpeg-${VERSION}.tar.xz, handed out beside these binaries, the same file as ${SOURCE_URL}"
   echo "(SHA-256 ${SHA256})."
-  echo "Built by scripts/ffmpeg/build.sh at Storiiboard commit ${commit}, with ${compiler}, configured with:"
+  echo "Built by scripts/ffmpeg/build.sh (blob ${script}) at Storiiboard commit ${commit}, with ${compiler},"
+  echo "configured with:"
   echo "  ${flags[*]}"
 } > "$out/ffmpeg-SOURCE.txt"
 case "$triple" in
