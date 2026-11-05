@@ -105,7 +105,7 @@ first group (2, 3, 4, B, C, A), after 6 and the palettes, and after 7 with its g
 | PPb Color script tile, eyedropper on any frame, palettes printed in the PDF storyboard | #60 | Done |
 | P7 Latin American Spanish, with a glossary of film terms for Kevin; Spanish scene headings in script import | #61 | Done |
 | P8 Screenshot tests back on with fresh baselines, both languages, both themes | #62 | Done |
-| PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | | In review |
+| PD The open decisions from the review stops: the easy-to-undo ones taken by default, for Kevin to review | #63 | Done (decisions marked for review) |
 
 Decided Nov 5 (Kevin):
 - PA's menu grouping is approved, with these rules: no Manage workspaces until Phase 3 brings department and custom
