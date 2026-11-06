@@ -1,7 +1,7 @@
 # Handoff
 
 Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a, D1, D2 and 2.3b. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+2.3a, D1, D2 and 2.3b (all merged). Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -46,6 +46,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
+| #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -54,7 +55,6 @@ Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every m
 
 - **PR #1, `claude/add-core-features-qkifh` (draft):** from before the v2 rebuild. Leave it alone; it's Kevin's to
   close.
-- **PR #78, `phase2/2.3b-playback-ui` (draft):** 2.3b, in review (below).
 - Every other branch on the remote is merged work, or a `checkpoint/*` branch (CI runs only).
 
 ### 2.3a: how it went, and what's left
@@ -247,6 +247,9 @@ encoder. The tests now print ffmpeg's own words for a failing test (`#[cfg(test)
 Checkpoint r2 (`checkpoint/playback-2.3b-r2`, round 1's fixes): all green. The Rust tests passed on the Mac
 (VideoToolbox; the floor test too) and on Windows (the mix kept after the hardware encoder failed), both installers
 built and their `.sbd` association checked, and the smoke and screenshot tests passed on Linux and the Mac.
+
+Checkpoint r3 (`checkpoint/playback-2.3b-r3`, round 2's fixes): all green again on the Mac and Windows. Round 3's
+fixes (ae5d298) came after it and change nothing a platform does differently; the quick checks passed on them.
 
 For Kevin, on his own computers, in this order (Kevin, Nov 6):
 1. **Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder** (NV12, High
