@@ -5,6 +5,7 @@ use tauri::{webview::PageLoadEvent, Manager};
 mod app_data;
 mod backup;
 mod export;
+mod licences;
 mod lock;
 mod opened;
 mod os;
@@ -74,6 +75,7 @@ pub fn run() {
             playback::playback_set_floor,
             playback::playback_move,
             playback::playback_move_back,
+            licences::licence_text,
             pictures::script_choose,
             export::export_choose_file,
             export::export_choose_folder,

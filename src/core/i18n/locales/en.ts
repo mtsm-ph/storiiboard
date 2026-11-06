@@ -991,6 +991,7 @@ export const en = {
   'error.copyNoRoom': 'There isn\'t enough free space on that drive for the playback copy. Storiiboard always leaves some free there (Settings, Storage): free some space, or move the copies to another drive.',
   'error.copyNoRoomThere': 'That drive has less free space than Storiiboard leaves for playback copies (Settings, Storage). The copies stayed where they were.',
   'error.copyNoRoomToMove': 'Not every playback copy fit on that drive with the free space Storiiboard leaves there. The rest stayed where they were, and still play.',
+  'error.licenceMissing': 'That licence isn\'t in this copy of Storiiboard. Reinstalling Storiiboard puts it back.',
   'error.copyFloor': 'The free space to leave for playback copies is between 1 and 1,000 GB.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',

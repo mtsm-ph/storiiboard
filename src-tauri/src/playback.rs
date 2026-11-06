@@ -776,6 +776,8 @@ pub struct CacheInfo {
     pub free_bytes: Option<u64>,
     /// The picked drive isn't there (unplugged): copies go to the cache folder until it's back.
     pub fallback: bool,
+    /// The copies were moved to a folder the person picked, so they can be moved back (2.3b).
+    pub moved: bool,
     /// A copy is being made, or waiting its turn.
     pub busy: bool,
 }
@@ -1555,6 +1557,7 @@ impl PlaybackCache {
             floor_gb: self.settings().floor_gb,
             free_bytes: (self.free)(&folder),
             fallback,
+            moved: self.settings().root.is_some(),
             busy: !lock(&self.jobs).is_empty(),
         })
     }
@@ -1771,7 +1774,7 @@ struct Run<'a> {
     tone_map: Option<&'a video::ToneMap>,
     encoder: &'a [&'a str],
     sound: bool,
-    /// How many separate mono tracks to mix into the copy's one stereo track (see `MIX`); 0 to take the first track
+    /// How many separate mono tracks to mix into the copy's one stereo track (see `mix_filter`); 0 to take the first track
     /// as it is.
     mix: usize,
 }
@@ -3103,7 +3106,9 @@ ssize_t read(int fd, void *buf, size_t count) {
         let copy = pretend(&home, 7, 100, 0);
         let drive = dir.join("Drive");
         fs::create_dir_all(&drive).unwrap();
+        assert!(!cache.info().unwrap().moved);
         assert_eq!(cache.move_to(Some(&drive)).unwrap(), 1);
+        assert!(cache.info().unwrap().moved, "moved to a folder picked");
         let moved = drive.join(FOLDER_NAME).join(copy.file_name().unwrap());
         assert!(moved.is_file() && !copy.exists());
         assert!(!home.exists(), "the empty old folder goes");
@@ -3124,6 +3129,7 @@ ssize_t read(int fd, void *buf, size_t count) {
 
         // And back to the cache folder for good: both folders' copies end up there.
         assert_eq!(cache.move_to(None).unwrap(), 1);
+        assert!(!cache.info().unwrap().moved, "back in the cache folder");
         assert!(home.join(moved.file_name().unwrap()).is_file() && meanwhile.is_file());
         assert_eq!(cache.folder().unwrap(), (home.clone(), false));
         assert_eq!(cache.clear().unwrap(), 2);

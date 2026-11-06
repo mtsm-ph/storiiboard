@@ -978,6 +978,8 @@ pub async fn video_choose(
 mod tests {
     use super::*;
 
+    use std::fs;
+
     #[test]
     fn counts_the_channels_of_each_sound_track() {
         let json = serde_json::json!({
@@ -990,7 +992,6 @@ mod tests {
         );
         assert_eq!(read_audio_tracks(&serde_json::json!({})), Vec::<u32>::new());
     }
-    use std::fs;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir =
