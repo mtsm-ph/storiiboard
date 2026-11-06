@@ -30,8 +30,8 @@ Tauri's build needs them in `src-tauri/binaries` (git ignores the folder), named
   On a Mac, make them runnable again afterwards (artifacts don't keep the permission):
   `chmod +x src-tauri/binaries/ffmpeg-* src-tauri/binaries/ffprobe-*`.
 - **Build them:** on a Mac or Linux, `scripts/ffmpeg/build.sh aarch64-apple-darwin src-tauri/binaries`. A Mac needs
-  Xcode's command-line tools and `brew install autoconf automake libtool meson ninja`; Linux needs `nasm meson
-  ninja-build autoconf automake libtool` and a C++ compiler. On Windows, in MSYS2's MINGW64 shell with `make diffutils
+  Xcode's command-line tools and `brew install autoconf automake libtool meson ninja pkgconf`; Linux needs `nasm meson
+  ninja-build autoconf automake libtool pkg-config` and a C++ compiler. On Windows, in MSYS2's MINGW64 shell with `make diffutils
   tar xz curl autoconf automake libtool mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf
   mingw-w64-x86_64-zlib mingw-w64-x86_64-meson mingw-w64-x86_64-ninja`. With no way to the download sites (a cloud
   session's network, say), put the three tarballs, named as `build.sh` names them, in a folder and set

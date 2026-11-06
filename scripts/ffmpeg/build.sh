@@ -31,6 +31,9 @@ mkdir -p "$out"
 out=$(cd "$out" && pwd)
 here=$(cd "$(dirname "$0")" && pwd)
 
+# FFmpeg's configure finds zimg and dav1d only through pkg-config: said now, not after both are built.
+command -v pkg-config >/dev/null || { echo 'pkg-config is needed (zimg and dav1d are found through it)' >&2; exit 1; }
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -189,14 +192,30 @@ script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
   echo "  ${DAV1D_URL} (SHA-256 ${DAV1D_SHA256})."
 } > "$out/ffmpeg-SOURCE.txt"
 case "$triple" in
+  x86_64*)
+    # On x86, FFmpeg's and dav1d's assembly are both written with x86inc.asm, whose ISC notice must come with the
+    # binary (it's the same file, by the x264 project, in both).
+    {
+      echo
+      echo "On x86, ffmpeg and ffprobe include code assembled from x86inc.asm, under this notice:"
+      echo
+      sed -n '4,21p' "$work/dav1d-${DAV1D_VERSION}/src/ext/x86/x86inc.asm" | sed 's/^;\* \{0,1\}//'
+    } >> "$out/ffmpeg-SOURCE.txt"
+    ;;
+esac
+case "$triple" in
   *windows*)
     # Linked statically from MSYS2: zlib (zlib licence), MinGW-w64's winpthreads (MIT-style), whose notice must
     # travel with the binary, and GCC's C++ runtime for zimg (GPL 3 with the GCC Runtime Library Exception, which
-    # allows it in any program built with GCC).
+    # allows it in any program built with GCC). Their exact MSYS2 packages are named, so their sources can be found.
     {
       echo
       echo "The Windows build also links zlib (https://zlib.net, zlib licence), GCC's C++ runtime for zimg (GPL 3 with"
-      echo "the GCC Runtime Library Exception) and MinGW-w64's winpthreads, whose licence follows."
+      echo "the GCC Runtime Library Exception) and MinGW-w64's winpthreads, from these MSYS2 packages (sources at"
+      echo "https://github.com/msys2/MINGW-packages):"
+      pacman -Q 2>/dev/null | grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|zlib|winpthreads|libwinpthread)( |-git )' | sed 's/^/  /' || true
+      echo
+      echo "winpthreads' licence follows."
       echo
       found=$(find /mingw64/share/licenses -ipath '*pthread*' -type f 2>/dev/null | head -n 1 || true)
       if [ -n "$found" ]; then cat "$found"; else echo "(winpthreads: see https://github.com/mingw-w64/mingw-w64, mingw-w64-libraries/winpthreads/COPYING)"; fi

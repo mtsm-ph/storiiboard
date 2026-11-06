@@ -379,13 +379,15 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
     read_probe(&json)
 }
 
-/// What a video stream's colour is tagged with, in ffprobe's (and zscale's) names; empty where untagged.
+/// What a video stream's colour is tagged with, in ffprobe's (and zscale's) names; empty where untagged. And, for HDR,
+/// the brightest it's said to get, in nits: its content light level, else its mastering display's peak.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Colour {
     pub transfer: String,
     pub primaries: String,
     pub matrix: String,
     pub range: String,
+    pub peak_nits: Option<f64>,
 }
 
 /// What the stills and the playback copy need to know beyond the probe: where the video stream starts and where the
@@ -407,16 +409,37 @@ pub(crate) fn facts(path: &Path) -> Result<Facts, String> {
         .args(["-select_streams", "V:0"])
         .args([
             "-show_entries",
-            "stream=start_time,color_transfer,color_primaries,color_space,color_range:format=start_time",
+            "stream=start_time,color_transfer,color_primaries,color_space,color_range:\
+             stream_side_data=side_data_type,max_luminance,max_content:format=start_time",
         ])
         .args(["-print_format", "json", "-i"])
         .arg(path);
     let json: Value =
         serde_json::from_slice(&run(command, PROBE_TIMEOUT)?).map_err(|_| CANT_READ.to_string())?;
+    Ok(read_facts(&json))
+}
+
+/// `facts` from ffprobe's JSON.
+fn read_facts(json: &Value) -> Facts {
     let file_start = number(&json["format"]["start_time"]).unwrap_or(0.0);
     let stream = &json["streams"][0];
     let tag = |key: &str| stream[key].as_str().unwrap_or("").to_owned();
-    Ok(Facts {
+    let side_data = stream["side_data_list"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    // The content's own brightest pixel first (MaxCLL), as it's what the picture holds; else the mastering display's
+    // peak, as ffprobe prints it ("10000000/10000").
+    let content = side_data
+        .iter()
+        .find_map(|d| d["max_content"].as_f64())
+        .filter(|&nits| nits > 0.0);
+    let mastering = side_data.iter().find_map(|d| {
+        let (num, den) = d["max_luminance"].as_str()?.split_once('/')?;
+        let (num, den) = (num.parse::<f64>().ok()?, den.parse::<f64>().ok()?);
+        (num > 0.0 && den > 0.0).then(|| num / den)
+    });
+    Facts {
         stream_start: number(&stream["start_time"]).unwrap_or(file_start),
         file_start,
         colour: Colour {
@@ -424,8 +447,9 @@ pub(crate) fn facts(path: &Path) -> Result<Facts, String> {
             primaries: tag("color_primaries"),
             matrix: tag("color_space"),
             range: tag("color_range"),
+            peak_nits: content.or(mastering),
         },
-    })
+    }
 }
 
 /// Where the video stream starts and where the file starts (see `facts`).
@@ -437,13 +461,16 @@ pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
 /// FFmpeg's own `scale` only re-tags the colours; zimg's `zscale` takes the picture to linear light (100 nits as 1),
 /// `tonemap` brings the highlights down, and `zscale` takes it to BT.709. Mobius keeps the range up to a third of white
 /// as it is and rolls off above, so 203-nit reference white lands near SDR white (236 of 255 in a still) where Hable
-/// would leave it mid-grey; highlights reach white at the signal's peak (from its metadata, else 1000 nits). A tag the
-/// file doesn't carry is taken as HDR's usual (BT.2020, non-constant luminance, limited range): zscale won't guess.
+/// would leave it mid-grey. Highlights reach white at the signal's peak: the file's own (`Colour::peak_nits`), handed to
+/// tonemap since zscale doesn't pass the metadata on, else tonemap's 1000 nits. A tag the file doesn't carry, or one
+/// zscale doesn't know, is taken as HDR's usual (BT.2020, non-constant luminance, limited range): zscale won't guess.
+/// zimg's HLG is display-referred with a 1.2 gamma per channel, close to BT.2100's luminance-based one.
 pub(crate) fn tone_map(colour: &Colour) -> Option<String> {
     let transfer = colour.transfer.as_str();
     if !matches!(transfer, "smpte2084" | "arib-std-b67") {
         return None;
     }
+    // The names zscale takes, as ffprobe prints them.
     let known = |value: &str, names: &[&str], otherwise: &str| {
         if names.contains(&value) {
             value.to_owned()
@@ -453,18 +480,48 @@ pub(crate) fn tone_map(colour: &Colour) -> Option<String> {
     };
     let primaries = known(
         &colour.primaries,
-        &["bt2020", "smpte432", "smpte431", "bt709"],
+        &[
+            "bt709",
+            "bt470m",
+            "bt470bg",
+            "smpte170m",
+            "smpte240m",
+            "film",
+            "bt2020",
+            "smpte428",
+            "smpte431",
+            "smpte432",
+            "jedec-p22",
+            "ebu3213",
+        ],
         "bt2020",
     );
     let matrix = known(
         &colour.matrix,
-        &["bt2020nc", "bt2020c", "bt709"],
+        &[
+            "bt709",
+            "fcc",
+            "bt470bg",
+            "smpte170m",
+            "smpte240m",
+            "ycgco",
+            "bt2020nc",
+            "bt2020c",
+            "chroma-derived-nc",
+            "chroma-derived-c",
+            "ictcp",
+        ],
         "bt2020nc",
     );
     let range = known(&colour.range, &["tv", "pc"], "tv");
+    // In tonemap's units (100 nits as 1), and never below white itself.
+    let peak = colour
+        .peak_nits
+        .map(|nits| format!(":peak={:.2}", (nits / 100.0).clamp(1.0, 100.0)))
+        .unwrap_or_default();
     Some(format!(
         "zscale=tin={transfer}:pin={primaries}:min={matrix}:rin={range}:t=linear:npl=100:p={primaries}:m={matrix},\
-         format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv"
+         format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0{peak},zscale=t=bt709:m=bt709:r=tv"
     ))
 }
 
@@ -541,14 +598,16 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
     // One scale: square pixels and the cap together, so an 8K 2x anamorphic frame never makes a 16K one on the way.
     // Quoted, so the commas in min() and max() stay inside the expressions.
     let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
-    let mut filter = format!(
-        "bwdif=mode=send_frame:deint=interlaced,scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
-    );
-    // HDR comes out in normal range, as the playback copy shows it.
-    if let Some(tone_map) = tone_map(&facts.colour) {
-        filter.push(',');
-        filter.push_str(&tone_map);
-    }
+    let scale = format!("scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1");
+    // HDR comes out in normal range, as the playback copy shows it. Only the frame asked for is tone-mapped: the ones
+    // decoded on the way to it are dropped first (by their own timestamps, which -copyts keeps).
+    let filter = match tone_map(&facts.colour) {
+        Some(tone_map) => format!(
+            "bwdif=mode=send_frame:deint=interlaced,trim=start={:.6},{scale},{tone_map}",
+            stream_start + into
+        ),
+        None => format!("bwdif=mode=send_frame:deint=interlaced,{scale}"),
+    };
     let early = (stream_start - file_start + into - STILL_PREROLL).max(0.0);
     let mut command = command("ffmpeg");
     command
@@ -1665,6 +1724,7 @@ mod tests {
             primaries: primaries.into(),
             matrix: matrix.into(),
             range: range.into(),
+            peak_nits: None,
         };
         assert_eq!(tone_map(&colour("bt709", "bt709", "bt709", "tv")), None);
         assert_eq!(tone_map(&colour("", "", "", "")), None);
@@ -1675,6 +1735,9 @@ mod tests {
         assert!(
             pq.contains("tonemap=tonemap=mobius") && pq.ends_with("zscale=t=bt709:m=bt709:r=tv")
         );
+        // ICtCp, which zscale knows, kept.
+        let ictcp = tone_map(&colour("smpte2084", "bt2020", "ictcp", "tv")).unwrap();
+        assert!(ictcp.contains(":min=ictcp:"), "{ictcp}");
         // P3 primaries kept; an unknown matrix and range taken as HDR's usual.
         let p3 = tone_map(&colour("arib-std-b67", "smpte432", "unknown", "")).unwrap();
         assert!(
@@ -1730,5 +1793,98 @@ mod tests {
         let png = still(&clip, 1, probe.fps_num, probe.fps_den).unwrap();
         assert_eq!(&png[1..4], b"PNG");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The mean red, green and blue of a picture file (a still's PNG), read back with the sidecar.
+    fn mean_rgb(dir: &Path, png: &[u8]) -> [f64; 3] {
+        let file = dir.join(format!("{}.png", crate::lock::random_id()));
+        fs::write(&file, png).unwrap();
+        let out = command("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(&file)
+            .args(["-pix_fmt", "rgb24", "-f", "rawvideo", "-"])
+            .output()
+            .unwrap();
+        let pixels = out.stdout.len() as f64 / 3.0;
+        let mut sums = [0.0; 3];
+        for (i, &b) in out.stdout.iter().enumerate() {
+            sums[i % 3] += f64::from(b);
+        }
+        sums.map(|sum| sum / pixels)
+    }
+
+    #[test]
+    fn an_hdr_still_is_the_exact_frame_asked_for_and_keeps_its_colour() {
+        let dir = temp_dir("hdr-frames");
+        // Black but for frame 10, at reference white: only the frame asked for is tone-mapped, and it's that one.
+        let clip = make(
+            &dir,
+            "pq frames.mov",
+            &["-f", "lavfi", "-i", "color=c=black:size=320x180:rate=25:duration=1"],
+            &[
+                "-vf",
+                &format!("format=yuv422p10le,geq=lum='if(eq(N,10),{PQ_WHITE},64)':cb=512:cr=512,setparams=range=tv:{PQ}"),
+                "-c:v",
+                "prores_ks",
+            ],
+        );
+        for (frame, white) in [(9, false), (10, true), (11, false)] {
+            let grey = mean_grey(&dir, &still(&clip, frame, 25, 1).unwrap());
+            assert_eq!(grey > 200.0, white, "frame {frame}: {grey}");
+        }
+        // A red from BT.2020 stays red in BT.709: the matrix and the primaries are read, not only the brightness.
+        let red = flat_10_bit(&dir, "pq red.mov", PQ_WHITE, PQ);
+        let red = make(
+            &dir,
+            "pq red 2.mov",
+            &["-i", red.to_str().unwrap()],
+            &[
+                "-vf",
+                &format!("geq=lum='lum(X,Y)':cb=440:cr=760,setparams=range=tv:{PQ}"),
+                "-c:v",
+                "prores_ks",
+            ],
+        );
+        let [r, g, b] = mean_rgb(&dir, &still(&red, 0, 25, 1).unwrap());
+        assert!(
+            r > g + 40.0 && r > b + 40.0,
+            "red, green, blue: {r} {g} {b}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_an_hdr_files_peak_from_its_light_level_or_its_mastering_display() {
+        let json = |side_data: serde_json::Value| {
+            serde_json::json!({
+                "streams": [{ "start_time": "0.000000", "color_transfer": "smpte2084", "side_data_list": side_data }],
+                "format": { "start_time": "0.000000" },
+            })
+        };
+        let both = json(serde_json::json!([
+            { "side_data_type": "Mastering display metadata", "max_luminance": "40000000/10000" },
+            { "side_data_type": "Content light level metadata", "max_content": 1200, "max_average": 400 },
+        ]));
+        assert_eq!(read_facts(&both).colour.peak_nits, Some(1200.0));
+        let mastering = json(serde_json::json!([
+            { "side_data_type": "Mastering display metadata", "max_luminance": "40000000/10000" },
+            { "side_data_type": "Content light level metadata", "max_content": 0, "max_average": 0 },
+        ]));
+        let facts = read_facts(&mastering);
+        assert_eq!(facts.colour.peak_nits, Some(4000.0));
+        assert!(tone_map(&facts.colour)
+            .unwrap()
+            .contains("tonemap=tonemap=mobius:desat=0:peak=40.00,"));
+        // None said: tonemap's own 1000 nits.
+        let none = read_facts(&json(serde_json::json!([])));
+        assert_eq!(none.colour.peak_nits, None);
+        assert!(tone_map(&none.colour).unwrap().contains("desat=0,zscale"));
+        // A peak below white itself is taken as white.
+        let dim = Colour {
+            transfer: "arib-std-b67".into(),
+            peak_nits: Some(50.0),
+            ..Colour::default()
+        };
+        assert!(tone_map(&dim).unwrap().contains(":peak=1.00"));
     }
 }

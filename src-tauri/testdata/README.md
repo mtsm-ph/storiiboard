@@ -7,4 +7,5 @@ Files the Rust tests read, small and checked in. Everything else the tests need 
   Open Media's libaom test data, `https://storage.googleapis.com/aom-test-data/av1-1-b8-01-size-226x226.ivf`, under the
   BSD 2-Clause licence (with AOMedia's patent licence), as libaom is. Two 226×226 frames at 30 fps. Its published
   `.md5` file lists each decoded frame's MD5 (`68fd0575b5211242727c2bc77c27453d`, `448d6b4cb8379eaee950670af0f5ab41`);
-  `src/video.rs` checks dav1d's decode against them (D1).
+  `src/video.rs` checks dav1d's decode against them (D1). Its licence, with the copyright notice and conditions it
+  asks to keep with it, is `av1-1-b8-01-size-226x226.LICENSE.txt`.

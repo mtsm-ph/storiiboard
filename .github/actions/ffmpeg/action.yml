@@ -38,12 +38,12 @@ runs:
     - name: Install the build tools (Linux)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
       shell: bash
-      run: sudo apt-get install -y nasm meson ninja-build autoconf automake libtool
+      run: sudo apt-get install -y nasm meson ninja-build autoconf automake libtool pkg-config
     # Homebrew keeps installed tools as they are; libtool comes as glibtoolize, which build.sh points autoreconf at.
     - name: Install the build tools (macOS)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
       shell: bash
-      run: brew install autoconf automake libtool meson ninja
+      run: brew install autoconf automake libtool meson ninja pkgconf
     - name: Build ffmpeg (macOS, Linux)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
       shell: bash
