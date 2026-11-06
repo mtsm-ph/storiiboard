@@ -40,7 +40,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | #72 | Done |
 | 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | #73 | Done |
 | 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
-| D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | | In review |
+| D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | | Not started |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
@@ -60,9 +60,11 @@ its checksum, statically, and configures ffmpeg with `--enable-libzimg --enable-
 installers ship `zimg-LICENSE.txt` and `dav1d-LICENSE.txt`; `ffmpeg-SOURCE.txt` records both sources; their tarballs ride
 in the CI artifact. A folder of pre-downloaded sources (`SBD_FFMPEG_SOURCES`, still checksummed) lets the build run
 without the download sites. A PQ or HLG video's stills and playback copies go through zscale to linear light, Mobius
-tone-mapping and back to BT.709 (`video::tone_map`; tags a file leaves out are taken as BT.2020), so 203-nit reference
-white lands near SDR white (236 of 255 in a still) where it used to show mid-grey (146); copies are tagged BT.709 and the
-copies' recipe moved on, so any made before are made again. AV1 decodes exactly (AOMedia's conformance vector, checked
+tone-mapping and back to BT.709 (`video::tone_map`; tags a file leaves out are taken as BT.2020; a matrix FFmpeg's own
+filters refuse, such as ICtCp, is re-tagged for them and read as itself by zscale), with the file's own peak for PQ, so
+203-nit reference white lands near SDR white (236 of 255 in a still) where it used to show mid-grey (146); a still
+tone-maps only its own frame; copies are tagged BT.709 and the copies' recipe moved on, so any made before are made
+again. AV1 decodes exactly (AOMedia's conformance vector, checked
 by its frame checksums, `src-tauri/testdata/`).
 
 2.3a as built (Nov 6), `src-tauri/src/playback.rs`. Five review rounds; each checkpoint ran the copies on the Mac's

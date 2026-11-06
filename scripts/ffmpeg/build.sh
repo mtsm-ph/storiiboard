@@ -183,6 +183,10 @@ script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
   echo "configured with:"
   echo "  ${flags[*]}"
   echo
+  # FFmpeg's LICENSE.md asks for this credit with any program handed out only as executables.
+  echo "ffmpeg and ffprobe are based in part on the work of the Independent JPEG Group (FFmpeg's"
+  echo "libavcodec/jfdctfst.c, jfdctint_template.c and jrevdct.c)."
+  echo
   echo "Built into ffmpeg and ffprobe, statically:"
   echo "- zimg ${ZIMG_VERSION} (https://github.com/sekrit-twc/zimg), under the WTFPL version 2 (zimg-LICENSE.txt)."
   echo "  Source: zimg-${ZIMG_VERSION}.tar.gz, beside these binaries, the same file as ${ZIMG_URL}"
@@ -216,17 +220,25 @@ case "$triple" in
     # their exact sources can be found.
     linked=""
     for lib in libstdc++.a libgcc.a libz.a libwinpthread.a libmingwex.a libmingw32.a; do
-      file=$(gcc -print-file-name="$lib" 2>/dev/null || true)
+      # MinGW's gcc answers with a Windows path; pacman knows the MSYS2 one.
+      file=$(gcc -print-file-name="$lib" 2>/dev/null | tr -d '\r' || true)
+      file=$(cygpath -u "$file" 2>/dev/null || echo "$file")
       if [ -f "$file" ]; then linked="$linked $file"; fi
     done
     # shellcheck disable=SC2086 # one path per word, on purpose
     packages=$( (pacman -Qqo $linked 2>/dev/null || true) | sort -u | (xargs -r pacman -Q 2>/dev/null || true) | sed 's/^/  /')
+    # Failing that, the runtime packages by name.
+    if [ -z "$packages" ]; then
+      packages=$( (pacman -Q 2>/dev/null || true) |
+        grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|zlib|crt|crt-git|winpthreads|winpthreads-git|libwinpthread|libwinpthread-git) ' |
+        sed 's/^/  /' || true)
+    fi
     {
       echo
       echo "The Windows build also links zlib (https://zlib.net, zlib licence), GCC's C++ runtime for zimg (GPL 3 with"
       echo "the GCC Runtime Library Exception), and MinGW-w64's runtime and winpthreads, from these MSYS2 packages"
       echo "(sources at https://github.com/msys2/MINGW-packages):"
-      if [ -n "$packages" ]; then echo "$packages"; else echo "  (MSYS2 couldn't say which packages; see the MINGW64 toolchain of this build's date)"; fi
+      if [ -n "$packages" ]; then echo "$packages"; else echo "  (MSYS2 couldn't say which packages; the build's own MINGW64 toolchain)"; fi
       for licence in pthread crt; do
         found=$(find /mingw64/share/licenses -ipath "*${licence}*" -type f 2>/dev/null | head -n 1 || true)
         echo

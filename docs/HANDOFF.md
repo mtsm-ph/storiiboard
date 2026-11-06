@@ -1,7 +1,7 @@
 # Handoff
 
 Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a merged. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+2.3a and D1 merged. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -38,6 +38,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #72 | 2.2a: schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser stand-in |
 | #73 | 2.2b: link a video to a frame by drop or browse; the inspector's Video section; the missing flag and Relink |
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
+| #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -80,51 +81,30 @@ copy while the original's drive is unplugged (the record could keep size and tim
 evicted by the cap, Clear or a move (2.4); FAT32 roots and copies over 4 GB; a root inside a synced folder (warn, using
 `synced.rs`); Forget when the remembered list couldn't be read.
 
+### D1: how it went, and what's left
+
+Three review rounds, nothing high or medium after the first; each fix tested. The first commit's checkpoint built zimg
+and dav1d on all three platforms (Homebrew on the Mac, MSYS2 on Windows) and ran the HDR and AV1 tests on VideoToolbox
+and Media Foundation. On the way: FFmpeg 8's own filters (bwdif, scale) refuse frames tagged with a matrix swscale
+doesn't know (ICtCp, constant luminance), so HDR files so tagged are re-tagged for them and zscale reads the real one
+(`video::ToneMap`); the file's HDR peak (MaxCLL, else the mastering display's) is handed to tonemap for PQ, since zscale
+drops the metadata; a still tone-maps only its own frame (`trim` on the file's clock, the same time the seek uses).
+
+Lows deferred from the D1 reviews:
+- SDR files tagged with such a matrix (YCgCo screen captures, say) still fail in stills and copies, as before D1:
+  give them the same re-tag with a matrix-only zscale (`m=bt709`) after the scale.
+- Dolby Vision profile 5 (IPT, no PQ tag) isn't recognised and shows as ordinary video; profiles 8.1 and 8.4 play as
+  their HDR10 or HLG base layer, which is right.
+- zimg's HLG uses a 1.2 gamma per channel rather than BT.2100's luminance-based one: a slight saturation shift.
+- The HDR peak is read from the container only; a transport stream that carries it only in its frames gets 1000 nits.
+- HDR copies may keep the original's mastering and light-level boxes beside their BT.709 tags (unverified: making a
+  test file with them needs an encoder the LGPL build doesn't have).
+- Windows' `ffmpeg-SOURCE.txt` names the MSYS2 packages by who owns the linked libraries (paths through `cygpath`), with
+  the old name match as a fallback; check its text in the next checkpoint's artifact.
+
 ## Next steps, in order
 
-1. **D1: zimg and dav1d** (approved by Kevin, Nov 5), one PR. Groundwork done in this session (in a scratch folder, not
-   committed), so the PR is mostly writing it in:
-   - Pin zimg **3.0.6** (`https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.6.tar.gz`, SHA-256
-     `be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577`; its only submodule is the test framework,
-     not needed) and dav1d **1.5.4** (`https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz`,
-     SHA-256 `686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5`, which matches VideoLAN's own).
-     Both are more than two weeks old.
-   - Build both statically in `scripts/ffmpeg/build.sh` (zimg with autotools; dav1d with meson and ninja) and configure
-     ffmpeg with `--enable-libzimg --enable-libdav1d`. **Tested on Linux:** a static zimg needs
-     `STL_LIBS="-lstdc++ -lm"` (`-lc++ -lm` on a Mac) at its configure, or FFmpeg's configure says "zimg not found"
-     (the maths library is missing from its pkg-config file); dav1d with
-     `meson setup build --default-library=static --buildtype=release -Denable_tools=false -Denable_tests=false
-     -Denable_examples=false -Denable_docs=false`. An `SBD_FFMPEG_SOURCES` folder of pre-downloaded tarballs (still
-     checksummed) let the build run here. With both in, `libdav1d` is listed before the native `av1` decoder, so it's
-     used by default.
-   - Add the build tools to `.github/actions/ffmpeg/action.yml` (apt `meson ninja-build autoconf automake libtool` on
-     Linux, Homebrew on the Mac, MSYS2 `autoconf automake libtool mingw-w64-x86_64-meson mingw-w64-x86_64-ninja` on
-     Windows). The self-checks add: `zscale` among the filters, `libdav1d` among the decoders, and still LGPL 2.1 with no
-     GPL, nonfree or version3 flag.
-   - Ship their licences with the installers (zimg: WTFPL, `COPYING`; dav1d: BSD-2-Clause, `COPYING`) through
-     `tauri.conf.json`'s resources, record them in `ffmpeg-SOURCE.txt`, and keep their source tarballs beside
-     FFmpeg's in the CI artifact. On Windows the notice also names GCC's C++ runtime (GPL 3 with the runtime library
-     exception), linked statically for zimg.
-   - HDR: when a video is PQ or HLG, stills and playback copies go through
-     `zscale=tin=<t>:pin=<p>:min=<m>:rin=<r>:t=linear:npl=100:p=<p>:m=<m>,format=gbrpf32le,zscale=p=bt709,
-     tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv`, after the scale to 1920 px. The input tags come from
-     ffprobe (extend `starts()` to read the stream's `color_transfer`, `color_primaries`, `color_space`, `color_range`,
-     so a still needs no second ffprobe); a missing one is filled with BT.2020, bt2020nc and limited range (zscale
-     fails with "no path between colorspaces" otherwise; tested). **Measured:** 203-nit reference white comes out at
-     236/255 in a still (PQ and HLG alike) and Y 218 in a copy; untouched PQ is 146 (mid-grey). `hable` would give
-     about 161, so it's `mobius`. Highlights roll off to white at 1000 nits (the peak assumed without metadata). Tag the
-     copy BT.709 (`-color_primaries bt709 -color_trc bt709 -colorspace bt709`). Bump `RECIPE` in `playback.rs`.
-   - Tests: PQ and HLG clips at reference white (ProRes 4:2:2 10-bit in MOV, `geq=lum=572` for PQ and 721 for HLG,
-     tagged with `-color_trc smpte2084` / `arib-std-b67`, BT.2020) whose still and copy come out near SDR white, a
-     PQ clip with only its transfer tagged, and the copy tagged BT.709; for AV1, check in
-     `av1-1-b8-01-size-226x226.ivf` (1079 bytes, BSD-2-Clause, from `https://storage.googleapis.com/aom-test-data/`,
-     with a note on where it came from) under a new `src-tauri/testdata/`, remux it to MP4 at test time, and check
-     `ffmpeg -f framemd5` against its `.md5` file (frame 1 `68fd0575b5211242727c2bc77c27453d`, frame 2
-     `448d6b4cb8379eaee950670af0f5ab41`; **both match** with dav1d 1.5.4), then make a still and a playback copy.
-   - Add a "Dependencies and licences" section to `docs/PLAN.md`: FFmpeg (LGPL 2.1, run as separate programs), zimg
-     (WTFPL, **approved by Kevin as an exception to the licence list**), dav1d (BSD-2-Clause), windows-sys (MIT or
-     Apache 2.0), plus the npm packages already approved (pdf-lib and @pdf-lib/fontkit, MIT).
-2. **D2: windows-sys** (approved by Kevin, Nov 5): add `windows-sys` as a direct dependency, pinned to **0.61.2**, the
+1. **D2: windows-sys** (approved by Kevin, Nov 5): add `windows-sys` as a direct dependency, pinned to **0.61.2**, the
    version Tauri's own tree already uses (Windows only).
    - A free-space floor: playback copies never leave less than **10 GB** free on their drive; adjustable in
      Settings → Storage (2.3b shows it). Check before each copy (estimate: about 1.5 MB a second at 12 Mb/s) and evict
@@ -135,25 +115,25 @@ evicted by the cap, Clear or a move (2.4); FAT32 roots and copies over 4 GB; a r
    - On Windows, a Job Object with kill-on-close, so ffmpeg stops even when the app crashes (today copies stop when the
      app quits normally). Assign every sidecar (`video::run_heard` and the encode) right after it starts.
    - The Mac crash item above, if it fits.
-3. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
+2. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
    Rust, since each waiting `make` holds a blocking thread), the copy's state in the inspector (soundless copies say so:
    `MadeCopy.silent`), Settings → Storage (copies, size, cap, the free-space floor, Move, Clear, remembered videos and
    Forget), and ffmpeg's licence (with zimg's and dav1d's). The commands: `playback_make` (progress on a channel;
    returns `{ path, silent }`), `playback_find`, `playback_cancel`, `playback_info`, `playback_clear`,
    `playback_set_cap`, `playback_move`, `playback_move_back`, `known_videos_count`, `known_videos_forget`.
-4. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+3. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-5. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
+4. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
    copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
-6. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
+5. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
-7. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+6. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;
@@ -204,6 +184,8 @@ evicted by the cap, Clear or a move (2.4); FAT32 roots and copies over 4 GB; a r
     longest ago; no index pass (`+faststart`); a stall is 90 s of no progress; a copy without sound only when the sound
     itself can't be read, named `-silent`; a file cut short gets a copy if it's within a second (or 1 in 100) of its
     length.
+  - HDR (D1): Mobius tone-mapping (203-nit reference white near SDR white; Hable left it mid-grey), the file's own peak
+    for PQ, else 1000 nits; tags a file leaves out taken as BT.2020, non-constant luminance, limited range.
 - **Known lows, deferred:** a Trash restore of a video still doesn't bring back its clip (undo of Remove does); after a
   project switch, a first missing-file check that times out leaves the flags off until the next focus; bit depth falls
   to 8 for a few packed pixel formats when the decoder doesn't say; the timecode track's own rate (59.94p with 29.97

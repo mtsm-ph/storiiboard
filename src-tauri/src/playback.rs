@@ -2841,7 +2841,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         let dir = temp_dir("hdr");
         let _gone = Gone(dir.clone());
         // 203-nit reference white, PQ and HLG (video.rs has the same clips for stills).
-        let white = |name: &str, luma: u32, transfer: &str| {
+        let white = |name: &str, luma: u32, transfer: &str, matrix: &str| {
             make_clip(
                 &dir,
                 name,
@@ -2856,7 +2856,7 @@ ssize_t read(int fd, void *buf, size_t count) {
                     "-vf",
                     &format!(
                         "format=yuv422p10le,geq=lum={luma}:cb=512:cr=512,setparams=range=tv:\
-                         color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc"
+                         color_primaries=bt2020:color_trc={transfer}:colorspace={matrix}"
                     ),
                     "-c:v",
                     "prores_ks",
@@ -2864,9 +2864,11 @@ ssize_t read(int fd, void *buf, size_t count) {
             )
         };
         let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        // The last tagged with a matrix FFmpeg's own filters refuse: re-tagged for them, read as itself by zscale.
         for clip in [
-            white("pq.mov", 572, "smpte2084"),
-            white("hlg.mov", 721, "arib-std-b67"),
+            white("pq.mov", 572, "smpte2084", "bt2020nc"),
+            white("hlg.mov", 721, "arib-std-b67", "bt2020nc"),
+            white("pq ictcp.mov", 572, "smpte2084", "ictcp"),
         ] {
             assert!(video::probe(&clip).unwrap().hdr);
             let made = cache.make(&clip, |_| {}).unwrap();

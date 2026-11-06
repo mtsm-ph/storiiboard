@@ -635,11 +635,9 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
         return Err("That video's frame rate can't be read.".into());
     }
     let facts = facts(path)?;
-    let (stream_start, file_start) = (facts.stream_start, facts.file_start);
-    // A quarter frame early, frame 0 included: the output seek compares against the frame's own timestamp.
-    let into = (frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num);
-    let filter = still_filter(&facts.colour, stream_start + into);
-    let early = (stream_start - file_start + into - STILL_PREROLL).max(0.0);
+    let (early, at) = still_times(&facts, frame, fps_num, fps_den);
+    // The frame's own time, on the file's clock: the second seek and the trim before the tone map take the same one.
+    let filter = still_filter(&facts.colour, at);
     let mut command = command("ffmpeg");
     command
         .args(["-hide_banner", "-loglevel", "error", "-copyts"])
@@ -648,7 +646,7 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
         .arg("-i")
         .arg(path)
         .arg("-ss")
-        .arg(format!("{:.6}", stream_start + into))
+        .arg(format!("{at:.6}"))
         // V, not v: never a cover picture stored as a video stream.
         .args(["-map", "0:V:0", "-frames:v", "1", "-vf", &filter])
         .args(["-pix_fmt", "rgb24", "-c:v", "png", "-f", "image2pipe", "-"]);
@@ -658,6 +656,15 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
         return Err(CANT_READ.into());
     }
     Ok(bytes)
+}
+
+/// Where a still's two seeks land: the quick one a few seconds before, counted from the file's start, and the frame's
+/// own time on the file's clock (which -copyts keeps), a quarter frame early, frame 0 included, as the output seek
+/// compares against the frame's own timestamp.
+fn still_times(facts: &Facts, frame: u64, fps_num: u32, fps_den: u32) -> (f64, f64) {
+    let into = (frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num);
+    let early = (facts.stream_start - facts.file_start + into - STILL_PREROLL).max(0.0);
+    (early, facts.stream_start + into)
 }
 
 /// A still's filters, for a frame at `at` in the file's own seconds (as -copyts keeps them): deinterlaced, its pixels
@@ -1935,6 +1942,17 @@ mod tests {
         );
         let sdr = still_filter(&Colour::default(), 13.49);
         assert!(!sdr.contains("trim") && !sdr.contains("zscale"), "{sdr}");
+        // A file whose clock starts at 10 s (its sound a tenth of a second earlier): frame 10 at 25 fps is 10.39 s on
+        // that clock, for the seek and the trim alike, and the quick seek lands at the file's start.
+        let late = Facts {
+            stream_start: 10.1,
+            file_start: 10.0,
+            colour: pq,
+        };
+        let (early, at) = still_times(&late, 10, 25, 1);
+        assert!((at - 10.49).abs() < 1e-9 && early == 0.0, "{early} {at}");
+        let (early, _) = still_times(&late, 200, 25, 1);
+        assert!((early - (0.1 + 7.99 - 3.0)).abs() < 1e-9, "{early}");
     }
 
     #[test]
@@ -1969,6 +1987,10 @@ mod tests {
         let cyan = colour("cyan.mov", 500, 560, 400, "bt2020nc");
         let rgb = mean_rgb(&dir, &still(&cyan, 0, 25, 1).unwrap());
         assert!(near(rgb, [0.0, 212.0, 241.0]), "{rgb:?}");
+        // ICtCp, read as itself: its codes read as BT.2020's Y'CbCr would come out (246, 127, 98).
+        let ictcp = colour("ictcp colour.mov", 520, 470, 560, "ictcp");
+        let rgb = mean_rgb(&dir, &still(&ictcp, 0, 25, 1).unwrap());
+        assert!(near(rgb, [233.0, 182.0, 152.0]), "{rgb:?}");
         // The same pixels tagged BT.709's matrix are read with it.
         let cyan_709 = colour("cyan 709.mov", 500, 560, 400, "bt709");
         let rgb = mean_rgb(&dir, &still(&cyan_709, 0, 25, 1).unwrap());
