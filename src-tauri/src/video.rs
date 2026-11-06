@@ -431,7 +431,9 @@ pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
 /// any reason but undecodable data, or a MOV's "stream N, offset 0x…: partial file" at a place inside the file as it
 /// is now (past its end, the file was only cut short). The playback copy listens for the same (playback.rs, Said).
 pub(crate) fn read_failed_in(said: &str, original: &Path) -> bool {
-    let size = std::fs::metadata(original).map_or(0, |meta| meta.len());
+    // Read only if a "partial file" line comes; an original that's gone since is a read that failed.
+    let size = std::cell::OnceCell::new();
+    let size = || *size.get_or_init(|| std::fs::metadata(original).ok().map(|meta| meta.len()));
     said.lines().map(str::trim_end).any(|line| {
         if let Some((_, reason)) = line.split_once("Error during demuxing: ") {
             return !reason.starts_with("Invalid data found");
@@ -442,7 +444,7 @@ pub(crate) fn read_failed_in(said: &str, original: &Path) -> bool {
                 .rsplit_once("offset 0x")
                 .and_then(|(_, rest)| rest.split(':').next())
                 .and_then(|hex| u64::from_str_radix(hex, 16).ok())
-                .is_none_or(|at| at < size)
+                .is_none_or(|at| size().is_none_or(|size| at < size))
     })
 }
 
@@ -1486,6 +1488,11 @@ mod tests {
         ] {
             assert!(read_failed_in(&said, &take), "{said}");
         }
+        // The original gone since: a failed read, as the playback copy counts it.
+        let at_end = format!(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{size:x}: partial file\n"
+        );
+        assert!(read_failed_in(&at_end, &dir.join("gone.mov")));
         // A file cut short, or damaged data, is no failed read.
         for said in [
             format!(

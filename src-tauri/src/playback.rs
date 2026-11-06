@@ -166,6 +166,9 @@ pub struct PlaybackCache {
     /// a dead share does).
     #[cfg(test)]
     encode_env: Vec<(String, String)>,
+    /// How many times ffmpeg was started to encode; tests only.
+    #[cfg(test)]
+    attempts: AtomicU64,
 }
 
 /// A lock that a panic elsewhere doesn't make unusable: what's guarded stays valid (a map, a unit).
@@ -621,6 +624,8 @@ impl PlaybackCache {
             stall: STALL,
             #[cfg(test)]
             encode_env: Vec::new(),
+            #[cfg(test)]
+            attempts: AtomicU64::new(0),
         }
     }
 
@@ -980,6 +985,7 @@ impl PlaybackCache {
             for (key, value) in &self.encode_env {
                 command.env(key, value);
             }
+            self.attempts.fetch_add(1, Ordering::SeqCst);
         }
         if asked.stopped() {
             return Err(Stop::Cancelled);
@@ -2789,6 +2795,27 @@ ssize_t read(int fd, void *buf, size_t count) {
         cache.stall = Duration::from_secs(2);
         // The hardware encoder hangs; the software one then fails outright, saying nothing of its own.
         cache.encoders = vec![encoders().pop().unwrap(), vec!["-c:v", "no_such_encoder"]];
-        assert_eq!(cache.make(&clip, |_| {}).unwrap_err(), STALLED);
+        let cache = Arc::new(cache);
+        let (sent, outcome) = mpsc::channel();
+        let making = {
+            let (cache, clip) = (Arc::clone(&cache), clip.clone());
+            std::thread::spawn(move || {
+                let made = cache.make(&clip, |_| {});
+                let _ = sent.send(());
+                made
+            })
+        };
+        // A stall never caught would hang here for good: cancelled, so the test fails instead.
+        if outcome.recv_timeout(Duration::from_secs(60)).is_err() {
+            cache.cancel(&clip.to_string_lossy());
+            let _ = making.join();
+            panic!("the stuck copy was never stopped");
+        }
+        assert_eq!(making.join().unwrap().unwrap_err(), STALLED);
+        assert_eq!(
+            cache.attempts.load(Ordering::SeqCst),
+            2,
+            "both encoders tried"
+        );
     }
 }
