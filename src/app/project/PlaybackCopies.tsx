@@ -34,7 +34,11 @@ function groupSeparator(locale: string): string {
  * digit (a decimal point, a minus) makes it not a whole number.
  */
 export function parseGb(text: string, min: number, max: number, locale: string = getLocale()): number | null {
-  const plain = text.replaceAll(groupSeparator(locale), '').replace(/[\s\u00a0\u202f]/g, '');
+  const trimmed = text.trim();
+  // Grouped only as thousands are ("10,000", "1.000"): a separator anywhere else is a decimal, not a whole number.
+  const separator = groupSeparator(locale).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const grouped = new RegExp(`^\\d{1,3}(?:${separator}\\d{3})+$`);
+  const plain = grouped.test(trimmed) ? trimmed.replaceAll(groupSeparator(locale), '') : trimmed;
   if (!/^\d+$/.test(plain)) return null;
   const value = Number(plain);
   return value >= min && value <= max ? value : null;
@@ -58,8 +62,28 @@ interface GbFieldProps {
 }
 
 function GbField({ label, saved, range, helpId, onChange, onOutOfRange }: GbFieldProps) {
-  // The parent keys this by the saved value, so a new one saved shows; one refused or not saved snaps back here.
   const [draft, setDraft] = useState(String(saved));
+  // A new value saved shows (the same field stays, and focus with it); one refused or not saved snaps back below.
+  const [shown, setShown] = useState(saved);
+  if (shown !== saved) {
+    setShown(saved);
+    setDraft(String(saved));
+  }
+  // The value being saved now, so Enter then Tab saves it once.
+  const saving = useRef<number | null>(null);
+  const commit = () => {
+    const value = parseGb(draft, range.min, range.max);
+    if (value === null) {
+      setDraft(String(saved));
+      onOutOfRange();
+    } else if (value !== saved && value !== saving.current) {
+      saving.current = value;
+      void Promise.resolve(onChange(value)).then((done) => {
+        saving.current = null;
+        if (done === false) setDraft(String(saved));
+      });
+    }
+  };
   return (
     <TextField
       label={label}
@@ -70,19 +94,10 @@ function GbField({ label, saved, range, helpId, onChange, onOutOfRange }: GbFiel
       onChange={(event) => {
         setDraft(event.currentTarget.value);
       }}
-      onBlur={() => {
-        const value = parseGb(draft, range.min, range.max);
-        if (value === null) {
-          setDraft(String(saved));
-          onOutOfRange();
-        } else if (value !== saved) {
-          void Promise.resolve(onChange(value)).then((done) => {
-            if (done === false) setDraft(String(saved));
-          });
-        }
-      }}
+      onBlur={commit}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur();
+        // Saved where it is: focus stays in the field.
+        if (event.key === 'Enter') commit();
       }}
     />
   );
@@ -175,7 +190,6 @@ export function PlaybackCopiesView({
             </p>
             <div className="grid max-w-[420px] grid-cols-2 gap-3">
               <GbField
-                key={`cap${String(info.capGb)}`}
                 label={t('storageTile.copiesCap')}
                 saved={info.capGb}
                 range={CAP_GB}
@@ -186,7 +200,6 @@ export function PlaybackCopiesView({
                 }}
               />
               <GbField
-                key={`floor${String(info.floorGb)}`}
                 label={t('storageTile.copiesFloor')}
                 saved={info.floorGb}
                 range={FLOOR_GB}
@@ -324,16 +337,23 @@ export function PlaybackCopiesPanel() {
     };
   }, []);
 
-  /** Reads the copies again; one that can't be read says why in place of its count. */
+  /**
+   * Reads the copies again. Never read yet, they say why in place of their count; read before, the figures stay and a
+   * notice says they couldn't be read again.
+   */
+  const readOnce = useRef(false);
   const readInfo = () =>
     playbackDriver.info().then(
       (read) => {
         if (!live.current) return;
+        readOnce.current = true;
         setInfo(read);
         setInfoError(null);
       },
       (error: unknown) => {
-        if (live.current) setInfoError(error instanceof Error ? error.message : String(error));
+        if (!live.current) return;
+        if (readOnce.current) showNotice(error);
+        else setInfoError(error instanceof Error ? error.message : String(error));
       },
     );
   const readKnown = () =>
@@ -422,9 +442,24 @@ export function PlaybackCopiesPanel() {
         moving={moving}
         copiesStatus={copiesStatus}
         knownStatus={knownStatus}
-        // A lower cap removes copies at once: the inspector looks again.
-        onCapChange={(gb) => save(() => playbackDriver.setCap(gb), copiesChanged)}
-        onFloorChange={(gb) => save(() => playbackDriver.setFloor(gb))}
+        // A lower cap removes copies at once: the inspector looks again. Each save is said, as focus stays in its field.
+        onCapChange={(gb) =>
+          save(
+            () => playbackDriver.setCap(gb),
+            () => {
+              copiesChanged();
+              showInfo(t('storage.capSaved', { gb }));
+            },
+          )
+        }
+        onFloorChange={(gb) =>
+          save(
+            () => playbackDriver.setFloor(gb),
+            () => {
+              showInfo(t('storage.floorSaved', { gb }));
+            },
+          )
+        }
         onOutOfRange={(which) => {
           showNotice(t(which === 'cap' ? 'error.copyCap' : 'error.copyFloor'));
         }}

@@ -63,26 +63,29 @@ needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exc
 - The inspector's Video section says where the video's copy stands: none yet, waiting its turn, being made (with a
   progress bar), ready, ready without sound, or failed in Rust's words. One button goes with it, Make playback copy
   (Try again after a failure) or Cancel copy, one element whatever its job, so focus stays on it; when it goes (the copy
-  made), focus moves to the copy's line. A live region reads each change. A copy known as made is looked for again when
-  asked for (the cap or a Clear may have removed it), and the inspector looks again when the video's file changes (an
-  undo of a relink).
+  made), focus moves to the copy's line (to Relink if the video went missing). A double click or a held key doesn't
+  make and cancel by turns. A live region reads each change. A copy known as made is looked for again when asked for
+  (the cap or a Clear may have removed it), and a shown one when another copy is made (its room may have come from
+  it); the inspector looks again when the video's file changes (an undo of a relink). A failure keeps its words
+  through a Clear, a Move or a cap change.
 - Settings → Storage, for this computer, below the project's sections (and on its own with no project open):
   - the copies: how many, their size against the cap (decimal GB, with a gauge), the copy being made and how many wait,
-    the folder, the drive's free space against the floor, the cap and floor fields (whole GB, grouped as the app's
-    language writes thousands; saved as the person moves on, focus left where they took it; an entry out of range says
-    so and goes back), Move to another drive… (says a copy is being made before asking for a folder), Move back, and
+    the folder, the drive's free space against the floor, the cap and floor fields (whole GB, thousands grouped only as
+    the app's language writes them; saved with Enter where they are, or as the person moves on, and said; an entry
+    out of range says so and goes back), Move to another drive… (says a copy is being made before asking for a folder), Move back, and
     Clear… (asks first; cancelled, focus stays on the button). A lower cap tells the inspector to look again. If the
     copies can't be read, the section says why and still offers Move back;
   - remembered videos, with Forget… (asks first, then checks the open project's videos again; a list that can't be
-    saved forgets nothing and says so);
+    saved, or couldn't be read at start, forgets nothing and says so);
   - FFmpeg, with its licences in a window of their own (FFmpeg's LGPL and notes, zimg's, dav1d's, where the exact
     sources are), read from the installed files by `licence_text`, which takes only the five names the app ships.
 - Sound kept as several mono tracks (Sony and Canon MXF, a recorder's MOV) is mixed into one: each track at 1/N, then
   1 dB under, the same on both channels, so the mix never clips (Kevin, Nov 6). A file with one track, or tracks of two
   channels or more, keeps its first track as before. Like the sound itself, the mix is given up only when it's the
   cause: an attempt failed and the mix alone (its first second) can't be made. Then each track is tried alone and the
-  ones that decode are mixed (or the one that does, as it is); with none, the copy has no sound. Any other failure (a
-  hardware encoder, then Windows' software one) keeps the mix. The copies' recipe moved on (`2.3-3`), so copies made
+  ones that decode are mixed (or the one that does, as it is; if each decodes alone, the first, as before the mix);
+  with none, the copy has no sound. Any other failure (a hardware encoder, then Windows' software one) keeps the mix.
+  Tracks that can't be counted (a share slow to answer) give no copy yet, never one with the first track alone. The copies' recipe moved on (`2.3-3`), so copies made
   before are made again.
 - `playback_info` says whether the copies were moved (`moved`), for Move back.
 - The browser build pretends: each copy takes 2.5 s and 2.4 MB, kept for the page; the licences say they ship with the

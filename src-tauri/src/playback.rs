@@ -1127,8 +1127,13 @@ impl PlaybackCache {
         // Several tracks, each one channel: mixed. Like the sound, the mix is given up only when it's the cause: an
         // attempt failed and the mix alone can't be made. Then each track is tried alone, and the ones that decode are
         // mixed (or the one that does, as it is); with none, the copy has no sound.
+        // Tracks that can't be counted now (a share slow to answer): no copy yet rather than one with CH1 alone, kept
+        // as if whole; it's tried again when next asked for.
         let channels = if sound {
-            video::audio_tracks(path).unwrap_or_default()
+            match video::audio_tracks(path) {
+                Ok(channels) => channels,
+                Err(error) => return keep_earlier(error),
+            }
         } else {
             Vec::new()
         };
@@ -1193,13 +1198,22 @@ impl PlaybackCache {
                     }
                     Err(Stop::Failed(_)) if sound && tracks.len() >= 2 && !mix_tested => {
                         mix_tested = true;
-                        if mix_plays(path, &tracks) == Ok(false) {
-                            let _ = fs::remove_file(&partial);
-                            tracks = tracks_that_play(path, &tracks);
-                            // Each track tried: the sound itself is known now.
-                            sound_tested = true;
-                            sound = !tracks.is_empty();
-                            continue;
+                        match mix_plays(path, &tracks) {
+                            // The mix reads: the failure is the encoder's, and the sound needs no test of its own.
+                            Ok(true) => sound_tested = true,
+                            Ok(false) => {
+                                let _ = fs::remove_file(&partial);
+                                tracks = after_the_mix_failed(
+                                    &tracks,
+                                    tracks_that_play(path, &tracks, asked),
+                                );
+                                // Each track tried: the sound itself is known now.
+                                sound_tested = true;
+                                sound = !tracks.is_empty();
+                                continue;
+                            }
+                            // Couldn't tell (the file stopped answering): the next encoder, mix and all.
+                            Err(_) => {}
                         }
                     }
                     Err(Stop::Failed(_)) if sound && !sound_tested => {
@@ -1815,14 +1829,30 @@ fn mix_plays(path: &Path, tracks: &[usize]) -> Result<bool, String> {
     )
 }
 
+/// The tracks a copy takes once their mix couldn't be made, given the ones that decode alone (`playing`): those, mixed
+/// (or the one, as it is); none, no sound. If each decodes alone the mix itself is the trouble, so the first track alone,
+/// as before there was a mix.
+fn after_the_mix_failed(tracks: &[usize], mut playing: Vec<usize>) -> Vec<usize> {
+    if playing.len() == tracks.len() {
+        playing.truncate(1);
+    }
+    playing
+}
+
 /// Of a file's separate mono tracks, the ones that decode: each tried alone, as the first track is. One that can't tell
-/// (the file stopped answering) is kept, so the next attempt finds out.
-fn tracks_that_play(path: &Path, tracks: &[usize]) -> Vec<usize> {
-    tracks
-        .iter()
-        .copied()
-        .filter(|i| video::sound_reads(path, &["-map", &format!("0:a:{i}")]) != Ok(false))
-        .collect()
+/// (the file stopped answering) is kept, so the next attempt finds out. A Cancel stops the trying (the make then ends
+/// cancelled), so it never waits on every track of a file on a share that stopped answering.
+fn tracks_that_play(path: &Path, tracks: &[usize], asked: &Asked) -> Vec<usize> {
+    let mut playing = Vec::new();
+    for &track in tracks {
+        if asked.stopped() {
+            break;
+        }
+        if video::sound_reads(path, &["-map", &format!("0:a:{track}")]) != Ok(false) {
+            playing.push(track);
+        }
+    }
+    playing
 }
 
 /// Makes a video's playback copy (or finds it) and returns where it is, reporting progress on `progress`. The request
@@ -2197,6 +2227,31 @@ mod tests {
         let broken = dir.join(format!("{name}.mov"));
         fs::write(&broken, bytes).unwrap();
         broken
+    }
+
+    #[test]
+    fn a_mix_that_cant_be_made_leaves_the_tracks_that_decode_or_the_first_and_a_cancel_stops_the_trying(
+    ) {
+        // One of three won't decode: the other two, mixed. One of two: that one. None: no sound.
+        assert_eq!(after_the_mix_failed(&[0, 1, 2], vec![0, 2]), [0, 2]);
+        assert_eq!(after_the_mix_failed(&[0, 1], vec![1]), [1]);
+        assert!(after_the_mix_failed(&[0, 1], vec![]).is_empty());
+        // Each decodes alone: the mix is the trouble, so the first alone, never the same mix again.
+        assert_eq!(after_the_mix_failed(&[0, 1, 2, 3], vec![0, 1, 2, 3]), [0]);
+        // A Cancel while the tracks are tried: no more are (the make then ends cancelled).
+        let dir = temp_dir("tracks-cancel");
+        let clip = tracks_clip(
+            &dir,
+            "C0085.mov",
+            &["sine=duration=2", "sine=duration=2"],
+            "pcm_s16le",
+        );
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let asked = cache.ask("C0085");
+        assert_eq!(tracks_that_play(&clip, &[0, 1], &asked), [0, 1]);
+        cache.cancel("C0085");
+        assert!(tracks_that_play(&clip, &[0, 1], &asked).is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

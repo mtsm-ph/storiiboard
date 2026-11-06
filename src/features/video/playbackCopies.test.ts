@@ -17,7 +17,7 @@ const driver = vi.hoisted(() => ({
 vi.mock('../../app/playback', () => ({ playbackDriver: driver }));
 
 const { projectStore } = await import('../../app/projectStore');
-const { copiesChanged, copiesStore, cancelCopy, makeCopy, remakeCopy } = await import('./playbackCopies');
+const { copiesChanged, copiesStore, cancelCopy, makeCopy, remakeCopy, showCopy } = await import('./playbackCopies');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -144,7 +144,8 @@ describe('the queue of playback copies', () => {
 
   it('keeps a video asked for again while its cancelled copy is still stopping on the queue, shown as waiting', async () => {
     const first = pending();
-    driver.make.mockImplementationOnce(first.impl).mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    const second = pending();
+    driver.make.mockImplementationOnce(first.impl).mockImplementationOnce(second.impl).mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
     makeCopy('a');
     makeCopy('b');
     // Cancel, then Make again (or a relink) before Rust has stopped the first: the new request is the one that counts.
@@ -154,13 +155,45 @@ describe('the queue of playback copies', () => {
     expect(copiesStore.getState().waiting).toEqual(['b', 'a']);
     first.reject('The playback copy was cancelled.');
     await settle();
-    // Still waiting, as it says, behind b; then made.
-    expect(state('a')).not.toEqual({ kind: 'none' });
+    // b being made, a waiting behind it, and saying so: not "none", which would offer Make and queue it twice.
+    expect(copiesStore.getState().making).toBe('b');
+    expect(copiesStore.getState().waiting).toEqual(['a']);
+    expect(state('a')).toEqual({ kind: 'queued' });
+    makeCopy('a');
+    expect(copiesStore.getState().waiting).toEqual(['a']);
+    second.resolve();
     await settle();
     await settle();
     expect(driver.make.mock.calls.map(([source]) => (source as { videoId: string }).videoId)).toEqual(['a', 'b', 'a']);
     expect(state('a')).toEqual({ kind: 'made', silent: false });
     expect(state('b')).toEqual({ kind: 'made', silent: false });
+  });
+
+  it('looks again at a copy shown as made once another is made, as room for it may have taken that one', async () => {
+    driver.make.mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    makeCopy('a');
+    await settle();
+    const hide = showCopy('a');
+    // b's copy made, and the floor took a's for its room.
+    driver.find.mockResolvedValue(null);
+    makeCopy('b');
+    await settle();
+    await settle();
+    expect(state('a')).toEqual({ kind: 'none' });
+    hide();
+    // Not shown: not looked for (each look counts as a use, which would upset the cap's order).
+    driver.find.mockClear();
+    makeCopy('c');
+    await settle();
+    expect(driver.find).not.toHaveBeenCalled();
+  });
+
+  it('keeps a failure, with its words, through a Clear, a Move or a cap change', async () => {
+    driver.make.mockRejectedValueOnce(new Error('That video couldn’t be made into a playback copy.'));
+    makeCopy('a');
+    await settle();
+    copiesChanged();
+    expect(state('a')).toEqual({ kind: 'failed', message: 'That video couldn’t be made into a playback copy.' });
   });
 
   it('takes a copy off the queue at once, and stops the one being made', async () => {

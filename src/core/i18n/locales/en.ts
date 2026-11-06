@@ -1233,6 +1233,8 @@ export const en = {
   'storage.forgetVideosConfirm': 'This computer forgets which videos you handed it. Projects keep their links, but each video outside its project’s folder needs Relink before it plays here again.',
   'storage.forgetVideosAction': 'Forget',
   'storage.videosForgotten': 'Forgot the remembered videos.',
+  'storage.capSaved': 'The cap for playback copies is {gb} GB now.',
+  'storage.floorSaved': 'Playback copies always leave {gb} GB free now.',
   'storage.reading': 'Reading…',
   // src/features/storyboard/InspectorView.tsx: playback copies (2.3b)
   'inspector.copyNone': 'No playback copy yet.',

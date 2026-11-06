@@ -221,12 +221,26 @@ Review round 1 (Nov 6): one high, four mediums, all fixed and tested.
 - The a11y sweep's "Tab goes round" test clicked blank space in Storage with no project open, which had no controls
   before 2.3b; it now uses Project's panel, which still has none (Tab from a panel with controls goes into them).
 
+Review round 2: nothing high or medium (two mediums raised, both refuted). Its lows, fixed with tests: when a mix
+can't be made but each track decodes alone, the first track alone (round 1 had made that copy fail); a mix that reads
+counts as the sound read; a Cancel stops the trying of tracks one by one; tracks that can't be counted give no copy
+yet rather than one with CH1 alone; Forget refuses when its list couldn't be read at start (it would come back); a
+failure keeps its words through a Clear, a Move or a cap change; a shown copy is looked for again once another is
+made (only shown ones: each look counts as a use for the cap); the copy button lets go of focus it no longer has,
+sends focus to Relink if the video went missing, ignores a double click and a held key, and takes focus on a click
+(a Mac's WebKit doesn't); thousands only as grouped ("12.5" in Spanish was saved as 125); a failed re-read says so;
+Enter saves the cap or the floor where it is, focus kept, and each save is said; the re-queue test can now fail.
+
 Checkpoint r1 (`checkpoint/playback-2.3b-r1`, before round 1's fixes): smoke and screenshots passed on Linux and the
 Mac. Windows' Rust tests failed on the mix, as round 1 found ("the second track is heard: -91 dB": the hardware encoder
 failed, the mix was dropped); fixed. The Mac's failed once in `holds_a_finished_copy_to_the_floor_before_it_keeps_it`
 (D2's test, one mono track, so not the mix): its second copy failed in the encoder, which the test can't say more of.
 It passed at D2's checkpoint; 2.3b added copy-making tests that run beside it, and VideoToolbox is the Mac's only
 encoder. The tests now print ffmpeg's own words for a failing test (`#[cfg(test)]` only), so a repeat says why.
+
+Checkpoint r2 (`checkpoint/playback-2.3b-r2`, round 1's fixes): all green. The Rust tests passed on the Mac
+(VideoToolbox; the floor test too) and on Windows (the mix kept after the hardware encoder failed), both installers
+built and their `.sbd` association checked, and the smoke and screenshot tests passed on Linux and the Mac.
 
 For Kevin, on his own computers, in this order (Kevin, Nov 6):
 1. **Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder** (NV12, High
@@ -247,6 +261,12 @@ Lows deferred (noted, not planned yet):
   comes back (a Clear, a bigger cap, a lower floor).
 - Reopening the same project (after a sync conflict, say) stops the copy being made and drops the queue, as any project
   switch does; it could carry on instead.
+- An undo or a redo of a relink while the relinked file's copy is being made lets that copy finish and show as the
+  video's; a failure of it stays shown for the file put back.
+- After a mix that couldn't be checked (the file stopped answering) and a second failure, the sound test tries only
+  the first track; an earlier copy without sound is likewise kept by a test of the first track only.
+- The cap or the floor going back after a failed save has no test that can fail: the unit tests draw the page once
+  (no DOM library; adding one waits for Kevin), and the stand-in's saves never fail.
 - The e2e run in a cloud session is Chromium only (WebKit isn't installed here); the screenshot tests differ there by
   about 1% of pixels, all text antialiasing, as the container's Chromium build isn't the baselines'. The checkpoint
   compares them on CI's own browsers.

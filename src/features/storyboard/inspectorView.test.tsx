@@ -147,8 +147,9 @@ describe('the Frame inspector’s Video section (2.2b)', () => {
       expect(withCopy({ state: 'failed', message: stalled })).toContain('Ese video dejó de leerse a mitad de camino.');
     });
 
-    it('has one button for the copy, whatever its job, so focus stays on it as the job changes', () => {
-      // Make playback copy and Cancel copy are the same element at the same place: React keeps it, and focus with it.
+    it('has one button for the copy, whatever its job', () => {
+      // One place for Make playback copy and Cancel copy. That React keeps the one element, and focus with it, as the
+      // job changes can't be seen in a page drawn once: the end-to-end test of a copy (e2e/video.spec.ts) checks it.
       const button = (html: string) => /<button[^>]*data-(?:make|cancel)-copy=""[^>]*>[^<]*</g.exec(html)?.[0] ?? '';
       expect(button(withCopy({ state: 'none' }))).toContain('Make playback copy');
       expect(button(withCopy({ state: 'making', done: 0.1 }))).toContain('Cancel copy');

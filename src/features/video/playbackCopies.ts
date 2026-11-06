@@ -93,6 +93,8 @@ function next(): void {
         // Cancelled: Cancel said so already, and anything asked since (queued again, looked for) is newer.
         if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
         setState(videoId, { kind: 'made', silent: made.silent });
+        // Room for it may have come from older copies (the floor, the cap): those shown now are looked for again.
+        for (const other of shown.keys()) if (other !== videoId) stillMade(other);
       },
       (error: unknown) => {
         if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
@@ -120,6 +122,33 @@ export function makeCopy(videoId: string): void {
   setState(videoId, { kind: 'queued' });
   copiesStore.setState((s) => ({ waiting: [...s.waiting, videoId] }));
   next();
+}
+
+/** Videos the page shows now (the inspector's), by how many places show each. */
+const shown = new Map<string, number>();
+
+/** Counts the video as shown (useCopy's), until the function it gives back is called. */
+export function showCopy(videoId: string): () => void {
+  shown.set(videoId, (shown.get(videoId) ?? 0) + 1);
+  return () => {
+    const left = (shown.get(videoId) ?? 1) - 1;
+    if (left > 0) shown.set(videoId, left);
+    else shown.delete(videoId);
+  };
+}
+
+/** A copy shown as made, looked for quietly: only if it's gone since does its line change. */
+function stillMade(videoId: string): void {
+  if (stateOf(videoId).kind !== 'made') return;
+  const found = sourceOf(videoId);
+  if (!found) return;
+  const { source, handle, project } = found;
+  playbackDriver
+    .find(source, handle)
+    .then((made) => {
+      if (!made && projectStore.getState().project === project && stateOf(videoId).kind === 'made') setState(videoId, { kind: 'none' });
+    })
+    .catch(() => undefined);
 }
 
 /**
@@ -185,10 +214,15 @@ function lookUp(videoId: string): void {
     });
 }
 
-/** After a Clear or a Move: what was known of each copy is looked for again. */
+/**
+ * After a Clear, a Move or a lower cap: what was known of each copy is looked for again. A failure stays, with its
+ * words: its copy was never made, so none of those changed it.
+ */
 export function copiesChanged(): void {
   copiesStore.setState((s) => ({
-    byVideo: Object.fromEntries(Object.entries(s.byVideo).filter(([, state]) => state.kind === 'queued' || state.kind === 'making')),
+    byVideo: Object.fromEntries(
+      Object.entries(s.byVideo).filter(([, state]) => state.kind === 'queued' || state.kind === 'making' || state.kind === 'failed'),
+    ),
   }));
 }
 
@@ -225,6 +259,7 @@ export function useCopy(videoId: string | null): CopyState {
   useEffect(() => {
     if (videoId) lookUp(videoId);
   }, [videoId, path]);
+  useEffect(() => (videoId ? showCopy(videoId) : undefined), [videoId]);
   // Cleared by a Clear or a Move while shown: looked for again.
   useEffect(() => {
     if (videoId && state.kind === 'unknown') lookUp(videoId);

@@ -1234,6 +1234,8 @@ export const es: Messages = {
   'storage.forgetVideosConfirm': 'Esta computadora olvida qué videos le diste. Los proyectos conservan sus vínculos, pero cada video fuera de la carpeta de su proyecto necesita Volver a vincular antes de reproducirse aquí otra vez.',
   'storage.forgetVideosAction': 'Olvidar',
   'storage.videosForgotten': 'Se olvidaron los videos recordados.',
+  'storage.capSaved': 'El límite de las copias de reproducción es de {gb} GB ahora.',
+  'storage.floorSaved': 'Las copias de reproducción siempre dejan {gb} GB libres ahora.',
   'storage.reading': 'Leyendo…',
   // src/features/storyboard/InspectorView.tsx: playback copies (2.3b)
   'inspector.copyNone': 'Aún no hay copia de reproducción.',

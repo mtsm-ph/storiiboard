@@ -142,12 +142,19 @@ test('Settings → Storage counts the copies, moves them, clears them when asked
   await expect(storage(page).getByRole('button', { name: 'Forget remembered videos…' })).toBeDisabled();
   expect(await new AxeBuilder({ page }).include('dialog[open]').analyze().then((r) => r.violations)).toEqual([]);
 
-  // The cap, saved as the person moves on: focus goes where Tab took it.
+  // The cap, saved with Enter where it is: focus stays in the field, and the save is said.
   const cap = storage(page).getByRole('textbox', { name: 'Cap, in GB' });
   const floor = storage(page).getByRole('textbox', { name: 'Always leave free, in GB' });
   await cap.fill('20');
-  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
   await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 20 GB cap.');
+  await expect(page.getByText('The cap for playback copies is 20 GB now.')).toBeVisible();
+  await expect(cap).toBeFocused();
+  await expect(cap).toHaveValue('20');
+  // Saved as the person moves on too: focus goes where Tab took it.
+  await cap.fill('30');
+  await page.keyboard.press('Tab');
+  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 30 GB cap.');
   await expect(floor).toBeFocused();
   // Not a whole number in range: it says so, and the field goes back to what's saved.
   await floor.fill('12.5');
@@ -167,7 +174,7 @@ test('Settings → Storage counts the copies, moves them, clears them when asked
   // Clear asks first: Cancel keeps the copy, agreeing deletes it, and focus is on the line that says so.
   await storage(page).getByRole('button', { name: 'Clear playback copies…' }).click();
   expect(await answerAsk(page, false)).toContain('1 playback copy will be deleted');
-  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 20 GB cap.');
+  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 30 GB cap.');
   // Nothing done: focus stays on the button, so Enter asks again.
   await expect(storage(page).getByRole('button', { name: 'Clear playback copies…' })).toBeFocused();
   await storage(page).getByRole('button', { name: 'Clear playback copies…' }).click();

@@ -790,12 +790,13 @@ impl KnownVideos {
     }
 
     /// Forgets every video remembered (Settings → Storage): each reads again once dropped, chosen or relinked.
-    /// The file first: if it can't be written, nothing is forgotten, here or on disk.
+    /// The file first: if it can't be written, nothing is forgotten, here or on disk. A list that couldn't be read at
+    /// start can't be written either (this session kept its videos in memory only, so as not to replace it): Forget
+    /// would only last until the next start, so it's refused the same way.
     fn forget_all(&self) -> Result<(), String> {
         let mut paths = self.paths.lock().map_err(|_| CANT_FORGET.to_string())?;
-        if let Some(file) = &self.file {
-            crate::playback::write_atomically(file, b"[]").map_err(|_| CANT_FORGET.to_string())?;
-        }
+        let file = self.file.as_ref().ok_or_else(|| CANT_FORGET.to_string())?;
+        crate::playback::write_atomically(file, b"[]").map_err(|_| CANT_FORGET.to_string())?;
         paths.clear();
         Ok(())
     }
@@ -1507,6 +1508,12 @@ mod tests {
         assert_eq!(known.forget_all().unwrap_err(), CANT_FORGET);
         assert!(known.has(&card));
         assert_eq!(known.count(), 1);
+        // A list that couldn't be read at start, so is kept in memory only: Forget would last until the next start, so
+        // it's refused too, and nothing is forgotten.
+        let unread = KnownVideos::in_memory();
+        unread.remember(&card);
+        assert_eq!(unread.forget_all().unwrap_err(), CANT_FORGET);
+        assert!(unread.has(&card));
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -50,6 +50,11 @@ describe('sizes and whole GB', () => {
     expect(parseGb('10.000', CAP_GB.min, CAP_GB.max, 'es')).toBe(10_000);
     expect(parseGb('12,5', FLOOR_GB.min, FLOOR_GB.max, 'es')).toBeNull();
     expect(parseGb('12.5', FLOOR_GB.min, FLOOR_GB.max, 'en')).toBeNull();
+    // A separator only as thousands are grouped: a decimal written either way is never a bigger whole number.
+    expect(parseGb('12.5', FLOOR_GB.min, FLOOR_GB.max, 'es')).toBeNull();
+    expect(parseGb('2.5', CAP_GB.min, CAP_GB.max, 'es')).toBeNull();
+    expect(parseGb('1,5', FLOOR_GB.min, FLOOR_GB.max, 'en')).toBeNull();
+    expect(parseGb('1,000', CAP_GB.min, CAP_GB.max, 'en')).toBe(1000);
     expect(parseGb('-5', FLOOR_GB.min, FLOOR_GB.max)).toBeNull();
     expect(parseGb('10001', CAP_GB.min, CAP_GB.max)).toBeNull();
     expect(parseGb('0', FLOOR_GB.min, FLOOR_GB.max)).toBeNull();

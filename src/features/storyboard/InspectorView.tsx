@@ -481,15 +481,21 @@ export function InspectorView({
         : !video.missing && (copyState === 'none' || copyState === 'failed')
           ? 'make'
           : null;
+  // The button while focus is on it; a blur that isn't its own going (focus moved on) lets it go.
   const copyButton = useRef<HTMLButtonElement | null>(null);
   const copyLine = useRef<HTMLDivElement>(null);
+  const videoMissing = video?.missing ?? false;
   useEffect(() => {
     const button = copyButton.current;
     if (copyAction !== null || !button) return;
     copyButton.current = null;
-    // Focus was on it when it went, and nothing has it since.
-    if (!button.isConnected && (document.activeElement === null || document.activeElement === document.body)) copyLine.current?.focus();
-  }, [copyAction]);
+    // Focus was on it when it went, and nothing has it since: to the copy's line, or for a video gone missing, to
+    // Relink, the way back (the line is empty then).
+    if (button.isConnected || (document.activeElement !== null && document.activeElement !== document.body)) return;
+    const inspector = root.current;
+    const target = videoMissing ? inspector?.querySelector<HTMLElement>('[data-relink-video]') : copyLine.current;
+    target?.focus();
+  }, [copyAction, videoMissing]);
 
   if (!scene) {
     return <p className="p-3 text-[13px] text-text-muted">{t('inspectorView.selectAFrameOrA')}</p>;
@@ -639,7 +645,25 @@ export function InspectorView({
                     onFocus={(event) => {
                       copyButton.current = event.currentTarget;
                     }}
-                    onClick={copyAction === 'make' ? onMakeCopy : onCancelCopy}
+                    onBlur={(event) => {
+                      const button = event.currentTarget;
+                      // Still there after the blur: focus moved on, so its going later isn't focus lost.
+                      queueMicrotask(() => {
+                        if (button.isConnected && copyButton.current === button) copyButton.current = null;
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      // A held key would make and cancel by turns as the button's job changes under it.
+                      if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+                    }}
+                    onClick={(event) => {
+                      // A double click's second click would cancel what the first just asked for.
+                      if (event.detail > 1) return;
+                      // Focus on the button, so it stays there as its job changes: a Mac's WebKit doesn't focus a
+                      // button on a click.
+                      event.currentTarget.focus();
+                      (copyAction === 'make' ? onMakeCopy : onCancelCopy)?.();
+                    }}
                   >
                     {copyAction === 'cancel' ? t('inspector.cancelCopy') : copyState === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
                   </Button>
