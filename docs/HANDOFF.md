@@ -231,6 +231,12 @@ sends focus to Relink if the video went missing, ignores a double click and a he
 (a Mac's WebKit doesn't); thousands only as grouped ("12.5" in Spanish was saved as 125); a failed re-read says so;
 Enter saves the cap or the floor where it is, focus kept, and each save is said; the re-queue test can now fail.
 
+Review round 3 (round 2's fixes only): one medium, fixed: the copy button let go of focus when the whole window lost
+it (another app in front), so a copy finishing meanwhile left focus on the page; it now lets go only when focus is on
+something else (an end-to-end check sends the window's blur and fails without the fix). Its two lows, fixed: tracks
+that can't be counted no longer mark an earlier copy without sound as settled for the session; a field reset after a
+save keeps what the person typed on since.
+
 Checkpoint r1 (`checkpoint/playback-2.3b-r1`, before round 1's fixes): smoke and screenshots passed on Linux and the
 Mac. Windows' Rust tests failed on the mix, as round 1 found ("the second track is heard: -91 dB": the hardware encoder
 failed, the mix was dropped); fixed. The Mac's failed once in `holds_a_finished_copy_to_the_floor_before_it_keeps_it`
@@ -316,6 +322,8 @@ Lows deferred (noted, not planned yet):
   build output; no git worktrees or directory junctions; no secrets in code; never log personal data.
 - Commits end with the co-author line the session's instructions give; PR descriptions end with the generated-with
   line.
+- **Reports (Kevin, Nov 6):** when a milestone is done (merged), the last message to Kevin is a report of the changes:
+  what it does, what was fixed on the way, what was tested where, what was decided by default, and what's left.
 
 ## Decisions
 

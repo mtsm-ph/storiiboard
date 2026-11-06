@@ -67,7 +67,8 @@ function GbField({ label, saved, range, helpId, onChange, onOutOfRange }: GbFiel
   const [shown, setShown] = useState(saved);
   if (shown !== saved) {
     setShown(saved);
-    setDraft(String(saved));
+    // Unless the person has typed on since (after Enter, focus stays here): theirs stays, to be saved in turn.
+    if (draft === String(shown) || parseGb(draft, range.min, range.max) === saved) setDraft(String(saved));
   }
   // The value being saved now, so Enter then Tab saves it once.
   const saving = useRef<number | null>(null);

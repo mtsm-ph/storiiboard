@@ -120,6 +120,10 @@ test('a linked video gets its playback copy, with its progress; Cancel stops it,
   await page.keyboard.press('Enter');
   await expect(copyLine(page)).toHaveText('Making the playback copy…');
   await expect(inspector(page).getByRole('button', { name: 'Cancel copy' })).toBeFocused();
+  // The person switches to another app while it's made: the window's blur leaves the button the active element.
+  await inspector(page)
+    .getByRole('button', { name: 'Cancel copy' })
+    .evaluate((button) => button.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
   // Whichever state it's in by then, the inspector passes.
   expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
   await expect(copyLine(page)).toHaveText('Playback copy ready.', READY);

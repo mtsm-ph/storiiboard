@@ -647,9 +647,10 @@ export function InspectorView({
                     }}
                     onBlur={(event) => {
                       const button = event.currentTarget;
-                      // Still there after the blur: focus moved on, so its going later isn't focus lost.
+                      // Still there, and focus on something else: it moved on, so the button's going later isn't focus
+                      // lost. (The window losing focus blurs it too, but leaves it the active element: kept.)
                       queueMicrotask(() => {
-                        if (button.isConnected && copyButton.current === button) copyButton.current = null;
+                        if (button.isConnected && document.activeElement !== button && copyButton.current === button) copyButton.current = null;
                       });
                     }}
                     onKeyDown={(event) => {

@@ -1132,7 +1132,9 @@ impl PlaybackCache {
         let channels = if sound {
             match video::audio_tracks(path) {
                 Ok(channels) => channels,
-                Err(error) => return keep_earlier(error),
+                // Not a judgement on the sound: an earlier copy plays meanwhile, unmarked, so the next request tries
+                // again, as after a refusal for room.
+                Err(error) => return earlier.clone().ok_or(error),
             }
         } else {
             Vec::new()
