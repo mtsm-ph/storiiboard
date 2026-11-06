@@ -1942,7 +1942,7 @@ mod tests {
         );
         let sdr = still_filter(&Colour::default(), 13.49);
         assert!(!sdr.contains("trim") && !sdr.contains("zscale"), "{sdr}");
-        // A file whose clock starts at 10 s (its sound a tenth of a second earlier): frame 10 at 25 fps is 10.39 s on
+        // A file whose clock starts at 10 s (its sound a tenth of a second earlier): frame 10 at 25 fps is 10.49 s (10.1 + 0.39) on
         // that clock, for the seek and the trim alike, and the quick seek lands at the file's start.
         let late = Facts {
             stream_start: 10.1,
