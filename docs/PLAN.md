@@ -40,7 +40,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | #72 | Done |
 | 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | #73 | Done |
 | 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
-| D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | | Not started |
+| D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | | Not started |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
@@ -52,7 +52,20 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
-(BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. Until D1, HDR copies are made as they are.
+(BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+D1 as built (Nov 6): `scripts/ffmpeg/build.sh` builds zimg 3.0.6 (autotools) and dav1d 1.5.4 (meson), each pinned with
+its checksum, statically, and configures ffmpeg with `--enable-libzimg --enable-libdav1d`; the self-checks add
+`zscale` and the `libdav1d` decoder (listed before FFmpeg's own AV1 decoder, which needs a GPU, so it's used). The
+installers ship `zimg-LICENSE.txt` and `dav1d-LICENSE.txt`; `ffmpeg-SOURCE.txt` records both sources; their tarballs ride
+in the CI artifact. A folder of pre-downloaded sources (`SBD_FFMPEG_SOURCES`, still checksummed) lets the build run
+without the download sites. A PQ or HLG video's stills and playback copies go through zscale to linear light, Mobius
+tone-mapping and back to BT.709 (`video::tone_map`; tags a file leaves out are taken as BT.2020; a matrix FFmpeg's own
+filters refuse, such as ICtCp, is re-tagged for them and read as itself by zscale), with the file's own peak for PQ, so
+203-nit reference white lands near SDR white (236 of 255 in a still) where it used to show mid-grey (146); a still
+tone-maps only its own frame; copies are tagged BT.709 and the copies' recipe moved on, so any made before are made
+again. AV1 decodes exactly (AOMedia's conformance vector, checked
+by its frame checksums, `src-tauri/testdata/`).
 
 2.3a as built (Nov 6), `src-tauri/src/playback.rs`. Five review rounds; each checkpoint ran the copies on the Mac's
 VideoToolbox and Windows' Media Foundation (software, as CI has no GPU).
@@ -957,6 +970,25 @@ and works offline; only the web companion needs a server.
 | AI | Storiiboard's own MCP server, plus optional in-app chat with the user's own key for Anthropic, OpenAI, Gemini or OpenRouter | Any MCP-capable AI gets full project context; Storiiboard pays nothing for AI |
 | Export | Konva renders pages to PNG, pdf-lib builds the PDF | Pixel-matched call sheets, boards and decks |
 | Quality | Vitest, Playwright, GitHub Actions building Mac and Windows installers | Claude Code can check its own work on every PR |
+
+### Dependencies and licences
+
+Every dependency is asked for first (CLAUDE.md). These are the ones approved by name, beyond the stack above and what
+Tauri, React and the build tools bring with them.
+
+| Dependency | Licence | What for | Approved |
+|---|---|---|---|
+| FFmpeg 8.1.3 (ffmpeg and ffprobe) | LGPL 2.1 or later; built without `--enable-gpl`, `nonfree` or `version3`, and run as separate programs, never linked | Reading videos, stills, playback copies, LUTs | Phase 2 plan, Nov 5 |
+| zimg 3.0.6, built into ffmpeg | WTFPL 2: **an exception to the licence list**, approved by Kevin | `zscale`: HDR (PQ, HLG) to linear light and back to BT.709, so HDR stills and copies come out in normal range | Kevin, Nov 5 (D1) |
+| dav1d 1.5.4, built into ffmpeg | BSD-2-Clause | Decoding AV1 | Kevin, Nov 5 (D1) |
+| windows-sys 0.61.2 (Windows only) | MIT or Apache 2.0 | Free space on a drive; a Job Object, so ffmpeg stops when the app does, crash or not | Kevin, Nov 5 (D2) |
+| libc (macOS only) | MIT or Apache 2.0 | The attribute File Provider services put on synced folders; free space (D2) | Nov 2 |
+| pdf-lib 1.17.1, @pdf-lib/fontkit 1.1.1 | MIT | The PDF storyboard and, later, call sheets | Nov 4 |
+
+The installers ship each built-in licence beside the binaries (`ffmpeg-LICENSE.txt` and `.md`, `zimg-LICENSE.txt`,
+`dav1d-LICENSE.txt`) and `ffmpeg-SOURCE.txt`, which records every source, its checksum and how it was built, with
+x86inc.asm's ISC notice on x86 and, on Windows, the MSYS2 runtime packages linked in and their notices; the source
+tarballs ride in every CI artifact (`scripts/ffmpeg/README.md`).
 
 ## The .sbd project file
 

@@ -109,8 +109,37 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # The ffmpeg sidecars' sources, fetched once on Linux and handed to the Mac and Windows builds: a download site can
+  # stop answering one runner's network for an hour (ffmpeg.org did, from Windows runners, Nov 6) while others reach it.
+  sources:
+    name: ffmpeg sources
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # Kept in a cache any runner can read (enableCrossOsArchive), by the pins' own hash.
+      - name: Restore the sources
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
+      - name: Fetch and check the sources
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/ffmpeg/sources.sh ffmpeg-sources
+      - name: Save the sources
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
+
   installers:
     name: Installer (${{ matrix.name }})
+    needs: sources
     if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
     strategy:
       fail-fast: false
@@ -140,8 +169,17 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+      # The sources the job above fetched; the build still checks each against its checksum, and downloads any that
+      # isn't there.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
       # The LGPL ffmpeg and ffprobe sidecars (Phase 2.1), built from one pinned release and cached.
       - uses: ./.github/actions/ffmpeg
+        env:
+          SBD_FFMPEG_SOURCES: ffmpeg-sources
         with:
           triple: ${{ matrix.triple }}
       # Kept a week, so a developer's computer can use the same build (scripts/ffmpeg/README.md).

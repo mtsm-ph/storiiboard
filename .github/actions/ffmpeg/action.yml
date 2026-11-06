@@ -18,8 +18,9 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: src-tauri/binaries
-        key: ffmpeg-${{ inputs.triple }}-${{ hashFiles('scripts/ffmpeg/build.sh', '.github/actions/ffmpeg/action.yml') }}
-    # Windows builds in MSYS2's MINGW64 shell, statically, so the .exe needs nothing beside it.
+        key: ffmpeg-${{ inputs.triple }}-${{ hashFiles('scripts/ffmpeg/build.sh', 'scripts/ffmpeg/sources.sh', '.github/actions/ffmpeg/action.yml') }}
+    # Windows builds in MSYS2's MINGW64 shell, statically, so the .exe needs nothing beside it. zimg builds with
+    # autotools, dav1d with meson and ninja (D1).
     - name: Set up MSYS2
       if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
       uses: msys2/setup-msys2@v2
@@ -27,16 +28,22 @@ runs:
         msystem: MINGW64
         update: true
         install: >-
-          make diffutils tar xz curl
+          make diffutils tar xz curl autoconf automake libtool
           mingw-w64-x86_64-gcc mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf mingw-w64-x86_64-zlib
+          mingw-w64-x86_64-meson mingw-w64-x86_64-ninja
     - name: Build ffmpeg (Windows)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
       shell: msys2 {0}
       run: scripts/ffmpeg/build.sh "${{ inputs.triple }}" src-tauri/binaries
-    - name: Install nasm (Linux)
+    - name: Install the build tools (Linux)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
       shell: bash
-      run: sudo apt-get install -y nasm
+      run: sudo apt-get install -y nasm meson ninja-build autoconf automake libtool pkg-config
+    # Homebrew keeps installed tools as they are; libtool comes as glibtoolize, which build.sh points autoreconf at.
+    - name: Install the build tools (macOS)
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
+      shell: bash
+      run: brew install autoconf automake libtool meson ninja pkgconf
     - name: Build ffmpeg (macOS, Linux)
       if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
       shell: bash
