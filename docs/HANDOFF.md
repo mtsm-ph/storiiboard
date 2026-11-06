@@ -90,6 +90,14 @@ doesn't know (ICtCp, constant luminance), so HDR files so tagged are re-tagged f
 (`video::ToneMap`); the file's HDR peak (MaxCLL, else the mastering display's) is handed to tonemap for PQ, since zscale
 drops the metadata; a still tone-maps only its own frame (`trim` on the file's clock, the same time the seek uses).
 
+Two checkpoints failed on Nov 6 because the Windows runner couldn't reach ffmpeg.org (timeouts and reset connections),
+and the GitHub integration can't rerun failed jobs (403). So the pins and the download moved to
+`scripts/ffmpeg/sources.sh`, and the checkpoint now has a `sources` job on Linux that fetches the three tarballs once
+into a cache every runner can restore (`enableCrossOsArchive`, keyed by `sources.sh`). The Mac and Windows builds take
+them through `SBD_FFMPEG_SOURCES`, still checked against their checksums, and download any that's missing (with
+retries for up to a quarter of an hour). If a Windows build still can't get its sources, look at the `sources` job
+first, then at whether the Windows restore found the cache.
+
 Lows deferred from the D1 reviews:
 - SDR files tagged with such a matrix (YCgCo screen captures, say) still fail in stills and copies, as before D1:
   give them the same re-tag with a matrix-only zscale (`m=bt709`) after the scale.
