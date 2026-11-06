@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, TryLockError};
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -136,22 +136,6 @@ impl Drop for Asked {
     }
 }
 
-/// Set while a Move runs, for as long as it runs.
-struct Moving<'a>(&'a AtomicBool);
-
-impl<'a> Moving<'a> {
-    fn start(flag: &'a AtomicBool) -> Self {
-        flag.store(true, Ordering::SeqCst);
-        Self(flag)
-    }
-}
-
-impl Drop for Moving<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
-    }
-}
-
 pub struct PlaybackCache {
     settings_file: Option<PathBuf>,
     default_root: PathBuf,
@@ -163,8 +147,12 @@ pub struct PlaybackCache {
     /// One copy at a time: a hardware encoder is shared, and the drive is too. A Move and the start-up clean-up take it
     /// too, so neither touches a copy being made.
     turn: Mutex<()>,
-    /// Copies being moved: where a copy is can't be told until the Move is done.
-    moving: AtomicBool,
+    /// Where the copies are: a Move holds it to write for as long as it runs; finding, Clear and the cap hold it to
+    /// read, and don't wait for a Move (where a copy is can't be told until it's done).
+    layout: RwLock<()>,
+    /// The settings file was there but couldn't be read (or set aside): a Move, which this run couldn't remember, is
+    /// refused.
+    unsaved: bool,
     /// The app is quitting: no new ffmpeg starts.
     quitting: AtomicBool,
     /// Copies made without sound whose sound was found unreadable in this run (by key): played as they are. In a
@@ -366,7 +354,8 @@ fn encoders() -> Vec<Vec<&'static str>> {
         "yuv420p",
     ]];
     // NV12, the format hardware H.264 encoders take (most list no other; Microsoft's software one takes it too). High
-    // profile, as Media Foundation otherwise makes Baseline, larger for the same picture. The bitrate is set too: a
+    // profile, as Media Foundation otherwise makes Baseline, larger for the same picture: as a number (FFmpeg's
+    // AV_PROFILE_H264_HIGH), since h264_mf knows no profile names. The bitrate is set too: a
     // hardware encoder that ignores the quality mode falls back to it, not to 200 kb/s.
     #[cfg(windows)]
     return vec![
@@ -382,7 +371,7 @@ fn encoders() -> Vec<Vec<&'static str>> {
             "-b:v",
             "12M",
             "-profile:v",
-            "high",
+            "100",
             "-pix_fmt",
             "nv12",
         ],
@@ -398,7 +387,7 @@ fn encoders() -> Vec<Vec<&'static str>> {
             "-b:v",
             "12M",
             "-profile:v",
-            "high",
+            "100",
             "-pix_fmt",
             "nv12",
         ],
@@ -441,13 +430,16 @@ struct Said {
     read_failed: bool,
     /// The original's data stopped making sense partway: a file cut short, or only a damaged tail.
     damaged: bool,
+    /// Where a MOV's next piece couldn't be reached ("partial file"), the earliest: past the file's end it's a file cut
+    /// short; inside it, the read failed.
+    partial_at: Option<u64>,
 }
 
 impl Said {
     /// One line of ffmpeg 8's error output. A failed read is "Error during demuxing: <reason>"
     /// (fftools/ffmpeg_demux.c), where undecodable data has its own reason and every other one is the drive or the
-    /// share; a MOV whose next piece couldn't be reached says "partial file" first, and a read that failed can end as
-    /// a plain end of file with only that line said.
+    /// share. A MOV whose next piece couldn't be reached says "stream N, offset 0x…: partial file"
+    /// (libavformat/mov.c), and a read that failed can end as a plain end of file with only that said.
     fn hear(&mut self, line: &str) {
         let line = line.trim_end();
         if let Some((_, reason)) = line.split_once("Error during demuxing: ") {
@@ -457,8 +449,25 @@ impl Said {
                 self.read_failed = true;
             }
         } else if line.starts_with("[in#") && line.ends_with(": partial file") {
-            self.read_failed = true;
+            let at = line
+                .rsplit_once("offset 0x")
+                .and_then(|(_, rest)| rest.split(':').next())
+                .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                .unwrap_or(0);
+            self.partial_at = Some(self.partial_at.map_or(at, |earlier| earlier.min(at)));
         }
+    }
+
+    /// Settles what "partial file" meant, by the original's size now: a piece past its end is a file cut short (the
+    /// length check decides), one inside it a read that failed (a drive that dropped and came back).
+    fn settle(mut self, original: &Path) -> Self {
+        if let Some(at) = self.partial_at {
+            match fs::metadata(original) {
+                Ok(meta) if at >= meta.len() => self.damaged = true,
+                _ => self.read_failed = true,
+            }
+        }
+        self
     }
 }
 
@@ -491,10 +500,8 @@ fn move_one(from: &Path, to: &Path, force_copy: bool) -> bool {
         .and_then(|_| fs::File::options().write(true).open(&partial)?.sync_all())
         .and_then(|()| fs::rename(&partial, to));
     let _ = fs::remove_file(&partial);
-    if copied.is_ok() {
-        let _ = fs::remove_file(from);
-    }
-    copied.is_ok()
+    // A source that won't go (held by another program) leaves the copy in both places: not a move.
+    copied.is_ok() && fs::remove_file(from).is_ok()
 }
 
 /// What a copy being made reports: how far along, 0 to 1. It can step back once, when a hardware encoder gives way to
@@ -574,15 +581,16 @@ const MOVING_ON: [&str; 3] = ["frame=", "total_size=", "out_time_us="];
 impl PlaybackCache {
     /// The cache as this computer left it. A settings file that can't be read is never written over: one that doesn't
     /// parse (a later version's, or damaged) is set aside as `playback.json.unreadable` and the defaults start a new
-    /// one; one that's there but can't be read now (held by another program) leaves this session's changes in memory.
+    /// one; one that's there but can't be read now (held by another program), or can't be set aside, leaves this
+    /// session's changes in memory, and a Move is refused, since its new place would be forgotten.
     pub fn load(data_dir: &Path, cache_dir: &Path) -> Self {
         let file = data_dir.join("playback.json");
-        let (settings, file) = match fs::read(&file) {
+        let (settings, kept) = match fs::read(&file) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(settings) => (settings, Some(file)),
                 Err(_) => {
-                    let _ = fs::rename(&file, file.with_extension("json.unreadable"));
-                    (Settings::default(), Some(file))
+                    let aside = fs::rename(&file, file.with_extension("json.unreadable")).is_ok();
+                    (Settings::default(), aside.then_some(file))
                 }
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -590,7 +598,11 @@ impl PlaybackCache {
             }
             Err(_) => (Settings::default(), None),
         };
-        Self::new(file, cache_dir, settings)
+        let unsaved = kept.is_none();
+        Self {
+            unsaved,
+            ..Self::new(kept, cache_dir, settings)
+        }
     }
 
     fn new(settings_file: Option<PathBuf>, default_root: &Path, settings: Settings) -> Self {
@@ -601,7 +613,8 @@ impl PlaybackCache {
             jobs: Arc::new(Mutex::new(HashMap::new())),
             next_job: AtomicU64::new(0),
             turn: Mutex::new(()),
-            moving: AtomicBool::new(false),
+            layout: RwLock::new(()),
+            unsaved: false,
             quitting: AtomicBool::new(false),
             checked_silent: Mutex::new(HashSet::new()),
             encoders: encoders(),
@@ -647,8 +660,13 @@ impl PlaybackCache {
         self.default_root.join(FOLDER_NAME)
     }
 
-    fn moving(&self) -> bool {
-        self.moving.load(Ordering::SeqCst)
+    /// The copies stay where they are while this is held; none if a Move is running.
+    fn settled(&self) -> Option<RwLockReadGuard<'_, ()>> {
+        match self.layout.try_read() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        }
     }
 
     /// Where copies go now, made if it isn't there; and whether that's the cache folder standing in for a picked
@@ -706,9 +724,9 @@ impl PlaybackCache {
     /// where copies go now first, then the other folders of ours. None while the copies are being moved: where one is
     /// can't be told until the Move is done, and a make waits for it.
     pub fn find(&self, path: &Path) -> Result<Option<Made>, String> {
-        if self.moving() {
+        let Some(_settled) = self.settled() else {
             return Ok(None);
-        }
+        };
         let key = key_of(path)?;
         let (now, _) = self.folder()?;
         let folders: Vec<PathBuf> = std::iter::once(now).chain(self.all_folders()).collect();
@@ -822,6 +840,7 @@ impl PlaybackCache {
         // may still hold its file) never stands in the next one's way.
         let mut sound = probe.has_audio;
         let mut sound_tested = false;
+        let mut stalled = false;
         let mut outcome = Err(Stop::Failed(Said::default()));
         let mut partial = PathBuf::new();
         let mut attempt = 0;
@@ -842,6 +861,14 @@ impl PlaybackCache {
                     // Done, stopped, or the drive gone: no other encoder would do better.
                     Ok(_) | Err(Stop::Cancelled) => break 'encoders,
                     Err(Stop::Failed(said)) if said.read_failed => break 'encoders,
+                    // Stalled: another encoder is worth a try (a hardware one hung in its driver), but only if the
+                    // original still answers.
+                    Err(Stop::Stalled) => {
+                        stalled = true;
+                        if video::starts(path).is_err() {
+                            break 'encoders;
+                        }
+                    }
                     Err(Stop::Failed(_)) if sound && !sound_tested => {
                         sound_tested = true;
                         if video::sound_plays(path) == Ok(false) {
@@ -856,21 +883,27 @@ impl PlaybackCache {
                 break;
             }
         }
-        let checked = outcome.map_err(Stop::message).and_then(|said| {
-            // The original changed while it was read (an offload still writing): this copy isn't of it.
-            if key_of(path)? != key {
-                return Err(FAILED.into());
-            }
-            let made = video::probe(&partial)?;
-            if complete(&probe, sound, &made, said) {
-                Ok(())
-            } else if said.damaged && !said.read_failed && total == 0 {
-                // A damaged file, not a missing drive.
-                Err(FAILED.into())
-            } else {
-                Err(SHORT.into())
-            }
-        });
+        let checked = outcome
+            .map_err(|stop| match stop {
+                // A later attempt that failed with no cause of its own, after one stalled: the stall says why.
+                Stop::Failed(said) if stalled && !said.read_failed => STALLED.into(),
+                stop => stop.message(),
+            })
+            .and_then(|said| {
+                // The original changed while it was read (an offload still writing): this copy isn't of it.
+                if key_of(path)? != key {
+                    return Err(FAILED.into());
+                }
+                let made = video::probe(&partial)?;
+                if complete(&probe, sound, &made, said) {
+                    Ok(())
+                } else if said.damaged && !said.read_failed && total == 0 {
+                    // A damaged file, not a missing drive.
+                    Err(FAILED.into())
+                } else {
+                    Err(SHORT.into())
+                }
+            });
         if let Err(error) = checked {
             let _ = fs::remove_file(&partial);
             return if error == CANCELLED {
@@ -1056,6 +1089,7 @@ impl PlaybackCache {
                 errors
                     .and_then(|errors| errors.join().ok())
                     .unwrap_or_default()
+                    .settle(run.path)
             }
             None => Said::default(),
         };
@@ -1100,8 +1134,15 @@ impl PlaybackCache {
         }
     }
 
-    /// Deletes copies used longest ago until all of them are under the cap. Never `keep`, the copy just made.
+    /// Deletes copies used longest ago until all of them are under the cap. Never `keep`, the copy just made. Not
+    /// while a Move runs: it keeps to the cap itself when it's done.
     fn keep_under_cap(&self, keep: &Path) {
+        if let Some(_settled) = self.settled() {
+            self.keep_to_cap(keep);
+        }
+    }
+
+    fn keep_to_cap(&self, keep: &Path) {
         keep_under(
             &self.all_folders(),
             keep,
@@ -1125,9 +1166,9 @@ impl PlaybackCache {
     /// Deletes every finished copy, in every folder of ours (they're made again when played). Returns how many went.
     /// Not while the copies are being moved.
     pub fn clear(&self) -> Result<usize, String> {
-        if self.moving() {
+        let Some(_settled) = self.settled() else {
             return Err(MOVING.into());
-        }
+        };
         Ok(self
             .all_folders()
             .iter()
@@ -1142,9 +1183,7 @@ impl PlaybackCache {
             return Err("The cap for playback copies is between 1 and 10,000 GB.".into());
         }
         self.update(|settings| settings.cap_gb = gb)?;
-        if !self.moving() {
-            self.keep_under_cap(Path::new(""));
-        }
+        self.keep_under_cap(Path::new(""));
         Ok(())
     }
 
@@ -1154,11 +1193,15 @@ impl PlaybackCache {
     /// folder comes off the list once nothing of ours is left in it. One that can't be read now (unplugged), or that
     /// still holds copies that couldn't go, stays on the list for the next Move. Returns how many moved.
     pub fn move_to(&self, root: Option<&Path>) -> Result<usize, String> {
+        if self.unsaved {
+            return Err(UNSAVED.into());
+        }
         if !lock(&self.jobs).is_empty() {
             return Err("A playback copy is being made; move the copies once it's done.".into());
         }
         let _turn = lock(&self.turn);
-        let _moving = Moving::start(&self.moving);
+        // Waits for a Clear or the cap already running; finding, Clear and the cap don't start until it's done.
+        let _moving = self.layout.write().unwrap_or_else(PoisonError::into_inner);
         let new = root.unwrap_or(&self.default_root).join(FOLDER_NAME);
         fs::create_dir_all(&new).map_err(|_| UNWRITABLE.to_string())?;
         let probe = new.join(format!("{:032x}.mp4.partial", 0));
@@ -1196,11 +1239,9 @@ impl PlaybackCache {
         let mut left = Vec::new();
         for old in &olds {
             if !old.is_dir() {
-                // A drive that isn't there now: its copies move once it's back. (A folder never made on a drive that
-                // is there holds nothing.)
-                if !old.parent().is_some_and(Path::is_dir) {
-                    left.push(old.clone());
-                }
+                // A drive that isn't there now (its mount folder may be): its copies move once it's back. Remembering a
+                // folder that's simply gone costs nothing; the app only looks in folders that are there.
+                left.push(old.clone());
                 continue;
             }
             // The turn is held, so no half copy here is being written: one a crash left goes now.
@@ -1221,14 +1262,25 @@ impl PlaybackCache {
                     all_moved = false;
                 }
             }
-            if !all_moved {
-                left.push(old.clone());
-            }
             // Only our folder, and only if nothing else is in it.
             let _ = fs::remove_dir(old);
+            // Still on the list while anything of ours is in it: a copy that couldn't go, a half copy held open, one
+            // that couldn't be listed.
+            let anything_ours = || {
+                fs::read_dir(old).map_or(true, |entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .any(|entry| entry.file_name().to_str().and_then(ours).is_some())
+                })
+            };
+            if !all_moved || (old.is_dir() && anything_ours()) {
+                left.push(old.clone());
+            }
         }
         // The moves are done; a list that can't be saved only means looking in folders that hold nothing.
         let _ = self.update(|settings| settings.leftovers = away(&left));
+        // A cap lowered while the copies moved is kept to now.
+        self.keep_to_cap(Path::new(""));
         Ok(moved)
     }
 }
@@ -1975,7 +2027,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             ("LD_PRELOAD".into(), shim.to_string_lossy().into_owned()),
             ("CUT_MODE".into(), mode.into()),
             ("CUT_AT".into(), at.to_string()),
-            ("CUT_SLOW_MS".into(), "40".into()),
+            ("CUT_SLOW_MS".into(), "120".into()),
         ];
     }
 
@@ -2071,6 +2123,10 @@ ssize_t read(int fd, void *buf, size_t count) {
             fs::metadata(&clip).unwrap().len() / 2,
         );
         cache.stall = Duration::from_secs(3);
+        // Hardware then software, as on Windows: the second is tried (the original still answers ffprobe, which reads
+        // around the shim), stalls too, and the copy ends as stalled.
+        let encoder = encoders().pop().unwrap();
+        cache.encoders = vec![encoder.clone(), encoder];
         let cache = Arc::new(cache);
         let (sent, outcome) = mpsc::channel();
         let making = {
@@ -2111,12 +2167,18 @@ ssize_t read(int fd, void *buf, size_t count) {
         // Every read waits, from the first byte: the copy takes well over the stall time, moving all the while.
         through_shim(&mut cache, &shim, "slow", 0);
         cache.stall = Duration::from_secs(2);
-        let started = Instant::now();
+        let mut first: Option<Instant> = None;
         let mut seen = Vec::new();
-        let made = cache.make(&clip, |done| seen.push(done)).unwrap();
+        let made = cache
+            .make(&clip, |done| {
+                first.get_or_insert_with(Instant::now);
+                seen.push(done);
+            })
+            .unwrap();
+        let encoding = first.map(|at| at.elapsed()).unwrap_or_default();
         assert!(
-            started.elapsed() > cache.stall,
-            "slower than the stall time"
+            encoding > 2 * cache.stall,
+            "encoding outlasted the stall time: {encoding:?}"
         );
         assert_eq!(video::probe(&made.path).unwrap().duration_frames, 200);
         assert!(
@@ -2196,14 +2258,25 @@ ssize_t read(int fd, void *buf, size_t count) {
         let cache = PlaybackCache::in_folder(&dir.join("cache"));
         let clip = pcm_clip(&dir, "C0062.mov");
         let made = cache.make(&clip, |_| {}).unwrap();
-        let moving = Moving::start(&cache.moving);
+        // A copy over the 1 GB cap, used before the other one (sparse: no gigabytes written).
+        let (home, _) = cache.folder().unwrap();
+        let big = pretend(&home, 9, 0, 600);
+        let file = fs::File::options().write(true).open(&big).unwrap();
+        file.set_len(2 * GB).unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(600))
+            .unwrap();
+        drop(file);
+        let moving = cache.layout.write().unwrap();
         // Where it is can't be told until the Move is done; a make waits its turn behind the Move.
         assert_eq!(cache.find(&clip).unwrap(), None);
         assert_eq!(cache.clear().unwrap_err(), MOVING);
         cache.set_cap(1).unwrap();
-        assert!(made.path.is_file(), "the cap waits for the Move too");
+        assert!(big.is_file(), "the cap waits for the Move");
         drop(moving);
-        assert_eq!(cache.find(&clip).unwrap(), Some(made));
+        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        // A Move keeps to a cap lowered while it ran, once it's done (here a Move with nothing to move).
+        assert_eq!(cache.move_to(None).unwrap(), 0);
+        assert!(!big.exists() && made.path.is_file());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2215,10 +2288,23 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert_eq!(said, Said::default(), "a damaged frame alone is no cut");
         said.hear("[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x55e8a2b2cac0] Error during demuxing: Input/output error\n");
         assert!(said.read_failed && !said.damaged);
-        // A MOV whose next piece couldn't be reached: the read stopped there, whatever ffmpeg says after.
+        // A MOV whose next piece couldn't be reached: inside the file, the read failed; past its end, the file was cut
+        // short (and the length check decides).
+        let dir = temp_dir("partial-file");
+        let original = dir.join("A001.mov");
+        fs::write(&original, vec![0u8; 0x2000]).unwrap();
         let mut said = Said::default();
-        said.hear("[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x55e8a2b2cdc0] stream 1, offset 0x14fc26: partial file\r\n");
-        assert!(said.read_failed);
+        said.hear("[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x55e8a2b2cdc0] stream 1, offset 0x1fff: partial file\r\n");
+        said.hear("[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x55e8a2b2cdc0] stream 0, offset 0x1f00: partial file\n");
+        assert_eq!(said.partial_at, Some(0x1f00), "the earliest");
+        assert!(said.settle(&original).read_failed);
+        let mut said = Said::default();
+        said.hear("[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x55e8a2b2cdc0] stream 1, offset 0x2000: partial file\n");
+        let cut_short = said.settle(&original);
+        assert!(cut_short.damaged && !cut_short.read_failed);
+        // The original gone since: a failed read.
+        assert!(said.settle(&dir.join("gone.mov")).read_failed);
+        let _ = fs::remove_dir_all(&dir);
         let mut said = Said::default();
         said.hear(
             "[in#0/mxf @ 0x1] Error during demuxing: Invalid data found when processing input\n",
@@ -2228,7 +2314,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert_eq!(
             Stop::Failed(Said {
                 read_failed: true,
-                damaged: false
+                ..Said::default()
             })
             .message(),
             SHORT
@@ -2255,11 +2341,11 @@ ssize_t read(int fd, void *buf, size_t count) {
         let fine = Said::default();
         let read_failed = Said {
             read_failed: true,
-            damaged: false,
+            ..Said::default()
         };
         let damaged = Said {
-            read_failed: false,
             damaged: true,
+            ..Said::default()
         };
         assert!(complete(&probe(48, true), true, &probe(48, true), fine));
         // Within a second at 23.976 (24 frames): a cut, a header a little off.
@@ -2589,13 +2675,70 @@ ssize_t read(int fd, void *buf, size_t count) {
         std::os::unix::fs::symlink(dir.join("cache"), &alias).unwrap();
         assert_eq!(cache.move_to(Some(&alias)).unwrap(), 0);
         assert_eq!(cache.info().unwrap().copies, 1);
-        // The copy just made, by either spelling, stays under the cap.
+        // The copy just made, by either spelling, stays under the cap, though the folder be listed under both.
+        let both = [alias.join(FOLDER_NAME), home.clone()];
+        keep_under(&both, &copy, 600);
+        assert!(copy.is_file());
         keep_under(
-            &cache.all_folders(),
+            &both,
             &alias.join(FOLDER_NAME).join(copy.file_name().unwrap()),
             600,
         );
         assert!(copy.is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_cut_short_on_a_healthy_drive_still_gets_its_copy() {
+        let dir = temp_dir("truncated");
+        // An export with its index first whose copy stopped just before the end: the last pieces aren't there.
+        let whole = make_clip(
+            &dir,
+            "A001_C009.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=640x360:rate=25:duration=8",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=8",
+            ],
+            &[
+                "-c:v",
+                "mpeg4",
+                "-q:v",
+                "3",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+            ],
+        );
+        let bytes = fs::read(&whole).unwrap();
+        let cut = dir.join("A001_C009 cut.mov");
+        fs::write(&cut, &bytes[..bytes.len() * 995 / 1000]).unwrap();
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let made = cache.make(&cut, |_| {}).unwrap();
+        let frames = video::probe(&made.path).unwrap().duration_frames;
+        assert!((190..200).contains(&frames), "{frames} frames");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_settings_file_there_but_unreadable_refuses_a_move_it_couldnt_remember() {
+        let dir = temp_dir("unreadable");
+        let data = dir.join("data");
+        // Something at playback.json that can't be read as a file.
+        fs::create_dir_all(data.join("playback.json")).unwrap();
+        let cache = PlaybackCache::load(&data, &dir.join("cache"));
+        assert_eq!(cache.move_to(Some(&dir)).unwrap_err(), UNSAVED);
+        assert_eq!(cache.settings().root, None);
+        // The cap still changes for this run.
+        cache.set_cap(20).unwrap();
+        assert_eq!(cache.info().unwrap().cap_gb, 20);
+        assert!(data.join("playback.json").is_dir(), "never written over");
         let _ = fs::remove_dir_all(&dir);
     }
 }

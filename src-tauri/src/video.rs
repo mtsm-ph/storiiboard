@@ -281,20 +281,55 @@ const CANT_READ: &str = "That file can't be read as a video.";
 
 /// Runs a sidecar to the end and returns what it wrote, or gives up after `timeout`. Its output is read while it runs,
 /// so a long answer can't fill the pipe and stall it.
-fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+fn run(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+    let (status, out, _) = run_heard(command, timeout, false)?;
+    if status.success() {
+        Ok(out)
+    } else {
+        Err(CANT_READ.into())
+    }
+}
+
+/// Runs a sidecar to the end, or gives up after `timeout`: how it ended, what it wrote, and (if `errors`) what it said
+/// on its error output. Both are read while it runs, so neither pipe fills and stalls it.
+fn run_heard(
+    mut command: Command,
+    timeout: Duration,
+    errors: bool,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
     let mut child = command
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(if errors {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|_| {
             "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
                 .to_string()
         })?;
-    let mut stdout = child.stdout.take().ok_or(CANT_READ)?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).map(|_| bytes)
-    });
+    let read_all = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            match pipe {
+                Some(mut pipe) => pipe.read_to_end(&mut bytes).map(|_| bytes),
+                None => Ok(bytes),
+            }
+        })
+    };
+    let stdout = read_all(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = read_all(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -312,12 +347,14 @@ fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
             Err(_) => return Err(CANT_READ.into()),
         }
     };
-    reader
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .filter(|_| status.success())
-        .ok_or_else(|| CANT_READ.to_string())
+    let all = |reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>| {
+        reader
+            .join()
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| CANT_READ.to_string())
+    };
+    Ok((status, all(stdout)?, all(stderr)?))
 }
 
 /// Runs ffprobe on a file. The path is one argument of the list, after `-i`, never part of a shell string, and ffprobe
@@ -375,14 +412,23 @@ pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
         .args([
             "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "framemd5", "-",
         ]);
-    match run(command, PROBE_TIMEOUT) {
-        Ok(out) => Ok(String::from_utf8_lossy(&out)
-            .lines()
-            .any(|line| !line.starts_with('#') && !line.trim().is_empty())),
-        // The file opens and its picture reads: it's the sound.
-        Err(error) if error == CANT_READ => starts(path).map(|_| false),
-        Err(error) => Err(error),
+    let (status, out, said) = run_heard(command, PROBE_TIMEOUT, true)?;
+    // A read that failed partway (ffmpeg goes on as if the file had ended, and exits as if all went well): it can't
+    // tell, whatever came out.
+    let read_failed = String::from_utf8_lossy(&said).lines().any(|line| {
+        line.split_once("Error during demuxing: ")
+            .is_some_and(|(_, reason)| !reason.starts_with("Invalid data found"))
+    });
+    if read_failed {
+        return Err(CANT_READ.into());
     }
+    if !status.success() {
+        // The file opens and its picture reads: it's the sound.
+        return starts(path).map(|_| false);
+    }
+    Ok(String::from_utf8_lossy(&out)
+        .lines()
+        .any(|line| !line.starts_with('#') && !line.trim().is_empty()))
 }
 
 /// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
