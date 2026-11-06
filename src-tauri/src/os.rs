@@ -13,6 +13,10 @@ pub fn free_bytes(folder: &Path) -> Option<u64> {
     {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        // As the system spells it (\\?\C:\..., \\?\UNC\...), so a folder past the old 260-character limit reads too.
+        let folder = folder
+            .canonicalize()
+            .unwrap_or_else(|_| folder.to_path_buf());
         let mut wide: Vec<u16> = folder.as_os_str().encode_wide().collect();
         // A network share's name needs its closing backslash (\\server\share\); any folder takes one.
         if !matches!(wide.last(), Some(&c) if c == u16::from(b'\\') || c == u16::from(b'/')) {
@@ -228,6 +232,9 @@ mod tests {
         let free = free_bytes(&std::env::temp_dir());
         if cfg!(any(windows, target_os = "macos")) {
             assert!(free.is_some_and(|bytes| bytes > 0), "{free:?}");
+            // A folder named without a closing separator, as the app names its own.
+            let plain = free_bytes(Path::new(env!("CARGO_MANIFEST_DIR")));
+            assert!(plain.is_some_and(|bytes| bytes > 0), "{plain:?}");
             // A folder that isn't there can't be read.
             assert_eq!(
                 free_bytes(&std::env::temp_dir().join("no such folder").join("here")),

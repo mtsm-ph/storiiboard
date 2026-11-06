@@ -58,12 +58,15 @@ D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Ta
 - A free-space floor, 10 GB by default (1 to 1,000 GB, `playback_set_floor`; 2.3b shows it in Settings → Storage).
   Before a copy starts its drive must keep the floor free after the copy (about 1.6 MB a second of video): the copies
   used longest ago in the folder copies go to make the room, never the video's own, and only if together they can;
-  otherwise the copy is refused and nothing is removed. They go one at a time, the drive read again after each; one
-  whose space doesn't come back (a Time Machine snapshot keeps it) stops the rest going. While the copy is made a
-  thread of its own reads the free space every 2 s (a share that stopped answering never holds up the encode's watch):
-  down to the floor, older copies make room, or the copy stops and leaves nothing. A Move to a drive already below the
-  floor is refused, with nothing changed; otherwise it copies across drives only what fits above the floor, and the
-  rest stay where they were, still played, and the Move says so. `playback_info` adds the floor and the drive's free
+  otherwise the copy is refused and nothing is removed. They go one at a time, the drive read just before and after
+  each (for up to a second, as a NAS reports freed space late); one whose space doesn't come back (a Time Machine
+  snapshot, a share's recycle bin) stops the rest going, and that drive is remembered: nothing more goes there for
+  room until it reads more free. While the copy is made a thread of its own reads the free space every 2 s (a share
+  that stopped answering never holds up the encode's watch): down to the floor, older copies make room if they could
+  also cover what's still to be written, or the copy stops and leaves nothing; a copy that ends between two readings is
+  checked once more before it's kept. A Move where not one copy can cross above the floor is refused with nothing
+  changed; otherwise it copies across drives only what fits, and the rest stay where they were, still played, and the
+  Move says so. `playback_info` adds the floor and the drive's free
   space.
   Windows reads it with `GetDiskFreeSpaceExW` (after any quota), a Mac with `statvfs` (without the space macOS can
   purge, so a little under Finder's figure); a drive that can't tell is taken as having room. Linux (the tests) stands

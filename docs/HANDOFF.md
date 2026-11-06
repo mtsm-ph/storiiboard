@@ -125,13 +125,34 @@ sound unreadable; a Move to a drive below the floor is refused with nothing chan
 by its id and start time, so a moved app or a development build still finds it; the kill test holds the killed app's
 ffmpeg by a handle on Windows. Before the PR, the whole app was linted for Windows here (MinGW, above).
 
+Round 2 found one medium, fixed: room-making kept no memory, so on a drive that keeps a removed copy's space each new
+request removed one more copy; now that drive is remembered with what it had free, and nothing more goes there for
+room until it reads more free. Lows fixed with it: the drive is read for up to a second after a removal (a NAS reports
+freed space late), and just before each, without charging the copy being made for what it wrote meanwhile; a copy that
+can't be removed is passed over only while the rest can still make the room; the watcher removes copies only if they
+could also cover what's still to be written; a Move where nothing could cross is put back, with the folder it made;
+Windows reads free space through the system's own spelling of the path (past 260 characters); and a copy that ends
+between two readings is checked against the floor once more before it's kept.
+
+The first checkpoint (`checkpoint/d2-windows-sys` at f4529cb) passed on Windows (the Job Object and kill tests, both
+installers) but the Mac's Rust tests failed: from one moment on, every copy test there stalled (ffmpeg made no
+progress for 90 s, and even a killed one didn't end for 10 s), which points at the runner (its encoder service or its
+disk) rather than at one test. The only heavy new work then was the floor-watch test's two 1080p encodes, one stopped
+the moment it started; it now uses the short clip. The checkpoint also prints the runner's free space before the Rust
+tests and what's left running after a failure.
+
 Lows deferred from D2 (noted, not planned yet):
 - Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
   (the cache folder standing in while a picked drive is away, a Move's leftovers) aren't removed for it.
 - On a Mac, `statvfs` doesn't count the space macOS can purge on its own, so the app may make room (or refuse) when
   Finder shows more free; and APFS local snapshots can keep a removed copy's space for a while.
-- On a Mac, a crash still leaves a probe or a still's ffmpeg running until its own timeout (30 or 60 seconds); only
-  the encodes' process ids are kept.
+- On a Mac, a crash still leaves a probe's or a still's ffmpeg running until it finishes (it ends when it next writes to
+  the closed pipe), or for good if it's stuck reading a share that stopped answering: their timeouts are the app's,
+  and only the encodes' process ids are kept.
+- If `playback-running.txt` can't be written (the data folder's drive full or read-only), the encode runs unrecorded,
+  and a crash then leaves it running.
+- A video whose earlier copy has no sound, refused for room, gets that copy back as if its sound were unreadable, and
+  each later request for it waits its turn and tries again. 2.3b could say "no room" instead (a flag on `MadeCopy`).
 - Raising the floor removes nothing at once; the next copy keeps to it.
 
 ## Next steps, in order
