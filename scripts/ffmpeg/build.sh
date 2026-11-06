@@ -8,28 +8,19 @@
 #
 # Writes <out-dir>/ffmpeg-<triple>[.exe] and ffprobe-<triple>[.exe], the names Tauri's externalBin expects, plus
 # ffmpeg-LICENSE.txt and ffmpeg-SOURCE.txt (the licence, and the exact source and configure line, as the LGPL asks), and
-# zimg's and dav1d's licences. Set SBD_FFMPEG_SOURCES to a folder that already holds the source tarballs (named as below)
-# to build without downloading them; each is still checked against its checksum.
+# zimg's and dav1d's licences. The sources are pinned in sources.sh. Set SBD_FFMPEG_SOURCES to a folder that already
+# holds the source tarballs (as `sources.sh <dir>` fetches them) to build without downloading; each is still checked.
 set -euo pipefail
 
-VERSION=8.1.3
-SHA256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
-SOURCE_URL="https://ffmpeg.org/releases/ffmpeg-${VERSION}.tar.xz"
-# zimg (WTFPL; approved by Kevin as an exception to the licence list): its only submodule is its test framework, which
-# the build doesn't need. The tarball is GitHub's archive of the release tag.
-ZIMG_VERSION=3.0.6
-ZIMG_SHA256=be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577
-ZIMG_URL="https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${ZIMG_VERSION}.tar.gz"
-# dav1d (BSD-2-Clause): the checksum is VideoLAN's own.
-DAV1D_VERSION=1.5.4
-DAV1D_SHA256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
-DAV1D_URL="https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz"
+here=$(cd "$(dirname "$0")" && pwd)
+# The pinned sources and their checksums, and fetch_sources.
+# shellcheck source=sources.sh
+. "$here/sources.sh"
 
 triple=${1:?target triple, e.g. aarch64-apple-darwin}
 out=${2:?output folder}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-here=$(cd "$(dirname "$0")" && pwd)
 
 # FFmpeg's configure finds zimg and dav1d only through pkg-config: said now, not after both are built.
 command -v pkg-config >/dev/null || { echo 'pkg-config is needed (zimg and dav1d are found through it)' >&2; exit 1; }
@@ -37,25 +28,7 @@ command -v pkg-config >/dev/null || { echo 'pkg-config is needed (zimg and dav1d
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# Puts a source tarball at $work/<file>, from SBD_FFMPEG_SOURCES or downloaded, and checks it.
-fetch() {
-  local url=$1 sum=$2 file=$3
-  if [ -n "${SBD_FFMPEG_SOURCES:-}" ] && [ -f "$SBD_FFMPEG_SOURCES/$file" ]; then
-    cp "$SBD_FFMPEG_SOURCES/$file" "$work/$file"
-  else
-    # A reset connection is retried too (--retry alone skips it); the checksum below still decides.
-    curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$work/$file" "$url"
-  fi
-  local actual
-  actual=$( (command -v sha256sum >/dev/null && sha256sum "$work/$file" || shasum -a 256 "$work/$file") | cut -d' ' -f1)
-  if [ "$actual" != "$sum" ]; then
-    echo "$file: checksum $actual, expected $sum" >&2
-    exit 1
-  fi
-}
-fetch "$SOURCE_URL" "$SHA256" "ffmpeg-${VERSION}.tar.xz"
-fetch "$ZIMG_URL" "$ZIMG_SHA256" "zimg-${ZIMG_VERSION}.tar.gz"
-fetch "$DAV1D_URL" "$DAV1D_SHA256" "dav1d-${DAV1D_VERSION}.tar.xz"
+fetch_sources "$work"
 tar -xJf "$work/ffmpeg-${VERSION}.tar.xz" -C "$work"
 tar -xzf "$work/zimg-${ZIMG_VERSION}.tar.gz" -C "$work"
 tar -xJf "$work/dav1d-${DAV1D_VERSION}.tar.xz" -C "$work"
@@ -172,6 +145,7 @@ commit=${GITHUB_SHA:-$(git -C "$here" rev-parse HEAD 2>/dev/null || echo unknown
 # findable if the commit isn't.
 compiler=$(sed -n 's/^built with //p' <<<"$about")
 script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
+pins=$(git hash-object "$here/sources.sh" 2>/dev/null || echo unknown)
 {
   echo "Storiiboard includes ffmpeg and ffprobe from FFmpeg ${VERSION}, under the GNU Lesser General Public License"
   echo "version 2.1 or later (ffmpeg-LICENSE.txt; FFmpeg's notes on its licences: ffmpeg-LICENSE.md). They run as"
@@ -179,7 +153,8 @@ script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
   echo
   echo "Source: ffmpeg-${VERSION}.tar.xz, handed out beside these binaries, the same file as ${SOURCE_URL}"
   echo "(SHA-256 ${SHA256})."
-  echo "Built by scripts/ffmpeg/build.sh (blob ${script}) at Storiiboard commit ${commit}, with ${compiler},"
+  echo "Built by scripts/ffmpeg/build.sh (blob ${script}, sources.sh blob ${pins}) at Storiiboard commit ${commit},"
+  echo "with ${compiler},"
   echo "configured with:"
   echo "  ${flags[*]}"
   echo

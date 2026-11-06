@@ -18,7 +18,7 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: src-tauri/binaries
-        key: ffmpeg-${{ inputs.triple }}-${{ hashFiles('scripts/ffmpeg/build.sh', '.github/actions/ffmpeg/action.yml') }}
+        key: ffmpeg-${{ inputs.triple }}-${{ hashFiles('scripts/ffmpeg/build.sh', 'scripts/ffmpeg/sources.sh', '.github/actions/ffmpeg/action.yml') }}
     # Windows builds in MSYS2's MINGW64 shell, statically, so the .exe needs nothing beside it. zimg builds with
     # autotools, dav1d with meson and ninja (D1).
     - name: Set up MSYS2

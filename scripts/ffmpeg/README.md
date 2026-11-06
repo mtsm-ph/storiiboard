@@ -39,9 +39,11 @@ Tauri's build needs them in `src-tauri/binaries` (git ignores the folder), named
   `SBD_FFMPEG_SOURCES` to it: each is still checked against its checksum. zimg's is GitHub's archive of its release tag,
   which `git archive --format=tar --prefix=zimg-release-3.0.6/ release-3.0.6 | gzip -n` reproduces from a clone.
 
-To move to a newer FFmpeg (or zimg, or dav1d): change its version and checksum in `build.sh` (a release at least two
+To move to a newer FFmpeg (or zimg, or dav1d): change its version and checksum in `sources.sh` (a release at least two
 weeks old); CI rebuilds
-on the next run, since its cache is keyed by the script and the action (`.github/actions/ffmpeg`). The cache is saved
+on the next run, since its cache is keyed by the scripts and the action (`.github/actions/ffmpeg`). A checkpoint
+fetches the sources once on Linux (`sources.sh <dir>`) and hands them to the Mac and Windows builds, so a runner that
+can't reach a download site still builds. The cache is saved
 as soon as a build succeeds, even if a later step fails. A cache is seen only by the branch that made it (and main), so
 the Linux build CI makes on v2 serves every pull request into it, while each new `checkpoint/<name>` branch builds the Mac and
 Windows sidecars once (about 10 and 25 minutes).
