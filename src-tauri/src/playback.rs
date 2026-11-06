@@ -7,13 +7,15 @@
 //! only files it named there, so the page can never point a Clear or the cap at anything else. A copy is written as
 //! `.partial` and renamed only once it's checked whole (the original unchanged, nothing read wrong, its length and
 //! sound all there), so a crash, a kill, a Cancel or a card pulled midway never leaves a copy that looks done. The
-//! folder is kept under a cap (about 50 GB by default), the copies used longest ago going first.
+//! folder is kept under a cap (about 50 GB by default), the copies used longest ago going first, and never leaves its
+//! drive with less than a floor free (10 GB by default; D2).
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, TryLockError};
@@ -24,6 +26,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::os;
 use crate::video::{self, Access};
 
 /// The folder of copies, inside the cache folder or a folder the person picks.
@@ -34,7 +37,16 @@ const RECIPE: &str = "2.3-2";
 /// The long edge of a copy, at most.
 const LONG_EDGE: u32 = 1920;
 const DEFAULT_CAP_GB: u64 = 50;
+/// The free space copies always leave on their drive, unless the person changes it (Settings, Storage): a copy that
+/// would take the drive below it makes room by removing the copies used longest ago, or isn't made.
+const DEFAULT_FLOOR_GB: u64 = 10;
 const GB: u64 = 1_000_000_000;
+/// About what a copy takes a second, for the room it needs before it starts: 12 Mb/s of picture and 160 kb/s of
+/// sound, rounded up.
+const BYTES_A_SECOND: u64 = 1_600_000;
+/// How often the free space is read while a copy is made, on a thread of its own: a drive that stopped answering never
+/// holds up the encode's watch.
+const SPACE_TICK: Duration = Duration::from_secs(2);
 /// An encode that moves no further for this long has stalled (a read stuck on a share that stopped answering, an
 /// encoder hung in its driver) and is stopped. ffmpeg 8 writes its progress every half second whether anything moved
 /// or not, so only a count that goes up (frames, bytes written, time reached) is word that it's working. Nothing in a
@@ -60,6 +72,9 @@ const MOVING: &str = "The playback copies are being moved; try again once that's
 const UNSAVED: &str = "The settings for playback copies couldn't be saved.";
 const A_COPY: &str =
     "That file is one of Storiiboard's playback copies. Link the original video instead.";
+const NO_ROOM: &str = "There isn't enough free space on that drive for the playback copy. Storiiboard always leaves some free there (Settings, Storage): free some space, or move the copies to another drive.";
+const NO_ROOM_TO_MOVE: &str = "Not every playback copy fit on that drive with the free space Storiiboard leaves there. The rest stayed where they were, and still play.";
+const FLOOR_RANGE: &str = "The free space to leave for playback copies is between 1 and 1,000 GB.";
 
 /// What Rust keeps about the cache, in the app's data folder; the page never writes it. Every field has a default, so a
 /// file from another version still reads.
@@ -69,6 +84,8 @@ struct Settings {
     /// The folder the person picked, which holds `FOLDER_NAME`; none for the cache folder.
     root: Option<PathBuf>,
     cap_gb: u64,
+    /// The free space copies always leave on their drive (D2; files from before it take the default).
+    floor_gb: u64,
     /// Folders of copies a Move left behind (cut short by a crash, a drive unplugged, copies that couldn't go): still
     /// counted, found, capped and cleared, and moved along with the next Move, so none sits where the app no longer
     /// looks.
@@ -80,6 +97,7 @@ impl Default for Settings {
         Self {
             root: None,
             cap_gb: DEFAULT_CAP_GB,
+            floor_gb: DEFAULT_FLOOR_GB,
             leftovers: Vec::new(),
         }
     }
@@ -137,6 +155,63 @@ impl Drop for Asked {
     }
 }
 
+/// How many bytes a drive has free, by a folder on it; none when it can't be told (`os::free_bytes`). Tests stand in
+/// for a drive with one of their own.
+type FreeSpace = Arc<dyn Fn(&Path) -> Option<u64> + Send + Sync>;
+
+/// The encodes' ffmpeg process ids while each runs, in a file beside the settings, on a Mac (and Linux, for the tests).
+/// Windows' Job Object ends them with the app (`os::keep_with_app`); here a crash or a Force Quit would leave one
+/// writing a copy nobody keeps until it ends. The file outlives the crash, and the next start stops any still running
+/// that still runs the sidecar (`load`).
+#[cfg(unix)]
+struct Running {
+    file: Option<PathBuf>,
+    pids: Mutex<Vec<u32>>,
+}
+
+#[cfg(unix)]
+impl Running {
+    /// The list an earlier run left: any of its ffmpegs still running are stopped, and the list starts over.
+    fn load(file: Option<PathBuf>) -> Self {
+        if let Some(text) = file.as_deref().and_then(|f| fs::read_to_string(f).ok()) {
+            let ffmpeg = video::tool("ffmpeg");
+            for pid in text
+                .lines()
+                .filter_map(|line| line.trim().parse::<u32>().ok())
+            {
+                if os::is_running(pid, &ffmpeg) {
+                    os::kill(pid);
+                }
+            }
+        }
+        let running = Self {
+            file,
+            pids: Mutex::new(Vec::new()),
+        };
+        running.write(&[]);
+        running
+    }
+
+    fn write(&self, pids: &[u32]) {
+        if let Some(file) = &self.file {
+            let text: String = pids.iter().map(|pid| format!("{pid}\n")).collect();
+            let _ = write_atomically(file, text.as_bytes());
+        }
+    }
+
+    fn add(&self, pid: u32) {
+        let mut pids = lock(&self.pids);
+        pids.push(pid);
+        self.write(&pids);
+    }
+
+    fn remove(&self, pid: u32) {
+        let mut pids = lock(&self.pids);
+        pids.retain(|&p| p != pid);
+        self.write(&pids);
+    }
+}
+
 pub struct PlaybackCache {
     settings_file: Option<PathBuf>,
     default_root: PathBuf,
@@ -163,6 +238,16 @@ pub struct PlaybackCache {
     encoders: Vec<Vec<&'static str>>,
     /// See `STALL`; shorter in tests.
     stall: Duration,
+    /// See `FreeSpace`.
+    free: FreeSpace,
+    /// See `SPACE_TICK`; shorter in tests.
+    space_tick: Duration,
+    /// Moves copy every file, as across drives; tests only.
+    #[cfg(test)]
+    copy_moves: bool,
+    /// See `Running`.
+    #[cfg(unix)]
+    running: Arc<Running>,
     /// Extra environment for ffmpeg as it encodes; tests only (a shim that makes reads fail or hang as a pulled card or
     /// a dead share does).
     #[cfg(test)]
@@ -419,6 +504,51 @@ fn keep_under(folders: &[PathBuf], keep: &Path, cap: u64) {
     }
 }
 
+/// The copies in `folder` used longest ago that together free `bytes`, never `key`'s own (one made without sound may
+/// be all there is to play); none when all of them together wouldn't, so nothing goes for a copy that can't be made.
+fn to_free(folder: &Path, key: &str, bytes: u64) -> Option<Vec<Stored>> {
+    let mut all: Vec<Stored> = copies(folder)
+        .into_iter()
+        .filter(|copy| {
+            copy.path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(ours)
+                .is_some_and(|found| found.key != key)
+        })
+        .collect();
+    all.sort_by_key(|copy| copy.used);
+    let mut freed = 0u64;
+    let mut plan = Vec::new();
+    for copy in all {
+        if freed >= bytes {
+            break;
+        }
+        freed = freed.saturating_add(copy.bytes);
+        plan.push(copy);
+    }
+    (freed >= bytes).then_some(plan)
+}
+
+/// Removes the copies `to_free` picks to bring the drive back to `wanted` bytes free, and says whether it is: read
+/// again after, since the drive is the judge (a copy still held open by another program frees nothing yet). A drive
+/// whose free space can't be told is taken as having room.
+fn room_for(free: &FreeSpace, folder: &Path, key: &str, wanted: u64) -> bool {
+    let Some(now) = free(folder) else {
+        return true;
+    };
+    if now >= wanted {
+        return true;
+    }
+    let Some(plan) = to_free(folder, key, wanted - now) else {
+        return false;
+    };
+    for copy in plan {
+        let _ = fs::remove_file(&copy.path);
+    }
+    free(folder).is_none_or(|now| now >= wanted)
+}
+
 /// A folder as the file system knows it, so two spellings of one (a link, a different case) count once.
 fn real(folder: &Path) -> PathBuf {
     folder
@@ -492,11 +622,15 @@ fn complete(original: &video::Probe, with_sound: bool, copy: &video::Probe, said
 }
 
 /// Moves one copy into another folder: a rename on the same drive; across drives, a copy written as `.partial`,
-/// flushed to the disk and renamed, before the old one goes. A copy that can't be moved (the new drive full or gone)
-/// stays where it was, and its folder stays on the list the app looks in. Whether it moved.
-fn move_one(from: &Path, to: &Path, force_copy: bool) -> bool {
+/// flushed to the disk and renamed, before the old one goes, if `room` says the drive has room for its bytes. A copy
+/// that can't be moved (no room, the new drive full or gone) stays where it was, and its folder stays on the list the
+/// app looks in. Whether it moved.
+fn move_one(from: &Path, to: &Path, force_copy: bool, room: impl Fn(u64) -> bool) -> bool {
     if !force_copy && fs::rename(from, to).is_ok() {
         return true;
+    }
+    if !fs::metadata(from).is_ok_and(|meta| room(meta.len())) {
+        return false;
     }
     let partial = to.with_extension("mp4.partial");
     let copied = fs::copy(from, &partial)
@@ -549,6 +683,10 @@ pub struct CacheInfo {
     pub bytes: u64,
     pub copies: usize,
     pub cap_gb: u64,
+    /// The free space copies leave on their drive.
+    pub floor_gb: u64,
+    /// What the drive where copies go now has free; none when it can't be told.
+    pub free_bytes: Option<u64>,
     /// The picked drive isn't there (unplugged): copies go to the cache folder until it's back.
     pub fallback: bool,
     /// A copy is being made, or waiting its turn.
@@ -561,6 +699,8 @@ enum Stop {
     Cancelled,
     /// ffmpeg moved no further for `stall`.
     Stalled,
+    /// The drive came down to the floor, and removing older copies couldn't bring it back.
+    NoRoom,
     /// ffmpeg ended with an error.
     Failed(Said),
     /// ffmpeg couldn't start.
@@ -572,6 +712,7 @@ impl Stop {
         match self {
             Self::Cancelled => CANCELLED.into(),
             Self::Stalled => STALLED.into(),
+            Self::NoRoom => NO_ROOM.into(),
             Self::Failed(said) if said.read_failed => SHORT.into(),
             Self::Failed(_) => FAILED.into(),
             Self::Unstarted(message) => message,
@@ -605,6 +746,8 @@ impl PlaybackCache {
         let unsaved = kept.is_none();
         Self {
             unsaved,
+            #[cfg(unix)]
+            running: Arc::new(Running::load(Some(data_dir.join("playback-running.txt")))),
             ..Self::new(kept, cache_dir, settings)
         }
     }
@@ -623,6 +766,15 @@ impl PlaybackCache {
             checked_silent: Mutex::new(HashSet::new()),
             encoders: encoders(),
             stall: STALL,
+            free: Arc::new(os::free_bytes),
+            space_tick: SPACE_TICK,
+            #[cfg(test)]
+            copy_moves: false,
+            #[cfg(unix)]
+            running: Arc::new(Running {
+                file: None,
+                pids: Mutex::new(Vec::new()),
+            }),
             #[cfg(test)]
             encode_env: Vec::new(),
             #[cfg(test)]
@@ -646,6 +798,11 @@ impl PlaybackCache {
 
     fn settings(&self) -> Settings {
         lock(&self.settings).clone()
+    }
+
+    /// The free space copies leave on their drive, in bytes.
+    fn floor(&self) -> u64 {
+        self.settings().floor_gb.saturating_mul(GB)
     }
 
     /// Changes the settings and writes them, all under one lock, so two changes at once never mix in the file or undo
@@ -837,6 +994,18 @@ impl PlaybackCache {
             return Err(CANCELLED.into());
         }
         let total = probe.duration_frames;
+        // Room for it, leaving the floor free, before it starts: the copies used longest ago make it if they can.
+        // A video whose length isn't known is watched as it's made, like every copy.
+        let seconds = total as f64 * f64::from(probe.fps_den) / f64::from(probe.fps_num.max(1));
+        let needs = (seconds.ceil() as u64).saturating_mul(BYTES_A_SECOND);
+        if !room_for(
+            &self.free,
+            &folder,
+            &key,
+            self.floor().saturating_add(needs),
+        ) {
+            return keep_earlier(NO_ROOM.into());
+        }
         let mut on_frame = |frame: f64| {
             if total > 0 {
                 on_progress((frame / total as f64).min(1.0));
@@ -859,6 +1028,7 @@ impl PlaybackCache {
                 partial = folder.join(format!("{key}-{}-{attempt}.mp4.partial", asked.id));
                 let run = Run {
                     path,
+                    key: &key,
                     partial: &partial,
                     rate: (probe.fps_num, probe.fps_den),
                     offset: facts.stream_start - facts.file_start,
@@ -868,8 +1038,8 @@ impl PlaybackCache {
                 };
                 outcome = self.encode(&run, asked, &mut on_frame);
                 match &outcome {
-                    // Done, stopped, or the drive gone: no other encoder would do better.
-                    Ok(_) | Err(Stop::Cancelled) => break 'encoders,
+                    // Done, stopped, out of room, or the drive gone: no other encoder would do better.
+                    Ok(_) | Err(Stop::Cancelled | Stop::NoRoom) => break 'encoders,
                     Err(Stop::Failed(said)) if said.read_failed => break 'encoders,
                     // Stalled: another encoder is worth a try (a hardware one hung in its driver), but only if one
                     // follows and the original still answers.
@@ -1004,15 +1174,39 @@ impl PlaybackCache {
         if asked.stopped() {
             return Err(Stop::Cancelled);
         }
-        let mut child = command.spawn().map_err(|_| {
+        let mut child = self.start(&mut command).map_err(|_| {
             Stop::Unstarted(
                 "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
                     .into(),
             )
         })?;
+        #[cfg(unix)]
+        let pid = child.id();
         let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
         let child = Arc::new(Mutex::new(child));
         asked.running(&child);
+        // The drive's free space, read on a thread of its own every few seconds while the copy is made: come down to
+        // the floor, the copies used longest ago make room if they can; if not, the copy stops. It ends when the
+        // encode does (its channel closes).
+        let low = Arc::new(AtomicBool::new(false));
+        let (_watching, watched) = mpsc::channel::<()>();
+        if let Some(folder) = run.partial.parent() {
+            let (free, folder, key) = (
+                Arc::clone(&self.free),
+                folder.to_path_buf(),
+                run.key.to_owned(),
+            );
+            let (floor, tick, low) = (self.floor(), self.space_tick, Arc::clone(&low));
+            std::thread::spawn(move || loop {
+                if !room_for(&free, &folder, &key, floor) {
+                    low.store(true, Ordering::SeqCst);
+                    return;
+                }
+                if !matches!(watched.recv_timeout(tick), Err(RecvTimeoutError::Timeout)) {
+                    return;
+                }
+            });
+        }
         // ffmpeg's two outputs are read on threads of their own, so neither pipe fills and holds it up, and a read
         // that never returns (ffmpeg stuck on a dead share) never holds up this one. Word that it's working is a
         // progress count that went up; its error output is only listened to.
@@ -1054,14 +1248,19 @@ impl PlaybackCache {
         let give_up = |child: &Arc<Mutex<Child>>| {
             let _ = lock(child).kill();
             let child = Arc::clone(child);
+            #[cfg(unix)]
+            let running = Arc::clone(&self.running);
             std::thread::spawn(move || {
                 while matches!(lock(&child).try_wait(), Ok(None)) {
                     std::thread::sleep(Duration::from_secs(1));
                 }
+                #[cfg(unix)]
+                running.remove(pid);
             });
         };
         let mut stopped_at: Option<Instant> = None;
         let mut stalled = false;
+        let mut no_room = false;
         let mut last_tick = Instant::now();
         let status: Option<ExitStatus> = loop {
             match frames.recv_timeout(TICK) {
@@ -1090,8 +1289,10 @@ impl PlaybackCache {
                         .elapsed()
                         .saturating_sub(Duration::from_millis(heard.load(Ordering::SeqCst)));
                     let cancel = asked.stopped();
-                    if cancel || quiet > self.stall {
-                        stalled = !cancel;
+                    let low = low.load(Ordering::SeqCst);
+                    if cancel || low || quiet > self.stall {
+                        no_room = !cancel && low;
+                        stalled = !cancel && !low;
                         let _ = lock(&child).kill();
                         stopped_at = Some(Instant::now());
                     }
@@ -1106,6 +1307,8 @@ impl PlaybackCache {
         // Once ffmpeg has ended its outputs are closed, so the readers end too; one given up on keeps its readers.
         let said = match status {
             Some(_) => {
+                #[cfg(unix)]
+                self.running.remove(pid);
                 if let Some(progress) = progress {
                     let _ = progress.join();
                 }
@@ -1122,6 +1325,9 @@ impl PlaybackCache {
         if asked.stopped() {
             return Err(Stop::Cancelled);
         }
+        if no_room {
+            return Err(Stop::NoRoom);
+        }
         if stalled {
             return Err(Stop::Stalled);
         }
@@ -1129,6 +1335,16 @@ impl PlaybackCache {
             Some(status) if status.success() => Ok(said),
             _ => Err(Stop::Failed(said)),
         }
+    }
+
+    /// Starts an encode's ffmpeg so that it ends with the app, however the app ends: on Windows in the app's Job Object;
+    /// on a Mac with its process id kept (`Running`) until the encode is done with it.
+    fn start(&self, command: &mut Command) -> std::io::Result<Child> {
+        let child = command.spawn()?;
+        os::keep_with_app(&child);
+        #[cfg(unix)]
+        self.running.add(child.id());
+        Ok(child)
     }
 
     /// Stops every copy of this video asked for, wherever each is: being checked, waiting its turn, reading the
@@ -1181,6 +1397,8 @@ impl PlaybackCache {
             bytes: all.iter().map(|c| c.bytes).sum(),
             copies: all.len(),
             cap_gb: self.settings().cap_gb,
+            floor_gb: self.settings().floor_gb,
+            free_bytes: (self.free)(&folder),
             fallback,
             busy: !lock(&self.jobs).is_empty(),
         })
@@ -1210,11 +1428,20 @@ impl PlaybackCache {
         Ok(())
     }
 
+    /// Sets the free space copies leave on their drive. The copies already made stay; the next one keeps to it.
+    pub fn set_floor(&self, gb: u64) -> Result<(), String> {
+        if !(1..=1_000).contains(&gb) {
+            return Err(FLOOR_RANGE.into());
+        }
+        self.update(|settings| settings.floor_gb = gb)
+    }
+
     /// Moves the copies into `root` (or back to the cache folder with None). Not while one is being made. The new
     /// folder is tested for writing first. Then the setting is saved, with the old folders kept on the list of
     /// leftovers, so a crash partway leaves copies only where the app still looks; then each copy is moved, and an old
     /// folder comes off the list once nothing of ours is left in it. One that can't be read now (unplugged), or that
-    /// still holds copies that couldn't go, stays on the list for the next Move. Returns how many moved.
+    /// still holds copies that couldn't go, stays on the list for the next Move. Returns how many moved. A copy that
+    /// would take the new drive below the floor stays where it is (and still plays), and the Move then says so.
     pub fn move_to(&self, root: Option<&Path>) -> Result<usize, String> {
         if self.unsaved {
             return Err(UNSAVED.into());
@@ -1271,6 +1498,20 @@ impl PlaybackCache {
         })?;
         let mut moved = 0;
         let mut left = Vec::new();
+        // A copy across drives goes only if the new one keeps the floor free after it.
+        let floor = self.floor();
+        let short = Cell::new(false);
+        let room = |bytes: u64| {
+            let fits = (self.free)(&new).is_none_or(|free| free >= floor.saturating_add(bytes));
+            if !fits {
+                short.set(true);
+            }
+            fits
+        };
+        #[cfg(test)]
+        let force_copy = self.copy_moves;
+        #[cfg(not(test))]
+        let force_copy = false;
         for old in &olds {
             if !old.is_dir() {
                 // A drive that isn't there now (its mount folder may be): its copies move once it's back. Remembering a
@@ -1289,7 +1530,7 @@ impl PlaybackCache {
                 let moved_one = copy
                     .path
                     .file_name()
-                    .is_some_and(|file| move_one(&copy.path, &new.join(file), false));
+                    .is_some_and(|file| move_one(&copy.path, &new.join(file), force_copy, room));
                 if moved_one {
                     moved += 1;
                 } else {
@@ -1313,6 +1554,9 @@ impl PlaybackCache {
         }
         // The moves are done; a list that can't be saved only means looking in folders that hold nothing.
         let _ = self.update(|settings| settings.leftovers = away(&left));
+        if short.get() {
+            return Err(NO_ROOM_TO_MOVE.into());
+        }
         Ok(moved)
     }
 }
@@ -1333,6 +1577,8 @@ fn for_each_line(pipe: impl std::io::Read, mut each: impl FnMut(&str)) {
 /// One encode: what to read, where to write, and how.
 struct Run<'a> {
     path: &'a Path,
+    /// The original's key: its copies are never removed to make room for this one.
+    key: &'a str,
     partial: &'a Path,
     rate: (u32, u32),
     offset: f64,
@@ -1406,6 +1652,14 @@ pub async fn playback_clear(app: AppHandle) -> Result<usize, String> {
 #[tauri::command]
 pub async fn playback_set_cap(app: AppHandle, gb: u64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().set_cap(gb))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Sets the free space playback copies leave on their drive, in GB.
+#[tauri::command]
+pub async fn playback_set_floor(app: AppHandle, gb: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().set_floor(gb))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -2120,6 +2374,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         let probe = video::probe(&clip).unwrap();
         let run = Run {
             path: &clip,
+            key: "",
             partial: &partial,
             rate: (probe.fps_num, probe.fps_den),
             offset: 0.0,
@@ -2444,8 +2699,9 @@ ssize_t read(int fd, void *buf, size_t count) {
     fn pretend(folder: &Path, seed: u8, bytes: usize, ago: u64) -> PathBuf {
         fs::create_dir_all(folder).unwrap();
         let path = folder.join(format!("{:032x}.mp4", u128::from(seed)));
-        fs::write(&path, vec![0u8; bytes]).unwrap();
-        let file = fs::File::options().write(true).open(&path).unwrap();
+        // Its length only: the file system needn't hold the bytes.
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(bytes as u64).unwrap();
         file.set_modified(SystemTime::now() - Duration::from_secs(ago))
             .unwrap();
         path
@@ -2580,13 +2836,18 @@ ssize_t read(int fd, void *buf, size_t count) {
         let copy = pretend(&from, 1, 300, 0);
         fs::create_dir_all(&to).unwrap();
         let target = to.join(copy.file_name().unwrap());
-        assert!(move_one(&copy, &target, true));
+        assert!(move_one(&copy, &target, true, |_| true));
         assert!(target.is_file() && !copy.exists());
         assert_eq!(fs::read(&target).unwrap().len(), 300);
         assert_eq!(fs::read_dir(&to).unwrap().count(), 1, "no partial left");
         // A copy that can't be moved (the target folder gone, the drive full) stays where it was.
         let stuck = pretend(&from, 2, 10, 0);
-        assert!(!move_one(&stuck, &dir.join("gone").join("x.mp4"), true));
+        assert!(!move_one(
+            &stuck,
+            &dir.join("gone").join("x.mp4"),
+            true,
+            |_| true
+        ));
         assert!(stuck.exists());
         assert!(!dir.join("gone").exists());
 
@@ -2636,6 +2897,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             Settings {
                 root: None,
                 cap_gb: 30,
+                floor_gb: DEFAULT_FLOOR_GB,
                 leftovers: Vec::new(),
             }
         );
@@ -2913,5 +3175,320 @@ ssize_t read(int fd, void *buf, size_t count) {
             (probe.width, probe.height, probe.duration_frames),
             (226, 226, 2)
         );
+    }
+
+    /// A drive that holds `folder` and `budget` bytes in all: what it has free is the budget less what's in the folder,
+    /// so a copy made, removed or growing counts as it would. Any other folder's free space can't be told.
+    fn drive(folder: &Path, budget: &Arc<AtomicU64>) -> FreeSpace {
+        let (folder, budget) = (folder.to_path_buf(), Arc::clone(budget));
+        Arc::new(move |asked: &Path| {
+            (real(asked) == real(&folder)).then(|| {
+                budget
+                    .load(Ordering::SeqCst)
+                    .saturating_sub(bytes_in(&folder))
+            })
+        })
+    }
+
+    fn bytes_in(folder: &Path) -> u64 {
+        fs::read_dir(folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| entry.metadata().ok())
+            .map(|meta| meta.len())
+            .sum()
+    }
+
+    #[test]
+    fn picks_the_copies_used_longest_ago_to_make_room_never_the_videos_own() {
+        let dir = temp_dir("to-free");
+        let folder = dir.join(FOLDER_NAME);
+        let key = format!("{:032x}", 7u128);
+        let oldest = pretend(&folder, 1, 100, 400);
+        let older = pretend(&folder, 2, 100, 300);
+        let newest = pretend(&folder, 3, 100, 100);
+        // The video's own copy without sound, used longest ago of all, and a half copy: never picked.
+        let own = folder.join(file_name(&key, true));
+        fs::write(&own, vec![0u8; 500]).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&own)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(900))
+            .unwrap();
+        fs::write(folder.join(format!("{key}-0-1.mp4.partial")), b"half").unwrap();
+        let paths = |plan: Vec<Stored>| plan.into_iter().map(|c| c.path).collect::<Vec<_>>();
+        assert_eq!(
+            paths(to_free(&folder, &key, 150).unwrap()),
+            [oldest.clone(), older]
+        );
+        assert_eq!(paths(to_free(&folder, &key, 1).unwrap()), [oldest]);
+        assert_eq!(
+            paths(to_free(&folder, &key, 0).unwrap()),
+            Vec::<PathBuf>::new()
+        );
+        // More than all of them together: none.
+        assert!(to_free(&folder, &key, 301).is_none());
+        assert!(newest.exists() && own.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn makes_room_above_the_floor_from_the_copies_used_longest_ago_or_refuses_and_removes_none() {
+        let dir = temp_dir("floor");
+        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        cache.set_floor(1).unwrap();
+        let (folder, _) = cache.folder().unwrap();
+        let oldest = pretend(&folder, 1, 2_000_000, 300);
+        let older = pretend(&folder, 2, 2_000_000, 200);
+        let newest = pretend(&folder, 3, 2_000_000, 100);
+        // Two seconds of video: about 3.2 MB to make, with 1 GB left free.
+        let needs = 2 * BYTES_A_SECOND;
+        // 3 MB short: the two copies used longest ago make the room, and nothing else goes.
+        let budget = Arc::new(AtomicU64::new(GB + needs + 3_000_000));
+        cache.free = drive(&folder, &budget);
+        let made = cache.make(&pcm_clip(&dir, "C0070.mov"), |_| {}).unwrap();
+        assert!(
+            !oldest.exists() && !older.exists(),
+            "used longest ago, gone"
+        );
+        assert!(newest.exists() && made.path.is_file());
+        // Short by more than every other copy here together: none goes, and the copy isn't made.
+        budget.store(GB + needs - 1, Ordering::SeqCst);
+        let other = pcm_clip(&dir, "C0071.mov");
+        assert_eq!(cache.make(&other, |_| {}).unwrap_err(), NO_ROOM);
+        assert!(
+            newest.exists() && made.path.is_file(),
+            "nothing removed for it"
+        );
+        assert_eq!(names(&folder).len(), 2, "nothing half-made");
+        // A drive whose free space can't be told: made as before.
+        cache.free = Arc::new(|_| None);
+        assert!(cache.make(&other, |_| {}).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_that_brings_its_drive_down_to_the_floor_makes_room_or_stops() {
+        let dir = temp_dir("floor-watch");
+        let clip = long_clip(&dir);
+        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        cache.set_floor(1).unwrap();
+        cache.space_tick = Duration::from_millis(50);
+        let (folder, _) = cache.folder().unwrap();
+        let budget = Arc::new(AtomicU64::new(10 * GB));
+        cache.free = drive(&folder, &budget);
+        // Another program fills the drive once the copy has started, to 10 MB under the floor; no copy here to make room.
+        let fill = |budget: &Arc<AtomicU64>, folder: &Path| {
+            let (budget, folder) = (Arc::clone(budget), folder.to_path_buf());
+            let mut filled = false;
+            move |done: f64| {
+                if done > 0.0 && !filled {
+                    filled = true;
+                    budget.store(GB + bytes_in(&folder) - 10_000_000, Ordering::SeqCst);
+                }
+            }
+        };
+        assert_eq!(
+            cache.make(&clip, fill(&budget, &folder)).unwrap_err(),
+            NO_ROOM
+        );
+        assert!(names(&folder).is_empty(), "nothing half-made");
+        // With an older copy there big enough to make the room, that one goes and the copy is made.
+        let big = pretend(&folder, 1, 400_000_000, 100);
+        budget.store(20 * GB, Ordering::SeqCst);
+        let made = cache.make(&clip, fill(&budget, &folder)).unwrap();
+        assert!(!big.exists() && made.path.is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_move_leaves_a_copy_that_would_take_the_new_drive_below_the_floor_where_it_was() {
+        let dir = temp_dir("floor-move");
+        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        cache.copy_moves = true;
+        cache.set_floor(1).unwrap();
+        let (home, _) = cache.folder().unwrap();
+        pretend(&home, 1, 3_000_000, 200);
+        pretend(&home, 2, 3_000_000, 100);
+        let root = dir.join("drive");
+        let new = root.join(FOLDER_NAME);
+        // Room for one of the two above the floor.
+        let budget = Arc::new(AtomicU64::new(GB + 4_000_000));
+        cache.free = drive(&new, &budget);
+        assert_eq!(cache.move_to(Some(&root)).unwrap_err(), NO_ROOM_TO_MOVE);
+        assert_eq!(names(&new).len(), 1, "one moved");
+        assert_eq!(names(&home).len(), 1, "one stayed, whole");
+        // Both still found, counted and played.
+        assert_eq!(cache.info().unwrap().copies, 2);
+        assert_eq!(cache.settings().root.as_deref(), Some(root.as_path()));
+        // Room for it now: the next Move takes it.
+        budget.store(10 * GB, Ordering::SeqCst);
+        assert_eq!(cache.move_to(Some(&root)), Ok(1));
+        assert!(copies(&home).is_empty() && names(&new).len() == 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_floor_is_kept_with_the_settings_and_shown_with_the_drives_free_space() {
+        let dir = temp_dir("floor-settings");
+        let (data, cache_dir) = (dir.join("data"), dir.join("cache"));
+        let mut cache = PlaybackCache::load(&data, &cache_dir);
+        assert_eq!(cache.info().unwrap().floor_gb, DEFAULT_FLOOR_GB);
+        cache.set_floor(25).unwrap();
+        assert_eq!(cache.set_floor(0).unwrap_err(), FLOOR_RANGE);
+        assert_eq!(cache.set_floor(1_001).unwrap_err(), FLOOR_RANGE);
+        assert_eq!(
+            PlaybackCache::load(&data, &cache_dir)
+                .info()
+                .unwrap()
+                .floor_gb,
+            25
+        );
+        cache.free = Arc::new(|_| Some(123_456));
+        assert_eq!(cache.info().unwrap().free_bytes, Some(123_456));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Run as a process of its own by the test below: starts ffmpeg as an encode does, says its process id, and waits
+    /// to be killed.
+    #[test]
+    fn killed_child() {
+        let Ok(data) = std::env::var("SBD_KILLED_CHILD") else {
+            return;
+        };
+        let data = PathBuf::from(data);
+        let cache = PlaybackCache::load(&data, &data.join("cache"));
+        let mut command = video::command("ffmpeg");
+        command
+            .args(["-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi"])
+            .args(["-i", "testsrc2=duration=600", "-f", "null", "-"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = cache.start(&mut command).unwrap();
+        let mut out = std::io::stdout();
+        std::io::Write::write_all(&mut out, format!("ffmpeg={}\n", child.id()).as_bytes()).unwrap();
+        std::io::Write::flush(&mut out).unwrap();
+        // Ten minutes of ffmpeg's: the test kills this process long before.
+        let _ = child.wait();
+    }
+
+    /// Whether process `pid` has ended, waiting up to ten seconds for it.
+    fn ends(pid: u32) -> bool {
+        let started = Instant::now();
+        loop {
+            #[cfg(unix)]
+            let ended = !os::is_running(pid, &video::tool("ffmpeg"));
+            #[cfg(windows)]
+            let ended = {
+                use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+                use windows_sys::Win32::System::Threading::{
+                    OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+                };
+                // SAFETY: a handle opened here and closed here.
+                unsafe {
+                    let process = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+                    process.is_null() || {
+                        let done = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
+                        CloseHandle(process);
+                        done
+                    }
+                }
+            };
+            if ended {
+                return true;
+            }
+            if started.elapsed() > Duration::from_secs(10) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn an_encodes_ffmpeg_ends_with_the_app_even_when_the_app_is_killed() {
+        let dir = temp_dir("killed");
+        let data = dir.join("data");
+        // Each encode's ffmpeg comes off the list when it's done.
+        let cache = PlaybackCache::load(&data, &dir.join("cache"));
+        cache.make(&pcm_clip(&dir, "C0072.mov"), |_| {}).unwrap();
+        #[cfg(unix)]
+        assert_eq!(
+            fs::read_to_string(data.join("playback-running.txt")).unwrap(),
+            ""
+        );
+        drop(cache);
+        let mut app = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "playback::tests::killed_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("SBD_KILLED_CHILD", &data)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        // Its line comes after the test harness's own words on the same line; read on a thread of its own, so a child
+        // that never says it can't hold the test up.
+        let stdout = app.stdout.take().unwrap();
+        let (said, heard) = mpsc::channel();
+        std::thread::spawn(move || {
+            let pid = BufReader::new(stdout)
+                .lines()
+                .map_while(Result::ok)
+                .find_map(|line| line.rsplit_once("ffmpeg=")?.1.trim().parse::<u32>().ok());
+            let _ = said.send(pid);
+        });
+        let pid = heard.recv_timeout(Duration::from_secs(60)).ok().flatten();
+        let Some(pid) = pid else {
+            let _ = app.kill();
+            panic!("the app never said it started ffmpeg");
+        };
+        // Killed as Task Manager or Force Quit does: nothing of the app's own runs.
+        app.kill().unwrap();
+        app.wait().unwrap();
+        // Windows: the Job Object ends it with the app.
+        #[cfg(windows)]
+        assert!(ends(pid), "ended with the app");
+        // A Mac: it goes on alone until the app starts again, which stops it.
+        #[cfg(unix)]
+        {
+            let ffmpeg = video::tool("ffmpeg");
+            assert!(os::is_running(pid, &ffmpeg), "left running by the kill");
+            let _cache = PlaybackCache::load(&data, &dir.join("cache"));
+            let stopped = ends(pid);
+            if !stopped {
+                os::kill(pid);
+            }
+            assert!(stopped, "stopped at the next start");
+            assert_eq!(
+                fs::read_to_string(data.join("playback-running.txt")).unwrap(),
+                ""
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_next_start_stops_only_a_process_that_still_runs_the_sidecar() {
+        let dir = temp_dir("not-ours");
+        let data = dir.join("data");
+        fs::create_dir_all(&data).unwrap();
+        // A process id kept from a run before, now another program's.
+        let mut other = Command::new("sleep").arg("30").spawn().unwrap();
+        fs::write(
+            data.join("playback-running.txt"),
+            format!("{}\nnot a number\n", other.id()),
+        )
+        .unwrap();
+        let _cache = PlaybackCache::load(&data, &dir.join("cache"));
+        assert!(matches!(other.try_wait(), Ok(None)), "left alone");
+        other.kill().unwrap();
+        other.wait().unwrap();
+        let _ = fs::remove_dir_all(&dir);
     }
 }

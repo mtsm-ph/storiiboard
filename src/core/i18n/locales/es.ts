@@ -990,6 +990,9 @@ export const es: Messages = {
   'error.copySettings': 'No se pudo guardar la configuración de las copias de reproducción.',
   'error.copyOfCopy': 'Ese archivo es una de las copias de reproducción de Storiiboard. Vincula el video original.',
   'error.copyUnwritable': 'No se pueden guardar copias de reproducción en esa carpeta.',
+  'error.copyNoRoom': 'No hay suficiente espacio libre en esa unidad para la copia de reproducción. Storiiboard siempre deja algo libre ahí (Configuración, Almacenamiento): libera espacio o mueve las copias a otra unidad.',
+  'error.copyNoRoomToMove': 'No todas las copias de reproducción cupieron en esa unidad con el espacio libre que Storiiboard deja ahí. Las demás se quedaron donde estaban y se siguen reproduciendo.',
+  'error.copyFloor': 'El espacio libre que se deja para las copias de reproducción va de 1 a 1.000 GB.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',
   // src/app/shell/sidebar/Sidebar.tsx

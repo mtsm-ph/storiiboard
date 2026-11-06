@@ -988,6 +988,9 @@ export const en = {
   'error.copySettings': 'The settings for playback copies couldn\'t be saved.',
   'error.copyOfCopy': 'That file is one of Storiiboard\'s playback copies. Link the original video instead.',
   'error.copyUnwritable': 'Playback copies can\'t be written in that folder.',
+  'error.copyNoRoom': 'There isn\'t enough free space on that drive for the playback copy. Storiiboard always leaves some free there (Settings, Storage): free some space, or move the copies to another drive.',
+  'error.copyNoRoomToMove': 'Not every playback copy fit on that drive with the free space Storiiboard leaves there. The rest stayed where they were, and still play.',
+  'error.copyFloor': 'The free space to leave for playback copies is between 1 and 1,000 GB.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx
