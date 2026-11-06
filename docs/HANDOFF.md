@@ -1,7 +1,7 @@
 # Handoff
 
 Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a and D1 merged. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+2.3a, D1 and D2. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -29,6 +29,12 @@ It replaces nothing in either; it says where the work stands and what comes next
   reviews ran on the `Plan` agent type (no Edit or Write tools) with `reviewer.md`'s instructions given word for word
   and "Read, Grep and Glob only, no shell". Start sessions on `v2` to get the agent itself. Write the diff
   (`git diff origin/v2...HEAD`) to a file it can read and point it there.
+- **Windows and Mac code without a Windows or a Mac (D2):** `rustup target add x86_64-pc-windows-gnu`,
+  `apt-get install -y gcc-mingw-w64-x86-64`, then `TAURI_CONFIG='{"bundle":{"externalBin":[]}}' cargo clippy --target
+  x86_64-pc-windows-gnu --all-targets -- -D warnings` in `src-tauri` type-checks and lints the whole app and its tests
+  for Windows (the override only skips Tauri's check for the Windows sidecars). For the Mac, `rustup target add
+  aarch64-apple-darwin` and a scratch crate that includes a module by `#[path]` with `libc` checks code that uses only
+  `libc` (the app as a whole needs a Mac's C toolchain). Neither runs anything: the checkpoint still does.
 
 ## Merged (Phase 2, into `v2`)
 
@@ -39,6 +45,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #73 | 2.2b: link a video to a frame by drop or browse; the inspector's Video section; the missing flag and Relink |
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
+| #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -57,15 +64,15 @@ even when stuck, so only a count that goes up now counts), and `-profile:v high`
 takes the number, 100), which the checkpoint caught. Round 5 left nothing high or medium. The last checkpoint
 (`checkpoint/playback-2.3a-r6`) ran the copies on the Mac's VideoToolbox and Windows' software encoder.
 
-For Kevin, at review stop A (2.4) or sooner, on his own computers:
-- Windows with a GPU: a copy made by the **hardware** Media Foundation encoder (NV12, High profile). CI has no GPU, so
-  that path has never run; if it fails, the software encoder makes the copy anyway, more slowly.
-- A Mac: a long take on an external drive; pull the drive midway (the copy should fail and leave nothing).
+For Kevin, on his own computers, first in 2.3b's checklist and in this order (Kevin, Nov 6):
+1. Windows with a GPU: a copy of a real FX3 clip made by the **hardware** Media Foundation encoder (NV12, High
+   profile). CI has no GPU, so that path has never run; if it fails, the software encoder makes the copy anyway, more
+   slowly.
+2. A Mac: a long take on an external drive; unplug the drive halfway through the copy (the copy should fail and leave
+   nothing).
 
 Lows deferred from the 2.3a reviews (noted, not planned yet):
-- On a Mac or Linux, a crash or Force Quit leaves ffmpeg running to the end of its copy (writing into a deleted partial).
-  D2's Job Object covers Windows only; for the Mac, record each ffmpeg's PID and have the start-up clean-up stop any
-  still running (check it's still the sidecar first), with D2.
+- (Done in D2: a crash or Force Quit no longer leaves an encode's ffmpeg running; see "D2 as built".)
 - A root shared by two computers (a NAS folder picked on both): each one's start-up clean-up and Move delete the other's
   half copies, and request ids start at 0 in every run, so partial names can collide. Fix: a per-machine token in partial
   names (`lock::Machine`'s id), and delete only this machine's partials, or others' only when old.
@@ -74,7 +81,8 @@ Lows deferred from the 2.3a reviews (noted, not planned yet):
 - The "can't be set aside" branch of the settings load has no test (it needs a folder the test can't write; root ignores
   permissions, so skip when root).
 - Audio stored as separate mono tracks keeps only the first (Canon and Sony MXF, recorders' MOVs): the copy has only
-  CH1. Mix the mono tracks (`amerge`) or pick the first one that decodes: a product call for Kevin.
+  CH1. Decided by Kevin (Nov 6), done in 2.3b: mix them all into one stereo track, with the gain kept low enough that
+  it never clips; a single stereo track stays as it is.
 
 Deferred from round 1 (still open): progress and Cancel for a long Move; key stability across path spellings; playing a
 copy while the original's drive is unplugged (the record could keep size and time, for 2.4); the Player's open copy
@@ -110,38 +118,111 @@ Lows deferred from the D1 reviews:
 - Windows' `ffmpeg-SOURCE.txt` names the MSYS2 packages by who owns the linked libraries (paths through `cygpath`), with
   the old name match as a fallback; check its text in the next checkpoint's artifact.
 
+### D2: how it went, and what's left
+
+Review round 1 (four lenses, refute-first) found two mediums, both fixed: room was made by removing a whole batch of
+copies before checking the drive gave the space back (now one at a time, stopping when one's space doesn't come back,
+as with a Time Machine snapshot), and the older copy tests read the runner's real disk against the 10 GB floor (tests
+now start with a drive that can't tell). Its lows were fixed too: a refusal for room no longer marks an earlier copy's
+sound unreadable; a Move to a drive below the floor is refused with nothing changed; a Mac's leftover ffmpeg is known
+by its id and start time, so a moved app or a development build still finds it; the kill test holds the killed app's
+ffmpeg by a handle on Windows. Before the PR, the whole app was linted for Windows here (MinGW, above).
+
+Round 2 found one medium, fixed: room-making kept no memory, so on a drive that keeps a removed copy's space each new
+request removed one more copy; now that drive is remembered with what it had free, and nothing more goes there for
+room until it reads more free. Lows fixed with it: the drive is read for up to a second after a removal (a NAS reports
+freed space late), and just before each, without charging the copy being made for what it wrote meanwhile; a copy that
+can't be removed is passed over only while the rest can still make the room; the watcher removes copies only if they
+could also cover what's still to be written; a Move where nothing could cross is put back, with the folder it made;
+Windows reads free space through the system's own spelling of the path (past 260 characters); and a copy that ends
+between two readings is checked against the floor once more before it's kept.
+
+Round 3 found one medium in the same place: the remembered drive was forgotten as soon as its reading rose at all, and
+a refused copy's own partial, once deleted, makes it rise. Rather than patch each edge, room-making was made simpler:
+the watcher during a copy only reads (down to the floor, the copy stops); room is made only on the make's own thread,
+before its copy and once more when the copy is whole, so two never make room at once; a remembered drive is
+forgotten only once its reading shows the space came back (by half the removed copy, plus what the refusal itself gave
+back), or after half an hour, or when the floor or the folder changes. A Move put back for want of room keeps the new
+folder on the list if a copy crossed there but its original couldn't go. The tests got a pretend drive that answers
+by thread, so the watch and the final check are each tested alone (both checked by breaking each in turn).
+
+Round 4 found a high in a test (it took 30 minutes from `Instant::now()`, which panics on a Windows machine up for
+less than that: the clock starts at boot) and a medium: with the watch only reading, a copy bigger than its estimate,
+or one of unknown length, was stopped at the floor every time though older copies could make the room. Fixed: a
+remembered drive keeps the time it's forgotten (a deadline, only ever added to); a copy stopped at the floor is
+measured by what it wrote (bytes per frame times its frames, or twice what it wrote when its length isn't known) and
+made once more if older copies can make that room. With them: a new floor no longer forgets a remembered drive (a Move
+that took effect does); a refused Move keeps the new folder on the list only if it wrote a copy there.
+
+The first checkpoint (`checkpoint/d2-windows-sys` at f4529cb) passed on Windows (the Job Object and kill tests, both
+installers) but the Mac's Rust tests failed: from one moment on, every copy test there stalled (ffmpeg made no
+progress for 90 s, and even a killed one didn't end for 10 s), which points at the runner (its encoder service or its
+disk) rather than at one test. The only heavy new work then was the floor-watch test's two 1080p encodes, one stopped
+the moment it started; it now uses a light clip. The checkpoint also prints the runner's free space before the Rust
+tests and what's left running after a failure (the test step has a 40-minute limit of its own, so a hang still gets
+that printout). The second and third checkpoints (9ede3c3, d29925c) passed on Windows again; both Mac installer jobs
+waited 15 minutes for a `macos-latest` runner and were cancelled before they started, while the smoke job on `macos-26`
+started at once, so the installers now run on `macos-26` too (decided by default, review). The fourth checkpoint
+(13d923b, `checkpoint/d2-windows-sys`) passed everywhere: the Mac's Rust tests ran in a few minutes with no stall (the
+first run's stall didn't come back once the floor test stopped making 1080p encodes), and Windows ran the Job Object
+and kill tests again.
+
+Round 5 left nothing high or medium; its lows are below.
+
+Lows deferred from D2 (noted, not planned yet):
+- Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
+  (the cache folder standing in while a picked drive is away, a Move's leftovers) aren't removed for it.
+- On a Mac, `statvfs` doesn't count the space macOS can purge on its own, so the app may make room (or refuse) when
+  Finder shows more free; and APFS local snapshots can keep a removed copy's space for a while.
+- On a Mac, a crash still leaves a probe's or a still's ffmpeg running until it finishes (it ends when it next writes to
+  the closed pipe), or for good if it's stuck reading a share that stopped answering: their timeouts are the app's,
+  and only the encodes' process ids are kept.
+- If `playback-running.txt` can't be written (the data folder's drive full or read-only), the encode runs unrecorded,
+  and a crash then leaves it running.
+- A video whose earlier copy has no sound, refused for room, gets that copy back as if its sound were unreadable, and
+  each later request for it waits its turn and tries again. 2.3b could say "no room" instead (a flag on `MadeCopy`).
+- Raising the floor removes nothing at once; the next copy keeps to it.
+- The retry after the floor (round 4) can't tell a copy that outgrew its estimate from another program still filling
+  the drive: it may remove older copies and then be stopped again. Fix: read the drive before the first attempt, and
+  retry only if the copy itself brought it down (or cap what the retry may remove at the estimate's excess).
+- For a video of unknown length the retry asks for twice what was written, which measures the drive's spare room, not
+  the copy; better not to retry on such an estimate (or find the length first). The estimate can also fall below what
+  was written when the header's frame count was short.
+- A copy whose ffmpeg ended on its own just as the watch saw the floor is thrown away and made again, where the final
+  check could have judged it.
+- A Cancel during the retry's room-making doesn't stop the removals already under way.
+- A refused Move's "crossed" check looks for a file at the destination, not one this Move wrote.
+- Tests: the floor-retry test doesn't count attempts, and no test pins a refusal after measuring; Held's survival across
+  a refused Move and a new floor is untested.
+- A copy held by another program is found only when its turn to go comes, so older copies may already have gone when
+  the rest can't make the room (renaming the candidates aside first would find it before anything goes).
+- A NAS that shows freed space more than a second late gets that drive remembered after one removal; it's forgotten
+  once the reading shows the space, so the next copy goes ahead, but the one asking then is refused.
+
 ## Next steps, in order
 
-1. **D2: windows-sys** (approved by Kevin, Nov 5): add `windows-sys` as a direct dependency, pinned to **0.61.2**, the
-   version Tauri's own tree already uses (Windows only).
-   - A free-space floor: playback copies never leave less than **10 GB** free on their drive; adjustable in
-     Settings → Storage (2.3b shows it). Check before each copy (estimate: about 1.5 MB a second at 12 Mb/s) and evict
-     to keep it; refuse with a clear message when it can't be met; watch it during the copy on a thread of its own (a
-     dead share must never hold up the encode's watch loop). On a Mac, `libc`'s `statvfs` (already a direct
-     dependency there). On Linux (tests only, `libc` isn't a direct dependency there) make the free-space reading a
-     field the tests can set, and let the Mac and Windows CI runs check the real calls.
-   - On Windows, a Job Object with kill-on-close, so ffmpeg stops even when the app crashes (today copies stop when the
-     app quits normally). Assign every sidecar (`video::run_heard` and the encode) right after it starts.
-   - The Mac crash item above, if it fits.
-2. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
+1. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
    Rust, since each waiting `make` holds a blocking thread), the copy's state in the inspector (soundless copies say so:
    `MadeCopy.silent`), Settings → Storage (copies, size, cap, the free-space floor, Move, Clear, remembered videos and
    Forget), and ffmpeg's licence (with zimg's and dav1d's). The commands: `playback_make` (progress on a channel;
    returns `{ path, silent }`), `playback_find`, `playback_cancel`, `playback_info`, `playback_clear`,
-   `playback_set_cap`, `playback_move`, `playback_move_back`, `known_videos_count`, `known_videos_forget`.
-3. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+   `playback_set_cap`, `playback_set_floor` (D2), `playback_move`, `playback_move_back`, `known_videos_count`,
+   `known_videos_forget`. `playback_info` also gives `floorGb` and `freeBytes` (null when the drive can't tell); a
+   Move short of room fails with its own message after moving what fits, so the page should read `playback_info` again
+   after any Move, whatever it returned.
+2. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-4. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
+3. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
    copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
-5. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
+4. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
-6. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+5. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;
@@ -175,10 +256,12 @@ Lows deferred from the D1 reviews:
 
 ## Decisions
 
-- **Pending for Kevin:** none that blocks the next milestone. One product call, when convenient: should a copy mix
-  separate mono audio tracks (Canon and Sony MXF keep each channel on its own track), or keep only the first? Today: the
-  first.
-- **Decided by default, for Kevin's review** (easy to undo):
+- **Pending for Kevin:** none.
+- **Decided by Kevin (Nov 6):** a copy of a file whose sound is several mono tracks (Sony and Canon MXF) mixes them all
+  into one stereo track, its gain kept low enough that it never clips; a file with a single stereo track stays as it
+  is (2.3b).
+- **Decided by default, confirmed by Kevin (Nov 6)**: everything below, Mobius tone-mapping and BT.2020 as the fallback
+  included. Decisions made by default from 2.3b on are listed apart, for his review.
   - 2.2 and 2.3 were each split in two PRs, to keep reviews short.
   - A video record sits under the project, not a frame, so two frames can play parts of one video; a frame's picture
     is the video's frame 0 (the in point); a still picture replacing it ends the frame's clip; a video this computer
@@ -192,6 +275,11 @@ Lows deferred from the D1 reviews:
     longest ago; no index pass (`+faststart`); a stall is 90 s of no progress; a copy without sound only when the sound
     itself can't be read, named `-silent`; a file cut short gets a copy if it's within a second (or 1 in 100) of its
     length.
+  - The checkpoint's Mac installer runs on `macos-26`, the smoke job's image, not `macos-latest` (D2).
+  - The free-space floor (D2): 10 GB by default, from 1 to 1,000 GB; a copy's room estimated at 1.6 MB a second;
+    room made only from the copies in the folder copies go to now, the ones used longest ago first, and only when
+    they can make all of it; a Move short of room moves what fits and says so; ffmpeg's process ids kept on a Mac
+    in `playback-running.txt`, beside the settings.
   - HDR (D1): Mobius tone-mapping (203-nit reference white near SDR white; Hable left it mid-grey), the file's own peak
     for PQ, else 1000 nits; tags a file leaves out taken as BT.2020, non-constant luminance, limited range.
 - **Known lows, deferred:** a Trash restore of a video still doesn't bring back its clip (undo of Remove does); after a

@@ -145,8 +145,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The same image the smoke job runs on: on Nov 6, macos-latest jobs sat 15 minutes without a runner and were
+          # cancelled, twice, while macos-26 started at once.
           - name: macOS
-            os: macos-latest
+            os: macos-26
             triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
           - name: Windows
@@ -188,8 +190,21 @@ jobs:
           name: ffmpeg-${{ matrix.triple }}
           path: src-tauri/binaries
           retention-days: 7
+      # What the runner's disk holds before the tests, and on a failure what's left running: copy tests that all stall
+      # at once point at the runner (its disk or its encoder), not at one test.
+      - name: Free space before the Rust tests
+        shell: bash
+        run: df -h . "${RUNNER_TEMP:-/tmp}" /tmp || true
+      # A step of its own time, so a test run that hangs fails here and the step after it still says what was running.
       - name: Rust tests
+        timeout-minutes: 40
         run: cargo test --lib --manifest-path src-tauri/Cargo.toml
+      - name: The runner after a failed test run
+        if: failure()
+        shell: bash
+        run: |
+          df -h . "${RUNNER_TEMP:-/tmp}" /tmp || true
+          ps -A -o pid,stat,etime,command 2>/dev/null | grep -i -E 'ffmpeg|ffprobe|VTEncoder|storiiboard' | grep -v grep | head -40 || tasklist 2>/dev/null | grep -i -E 'ffmpeg|ffprobe|storiiboard' || true
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
       - uses: tauri-apps/tauri-action@v1

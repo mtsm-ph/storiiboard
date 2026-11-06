@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 6, 2026 (2.3a merged; D1 and D2 next) |
+| Last updated | Nov 6, 2026 (2.3a, D1 and D2 merged; 2.3b next) |
 
 | Phase | State |
 |---|---|
@@ -41,7 +41,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | #73 | Done |
 | 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
 | D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
-| D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | | Not started |
+| D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
@@ -53,6 +53,31 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Tauri's tree) and `src-tauri/src/os.rs`.
+- A free-space floor, 10 GB by default (1 to 1,000 GB, `playback_set_floor`; 2.3b shows it in Settings → Storage).
+  Before a copy starts its drive must keep the floor free after the copy (about 1.6 MB a second of video): the copies
+  used longest ago in the folder copies go to make the room, never the video's own, and only if together they can;
+  otherwise the copy is refused and nothing is removed. They go one at a time, the drive read just before and after
+  each (for up to a second, as a NAS reports freed space late); one whose space doesn't come back (a Time Machine
+  snapshot, a share's recycle bin) stops the rest going, and that drive is remembered: nothing more goes there for
+  room until its reading shows the space came back (or half an hour passes, or the copies move). While the copy is
+  made a thread of its own only reads the free space, every 2 s (a share that stopped answering never holds up the
+  encode's watch): down to the floor, the copy stops and leaves nothing; it's then measured by what it wrote (or taken
+  as twice that when its length isn't known) and made once more if older copies can make that room. Once the copy is
+  whole it's held to the floor once more (older copies make room, or it isn't kept). Room is made only on the make's own thread, in its turn,
+  so two never make room at once. A Move where not one copy can cross above the floor is refused with nothing changed;
+  otherwise it copies across drives only what fits, and the rest stay where they were, still played, and the Move says
+  so. `playback_info` adds the floor and the drive's free
+  space.
+  Windows reads it with `GetDiskFreeSpaceExW` (after any quota), a Mac with `statvfs` (without the space macOS can
+  purge, so a little under Finder's figure); a drive that can't tell is taken as having room. Linux (the tests) stands
+  in with a pretend drive.
+- ffmpeg ends with the app, crash or not. Windows: every sidecar joins one Job Object with kill-on-close, so the system
+  ends them when the app ends however it ends. A Mac: each encode's process id and start time are kept in
+  `playback-running.txt` (the app's data folder) while it runs, and the next start stops any that is still that same
+  process running ffmpeg (so an id another program has taken since is left alone, and an app moved or run from
+  elsewhere still finds its own). Tested by killing a real app process on each platform.
 
 D1 as built (Nov 6): `scripts/ffmpeg/build.sh` builds zimg 3.0.6 (autotools) and dav1d 1.5.4 (meson), each pinned with
 its checksum, statically, and configures ffmpeg with `--enable-libzimg --enable-libdav1d`; the self-checks add

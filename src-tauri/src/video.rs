@@ -309,6 +309,8 @@ fn run_heard(
             "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
                 .to_string()
         })?;
+    // On Windows it ends with the app, crash or not (os.rs). These runs end on their own within their timeout.
+    crate::os::keep_with_app(&child);
     let read_all = |pipe: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut bytes = Vec::new();

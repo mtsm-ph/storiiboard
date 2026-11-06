@@ -7,6 +7,7 @@ mod backup;
 mod export;
 mod lock;
 mod opened;
+mod os;
 mod pictures;
 mod playback;
 mod sbd;
@@ -70,6 +71,7 @@ pub fn run() {
             playback::playback_info,
             playback::playback_clear,
             playback::playback_set_cap,
+            playback::playback_set_floor,
             playback::playback_move,
             playback::playback_move_back,
             pictures::script_choose,
