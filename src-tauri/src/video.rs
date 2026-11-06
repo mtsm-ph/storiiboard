@@ -454,6 +454,36 @@ fn read_facts(json: &Value) -> Facts {
     }
 }
 
+/// How many channels each of a file's sound tracks has, in their order: `[2]` for a camera's stereo track, `[1, 1, 1, 1]`
+/// for a Sony or Canon MXF that keeps each channel on a track of its own.
+pub(crate) fn audio_tracks(path: &Path) -> Result<Vec<u32>, String> {
+    let mut command = command("ffprobe");
+    command
+        .args(["-v", "error", "-protocol_whitelist", "file"])
+        .args(["-select_streams", "a", "-show_entries", "stream=channels"])
+        .args(["-print_format", "json", "-i"])
+        .arg(path);
+    let json: Value =
+        serde_json::from_slice(&run(command, PROBE_TIMEOUT)?).map_err(|_| CANT_READ.to_string())?;
+    Ok(read_audio_tracks(&json))
+}
+
+/// `audio_tracks` from ffprobe's JSON; a track that doesn't say counts as one channel.
+fn read_audio_tracks(json: &Value) -> Vec<u32> {
+    json["streams"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|stream| {
+            stream["channels"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(1)
+        })
+        .collect()
+}
+
 /// Where the video stream starts and where the file starts (see `facts`).
 pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     facts(path).map(|facts| (facts.stream_start, facts.file_start))
@@ -947,6 +977,19 @@ pub async fn video_choose(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_the_channels_of_each_sound_track() {
+        let json = serde_json::json!({
+            "streams": [{ "channels": 1 }, { "channels": 1 }, { "channels": 1 }, {}]
+        });
+        assert_eq!(read_audio_tracks(&json), [1, 1, 1, 1]);
+        assert_eq!(
+            read_audio_tracks(&serde_json::json!({ "streams": [{ "channels": 2 }] })),
+            [2]
+        );
+        assert_eq!(read_audio_tracks(&serde_json::json!({})), Vec::<u32>::new());
+    }
     use std::fs;
 
     fn temp_dir(tag: &str) -> PathBuf {
