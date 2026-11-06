@@ -45,7 +45,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #73 | 2.2b: link a video to a frame by drop or browse; the inspector's Video section; the missing flag and Relink |
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
-| D2_PR | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
+| #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -117,7 +117,13 @@ Lows deferred from the D1 reviews:
 
 ### D2: how it went, and what's left
 
-D2_REVIEW_SUMMARY
+Review round 1 (four lenses, refute-first) found two mediums, both fixed: room was made by removing a whole batch of
+copies before checking the drive gave the space back (now one at a time, stopping when one's space doesn't come back,
+as with a Time Machine snapshot), and the older copy tests read the runner's real disk against the 10 GB floor (tests
+now start with a drive that can't tell). Its lows were fixed too: a refusal for room no longer marks an earlier copy's
+sound unreadable; a Move to a drive below the floor is refused with nothing changed; a Mac's leftover ffmpeg is known
+by its id and start time, so a moved app or a development build still finds it; the kill test holds the killed app's
+ffmpeg by a handle on Windows. Before the PR, the whole app was linted for Windows here (MinGW, above).
 
 Lows deferred from D2 (noted, not planned yet):
 - Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
