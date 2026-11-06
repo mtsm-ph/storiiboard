@@ -143,14 +143,23 @@ back), or after half an hour, or when the floor or the folder changes. A Move pu
 folder on the list if a copy crossed there but its original couldn't go. The tests got a pretend drive that answers
 by thread, so the watch and the final check are each tested alone (both checked by breaking each in turn).
 
+Round 4 found a high in a test (it took 30 minutes from `Instant::now()`, which panics on a Windows machine up for
+less than that: the clock starts at boot) and a medium: with the watch only reading, a copy bigger than its estimate,
+or one of unknown length, was stopped at the floor every time though older copies could make the room. Fixed: a
+remembered drive keeps the time it's forgotten (a deadline, only ever added to); a copy stopped at the floor is
+measured by what it wrote (bytes per frame times its frames, or twice what it wrote when its length isn't known) and
+made once more if older copies can make that room. With them: a new floor no longer forgets a remembered drive (a Move
+that took effect does); a refused Move keeps the new folder on the list only if it wrote a copy there.
+
 The first checkpoint (`checkpoint/d2-windows-sys` at f4529cb) passed on Windows (the Job Object and kill tests, both
 installers) but the Mac's Rust tests failed: from one moment on, every copy test there stalled (ffmpeg made no
 progress for 90 s, and even a killed one didn't end for 10 s), which points at the runner (its encoder service or its
 disk) rather than at one test. The only heavy new work then was the floor-watch test's two 1080p encodes, one stopped
 the moment it started; it now uses a light clip. The checkpoint also prints the runner's free space before the Rust
 tests and what's left running after a failure (the test step has a 40-minute limit of its own, so a hang still gets
-that printout). The second checkpoint (9ede3c3) passed on Windows again; its Mac job waited 15 minutes for a runner and
-was cancelled before it started.
+that printout). The second and third checkpoints (9ede3c3, d29925c) passed on Windows again; both Mac installer jobs
+waited 15 minutes for a `macos-latest` runner and were cancelled before they started, while the smoke job on `macos-26`
+started at once, so the installers now run on `macos-26` too (decided by default, review).
 
 Lows deferred from D2 (noted, not planned yet):
 - Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
@@ -244,6 +253,7 @@ Lows deferred from D2 (noted, not planned yet):
     longest ago; no index pass (`+faststart`); a stall is 90 s of no progress; a copy without sound only when the sound
     itself can't be read, named `-silent`; a file cut short gets a copy if it's within a second (or 1 in 100) of its
     length.
+  - The checkpoint's Mac installer runs on `macos-26`, the smoke job's image, not `macos-latest` (D2).
   - The free-space floor (D2): 10 GB by default, from 1 to 1,000 GB; a copy's room estimated at 1.6 MB a second;
     room made only from the copies in the folder copies go to now, the ones used longest ago first, and only when
     they can make all of it; a Move short of room moves what fits and says so; ffmpeg's process ids kept on a Mac

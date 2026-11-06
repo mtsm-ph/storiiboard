@@ -61,10 +61,11 @@ D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Ta
   otherwise the copy is refused and nothing is removed. They go one at a time, the drive read just before and after
   each (for up to a second, as a NAS reports freed space late); one whose space doesn't come back (a Time Machine
   snapshot, a share's recycle bin) stops the rest going, and that drive is remembered: nothing more goes there for
-  room until its reading shows the space came back (or half an hour passes, or the floor or the folder changes). While
-  the copy is made a thread of its own only reads the free space, every 2 s (a share that stopped answering never holds
-  up the encode's watch): down to the floor, the copy stops and leaves nothing. Once the copy is whole it's held to the
-  floor once more (older copies make room, or it isn't kept). Room is made only on the make's own thread, in its turn,
+  room until its reading shows the space came back (or half an hour passes, or the copies move). While the copy is
+  made a thread of its own only reads the free space, every 2 s (a share that stopped answering never holds up the
+  encode's watch): down to the floor, the copy stops and leaves nothing; it's then measured by what it wrote (or taken
+  as twice that when its length isn't known) and made once more if older copies can make that room. Once the copy is
+  whole it's held to the floor once more (older copies make room, or it isn't kept). Room is made only on the make's own thread, in its turn,
   so two never make room at once. A Move where not one copy can cross above the floor is refused with nothing changed;
   otherwise it copies across drives only what fits, and the rest stay where they were, still played, and the Move says
   so. `playback_info` adds the floor and the drive's free

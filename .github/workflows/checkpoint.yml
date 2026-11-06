@@ -145,8 +145,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The same image the smoke job runs on: on Nov 6, macos-latest jobs sat 15 minutes without a runner and were
+          # cancelled, twice, while macos-26 started at once.
           - name: macOS
-            os: macos-latest
+            os: macos-26
             triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
           - name: Windows
