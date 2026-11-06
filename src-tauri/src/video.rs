@@ -415,11 +415,7 @@ pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
     let (status, out, said) = run_heard(command, PROBE_TIMEOUT, true)?;
     // A read that failed partway (ffmpeg goes on as if the file had ended, and exits as if all went well): it can't
     // tell, whatever came out.
-    let read_failed = String::from_utf8_lossy(&said).lines().any(|line| {
-        line.split_once("Error during demuxing: ")
-            .is_some_and(|(_, reason)| !reason.starts_with("Invalid data found"))
-    });
-    if read_failed {
+    if read_failed_in(&String::from_utf8_lossy(&said), path) {
         return Err(CANT_READ.into());
     }
     if !status.success() {
@@ -429,6 +425,25 @@ pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
     Ok(String::from_utf8_lossy(&out)
         .lines()
         .any(|line| !line.starts_with('#') && !line.trim().is_empty()))
+}
+
+/// Whether ffmpeg 8's error output says a read of `original` failed partway: "Error during demuxing: <reason>" for
+/// any reason but undecodable data, or a MOV's "stream N, offset 0x…: partial file" at a place inside the file as it
+/// is now (past its end, the file was only cut short). The playback copy listens for the same (playback.rs, Said).
+pub(crate) fn read_failed_in(said: &str, original: &Path) -> bool {
+    let size = std::fs::metadata(original).map_or(0, |meta| meta.len());
+    said.lines().map(str::trim_end).any(|line| {
+        if let Some((_, reason)) = line.split_once("Error during demuxing: ") {
+            return !reason.starts_with("Invalid data found");
+        }
+        line.starts_with("[in#")
+            && line.ends_with(": partial file")
+            && line
+                .rsplit_once("offset 0x")
+                .and_then(|(_, rest)| rest.split(':').next())
+                .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                .is_none_or(|at| at < size)
+    })
 }
 
 /// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
@@ -1459,6 +1474,30 @@ mod tests {
         assert_eq!(sound_plays(&silent), Ok(false));
         // A file that can't be read at all says nothing about its sound.
         assert!(sound_plays(&dir.join("gone.mov")).is_err());
+        // Nor does one whose read failed partway, in either of ffmpeg's words for it.
+        let size = fs::metadata(&take).unwrap().len();
+        for said in [
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] Error during demuxing: Input/output error\n"
+                .to_owned(),
+            format!(
+                "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{:x}: partial file\r\n",
+                size / 2
+            ),
+        ] {
+            assert!(read_failed_in(&said, &take), "{said}");
+        }
+        // A file cut short, or damaged data, is no failed read.
+        for said in [
+            format!(
+                "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{size:x}: partial file\n"
+            ),
+            "[in#0/mxf @ 0x1] Error during demuxing: Invalid data found when processing input\n"
+                .to_owned(),
+            "[aist#0:1/pcm_s16le @ 0x1] Decoding error: Invalid data found when processing input\n"
+                .to_owned(),
+        ] {
+            assert!(!read_failed_in(&said, &take), "{said}");
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 }

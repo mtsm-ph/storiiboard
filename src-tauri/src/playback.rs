@@ -724,10 +724,11 @@ impl PlaybackCache {
     /// where copies go now first, then the other folders of ours. None while the copies are being moved: where one is
     /// can't be told until the Move is done, and a make waits for it.
     pub fn find(&self, path: &Path) -> Result<Option<Made>, String> {
+        // The original first, outside the lock: a share slow to answer never holds a Move up.
+        let key = key_of(path)?;
         let Some(_settled) = self.settled() else {
             return Ok(None);
         };
-        let key = key_of(path)?;
         let (now, _) = self.folder()?;
         let folders: Vec<PathBuf> = std::iter::once(now).chain(self.all_folders()).collect();
         let found = [false, true].into_iter().find_map(|silent| {
@@ -748,15 +749,15 @@ impl PlaybackCache {
     /// anything is read; off again when it drops. Once the app is quitting a request is stopped before it starts.
     pub fn ask(&self, name: &str) -> Asked {
         let id = self.next_job.fetch_add(1, Ordering::SeqCst);
+        // Read under the lock cancel_all holds as it sets it, so a request can't slip between the two.
+        let mut jobs = lock(&self.jobs);
         let cancelled = Arc::new(AtomicBool::new(self.quitting.load(Ordering::SeqCst)));
-        lock(&self.jobs)
-            .entry(name.to_owned())
-            .or_default()
-            .push(Job {
-                id,
-                child: None,
-                cancelled: Arc::clone(&cancelled),
-            });
+        jobs.entry(name.to_owned()).or_default().push(Job {
+            id,
+            child: None,
+            cancelled: Arc::clone(&cancelled),
+        });
+        drop(jobs);
         Asked {
             jobs: Arc::clone(&self.jobs),
             name: name.to_owned(),
@@ -844,7 +845,8 @@ impl PlaybackCache {
         let mut outcome = Err(Stop::Failed(Said::default()));
         let mut partial = PathBuf::new();
         let mut attempt = 0;
-        'encoders: for encoder in &self.encoders {
+        'encoders: for (i, encoder) in self.encoders.iter().enumerate() {
+            let last = i + 1 == self.encoders.len();
             loop {
                 attempt += 1;
                 partial = folder.join(format!("{key}-{}-{attempt}.mp4.partial", asked.id));
@@ -861,11 +863,11 @@ impl PlaybackCache {
                     // Done, stopped, or the drive gone: no other encoder would do better.
                     Ok(_) | Err(Stop::Cancelled) => break 'encoders,
                     Err(Stop::Failed(said)) if said.read_failed => break 'encoders,
-                    // Stalled: another encoder is worth a try (a hardware one hung in its driver), but only if the
-                    // original still answers.
+                    // Stalled: another encoder is worth a try (a hardware one hung in its driver), but only if one
+                    // follows and the original still answers.
                     Err(Stop::Stalled) => {
                         stalled = true;
-                        if video::starts(path).is_err() {
+                        if last || video::starts(path).is_err() {
                             break 'encoders;
                         }
                     }
@@ -882,6 +884,10 @@ impl PlaybackCache {
                 let _ = fs::remove_file(&partial);
                 break;
             }
+        }
+        // A Cancel that came while the original or its sound was being checked.
+        if asked.stopped() {
+            outcome = Err(Stop::Cancelled);
         }
         let checked = outcome
             .map_err(|stop| match stop {
@@ -1125,8 +1131,9 @@ impl PlaybackCache {
     /// Stops every copy being made, and any asked for from now on: the app is quitting, and ffmpeg shouldn't go on
     /// alone.
     pub fn cancel_all(&self) {
+        let jobs = lock(&self.jobs);
         self.quitting.store(true, Ordering::SeqCst);
-        for job in lock(&self.jobs).values().flatten() {
+        for job in jobs.values().flatten() {
             job.cancelled.store(true, Ordering::SeqCst);
             if let Some(child) = &job.child {
                 let _ = lock(child).kill();
@@ -1138,16 +1145,12 @@ impl PlaybackCache {
     /// while a Move runs: it keeps to the cap itself when it's done.
     fn keep_under_cap(&self, keep: &Path) {
         if let Some(_settled) = self.settled() {
-            self.keep_to_cap(keep);
+            keep_under(
+                &self.all_folders(),
+                keep,
+                self.settings().cap_gb.saturating_mul(GB),
+            );
         }
-    }
-
-    fn keep_to_cap(&self, keep: &Path) {
-        keep_under(
-            &self.all_folders(),
-            keep,
-            self.settings().cap_gb.saturating_mul(GB),
-        );
     }
 
     pub fn info(&self) -> Result<CacheInfo, String> {
@@ -1200,8 +1203,19 @@ impl PlaybackCache {
             return Err("A playback copy is being made; move the copies once it's done.".into());
         }
         let _turn = lock(&self.turn);
-        // Waits for a Clear or the cap already running; finding, Clear and the cap don't start until it's done.
-        let _moving = self.layout.write().unwrap_or_else(PoisonError::into_inner);
+        let moved = {
+            // Waits for a Clear or the cap already running; finding, Clear and the cap don't start until it's done.
+            let _moving = self.layout.write().unwrap_or_else(PoisonError::into_inner);
+            self.move_copies(root)
+        };
+        // A cap lowered while the copies moved is kept to now, however the Move ended. One lowered after this looks
+        // finds the copies settled and keeps to itself.
+        self.keep_under_cap(Path::new(""));
+        moved
+    }
+
+    /// The part of a Move that holds the layout.
+    fn move_copies(&self, root: Option<&Path>) -> Result<usize, String> {
         let new = root.unwrap_or(&self.default_root).join(FOLDER_NAME);
         fs::create_dir_all(&new).map_err(|_| UNWRITABLE.to_string())?;
         let probe = new.join(format!("{:032x}.mp4.partial", 0));
@@ -1279,8 +1293,6 @@ impl PlaybackCache {
         }
         // The moves are done; a list that can't be saved only means looking in folders that hold nothing.
         let _ = self.update(|settings| settings.leftovers = away(&left));
-        // A cap lowered while the copies moved is kept to now.
-        self.keep_to_cap(Path::new(""));
         Ok(moved)
     }
 }
@@ -1408,6 +1420,15 @@ pub async fn playback_move_back(app: AppHandle) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Deletes a test's folder when it goes out of scope, however the test ends.
+    struct Gone(PathBuf);
+
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir =
@@ -2133,9 +2154,10 @@ ssize_t read(int fd, void *buf, size_t count) {
             let (cache, clip) = (Arc::clone(&cache), clip.clone());
             std::thread::spawn(move || {
                 let mut seen = Vec::new();
+                let started = Instant::now();
                 let made = cache.make(&clip, |done| seen.push(done));
                 let _ = sent.send(());
-                (made, seen)
+                (made, seen, started.elapsed())
             })
         };
         // Waited out, the stuck copy would hold every later one up: cancelled then, so the test fails rather than
@@ -2145,11 +2167,16 @@ ssize_t read(int fd, void *buf, size_t count) {
             let _ = making.join();
             panic!("the stuck copy was never stopped");
         }
-        let (made, seen) = making.join().unwrap();
+        let (made, seen, took) = making.join().unwrap();
         assert_eq!(made.unwrap_err(), STALLED);
         assert!(
             seen.iter().any(|&done| done > 0.0 && done < 1.0),
             "it had started: {seen:?}"
+        );
+        // Each attempt reaches the hang within ffmpeg's first report, so the second shows in the time: two stalls.
+        assert!(
+            took >= 2 * cache.stall,
+            "the second encoder was tried too: {took:?}"
         );
         let (folder, _) = cache.folder().unwrap();
         assert!(names(&folder).is_empty(), "nothing half-made");
@@ -2255,6 +2282,8 @@ ssize_t read(int fd, void *buf, size_t count) {
     #[test]
     fn while_the_copies_move_none_is_found_or_cleared() {
         let dir = temp_dir("moving");
+        // Its 2 GB copy goes even when an assertion fails (NTFS sets the space aside).
+        let _gone = Gone(dir.clone());
         let cache = PlaybackCache::in_folder(&dir.join("cache"));
         let clip = pcm_clip(&dir, "C0062.mov");
         let made = cache.make(&clip, |_| {}).unwrap();
@@ -2718,7 +2747,8 @@ ssize_t read(int fd, void *buf, size_t count) {
         );
         let bytes = fs::read(&whole).unwrap();
         let cut = dir.join("A001_C009 cut.mov");
-        fs::write(&cut, &bytes[..bytes.len() * 995 / 1000]).unwrap();
+        // A cut that takes two or three whole frames with it, well inside the second of slack.
+        fs::write(&cut, &bytes[..bytes.len() * 985 / 1000]).unwrap();
         let cache = PlaybackCache::in_folder(&dir.join("cache"));
         let made = cache.make(&cut, |_| {}).unwrap();
         let frames = video::probe(&made.path).unwrap().duration_frames;
@@ -2740,5 +2770,25 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert_eq!(cache.info().unwrap().cap_gb, 20);
         assert!(data.join("playback.json").is_dir(), "never written over");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_failure_after_a_stall_reports_the_stall() {
+        let dir = temp_dir("stall-then-fail");
+        let _gone = Gone(dir.clone());
+        let shim = read_shim(&dir);
+        let clip = cutme_mov(&dir);
+        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        through_shim(
+            &mut cache,
+            &shim,
+            "hang",
+            fs::metadata(&clip).unwrap().len() / 2,
+        );
+        cache.stall = Duration::from_secs(2);
+        // The hardware encoder hangs; the software one then fails outright, saying nothing of its own.
+        cache.encoders = vec![encoders().pop().unwrap(), vec!["-c:v", "no_such_encoder"]];
+        assert_eq!(cache.make(&clip, |_| {}).unwrap_err(), STALLED);
     }
 }
