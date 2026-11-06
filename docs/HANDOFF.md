@@ -159,7 +159,12 @@ the moment it started; it now uses a light clip. The checkpoint also prints the 
 tests and what's left running after a failure (the test step has a 40-minute limit of its own, so a hang still gets
 that printout). The second and third checkpoints (9ede3c3, d29925c) passed on Windows again; both Mac installer jobs
 waited 15 minutes for a `macos-latest` runner and were cancelled before they started, while the smoke job on `macos-26`
-started at once, so the installers now run on `macos-26` too (decided by default, review).
+started at once, so the installers now run on `macos-26` too (decided by default, review). The fourth checkpoint
+(13d923b, `checkpoint/d2-windows-sys`) passed everywhere: the Mac's Rust tests ran in a few minutes with no stall (the
+first run's stall didn't come back once the floor test stopped making 1080p encodes), and Windows ran the Job Object
+and kill tests again.
+
+Round 5 left nothing high or medium; its lows are below.
 
 Lows deferred from D2 (noted, not planned yet):
 - Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
@@ -174,6 +179,18 @@ Lows deferred from D2 (noted, not planned yet):
 - A video whose earlier copy has no sound, refused for room, gets that copy back as if its sound were unreadable, and
   each later request for it waits its turn and tries again. 2.3b could say "no room" instead (a flag on `MadeCopy`).
 - Raising the floor removes nothing at once; the next copy keeps to it.
+- The retry after the floor (round 4) can't tell a copy that outgrew its estimate from another program still filling
+  the drive: it may remove older copies and then be stopped again. Fix: read the drive before the first attempt, and
+  retry only if the copy itself brought it down (or cap what the retry may remove at the estimate's excess).
+- For a video of unknown length the retry asks for twice what was written, which measures the drive's spare room, not
+  the copy; better not to retry on such an estimate (or find the length first). The estimate can also fall below what
+  was written when the header's frame count was short.
+- A copy whose ffmpeg ended on its own just as the watch saw the floor is thrown away and made again, where the final
+  check could have judged it.
+- A Cancel during the retry's room-making doesn't stop the removals already under way.
+- A refused Move's "crossed" check looks for a file at the destination, not one this Move wrote.
+- Tests: the floor-retry test doesn't count attempts, and no test pins a refusal after measuring; Held's survival across
+  a refused Move and a new floor is untested.
 - A copy held by another program is found only when its turn to go comes, so older copies may already have gone when
   the rest can't make the room (renaming the candidates aside first would find it before anything goes).
 - A NAS that shows freed space more than a second late gets that drive remembered after one removal; it's forgotten
