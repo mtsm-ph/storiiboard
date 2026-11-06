@@ -219,10 +219,15 @@ pub fn read_probe(json: &Value) -> Result<Probe, String> {
         == video["avg_frame_rate"]
             .as_str()
             .and_then(|t| fraction(t, '/'));
+    // And only when it agrees with the stream's own length: a MOV edit list (a trim made without re-encoding, as a
+    // stream copy from a point between keyframes writes) keeps every sample in the count but plays only part, and the
+    // stream's length follows the edit list.
+    let stream_length = number(&video["duration"]).map(|seconds| seconds * fps);
     let counted = video["nb_frames"]
         .as_str()
         .and_then(|n| n.parse::<u64>().ok())
-        .filter(|&n| n > 0 && constant);
+        .filter(|&n| n > 0 && constant)
+        .filter(|&n| stream_length.is_none_or(|length| (n as f64 - length).abs() <= 2.0));
     let duration_frames = counted
         .or_else(|| duration.map(|seconds| (seconds * fps).round() as u64))
         .unwrap_or(0);
@@ -354,6 +359,24 @@ pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     let file = number(&json["format"]["start_time"]).unwrap_or(0.0);
     let stream = number(&json["streams"][0]["start_time"]).unwrap_or(file);
     Ok((stream, file))
+}
+
+/// Whether a video's sound can go into a playback copy: its first second decoded and made into the copy's AAC, then
+/// thrown away. False when ffmpeg can't (no decoder for it, a layout the encoder refuses); an error when it couldn't
+/// tell (the file stopped answering). The playback copy drops the sound only on a false (playback.rs).
+pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
+    let mut command = command("ffmpeg");
+    command
+        .args(["-hide_banner", "-loglevel", "error"])
+        .args(["-protocol_whitelist", "file", "-i"])
+        .arg(path)
+        .args(["-map", "0:a:0", "-t", "1"])
+        .args(["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "null", "-"]);
+    match run(command, PROBE_TIMEOUT) {
+        Ok(_) => Ok(true),
+        Err(error) if error == CANT_READ => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 /// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
@@ -1313,5 +1336,75 @@ mod tests {
             "side_data_list": [{ "side_data_type": "Display Matrix", "rotation": -180 }],
         }]});
         assert_eq!(read_probe(&json).unwrap().rotation, 180);
+    }
+
+    #[test]
+    fn counts_a_mov_trimmed_by_an_edit_list_by_what_it_plays() {
+        let stream = |nb_frames: &str, duration: &str| {
+            serde_json::json!({ "streams": [{
+                "codec_type": "video", "r_frame_rate": "25/1", "avg_frame_rate": "25/1",
+                "nb_frames": nb_frames, "duration": duration,
+            }]})
+        };
+        // A 10 s take stream-copied from 3 s in: every sample is still there, 7 s of them play (ffprobe's own figures).
+        assert_eq!(
+            read_probe(&stream("250", "7.000000"))
+                .unwrap()
+                .duration_frames,
+            175
+        );
+        // An untrimmed file: the exact count, though its length rounds a frame off.
+        assert_eq!(
+            read_probe(&stream("250", "9.960000"))
+                .unwrap()
+                .duration_frames,
+            250
+        );
+        let no_length = serde_json::json!({ "streams": [{
+            "codec_type": "video", "r_frame_rate": "25/1", "avg_frame_rate": "25/1", "nb_frames": "250",
+        }]});
+        assert_eq!(read_probe(&no_length).unwrap().duration_frames, 250);
+    }
+
+    #[test]
+    fn reads_a_trimmed_mov_as_long_as_it_plays_and_hears_sound_it_can_and_cant_decode() {
+        let dir = temp_dir("trim");
+        let take = make(
+            &dir,
+            "C0060.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=25:duration=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=10",
+            ],
+            &["-c:v", "mpeg4", "-g", "100", "-c:a", "pcm_s16le"],
+        );
+        // A stream copy from between two keyframes: an edit list hides the frames before 3 s.
+        let trimmed = make(
+            &dir,
+            "C0060 trimmed.mov",
+            &["-ss", "3", "-i", take.to_str().unwrap()],
+            &["-c", "copy"],
+        );
+        assert_eq!(probe(&trimmed).unwrap().duration_frames, 175);
+        assert_eq!(sound_plays(&take), Ok(true));
+        // The same take with its sound's codec tag made unknown: ffmpeg has no decoder for it.
+        let bytes = fs::read(&take).unwrap();
+        let at = bytes
+            .windows(4)
+            .position(|w| w == b"sowt")
+            .expect("PCM sound's tag");
+        let mut unknown = bytes.clone();
+        unknown[at..at + 4].copy_from_slice(b"abcd");
+        let silent = dir.join("C0060 unknown sound.mov");
+        fs::write(&silent, unknown).unwrap();
+        assert!(probe(&silent).unwrap().has_audio);
+        assert_eq!(sound_plays(&silent), Ok(false));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -985,6 +985,7 @@ export const es: Messages = {
   'error.copyCap': 'El límite de las copias de reproducción va de 1 a 10.000 GB.',
   'error.copyBusy': 'Se está haciendo una copia de reproducción; mueve las copias cuando termine.',
   'error.copyShort': 'La copia de reproducción quedó más corta que el video. Si está en una tarjeta o un disco, revisa que siga conectado.',
+  'error.copyStalled': 'Ese video dejó de leerse a mitad de camino. Si está en una tarjeta, un disco o una unidad de red, revisa que siga conectado.',
   'error.copyUnwritable': 'No se pueden guardar copias de reproducción en esa carpeta.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Solo el cuadro',

@@ -97,6 +97,10 @@ pub fn run() {
                 .app_cache_dir()
                 .unwrap_or_else(|_| data_dir.join("cache"));
             app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
+            // Copies cut off by a crash or a quit, on a thread of its own: a drive slow to wake (or a share that
+            // doesn't answer) never holds up the window, and it waits its turn behind a copy started meanwhile.
+            let handle = app.handle().clone();
+            thread::spawn(move || handle.state::<playback::PlaybackCache>().clean_up());
             // A double-click on Windows launches the app with the file as an argument.
             let cwd = std::env::current_dir().unwrap_or_default();
             opened::queue(
