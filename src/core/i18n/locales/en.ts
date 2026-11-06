@@ -982,6 +982,8 @@ export const en = {
   'error.copyCancelled': 'The playback copy was cancelled.',
   'error.copyCap': 'The cap for playback copies is between 1 and 10,000 GB.',
   'error.copyBusy': 'A playback copy is being made; move the copies once it\'s done.',
+  'error.copyShort': 'The playback copy came out shorter than the video. If it\'s on a card or a drive, check it\'s still connected.',
+  'error.copyUnwritable': 'Playback copies can\'t be written in that folder.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx

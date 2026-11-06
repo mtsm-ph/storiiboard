@@ -127,6 +127,8 @@ pub fn run() {
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 app.state::<sbd::OpenFiles>().close_all();
+                // A playback copy being made stops with the app, rather than going on alone (playback.rs).
+                app.state::<playback::PlaybackCache>().cancel_all();
             }
             // On a Mac a double-click arrives as an Apple Event, whether or not the app was running.
             #[cfg(target_os = "macos")]
