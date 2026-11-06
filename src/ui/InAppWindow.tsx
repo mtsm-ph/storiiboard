@@ -113,6 +113,9 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
         aria-describedby={describedBy}
         {...(projectUndo ? { 'data-project-undo': '' } : {})}
         onCancel={(event) => {
+          // A window opened from inside this one (Licences, from Settings → Storage) sends its Escape up React's tree
+          // too: that's its own to close, and this one stays.
+          if (event.target !== event.currentTarget) return;
           event.preventDefault();
           close();
         }}

@@ -30,14 +30,14 @@ import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
-import { Select, TextField } from '../../ui/fields';
+import { BarGauge, Select, TextField } from '../../ui/fields';
 import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { CropEditor } from './CropEditor';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
-import { labels, t } from '../../core/i18n';
+import { labels, localizeError, t } from '../../core/i18n';
 
 // The Frame inspector (design board, Storyboard workspace): the selected frame's picture, camera and story, then its
 // scene.
@@ -69,7 +69,18 @@ export interface InspectorVideo {
   missing: boolean;
   /** The video's record is gone (Empty Trash, a History restore): only Unlink is left to do. */
   gone: boolean;
+  /** Its playback copy (2.3b); left out while it hasn't been looked for. */
+  copy?: InspectorCopy;
 }
+
+/** A video's playback copy (2.3b): none yet, waiting its turn, being made (how far, 0 to 1, when known), made (without
+ * sound when the original's couldn't be read), or failed with Rust's message. */
+export type InspectorCopy =
+  | { state: 'none' }
+  | { state: 'queued' }
+  | { state: 'making'; done: number | null }
+  | { state: 'made'; silent: boolean }
+  | { state: 'failed'; message: string };
 
 /** A set and an unset, as one update op takes them. */
 export interface FieldChange {
@@ -99,6 +110,9 @@ export interface InspectorViewProps {
   onLinkVideo?: () => void;
   onRelinkVideo?: () => void;
   onUnlinkVideo?: () => void;
+  /** Puts the video's playback copy on the queue, or tries again (2.3b). */
+  onMakeCopy?: () => void;
+  onCancelCopy?: () => void;
   onCropChange?: (crop: Crop) => void;
   /** Opens the frame's sketch in the editor. */
   onSketch?: () => void;
@@ -221,6 +235,25 @@ interface SectionProps {
   dropShotId?: string;
   /** Where Enter on a frame takes focus. */
   start?: boolean;
+}
+
+/** The playback copy's line (2.3b). The live region is always there, so the line is heard as it changes; the
+ * percentage is a meter beside it, so it isn't read out every half second. */
+function CopyLine({ copy }: { copy: InspectorCopy | undefined }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div role="status" data-copy-state="" className="flex">
+        {copy?.state === 'none' && <p className="text-[12px] text-text-muted">{t('inspector.copyNone')}</p>}
+        {copy?.state === 'queued' && <p className="text-[12px]">{t('inspector.copyQueued')}</p>}
+        {copy?.state === 'making' && <p className="text-[12px]">{t('inspector.copyMaking')}</p>}
+        {copy?.state === 'made' && <p className="text-[12px]">{copy.silent ? t('inspector.copySilent') : t('inspector.copyMade')}</p>}
+        {copy?.state === 'failed' && (
+          <p className="inline-block self-start bg-warning px-[7px] py-1 text-[12px] text-paper-fixed">{localizeError(copy.message)}</p>
+        )}
+      </div>
+      {copy?.state === 'making' && copy.done !== null && <BarGauge label={t('inspector.copyProgress')} value={Math.round(copy.done * 100)} />}
+    </div>
+  );
 }
 
 function Section({ title, children, dropShotId, start = false }: SectionProps) {
@@ -395,6 +428,8 @@ export function InspectorView({
   onLinkVideo,
   onRelinkVideo,
   onUnlinkVideo,
+  onMakeCopy,
+  onCancelCopy,
   onCropChange,
   locationName = null,
   onSketch,
@@ -567,11 +602,32 @@ export function InspectorView({
                     )}
                   </p>
                 )}
+                {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} />}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!video.gone && (
                   <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>
                     {t('inspector.relink')}
+                  </Button>
+                )}
+                {!video.gone && !video.missing && (video.copy?.state === 'none' || video.copy?.state === 'failed') && (
+                  <Button data-make-copy="" onClick={onMakeCopy}>
+                    {video.copy.state === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
+                  </Button>
+                )}
+                {!video.gone && (video.copy?.state === 'queued' || video.copy?.state === 'making') && (
+                  <Button
+                    data-cancel-copy=""
+                    onClick={(event) => {
+                      // The button goes once the copy stops; focus stays nearby, on Make playback copy.
+                      const section = event.currentTarget.closest('[data-inspector]');
+                      onCancelCopy?.();
+                      requestAnimationFrame(() => {
+                        section?.querySelector<HTMLElement>('[data-make-copy]')?.focus();
+                      });
+                    }}
+                  >
+                    {t('inspector.cancelCopy')}
                   </Button>
                 )}
                 <Button

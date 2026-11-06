@@ -1,7 +1,7 @@
 # Handoff
 
 Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a, D1 and D2. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+2.3a, D1, D2 and 2.3b. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -64,12 +64,7 @@ even when stuck, so only a count that goes up now counts), and `-profile:v high`
 takes the number, 100), which the checkpoint caught. Round 5 left nothing high or medium. The last checkpoint
 (`checkpoint/playback-2.3a-r6`) ran the copies on the Mac's VideoToolbox and Windows' software encoder.
 
-For Kevin, on his own computers, first in 2.3b's checklist and in this order (Kevin, Nov 6):
-1. Windows with a GPU: a copy of a real FX3 clip made by the **hardware** Media Foundation encoder (NV12, High
-   profile). CI has no GPU, so that path has never run; if it fails, the software encoder makes the copy anyway, more
-   slowly.
-2. A Mac: a long take on an external drive; unplug the drive halfway through the copy (the copy should fail and leave
-   nothing).
+Its two tests on Kevin's own computers (the hardware encoder, a drive unplugged) head 2.3b's checklist, below.
 
 Lows deferred from the 2.3a reviews (noted, not planned yet):
 - (Done in D2: a crash or Force Quit no longer leaves an encode's ffmpeg running; see "D2 as built".)
@@ -80,9 +75,8 @@ Lows deferred from the 2.3a reviews (noted, not planned yet):
   going missing under the Player anyway (below).
 - The "can't be set aside" branch of the settings load has no test (it needs a folder the test can't write; root ignores
   permissions, so skip when root).
-- Audio stored as separate mono tracks keeps only the first (Canon and Sony MXF, recorders' MOVs): the copy has only
-  CH1. Decided by Kevin (Nov 6), done in 2.3b: mix them all into one stereo track, with the gain kept low enough that
-  it never clips; a single stereo track stays as it is.
+- (Done in 2.3b: sound stored as separate mono tracks, as Canon and Sony MXF keep it, is mixed into the copy's
+  stereo, Kevin's decision of Nov 6; it used to keep only CH1.)
 
 Deferred from round 1 (still open): progress and Cancel for a long Move; key stability across path spellings; playing a
 copy while the original's drive is unplugged (the record could keep size and time, for 2.4); the Player's open copy
@@ -199,30 +193,48 @@ Lows deferred from D2 (noted, not planned yet):
 - A NAS that shows freed space more than a second late gets that drive remembered after one removal; it's forgotten
   once the reading shows the space, so the next copy goes ahead, but the one asking then is refused.
 
+### 2.3b: how it went, and what's left
+
+What it is: "2.3b as built" in `docs/PLAN.md`. The page's side of the copies: the queue
+(`src/features/video/playbackCopies.ts`), the drivers (`src/app/playback.ts`: the desktop one over Tauri's commands, the
+browser build's stand-in), the inspector's copy line, and Settings → Storage's sections for this computer
+(`src/app/project/PlaybackCopies.tsx`). Rust adds the mix of several mono tracks (`playback.rs`, `video::audio_tracks`)
+and `licence_text` (`src-tauri/src/licences.rs`). The end-to-end tests found that Escape in a window opened from inside
+Settings closed Settings too; fixed in `InAppWindow` for every window.
+
+For Kevin, on his own computers, in this order (Kevin, Nov 6):
+1. **Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder** (NV12, High
+   profile). Link the clip to a frame; the copy starts on its own. Task Manager's Performance tab, under the GPU, should
+   show its Video Encode graph rise while the copy is made. CI has no GPU, so that path has never run; if it fails, the
+   software encoder makes the copy anyway, more slowly, and the graph stays flat.
+2. **A Mac: a long take on an external drive; unplug the drive halfway through its copy.** The inspector should say the
+   copy failed, with Try again, and the copies' folder (shown in Settings → Storage) should hold nothing of it.
+3. A Sony or Canon MXF that keeps its channels as separate mono tracks: open its copy from the copies' folder in
+   QuickTime or VLC (the Player comes in 2.4); both channels' sound should be there, on both sides, never clipped.
+4. Settings → Storage in the installed app: the free space roughly as Finder or Explorer shows it (a little under on a
+   Mac); Licences… shows the text of each of the five files; Move to another drive… and Move back; Clear…, after which
+   the inspector says "No playback copy yet."
+5. Forget remembered videos…: afterwards a video outside its project's folder shows as missing, with Relink.
+
+Lows deferred (noted, not planned yet):
+- A copy refused for room (the floor) shows as failed and waits for Try again: nothing asks for it again once room
+  comes back (a Clear, a bigger cap, a lower floor).
+
 ## Next steps, in order
 
-1. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
-   Rust, since each waiting `make` holds a blocking thread), the copy's state in the inspector (soundless copies say so:
-   `MadeCopy.silent`), Settings → Storage (copies, size, cap, the free-space floor, Move, Clear, remembered videos and
-   Forget), and ffmpeg's licence (with zimg's and dav1d's). The commands: `playback_make` (progress on a channel;
-   returns `{ path, silent }`), `playback_find`, `playback_cancel`, `playback_info`, `playback_clear`,
-   `playback_set_cap`, `playback_set_floor` (D2), `playback_move`, `playback_move_back`, `known_videos_count`,
-   `known_videos_forget`. `playback_info` also gives `floorGb` and `freeBytes` (null when the drive can't tell); a
-   Move short of room fails with its own message after moving what fits, so the page should read `playback_info` again
-   after any Move, whatever it returned.
-2. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-3. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
+2. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
    copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
-4. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
+3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
-5. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+4. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;
@@ -282,6 +294,16 @@ Lows deferred from D2 (noted, not planned yet):
     in `playback-running.txt`, beside the settings.
   - HDR (D1): Mobius tone-mapping (203-nit reference white near SDR white; Hable left it mid-grey), the file's own peak
     for PQ, else 1000 nits; tags a file leaves out taken as BT.2020, non-constant luminance, limited range.
+- **Decided by default in 2.3b, for Kevin's review** (each easy to change):
+  - The queue lives on the page, one copy asked of Rust at a time, not in Rust.
+  - A copy is made when a video is linked or relinked, from the inspector, and (2.4) by the Player; opening a project
+    asks for none, so a big project never fills the cache unasked.
+  - The copy's state shows in the inspector's Video section.
+  - Settings → Storage holds the copies, the remembered videos and FFmpeg's licences (there's no About window yet);
+    its sizes there are decimal (GB and MB), as the cap and the floor are, where the project's own sizes are binary.
+  - The mix gives each of N mono tracks 1/N, so a take where only one of two mics was live plays 6 dB quieter than
+    it was recorded. Raising the level after the mix (loudness normalising) would need a second pass; left out.
+  - The browser build's stand-in pretends 2.5 s and 2.4 MB a copy.
 - **Known lows, deferred:** a Trash restore of a video still doesn't bring back its clip (undo of Remove does); after a
   project switch, a first missing-file check that times out leaves the flags off until the next focus; bit depth falls
   to 8 for a few packed pixel formats when the decoder doesn't say; the timecode track's own rate (59.94p with 29.97

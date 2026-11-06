@@ -10,12 +10,16 @@ import { showInfo, showNotice } from '../notice';
 import { projectStore, useProject } from '../projectStore';
 import { pluralKey, t } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
+import { canOpenFiles } from '../fileAccess';
+import { PlaybackCopiesPanel } from './PlaybackCopies';
 
 // Settings → Storage (1.21): what the project's pictures take, and the two ways to give space back, each after a
 // confirm that says it can't be undone. Empty Trash deletes the Trash for good. Clean up old pictures deletes pictures
 // only History still uses (one added and then undone, say), never one a named version shows; the steps that used them
 // then show "picture removed". Compact project (1.27) then shrinks the file itself, after a backup; it deletes
-// nothing, so it asks nothing.
+// nothing, so it asks nothing. Then, for this computer whatever project is open, the playback copies, the videos it
+// remembers and FFmpeg's licences (2.3b, PlaybackCopies.tsx); the placeholder browser build, which opens no files,
+// has none of them.
 
 export function StorageTile() {
   const project = useProject((s) => s.project);
@@ -64,7 +68,18 @@ export function StorageTile() {
     };
   }, [project, records, generation, deletedForGood]);
 
-  if (!project) return <p className="sb-label p-3 text-text-muted">{t('storageTile.noProjectOpen')}</p>;
+  if (!project) {
+    return (
+      <div className="flex max-w-[560px] flex-col gap-5 p-4">
+        <p className="sb-label text-text-muted">{t('storageTile.noProjectOpen')}</p>
+        {canOpenFiles && (
+          <div className="flex flex-col gap-5 border-t border-border pt-4">
+            <PlaybackCopiesPanel />
+          </div>
+        )}
+      </div>
+    );
+  }
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
   const inTrash = trashItems(records, project.projectId).length;
 
@@ -193,6 +208,12 @@ export function StorageTile() {
           {compacting ? t('storage.compacting') : t('storage.compact')}
         </Button>
       </section>
+
+      {canOpenFiles && (
+        <div className="flex flex-col gap-5 border-t border-border pt-4">
+          <PlaybackCopiesPanel />
+        </div>
+      )}
     </div>
   );
 }

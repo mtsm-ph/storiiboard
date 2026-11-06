@@ -3,6 +3,7 @@ import type { PictureFile } from '../../app/pictures';
 import type { VideoFile } from '../../app/video';
 import { isVideoName } from '../../core/media/video';
 import { placeFiles, type PreparedFile } from '../video/linkVideos';
+import { makeCopy } from '../video/playbackCopies';
 import { prepareVideo } from '../video/prepareVideo';
 import { picturesBusy } from './picturesBusy';
 import { projectStore } from '../../app/projectStore';
@@ -63,6 +64,8 @@ export async function addFiles(files: readonly AddedFile[], target: PictureTarge
     // A project switched meanwhile drops the edit without a word; the files left out are still worth saying.
     if (!saved && projectStore.getState().project === project) return;
     const result = placed as ReturnType<typeof placeFiles> | null;
+    // Each video linked gets its playback copy, one at a time (2.3b).
+    if (saved && result) result.videoIds.forEach(makeCopy);
     // Selected only once written: an edit that failed has said why already, and leaves nothing to select.
     const written = result?.selectShotId ? projectStore.getState().records[result.selectShotId] : undefined;
     if (result?.selectShotId && written) selectionStore.getState().selectShot(result.selectShotId, result.sceneId);
