@@ -149,9 +149,10 @@ describe('errors raised below the UI', () => {
         // Each file's test module comes last; its strings are fixtures, not messages.
         const code = text.split(/^#\[cfg\(test\)\]\r?\nmod tests/m)[0] ?? '';
         // Err("…"), format!("…"), ok_or("…") and "…".to_string() or .into(), which rustfmt may put on the next line; a
-        // format's {…} reads as X.
-        const found = code.matchAll(/(?:Err\(|format!\(|ok_or\()\s*"((?:[^"\\]|\\.)*)"|"((?:[^"\\]|\\.)*)"\s*\.(?:to_string|into)\(\)/g);
-        return [...found].map((m) => (m[1] ?? m[2] ?? '').replace(/\\"/g, '"').replace(/\{[^}]*\}/g, 'X'));
+        // format's {…} reads as X;
+        // and const NAME: &str = "…" (rustfmt may put the value on the next line), which most messages are.
+        const found = code.matchAll(/(?:Err\(|format!\(|ok_or\()\s*"((?:[^"\\]|\\.)*)"|"((?:[^"\\]|\\.)*)"\s*\.(?:to_string|into)\(\)|const \w+: &str =\s*"((?:[^"\\]|\\.)*)"/g);
+        return [...found].map((m) => (m[1] ?? m[2] ?? m[3] ?? '').replace(/\\"/g, '"').replace(/\{[^}]*\}/g, 'X'));
       })
       // Messages for people end a sentence; SQL, paths and names don't.
       .filter((m) => /^[A-Z"X].*\s.*[.]$/.test(m) && !/^(SELECT|INSERT|UPDATE|DELETE|PRAGMA|CREATE)\b/.test(m));

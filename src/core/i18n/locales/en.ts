@@ -984,6 +984,9 @@ export const en = {
   'error.copyBusy': 'A playback copy is being made; move the copies once it\'s done.',
   'error.copyShort': 'The playback copy came out shorter than the video. If it\'s on a card or a drive, check it\'s still connected.',
   'error.copyStalled': 'That video stopped being read partway. If it\'s on a card, a drive or a network share, check it\'s still connected.',
+  'error.copyMoving': 'The playback copies are being moved; try again once that\'s done.',
+  'error.copySettings': 'The settings for playback copies couldn\'t be saved.',
+  'error.copyOfCopy': 'That file is one of Storiiboard\'s playback copies. Link the original video instead.',
   'error.copyUnwritable': 'Playback copies can\'t be written in that folder.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',

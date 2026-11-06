@@ -361,9 +361,10 @@ pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     Ok((stream, file))
 }
 
-/// Whether a video's sound can go into a playback copy: its first second decoded and made into the copy's AAC, then
-/// thrown away. False when ffmpeg can't (no decoder for it, a layout the encoder refuses); an error when it couldn't
-/// tell (the file stopped answering). The playback copy drops the sound only on a false (playback.rs).
+/// Whether a video's sound can go into a playback copy: its first second decoded and made into the copy's AAC, a line
+/// of checksums for each piece made, then thrown away. False when ffmpeg can't (no decoder for it, a layout the encoder
+/// refuses) or makes nothing (a track with no sound in it); an error when it couldn't tell (the file itself can't be
+/// read now, or stopped answering). The playback copy drops the sound only on a false (playback.rs).
 pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
     let mut command = command("ffmpeg");
     command
@@ -371,10 +372,15 @@ pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
         .args(["-protocol_whitelist", "file", "-i"])
         .arg(path)
         .args(["-map", "0:a:0", "-t", "1"])
-        .args(["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "null", "-"]);
+        .args([
+            "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "framemd5", "-",
+        ]);
     match run(command, PROBE_TIMEOUT) {
-        Ok(_) => Ok(true),
-        Err(error) if error == CANT_READ => Ok(false),
+        Ok(out) => Ok(String::from_utf8_lossy(&out)
+            .lines()
+            .any(|line| !line.starts_with('#') && !line.trim().is_empty())),
+        // The file opens and its picture reads: it's the sound.
+        Err(error) if error == CANT_READ => starts(path).map(|_| false),
         Err(error) => Err(error),
     }
 }
@@ -1405,6 +1411,8 @@ mod tests {
         fs::write(&silent, unknown).unwrap();
         assert!(probe(&silent).unwrap().has_audio);
         assert_eq!(sound_plays(&silent), Ok(false));
+        // A file that can't be read at all says nothing about its sound.
+        assert!(sound_plays(&dir.join("gone.mov")).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 }
