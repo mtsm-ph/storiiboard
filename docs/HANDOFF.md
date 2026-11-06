@@ -64,10 +64,12 @@ even when stuck, so only a count that goes up now counts), and `-profile:v high`
 takes the number, 100), which the checkpoint caught. Round 5 left nothing high or medium. The last checkpoint
 (`checkpoint/playback-2.3a-r6`) ran the copies on the Mac's VideoToolbox and Windows' software encoder.
 
-For Kevin, at review stop A (2.4) or sooner, on his own computers:
-- Windows with a GPU: a copy made by the **hardware** Media Foundation encoder (NV12, High profile). CI has no GPU, so
-  that path has never run; if it fails, the software encoder makes the copy anyway, more slowly.
-- A Mac: a long take on an external drive; pull the drive midway (the copy should fail and leave nothing).
+For Kevin, on his own computers, first in 2.3b's checklist and in this order (Kevin, Nov 6):
+1. Windows with a GPU: a copy of a real FX3 clip made by the **hardware** Media Foundation encoder (NV12, High
+   profile). CI has no GPU, so that path has never run; if it fails, the software encoder makes the copy anyway, more
+   slowly.
+2. A Mac: a long take on an external drive; unplug the drive halfway through the copy (the copy should fail and leave
+   nothing).
 
 Lows deferred from the 2.3a reviews (noted, not planned yet):
 - (Done in D2: a crash or Force Quit no longer leaves an encode's ffmpeg running; see "D2 as built".)
@@ -79,7 +81,8 @@ Lows deferred from the 2.3a reviews (noted, not planned yet):
 - The "can't be set aside" branch of the settings load has no test (it needs a folder the test can't write; root ignores
   permissions, so skip when root).
 - Audio stored as separate mono tracks keeps only the first (Canon and Sony MXF, recorders' MOVs): the copy has only
-  CH1. Mix the mono tracks (`amerge`) or pick the first one that decodes: a product call for Kevin.
+  CH1. Decided by Kevin (Nov 6), done in 2.3b: mix them all into one stereo track, with the gain kept low enough that
+  it never clips; a single stereo track stays as it is.
 
 Deferred from round 1 (still open): progress and Cancel for a long Move; key stability across path spellings; playing a
 copy while the original's drive is unplugged (the record could keep size and time, for 2.4); the Player's open copy
@@ -253,10 +256,12 @@ Lows deferred from D2 (noted, not planned yet):
 
 ## Decisions
 
-- **Pending for Kevin:** none that blocks the next milestone. One product call, when convenient: should a copy mix
-  separate mono audio tracks (Canon and Sony MXF keep each channel on its own track), or keep only the first? Today: the
-  first.
-- **Decided by default, for Kevin's review** (easy to undo):
+- **Pending for Kevin:** none.
+- **Decided by Kevin (Nov 6):** a copy of a file whose sound is several mono tracks (Sony and Canon MXF) mixes them all
+  into one stereo track, its gain kept low enough that it never clips; a file with a single stereo track stays as it
+  is (2.3b).
+- **Decided by default, confirmed by Kevin (Nov 6)**: everything below, Mobius tone-mapping and BT.2020 as the fallback
+  included. Decisions made by default from 2.3b on are listed apart, for his review.
   - 2.2 and 2.3 were each split in two PRs, to keep reviews short.
   - A video record sits under the project, not a frame, so two frames can play parts of one video; a frame's picture
     is the video's frame 0 (the in point); a still picture replacing it ends the frame's clip; a video this computer
