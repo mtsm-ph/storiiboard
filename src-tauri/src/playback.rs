@@ -862,7 +862,7 @@ impl PlaybackCache {
                     partial: &partial,
                     rate: (probe.fps_num, probe.fps_den),
                     offset: facts.stream_start - facts.file_start,
-                    tone_map: tone_map.as_deref(),
+                    tone_map: tone_map.as_ref(),
                     encoder,
                     sound,
                 };
@@ -955,14 +955,14 @@ impl PlaybackCache {
         // Square pixels and the long-edge cap in one scale; deinterlaced first if the frames are interlaced. The
         // encoder's own pixel format comes with its options.
         let fit = format!("min(1,{LONG_EDGE}/max(iw*sar,ih))");
-        let mut filter = format!(
+        let filter = format!(
             "bwdif=mode=send_frame:deint=interlaced,scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
         );
         // HDR brought to normal-range BT.709 after the scale, so the tone-mapping works on the smaller picture.
-        if let Some(tone_map) = run.tone_map {
-            filter.push(',');
-            filter.push_str(tone_map);
-        }
+        let filter = match run.tone_map {
+            Some(tone_map) => tone_map.around(&filter),
+            None => filter,
+        };
         let mut command = video::command("ffmpeg");
         command
             .args(["-hide_banner", "-loglevel", "error", "-y"])
@@ -1337,7 +1337,7 @@ struct Run<'a> {
     rate: (u32, u32),
     offset: f64,
     /// HDR's way to normal range (video::tone_map), when the original is HDR.
-    tone_map: Option<&'a str>,
+    tone_map: Option<&'a video::ToneMap>,
     encoder: &'a [&'a str],
     sound: bool,
 }

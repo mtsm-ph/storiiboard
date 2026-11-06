@@ -195,30 +195,49 @@ case "$triple" in
   x86_64*)
     # On x86, FFmpeg's and dav1d's assembly are both written with x86inc.asm, whose ISC notice must come with the
     # binary (it's the same file, by the x264 project, in both).
+    # Cut out by its words, not its line numbers, and checked: a later dav1d may move it.
+    notice=$(sed -n '/Copyright (C) .*x264 project/,/PERFORMANCE OF THIS SOFTWARE/p' \
+      "$work/dav1d-${DAV1D_VERSION}/src/ext/x86/x86inc.asm" | sed 's/^;\* \{0,1\}//')
+    grep -q 'x264 project' <<<"$notice" && grep -q 'PERFORMANCE OF THIS SOFTWARE' <<<"$notice" ||
+      { echo "x86inc.asm's notice not found" >&2; exit 1; }
     {
       echo
       echo "On x86, ffmpeg and ffprobe include code assembled from x86inc.asm, under this notice:"
       echo
-      sed -n '4,21p' "$work/dav1d-${DAV1D_VERSION}/src/ext/x86/x86inc.asm" | sed 's/^;\* \{0,1\}//'
+      echo "$notice"
     } >> "$out/ffmpeg-SOURCE.txt"
     ;;
 esac
 case "$triple" in
   *windows*)
-    # Linked statically from MSYS2: zlib (zlib licence), MinGW-w64's winpthreads (MIT-style), whose notice must
-    # travel with the binary, and GCC's C++ runtime for zimg (GPL 3 with the GCC Runtime Library Exception, which
-    # allows it in any program built with GCC). Their exact MSYS2 packages are named, so their sources can be found.
+    # Linked statically from MSYS2: zlib (zlib licence), GCC's C++ runtime for zimg (GPL 3 with the GCC Runtime
+    # Library Exception, which allows it in any program built with GCC), and MinGW-w64's runtime and winpthreads,
+    # whose notices must travel with the binary. The packages are named by who owns the libraries actually linked, so
+    # their exact sources can be found.
+    linked=""
+    for lib in libstdc++.a libgcc.a libz.a libwinpthread.a libmingwex.a libmingw32.a; do
+      file=$(gcc -print-file-name="$lib" 2>/dev/null || true)
+      if [ -f "$file" ]; then linked="$linked $file"; fi
+    done
+    # shellcheck disable=SC2086 # one path per word, on purpose
+    packages=$( (pacman -Qqo $linked 2>/dev/null || true) | sort -u | (xargs -r pacman -Q 2>/dev/null || true) | sed 's/^/  /')
     {
       echo
       echo "The Windows build also links zlib (https://zlib.net, zlib licence), GCC's C++ runtime for zimg (GPL 3 with"
-      echo "the GCC Runtime Library Exception) and MinGW-w64's winpthreads, from these MSYS2 packages (sources at"
-      echo "https://github.com/msys2/MINGW-packages):"
-      pacman -Q 2>/dev/null | grep -E '^mingw-w64-x86_64-(gcc|gcc-libs|zlib|winpthreads|libwinpthread)( |-git )' | sed 's/^/  /' || true
-      echo
-      echo "winpthreads' licence follows."
-      echo
-      found=$(find /mingw64/share/licenses -ipath '*pthread*' -type f 2>/dev/null | head -n 1 || true)
-      if [ -n "$found" ]; then cat "$found"; else echo "(winpthreads: see https://github.com/mingw-w64/mingw-w64, mingw-w64-libraries/winpthreads/COPYING)"; fi
+      echo "the GCC Runtime Library Exception), and MinGW-w64's runtime and winpthreads, from these MSYS2 packages"
+      echo "(sources at https://github.com/msys2/MINGW-packages):"
+      if [ -n "$packages" ]; then echo "$packages"; else echo "  (MSYS2 couldn't say which packages; see the MINGW64 toolchain of this build's date)"; fi
+      for licence in pthread crt; do
+        found=$(find /mingw64/share/licenses -ipath "*${licence}*" -type f 2>/dev/null | head -n 1 || true)
+        echo
+        if [ -n "$found" ]; then
+          echo "The licence of MinGW-w64's ${licence} ($(basename "$(dirname "$found")")):"
+          echo
+          cat "$found"
+        else
+          echo "(MinGW-w64's ${licence}: see https://github.com/mingw-w64/mingw-w64, its COPYING files)"
+        fi
+      done
     } >> "$out/ffmpeg-SOURCE.txt"
     ;;
 esac

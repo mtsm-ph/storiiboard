@@ -984,7 +984,8 @@ Tauri, React and the build tools bring with them.
 | pdf-lib 1.17.1, @pdf-lib/fontkit 1.1.1 | MIT | The PDF storyboard and, later, call sheets | Nov 4 |
 
 The installers ship each built-in licence beside the binaries (`ffmpeg-LICENSE.txt` and `.md`, `zimg-LICENSE.txt`,
-`dav1d-LICENSE.txt`) and `ffmpeg-SOURCE.txt`, which records every source, its checksum and how it was built; the source
+`dav1d-LICENSE.txt`) and `ffmpeg-SOURCE.txt`, which records every source, its checksum and how it was built, with
+x86inc.asm's ISC notice on x86 and, on Windows, the MSYS2 runtime packages linked in and their notices; the source
 tarballs ride in every CI artifact (`scripts/ffmpeg/README.md`).
 
 ## The .sbd project file

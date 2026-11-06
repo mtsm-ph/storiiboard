@@ -464,8 +464,9 @@ pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
 /// would leave it mid-grey. Highlights reach white at the signal's peak: the file's own (`Colour::peak_nits`), handed to
 /// tonemap since zscale doesn't pass the metadata on, else tonemap's 1000 nits. A tag the file doesn't carry, or one
 /// zscale doesn't know, is taken as HDR's usual (BT.2020, non-constant luminance, limited range): zscale won't guess.
-/// zimg's HLG is display-referred with a 1.2 gamma per channel, close to BT.2100's luminance-based one.
-pub(crate) fn tone_map(colour: &Colour) -> Option<String> {
+/// zimg's HLG is display-referred with a 1.2 gamma per channel, close to BT.2100's luminance-based one. The peak is read
+/// from the container (`facts`); a stream that carries it only in its frames (some transport streams) gets 1000 nits.
+pub(crate) fn tone_map(colour: &Colour) -> Option<ToneMap> {
     let transfer = colour.transfer.as_str();
     if !matches!(transfer, "smpte2084" | "arib-std-b67") {
         return None;
@@ -496,7 +497,9 @@ pub(crate) fn tone_map(colour: &Colour) -> Option<String> {
         ],
         "bt2020",
     );
-    let matrix = known(
+    // Constant luminance zimg does only with SDR's transfer, and ICtCp only with BT.2020 primaries (as BT.2100 has
+    // them): an HDR file tagged otherwise is mis-tagged, and decoded as the usual non-constant luminance.
+    let mut matrix = known(
         &colour.matrix,
         &[
             "bt709",
@@ -506,23 +509,63 @@ pub(crate) fn tone_map(colour: &Colour) -> Option<String> {
             "smpte240m",
             "ycgco",
             "bt2020nc",
-            "bt2020c",
             "chroma-derived-nc",
-            "chroma-derived-c",
             "ictcp",
         ],
         "bt2020nc",
     );
+    if matrix == "ictcp" && primaries != "bt2020" {
+        matrix = "bt2020nc".into();
+    }
     let range = known(&colour.range, &["tv", "pc"], "tv");
-    // In tonemap's units (100 nits as 1), and never below white itself.
+    // In tonemap's units (100 nits as 1), and never below white itself. PQ only: zimg shows HLG on a 1000-nit display
+    // whatever its metadata says, which is tonemap's own peak.
     let peak = colour
         .peak_nits
+        .filter(|_| transfer == "smpte2084")
         .map(|nits| format!(":peak={:.2}", (nits / 100.0).clamp(1.0, 100.0)))
         .unwrap_or_default();
-    Some(format!(
-        "zscale=tin={transfer}:pin={primaries}:min={matrix}:rin={range}:t=linear:npl=100:p={primaries}:m={matrix},\
-         format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0{peak},zscale=t=bt709:m=bt709:r=tv"
-    ))
+    // FFmpeg's own filters (bwdif, scale) refuse frames tagged with a matrix swscale doesn't know: such frames are only
+    // re-tagged for them, and zscale is told the real one.
+    let before = if SWSCALE_MATRICES.contains(&colour.matrix.as_str()) {
+        ""
+    } else {
+        "setparams=colorspace=bt2020nc,"
+    };
+    Some(ToneMap {
+        before,
+        after: format!(
+            "zscale=tin={transfer}:pin={primaries}:min={matrix}:rin={range}:t=linear:npl=100:p={primaries}:m={matrix},\
+             format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0{peak},zscale=t=bt709:m=bt709:r=tv"
+        ),
+    })
+}
+
+/// The matrices swscale (and so FFmpeg's scale and bwdif) take, as ffprobe names them; untagged too.
+const SWSCALE_MATRICES: [&str; 9] = [
+    "",
+    "unknown",
+    "gbr",
+    "bt709",
+    "fcc",
+    "bt470bg",
+    "smpte170m",
+    "smpte240m",
+    "bt2020nc",
+];
+
+/// HDR's way to normal range: `before` goes ahead of FFmpeg's own filters, `after` follows them.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ToneMap {
+    pub before: &'static str,
+    pub after: String,
+}
+
+impl ToneMap {
+    /// `middle` (deinterlacing, scaling) with the tone map around it.
+    pub(crate) fn around(&self, middle: &str) -> String {
+        format!("{}{middle},{}", self.before, self.after)
+    }
 }
 
 /// Whether a video's sound can go into a playback copy: its first second decoded and made into the copy's AAC, a line
@@ -595,19 +638,7 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
     let (stream_start, file_start) = (facts.stream_start, facts.file_start);
     // A quarter frame early, frame 0 included: the output seek compares against the frame's own timestamp.
     let into = (frame as f64 - 0.25) * f64::from(fps_den) / f64::from(fps_num);
-    // One scale: square pixels and the cap together, so an 8K 2x anamorphic frame never makes a 16K one on the way.
-    // Quoted, so the commas in min() and max() stay inside the expressions.
-    let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
-    let scale = format!("scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1");
-    // HDR comes out in normal range, as the playback copy shows it. Only the frame asked for is tone-mapped: the ones
-    // decoded on the way to it are dropped first (by their own timestamps, which -copyts keeps).
-    let filter = match tone_map(&facts.colour) {
-        Some(tone_map) => format!(
-            "bwdif=mode=send_frame:deint=interlaced,trim=start={:.6},{scale},{tone_map}",
-            stream_start + into
-        ),
-        None => format!("bwdif=mode=send_frame:deint=interlaced,{scale}"),
-    };
+    let filter = still_filter(&facts.colour, stream_start + into);
     let early = (stream_start - file_start + into - STILL_PREROLL).max(0.0);
     let mut command = command("ffmpeg");
     command
@@ -627,6 +658,22 @@ pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<
         return Err(CANT_READ.into());
     }
     Ok(bytes)
+}
+
+/// A still's filters, for a frame at `at` in the file's own seconds (as -copyts keeps them): deinterlaced, its pixels
+/// made square at most 2560 px on the long edge (one scale: an 8K 2x anamorphic frame never makes a 16K one on the
+/// way; quoted, so the commas in min() and max() stay inside the expressions), and HDR brought to normal range, as the
+/// playback copy shows it. Only the frame asked for is tone-mapped: those decoded on the way to it are dropped first,
+/// by their own timestamps.
+fn still_filter(colour: &Colour, at: f64) -> String {
+    let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
+    let scale = format!("scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1");
+    match tone_map(colour) {
+        Some(tone_map) => tone_map.around(&format!(
+            "bwdif=mode=send_frame:deint=interlaced,trim=start={at:.6},{scale}"
+        )),
+        None => format!("bwdif=mode=send_frame:deint=interlaced,{scale}"),
+    }
 }
 
 /// File types a video may be (src/core/media/video.ts, VIDEO_EXTENSIONS). RAW formats need a maker's SDK.
@@ -1728,7 +1775,9 @@ mod tests {
         };
         assert_eq!(tone_map(&colour("bt709", "bt709", "bt709", "tv")), None);
         assert_eq!(tone_map(&colour("", "", "", "")), None);
-        let pq = tone_map(&colour("smpte2084", "bt2020", "bt2020nc", "tv")).unwrap();
+        let pq = tone_map(&colour("smpte2084", "bt2020", "bt2020nc", "tv"))
+            .unwrap()
+            .after;
         assert!(
             pq.starts_with("zscale=tin=smpte2084:pin=bt2020:min=bt2020nc:rin=tv:t=linear:npl=100")
         );
@@ -1736,10 +1785,39 @@ mod tests {
             pq.contains("tonemap=tonemap=mobius") && pq.ends_with("zscale=t=bt709:m=bt709:r=tv")
         );
         // ICtCp, which zscale knows, kept.
-        let ictcp = tone_map(&colour("smpte2084", "bt2020", "ictcp", "tv")).unwrap();
+        let ictcp = tone_map(&colour("smpte2084", "bt2020", "ictcp", "tv"))
+            .unwrap()
+            .after;
         assert!(ictcp.contains(":min=ictcp:"), "{ictcp}");
+        // ICtCp only with BT.2020 primaries, constant luminance never: both mis-tagged for HDR.
+        let ictcp_p3 = tone_map(&colour("smpte2084", "smpte432", "ictcp", "tv"))
+            .unwrap()
+            .after;
+        assert!(ictcp_p3.contains(":min=bt2020nc:"), "{ictcp_p3}");
+        let cl = tone_map(&colour("smpte2084", "bt2020", "bt2020c", "tv")).unwrap();
+        assert!(cl.after.contains(":min=bt2020nc:"), "{cl:?}");
+        // Frames tagged with a matrix FFmpeg's own filters refuse are re-tagged for them; zscale still reads the real one.
+        assert_eq!(cl.before, "setparams=colorspace=bt2020nc,");
+        assert_eq!(
+            tone_map(&colour("smpte2084", "bt2020", "ictcp", "tv"))
+                .unwrap()
+                .before,
+            "setparams=colorspace=bt2020nc,"
+        );
+        assert_eq!(
+            tone_map(&colour("smpte2084", "bt2020", "bt2020nc", "tv"))
+                .unwrap()
+                .before,
+            ""
+        );
+        assert_eq!(
+            tone_map(&colour("smpte2084", "", "", "")).unwrap().before,
+            ""
+        );
         // P3 primaries kept; an unknown matrix and range taken as HDR's usual.
-        let p3 = tone_map(&colour("arib-std-b67", "smpte432", "unknown", "")).unwrap();
+        let p3 = tone_map(&colour("arib-std-b67", "smpte432", "unknown", ""))
+            .unwrap()
+            .after;
         assert!(
             p3.starts_with("zscale=tin=arib-std-b67:pin=smpte432:min=bt2020nc:rin=tv"),
             "{p3}"
@@ -1814,42 +1892,94 @@ mod tests {
     }
 
     #[test]
-    fn an_hdr_still_is_the_exact_frame_asked_for_and_keeps_its_colour() {
+    fn an_hdr_still_is_the_exact_frame_asked_for_in_a_file_that_starts_late() {
         let dir = temp_dir("hdr-frames");
-        // Black but for frame 10, at reference white: only the frame asked for is tone-mapped, and it's that one.
+        // Black but for frame 10, at reference white, in a file whose timestamps start at 10 s: only the frame asked
+        // for is tone-mapped, by the file's own clock, and it's that one.
         let clip = make(
             &dir,
-            "pq frames.mov",
+            "pq frames.mkv",
             &["-f", "lavfi", "-i", "color=c=black:size=320x180:rate=25:duration=1"],
             &[
                 "-vf",
                 &format!("format=yuv422p10le,geq=lum='if(eq(N,10),{PQ_WHITE},64)':cb=512:cr=512,setparams=range=tv:{PQ}"),
                 "-c:v",
                 "prores_ks",
+                "-output_ts_offset",
+                "10",
             ],
+        );
+        let (stream_start, _) = starts(&clip).unwrap();
+        assert!(
+            (stream_start - 10.0).abs() < 0.01,
+            "starts at {stream_start}"
         );
         for (frame, white) in [(9, false), (10, true), (11, false)] {
             let grey = mean_grey(&dir, &still(&clip, frame, 25, 1).unwrap());
             assert_eq!(grey > 200.0, white, "frame {frame}: {grey}");
         }
-        // A red from BT.2020 stays red in BT.709: the matrix and the primaries are read, not only the brightness.
-        let red = flat_10_bit(&dir, "pq red.mov", PQ_WHITE, PQ);
-        let red = make(
-            &dir,
-            "pq red 2.mov",
-            &["-i", red.to_str().unwrap()],
-            &[
-                "-vf",
-                &format!("geq=lum='lum(X,Y)':cb=440:cr=760,setparams=range=tv:{PQ}"),
-                "-c:v",
-                "prores_ks",
-            ],
-        );
-        let [r, g, b] = mean_rgb(&dir, &still(&red, 0, 25, 1).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_still_trims_to_its_frame_before_the_tone_map_and_only_for_hdr() {
+        let pq = Colour {
+            transfer: "smpte2084".into(),
+            ..Colour::default()
+        };
+        let filter = still_filter(&pq, 13.49);
+        let trim = filter.find("trim=start=13.490000,").expect("trimmed");
         assert!(
-            r > g + 40.0 && r > b + 40.0,
-            "red, green, blue: {r} {g} {b}"
+            trim < filter.find("scale=").unwrap() && trim < filter.find("zscale=").unwrap(),
+            "{filter}"
         );
+        let sdr = still_filter(&Colour::default(), 13.49);
+        assert!(!sdr.contains("trim") && !sdr.contains("zscale"), "{sdr}");
+    }
+
+    #[test]
+    fn hdr_colours_come_out_right_whatever_the_file_tags_its_matrix() {
+        let dir = temp_dir("hdr-colour");
+        // One BT.2020 colour each, inside BT.709's gamut, as measured with this build: the first moves its green by 32
+        // without the primaries' conversion, the second by 12 when read with BT.709's matrix.
+        let colour = |name: &str, y: u32, cb: u32, cr: u32, matrix: &str| {
+            make(
+                &dir,
+                name,
+                &["-f", "lavfi", "-i", "color=c=black:size=64x36:rate=25:duration=0.2"],
+                &[
+                    "-vf",
+                    &format!(
+                        "format=yuv422p10le,geq=lum={y}:cb={cb}:cr={cr},setparams=range=tv:color_primaries=bt2020:\
+                         color_trc=smpte2084:colorspace={matrix}"
+                    ),
+                    "-c:v",
+                    "prores_ks",
+                ],
+            )
+        };
+        let near = |rgb: [f64; 3], expected: [f64; 3]| {
+            rgb.iter()
+                .zip(expected)
+                .all(|(got, want)| (got - want).abs() <= 5.0)
+        };
+        let orange = colour("orange.mov", 520, 470, 560, "bt2020nc");
+        let rgb = mean_rgb(&dir, &still(&orange, 0, 25, 1).unwrap());
+        assert!(near(rgb, [246.0, 127.0, 98.0]), "{rgb:?}");
+        let cyan = colour("cyan.mov", 500, 560, 400, "bt2020nc");
+        let rgb = mean_rgb(&dir, &still(&cyan, 0, 25, 1).unwrap());
+        assert!(near(rgb, [0.0, 212.0, 241.0]), "{rgb:?}");
+        // The same pixels tagged BT.709's matrix are read with it.
+        let cyan_709 = colour("cyan 709.mov", 500, 560, 400, "bt709");
+        let rgb = mean_rgb(&dir, &still(&cyan_709, 0, 25, 1).unwrap());
+        assert!(near(rgb, [0.0, 200.0, 241.0]), "{rgb:?}");
+        // Constant luminance, which zimg does only for SDR: read as the usual matrix, never refused. ICtCp with BT.2020:
+        // read as ICtCp, whose I at PQ's reference white lands where Y does.
+        for matrix in ["bt2020c", "chroma-derived-c", "ictcp"] {
+            let clip = colour(&format!("{matrix}.mov"), 572, 512, 512, matrix);
+            let grey = mean_grey(&dir, &still(&clip, 0, 25, 1).unwrap());
+            assert!((225.0..=250.0).contains(&grey), "{matrix}: {grey}");
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1874,17 +2004,28 @@ mod tests {
         assert_eq!(facts.colour.peak_nits, Some(4000.0));
         assert!(tone_map(&facts.colour)
             .unwrap()
+            .after
             .contains("tonemap=tonemap=mobius:desat=0:peak=40.00,"));
         // None said: tonemap's own 1000 nits.
         let none = read_facts(&json(serde_json::json!([])));
         assert_eq!(none.colour.peak_nits, None);
-        assert!(tone_map(&none.colour).unwrap().contains("desat=0,zscale"));
+        assert!(tone_map(&none.colour)
+            .unwrap()
+            .after
+            .contains("desat=0,zscale"));
+        // HLG is always shown on a 1000-nit display: a peak in its metadata (copied from a PQ master, say) is left out.
+        let hlg = Colour {
+            transfer: "arib-std-b67".into(),
+            peak_nits: Some(4000.0),
+            ..Colour::default()
+        };
+        assert!(!tone_map(&hlg).unwrap().after.contains(":peak="));
         // A peak below white itself is taken as white.
         let dim = Colour {
-            transfer: "arib-std-b67".into(),
+            transfer: "smpte2084".into(),
             peak_nits: Some(50.0),
             ..Colour::default()
         };
-        assert!(tone_map(&dim).unwrap().contains(":peak=1.00"));
+        assert!(tone_map(&dim).unwrap().after.contains(":peak=1.00"));
     }
 }

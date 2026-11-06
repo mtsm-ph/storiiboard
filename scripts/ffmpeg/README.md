@@ -12,8 +12,9 @@ which decodes AV1. The build checks itself: it fails unless ffmpeg reports the L
 
 The installers ship `ffmpeg-LICENSE.txt` (the LGPL 2.1), `ffmpeg-LICENSE.md` (FFmpeg's notes on its licences),
 `zimg-LICENSE.txt`, `dav1d-LICENSE.txt` and `ffmpeg-SOURCE.txt` (the exact sources and their checksums, the Storiiboard
-commit, the compiler and the configure line; on Windows also the notices for the statically linked zlib, GCC's C++
-runtime and winpthreads), as the licences ask. The source tarballs themselves (`ffmpeg-<version>.tar.xz`,
+commit, the compiler and the configure line; on x86 also x86inc.asm's ISC notice, whose assembly is in both FFmpeg and
+dav1d; on Windows also the MSYS2 packages linked in statically, for zlib, GCC's C++ runtime and MinGW-w64's runtime and
+winpthreads, with the last two's notices), as the licences ask. The source tarballs themselves (`ffmpeg-<version>.tar.xz`,
 `zimg-<version>.tar.gz`, `dav1d-<version>.tar.xz`) sit beside the binaries in every CI artifact: whoever hands out an
 installer hands out the source from the same place, and the Phase 8 release attaches them to each release.
 
