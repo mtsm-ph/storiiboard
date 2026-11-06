@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 6, 2026 (2.3a, D1 and D2 merged; 2.3b next) |
+| Last updated | Nov 6, 2026 (2.3a, D1, D2 and 2.3b merged; 2.4 next) |
 
 | Phase | State |
 |---|---|
@@ -42,7 +42,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
 | D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
-| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
+| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | Done |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
 | 2.6 Crop | | Not started |
@@ -53,6 +53,44 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.3b as built (Nov 6): what the person sees of the copies, and the sound of files that keep each channel apart.
+- The queue lives on the page (`src/features/video/playbackCopies.ts`): one `playback_make` at a time, the rest waiting
+  there in the order asked, so a waiting copy holds no thread in Rust and comes off the queue at once when cancelled. A
+  project switch stops the copy being made and forgets the rest. A copy is asked for when a video is linked or relinked
+  (a relinked video's copy is made again), from the inspector, and (2.4) by the Player; opening a project asks for none,
+  so a big project never fills the cache unasked.
+- The inspector's Video section says where the video's copy stands: none yet, waiting its turn, being made (with a
+  progress bar), ready, ready without sound, or failed in Rust's words. One button goes with it, Make playback copy
+  (Try again after a failure) or Cancel copy, one element whatever its job, so focus stays on it; when it goes (the copy
+  made), focus moves to the copy's line (to Relink if the video went missing). A double click or a held key doesn't
+  make and cancel by turns. A live region reads each change. A copy known as made is looked for again when asked for
+  (the cap or a Clear may have removed it), and a shown one when another copy is made (its room may have come from
+  it); the inspector looks again when the video's file changes (an undo of a relink). A failure keeps its words
+  through a Clear, a Move or a cap change.
+- Settings → Storage, for this computer, below the project's sections (and on its own with no project open):
+  - the copies: how many, their size against the cap (decimal GB, with a gauge), the copy being made and how many wait,
+    the folder, the drive's free space against the floor, the cap and floor fields (whole GB, thousands grouped only as
+    the app's language writes them; saved with Enter where they are, or as the person moves on, and said; an entry
+    out of range says so and goes back), Move to another drive… (says a copy is being made before asking for a folder), Move back, and
+    Clear… (asks first; cancelled, focus stays on the button). A lower cap tells the inspector to look again. If the
+    copies can't be read, the section says why and still offers Move back;
+  - remembered videos, with Forget… (asks first, then checks the open project's videos again; a list that can't be
+    saved, or couldn't be read at start, forgets nothing and says so);
+  - FFmpeg, with its licences in a window of their own (FFmpeg's LGPL and notes, zimg's, dav1d's, where the exact
+    sources are), read from the installed files by `licence_text`, which takes only the five names the app ships.
+- Sound kept as several mono tracks (Sony and Canon MXF, a recorder's MOV) is mixed into one: each track at 1/N, then
+  1 dB under, the same on both channels, so the mix never clips (Kevin, Nov 6). A file with one track, or tracks of two
+  channels or more, keeps its first track as before. Like the sound itself, the mix is given up only when it's the
+  cause: an attempt failed and the mix alone (its first second) can't be made. Then each track is tried alone and the
+  ones that decode are mixed (or the one that does, as it is; if each decodes alone, the first, as before the mix);
+  with none, the copy has no sound. Any other failure (a hardware encoder, then Windows' software one) keeps the mix.
+  Tracks that can't be counted (a share slow to answer) give no copy yet, never one with the first track alone. The copies' recipe moved on (`2.3-3`), so copies made
+  before are made again.
+- `playback_info` says whether the copies were moved (`moved`), for Move back.
+- The browser build pretends: each copy takes 2.5 s and 2.4 MB, kept for the page; the licences say they ship with the
+  desktop app.
+- A window opened from inside another (Licences, from Settings) closes alone on Escape (`src/ui/InAppWindow.tsx`).
 
 D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Tauri's tree) and `src-tauri/src/os.rs`.
 - A free-space floor, 10 GB by default (1 to 1,000 GB, `playback_set_floor`; 2.3b shows it in Settings → Storage).

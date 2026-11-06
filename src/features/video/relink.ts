@@ -6,6 +6,7 @@ import { localizeError, t, tn, type MessageKey } from '../../core/i18n';
 import { frameTimecode, rateValue, type Rational } from '../../core/media/timecode';
 import { readClip, relinkChange, videoFields, type VideoFields, type VideoProbe } from '../../core/media/video';
 import type { SbdRecord } from '../../core/model/record';
+import { remakeCopy } from './playbackCopies';
 import { checkVideos } from './videoStatus';
 
 // Relink (2.2b, CLAUDE.md: flag missing media and offer relink): point a video record at its file again, after it
@@ -110,7 +111,9 @@ export async function relinkVideo(videoId: string): Promise<void> {
     // The project may have closed, or the video gone to the Trash, while the dialogs were up.
     if (projectStore.getState().project !== project || !liveVideo(projectStore.getState().records, videoId)) return;
     const source = { name: file.name, ...(file.path ? { path: file.path } : {}), ...(size !== null ? { size } : {}) };
-    await projectStore.getState().apply([relinkChange(videoId, probe, source, project.file.path)]);
+    const relinked = await projectStore.getState().applyWith(() => ({ changes: [relinkChange(videoId, probe, source, project.file.path)] }));
+    // The copy of the old file doesn't play this one (2.3b).
+    if (relinked) remakeCopy(videoId);
     await checkVideos();
   } catch (error) {
     showNotice(localizeError(reason(error)));

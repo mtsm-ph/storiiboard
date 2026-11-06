@@ -1,5 +1,5 @@
 import { EditableTitle } from '../../ui/EditableTitle';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
 import type { JsonValue } from '../../core/model/record';
@@ -30,14 +30,14 @@ import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
-import { Select, TextField } from '../../ui/fields';
+import { BarGauge, Select, TextField } from '../../ui/fields';
 import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { CropEditor } from './CropEditor';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
-import { labels, t } from '../../core/i18n';
+import { labels, localizeError, t } from '../../core/i18n';
 
 // The Frame inspector (design board, Storyboard workspace): the selected frame's picture, camera and story, then its
 // scene.
@@ -69,7 +69,18 @@ export interface InspectorVideo {
   missing: boolean;
   /** The video's record is gone (Empty Trash, a History restore): only Unlink is left to do. */
   gone: boolean;
+  /** Its playback copy (2.3b); left out while it hasn't been looked for. */
+  copy?: InspectorCopy;
 }
+
+/** A video's playback copy (2.3b): none yet, waiting its turn, being made (how far, 0 to 1, when known), made (without
+ * sound when the original's couldn't be read), or failed with Rust's message. */
+export type InspectorCopy =
+  | { state: 'none' }
+  | { state: 'queued' }
+  | { state: 'making'; done: number | null }
+  | { state: 'made'; silent: boolean }
+  | { state: 'failed'; message: string };
 
 /** A set and an unset, as one update op takes them. */
 export interface FieldChange {
@@ -99,6 +110,9 @@ export interface InspectorViewProps {
   onLinkVideo?: () => void;
   onRelinkVideo?: () => void;
   onUnlinkVideo?: () => void;
+  /** Puts the video's playback copy on the queue, or tries again (2.3b). */
+  onMakeCopy?: () => void;
+  onCancelCopy?: () => void;
   onCropChange?: (crop: Crop) => void;
   /** Opens the frame's sketch in the editor. */
   onSketch?: () => void;
@@ -221,6 +235,26 @@ interface SectionProps {
   dropShotId?: string;
   /** Where Enter on a frame takes focus. */
   start?: boolean;
+}
+
+/** The playback copy's line (2.3b). The live region is always there, so the line is heard as it changes; the
+ * percentage is a meter beside it, so it isn't read out every half second. */
+function CopyLine({ copy, lineRef }: { copy: InspectorCopy | undefined; lineRef?: Ref<HTMLDivElement> }) {
+  return (
+    // Focusable by script only: where focus goes when the copy's button goes (the copy made).
+    <div ref={lineRef} tabIndex={-1} data-copy-line="" className="flex flex-col gap-1.5">
+      <div role="status" data-copy-state="" className="flex">
+        {copy?.state === 'none' && <p className="text-[12px] text-text-muted">{t('inspector.copyNone')}</p>}
+        {copy?.state === 'queued' && <p className="text-[12px]">{t('inspector.copyQueued')}</p>}
+        {copy?.state === 'making' && <p className="text-[12px]">{t('inspector.copyMaking')}</p>}
+        {copy?.state === 'made' && <p className="text-[12px]">{copy.silent ? t('inspector.copySilent') : t('inspector.copyMade')}</p>}
+        {copy?.state === 'failed' && (
+          <p className="inline-block self-start bg-warning px-[7px] py-1 text-[12px] text-paper-fixed">{localizeError(copy.message)}</p>
+        )}
+      </div>
+      {copy?.state === 'making' && copy.done !== null && <BarGauge label={t('inspector.copyProgress')} value={Math.round(copy.done * 100)} />}
+    </div>
+  );
 }
 
 function Section({ title, children, dropShotId, start = false }: SectionProps) {
@@ -395,6 +429,8 @@ export function InspectorView({
   onLinkVideo,
   onRelinkVideo,
   onUnlinkVideo,
+  onMakeCopy,
+  onCancelCopy,
   onCropChange,
   locationName = null,
   onSketch,
@@ -432,6 +468,34 @@ export function InspectorView({
       element.removeEventListener('keydown', onKeyDown);
     };
   }, [onBack, scene]);
+
+  // The copy's one button: Make playback copy (Try again after a failure) or, while it's waiting or being made, Cancel
+  // copy. One element whatever its job, so focus stays on it as the job changes. When it goes (the copy made, the file
+  // missing), focus that was on it moves to the copy's line rather than falling to the page.
+  const copyState = video?.copy?.state;
+  const copyAction: 'make' | 'cancel' | null =
+    !video || video.gone
+      ? null
+      : copyState === 'queued' || copyState === 'making'
+        ? 'cancel'
+        : !video.missing && (copyState === 'none' || copyState === 'failed')
+          ? 'make'
+          : null;
+  // The button while focus is on it; a blur that isn't its own going (focus moved on) lets it go.
+  const copyButton = useRef<HTMLButtonElement | null>(null);
+  const copyLine = useRef<HTMLDivElement>(null);
+  const videoMissing = video?.missing ?? false;
+  useEffect(() => {
+    const button = copyButton.current;
+    if (copyAction !== null || !button) return;
+    copyButton.current = null;
+    // Focus was on it when it went, and nothing has it since: to the copy's line, or for a video gone missing, to
+    // Relink, the way back (the line is empty then).
+    if (button.isConnected || (document.activeElement !== null && document.activeElement !== document.body)) return;
+    const inspector = root.current;
+    const target = videoMissing ? inspector?.querySelector<HTMLElement>('[data-relink-video]') : copyLine.current;
+    target?.focus();
+  }, [copyAction, videoMissing]);
 
   if (!scene) {
     return <p className="p-3 text-[13px] text-text-muted">{t('inspectorView.selectAFrameOrA')}</p>;
@@ -567,11 +631,42 @@ export function InspectorView({
                     )}
                   </p>
                 )}
+                {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} lineRef={copyLine} />}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!video.gone && (
                   <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>
                     {t('inspector.relink')}
+                  </Button>
+                )}
+                {copyAction !== null && (
+                  <Button
+                    {...(copyAction === 'make' ? { 'data-make-copy': '' } : { 'data-cancel-copy': '' })}
+                    onFocus={(event) => {
+                      copyButton.current = event.currentTarget;
+                    }}
+                    onBlur={(event) => {
+                      const button = event.currentTarget;
+                      // Still there, and focus on something else: it moved on, so the button's going later isn't focus
+                      // lost. (The window losing focus blurs it too, but leaves it the active element: kept.)
+                      queueMicrotask(() => {
+                        if (button.isConnected && document.activeElement !== button && copyButton.current === button) copyButton.current = null;
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      // A held key would make and cancel by turns as the button's job changes under it.
+                      if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
+                    }}
+                    onClick={(event) => {
+                      // A double click's second click would cancel what the first just asked for.
+                      if (event.detail > 1) return;
+                      // Focus on the button, so it stays there as its job changes: a Mac's WebKit doesn't focus a
+                      // button on a click.
+                      event.currentTarget.focus();
+                      (copyAction === 'make' ? onMakeCopy : onCancelCopy)?.();
+                    }}
+                  >
+                    {copyAction === 'cancel' ? t('inspector.cancelCopy') : copyState === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
                   </Button>
                 )}
                 <Button

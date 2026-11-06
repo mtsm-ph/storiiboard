@@ -321,10 +321,12 @@ test('Tab goes round the page and a window, never out of them', async ({ page })
   await page.keyboard.press('Tab');
   expect(await focused()).toBe(first);
 
-  // A click on blank space at the end of a window (below Storage's last control): Tab comes round to its first stop.
+  // A click on blank space at the end of a window (below Project's note, with no project open: a panel with no control
+  // in it, so the panel is the window's last stop): Tab comes round to its first stop. Storage has controls with no
+  // project open since 2.3b (this computer's playback copies), and Tab rightly goes into them from its panel.
   await page.getByRole('button', { name: /^Settings \(/ }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('tab', { name: 'Storage', exact: true }).click();
+  await settings.getByRole('tab', { name: 'Project', exact: true }).click();
   const box = await settings.boundingBox();
   if (!box) throw new Error('Settings not on screen');
   await page.mouse.click(box.x + box.width - 20, box.y + box.height - 12);

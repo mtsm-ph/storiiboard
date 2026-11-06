@@ -14,13 +14,14 @@ import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from '
 import { framesWithPictures } from './palette/read';
 import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
-import { InspectorView, type FieldChange, type InspectorPicture, type InspectorVideo } from './InspectorView';
+import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
 import { readClip, readFromVideo, videoFields } from '../../core/media/video';
 import { videoDriver } from '../../app/video';
 import { addVideos } from '../video/addVideos';
 import { fpsLabel, relinkVideo } from '../video/relink';
 import { useVideoMissing } from '../video/videoStatus';
+import { cancelCopy, makeCopy, useCopy, type CopyState } from '../video/playbackCopies';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
@@ -37,6 +38,21 @@ function focusBoard(shotId: string | null, sceneId: string | null) {
   target?.focus();
 }
 
+/** The queue's state of a copy, as the inspector shows it; 'unknown' never comes here. */
+function inspectorCopy(copy: Exclude<CopyState, { kind: 'unknown' }>): InspectorCopy {
+  switch (copy.kind) {
+    case 'none':
+    case 'queued':
+      return { state: copy.kind };
+    case 'making':
+      return { state: 'making', done: copy.done };
+    case 'made':
+      return { state: 'made', silent: copy.silent };
+    case 'failed':
+      return { state: 'failed', message: copy.message };
+  }
+}
+
 export function InspectorTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
@@ -51,6 +67,7 @@ export function InspectorTile() {
   // Before the early return, as every hook: whether the selected frame's video is missing here.
   const clipVideoId = shotId ? (readClip(records[shotId]?.props ?? {})?.videoId ?? null) : null;
   const videoMissing = useVideoMissing(clipVideoId);
+  const copy = useCopy(clipVideoId);
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -104,6 +121,7 @@ export function InspectorTile() {
           path: linked.sourcePath,
           missing: videoMissing,
           gone: false,
+          ...(copy.kind === 'unknown' ? {} : { copy: inspectorCopy(copy) }),
         };
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
@@ -188,6 +206,12 @@ export function InspectorTile() {
         }}
         onRelinkVideo={() => {
           if (clip) void relinkVideo(clip.videoId);
+        }}
+        onMakeCopy={() => {
+          if (clip) makeCopy(clip.videoId);
+        }}
+        onCancelCopy={() => {
+          if (clip) cancelCopy(clip.videoId);
         }}
         onUnlinkVideo={() => {
           // The picture stays; the frame stops playing the video. The video's record stays for other frames.

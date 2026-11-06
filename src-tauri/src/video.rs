@@ -454,6 +454,36 @@ fn read_facts(json: &Value) -> Facts {
     }
 }
 
+/// How many channels each of a file's sound tracks has, in their order: `[2]` for a camera's stereo track, `[1, 1, 1, 1]`
+/// for a Sony or Canon MXF that keeps each channel on a track of its own.
+pub(crate) fn audio_tracks(path: &Path) -> Result<Vec<u32>, String> {
+    let mut command = command("ffprobe");
+    command
+        .args(["-v", "error", "-protocol_whitelist", "file"])
+        .args(["-select_streams", "a", "-show_entries", "stream=channels"])
+        .args(["-print_format", "json", "-i"])
+        .arg(path);
+    let json: Value =
+        serde_json::from_slice(&run(command, PROBE_TIMEOUT)?).map_err(|_| CANT_READ.to_string())?;
+    Ok(read_audio_tracks(&json))
+}
+
+/// `audio_tracks` from ffprobe's JSON; a track that doesn't say counts as one channel.
+fn read_audio_tracks(json: &Value) -> Vec<u32> {
+    json["streams"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|stream| {
+            stream["channels"]
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(1)
+        })
+        .collect()
+}
+
 /// Where the video stream starts and where the file starts (see `facts`).
 pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     facts(path).map(|facts| (facts.stream_start, facts.file_start))
@@ -575,12 +605,19 @@ impl ToneMap {
 /// refuses) or makes nothing (a track with no sound in it); an error when it couldn't tell (the file itself can't be
 /// read now, or stopped answering). The playback copy drops the sound only on a false (playback.rs).
 pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
+    sound_reads(path, &["-map", "0:a:0"])
+}
+
+/// `sound_plays` for the sound as `map` takes it: one track (`-map 0:a:N`), or several mixed by a filter
+/// (`-filter_complex … -map [mix]`, playback.rs).
+pub(crate) fn sound_reads(path: &Path, map: &[&str]) -> Result<bool, String> {
     let mut command = command("ffmpeg");
     command
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-protocol_whitelist", "file", "-i"])
         .arg(path)
-        .args(["-map", "0:a:0", "-t", "1"])
+        .args(map)
+        .args(["-t", "1"])
         .args([
             "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "framemd5", "-",
         ]);
@@ -698,6 +735,9 @@ fn is_video_name(path: &Path) -> bool {
 
 /// The most videos remembered; the oldest go first.
 const KNOWN_LIMIT: usize = 20_000;
+/// Forget couldn't save the empty list: the videos are still remembered, as they were.
+const CANT_FORGET: &str =
+    "The remembered videos couldn't be forgotten: the list of them couldn't be saved. They're still remembered.";
 
 /// Videos the person handed over (dropped or chosen) that the app has read, remembered on this computer, so a project
 /// reopened next week reads its footage again. Rust keeps the list, in the app's data folder, and only Rust adds to
@@ -750,12 +790,14 @@ impl KnownVideos {
     }
 
     /// Forgets every video remembered (Settings → Storage): each reads again once dropped, chosen or relinked.
+    /// The file first: if it can't be written, nothing is forgotten, here or on disk. A list that couldn't be read at
+    /// start can't be written either (this session kept its videos in memory only, so as not to replace it): Forget
+    /// would only last until the next start, so it's refused the same way.
     fn forget_all(&self) -> Result<(), String> {
-        let mut paths = self.paths.lock().map_err(|e| e.to_string())?;
+        let mut paths = self.paths.lock().map_err(|_| CANT_FORGET.to_string())?;
+        let file = self.file.as_ref().ok_or_else(|| CANT_FORGET.to_string())?;
+        crate::playback::write_atomically(file, b"[]").map_err(|_| CANT_FORGET.to_string())?;
         paths.clear();
-        if let Some(file) = &self.file {
-            crate::playback::write_atomically(file, b"[]").map_err(|e| e.to_string())?;
-        }
         Ok(())
     }
 
@@ -947,7 +989,21 @@ pub async fn video_choose(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::fs;
+
+    #[test]
+    fn counts_the_channels_of_each_sound_track() {
+        let json = serde_json::json!({
+            "streams": [{ "channels": 1 }, { "channels": 1 }, { "channels": 1 }, {}]
+        });
+        assert_eq!(read_audio_tracks(&json), [1, 1, 1, 1]);
+        assert_eq!(
+            read_audio_tracks(&serde_json::json!({ "streams": [{ "channels": 2 }] })),
+            [2]
+        );
+        assert_eq!(read_audio_tracks(&serde_json::json!({})), Vec::<u32>::new());
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir =
@@ -1435,6 +1491,29 @@ mod tests {
             !KnownVideos::load(&dir.join("data")).has(&card),
             "forgotten on disk too"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_forget_that_cant_be_saved_forgets_nothing() {
+        let dir = temp_dir("known-unsaved");
+        let card = dir.join("A001_C003.mov");
+        let known = KnownVideos::load(&dir.join("data"));
+        known.remember(&card);
+        // The list's file can't be replaced (a folder stands where it goes): Forget says so in its own words, and the
+        // video is still remembered, as the file on disk still says.
+        let file = dir.join("data").join("known-videos.json");
+        fs::remove_file(&file).unwrap();
+        fs::create_dir(&file).unwrap();
+        assert_eq!(known.forget_all().unwrap_err(), CANT_FORGET);
+        assert!(known.has(&card));
+        assert_eq!(known.count(), 1);
+        // A list that couldn't be read at start, so is kept in memory only: Forget would last until the next start, so
+        // it's refused too, and nothing is forgotten.
+        let unread = KnownVideos::in_memory();
+        unread.remember(&card);
+        assert_eq!(unread.forget_all().unwrap_err(), CANT_FORGET);
+        assert!(unread.has(&card));
         let _ = fs::remove_dir_all(&dir);
     }
 

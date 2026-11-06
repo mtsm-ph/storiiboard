@@ -1,9 +1,10 @@
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLocale } from '../../core/i18n';
 import { sceneFields, shotFields } from '../../core/model/storyboard';
 import { departmentStatuses } from '../../core/model/departmentStatus';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
-import { InspectorView } from './InspectorView';
+import { InspectorView, type InspectorCopy } from './InspectorView';
 
 const noop = () => undefined;
 const scene = { id: 'sc4', fields: sceneFields({ number: '4', name: 'Penn Station', int_ext: 'INT', day_night: 'DAY', page_eighths: 11 }) };
@@ -100,5 +101,69 @@ describe('the Frame inspector’s Video section (2.2b)', () => {
     expect(html).toContain('The video this frame played isn’t in the project any more.');
     expect(html).not.toContain('Relink…');
     expect(html).toContain('Unlink video');
+  });
+
+  describe('its playback copy (2.3b)', () => {
+    const withCopy = (copy: InspectorCopy, extra: Partial<typeof video> = {}) => render({ ...video, ...extra, copy } as typeof video);
+
+    it('says there’s none yet, and offers to make it', () => {
+      const html = withCopy({ state: 'none' });
+      expect(html).toContain('No playback copy yet.');
+      expect(html).toMatch(/data-make-copy=""[^>]*>Make playback copy</);
+      expect(html).not.toContain('data-cancel-copy');
+    });
+
+    it('says it waits its turn, or how far along it is, with Cancel', () => {
+      const queued = withCopy({ state: 'queued' });
+      expect(queued).toContain('Waiting its turn for a playback copy.');
+      expect(queued).toMatch(/data-cancel-copy=""[^>]*>Cancel copy</);
+      expect(queued).not.toContain('data-make-copy');
+      const making = withCopy({ state: 'making', done: 0.42 });
+      expect(making).toContain('Making the playback copy…');
+      // The percentage is a meter, outside the live region, so it isn't read out every half second.
+      expect(making).toMatch(/role="meter"[^>]*aria-valuenow="42"/);
+      expect(making).not.toMatch(/role="status"[^>]*>(?:(?!<\/div>).)*42%/);
+      // A video whose length isn't known says only that it's being made.
+      expect(withCopy({ state: 'making', done: null })).not.toContain('role="meter"');
+    });
+
+    it('says it’s ready, and says so when it has no sound', () => {
+      expect(withCopy({ state: 'made', silent: false })).toContain('Playback copy ready.');
+      expect(withCopy({ state: 'made', silent: true })).toContain('Playback copy ready, without sound: the video’s sound couldn’t be read.');
+      expect(withCopy({ state: 'made', silent: false })).not.toContain('data-make-copy');
+    });
+
+    afterEach(() => {
+      setLocale('en');
+    });
+
+    it('says why it failed, in the app’s words, with Try again', () => {
+      // Rust's own words, straight apostrophes and all: shown in the app's language.
+      const stalled = "That video stopped being read partway. If it's on a card, a drive or a network share, check it's still connected.";
+      const html = withCopy({ state: 'failed', message: stalled });
+      expect(html).toMatch(/<div role="status" data-copy-state=""[^>]*><p[^>]*bg-warning[^>]*>That video stopped being read partway/);
+      expect(html).toMatch(/data-make-copy=""[^>]*>Try again</);
+      setLocale('es');
+      expect(withCopy({ state: 'failed', message: stalled })).toContain('Ese video dejó de leerse a mitad de camino.');
+    });
+
+    it('has one button for the copy, whatever its job', () => {
+      // One place for Make playback copy and Cancel copy. That React keeps the one element, and focus with it, as the
+      // job changes can't be seen in a page drawn once: the end-to-end test of a copy (e2e/video.spec.ts) checks it.
+      const button = (html: string) => /<button[^>]*data-(?:make|cancel)-copy=""[^>]*>[^<]*</g.exec(html)?.[0] ?? '';
+      expect(button(withCopy({ state: 'none' }))).toContain('Make playback copy');
+      expect(button(withCopy({ state: 'making', done: 0.1 }))).toContain('Cancel copy');
+      expect(withCopy({ state: 'making', done: 0.1 }).match(/data-(?:make|cancel)-copy=""/g)).toHaveLength(1);
+      // Where focus goes when it goes: the copy's line, which a script can focus and Tab never stops on.
+      expect(withCopy({ state: 'made', silent: false })).toMatch(/<div tabindex="-1" data-copy-line=""/);
+    });
+
+    it('stays out of the way of a missing video, whose way back is Relink', () => {
+      const html = withCopy({ state: 'none' }, { missing: true });
+      expect(html).not.toContain('No playback copy yet.');
+      expect(html).not.toContain('data-make-copy');
+      // The live region stays, so the line is heard when it comes back.
+      expect(html).toContain('data-copy-state=""');
+    });
   });
 });
