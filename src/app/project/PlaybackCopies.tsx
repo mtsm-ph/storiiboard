@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
-import { labels, localizeError, pluralKey, t, tn } from '../../core/i18n';
+import { getLocale, labels, localizeError, pluralKey, t, tn } from '../../core/i18n';
 import { videoFields } from '../../core/media/video';
 import { copiesChanged, useCopyQueue } from '../../features/video/playbackCopies';
 import { checkVideos } from '../../features/video/videoStatus';
@@ -23,9 +23,18 @@ export function decimalSize(bytes: number): string {
   return `${(bytes / 1e6).toFixed(1)} MB`;
 }
 
-/** A whole number of GB in range, or null for anything else, which leaves the setting as it was. */
-export function parseGb(text: string, min: number, max: number): number | null {
-  const plain = text.trim().replace(/,/g, '');
+/** The app's language's thousands separator: "," in English, "." in Spanish. */
+function groupSeparator(locale: string): string {
+  return new Intl.NumberFormat(locale).formatToParts(1_000_000).find((part) => part.type === 'group')?.value ?? ',';
+}
+
+/**
+ * A whole number of GB in range, or null for anything else, which leaves the setting as it was. Thousands may be
+ * grouped as the app's language writes them ("10,000" in English, "10.000" in Spanish); anything else that isn't a
+ * digit (a decimal point, a minus) makes it not a whole number.
+ */
+export function parseGb(text: string, min: number, max: number, locale: string = getLocale()): number | null {
+  const plain = text.replaceAll(groupSeparator(locale), '').replace(/[\s\u00a0\u202f]/g, '');
   if (!/^\d+$/.test(plain)) return null;
   const value = Number(plain);
   return value >= min && value <= max ? value : null;
@@ -35,16 +44,21 @@ export function parseGb(text: string, min: number, max: number): number | null {
 export const CAP_GB = { min: 1, max: 10_000 } as const;
 export const FLOOR_GB = { min: 1, max: 1_000 } as const;
 
+/** A save of the cap or the floor: whether it was saved (undefined counts as saved). */
+type GbSave = (gb: number) => Promise<boolean> | undefined;
+
 interface GbFieldProps {
   label: string;
   saved: number;
   range: { min: number; max: number };
   helpId: string;
-  onChange: (gb: number) => void;
+  onChange: GbSave;
+  /** Not a whole number in range: the field goes back to what's saved, and this says why. */
+  onOutOfRange: () => void;
 }
 
-function GbField({ label, saved, range, helpId, onChange }: GbFieldProps) {
-  // The parent keys this by the saved value, so a refused entry snaps back to it.
+function GbField({ label, saved, range, helpId, onChange, onOutOfRange }: GbFieldProps) {
+  // The parent keys this by the saved value, so a new one saved shows; one refused or not saved snaps back here.
   const [draft, setDraft] = useState(String(saved));
   return (
     <TextField
@@ -58,8 +72,14 @@ function GbField({ label, saved, range, helpId, onChange }: GbFieldProps) {
       }}
       onBlur={() => {
         const value = parseGb(draft, range.min, range.max);
-        if (value === null) setDraft(String(saved));
-        else if (value !== saved) onChange(value);
+        if (value === null) {
+          setDraft(String(saved));
+          onOutOfRange();
+        } else if (value !== saved) {
+          void Promise.resolve(onChange(value)).then((done) => {
+            if (done === false) setDraft(String(saved));
+          });
+        }
       }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur();
@@ -69,8 +89,10 @@ function GbField({ label, saved, range, helpId, onChange }: GbFieldProps) {
 }
 
 export interface PlaybackCopiesViewProps {
-  /** Null while it's read. */
+  /** Null while it's read, or when it couldn't be (`infoError`). */
   info: CopiesInfo | null;
+  /** Why the copies couldn't be read, in Rust's words; null when they were, or while they're read. */
+  infoError?: string | null;
   /** The copy being made now (its file's name), how far along, and how many wait their turn. */
   queue: { name: string | null; done: number | null; waiting: number };
   /** Videos remembered; null while counted. */
@@ -79,8 +101,10 @@ export interface PlaybackCopiesViewProps {
   moving: boolean;
   copiesStatus?: RefObject<HTMLParagraphElement | null>;
   knownStatus?: RefObject<HTMLParagraphElement | null>;
-  onCapChange: (gb: number) => void;
-  onFloorChange: (gb: number) => void;
+  onCapChange: GbSave;
+  onFloorChange: GbSave;
+  /** An entry for the cap or the floor that isn't a whole number in range. */
+  onOutOfRange?: (which: 'cap' | 'floor') => void;
   onMove: () => void;
   onMoveBack: () => void;
   onClear: () => void;
@@ -91,6 +115,7 @@ export interface PlaybackCopiesViewProps {
 /** This part only draws. */
 export function PlaybackCopiesView({
   info,
+  infoError = null,
   queue,
   known,
   moving,
@@ -98,6 +123,7 @@ export function PlaybackCopiesView({
   knownStatus,
   onCapChange,
   onFloorChange,
+  onOutOfRange = () => undefined,
   onMove,
   onMoveBack,
   onClear,
@@ -113,7 +139,11 @@ export function PlaybackCopiesView({
         <p className="text-[12px] text-text-muted">{t('storageTile.playbackCopiesAre')}</p>
         <p ref={copiesStatus} tabIndex={-1} className="text-[13px]">
           {info === null ? (
-            t('storage.measuring')
+            infoError === null ? (
+              t('storage.measuring')
+            ) : (
+              localizeError(infoError)
+            )
           ) : info.copies === 0 ? (
             t('storage.noCopies')
           ) : (
@@ -144,27 +174,52 @@ export function PlaybackCopiesView({
               )}
             </p>
             <div className="grid max-w-[420px] grid-cols-2 gap-3">
-              <GbField key={`cap${String(info.capGb)}`} label={t('storageTile.copiesCap')} saved={info.capGb} range={CAP_GB} helpId={helpId} onChange={onCapChange} />
-              <GbField key={`floor${String(info.floorGb)}`} label={t('storageTile.copiesFloor')} saved={info.floorGb} range={FLOOR_GB} helpId={helpId} onChange={onFloorChange} />
+              <GbField
+                key={`cap${String(info.capGb)}`}
+                label={t('storageTile.copiesCap')}
+                saved={info.capGb}
+                range={CAP_GB}
+                helpId={helpId}
+                onChange={onCapChange}
+                onOutOfRange={() => {
+                  onOutOfRange('cap');
+                }}
+              />
+              <GbField
+                key={`floor${String(info.floorGb)}`}
+                label={t('storageTile.copiesFloor')}
+                saved={info.floorGb}
+                range={FLOOR_GB}
+                helpId={helpId}
+                onChange={onFloorChange}
+                onOutOfRange={() => {
+                  onOutOfRange('floor');
+                }}
+              />
             </div>
             <p id={helpId} className="text-[12px] text-text-muted">
               {t('storageTile.copiesCapAndFloor')}
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              {/* aria-disabled while it runs, so focus stays on the button; the handler ignores a second click. */}
-              <Button aria-disabled={moving} aria-busy={moving} onClick={onMove}>
-                {moving ? t('storage.movingCopies') : t('storageTile.moveCopies')}
+          </>
+        )}
+        {/* Unreadable, the copies may be where they were moved: Move back is the way to this computer's folder. */}
+        {(info !== null || infoError !== null) && (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* aria-disabled while it runs, so focus stays on the button; the handler ignores a second click. */}
+            <Button aria-disabled={moving} aria-busy={moving} onClick={onMove}>
+              {moving ? t('storage.movingCopies') : t('storageTile.moveCopies')}
+            </Button>
+            {(info === null || info.moved) && (
+              <Button aria-disabled={moving} onClick={onMoveBack}>
+                {t('storageTile.moveCopiesBack')}
               </Button>
-              {info.moved && (
-                <Button aria-disabled={moving} onClick={onMoveBack}>
-                  {t('storageTile.moveCopiesBack')}
-                </Button>
-              )}
+            )}
+            {info !== null && (
               <Button variant="warning" disabled={info.copies === 0} onClick={onClear}>
                 {t('storageTile.clearCopies')}
               </Button>
-            </div>
-          </>
+            )}
+          </div>
         )}
       </section>
 
@@ -252,70 +307,106 @@ export function PlaybackCopiesPanel() {
   const records = useProject((s) => s.records);
   const queue = useCopyQueue();
   const [info, setInfo] = useState<CopiesInfo | null>(null);
+  const [infoError, setInfoError] = useState<string | null>(null);
   const [known, setKnown] = useState<number | null>(null);
-  const [generation, setGeneration] = useState(0);
   const [moving, setMoving] = useState(false);
   const [licences, setLicences] = useState(false);
   // One action at a time, held in a ref so the buttons stay enabled (and focused) while a confirm is up.
   const running = useRef(false);
+  const live = useRef(true);
   const copiesStatus = useRef<HTMLParagraphElement>(null);
   const knownStatus = useRef<HTMLParagraphElement>(null);
 
-  // Read again after each action, and as each copy finishes (the one being made changes).
   useEffect(() => {
-    let live = true;
-    playbackDriver
-      .info()
-      .then((read) => {
-        if (live) setInfo(read);
-      })
-      .catch(showNotice);
+    live.current = true;
     return () => {
-      live = false;
+      live.current = false;
     };
-  }, [generation, queue.making]);
+  }, []);
 
+  /** Reads the copies again; one that can't be read says why in place of its count. */
+  const readInfo = () =>
+    playbackDriver.info().then(
+      (read) => {
+        if (!live.current) return;
+        setInfo(read);
+        setInfoError(null);
+      },
+      (error: unknown) => {
+        if (live.current) setInfoError(error instanceof Error ? error.message : String(error));
+      },
+    );
+  const readKnown = () =>
+    playbackDriver.knownCount().then((count) => {
+      if (live.current) setKnown(count);
+    }, showNotice);
+
+  // Read when shown, and as each copy finishes (the one being made changes).
   useEffect(() => {
-    let live = true;
-    playbackDriver
-      .knownCount()
-      .then((count) => {
-        if (live) setKnown(count);
-      })
-      .catch(showNotice);
-    return () => {
-      live = false;
-    };
-  }, [generation]);
+    void readInfo();
+  }, [queue.making]);
+  useEffect(() => {
+    void readKnown();
+  }, []);
 
   const making = queue.making ? records[queue.making] : undefined;
   const name = making?.type === 'media' ? (videoFields(making.props)?.sourceName ?? null) : null;
 
-  /** Runs an action once at a time; after it the copies are read again, and focus goes to the line that says so. */
-  const act = async (work: () => Promise<void>, status: RefObject<HTMLParagraphElement | null>) => {
+  /**
+   * Runs an action once at a time. `work` says whether it did anything: then the copies are read again first and focus
+   * goes to the line that says how they are now; a confirm or a folder dialog cancelled leaves focus where it was.
+   */
+  const act = async (work: () => Promise<boolean>, status: RefObject<HTMLParagraphElement | null>) => {
     if (running.current) return;
     running.current = true;
+    let did = false;
     try {
-      await work();
+      did = await work();
     } catch (error) {
       showNotice(error);
     } finally {
+      await Promise.all([readInfo(), readKnown()]);
       running.current = false;
-      setGeneration((n) => n + 1);
-      requestAnimationFrame(() => {
-        status.current?.focus();
-      });
+      if (did && live.current) {
+        requestAnimationFrame(() => {
+          status.current?.focus();
+        });
+      }
     }
+  };
+
+  /**
+   * Saves the cap or the floor, beside any action running (Rust takes one change at a time): focus stays where the
+   * person took it, and the field goes back to what's saved if it wasn't.
+   */
+  const save = async (work: () => Promise<void>, after?: () => void): Promise<boolean> => {
+    let saved = false;
+    try {
+      await work();
+      after?.();
+      saved = true;
+    } catch (error) {
+      showNotice(error);
+    }
+    await readInfo();
+    return saved;
   };
 
   const move = (back: boolean) =>
     act(async () => {
+      // Said before the folder is asked for, not after: Rust moves nothing while a copy is being made.
+      if (queue.making !== null || info?.busy === true) {
+        showNotice(t('error.copyBusy'));
+        return false;
+      }
       setMoving(true);
       try {
         const moved = back ? await playbackDriver.moveBack() : await playbackDriver.move();
-        if (moved !== null) showInfo(tn('storage.copiesMoved', moved));
+        if (moved === null) return false;
+        showInfo(tn('storage.copiesMoved', moved));
+        return true;
       } finally {
-        setMoving(false);
+        if (live.current) setMoving(false);
         // Where each copy is changed, or may have: the inspector looks again.
         copiesChanged();
       }
@@ -325,16 +416,17 @@ export function PlaybackCopiesPanel() {
     <>
       <PlaybackCopiesView
         info={info}
+        infoError={infoError}
         queue={{ name, done: queue.done, waiting: queue.waiting }}
         known={known}
         moving={moving}
         copiesStatus={copiesStatus}
         knownStatus={knownStatus}
-        onCapChange={(gb) => {
-          void act(() => playbackDriver.setCap(gb), copiesStatus);
-        }}
-        onFloorChange={(gb) => {
-          void act(() => playbackDriver.setFloor(gb), copiesStatus);
+        // A lower cap removes copies at once: the inspector looks again.
+        onCapChange={(gb) => save(() => playbackDriver.setCap(gb), copiesChanged)}
+        onFloorChange={(gb) => save(() => playbackDriver.setFloor(gb))}
+        onOutOfRange={(which) => {
+          showNotice(t(which === 'cap' ? 'error.copyCap' : 'error.copyFloor'));
         }}
         onMove={() => {
           if (!moving) void move(false);
@@ -346,20 +438,22 @@ export function PlaybackCopiesPanel() {
           void act(async () => {
             const count = info?.copies ?? 0;
             const sure = await confirmForGood(t('storage.clearCopiesTitle'), tn('storage.clearCopiesConfirm', count), t('storage.clearCopiesAction'));
-            if (!sure) return;
+            if (!sure) return false;
             const cleared = await playbackDriver.clear();
             copiesChanged();
             showInfo(tn('storage.copiesCleared', cleared));
+            return true;
           }, copiesStatus);
         }}
         onForget={() => {
           void act(async () => {
             const sure = await confirmForGood(t('storage.forgetVideosTitle'), t('storage.forgetVideosConfirm'), t('storage.forgetVideosAction'));
-            if (!sure) return;
+            if (!sure) return false;
             await playbackDriver.forgetKnown();
             showInfo(t('storage.videosForgotten'));
             // Videos outside a project's folder can't be read now: their frames say so, with Relink.
             await checkVideos();
+            return true;
           }, knownStatus);
         }}
         onLicences={() => {

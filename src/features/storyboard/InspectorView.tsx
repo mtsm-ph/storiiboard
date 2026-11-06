@@ -1,5 +1,5 @@
 import { EditableTitle } from '../../ui/EditableTitle';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
 import type { JsonValue } from '../../core/model/record';
@@ -239,9 +239,10 @@ interface SectionProps {
 
 /** The playback copy's line (2.3b). The live region is always there, so the line is heard as it changes; the
  * percentage is a meter beside it, so it isn't read out every half second. */
-function CopyLine({ copy }: { copy: InspectorCopy | undefined }) {
+function CopyLine({ copy, lineRef }: { copy: InspectorCopy | undefined; lineRef?: Ref<HTMLDivElement> }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    // Focusable by script only: where focus goes when the copy's button goes (the copy made).
+    <div ref={lineRef} tabIndex={-1} data-copy-line="" className="flex flex-col gap-1.5">
       <div role="status" data-copy-state="" className="flex">
         {copy?.state === 'none' && <p className="text-[12px] text-text-muted">{t('inspector.copyNone')}</p>}
         {copy?.state === 'queued' && <p className="text-[12px]">{t('inspector.copyQueued')}</p>}
@@ -468,6 +469,28 @@ export function InspectorView({
     };
   }, [onBack, scene]);
 
+  // The copy's one button: Make playback copy (Try again after a failure) or, while it's waiting or being made, Cancel
+  // copy. One element whatever its job, so focus stays on it as the job changes. When it goes (the copy made, the file
+  // missing), focus that was on it moves to the copy's line rather than falling to the page.
+  const copyState = video?.copy?.state;
+  const copyAction: 'make' | 'cancel' | null =
+    !video || video.gone
+      ? null
+      : copyState === 'queued' || copyState === 'making'
+        ? 'cancel'
+        : !video.missing && (copyState === 'none' || copyState === 'failed')
+          ? 'make'
+          : null;
+  const copyButton = useRef<HTMLButtonElement | null>(null);
+  const copyLine = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const button = copyButton.current;
+    if (copyAction !== null || !button) return;
+    copyButton.current = null;
+    // Focus was on it when it went, and nothing has it since.
+    if (!button.isConnected && (document.activeElement === null || document.activeElement === document.body)) copyLine.current?.focus();
+  }, [copyAction]);
+
   if (!scene) {
     return <p className="p-3 text-[13px] text-text-muted">{t('inspectorView.selectAFrameOrA')}</p>;
   }
@@ -602,7 +625,7 @@ export function InspectorView({
                     )}
                   </p>
                 )}
-                {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} />}
+                {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} lineRef={copyLine} />}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!video.gone && (
@@ -610,24 +633,15 @@ export function InspectorView({
                     {t('inspector.relink')}
                   </Button>
                 )}
-                {!video.gone && !video.missing && (video.copy?.state === 'none' || video.copy?.state === 'failed') && (
-                  <Button data-make-copy="" onClick={onMakeCopy}>
-                    {video.copy.state === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
-                  </Button>
-                )}
-                {!video.gone && (video.copy?.state === 'queued' || video.copy?.state === 'making') && (
+                {copyAction !== null && (
                   <Button
-                    data-cancel-copy=""
-                    onClick={(event) => {
-                      // The button goes once the copy stops; focus stays nearby, on Make playback copy.
-                      const section = event.currentTarget.closest('[data-inspector]');
-                      onCancelCopy?.();
-                      requestAnimationFrame(() => {
-                        section?.querySelector<HTMLElement>('[data-make-copy]')?.focus();
-                      });
+                    {...(copyAction === 'make' ? { 'data-make-copy': '' } : { 'data-cancel-copy': '' })}
+                    onFocus={(event) => {
+                      copyButton.current = event.currentTarget;
                     }}
+                    onClick={copyAction === 'make' ? onMakeCopy : onCancelCopy}
                   >
-                    {t('inspector.cancelCopy')}
+                    {copyAction === 'cancel' ? t('inspector.cancelCopy') : copyState === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
                   </Button>
                 )}
                 <Button

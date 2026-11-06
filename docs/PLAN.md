@@ -42,7 +42,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
 | D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
-| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | | In review |
+| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | In review |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
 | 2.6 Crop | | Not started |
@@ -61,19 +61,29 @@ needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exc
   (a relinked video's copy is made again), from the inspector, and (2.4) by the Player; opening a project asks for none,
   so a big project never fills the cache unasked.
 - The inspector's Video section says where the video's copy stands: none yet, waiting its turn, being made (with a
-  progress bar), ready, ready without sound, or failed in Rust's words. Make playback copy (Try again after a failure)
-  and Cancel copy go with it; a live region reads each change.
+  progress bar), ready, ready without sound, or failed in Rust's words. One button goes with it, Make playback copy
+  (Try again after a failure) or Cancel copy, one element whatever its job, so focus stays on it; when it goes (the copy
+  made), focus moves to the copy's line. A live region reads each change. A copy known as made is looked for again when
+  asked for (the cap or a Clear may have removed it), and the inspector looks again when the video's file changes (an
+  undo of a relink).
 - Settings → Storage, for this computer, below the project's sections (and on its own with no project open):
   - the copies: how many, their size against the cap (decimal GB, with a gauge), the copy being made and how many wait,
-    the folder, the drive's free space against the floor, the cap and floor fields (whole GB), Move to another drive…,
-    Move back, and Clear… (asks first);
-  - remembered videos, with Forget… (asks first, then checks the open project's videos again);
+    the folder, the drive's free space against the floor, the cap and floor fields (whole GB, grouped as the app's
+    language writes thousands; saved as the person moves on, focus left where they took it; an entry out of range says
+    so and goes back), Move to another drive… (says a copy is being made before asking for a folder), Move back, and
+    Clear… (asks first; cancelled, focus stays on the button). A lower cap tells the inspector to look again. If the
+    copies can't be read, the section says why and still offers Move back;
+  - remembered videos, with Forget… (asks first, then checks the open project's videos again; a list that can't be
+    saved forgets nothing and says so);
   - FFmpeg, with its licences in a window of their own (FFmpeg's LGPL and notes, zimg's, dav1d's, where the exact
     sources are), read from the installed files by `licence_text`, which takes only the five names the app ships.
 - Sound kept as several mono tracks (Sony and Canon MXF, a recorder's MOV) is mixed into one: each track at 1/N, then
   1 dB under, the same on both channels, so the mix never clips (Kevin, Nov 6). A file with one track, or tracks of two
-  channels or more, keeps its first track as before; a file whose mix fails is made again from its first track. The
-  copies' recipe moved on (`2.3-3`), so copies made before are made again.
+  channels or more, keeps its first track as before. Like the sound itself, the mix is given up only when it's the
+  cause: an attempt failed and the mix alone (its first second) can't be made. Then each track is tried alone and the
+  ones that decode are mixed (or the one that does, as it is); with none, the copy has no sound. Any other failure (a
+  hardware encoder, then Windows' software one) keeps the mix. The copies' recipe moved on (`2.3-3`), so copies made
+  before are made again.
 - `playback_info` says whether the copies were moved (`moved`), for Move back.
 - The browser build pretends: each copy takes 2.5 s and 2.4 MB, kept for the page; the licences say they ship with the
   desktop app.

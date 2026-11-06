@@ -605,12 +605,19 @@ impl ToneMap {
 /// refuses) or makes nothing (a track with no sound in it); an error when it couldn't tell (the file itself can't be
 /// read now, or stopped answering). The playback copy drops the sound only on a false (playback.rs).
 pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
+    sound_reads(path, &["-map", "0:a:0"])
+}
+
+/// `sound_plays` for the sound as `map` takes it: one track (`-map 0:a:N`), or several mixed by a filter
+/// (`-filter_complex … -map [mix]`, playback.rs).
+pub(crate) fn sound_reads(path: &Path, map: &[&str]) -> Result<bool, String> {
     let mut command = command("ffmpeg");
     command
         .args(["-hide_banner", "-loglevel", "error"])
         .args(["-protocol_whitelist", "file", "-i"])
         .arg(path)
-        .args(["-map", "0:a:0", "-t", "1"])
+        .args(map)
+        .args(["-t", "1"])
         .args([
             "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "framemd5", "-",
         ]);
@@ -728,6 +735,9 @@ fn is_video_name(path: &Path) -> bool {
 
 /// The most videos remembered; the oldest go first.
 const KNOWN_LIMIT: usize = 20_000;
+/// Forget couldn't save the empty list: the videos are still remembered, as they were.
+const CANT_FORGET: &str =
+    "The remembered videos couldn't be forgotten: the list of them couldn't be saved. They're still remembered.";
 
 /// Videos the person handed over (dropped or chosen) that the app has read, remembered on this computer, so a project
 /// reopened next week reads its footage again. Rust keeps the list, in the app's data folder, and only Rust adds to
@@ -780,12 +790,13 @@ impl KnownVideos {
     }
 
     /// Forgets every video remembered (Settings → Storage): each reads again once dropped, chosen or relinked.
+    /// The file first: if it can't be written, nothing is forgotten, here or on disk.
     fn forget_all(&self) -> Result<(), String> {
-        let mut paths = self.paths.lock().map_err(|e| e.to_string())?;
-        paths.clear();
+        let mut paths = self.paths.lock().map_err(|_| CANT_FORGET.to_string())?;
         if let Some(file) = &self.file {
-            crate::playback::write_atomically(file, b"[]").map_err(|e| e.to_string())?;
+            crate::playback::write_atomically(file, b"[]").map_err(|_| CANT_FORGET.to_string())?;
         }
+        paths.clear();
         Ok(())
     }
 
@@ -1479,6 +1490,23 @@ mod tests {
             !KnownVideos::load(&dir.join("data")).has(&card),
             "forgotten on disk too"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_forget_that_cant_be_saved_forgets_nothing() {
+        let dir = temp_dir("known-unsaved");
+        let card = dir.join("A001_C003.mov");
+        let known = KnownVideos::load(&dir.join("data"));
+        known.remember(&card);
+        // The list's file can't be replaced (a folder stands where it goes): Forget says so in its own words, and the
+        // video is still remembered, as the file on disk still says.
+        let file = dir.join("data").join("known-videos.json");
+        fs::remove_file(&file).unwrap();
+        fs::create_dir(&file).unwrap();
+        assert_eq!(known.forget_all().unwrap_err(), CANT_FORGET);
+        assert!(known.has(&card));
+        assert_eq!(known.count(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

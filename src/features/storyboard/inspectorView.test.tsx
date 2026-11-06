@@ -1,5 +1,6 @@
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLocale } from '../../core/i18n';
 import { sceneFields, shotFields } from '../../core/model/storyboard';
 import { departmentStatuses } from '../../core/model/departmentStatus';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
@@ -132,10 +133,28 @@ describe('the Frame inspector’s Video section (2.2b)', () => {
       expect(withCopy({ state: 'made', silent: false })).not.toContain('data-make-copy');
     });
 
+    afterEach(() => {
+      setLocale('en');
+    });
+
     it('says why it failed, in the app’s words, with Try again', () => {
-      const html = withCopy({ state: 'failed', message: 'That video stopped being read partway. If it’s on a card, a drive or a network share, check it’s still connected.' });
+      // Rust's own words, straight apostrophes and all: shown in the app's language.
+      const stalled = "That video stopped being read partway. If it's on a card, a drive or a network share, check it's still connected.";
+      const html = withCopy({ state: 'failed', message: stalled });
       expect(html).toMatch(/<div role="status" data-copy-state=""[^>]*><p[^>]*bg-warning[^>]*>That video stopped being read partway/);
       expect(html).toMatch(/data-make-copy=""[^>]*>Try again</);
+      setLocale('es');
+      expect(withCopy({ state: 'failed', message: stalled })).toContain('Ese video dejó de leerse a mitad de camino.');
+    });
+
+    it('has one button for the copy, whatever its job, so focus stays on it as the job changes', () => {
+      // Make playback copy and Cancel copy are the same element at the same place: React keeps it, and focus with it.
+      const button = (html: string) => /<button[^>]*data-(?:make|cancel)-copy=""[^>]*>[^<]*</g.exec(html)?.[0] ?? '';
+      expect(button(withCopy({ state: 'none' }))).toContain('Make playback copy');
+      expect(button(withCopy({ state: 'making', done: 0.1 }))).toContain('Cancel copy');
+      expect(withCopy({ state: 'making', done: 0.1 }).match(/data-(?:make|cancel)-copy=""/g)).toHaveLength(1);
+      // Where focus goes when it goes: the copy's line, which a script can focus and Tab never stops on.
+      expect(withCopy({ state: 'made', silent: false })).toMatch(/<div tabindex="-1" data-copy-line=""/);
     });
 
     it('stays out of the way of a missing video, whose way back is Relink', () => {

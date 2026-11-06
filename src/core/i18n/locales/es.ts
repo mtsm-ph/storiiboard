@@ -982,6 +982,7 @@ export const es: Messages = {
   // src-tauri/src/playback.rs
   'error.copyFailed': 'No se pudo hacer una copia de reproducción de ese video.',
   'error.copyCancelled': 'Se canceló la copia de reproducción.',
+  'error.cantForgetVideos': 'No se pudieron olvidar los videos recordados: no se pudo guardar su lista. Siguen recordados.',
   'error.copyCap': 'El límite de las copias de reproducción va de 1 a 10.000 GB.',
   'error.copyBusy': 'Se está haciendo una copia de reproducción; mueve las copias cuando termine.',
   'error.copyShort': 'La copia de reproducción quedó más corta que el video. Si está en una tarjeta o un disco, revisa que siga conectado.',

@@ -109,19 +109,24 @@ test('a linked video gets its playback copy, with its progress; Cancel stops it,
   await linkFromInspector(page);
   await expect(copyLine(page)).toHaveText('Making the playback copy…');
   await expect(inspector(page).getByRole('meter', { name: 'Playback copy' })).toBeVisible();
-  expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
 
-  // Cancel: no copy, and focus on the button that makes one.
+  // Cancel: no copy, and focus stays on the copy's button, which now makes one.
   await inspector(page).getByRole('button', { name: 'Cancel copy' }).click();
   await expect(copyLine(page)).toHaveText('No playback copy yet.');
   await expect(inspector(page).getByRole('button', { name: 'Make playback copy' })).toBeFocused();
   await expect(inspector(page).getByRole('button', { name: 'Cancel copy' })).toHaveCount(0);
 
+  // Make again from the keyboard: focus stays on the button, Cancel copy now.
   await page.keyboard.press('Enter');
   await expect(copyLine(page)).toHaveText('Making the playback copy…');
+  await expect(inspector(page).getByRole('button', { name: 'Cancel copy' })).toBeFocused();
+  // Whichever state it's in by then, the inspector passes.
+  expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
   await expect(copyLine(page)).toHaveText('Playback copy ready.', READY);
   await expect(inspector(page).getByRole('button', { name: 'Make playback copy' })).toHaveCount(0);
   await expect(inspector(page).getByRole('meter', { name: 'Playback copy' })).toHaveCount(0);
+  // The button went with the copy made: focus is on the line that says so, not lost to the page.
+  await expect(inspector(page).locator('[data-copy-line]')).toBeFocused();
 });
 
 test('Settings → Storage counts the copies, moves them, clears them when asked, and shows FFmpeg’s licences (2.3b)', async ({ page }) => {
@@ -137,6 +142,19 @@ test('Settings → Storage counts the copies, moves them, clears them when asked
   await expect(storage(page).getByRole('button', { name: 'Forget remembered videos…' })).toBeDisabled();
   expect(await new AxeBuilder({ page }).include('dialog[open]').analyze().then((r) => r.violations)).toEqual([]);
 
+  // The cap, saved as the person moves on: focus goes where Tab took it.
+  const cap = storage(page).getByRole('textbox', { name: 'Cap, in GB' });
+  const floor = storage(page).getByRole('textbox', { name: 'Always leave free, in GB' });
+  await cap.fill('20');
+  await page.keyboard.press('Tab');
+  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 20 GB cap.');
+  await expect(floor).toBeFocused();
+  // Not a whole number in range: it says so, and the field goes back to what's saved.
+  await floor.fill('12.5');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('The free space to leave for playback copies is between 1 and 1,000 GB.')).toBeVisible();
+  await expect(floor).toHaveValue('10');
+
   // Move: to the folder named, and back.
   page.once('dialog', (dialog) => void dialog.accept('/Volumes/Footage'));
   await storage(page).getByRole('button', { name: 'Move to another drive…' }).click();
@@ -149,7 +167,9 @@ test('Settings → Storage counts the copies, moves them, clears them when asked
   // Clear asks first: Cancel keeps the copy, agreeing deletes it, and focus is on the line that says so.
   await storage(page).getByRole('button', { name: 'Clear playback copies…' }).click();
   expect(await answerAsk(page, false)).toContain('1 playback copy will be deleted');
-  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 50 GB cap.');
+  await expect(copies(page)).toContainText('1 copy, 2.4 MB, of a 20 GB cap.');
+  // Nothing done: focus stays on the button, so Enter asks again.
+  await expect(storage(page).getByRole('button', { name: 'Clear playback copies…' })).toBeFocused();
   await storage(page).getByRole('button', { name: 'Clear playback copies…' }).click();
   await answerAsk(page, true);
   await expect(storage(page).getByText('No playback copies yet.')).toBeFocused();

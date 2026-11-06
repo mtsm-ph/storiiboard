@@ -90,12 +90,13 @@ function next(): void {
     })
     .then(
       (made) => {
-        if (projectStore.getState().project !== project) return;
-        setState(videoId, cancelled.has(videoId) ? { kind: 'none' } : { kind: 'made', silent: made.silent });
+        // Cancelled: Cancel said so already, and anything asked since (queued again, looked for) is newer.
+        if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
+        setState(videoId, { kind: 'made', silent: made.silent });
       },
       (error: unknown) => {
-        if (projectStore.getState().project !== project) return;
-        setState(videoId, cancelled.has(videoId) ? { kind: 'none' } : { kind: 'failed', message: message(error) });
+        if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
+        setState(videoId, { kind: 'failed', message: message(error) });
       },
     )
     .finally(() => {
@@ -110,11 +111,34 @@ function next(): void {
 export function makeCopy(videoId: string): void {
   watch();
   const state = stateOf(videoId);
-  if (state.kind === 'queued' || state.kind === 'making' || (state.kind === 'made' && !state.silent)) return;
+  if (state.kind === 'queued' || state.kind === 'making') return;
+  if (state.kind === 'made' && !state.silent) {
+    remakeIfGone(videoId);
+    return;
+  }
   if (!sourceOf(videoId)) return;
   setState(videoId, { kind: 'queued' });
   copiesStore.setState((s) => ({ waiting: [...s.waiting, videoId] }));
   next();
+}
+
+/**
+ * A copy made when last looked, which the cap, a Clear or the floor may have removed since: looked for, and made again
+ * if it's gone.
+ */
+function remakeIfGone(videoId: string): void {
+  const found = sourceOf(videoId);
+  if (!found) return;
+  const { source, handle, project } = found;
+  playbackDriver
+    .find(source, handle)
+    .then((made) => {
+      if (made || projectStore.getState().project !== project || stateOf(videoId).kind !== 'made') return;
+      setState(videoId, { kind: 'none' });
+      makeCopy(videoId);
+    })
+    // The file can't be read now: the missing flag says so.
+    .catch(() => undefined);
 }
 
 /** Takes the video's copy off the queue, or stops it being made; no copy is left half made. */
@@ -187,13 +211,20 @@ function watch(): void {
   });
 }
 
-/** The video's copy, looked for when it's first shown and each time it's shown again, as the cap can take it. */
+/**
+ * The video's copy, looked for when it's first shown, each time it's shown again (as the cap can take it), and when
+ * its file changes (an undo or a redo of a relink).
+ */
 export function useCopy(videoId: string | null): CopyState {
   watch();
   const state = useStore(copiesStore, (s) => (videoId ? (s.byVideo[videoId] ?? UNKNOWN) : UNKNOWN));
+  const path = useStore(projectStore, (s) => {
+    const record = videoId ? s.records[videoId] : undefined;
+    return record?.type === 'media' ? (videoFields(record.props)?.sourcePath ?? null) : null;
+  });
   useEffect(() => {
     if (videoId) lookUp(videoId);
-  }, [videoId]);
+  }, [videoId, path]);
   // Cleared by a Clear or a Move while shown: looked for again.
   useEffect(() => {
     if (videoId && state.kind === 'unknown') lookUp(videoId);

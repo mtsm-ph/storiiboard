@@ -83,6 +83,8 @@ beforeEach(async () => {
   driver.find.mockResolvedValue(null);
   folder = makeTestFolder();
   project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+  // As the desktop app's file has: the handle Rust reads a video by when the person picked the project, not the video.
+  Object.defineProperty(project.file, 'nativeHandle', { value: 7 });
   await projectStore.getState().open(project);
   await projectStore.getState().apply([video('a', 'C0042.MP4'), video('b', 'C0043.MP4'), video('c', 'C0044.MP4')]);
 });
@@ -102,7 +104,7 @@ describe('the queue of playback copies', () => {
     expect(driver.make).toHaveBeenCalledTimes(1);
     const [source, handle] = driver.make.mock.calls[0] as [{ videoId: string; path: string }, number | undefined];
     expect(source).toEqual({ videoId: 'a', path: folder.path('Footage/C0042.MP4') });
-    expect(handle).toBe(project.file.nativeHandle);
+    expect(handle).toBe(7);
     expect(state('a')).toEqual({ kind: 'making', done: null });
     expect(state('b')).toEqual({ kind: 'queued' });
     first.progress(0.25);
@@ -115,12 +117,50 @@ describe('the queue of playback copies', () => {
     second.resolve(true);
     await settle();
     expect(state('b')).toEqual({ kind: 'made', silent: true });
-    // Made whole: asked again, nothing to do. Made without sound: tried again.
+    // Made whole and still there: asked again, nothing to do. Made without sound: tried again.
     driver.make.mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    driver.find.mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
     makeCopy('a');
+    await settle();
     expect(driver.make).toHaveBeenCalledTimes(2);
     makeCopy('b');
     expect(driver.make).toHaveBeenCalledTimes(3);
+  });
+
+  it('makes again a copy made before that the cap or a Clear has removed since', async () => {
+    driver.make.mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    makeCopy('a');
+    await settle();
+    expect(state('a')).toEqual({ kind: 'made', silent: false });
+    // Gone since (the cap lowered in Settings): asked for again, it's looked for, then made.
+    driver.find.mockResolvedValue(null);
+    makeCopy('a');
+    await settle();
+    await settle();
+    expect(driver.find).toHaveBeenCalled();
+    expect(driver.make).toHaveBeenCalledTimes(2);
+    expect(state('a')).toEqual({ kind: 'made', silent: false });
+  });
+
+  it('keeps a video asked for again while its cancelled copy is still stopping on the queue, shown as waiting', async () => {
+    const first = pending();
+    driver.make.mockImplementationOnce(first.impl).mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    makeCopy('a');
+    makeCopy('b');
+    // Cancel, then Make again (or a relink) before Rust has stopped the first: the new request is the one that counts.
+    cancelCopy('a');
+    makeCopy('a');
+    expect(state('a')).toEqual({ kind: 'queued' });
+    expect(copiesStore.getState().waiting).toEqual(['b', 'a']);
+    first.reject('The playback copy was cancelled.');
+    await settle();
+    // Still waiting, as it says, behind b; then made.
+    expect(state('a')).not.toEqual({ kind: 'none' });
+    await settle();
+    await settle();
+    expect(driver.make.mock.calls.map(([source]) => (source as { videoId: string }).videoId)).toEqual(['a', 'b', 'a']);
+    expect(state('a')).toEqual({ kind: 'made', silent: false });
+    expect(state('b')).toEqual({ kind: 'made', silent: false });
   });
 
   it('takes a copy off the queue at once, and stops the one being made', async () => {

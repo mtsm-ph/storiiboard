@@ -980,6 +980,7 @@ export const en = {
   // src-tauri/src/playback.rs
   'error.copyFailed': 'That video couldn\'t be made into a playback copy.',
   'error.copyCancelled': 'The playback copy was cancelled.',
+  'error.cantForgetVideos': 'The remembered videos couldn\'t be forgotten: the list of them couldn\'t be saved. They\'re still remembered.',
   'error.copyCap': 'The cap for playback copies is between 1 and 10,000 GB.',
   'error.copyBusy': 'A playback copy is being made; move the copies once it\'s done.',
   'error.copyShort': 'The playback copy came out shorter than the video. If it\'s on a card or a drive, check it\'s still connected.',

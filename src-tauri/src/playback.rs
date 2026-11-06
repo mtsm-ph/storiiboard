@@ -1124,18 +1124,21 @@ impl PlaybackCache {
         // may still hold its file) never stands in the next one's way.
         let mut sound = probe.has_audio;
         let mut sound_tested = false;
-        // Several tracks, each one channel: mixed. If the mix can't be made (one of them won't decode), the first
-        // track alone, as before, and only then is the sound itself in question.
-        let tracks = if sound {
+        // Several tracks, each one channel: mixed. Like the sound, the mix is given up only when it's the cause: an
+        // attempt failed and the mix alone can't be made. Then each track is tried alone, and the ones that decode are
+        // mixed (or the one that does, as it is); with none, the copy has no sound.
+        let channels = if sound {
             video::audio_tracks(path).unwrap_or_default()
         } else {
             Vec::new()
         };
-        let mut mix = if tracks.len() >= 2 && tracks.iter().all(|&channels| channels == 1) {
-            tracks.len()
-        } else {
-            0
-        };
+        let mut tracks: Vec<usize> =
+            if channels.len() >= 2 && channels.iter().all(|&count| count == 1) {
+                (0..channels.len()).collect()
+            } else {
+                Vec::new()
+            };
+        let mut mix_tested = false;
         let mut stalled = false;
         let mut measured = false;
         let mut outcome = Err(Stop::Failed(Said::default()));
@@ -1154,7 +1157,7 @@ impl PlaybackCache {
                     tone_map: tone_map.as_ref(),
                     encoder,
                     sound,
-                    mix,
+                    tracks: &tracks,
                 };
                 outcome = self.encode(&run, asked, &mut on_frame);
                 match &outcome {
@@ -1188,10 +1191,16 @@ impl PlaybackCache {
                             break 'encoders;
                         }
                     }
-                    Err(Stop::Failed(_)) if sound && mix > 0 => {
-                        let _ = fs::remove_file(&partial);
-                        mix = 0;
-                        continue;
+                    Err(Stop::Failed(_)) if sound && tracks.len() >= 2 && !mix_tested => {
+                        mix_tested = true;
+                        if mix_plays(path, &tracks) == Ok(false) {
+                            let _ = fs::remove_file(&partial);
+                            tracks = tracks_that_play(path, &tracks);
+                            // Each track tried: the sound itself is known now.
+                            sound_tested = true;
+                            sound = !tracks.is_empty();
+                            continue;
+                        }
                     }
                     Err(Stop::Failed(_)) if sound && !sound_tested => {
                         sound_tested = true;
@@ -1298,12 +1307,15 @@ impl PlaybackCache {
             command.arg("-ss").arg(format!("{early:.6}"));
         }
         command.arg("-i").arg(run.path).args(["-map", "0:V:0"]);
-        if run.sound && run.mix >= 2 {
+        if run.sound && run.tracks.len() >= 2 {
             command
-                .args(["-filter_complex", &mix_filter(run.mix), "-map", "[mix]"])
+                .args(["-filter_complex", &mix_filter(run.tracks), "-map", "[mix]"])
                 .args(["-c:a", "aac", "-b:a", "160k"]);
         } else if run.sound {
-            command.args(["-map", "0:a:0?", "-c:a", "aac", "-b:a", "160k", "-ac", "2"]);
+            let track = format!("0:a:{}?", run.tracks.first().copied().unwrap_or(0));
+            command
+                .args(["-map", &track])
+                .args(["-c:a", "aac", "-b:a", "160k", "-ac", "2"]);
         } else {
             command.arg("-an");
         }
@@ -1394,7 +1406,13 @@ impl PlaybackCache {
         let errors = stderr.map(|stderr| {
             std::thread::spawn(move || {
                 let mut said = Said::default();
-                for_each_line(stderr, |line| said.hear(line));
+                for_each_line(stderr, |line| {
+                    // In the tests, ffmpeg's own words, which a failing test prints (an encoder refused on a CI
+                    // runner says why only there).
+                    #[cfg(test)]
+                    eprintln!("ffmpeg: {}", line.trim_end());
+                    said.hear(line);
+                });
                 said
             })
         });
@@ -1774,17 +1792,37 @@ struct Run<'a> {
     tone_map: Option<&'a video::ToneMap>,
     encoder: &'a [&'a str],
     sound: bool,
-    /// How many separate mono tracks to mix into the copy's one stereo track (see `mix_filter`); 0 to take the first track
-    /// as it is.
-    mix: usize,
+    /// The separate mono tracks mixed into the copy's one stereo track (see `mix_filter`), by their index among the
+    /// file's sound tracks; with one, that track as it is; with none, the first track as it is.
+    tracks: &'a [usize],
 }
 
 /// Separate mono tracks (Sony and Canon MXF keep each channel on its own) mixed into one stereo track that never
 /// clips (Kevin, Nov 6): each track at 1/N (`normalize`), a decibel to spare for the AAC encoder, and the same mix on
-/// both sides. A file with a single track, stereo or not, keeps it as it is.
-fn mix_filter(tracks: usize) -> String {
-    let inputs: String = (0..tracks).map(|i| format!("[0:a:{i}]")).collect();
-    format!("{inputs}amix=inputs={tracks}:duration=longest:normalize=1,volume=-1dB,pan=stereo|c0=c0|c1=c0[mix]")
+/// both sides. A file with a single track, stereo or not, keeps it as it is. `tracks`: their indexes among the file's
+/// sound tracks.
+fn mix_filter(tracks: &[usize]) -> String {
+    let inputs: String = tracks.iter().map(|i| format!("[0:a:{i}]")).collect();
+    let count = tracks.len();
+    format!("{inputs}amix=inputs={count}:duration=longest:normalize=1,volume=-1dB,pan=stereo|c0=c0|c1=c0[mix]")
+}
+
+/// Whether the mix of `tracks` can go into a copy (`video::sound_reads`, as for the first track alone).
+fn mix_plays(path: &Path, tracks: &[usize]) -> Result<bool, String> {
+    video::sound_reads(
+        path,
+        &["-filter_complex", &mix_filter(tracks), "-map", "[mix]"],
+    )
+}
+
+/// Of a file's separate mono tracks, the ones that decode: each tried alone, as the first track is. One that can't tell
+/// (the file stopped answering) is kept, so the next attempt finds out.
+fn tracks_that_play(path: &Path, tracks: &[usize]) -> Vec<usize> {
+    tracks
+        .iter()
+        .copied()
+        .filter(|i| video::sound_reads(path, &["-map", &format!("0:a:{i}")]) != Ok(false))
+        .collect()
 }
 
 /// Makes a video's playback copy (or finds it) and returns where it is, reporting progress on `progress`. The request
@@ -2071,10 +2109,23 @@ mod tests {
         );
         let (_, average, layout) = sound_of(&cache.make(&second, |_| {}).unwrap().path);
         assert_eq!(layout, [2], "one stereo track");
-        // -9 dB on average as its own track (a sine at half scale), 6 dB less as one of two, a decibel to spare.
+        // -9 dB on average as its own track (a sine at half scale), 6 dB less as one of two, a decibel to spare. (The
+        // second track alone would be -12, the first alone silence.)
         assert!(
-            (average + 16.0).abs() < 1.5,
+            (average + 16.0).abs() < 1.0,
             "the second track is heard: {average} dB"
+        );
+        // Hardware first, then software, as on Windows without a GPU: the first encoder's failure isn't the mix's, so
+        // the second still mixes the tracks.
+        let mut fallback = PlaybackCache::in_folder(&dir.join("fallback"));
+        fallback.encoders = vec![vec!["-c:v", "no_such_encoder"], encoders().pop().unwrap()];
+        let made = fallback.make(&second, |_| {}).unwrap();
+        assert!(!made.silent);
+        let (_, average, layout) = sound_of(&made.path);
+        assert_eq!(layout, [2]);
+        assert!(
+            (average + 16.0).abs() < 1.0,
+            "still mixed after an encoder failed: {average} dB"
         );
         // Four tracks of the same full-scale tone, the loudest a mix can be: it never reaches full scale.
         let tone = "aevalsrc=sin(2*PI*440*t):s=48000:d=3";
@@ -2102,18 +2153,22 @@ mod tests {
         );
         let (_, average, layout) = sound_of(&cache.make(&stereo, |_| {}).unwrap().path);
         assert_eq!(layout, [2]);
-        assert!((average + 9.0).abs() < 1.5, "its own level: {average} dB");
+        // Mixed down, or one side only, it would be -12.
+        assert!((average + 9.0).abs() < 1.0, "its own level: {average} dB");
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn a_mono_track_that_wont_decode_leaves_the_copy_the_first_track() {
-        let dir = temp_dir("mono-broken");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
-        // The first track in 16-bit, the second in 24-bit, whose tag is then made one ffmpeg doesn't know.
+    /// Two mono tracks, a sine at half scale on each (440 Hz, then 1000 Hz); the one at index `broken` is then tagged
+    /// with a codec ffmpeg doesn't know, so it won't decode.
+    fn broken_track_clip(dir: &Path, name: &str, broken: usize) -> PathBuf {
+        let (first, second) = if broken == 0 {
+            ("pcm_s24le", "pcm_s16le")
+        } else {
+            ("pcm_s16le", "pcm_s24le")
+        };
         let clip = make_clip(
-            &dir,
-            "C0083-whole.mov",
+            dir,
+            &format!("{name}-whole.mov"),
             &[
                 "-f",
                 "lavfi",
@@ -2129,38 +2184,42 @@ mod tests {
                 "aevalsrc=0.5*sin(2*PI*1000*t):s=48000:d=3",
             ],
             &[
-                "-map",
-                "0:v",
-                "-map",
-                "1:a",
-                "-map",
-                "2:a",
-                "-c:v",
-                "mpeg4",
-                "-c:a:0",
-                "pcm_s16le",
-                "-c:a:1",
-                "pcm_s24le",
+                "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "mpeg4", "-c:a:0", first,
+                "-c:a:1", second,
             ],
         );
         let mut bytes = fs::read(&clip).unwrap();
         let at = bytes
             .windows(4)
             .position(|w| w == b"in24")
-            .expect("the second track's tag");
+            .expect("the broken track's tag");
         bytes[at..at + 4].copy_from_slice(b"abcd");
-        let broken = dir.join("C0083.mov");
+        let broken = dir.join(format!("{name}.mov"));
         fs::write(&broken, bytes).unwrap();
-        assert_eq!(video::audio_tracks(&broken).unwrap(), [1, 1]);
-        let made = cache.make(&broken, |_| {}).unwrap();
-        assert!(!made.silent, "the first track still plays");
-        let (_, average, layout) = sound_of(&made.path);
-        assert_eq!(layout, [2]);
-        // -9 dB on average as its own track, 3 dB less on each side as one track is spread over two, as before.
-        assert!(
-            (average + 12.0).abs() < 1.5,
-            "the first track alone: {average} dB"
-        );
+        broken
+    }
+
+    #[test]
+    fn a_mono_track_that_wont_decode_leaves_the_copy_the_one_that_does() {
+        let dir = temp_dir("mono-broken");
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        // The second track broken, then the first: either way the copy has the other one, never no sound.
+        for (broken, name) in [(1, "C0083"), (0, "C0084")] {
+            let clip = broken_track_clip(&dir, name, broken);
+            assert_eq!(video::audio_tracks(&clip).unwrap(), [1, 1]);
+            let made = cache.make(&clip, |_| {}).unwrap();
+            assert!(
+                !made.silent,
+                "the other track plays (track {broken} broken)"
+            );
+            let (_, average, layout) = sound_of(&made.path);
+            assert_eq!(layout, [2]);
+            // -9 dB on average as its own track, 3 dB less on each side as one track is spread over two.
+            assert!(
+                (average + 12.0).abs() < 1.0,
+                "the other track alone (track {broken} broken): {average} dB"
+            );
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2737,7 +2796,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             tone_map: None,
             encoder: &cache.encoders[0],
             sound: true,
-            mix: 0,
+            tracks: &[],
         };
         let said = cache.encode(&run, &asked, |_| {}).unwrap();
         assert!(said.read_failed, "heard in ffmpeg's own words");

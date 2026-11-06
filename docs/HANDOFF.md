@@ -54,6 +54,7 @@ Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every m
 
 - **PR #1, `claude/add-core-features-qkifh` (draft):** from before the v2 rebuild. Leave it alone; it's Kevin's to
   close.
+- **PR #78, `phase2/2.3b-playback-ui` (draft):** 2.3b, in review (below).
 - Every other branch on the remote is merged work, or a `checkpoint/*` branch (CI runs only).
 
 ### 2.3a: how it went, and what's left
@@ -202,6 +203,31 @@ browser build's stand-in), the inspector's copy line, and Settings → Storage's
 and `licence_text` (`src-tauri/src/licences.rs`). The end-to-end tests found that Escape in a window opened from inside
 Settings closed Settings too; fixed in `InAppWindow` for every window.
 
+Review round 1 (Nov 6): one high, four mediums, all fixed and tested.
+- The high: any failed attempt dropped the mix of mono tracks, so on Windows without a GPU (the hardware encoder fails
+  first, then the software one makes the copy) every copy kept CH1 only. The mix is now given up only when it's the
+  cause (the mix alone tried for a second, as the first track is); then the tracks that decode are mixed. Tests: the
+  mix kept after a failing first encoder; a broken first track leaves the second, never a copy without sound.
+- Make playback copy lost keyboard focus (the button went as the copy was queued): Make and Cancel are one button now.
+- The cap or floor saved on leaving the field moved focus to the status line, and a change made while another action
+  ran was dropped while the field still showed it: saves now go beside actions, leave focus alone, and snap back if not
+  saved.
+- Lows fixed with them: a cancelled copy's late result no longer overwrites the same video queued again; a copy known
+  as made is looked for again when asked for; a lower cap tells the inspector; an undo of a relink makes the inspector
+  look again; Forget saves before forgetting and says so in its own words; a cancelled confirm leaves focus on its
+  button; the status line is read after the copies are; Move says a copy is being made before asking for a folder;
+  the copies unreadable say why and offer Move back; Spanish thousands in the GB fields; an entry out of range says so;
+  the e2e Cancel no longer races the stand-in; stronger test assertions (handle, localized failure, levels within 1 dB).
+- The a11y sweep's "Tab goes round" test clicked blank space in Storage with no project open, which had no controls
+  before 2.3b; it now uses Project's panel, which still has none (Tab from a panel with controls goes into them).
+
+Checkpoint r1 (`checkpoint/playback-2.3b-r1`, before round 1's fixes): smoke and screenshots passed on Linux and the
+Mac. Windows' Rust tests failed on the mix, as round 1 found ("the second track is heard: -91 dB": the hardware encoder
+failed, the mix was dropped); fixed. The Mac's failed once in `holds_a_finished_copy_to_the_floor_before_it_keeps_it`
+(D2's test, one mono track, so not the mix): its second copy failed in the encoder, which the test can't say more of.
+It passed at D2's checkpoint; 2.3b added copy-making tests that run beside it, and VideoToolbox is the Mac's only
+encoder. The tests now print ffmpeg's own words for a failing test (`#[cfg(test)]` only), so a repeat says why.
+
 For Kevin, on his own computers, in this order (Kevin, Nov 6):
 1. **Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder** (NV12, High
    profile). Link the clip to a frame; the copy starts on its own. Task Manager's Performance tab, under the GPU, should
@@ -219,6 +245,11 @@ For Kevin, on his own computers, in this order (Kevin, Nov 6):
 Lows deferred (noted, not planned yet):
 - A copy refused for room (the floor) shows as failed and waits for Try again: nothing asks for it again once room
   comes back (a Clear, a bigger cap, a lower floor).
+- Reopening the same project (after a sync conflict, say) stops the copy being made and drops the queue, as any project
+  switch does; it could carry on instead.
+- The e2e run in a cloud session is Chromium only (WebKit isn't installed here); the screenshot tests differ there by
+  about 1% of pixels, all text antialiasing, as the container's Chromium build isn't the baselines'. The checkpoint
+  compares them on CI's own browsers.
 
 ## Next steps, in order
 
@@ -302,7 +333,9 @@ Lows deferred (noted, not planned yet):
   - Settings → Storage holds the copies, the remembered videos and FFmpeg's licences (there's no About window yet);
     its sizes there are decimal (GB and MB), as the cap and the floor are, where the project's own sizes are binary.
   - The mix gives each of N mono tracks 1/N, so a take where only one of two mics was live plays 6 dB quieter than
-    it was recorded. Raising the level after the mix (loudness normalising) would need a second pass; left out.
+    it was recorded, and an FX6 or FX9's four tracks with two empty play 6 dB under the two live ones' own mix (one live
+    of four: 12 dB). The other way: sum them at full level with a limiter (FFmpeg's `alimiter`), louder and still never
+    clipping, but it squashes loud peaks. Kept to Kevin's words ("gain kept low enough that it never clips").
   - The browser build's stand-in pretends 2.5 s and 2.4 MB a copy.
 - **Known lows, deferred:** a Trash restore of a video still doesn't bring back its clip (undo of Remove does); after a
   project switch, a first missing-file check that times out leaves the flags off until the next focus; bit depth falls

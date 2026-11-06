@@ -43,9 +43,14 @@ describe('sizes and whole GB', () => {
     expect(decimalSize(1200)).toBe('0.0 MB');
   });
 
-  it('takes a whole number in range, commas and all, and nothing else', () => {
+  it('takes a whole number in range, grouped as the app’s language writes it, and nothing else', () => {
     expect(parseGb('80', CAP_GB.min, CAP_GB.max)).toBe(80);
-    expect(parseGb(' 10,000 ', CAP_GB.min, CAP_GB.max)).toBe(10_000);
+    expect(parseGb(' 10,000 ', CAP_GB.min, CAP_GB.max, 'en')).toBe(10_000);
+    // Spanish groups thousands with a point and writes decimals with a comma.
+    expect(parseGb('10.000', CAP_GB.min, CAP_GB.max, 'es')).toBe(10_000);
+    expect(parseGb('12,5', FLOOR_GB.min, FLOOR_GB.max, 'es')).toBeNull();
+    expect(parseGb('12.5', FLOOR_GB.min, FLOOR_GB.max, 'en')).toBeNull();
+    expect(parseGb('-5', FLOOR_GB.min, FLOOR_GB.max)).toBeNull();
     expect(parseGb('10001', CAP_GB.min, CAP_GB.max)).toBeNull();
     expect(parseGb('0', FLOOR_GB.min, FLOOR_GB.max)).toBeNull();
     expect(parseGb('1001', FLOOR_GB.min, FLOOR_GB.max)).toBeNull();
@@ -90,7 +95,17 @@ describe('Settings → Storage: playback copies (2.3b)', () => {
   });
 
   it('keeps the Move button focusable while it runs, and says so', () => {
-    expect(render({ moving: true })).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-busy="true"[^>]*>Moving…/);
+    const button = /<button[^>]*>Moving…/.exec(render({ moving: true }))?.[0] ?? '';
+    expect(button).toMatch(/aria-disabled="true"[^>]*aria-busy="true"/);
+    expect(button).not.toContain(' disabled=""');
+  });
+
+  it('says why when the copies can’t be read, and still offers to move them back', () => {
+    const html = render({ info: null, infoError: "Playback copies can't be written in that folder." });
+    expect(html).not.toContain('Measuring…');
+    expect(html).toContain('t be written in that folder.');
+    expect(html).toContain('Move back to this computer');
+    expect(html).not.toContain('Clear playback copies');
   });
 
   it('counts the videos this computer remembers, with Forget, and offers FFmpeg’s licences', () => {
