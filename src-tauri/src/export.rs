@@ -69,7 +69,7 @@ fn inside(folder: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// Runs one dialog at a time, on a thread of its own since it waits for the person.
-async fn dialog<T: Send + 'static>(
+pub(crate) async fn dialog<T: Send + 'static>(
     app: &AppHandle,
     run: impl FnOnce(&AppHandle) -> Option<T> + Send + 'static,
 ) -> Result<Option<T>, String> {

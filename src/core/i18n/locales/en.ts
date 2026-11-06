@@ -977,6 +977,17 @@ export const en = {
   'error.notAVideo': 'That file can\'t be read as a video.',
   'error.videoToolMissing': 'Storiiboard\'s video reader couldn\'t start. Reinstalling Storiiboard puts it back.',
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
+  // src-tauri/src/playback.rs
+  'error.copyFailed': 'That video couldn\'t be made into a playback copy.',
+  'error.copyCancelled': 'The playback copy was cancelled.',
+  'error.copyCap': 'The cap for playback copies is between 1 and 10,000 GB.',
+  'error.copyBusy': 'A playback copy is being made; move the copies once it\'s done.',
+  'error.copyShort': 'The playback copy came out shorter than the video. If it\'s on a card or a drive, check it\'s still connected.',
+  'error.copyStalled': 'That video stopped being read partway. If it\'s on a card, a drive or a network share, check it\'s still connected.',
+  'error.copyMoving': 'The playback copies are being moved; try again once that\'s done.',
+  'error.copySettings': 'The settings for playback copies couldn\'t be saved.',
+  'error.copyOfCopy': 'That file is one of Storiiboard\'s playback copies. Link the original video instead.',
+  'error.copyUnwritable': 'Playback copies can\'t be written in that folder.',
   // src/features/history/HistoryTile.tsx
   'history.only.unnumbered': 'Only frame',
   // src/app/shell/sidebar/Sidebar.tsx

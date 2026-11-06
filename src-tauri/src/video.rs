@@ -219,10 +219,15 @@ pub fn read_probe(json: &Value) -> Result<Probe, String> {
         == video["avg_frame_rate"]
             .as_str()
             .and_then(|t| fraction(t, '/'));
+    // And only when it agrees with the stream's own length: a MOV edit list (a trim made without re-encoding, as a
+    // stream copy from a point between keyframes writes) keeps every sample in the count but plays only part, and the
+    // stream's length follows the edit list.
+    let stream_length = number(&video["duration"]).map(|seconds| seconds * fps);
     let counted = video["nb_frames"]
         .as_str()
         .and_then(|n| n.parse::<u64>().ok())
-        .filter(|&n| n > 0 && constant);
+        .filter(|&n| n > 0 && constant)
+        .filter(|&n| stream_length.is_none_or(|length| (n as f64 - length).abs() <= 2.0));
     let duration_frames = counted
         .or_else(|| duration.map(|seconds| (seconds * fps).round() as u64))
         .unwrap_or(0);
@@ -276,20 +281,55 @@ const CANT_READ: &str = "That file can't be read as a video.";
 
 /// Runs a sidecar to the end and returns what it wrote, or gives up after `timeout`. Its output is read while it runs,
 /// so a long answer can't fill the pipe and stall it.
-fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+fn run(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
+    let (status, out, _) = run_heard(command, timeout, false)?;
+    if status.success() {
+        Ok(out)
+    } else {
+        Err(CANT_READ.into())
+    }
+}
+
+/// Runs a sidecar to the end, or gives up after `timeout`: how it ended, what it wrote, and (if `errors`) what it said
+/// on its error output. Both are read while it runs, so neither pipe fills and stalls it.
+fn run_heard(
+    mut command: Command,
+    timeout: Duration,
+    errors: bool,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
     let mut child = command
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(if errors {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|_| {
             "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
                 .to_string()
         })?;
-    let mut stdout = child.stdout.take().ok_or(CANT_READ)?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stdout.read_to_end(&mut bytes).map(|_| bytes)
-    });
+    let read_all = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            match pipe {
+                Some(mut pipe) => pipe.read_to_end(&mut bytes).map(|_| bytes),
+                None => Ok(bytes),
+            }
+        })
+    };
+    let stdout = read_all(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = read_all(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -307,12 +347,14 @@ fn run(mut command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
             Err(_) => return Err(CANT_READ.into()),
         }
     };
-    reader
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .filter(|_| status.success())
-        .ok_or_else(|| CANT_READ.to_string())
+    let all = |reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>| {
+        reader
+            .join()
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| CANT_READ.to_string())
+    };
+    Ok((status, all(stdout)?, all(stderr)?))
 }
 
 /// Runs ffprobe on a file. The path is one argument of the list, after `-i`, never part of a shell string, and ffprobe
@@ -341,7 +383,7 @@ pub fn probe(path: &Path) -> Result<Probe, String> {
 /// first frame, but a file's start is its earliest stream: sound that starts before the picture (AVCHD, an MP4 without
 /// an edit list) would otherwise move every still a few frames early. The playback copy (2.3) and the Player (2.4)
 /// count frame 0 the same way.
-fn starts(path: &Path) -> Result<(f64, f64), String> {
+pub(crate) fn starts(path: &Path) -> Result<(f64, f64), String> {
     let mut command = command("ffprobe");
     command
         .args(["-v", "error", "-protocol_whitelist", "file"])
@@ -354,6 +396,56 @@ fn starts(path: &Path) -> Result<(f64, f64), String> {
     let file = number(&json["format"]["start_time"]).unwrap_or(0.0);
     let stream = number(&json["streams"][0]["start_time"]).unwrap_or(file);
     Ok((stream, file))
+}
+
+/// Whether a video's sound can go into a playback copy: its first second decoded and made into the copy's AAC, a line
+/// of checksums for each piece made, then thrown away. False when ffmpeg can't (no decoder for it, a layout the encoder
+/// refuses) or makes nothing (a track with no sound in it); an error when it couldn't tell (the file itself can't be
+/// read now, or stopped answering). The playback copy drops the sound only on a false (playback.rs).
+pub(crate) fn sound_plays(path: &Path) -> Result<bool, String> {
+    let mut command = command("ffmpeg");
+    command
+        .args(["-hide_banner", "-loglevel", "error"])
+        .args(["-protocol_whitelist", "file", "-i"])
+        .arg(path)
+        .args(["-map", "0:a:0", "-t", "1"])
+        .args([
+            "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-f", "framemd5", "-",
+        ]);
+    let (status, out, said) = run_heard(command, PROBE_TIMEOUT, true)?;
+    // A read that failed partway (ffmpeg goes on as if the file had ended, and exits as if all went well): it can't
+    // tell, whatever came out.
+    if read_failed_in(&String::from_utf8_lossy(&said), path) {
+        return Err(CANT_READ.into());
+    }
+    if !status.success() {
+        // The file opens and its picture reads: it's the sound.
+        return starts(path).map(|_| false);
+    }
+    Ok(String::from_utf8_lossy(&out)
+        .lines()
+        .any(|line| !line.starts_with('#') && !line.trim().is_empty()))
+}
+
+/// Whether ffmpeg 8's error output says a read of `original` failed partway: "Error during demuxing: <reason>" for
+/// any reason but undecodable data, or a MOV's "stream N, offset 0x…: partial file" at a place inside the file as it
+/// is now (past its end, the file was only cut short). The playback copy listens for the same (playback.rs, Said).
+pub(crate) fn read_failed_in(said: &str, original: &Path) -> bool {
+    // Read only if a "partial file" line comes; an original that's gone since is a read that failed.
+    let size = std::cell::OnceCell::new();
+    let size = || *size.get_or_init(|| std::fs::metadata(original).ok().map(|meta| meta.len()));
+    said.lines().map(str::trim_end).any(|line| {
+        if let Some((_, reason)) = line.split_once("Error during demuxing: ") {
+            return !reason.starts_with("Invalid data found");
+        }
+        line.starts_with("[in#")
+            && line.ends_with(": partial file")
+            && line
+                .rsplit_once("offset 0x")
+                .and_then(|(_, rest)| rest.split(':').next())
+                .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                .is_none_or(|at| size().is_none_or(|size| at < size))
+    })
 }
 
 /// The long edge a still is made at, at most: the picture pipeline's own cap (src/core/media/image.ts), so a 6K or 8K
@@ -462,6 +554,20 @@ impl KnownVideos {
             .is_ok_and(|paths| paths.iter().any(|known| known == path))
     }
 
+    fn count(&self) -> usize {
+        self.paths.lock().map_or(0, |paths| paths.len())
+    }
+
+    /// Forgets every video remembered (Settings → Storage): each reads again once dropped, chosen or relinked.
+    fn forget_all(&self) -> Result<(), String> {
+        let mut paths = self.paths.lock().map_err(|e| e.to_string())?;
+        paths.clear();
+        if let Some(file) = &self.file {
+            crate::playback::write_atomically(file, b"[]").map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     /// Remembers a video read for the person. Written whole to a new file, then renamed over the old one, so a crash
     /// never leaves half a list.
     fn remember(&self, path: &Path) {
@@ -496,7 +602,7 @@ impl KnownVideos {
 }
 
 /// What a request to read a video is checked against.
-struct Access<'a> {
+pub(crate) struct Access<'a> {
     offered: &'a Offered,
     known: &'a KnownVideos,
     files: &'a OpenFiles,
@@ -505,7 +611,7 @@ struct Access<'a> {
 }
 
 impl<'a> Access<'a> {
-    fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
+    pub(crate) fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
         Self {
             offered: app.state::<Offered>().inner(),
             known: app.state::<KnownVideos>().inner(),
@@ -530,7 +636,7 @@ impl<'a> Access<'a> {
                 .is_some_and(|handle| self.files.links_video_inside(handle, path).unwrap_or(false))
     }
 
-    fn readable(&self, path: &Path) -> Result<(), String> {
+    pub(crate) fn readable(&self, path: &Path) -> Result<(), String> {
         if !self.may_read(path) {
             return Err("Storiiboard reads only the files you drop on it or choose.".into());
         }
@@ -622,6 +728,18 @@ pub async fn video_status(
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// How many videos this computer remembers the person handed over.
+#[tauri::command]
+pub fn known_videos_count(app: AppHandle) -> usize {
+    app.state::<KnownVideos>().count()
+}
+
+/// Forgets them all; a project's videos outside its folder then need Relink (or a drop) to read again.
+#[tauri::command]
+pub fn known_videos_forget(app: AppHandle) -> Result<(), String> {
+    app.state::<KnownVideos>().forget_all()
 }
 
 /// The Open dialog for videos; the files picked become readable.
@@ -1114,7 +1232,18 @@ mod tests {
         let saved: Vec<PathBuf> =
             serde_json::from_slice(&fs::read(dir.join("data").join("known-videos.json")).unwrap())
                 .unwrap();
-        assert_eq!(saved, [card]);
+        assert_eq!(saved, std::slice::from_ref(&card));
+        assert_eq!(known.count(), 1);
+        known.forget_all().unwrap();
+        assert!(!Access {
+            known: &known,
+            ..access
+        }
+        .may_read(&card));
+        assert!(
+            !KnownVideos::load(&dir.join("data")).has(&card),
+            "forgotten on disk too"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1276,5 +1405,106 @@ mod tests {
             "side_data_list": [{ "side_data_type": "Display Matrix", "rotation": -180 }],
         }]});
         assert_eq!(read_probe(&json).unwrap().rotation, 180);
+    }
+
+    #[test]
+    fn counts_a_mov_trimmed_by_an_edit_list_by_what_it_plays() {
+        let stream = |nb_frames: &str, duration: &str| {
+            serde_json::json!({ "streams": [{
+                "codec_type": "video", "r_frame_rate": "25/1", "avg_frame_rate": "25/1",
+                "nb_frames": nb_frames, "duration": duration,
+            }]})
+        };
+        // A 10 s take stream-copied from 3 s in: every sample is still there, 7 s of them play (ffprobe's own figures).
+        assert_eq!(
+            read_probe(&stream("250", "7.000000"))
+                .unwrap()
+                .duration_frames,
+            175
+        );
+        // An untrimmed file: the exact count, though its length rounds a frame off.
+        assert_eq!(
+            read_probe(&stream("250", "9.960000"))
+                .unwrap()
+                .duration_frames,
+            250
+        );
+        let no_length = serde_json::json!({ "streams": [{
+            "codec_type": "video", "r_frame_rate": "25/1", "avg_frame_rate": "25/1", "nb_frames": "250",
+        }]});
+        assert_eq!(read_probe(&no_length).unwrap().duration_frames, 250);
+    }
+
+    #[test]
+    fn reads_a_trimmed_mov_as_long_as_it_plays_and_hears_sound_it_can_and_cant_decode() {
+        let dir = temp_dir("trim");
+        let take = make(
+            &dir,
+            "C0060.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=25:duration=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=10",
+            ],
+            &["-c:v", "mpeg4", "-g", "100", "-c:a", "pcm_s16le"],
+        );
+        // A stream copy from between two keyframes: an edit list hides the frames before 3 s.
+        let trimmed = make(
+            &dir,
+            "C0060 trimmed.mov",
+            &["-ss", "3", "-i", take.to_str().unwrap()],
+            &["-c", "copy"],
+        );
+        assert_eq!(probe(&trimmed).unwrap().duration_frames, 175);
+        assert_eq!(sound_plays(&take), Ok(true));
+        // The same take with its sound's codec tag made unknown: ffmpeg has no decoder for it.
+        let bytes = fs::read(&take).unwrap();
+        let at = bytes
+            .windows(4)
+            .position(|w| w == b"sowt")
+            .expect("PCM sound's tag");
+        let mut unknown = bytes.clone();
+        unknown[at..at + 4].copy_from_slice(b"abcd");
+        let silent = dir.join("C0060 unknown sound.mov");
+        fs::write(&silent, unknown).unwrap();
+        assert!(probe(&silent).unwrap().has_audio);
+        assert_eq!(sound_plays(&silent), Ok(false));
+        // A file that can't be read at all says nothing about its sound.
+        assert!(sound_plays(&dir.join("gone.mov")).is_err());
+        // Nor does one whose read failed partway, in either of ffmpeg's words for it.
+        let size = fs::metadata(&take).unwrap().len();
+        for said in [
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] Error during demuxing: Input/output error\n"
+                .to_owned(),
+            format!(
+                "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{:x}: partial file\r\n",
+                size / 2
+            ),
+        ] {
+            assert!(read_failed_in(&said, &take), "{said}");
+        }
+        // The original gone since: a failed read, as the playback copy counts it.
+        let at_end = format!(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{size:x}: partial file\n"
+        );
+        assert!(read_failed_in(&at_end, &dir.join("gone.mov")));
+        // A file cut short, or damaged data, is no failed read.
+        for said in [
+            format!(
+                "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x1] stream 1, offset 0x{size:x}: partial file\n"
+            ),
+            "[in#0/mxf @ 0x1] Error during demuxing: Invalid data found when processing input\n"
+                .to_owned(),
+            "[aist#0:1/pcm_s16le @ 0x1] Decoding error: Invalid data found when processing input\n"
+                .to_owned(),
+        ] {
+            assert!(!read_failed_in(&said, &take), "{said}");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

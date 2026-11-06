@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 5, 2026 (2.1 merged; 2.2 split in two) |
+| Last updated | Nov 6, 2026 (2.3a merged; D1 and D2 next) |
 
 | Phase | State |
 |---|---|
@@ -38,14 +38,42 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 |---|---|---|
 | 2.1 ffmpeg and ffprobe sidecars, LGPL, built in CI from one pinned release; Rust reads a video's facts | #71 | Done |
 | 2.2a Schema 8 (video records, `clip`, `from_video`, `luts`); timecode maths; Rust stills and file status; the browser build's stand-in | #72 | Done |
-| 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | | In review |
-| 2.3 Playback copies: the cache, its cap, moving it; HDR tone-mapped; ffmpeg's licence in Settings → Storage | | Not started |
+| 2.2b Link a video to a frame by drop or browse, its first frame as the picture; video details in the inspector; missing flag and Relink; the sidebar's phase labels (from 2.4) | #73 | Done |
+| 2.3a Playback copies, the engine: made one at a time with the computer's H.264 encoder, progress, Cancel, `.partial` until done; cache folder, 50 GB cap, Clear, Move to another drive | #74 | Done |
+| D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | | Not started |
+| D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | | Not started |
+| 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence | | Not started |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
 | 2.6 Crop | | Not started |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
+
+HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
+needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
+(BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. Until D1, HDR copies are made as they are.
+
+2.3a as built (Nov 6), `src-tauri/src/playback.rs`. Five review rounds; each checkpoint ran the copies on the Mac's
+VideoToolbox and Windows' Media Foundation (software, as CI has no GPU).
+- A copy: H.264 (VideoToolbox; Media Foundation hardware then Microsoft's software encoder, NV12, High profile), at
+  most 1920 px on the long edge, square pixels, deinterlaced, the original's exact rate, a keyframe every 12 frames,
+  AAC stereo 160 kb/s; frame 0 is the video's first frame. No index pass (`+faststart`): a local file plays as well
+  with its index last. Linux makes MPEG-4, for the tests only.
+- One copy at a time. Each request is on the list from the moment the page asks, before the file is checked, so a
+  Cancel reaches it anywhere; several requests for one video share the work.
+- Whole or nothing: written as a partial (one per attempt) and renamed only when the original is unchanged (path, size,
+  time in two-second steps), ffmpeg's own words say no read failed ("Error during demuxing", or MOV's "partial file"
+  inside the file), the copy is no shorter than a second or one frame in a hundred, and its sound is there. A file
+  that was only cut short still gets its copy; a MOV trimmed by an edit list counts as long as it plays (video.rs).
+- Sound that can't be read (its first second tried alone) gives a copy without it, named `-silent`, which the app can
+  point out; a later run tries the sound again. Any other failure never drops the sound.
+- A stall is ffmpeg's counts standing still for 90 s (it reports twice a second even when stuck); a kill that doesn't
+  take is given up on after 10 s; a computer that slept isn't taken for stalled.
+- The cache: `Storiiboard Playback Copies` in the app's cache folder or on a picked drive, the cache folder standing in
+  while that drive is away; a 50 GB cap (copies used longest ago go first); Clear; Move, which keeps any folder it
+  couldn't empty (or reach) on a list the app still looks in, and refuses when the settings file can't be saved. One
+  of our own copies is refused as an original.
 
 2.1 as built: `scripts/ffmpeg/build.sh` builds FFmpeg 8.1.3 (checksum pinned) with `--disable-autodetect`, static,
 and checks itself: the LGPL 2.1, no GPL, nonfree or version3 flag, the `lut3d` filter. VideoToolbox on a Mac, Media
