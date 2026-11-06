@@ -117,34 +117,65 @@ mod job {
     }
 }
 
-/// Whether process `pid` is running `exe` (the ffmpeg sidecar), so a process id kept from an earlier run is stopped
-/// only while it still names that program, never another one that took the id since.
+/// When process `pid` started, as the system says it each time it's asked (on a Mac in microseconds since 1970, on
+/// Linux in clock ticks since boot): with the id, it names one process, never another that took the id since. None for
+/// a process that has ended (one waiting to be reaped included) or was never there.
 #[cfg(unix)]
-pub fn is_running(pid: u32, exe: &Path) -> bool {
-    let Ok(exe) = exe.canonicalize() else {
-        return false;
-    };
-    running_path(pid).is_some_and(|path| path == exe)
+pub fn started(pid: u32) -> Option<u64> {
+    facts(pid).map(|(started, _)| started)
 }
 
-/// The program a process runs, as the system knows it; none for a process that has ended (or was never there).
+/// Whether process `pid` is still the one that started at `started`, and still runs ffmpeg (a sidecar's name starts
+/// with it, as built or as bundled), so a process id kept from an earlier run is stopped only while it names that same
+/// process, wherever the app ran from.
+#[cfg(unix)]
+pub fn is_same(pid: u32, started: u64) -> bool {
+    facts(pid).is_some_and(|(at, name)| at == started && name.starts_with("ffmpeg"))
+}
+
+/// A running process's start and its program's name.
 #[cfg(target_os = "macos")]
-fn running_path(pid: u32) -> Option<std::path::PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
+fn facts(pid: u32) -> Option<(u64, String)> {
     let pid = libc::c_int::try_from(pid).ok()?;
-    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: proc_pidpath writes at most the buffer's length into it, and returns how much it wrote.
-    let length =
-        unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
-    let length = usize::try_from(length).ok().filter(|&n| n > 0)?;
-    let path = Path::new(std::ffi::OsStr::from_bytes(&buffer[..length]));
-    path.canonicalize().ok()
+    // SAFETY: proc_pidinfo fills at most the size it's given of a plain-data struct, and says how much it filled.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            std::ptr::from_mut(&mut info).cast(),
+            size,
+        )
+    };
+    if filled != size || info.pbi_status == libc::SZOMB {
+        return None;
+    }
+    let name: Vec<u8> = info
+        .pbi_comm
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    let started = info
+        .pbi_start_tvsec
+        .saturating_mul(1_000_000)
+        .saturating_add(info.pbi_start_tvusec);
+    Some((started, String::from_utf8_lossy(&name).into_owned()))
 }
 
-/// Linux (the tests): what /proc says. An ended process waiting to be reaped has no program any more.
+/// Linux (the tests): what /proc says, the name in parentheses, then the state and, 19 fields on, the start.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn running_path(pid: u32) -> Option<std::path::PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+fn facts(pid: u32) -> Option<(u64, String)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (head, rest) = stat.rsplit_once(')')?;
+    let name = head.split_once('(')?.1.to_owned();
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    if fields.first() == Some(&"Z") {
+        return None;
+    }
+    Some((fields.get(19)?.parse().ok()?, name))
 }
 
 /// Ends process `pid` at once.
@@ -167,6 +198,30 @@ pub fn kill(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minute of ffmpeg's, in real time, saying nothing; killed when dropped, so a failed test leaves nothing running.
+    struct Sidecar(std::process::Child);
+
+    impl Sidecar {
+        fn start() -> Self {
+            Self(
+                crate::video::command("ffmpeg")
+                    .args(["-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi"])
+                    .args(["-i", "testsrc2=duration=60", "-f", "null", "-"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            )
+        }
+    }
+
+    impl Drop for Sidecar {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 
     #[test]
     fn reads_the_free_space_on_a_mac_and_windows_and_says_it_cant_on_linux() {
@@ -191,19 +246,15 @@ mod tests {
         use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
         // A job of its own, so closing it stands in for the app ending without touching the app's.
         let job = job::make().expect("a job");
-        let mut child = crate::video::command("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi"])
-            .args(["-i", "testsrc2=duration=600", "-f", "null", "-"])
-            .spawn()
-            .unwrap();
+        let mut ffmpeg = Sidecar::start();
         assert_ne!(
-            unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) },
+            unsafe { AssignProcessToJobObject(job.0, ffmpeg.0.as_raw_handle()) },
             0
         );
-        assert!(matches!(child.try_wait(), Ok(None)), "running");
+        assert!(matches!(ffmpeg.0.try_wait(), Ok(None)), "running");
         unsafe { CloseHandle(job.0) };
         let started = std::time::Instant::now();
-        while matches!(child.try_wait(), Ok(None)) {
+        while matches!(ffmpeg.0.try_wait(), Ok(None)) {
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(10),
                 "ended with its job"
@@ -214,18 +265,34 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn tells_a_running_sidecar_from_a_process_that_ended_or_runs_something_else() {
-        let ffmpeg = crate::video::tool("ffmpeg");
-        let mut child = crate::video::command("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi"])
-            .args(["-i", "testsrc2=duration=600", "-f", "null", "-"])
+    fn knows_a_process_by_its_id_and_start_and_only_while_it_runs_ffmpeg() {
+        let mut ffmpeg = Sidecar::start();
+        let pid = ffmpeg.0.id();
+        let at = started(pid).expect("running");
+        assert!(is_same(pid, at));
+        assert!(!is_same(pid, at + 1), "another start: another process");
+        // Another program, at its own start.
+        let mut other = std::process::Command::new("sleep")
+            .arg("30")
             .spawn()
             .unwrap();
-        assert!(is_running(child.id(), &ffmpeg));
-        assert!(!is_running(child.id(), &crate::video::tool("ffprobe")));
-        kill(child.id());
-        child.wait().unwrap();
-        assert!(!is_running(child.id(), &ffmpeg), "ended");
-        assert!(!is_running(u32::MAX, &ffmpeg), "never there");
+        let other_at = started(other.id()).expect("running");
+        assert!(!is_same(other.id(), other_at), "not ffmpeg");
+        other.kill().unwrap();
+        other.wait().unwrap();
+        kill(pid);
+        // Ended, but not yet reaped: no longer that process either.
+        let waited = std::time::Instant::now();
+        while is_same(pid, at) {
+            assert!(
+                waited.elapsed() < std::time::Duration::from_secs(10),
+                "ended"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(started(pid), None);
+        ffmpeg.0.wait().unwrap();
+        assert!(!is_same(pid, at), "reaped");
+        assert_eq!(started(u32::MAX), None, "never there");
     }
 }

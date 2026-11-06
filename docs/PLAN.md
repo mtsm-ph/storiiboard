@@ -58,17 +58,21 @@ D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Ta
 - A free-space floor, 10 GB by default (1 to 1,000 GB, `playback_set_floor`; 2.3b shows it in Settings → Storage).
   Before a copy starts its drive must keep the floor free after the copy (about 1.6 MB a second of video): the copies
   used longest ago in the folder copies go to make the room, never the video's own, and only if together they can;
-  otherwise the copy is refused and nothing is removed. While the copy is made a thread of its own reads the free space
-  every 2 s (a share that stopped answering never holds up the encode's watch): down to the floor, older copies make
-  room, or the copy stops and leaves nothing. A Move copies across drives only what fits above the floor; the rest stay
-  where they were, still played, and the Move says so. `playback_info` adds the floor and the drive's free space.
+  otherwise the copy is refused and nothing is removed. They go one at a time, the drive read again after each; one
+  whose space doesn't come back (a Time Machine snapshot keeps it) stops the rest going. While the copy is made a
+  thread of its own reads the free space every 2 s (a share that stopped answering never holds up the encode's watch):
+  down to the floor, older copies make room, or the copy stops and leaves nothing. A Move to a drive already below the
+  floor is refused, with nothing changed; otherwise it copies across drives only what fits above the floor, and the
+  rest stay where they were, still played, and the Move says so. `playback_info` adds the floor and the drive's free
+  space.
   Windows reads it with `GetDiskFreeSpaceExW` (after any quota), a Mac with `statvfs` (without the space macOS can
   purge, so a little under Finder's figure); a drive that can't tell is taken as having room. Linux (the tests) stands
   in with a pretend drive.
 - ffmpeg ends with the app, crash or not. Windows: every sidecar joins one Job Object with kill-on-close, so the system
-  ends them when the app ends however it ends. A Mac: each encode's process id is kept in `playback-running.txt` (the
-  app's data folder) while it runs, and the next start stops any still running the sidecar (checked by its path, so a
-  process id another program has taken since is left alone). Tested by killing a real app process on each platform.
+  ends them when the app ends however it ends. A Mac: each encode's process id and start time are kept in
+  `playback-running.txt` (the app's data folder) while it runs, and the next start stops any that is still that same
+  process running ffmpeg (so an id another program has taken since is left alone, and an app moved or run from
+  elsewhere still finds its own). Tested by killing a real app process on each platform.
 
 D1 as built (Nov 6): `scripts/ffmpeg/build.sh` builds zimg 3.0.6 (autotools) and dav1d 1.5.4 (meson), each pinned with
 its checksum, statically, and configures ffmpeg with `--enable-libzimg --enable-libdav1d`; the self-checks add

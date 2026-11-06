@@ -1,7 +1,7 @@
 # Handoff
 
 Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a and D1 merged. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+2.3a, D1 and D2. Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -29,6 +29,12 @@ It replaces nothing in either; it says where the work stands and what comes next
   reviews ran on the `Plan` agent type (no Edit or Write tools) with `reviewer.md`'s instructions given word for word
   and "Read, Grep and Glob only, no shell". Start sessions on `v2` to get the agent itself. Write the diff
   (`git diff origin/v2...HEAD`) to a file it can read and point it there.
+- **Windows and Mac code without a Windows or a Mac (D2):** `rustup target add x86_64-pc-windows-gnu`,
+  `apt-get install -y gcc-mingw-w64-x86-64`, then `TAURI_CONFIG='{"bundle":{"externalBin":[]}}' cargo clippy --target
+  x86_64-pc-windows-gnu --all-targets -- -D warnings` in `src-tauri` type-checks and lints the whole app and its tests
+  for Windows (the override only skips Tauri's check for the Windows sidecars). For the Mac, `rustup target add
+  aarch64-apple-darwin` and a scratch crate that includes a module by `#[path]` with `libc` checks code that uses only
+  `libc` (the app as a whole needs a Mac's C toolchain). Neither runs anything: the checkpoint still does.
 
 ## Merged (Phase 2, into `v2`)
 
@@ -39,6 +45,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #73 | 2.2b: link a video to a frame by drop or browse; the inspector's Video section; the missing flag and Relink |
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
+| D2_PR | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -63,9 +70,7 @@ For Kevin, at review stop A (2.4) or sooner, on his own computers:
 - A Mac: a long take on an external drive; pull the drive midway (the copy should fail and leave nothing).
 
 Lows deferred from the 2.3a reviews (noted, not planned yet):
-- On a Mac or Linux, a crash or Force Quit leaves ffmpeg running to the end of its copy (writing into a deleted partial).
-  D2's Job Object covers Windows only; for the Mac, record each ffmpeg's PID and have the start-up clean-up stop any
-  still running (check it's still the sidecar first), with D2.
+- (Done in D2: a crash or Force Quit no longer leaves an encode's ffmpeg running; see "D2 as built".)
 - A root shared by two computers (a NAS folder picked on both): each one's start-up clean-up and Move delete the other's
   half copies, and request ids start at 0 in every run, so partial names can collide. Fix: a per-machine token in partial
   names (`lock::Machine`'s id), and delete only this machine's partials, or others' only when old.
@@ -110,38 +115,43 @@ Lows deferred from the D1 reviews:
 - Windows' `ffmpeg-SOURCE.txt` names the MSYS2 packages by who owns the linked libraries (paths through `cygpath`), with
   the old name match as a fallback; check its text in the next checkpoint's artifact.
 
+### D2: how it went, and what's left
+
+D2_REVIEW_SUMMARY
+
+Lows deferred from D2 (noted, not planned yet):
+- Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
+  (the cache folder standing in while a picked drive is away, a Move's leftovers) aren't removed for it.
+- On a Mac, `statvfs` doesn't count the space macOS can purge on its own, so the app may make room (or refuse) when
+  Finder shows more free; and APFS local snapshots can keep a removed copy's space for a while.
+- On a Mac, a crash still leaves a probe or a still's ffmpeg running until its own timeout (30 or 60 seconds); only
+  the encodes' process ids are kept.
+- Raising the floor removes nothing at once; the next copy keeps to it.
+
 ## Next steps, in order
 
-1. **D2: windows-sys** (approved by Kevin, Nov 5): add `windows-sys` as a direct dependency, pinned to **0.61.2**, the
-   version Tauri's own tree already uses (Windows only).
-   - A free-space floor: playback copies never leave less than **10 GB** free on their drive; adjustable in
-     Settings → Storage (2.3b shows it). Check before each copy (estimate: about 1.5 MB a second at 12 Mb/s) and evict
-     to keep it; refuse with a clear message when it can't be met; watch it during the copy on a thread of its own (a
-     dead share must never hold up the encode's watch loop). On a Mac, `libc`'s `statvfs` (already a direct
-     dependency there). On Linux (tests only, `libc` isn't a direct dependency there) make the free-space reading a
-     field the tests can set, and let the Mac and Windows CI runs check the real calls.
-   - On Windows, a Job Object with kill-on-close, so ffmpeg stops even when the app crashes (today copies stop when the
-     app quits normally). Assign every sidecar (`video::run_heard` and the encode) right after it starts.
-   - The Mac crash item above, if it fits.
-2. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
+1. **2.3b**: playback copies, what you see: the queue (one `make` at a time from the page, or the queue moved into
    Rust, since each waiting `make` holds a blocking thread), the copy's state in the inspector (soundless copies say so:
    `MadeCopy.silent`), Settings → Storage (copies, size, cap, the free-space floor, Move, Clear, remembered videos and
    Forget), and ffmpeg's licence (with zimg's and dav1d's). The commands: `playback_make` (progress on a channel;
    returns `{ path, silent }`), `playback_find`, `playback_cancel`, `playback_info`, `playback_clear`,
-   `playback_set_cap`, `playback_move`, `playback_move_back`, `known_videos_count`, `known_videos_forget`.
-3. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+   `playback_set_cap`, `playback_set_floor` (D2), `playback_move`, `playback_move_back`, `known_videos_count`,
+   `known_videos_forget`. `playback_info` also gives `floorGb` and `freeBytes` (null when the drive can't tell); a
+   Move short of room fails with its own message after moving what fits, so the page should read `playback_info` again
+   after any Move, whatever it returned.
+2. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-4. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
+3. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
    copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
-5. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
+4. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
-6. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+5. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;
@@ -192,6 +202,10 @@ Lows deferred from the D1 reviews:
     longest ago; no index pass (`+faststart`); a stall is 90 s of no progress; a copy without sound only when the sound
     itself can't be read, named `-silent`; a file cut short gets a copy if it's within a second (or 1 in 100) of its
     length.
+  - The free-space floor (D2): 10 GB by default, from 1 to 1,000 GB; a copy's room estimated at 1.6 MB a second;
+    room made only from the copies in the folder copies go to now, the ones used longest ago first, and only when
+    they can make all of it; a Move short of room moves what fits and says so; ffmpeg's process ids kept on a Mac
+    in `playback-running.txt`, beside the settings.
   - HDR (D1): Mobius tone-mapping (203-nit reference white near SDR white; Hable left it mid-grey), the file's own peak
     for PQ, else 1000 nits; tags a file leaves out taken as BT.2020, non-constant luminance, limited range.
 - **Known lows, deferred:** a Trash restore of a video still doesn't bring back its clip (undo of Remove does); after a
