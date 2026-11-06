@@ -134,12 +134,23 @@ could also cover what's still to be written; a Move where nothing could cross is
 Windows reads free space through the system's own spelling of the path (past 260 characters); and a copy that ends
 between two readings is checked against the floor once more before it's kept.
 
+Round 3 found one medium in the same place: the remembered drive was forgotten as soon as its reading rose at all, and
+a refused copy's own partial, once deleted, makes it rise. Rather than patch each edge, room-making was made simpler:
+the watcher during a copy only reads (down to the floor, the copy stops); room is made only on the make's own thread,
+before its copy and once more when the copy is whole, so two never make room at once; a remembered drive is
+forgotten only once its reading shows the space came back (by half the removed copy, plus what the refusal itself gave
+back), or after half an hour, or when the floor or the folder changes. A Move put back for want of room keeps the new
+folder on the list if a copy crossed there but its original couldn't go. The tests got a pretend drive that answers
+by thread, so the watch and the final check are each tested alone (both checked by breaking each in turn).
+
 The first checkpoint (`checkpoint/d2-windows-sys` at f4529cb) passed on Windows (the Job Object and kill tests, both
 installers) but the Mac's Rust tests failed: from one moment on, every copy test there stalled (ffmpeg made no
 progress for 90 s, and even a killed one didn't end for 10 s), which points at the runner (its encoder service or its
 disk) rather than at one test. The only heavy new work then was the floor-watch test's two 1080p encodes, one stopped
-the moment it started; it now uses the short clip. The checkpoint also prints the runner's free space before the Rust
-tests and what's left running after a failure.
+the moment it started; it now uses a light clip. The checkpoint also prints the runner's free space before the Rust
+tests and what's left running after a failure (the test step has a 40-minute limit of its own, so a hang still gets
+that printout). The second checkpoint (9ede3c3) passed on Windows again; its Mac job waited 15 minutes for a runner and
+was cancelled before it started.
 
 Lows deferred from D2 (noted, not planned yet):
 - Room is made only from the copies in the folder copies go to now; copies of ours in another folder on the same drive
@@ -154,6 +165,10 @@ Lows deferred from D2 (noted, not planned yet):
 - A video whose earlier copy has no sound, refused for room, gets that copy back as if its sound were unreadable, and
   each later request for it waits its turn and tries again. 2.3b could say "no room" instead (a flag on `MadeCopy`).
 - Raising the floor removes nothing at once; the next copy keeps to it.
+- A copy held by another program is found only when its turn to go comes, so older copies may already have gone when
+  the rest can't make the room (renaming the candidates aside first would find it before anything goes).
+- A NAS that shows freed space more than a second late gets that drive remembered after one removal; it's forgotten
+  once the reading shows the space, so the next copy goes ahead, but the one asking then is refused.
 
 ## Next steps, in order
 

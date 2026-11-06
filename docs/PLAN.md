@@ -61,12 +61,13 @@ D2 as built (Nov 6): windows-sys 0.61.2 (Windows only; the version already in Ta
   otherwise the copy is refused and nothing is removed. They go one at a time, the drive read just before and after
   each (for up to a second, as a NAS reports freed space late); one whose space doesn't come back (a Time Machine
   snapshot, a share's recycle bin) stops the rest going, and that drive is remembered: nothing more goes there for
-  room until it reads more free. While the copy is made a thread of its own reads the free space every 2 s (a share
-  that stopped answering never holds up the encode's watch): down to the floor, older copies make room if they could
-  also cover what's still to be written, or the copy stops and leaves nothing; a copy that ends between two readings is
-  checked once more before it's kept. A Move where not one copy can cross above the floor is refused with nothing
-  changed; otherwise it copies across drives only what fits, and the rest stay where they were, still played, and the
-  Move says so. `playback_info` adds the floor and the drive's free
+  room until its reading shows the space came back (or half an hour passes, or the floor or the folder changes). While
+  the copy is made a thread of its own only reads the free space, every 2 s (a share that stopped answering never holds
+  up the encode's watch): down to the floor, the copy stops and leaves nothing. Once the copy is whole it's held to the
+  floor once more (older copies make room, or it isn't kept). Room is made only on the make's own thread, in its turn,
+  so two never make room at once. A Move where not one copy can cross above the floor is refused with nothing changed;
+  otherwise it copies across drives only what fits, and the rest stay where they were, still played, and the Move says
+  so. `playback_info` adds the floor and the drive's free
   space.
   Windows reads it with `GetDiskFreeSpaceExW` (after any quota), a Mac with `statvfs` (without the space macOS can
   purge, so a little under Finder's figure); a drive that can't tell is taken as having room. Linux (the tests) stands

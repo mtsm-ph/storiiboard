@@ -192,14 +192,16 @@ jobs:
       # at once point at the runner (its disk or its encoder), not at one test.
       - name: Free space before the Rust tests
         shell: bash
-        run: df -h . "${RUNNER_TEMP:-/tmp}" || true
+        run: df -h . "${RUNNER_TEMP:-/tmp}" /tmp || true
+      # A step of its own time, so a test run that hangs fails here and the step after it still says what was running.
       - name: Rust tests
+        timeout-minutes: 40
         run: cargo test --lib --manifest-path src-tauri/Cargo.toml
       - name: The runner after a failed test run
         if: failure()
         shell: bash
         run: |
-          df -h . "${RUNNER_TEMP:-/tmp}" || true
+          df -h . "${RUNNER_TEMP:-/tmp}" /tmp || true
           ps -A -o pid,stat,etime,command 2>/dev/null | grep -i -E 'ffmpeg|ffprobe|VTEncoder|storiiboard' | grep -v grep | head -40 || tasklist 2>/dev/null | grep -i -E 'ffmpeg|ffprobe|storiiboard' || true
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.

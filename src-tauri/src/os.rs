@@ -235,6 +235,16 @@ mod tests {
             // A folder named without a closing separator, as the app names its own.
             let plain = free_bytes(Path::new(env!("CARGO_MANIFEST_DIR")));
             assert!(plain.is_some_and(|bytes| bytes > 0), "{plain:?}");
+            // One past the old 260-character limit, which Windows reads only by the system's own spelling.
+            let long = std::env::temp_dir().join(format!("sbd-long-{}", std::process::id()));
+            let mut deep = long.clone();
+            while deep.as_os_str().len() < 300 {
+                deep.push("a-folder-with-a-name-forty-characters-l");
+            }
+            std::fs::create_dir_all(&deep).unwrap();
+            let far = free_bytes(&deep);
+            let _ = std::fs::remove_dir_all(&long);
+            assert!(far.is_some_and(|bytes| bytes > 0), "{far:?}");
             // A folder that isn't there can't be read.
             assert_eq!(
                 free_bytes(&std::env::temp_dir().join("no such folder").join("here")),
