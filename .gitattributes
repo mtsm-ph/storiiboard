@@ -1,3 +1,5 @@
 # Every text file is stored and checked out with LF line endings, on Windows too, so a checkout there never rewrites
 # files (and their tests, which compare exact bytes, still pass). Git leaves binary files alone.
 * text=auto eol=lf
+# Test videos are bytes, never text, whatever git guesses.
+*.ivf binary

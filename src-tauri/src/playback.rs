@@ -28,8 +28,9 @@ use crate::video::{self, Access};
 
 /// The folder of copies, inside the cache folder or a folder the person picks.
 pub const FOLDER_NAME: &str = "Storiiboard Playback Copies";
-/// Changes when the way copies are made changes, so older copies are made again rather than played.
-const RECIPE: &str = "2.3-1";
+/// Changes when the way copies are made changes, so older copies are made again rather than played. 2.3-2: HDR
+/// tone-mapped (D1).
+const RECIPE: &str = "2.3-2";
 /// The long edge of a copy, at most.
 const LONG_EDGE: u32 = 1920;
 const DEFAULT_CAP_GB: u64 = 50;
@@ -830,7 +831,8 @@ impl PlaybackCache {
         }
         let (folder, _) = self.folder()?;
         let probe = video::probe(path)?;
-        let (stream_start, file_start) = video::starts(path)?;
+        let facts = video::facts(path)?;
+        let tone_map = video::tone_map(&facts.colour);
         if asked.stopped() {
             return Err(CANCELLED.into());
         }
@@ -859,7 +861,8 @@ impl PlaybackCache {
                     path,
                     partial: &partial,
                     rate: (probe.fps_num, probe.fps_den),
-                    offset: stream_start - file_start,
+                    offset: facts.stream_start - facts.file_start,
+                    tone_map: tone_map.as_deref(),
                     encoder,
                     sound,
                 };
@@ -952,9 +955,14 @@ impl PlaybackCache {
         // Square pixels and the long-edge cap in one scale; deinterlaced first if the frames are interlaced. The
         // encoder's own pixel format comes with its options.
         let fit = format!("min(1,{LONG_EDGE}/max(iw*sar,ih))");
-        let filter = format!(
+        let mut filter = format!(
             "bwdif=mode=send_frame:deint=interlaced,scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
         );
+        // HDR brought to normal-range BT.709 after the scale, so the tone-mapping works on the smaller picture.
+        if let Some(tone_map) = run.tone_map {
+            filter.push(',');
+            filter.push_str(tone_map);
+        }
         let mut command = video::command("ffmpeg");
         command
             .args(["-hide_banner", "-loglevel", "error", "-y"])
@@ -974,7 +982,13 @@ impl PlaybackCache {
         command
             .args(["-vf", &filter, "-fps_mode", "cfr", "-r"])
             .arg(format!("{fps_num}/{fps_den}"))
-            .args(run.encoder)
+            .args(run.encoder);
+        // Said in the file too, so a player shows the copy as what it is now.
+        if run.tone_map.is_some() {
+            command.args(["-color_primaries", "bt709", "-color_trc", "bt709"]);
+            command.args(["-colorspace", "bt709", "-color_range", "tv"]);
+        }
+        command
             .args(["-g", "12", "-f", "mp4"])
             .args(["-progress", "pipe:1", "-nostats"])
             .arg(run.partial)
@@ -1322,6 +1336,8 @@ struct Run<'a> {
     partial: &'a Path,
     rate: (u32, u32),
     offset: f64,
+    /// HDR's way to normal range (video::tone_map), when the original is HDR.
+    tone_map: Option<&'a str>,
     encoder: &'a [&'a str],
     sound: bool,
 }
@@ -2107,6 +2123,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             partial: &partial,
             rate: (probe.fps_num, probe.fps_den),
             offset: 0.0,
+            tone_map: None,
             encoder: &cache.encoders[0],
             sound: true,
         };
@@ -2816,6 +2833,83 @@ ssize_t read(int fd, void *buf, size_t count) {
             cache.attempts.load(Ordering::SeqCst),
             2,
             "both encoders tried"
+        );
+    }
+
+    #[test]
+    fn makes_hdr_copies_in_normal_range_tagged_bt709() {
+        let dir = temp_dir("hdr");
+        let _gone = Gone(dir.clone());
+        // 203-nit reference white, PQ and HLG (video.rs has the same clips for stills).
+        let white = |name: &str, luma: u32, transfer: &str| {
+            make_clip(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:size=320x180:rate=25:duration=1",
+                ],
+                // Tagged on the frames: an encoder takes its colour from them.
+                &[
+                    "-vf",
+                    &format!(
+                        "format=yuv422p10le,geq=lum={luma}:cb=512:cr=512,setparams=range=tv:\
+                         color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc"
+                    ),
+                    "-c:v",
+                    "prores_ks",
+                ],
+            )
+        };
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        for clip in [
+            white("pq.mov", 572, "smpte2084"),
+            white("hlg.mov", 721, "arib-std-b67"),
+        ] {
+            assert!(video::probe(&clip).unwrap().hdr);
+            let made = cache.make(&clip, |_| {}).unwrap();
+            assert!(!video::probe(&made.path).unwrap().hdr);
+            let tags = video::command("ffprobe")
+                .args(["-v", "error", "-select_streams", "v:0", "-show_entries"])
+                .args([
+                    "stream=color_transfer,color_primaries,color_space",
+                    "-of",
+                    "csv=p=0",
+                ])
+                .arg(&made.path)
+                .output()
+                .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&tags.stdout).trim(),
+                "bt709,bt709,bt709"
+            );
+            // Near SDR white in the copy's own (limited) range: 218 measured; untouched PQ would be about 140.
+            let level = grey_at(&made.path, 0);
+            assert!((205..=235).contains(&level), "{}: {level}", clip.display());
+        }
+    }
+
+    #[test]
+    fn makes_a_copy_of_an_av1_video() {
+        let dir = temp_dir("av1-copy");
+        let _gone = Gone(dir.clone());
+        let vector = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata")
+            .join("av1-1-b8-01-size-226x226.ivf");
+        let clip = make_clip(
+            &dir,
+            "av1.mp4",
+            &["-i", vector.to_str().unwrap()],
+            &["-c", "copy"],
+        );
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let made = cache.make(&clip, |_| {}).unwrap();
+        let probe = video::probe(&made.path).unwrap();
+        assert_eq!(
+            (probe.width, probe.height, probe.duration_frames),
+            (226, 226, 2)
         );
     }
 }

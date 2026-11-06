@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
 # Builds ffmpeg and ffprobe for Storiiboard's sidecars (Phase 2.1): one pinned FFmpeg release, LGPL only (no --enable-gpl,
 # no GPL or non-free libraries), static, with nothing picked up from the build machine by chance (--disable-autodetect):
-# what's in is named below. Runs on Linux, macOS and Windows (in MSYS2's MINGW64 shell).
+# what's in is named below. Two libraries are built in from pinned releases too (D1, approved Nov 5): zimg, for HDR
+# tone-mapping (the zscale filter), and dav1d, for AV1. Runs on Linux, macOS and Windows (in MSYS2's MINGW64 shell).
 #
 #   scripts/ffmpeg/build.sh <target-triple> <out-dir>
 #
 # Writes <out-dir>/ffmpeg-<triple>[.exe] and ffprobe-<triple>[.exe], the names Tauri's externalBin expects, plus
-# ffmpeg-LICENSE.txt and ffmpeg-SOURCE.txt (the licence, and the exact source and configure line, as the LGPL asks).
+# ffmpeg-LICENSE.txt and ffmpeg-SOURCE.txt (the licence, and the exact source and configure line, as the LGPL asks), and
+# zimg's and dav1d's licences. Set SBD_FFMPEG_SOURCES to a folder that already holds the source tarballs (named as below)
+# to build without downloading them; each is still checked against its checksum.
 set -euo pipefail
 
 VERSION=8.1.3
 SHA256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
 SOURCE_URL="https://ffmpeg.org/releases/ffmpeg-${VERSION}.tar.xz"
+# zimg (WTFPL; approved by Kevin as an exception to the licence list): its only submodule is its test framework, which
+# the build doesn't need. The tarball is GitHub's archive of the release tag.
+ZIMG_VERSION=3.0.6
+ZIMG_SHA256=be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577
+ZIMG_URL="https://github.com/sekrit-twc/zimg/archive/refs/tags/release-${ZIMG_VERSION}.tar.gz"
+# dav1d (BSD-2-Clause): the checksum is VideoLAN's own.
+DAV1D_VERSION=1.5.4
+DAV1D_SHA256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
+DAV1D_URL="https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_VERSION}/dav1d-${DAV1D_VERSION}.tar.xz"
 
 triple=${1:?target triple, e.g. aarch64-apple-darwin}
 out=${2:?output folder}
@@ -22,18 +34,66 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# A reset connection is retried too (--retry alone skips it); the checksum below still decides.
-curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$work/ffmpeg.tar.xz" "$SOURCE_URL"
-actual=$( (command -v sha256sum >/dev/null && sha256sum "$work/ffmpeg.tar.xz" || shasum -a 256 "$work/ffmpeg.tar.xz") | cut -d' ' -f1)
-if [ "$actual" != "$SHA256" ]; then
-  echo "ffmpeg-${VERSION}.tar.xz: checksum $actual, expected $SHA256" >&2
-  exit 1
-fi
-tar -xJf "$work/ffmpeg.tar.xz" -C "$work"
+# Puts a source tarball at $work/<file>, from SBD_FFMPEG_SOURCES or downloaded, and checks it.
+fetch() {
+  local url=$1 sum=$2 file=$3
+  if [ -n "${SBD_FFMPEG_SOURCES:-}" ] && [ -f "$SBD_FFMPEG_SOURCES/$file" ]; then
+    cp "$SBD_FFMPEG_SOURCES/$file" "$work/$file"
+  else
+    # A reset connection is retried too (--retry alone skips it); the checksum below still decides.
+    curl -fsSL --retry 6 --retry-all-errors --retry-delay 10 -o "$work/$file" "$url"
+  fi
+  local actual
+  actual=$( (command -v sha256sum >/dev/null && sha256sum "$work/$file" || shasum -a 256 "$work/$file") | cut -d' ' -f1)
+  if [ "$actual" != "$sum" ]; then
+    echo "$file: checksum $actual, expected $sum" >&2
+    exit 1
+  fi
+}
+fetch "$SOURCE_URL" "$SHA256" "ffmpeg-${VERSION}.tar.xz"
+fetch "$ZIMG_URL" "$ZIMG_SHA256" "zimg-${ZIMG_VERSION}.tar.gz"
+fetch "$DAV1D_URL" "$DAV1D_SHA256" "dav1d-${DAV1D_VERSION}.tar.xz"
+tar -xJf "$work/ffmpeg-${VERSION}.tar.xz" -C "$work"
+tar -xzf "$work/zimg-${ZIMG_VERSION}.tar.gz" -C "$work"
+tar -xJf "$work/dav1d-${DAV1D_VERSION}.tar.xz" -C "$work"
+jobs=$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4)
+
+# The two libraries, static, into a prefix of the build's own, which ffmpeg's configure finds through pkg-config.
+prefix="$work/prefix"
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+# zimg is C++: a static zimg asks the linker for the C++ runtime (libc++ on a Mac, GCC's libstdc++ elsewhere) and, on
+# Linux, the maths library, which its pkg-config file leaves out unless told.
+zimg_libs="-lstdc++ -lm"
+case "$triple" in
+  *apple-darwin)
+    export MACOSX_DEPLOYMENT_TARGET=13.0
+    zimg_libs="-lc++ -lm"
+    # Homebrew names GNU libtool's tools with a g, beside Apple's own libtool.
+    if ! command -v libtoolize >/dev/null && command -v glibtoolize >/dev/null; then
+      export LIBTOOLIZE=glibtoolize
+    fi
+    ;;
+esac
+(
+  cd "$work/zimg-release-${ZIMG_VERSION}"
+  ./autogen.sh
+  ./configure --prefix="$prefix" --libdir="$prefix/lib" --disable-shared --enable-static STL_LIBS="$zimg_libs"
+  make -j"$jobs"
+  make install
+)
+(
+  cd "$work/dav1d-${DAV1D_VERSION}"
+  # Only the library: no command-line tools, tests or examples.
+  meson setup build --prefix="$prefix" --libdir=lib --buildtype=release --default-library=static \
+    -Denable_tools=false -Denable_tests=false -Denable_examples=false -Denable_docs=false
+  ninja -C build install
+)
+
 cd "$work/ffmpeg-${VERSION}"
 
 # What every platform gets. Decoders, demuxers, parsers and filters stay as FFmpeg ships them (all LGPL without
-# --enable-gpl), so a camera file reads whatever it is; lut3d (LUTs), scale, tonemap and the rest come with them.
+# --enable-gpl), so a camera file reads whatever it is; lut3d (LUTs), scale, tonemap and the rest come with them. zimg
+# brings zscale, which takes HDR (PQ, HLG) to linear light for tonemap and back to BT.709; dav1d decodes AV1.
 flags=(
   --disable-autodetect
   --disable-debug
@@ -43,6 +103,8 @@ flags=(
   --disable-shared
   --enable-static
   --enable-zlib
+  --enable-libzimg
+  --enable-libdav1d
   --pkg-config-flags=--static
 )
 exe=""
@@ -71,13 +133,14 @@ esac
 
 ./configure "${flags[@]}"
 # The make targets carry the extension: ffmpeg.exe on Windows.
-make -j"$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu || echo 4)" "ffmpeg${exe}" "ffprobe${exe}"
+make -j"$jobs" "ffmpeg${exe}" "ffprobe${exe}"
 
-# Checked, not trusted: an LGPL build, with the LUT filter. Each output is read whole first: grep -q stopping early
-# would end ffmpeg with SIGPIPE, which pipefail counts as a failure.
+# Checked, not trusted: an LGPL build, with the LUT filter, zimg's zscale and dav1d's decoder. Each output is read whole
+# first: grep -q stopping early would end ffmpeg with SIGPIPE, which pipefail counts as a failure.
 licence=$(./ffmpeg -hide_banner -L)
 buildconf=$(./ffmpeg -hide_banner -buildconf)
 filters=$(./ffmpeg -hide_banner -filters)
+decoders=$(./ffmpeg -hide_banner -decoders)
 about=$(./ffmpeg -version)
 # The licence text wraps ("...GNU Lesser General Public" / "License..."), so only the words on one line; "version 2.1"
 # tells it from the LGPL 3 that --enable-version3 would bring, which the shipped COPYING.LGPLv2.1 wouldn't cover.
@@ -85,15 +148,22 @@ grep -q 'GNU Lesser General Public' <<<"$licence" || { echo 'not an LGPL build' 
 grep -q 'version 2.1' <<<"$licence" || { echo 'not LGPL version 2.1' >&2; exit 1; }
 if grep -qE -- '--enable-(gpl|nonfree|version3)' <<<"$buildconf"; then echo 'built with a GPL, nonfree or version3 flag' >&2; exit 1; fi
 grep -qE '[[:space:]]lut3d[[:space:]]' <<<"$filters" || { echo 'lut3d missing' >&2; exit 1; }
+grep -qE '[[:space:]]zscale[[:space:]]' <<<"$filters" || { echo 'zscale (zimg) missing' >&2; exit 1; }
+grep -qE '[[:space:]]libdav1d[[:space:]]' <<<"$decoders" || { echo 'libdav1d missing' >&2; exit 1; }
 
 cp "ffmpeg${exe}" "$out/ffmpeg-${triple}${exe}"
 cp "ffprobe${exe}" "$out/ffprobe-${triple}${exe}"
 cp COPYING.LGPLv2.1 "$out/ffmpeg-LICENSE.txt"
 # FFmpeg's own summary of its licences: a few files inside carry ISC, MIT or BSD notices too.
 cp LICENSE.md "$out/ffmpeg-LICENSE.md"
-# The exact source, kept beside the binaries in every CI artifact, so whoever hands out an installer can hand out the
-# source from the same place (the LGPL's section 4); the Phase 8 release attaches it to each release.
-cp "$work/ffmpeg.tar.xz" "$out/ffmpeg-${VERSION}.tar.xz"
+cp "$work/zimg-release-${ZIMG_VERSION}/COPYING" "$out/zimg-LICENSE.txt"
+cp "$work/dav1d-${DAV1D_VERSION}/COPYING" "$out/dav1d-LICENSE.txt"
+# The exact sources, kept beside the binaries in every CI artifact, so whoever hands out an installer can hand out the
+# source from the same place (the LGPL's section 4); the Phase 8 release attaches them to each release. zimg's and
+# dav1d's licences don't ask for it, but they're built into ffmpeg, so they travel with it.
+cp "$work/ffmpeg-${VERSION}.tar.xz" "$out/ffmpeg-${VERSION}.tar.xz"
+cp "$work/zimg-${ZIMG_VERSION}.tar.gz" "$out/zimg-${ZIMG_VERSION}.tar.gz"
+cp "$work/dav1d-${DAV1D_VERSION}.tar.xz" "$out/dav1d-${DAV1D_VERSION}.tar.xz"
 commit=${GITHUB_SHA:-$(git -C "$here" rev-parse HEAD 2>/dev/null || echo unknown)}
 # The compiler configure actually used, as ffmpeg reports it ("built with ..."), and the script's own hash, which stays
 # findable if the commit isn't.
@@ -109,19 +179,28 @@ script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
   echo "Built by scripts/ffmpeg/build.sh (blob ${script}) at Storiiboard commit ${commit}, with ${compiler},"
   echo "configured with:"
   echo "  ${flags[*]}"
+  echo
+  echo "Built into ffmpeg and ffprobe, statically:"
+  echo "- zimg ${ZIMG_VERSION} (https://github.com/sekrit-twc/zimg), under the WTFPL version 2 (zimg-LICENSE.txt)."
+  echo "  Source: zimg-${ZIMG_VERSION}.tar.gz, beside these binaries, the same file as ${ZIMG_URL}"
+  echo "  (SHA-256 ${ZIMG_SHA256})."
+  echo "- dav1d ${DAV1D_VERSION} (https://code.videolan.org/videolan/dav1d), under the BSD 2-Clause licence"
+  echo "  (dav1d-LICENSE.txt). Source: dav1d-${DAV1D_VERSION}.tar.xz, beside these binaries, the same file as"
+  echo "  ${DAV1D_URL} (SHA-256 ${DAV1D_SHA256})."
 } > "$out/ffmpeg-SOURCE.txt"
 case "$triple" in
   *windows*)
-    # Linked statically from MSYS2: zlib (zlib licence) and MinGW-w64's winpthreads (MIT-style), whose notice must
-    # travel with the binary.
+    # Linked statically from MSYS2: zlib (zlib licence), MinGW-w64's winpthreads (MIT-style), whose notice must
+    # travel with the binary, and GCC's C++ runtime for zimg (GPL 3 with the GCC Runtime Library Exception, which
+    # allows it in any program built with GCC).
     {
       echo
-      echo "The Windows build also links zlib (https://zlib.net, zlib licence) and MinGW-w64's winpthreads, whose"
-      echo "licence follows."
+      echo "The Windows build also links zlib (https://zlib.net, zlib licence), GCC's C++ runtime for zimg (GPL 3 with"
+      echo "the GCC Runtime Library Exception) and MinGW-w64's winpthreads, whose licence follows."
       echo
       found=$(find /mingw64/share/licenses -ipath '*pthread*' -type f 2>/dev/null | head -n 1 || true)
       if [ -n "$found" ]; then cat "$found"; else echo "(winpthreads: see https://github.com/mingw-w64/mingw-w64, mingw-w64-libraries/winpthreads/COPYING)"; fi
     } >> "$out/ffmpeg-SOURCE.txt"
     ;;
 esac
-echo "built ffmpeg ${VERSION} for ${triple}"
+echo "built ffmpeg ${VERSION} with zimg ${ZIMG_VERSION} and dav1d ${DAV1D_VERSION} for ${triple}"
