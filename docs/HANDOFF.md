@@ -358,7 +358,12 @@ Round 1: no high, four mediums, fixed.
   the edit finds them; focus after Delete goes to the next person, and the editor follows; phone and email fields
   (people's and locations') turn the browser's autofill off; Spanish wording matched; "Their fields" has its own key;
   "Title" is reserved; stale comments.
-- Lows left: a person has no item history in the History tile yet (Notifications, 3.10, filters by item); the
+- Round 2: none at high or medium. Decision 16 now says `default-features = false` (reqwest 0.13's default TLS is
+  rustls). Lows left: `autoComplete="off"` may not stop WebView2's contact autofill on Windows (the reliable switch is
+  WebView2's IsGeneralAutofillEnabled, set from Rust), and custom-field inputs don't carry it; a field holding a
+  non-text value shows empty and quietly keeps what's stored when typed into; e2e covers focus after Delete only for
+  the last person.
+- Lows left from round 1: a person has no item history in the History tile yet (Notifications, 3.10, filters by item); the
   Locations tile's Delete notice reads the name from before the edit, as this one did.
 
 ### 3.3b: review
