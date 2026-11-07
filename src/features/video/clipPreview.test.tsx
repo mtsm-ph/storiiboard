@@ -5,6 +5,8 @@ import { ClipPreview, type ClipPreviewProps } from './ClipPreview';
 // The frame's clip in the inspector (2.8): framed as the frame is, muted, still until Play clip.
 
 const props: ClipPreviewProps = {
+  videoId: 'v1',
+  frameKey: 's1',
   url: 'sbdcopy://localhost/copy.mp4',
   inFrame: 24,
   outFrame: 47,
@@ -25,12 +27,11 @@ describe('the frame’s clip in the inspector (2.8)', () => {
     // Zoom 2, centred: the picture twice the frame, a quarter of it off each edge.
     expect(html).toMatch(/style="left:-50%;top:-50%;width:200%;height:200%"/);
     expect(html).toMatch(/aspect-ratio:1\.77/);
-    expect(html).toMatch(/aria-pressed="false"[^>]*>Play clip</);
+    expect(html).toMatch(/<button[^>]*>Play clip</);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Play clip</);
   });
 
-  it('offers nothing to play until there’s a copy', () => {
-    const html = render({ url: null });
-    expect(html).not.toContain('<video');
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Play clip</);
+  it('has nothing to play for a clip of one frame', () => {
+    expect(render({ inFrame: 30, outFrame: 30 })).toMatch(/<button[^>]*disabled=""[^>]*>Play clip</);
   });
 });

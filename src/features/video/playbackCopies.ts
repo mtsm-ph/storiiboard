@@ -453,7 +453,10 @@ export function useCopyUrl(videoId: string | null, copy: CopyState): string | nu
     let live = true;
     copyToPlay(videoId)
       .then((ready) => {
-        if (live) setFound(ready ? { videoId, url: ready.url } : null);
+        if (!live) return;
+        setFound(ready ? { videoId, url: ready.url } : null);
+        // Made, but gone since (the cap, a Clear elsewhere): made again, as the Player does.
+        if (!ready) makeCopy(videoId);
       })
       .catch(() => undefined);
     return () => {

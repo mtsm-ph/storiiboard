@@ -337,6 +337,18 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 2.8a: review
+
+Round 1: no high; three mediums fixed. The preview seeked back to the in point while playing, so the frame after the
+out point could show, and at the take's own end it stopped and played on from the take's first frame: it now pauses
+on the out frame, goes back to the in point and carries on once it's there, and goes round again at the take's end.
+A clip of one frame went on seeking without end: it has nothing to play (Play clip off). A copy that can't be read
+showed a black box with a Play that did nothing: it's looked for and made again if it's gone, as the Player does, and
+a made copy found missing is made again. Lows fixed: the end-to-end test samples the frames presented and holds them
+to the out point exactly (and covers the last frame, and a clip of one frame); another frame, even of the same clip,
+starts again; the button says its state in its words alone. Lows left: changing the in or out while it plays isn't
+tested end to end (it stops on the new in point by its key).
+
 ### 2.7: review
 
 Round 1: no high; two mediums fixed. G while playing grabbed the frame from the last render and then paused, so the

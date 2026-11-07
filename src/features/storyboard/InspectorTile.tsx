@@ -137,6 +137,8 @@ export function InspectorTile() {
           ...(copyUrl
             ? {
                 preview: {
+                  videoId: clip.videoId,
+                  frameKey: shot?.id ?? '',
                   url: copyUrl,
                   inFrame: clip.inFrame,
                   outFrame: clip.outFrame,
