@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
@@ -242,4 +243,51 @@ test('undo and redo with Settings open show in the field they changed, and focus
   await page.keyboard.press(undo.replace('+z', '+Shift+z'));
   await expect(text).toHaveValue('60s master');
   await expect(remove).toBeFocused();
+});
+
+test('a company profile saved once is attached to a project, with its logo, updated from the profile, and undone', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  // Saved on this computer, in Settings → App.
+  let panel = await openSettings(page, 'App');
+  await panel.getByRole('button', { name: 'Add company' }).click();
+  // Named "Company 1" until its name is saved, then by its name: the list's first, either way.
+  const company = panel.getByRole('list', { name: 'Company profiles' }).getByRole('group').first();
+  await expect(company).toHaveAccessibleName('Company 1');
+  await company.getByRole('textbox', { name: 'Name' }).fill('Zima Blue Pictures');
+  await company.getByRole('textbox', { name: 'Website' }).click();
+  await company.getByRole('textbox', { name: 'Website' }).fill('https://example.com');
+  await company.getByRole('textbox', { name: 'Phone' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  const profile = panel.getByRole('group', { name: 'Zima Blue Pictures' });
+  await profile.getByRole('button', { name: 'Choose logo…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect(profile.getByRole('img', { name: 'Logo of Zima Blue Pictures' })).toBeVisible();
+
+  // Attached in Settings → Project: the project keeps a copy.
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
+  await panel.getByRole('combobox', { name: 'Company', exact: true }).selectOption({ label: 'Zima Blue Pictures' });
+  const copy = panel.locator('[data-project-company]');
+  await expect(copy).toContainText('https://example.com');
+  await expect(copy).toContainText('The same as its profile on this computer.');
+
+  // The profile changes: the copy doesn't, until Update from profile.
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'App', exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'App', exact: true });
+  await panel.getByRole('textbox', { name: 'Phone' }).fill('+1 212 555 0100');
+  await panel.getByRole('textbox', { name: 'Email' }).click();
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
+  await expect(copy).not.toContainText('+1 212 555 0100');
+  await panel.getByRole('button', { name: 'Update from profile' }).click();
+  await expect(copy).toContainText('+1 212 555 0100');
+
+  // Each was one edit: ⌘Z takes the update back, then the attach.
+  const undo = await undoKey(page);
+  await panel.getByRole('button', { name: 'Detach company' }).focus();
+  await page.keyboard.press(undo);
+  await expect(copy).not.toContainText('+1 212 555 0100');
+  await page.keyboard.press(undo);
+  await expect(copy).toHaveCount(0);
+  await expect(panel.getByRole('combobox', { name: 'Company', exact: true })).toHaveValue('');
 });

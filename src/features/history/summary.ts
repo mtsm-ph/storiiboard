@@ -81,6 +81,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   runtime: 'history.field.runtime',
   client: 'history.field.client',
   deliverables: 'history.field.deliverables',
+  company: 'history.field.company',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -194,6 +195,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
   if (prop === 'lut') return t('history.aLut');
+  // The production company (3.2) by its name as copied, never its ids or contact details.
+  if (prop === 'company' && isObject(value)) return typeof value.name === 'string' && value.name !== '' ? value.name : t('history.aCompany');
   if (prop === 'lens_mm' && typeof value === 'number') return t('history.lens', { mm: value });
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.

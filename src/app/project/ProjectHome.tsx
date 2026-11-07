@@ -10,6 +10,7 @@ import { setLettersAllowIO } from '../../features/storyboard/board';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
+import { ProjectCompanyFields } from './ProjectCompanyFields';
 import { ProjectDetailsFields, type DetailsChange } from './ProjectDetailsFields';
 import type { Change } from '../../core/ops/ops';
 import { localizeError, t } from '../../core/i18n';
@@ -45,6 +46,7 @@ export function ProjectHome() {
           void applyWith((now) => ({ changes: detailsEdit(now, record.id, change) }));
         }}
       />
+      <ProjectCompanyFields record={record} />
     </>
   );
 }

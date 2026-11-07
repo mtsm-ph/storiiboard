@@ -38,7 +38,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | Milestone | Scope | PR | State |
 |---|---|---|---|
 | 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | #88 | Done |
-| 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | | Not started |
+| 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | | In review |
 | 3.3 Locations | The Locations tile: list and editor (address as text, contacts, parking and power notes, status, photos, custom fields), a shot's location over its scene's, Open in Maps, the Trash | | Not started |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
 | 3.5 Cast and crew, Team | People with departments, roles, titles and contacts (private: never logged); characters linked to cast; the Team section; you in Cast & crew in place of the local project role | | Not started |
@@ -52,6 +52,19 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
 as ids (it alters existing data).
+
+3.2 as built (Nov 7): company profiles (`src/core/model/company.ts`, `src/app/company/`).
+- Settings → App gains Company profiles: production companies (name, address, phone, email, website, logo) saved on
+  this computer, in the app's settings, not in any project. A logo is made small (512 px, PNG); a full settings store
+  says so and changes nothing.
+- Settings → Project gains Production company: attaching a profile copies its details and logo into the project (the
+  `company` prop and a picture under the project) in one edit, so the file carries them to a computer without the
+  profile. The copy stays as copied; Update from profile shows when the profile has changed and copies it again;
+  Detach takes it off. Each is one ⌘Z; a replaced logo goes to the Trash. History names the company, never its ids or
+  contacts. A file's copy from someone else's profile still shows by name.
+- Tests: profiles read and capped, a copy kept with a later version's fields, a changed profile told apart (its logo
+  too); the store saving, refusing when full and removing; the attach, re-attach and detach edits; end to end, a
+  profile with a logo attached, the profile changed, Update from profile, and each undone.
 
 3.1 as built (Nov 7): production details (`src/core/model/projectDetails.ts`, Settings → Project).
 - Settings → Project gains Production details: the stage (Discovery, Contract, Pre-production, Production, Editing,

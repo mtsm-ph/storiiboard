@@ -1,5 +1,6 @@
 import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
 import { isProjectRole, type ProjectRole } from '../model/departmentStatus';
+import { companyProfilesOf, type CompanyProfile } from '../model/company';
 import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
@@ -79,6 +80,8 @@ export interface Settings {
   projectRoles: Readonly<Record<string, ProjectRole>>;
   /** The PDF storyboard prints each scene's palette in its heading (polish PP), as last chosen in Export. */
   pdfScenePalettes: boolean;
+  /** Production companies saved once, to attach to any project (3.2); attaching copies one into the project. */
+  companies: CompanyProfile[];
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -117,6 +120,7 @@ export const DEFAULT_SETTINGS: Settings = {
   profile: EMPTY_PROFILE,
   projectRoles: {},
   pdfScenePalettes: false,
+  companies: [],
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -159,6 +163,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),
       pdfScenePalettes: saved.pdfScenePalettes === true,
+      companies: companyProfilesOf(saved.companies),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
