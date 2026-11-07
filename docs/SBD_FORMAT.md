@@ -382,12 +382,20 @@ and a redo needs it). Only 3D LUTs are stored (`LUT_3D_SIZE` 2 to 256); the app 
 | byte_size | integer | Length of `cube`, so totals don't read it |
 | cube | text | The `.cube` file's text, last for the same reason as `bytes` in media_files |
 
+## Location props (3.3)
+
+A `location` record (under the project) is one place the project shoots, named once and linked from its scenes'
+`location_id`. Props: `name`; `status` (`tbd`, `confirmed`, `cancelled`; missing or odd reads as `tbd`); `address`,
+`contact_name`, `contact_phone`, `contact_email`, `parking`, `power`, `notes` (text). The contact's phone and email are
+private: shown in the app, never logged. No table change.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project
 (the project's `state`, below): the names differ in the UI, the code and this file so the two never mix.
 
-- Deleting a frame, shot, scene, note or media item is a `trash` op. It sets `trashed_at` and `trashed_by`, and undo
+- Deleting a frame, shot, scene, note, media item or location (3.3) is a `trash` op. A trashed location's scenes keep
+  their `location_id`, so restoring it puts them back with it; views read a scene as having no location meanwhile. It sets `trashed_at` and `trashed_by`, and undo
   clears them. Restoring from the Trash is a `restore` op, so a restore can be undone too.
 - Trashing a scene trashes its live shots and notes in the same op group (polish 5, Delete scene), so one restore
   brings the whole scene back.

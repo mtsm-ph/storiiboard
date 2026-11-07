@@ -15,13 +15,14 @@ import { labels, t, tn } from '../../core/i18n';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
   frame: 'trash.kind.frame',
   note: 'trash.kind.note',
   picture: 'trash.kind.picture',
+  location: 'trash.kind.location',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -30,6 +31,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   frame: 'trash.kinds.frame',
   note: 'trash.kinds.note',
   picture: 'trash.kinds.picture',
+  location: 'trash.kinds.location',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -38,6 +40,7 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   frame: 'trash.kindLower.frame',
   note: 'trash.kindLower.note',
   picture: 'trash.kindLower.picture',
+  location: 'trash.kindLower.location',
 });
 
 export interface NamePart {
@@ -74,6 +77,7 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'shot') return 'frame';
   if (record.type === 'note') return 'note';
   if (record.type === 'media') return 'picture';
+  if (record.type === 'location') return 'location';
   return null;
 }
 
@@ -93,6 +97,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'note': {
       const text = typeof record.props.text === 'string' ? record.props.text.trim().replace(/\s+/g, ' ') : '';
       return [plain(text === '' ? t('trash.emptyNote') : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
+    }
+    case 'location': {
+      const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedLocation');
+      return [plain(name)];
     }
     case 'picture': {
       // A linked video (2.2b), by its file's name.
