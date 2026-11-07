@@ -347,6 +347,9 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    level); a clip with every input empty says it has no sound.
 5. Settings → Storage: Clear while a copy plays (the Player offers Make playback copy); Move to another drive and back.
 6. Relink a frame's video while its copy is being made, then undo: the copy shown is of the file the frame points at.
+7. Windows: the screenshot baselines (`*-win32.png`) predate the Player's content in its tile, so the Windows run of
+   `e2e/visual.spec.ts` will differ there; regenerate them on Windows (`npx playwright test e2e/visual.spec.ts
+   --project=chromium --update-snapshots`) and commit them. The Linux and Mac ones came from `checkpoint/baselines-2.4`.
 
 ## The rules for this run (Kevin's queued instructions)
 
