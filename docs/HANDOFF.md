@@ -291,7 +291,11 @@ Lows deferred (noted, not planned yet):
    (a new dependency, Kevin's call).
    Checkpoint r1: Windows green; the Mac's Rust tests failed four copies that stalled together, ffmpeg stuck in
    VideoToolbox's service, as at D2: the runner's virtual GPU hangs when several encode sessions run at once, and 2.3c
-   added copies. The app makes one at a time; the Mac tests now do too (a test-only turn in `encode`).
+   added copies. The app makes one at a time; the Mac tests now do too (a test-only turn in `encode`). That alone
+   didn't do it (r4: the same four failed, the first hang at a different copy than r1's): VideoToolbox on the runner's
+   virtual GPU wedges once a run opens many sessions in a row, whichever copy it lands on. The sound tests, which test
+   the sound, now encode their picture with FFmpeg's own MPEG-4 (as on Linux), sparing about ten sessions; every
+   other test still uses VideoToolbox. The app is unchanged.
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.

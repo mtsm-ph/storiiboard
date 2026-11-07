@@ -1354,8 +1354,8 @@ impl PlaybackCache {
         asked: &Asked,
         mut on_frame: impl FnMut(f64),
     ) -> Result<Said, Stop> {
-        // The tests on a Mac: one encode at a time, as the app makes them. A CI runner's virtual GPU hangs
-        // VideoToolbox when several sessions run at once (checkpoints D2 and 2.3c-r1: every encode stalled together).
+        // The tests on a Mac: one encode at a time, as the app makes them, which spares a CI runner's virtual GPU (its
+        // VideoToolbox wedges once a run opens many sessions; the sound tests leave it alone, LIGHT_ENCODER).
         #[cfg(all(test, target_os = "macos"))]
         let _one_at_a_time = mac_test_encode_turn();
         let (fps_num, fps_den) = run.rate;
@@ -2191,10 +2191,22 @@ mod tests {
         )
     }
 
+    /// The picture encoder for tests of the sound: FFmpeg's own MPEG-4, as on Linux. They test the sound, and on a CI
+    /// Mac the virtual GPU's VideoToolbox wedges once a run has opened many sessions in a row (checkpoints D2 and
+    /// 2.3c r1 to r4: a copy hung opening its session, and every encode after it); the other tests still use it.
+    const LIGHT_ENCODER: [&str; 6] = ["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
+
+    /// A cache in `folder` whose copies use `LIGHT_ENCODER`.
+    fn sound_test_cache(folder: &Path) -> PlaybackCache {
+        let mut cache = PlaybackCache::in_folder(folder);
+        cache.encoders = vec![LIGHT_ENCODER.to_vec()];
+        cache
+    }
+
     #[test]
     fn mixes_separate_mono_tracks_into_one_stereo_track_that_never_clips() {
         let dir = temp_dir("mono-tracks");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let cache = sound_test_cache(&dir.join("cache"));
         let silence = "anullsrc=r=48000:cl=mono:d=3";
         let (low, high) = (
             "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=3",
@@ -2230,7 +2242,7 @@ mod tests {
         // Hardware first, then software, as on Windows without a GPU: the first encoder's failure isn't the mix's, so
         // the second still mixes the tracks.
         let mut fallback = PlaybackCache::in_folder(&dir.join("fallback"));
-        fallback.encoders = vec![vec!["-c:v", "no_such_encoder"], encoders().pop().unwrap()];
+        fallback.encoders = vec![vec!["-c:v", "no_such_encoder"], LIGHT_ENCODER.to_vec()];
         let made = fallback.make(&pair, |_| {}).unwrap();
         assert!(!made.silent);
         let (_, average, layout) = sound_of(&made.path);
@@ -2255,7 +2267,7 @@ mod tests {
     fn a_video_whose_every_track_is_silent_gets_a_copy_without_sound_that_says_why_and_isnt_made_again(
     ) {
         let dir = temp_dir("all-silent");
-        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let mut cache = sound_test_cache(&dir.join("cache"));
         let silence = "anullsrc=r=48000:cl=mono:d=3";
         let clip = tracks_clip(&dir, "C0088.mov", &[silence, silence], "pcm_s24le");
         let made = cache.make(&clip, |_| {}).unwrap();
@@ -2275,7 +2287,7 @@ mod tests {
     #[test]
     fn keeps_a_single_stereo_track_as_it_is() {
         let dir = temp_dir("stereo-track");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let cache = sound_test_cache(&dir.join("cache"));
         // A camera's own stereo track, a sine at half scale on each side (-9 dB on average): the copy plays it at the
         // same level, not mixed down.
         let stereo = tracks_clip(
@@ -2360,7 +2372,7 @@ mod tests {
     #[test]
     fn a_mono_track_that_wont_decode_leaves_the_copy_the_one_that_does() {
         let dir = temp_dir("mono-broken");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let cache = sound_test_cache(&dir.join("cache"));
         // The second track broken, then the first: either way the copy has the other one, never no sound.
         for (broken, name) in [(1, "C0083"), (0, "C0084")] {
             let clip = broken_track_clip(&dir, name, broken);
