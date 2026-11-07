@@ -27,8 +27,6 @@ test.beforeEach(async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).getByText('Diner')).toBeVisible();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
-  // A small tile in Production's layout: given the room to edit, as a person would.
-  await tile(page).getByRole('button', { name: 'Maximize Locations' }).click();
 });
 
 const board = (page: Page) => page.getByRole('region', { name: 'Storyboard', exact: true });
@@ -37,6 +35,10 @@ const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(
 
 test('a scene’s location shows with its scene, and its details are edited once, each one edit', async ({ page }) => {
   const locations = tile(page);
+  // At its size in Production's layout (a column), the list sits above the editor, and the fields have room.
+  const name = locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Name' });
+  await expect(name).toBeVisible();
+  expect((await name.boundingBox())?.width ?? 0).toBeGreaterThan(160);
   await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button')).toHaveText([/Diner.*TBD · 1 scene/]);
   const editor = locations.locator('[data-location-editor]');
   await expect(editor.getByText('SC 01')).toBeVisible();

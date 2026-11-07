@@ -1,5 +1,5 @@
-import { useId, useRef, useState } from 'react';
-import { showInfo } from '../../app/notice';
+import { useEffect, useId, useRef, useState } from 'react';
+import { showInfo, showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import {
@@ -14,15 +14,17 @@ import {
 import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
-import { TextField } from '../../ui/fields';
+import { cx } from '../../ui/cx';
+import { TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
+import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, trashLocation } from './locationEdits';
 
 // The Locations tile (3.3), in the Production workspace: every place the project shoots, each with its address, its
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
 // and linked from its scenes, so a change here is a change for all of them. Each field is one edit when it's left, so
 // one ⌘Z; Delete sends it to the Trash. Copy map link puts an OpenStreetMap search for its address on the clipboard:
-// nothing is looked up from here.
+// nothing is looked up from here. Narrow (Production gives it a column), the list sits above the editor.
 
 const FIELD_LABEL: Readonly<Record<LocationTextField, () => string>> = {
   address: () => t('location.address'),
@@ -37,6 +39,10 @@ const FIELD_LABEL: Readonly<Record<LocationTextField, () => string>> = {
 const FIELD_TYPE: Partial<Record<LocationTextField, string>> = { contact_phone: 'tel', contact_email: 'email' };
 /** Notes that run to a few lines. */
 const LONG: ReadonlySet<LocationTextField> = new Set(['address', 'parking', 'power', 'notes']);
+/** Narrower than this, the list goes above the editor rather than beside it. */
+const SIDE_BY_SIDE = 520;
+
+type Records = Readonly<Record<string, SbdRecord>>;
 
 export function LocationsTile() {
   const project = useProject((s) => s.project);
@@ -44,27 +50,49 @@ export function LocationsTile() {
   const [chosen, setChosen] = useState<string | null>(null);
   const listId = useId();
   const nameField = useRef<HTMLInputElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
+  const making = useRef(false);
+  // The tile's own width, for the layout: a container, not the window, decides.
+  const [width, setWidth] = useState(0);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!box) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(entry?.contentRect.width ?? 0);
+    });
+    observer.observe(box);
+    return () => {
+      observer.disconnect();
+    };
+  }, [box]);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('locations.noProject')}</p>;
-  const all = projectLocations(records, project.projectId);
+  const projectId = project.projectId;
+  const all = projectLocations(records, projectId);
   const selected = all.find((l) => l.record.id === chosen) ?? all[0] ?? null;
+  const wide = width >= SIDE_BY_SIDE;
 
-  const edit = (build: (now: Readonly<Record<string, SbdRecord>>) => ReturnType<typeof locationChange>) =>
-    projectStore.getState().applyWith((now) => ({ changes: build(now) }));
+  const edit = (build: (now: Records) => ReturnType<typeof locationChange>) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex w-[220px] shrink-0 flex-col border-r border-border">
+    <div ref={setBox} className={cx('flex min-h-0 flex-1', wide ? 'flex-row' : 'flex-col')}>
+      <div className={cx('flex shrink-0 flex-col border-border', wide ? 'w-[220px] border-r' : 'max-h-[40%] border-b')}>
         <div className="flex items-center gap-2 border-b border-border p-2">
           <p className="sb-label flex-1 font-mono">{tn('locations.count', all.length)}</p>
           <Button
+            ref={newButton}
             onClick={() => {
-              const change = newLocation(records, project.projectId);
-              void projectStore
-                .getState()
-                .apply([change])
-                .then(() => {
-                  setChosen(change.record.id ?? null);
+              if (making.current) return;
+              making.current = true;
+              const id = crypto.randomUUID();
+              // From the records at its turn, so two quick clicks never share a place in the list.
+              void edit((now) => [newLocation(now, projectId, id)])
+                .then((made) => {
+                  if (!made) return;
+                  setChosen(id);
                   requestAnimationFrame(() => nameField.current?.focus());
+                })
+                .finally(() => {
+                  making.current = false;
                 });
             }}
           >
@@ -86,9 +114,13 @@ export function LocationsTile() {
                     onClick={() => {
                       setChosen(record.id);
                     }}
-                    className={`flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left focus-visible:-outline-offset-2 ${current ? 'bg-text text-text-inverse' : 'hover:bg-surface-raised'}`}
+                    // On the ink fill, the focus ring is paper (DESIGN.md: never ink on ink).
+                    className={cx(
+                      'flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left focus-visible:-outline-offset-2',
+                      current ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
                   >
-                    <span className="truncate text-[13px] font-semibold">{fields.name || t('locations.unnamed')}</span>
+                    <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('locations.unnamed')}</span>
                     <span className="sb-label">
                       {LOCATION_STATUS_LABEL[fields.status]} · {tn('locations.scenes', scenes.length)}
                     </span>
@@ -102,17 +134,30 @@ export function LocationsTile() {
       {selected && (
         <LocationEditor
           key={selected.record.id}
-          id={selected.record.id}
           fields={selected.fields}
           scenes={selected.scenes}
           nameField={nameField}
-          onChange={(prop, value) => void edit((now) => locationChange(now, selected.record.id, prop, value))}
+          onChange={(prop, value) => {
+            // One name per place: a rename onto another live location's name is refused, so the "/" menu never
+            // offers two of the same.
+            if (prop === 'name' && locationNameTaken(projectStore.getState().records, projectId, value, selected.record.id)) {
+              showNotice(new Error(t('location.nameTaken', { name: value.trim() })));
+              return false;
+            }
+            void edit((now) => locationChange(now, selected.record.id, prop, value));
+            return true;
+          }}
           onDelete={() => {
             const name = selected.fields.name || t('locations.unnamed');
             void edit((now) => trashLocation(now, selected.record.id)).then((done) => {
-              if (done) showInfo(t('locations.trashed', { name }));
-              // Focus to the list, whose row went.
-              requestAnimationFrame(() => document.getElementById(listId)?.querySelector<HTMLElement>('button')?.focus());
+              if (!done) return;
+              // A note about this step: an undo clears it.
+              showInfo(t('locations.trashed', { name }), { step: true });
+              // Focus to the list, whose row went; to New location when it was the last.
+              requestAnimationFrame(() => {
+                const row = document.getElementById(listId)?.querySelector<HTMLElement>('button');
+                (row ?? newButton.current)?.focus();
+              });
             });
           }}
         />
@@ -122,33 +167,35 @@ export function LocationsTile() {
 }
 
 interface LocationEditorProps {
-  id: string;
   fields: LocationFields;
   scenes: SbdRecord[];
   nameField: React.RefObject<HTMLInputElement | null>;
-  onChange: (prop: string, value: string) => void;
+  /** False when the change is refused (a name another location has): the field goes back to what's stored. */
+  onChange: (prop: string, value: string) => boolean;
   onDelete: () => void;
 }
 
 function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: LocationEditorProps) {
-  const link = mapLink(fields);
+  const editor = useRef<HTMLElement>(null);
+  const headingId = useId();
   const text = (prop: 'name' | LocationTextField, label: string, long = false, type?: string) => {
     const value = fields[prop];
     // Keyed by the value, so an undo shows in the field it changed and the others keep focus.
     const key = `${prop}:${value}`;
-    const common = {
-      defaultValue: value,
-      onBlur: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const next = event.currentTarget.value;
-        if (next !== value) onChange(prop, next);
-      },
+    const onBlur = (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const next = event.currentTarget.value;
+      if (next !== value && !onChange(prop, next)) event.currentTarget.value = value;
     };
-    return long ? <TextArea key={key} {...common} label={label} /> : (
+    return long ? (
+      <TextArea key={key} defaultValue={value} onBlur={onBlur} label={label} data-field={prop} />
+    ) : (
       <TextField
         key={key}
-        {...common}
+        defaultValue={value}
+        onBlur={onBlur}
         {...(prop === 'name' ? { ref: nameField } : {})}
         label={label}
+        data-field={prop}
         {...(type ? { type } : {})}
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();
@@ -156,8 +203,17 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
       />
     );
   };
+  /** The link from what's in the fields now, typed and not yet written included. */
+  const currentLink = () => {
+    const read = (prop: string) => editor.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field="${prop}"]`)?.value ?? '';
+    return mapLink({ address: read('address'), name: read('name') });
+  };
+  const sorted = [...scenes].sort((a, b) => compareSceneNumbers(sceneFields(a.props).number, sceneFields(b.props).number));
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-location-editor="">
+    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-location-editor="">
+      <h3 id={headingId} className="sb-label">
+        {fields.name || t('locations.unnamed')}
+      </h3>
       {text('name', t('location.name'))}
       <SegmentedControl
         label={t('location.status')}
@@ -170,10 +226,19 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
       {LOCATION_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]))}
       <div className="flex flex-wrap gap-2">
         <Button
-          disabled={link === null}
           onClick={() => {
-            if (!link) return;
-            void navigator.clipboard.writeText(link).then(
+            const link = currentLink();
+            if (!link) {
+              showInfo(t('location.nothingToMap'));
+              return;
+            }
+            // A webview without clipboard access shows the link to copy by hand.
+            const clipboard = (navigator as Partial<Navigator>).clipboard;
+            if (!clipboard) {
+              showInfo(t('location.linkNotCopied', { link }));
+              return;
+            }
+            void clipboard.writeText(link).then(
               () => {
                 showInfo(t('location.linkCopied'));
               },
@@ -189,13 +254,13 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
           {t('location.delete')}
         </Button>
       </div>
-      <section className="flex flex-col gap-1">
-        <h3 className="sb-label">{t('location.scenesHere')}</h3>
-        {scenes.length === 0 ? (
+      <div className="flex flex-col gap-1">
+        <h4 className="sb-label">{t('location.scenesHere')}</h4>
+        {sorted.length === 0 ? (
           <p className="text-[12px] text-text-muted">{t('location.noScenes')}</p>
         ) : (
           <ul className="flex flex-col gap-0.5 text-[13px]">
-            {scenes.map((scene) => {
+            {sorted.map((scene) => {
               const f = sceneFields(scene.props);
               return (
                 <li key={scene.id}>
@@ -205,19 +270,7 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
             })}
           </ul>
         )}
-      </section>
-    </div>
-  );
-}
-
-function TextArea({ label, ...rest }: { label: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-[5px]">
-      <label htmlFor={id} className="sb-label">
-        {label}
-      </label>
-      <textarea id={id} rows={2} className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text" {...rest} />
-    </div>
+      </div>
+    </section>
   );
 }

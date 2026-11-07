@@ -58,3 +58,38 @@ describe('locations (3.3)', () => {
     expect(trashLocation(records(), 'l3')).toEqual([]);
   });
 });
+
+describe('one name per place (3.3)', () => {
+  it('typing a name a trashed location had brings that one back, not a second', async () => {
+    const { setSceneLocation, locationNameTaken } = await import('../../features/storyboard/board');
+    const all = { ...records(), l1: record('l1', 'location', 'p', { name: 'Diner', address: '12 Route 9' }, '2026-11-07T12:00:00.000Z') };
+    expect(setSceneLocation(all, 'p', 'sc1', 'diner')).toEqual([
+      { kind: 'restore', id: 'l1' },
+      { kind: 'update', id: 'sc1', set: { location_id: 'l1' } },
+    ]);
+    // A rename onto another live location's name is taken, whatever its case; its own name isn't.
+    expect(locationNameTaken(records(), 'p', ' barn ', 'l1')).toBe(true);
+    expect(locationNameTaken(records(), 'p', 'Barn', 'l2')).toBe(false);
+    expect(locationNameTaken(records(), 'p', 'Gone', 'l1')).toBe(false);
+  });
+
+  it('lists a trashed location in the Trash by name and restores it alone', async () => {
+    const { restoreChanges, trashItems } = await import('../../features/trash/trash');
+    const item = trashItems(records(), 'p').find((i) => i.id === 'l3');
+    expect(item).toMatchObject({ kind: 'location', name: 'Gone', sceneId: null });
+    expect(restoreChanges(records(), 'p', 'l3')).toEqual([{ kind: 'restore', id: 'l3' }]);
+  });
+});
+
+describe('a location’s contact in History (3.3)', () => {
+  it('names the field, never its phone, email or address', async () => {
+    const { changeLabel, changeValue, fieldChanges } = await import('../../features/history/summary');
+    const before = record('l1', 'location', 'p', { name: 'Diner', contact_phone: '', address: '12 Route 9' });
+    const after = record('l1', 'location', 'p', { name: 'Diner', contact_phone: '+1 212 555 0100', contact_email: 'ana@example.com', address: '14 Route 9', status: 'confirmed' });
+    const lines = fieldChanges(before, after).map((c) => `${changeLabel(c)}: ${changeValue(c, c.before)} → ${changeValue(c, c.after)}`);
+    expect(lines.join(' | ')).not.toMatch(/555|example\.com|Route 9/);
+    expect(lines).toContain('contact phone: — → not shown');
+    expect(lines).toContain('address: changed → changed');
+    expect(lines).toContain('status: — → Confirmed');
+  });
+});

@@ -343,6 +343,21 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.3a: review
+
+Round 1: one high and four mediums, fixed. History showed a location contact's phone and email (and its address) as
+typed: those are now named, and said only as set, changed or removed, as the client's are (History feeds
+notifications). Typing a trashed location's name on a scene (or importing it from a script) made a second, empty one,
+so a restore left two and the scenes on the new one: that name now restores the trashed location, address and all; a
+rename onto another live location's name is refused in words, so the "/" menu never lists two. The selected row's
+focus ring was ink on ink: it's paper there. At its size in Production's layout the editor was crushed beside the
+list: narrower than 520 px the list sits above the editor (the end-to-end tests now run at that size, not maximized).
+History read location fields and statuses as raw codes: they have words in both languages. Lows fixed: New location
+reads the records at its turn and focuses only what it made; Copy map link uses the address as typed, and works (says
+the link) without a clipboard; after Delete focus goes to the list or New location, only when it was deleted, and its
+notice clears on undo; scenes listed in number order; TextArea is a shared field; Empty Trash's dangling links are
+documented (they read as no location). Low left: text typed in a field when the tile closes without a blur is lost.
+
 ### 3.2: review
 
 Round 1: one high and five mediums, fixed. History read an attach or detach with a logo as "Set the picture of an

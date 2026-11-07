@@ -444,6 +444,24 @@ export function locations(records: Records, projectId: string): { id: string; na
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The project's location in the Trash with this name (whatever its case), the latest trashed if several. */
+export function trashedLocationNamed(records: Records, projectId: string, name: string): SbdRecord | null {
+  const wanted = name.trim().toLowerCase();
+  if (wanted === '') return null;
+  return (
+    Object.values(records)
+      .filter((r) => r.type === 'location' && r.parentId === projectId && r.trashedAt !== null)
+      .filter((r) => typeof r.props.name === 'string' && r.props.name.trim().toLowerCase() === wanted)
+      .sort((a, b) => ((a.trashedAt ?? '') < (b.trashedAt ?? '') ? 1 : -1))[0] ?? null
+  );
+}
+
+/** Whether a live location other than `except` already has this name (whatever its case): names stay one each. */
+export function locationNameTaken(records: Records, projectId: string, name: string, except: string): boolean {
+  const wanted = name.trim().toLowerCase();
+  return wanted !== '' && locations(records, projectId).some((l) => l.id !== except && l.name.trim().toLowerCase() === wanted);
+}
+
 /**
  * Sets a scene's location by name: the location already in the project with that name (whatever its case), or a new
  * one, in the same op group. Phase 3 gives locations their addresses and contacts.
@@ -455,6 +473,9 @@ export function setSceneLocation(records: Records, projectId: string, sceneId: s
   // Already this scene's location: no edit, so no empty step in History.
   if (existing && sceneFields(records[sceneId].props).locationId === existing.id) return [];
   if (existing) return [{ kind: 'update', id: sceneId, set: { location_id: existing.id } }];
+  // One in the Trash by that name comes back, address and all, rather than a second, empty one (3.3).
+  const trashed = trashedLocationNamed(records, projectId, trimmed);
+  if (trashed) return [{ kind: 'restore', id: trashed.id }, { kind: 'update', id: sceneId, set: { location_id: trashed.id } }];
   const id = crypto.randomUUID();
   const all = childrenOf(records, projectId, 'location', true);
   return [
