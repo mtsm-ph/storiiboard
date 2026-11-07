@@ -48,6 +48,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
+| #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -303,9 +304,9 @@ Lows deferred (noted, not planned yet):
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-2. **2.5** LUTs (in progress, branch `phase2/2.5-luts`; see "2.5 as built" in `docs/PLAN.md` and "2.5: decisions"
-   below): a `.cube` per video, applied to playback copies (stills in 2.7), never the original; the LUT joins the
-   copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
+2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
+   `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
+   the original; the LUT joins the copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -443,6 +444,15 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 8. The Player's edges: play a take to the end (it stops on its last frame; O there sets the out point on it, never
    past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
    streamed file) steps and pauses where it is, and stops at its copy's end.
+
+## Phase 2 gate: Kevin's checklist so far (added to as milestones land)
+
+1. LUTs (2.5), on a Mac and on Windows with real log footage: load the camera maker's LUT (an S-Log3 or LogC to
+   Rec.709 `.cube`) for a take; the Player shows the graded copy within a minute or so; compare a frame with Resolve
+   under the same LUT (it should match closely; say if colours look shifted). Undo takes it off; pick None and back.
+   Load one with a 1D shaper (a Resolve "Shaper + 3D" export) and see it refused with words that say why.
+2. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+   your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)
 
