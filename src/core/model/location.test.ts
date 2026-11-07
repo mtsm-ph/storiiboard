@@ -118,3 +118,47 @@ describe('a location’s contact in History (3.3)', () => {
     expect(valueLabel('status', 'confirmed')).toBe('Confirmed');
   });
 });
+
+describe('a frame’s own location, and a location’s photos (3.3b)', () => {
+  it('reads a frame’s own location over its scene’s, and a trashed one as none', async () => {
+    const { frameLocationId } = await import('./location');
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', {}), s2: record('s2', 'shot', 'sc1', { location_id: 'l2' }), s3: record('s3', 'shot', 'sc1', { location_id: 'l3' }) };
+    expect(frameLocationId(all, all.s1)).toBe('l1');
+    expect(frameLocationId(all, all.s2)).toBe('l2');
+    // Its own is in the Trash: the scene's again.
+    expect(frameLocationId(all, all.s3)).toBe('l1');
+  });
+
+  it('sets a frame’s own location and puts it back on its scene’s, nothing when nothing changes', async () => {
+    const { setFrameLocation } = await import('../../features/storyboard/board');
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', {}), s2: record('s2', 'shot', 'sc1', { location_id: 'l2' }) };
+    expect(setFrameLocation(all, 's1', 'l2')).toEqual([{ kind: 'update', id: 's1', set: { location_id: 'l2' } }]);
+    expect(setFrameLocation(all, 's2', 'l2')).toEqual([]);
+    expect(setFrameLocation(all, 's2', null)).toEqual([{ kind: 'update', id: 's2', unset: ['location_id'] }]);
+    expect(setFrameLocation(all, 's1', null)).toEqual([]);
+    // Not to a location in the Trash, nor to something that isn't one.
+    expect(setFrameLocation(all, 's1', 'l3')).toEqual([]);
+    expect(setFrameLocation(all, 's1', 'sc2')).toEqual([]);
+  });
+
+  it('adds photos to a live location in one edit, and sends one to the Trash named by its location', async () => {
+    const { addLocationPhotos, trashLocationPhoto } = await import('../../features/locations/locationEdits');
+    const { restoreChanges, trashItems } = await import('../../features/trash/trash');
+    const bytes = new Uint8Array(200).map((_, i) => i % 256);
+    const image: import('../media/store').PreparedImage = {
+      original: { sha256: 'a'.repeat(64), bytes, mime: 'image/jpeg', width: 400, height: 300, colorSpace: 'srgb' },
+      thumbnail: { bytes: bytes.slice(0, 50), mime: 'image/jpeg', width: 400, height: 300, longEdge: 400 },
+    };
+    const added = addLocationPhotos(records(), 'l1', [{ image, source: { name: 'recce-1.jpg' } }, { image, source: { name: 'recce-2.jpg' } }], '/Films/Bey County.sbd');
+    expect(added.changes.map((c) => c.kind === 'create' && c.record.parentId)).toEqual(['l1', 'l1']);
+    expect(added.alsoWrite.length).toBeGreaterThan(0);
+    expect(addLocationPhotos(records(), 'l3', [{ image, source: {} }], '').changes).toEqual([]);
+    const { mediaProps } = await import('../media/store');
+    const photo = record('ph1', 'media', 'l1', mediaProps(image, { name: 'recce-1.jpg' }));
+    expect(trashLocationPhoto({ ...records(), ph1: photo }, 'ph1')).toEqual([{ kind: 'trash', id: 'ph1' }]);
+    // In the Trash: named by its location; restored with its location when that's in the Trash too.
+    const trashed = { ...records(), ph1: { ...photo, trashedAt: '2026-11-07T12:00:00.000Z' }, ph2: record('ph2', 'media', 'l3', { kind: 'image', file: 'b'.repeat(64) }, '2026-11-07T12:00:00.000Z') };
+    expect(trashItems(trashed, 'p').find((i) => i.id === 'ph1')?.name).toBe('recce-1.jpg (photo of Diner)');
+    expect(restoreChanges(trashed, 'p', 'ph2')).toEqual([{ kind: 'restore', id: 'l3' }, { kind: 'restore', id: 'ph2' }]);
+  });
+});

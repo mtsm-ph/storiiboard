@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
@@ -25,7 +27,7 @@ test.beforeEach(async ({ page }) => {
   await page.keyboard.press('Enter');
   await page.keyboard.type('Diner');
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).getByText('Diner')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).locator('span', { hasText: /^Diner$/ })).toBeVisible();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
 });
 
@@ -76,12 +78,12 @@ test('Delete sends a location to the Trash; Restore brings it back with its scen
   // The scene no longer reads as there.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
   await board(page).locator('[data-shot-id]').first().click();
-  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).getByText('Diner')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).locator('span', { hasText: /^Diner$/ })).toHaveCount(0);
   await page.getByRole('button', { name: /^Layout/ }).click();
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   const trash = page.getByRole('region', { name: 'Trash', exact: true });
   await trash.getByRole('button', { name: 'Restore location Diner' }).click();
-  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).getByText('Diner')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).locator('span', { hasText: /^Diner$/ })).toBeVisible();
 });
 
 test('one name per place: a trashed location holds its name, and the Trash won’t restore one beside a namesake', async ({ page }) => {
@@ -105,4 +107,39 @@ test('one name per place: a trashed location holds its name, and the Trash won�
   await page.keyboard.press('Enter');
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
   await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button', { name: /^Diner/ })).toHaveCount(1);
+});
+
+test('a location’s photos and own fields, and a frame shot somewhere other than its scene’s location (3.3b)', async ({ page }) => {
+  const locations = tile(page);
+  const editor = locations.locator('[data-location-editor]');
+  // A recce photo, kept in the project.
+  const chooser = page.waitForEvent('filechooser');
+  await editor.getByRole('button', { name: 'Add photos…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect(editor.getByRole('img', { name: 'Photo 1 of Diner' })).toBeVisible();
+  // A field of its own.
+  await editor.getByRole('combobox', { name: 'New field' }).fill('Curfew');
+  await editor.getByRole('button', { name: 'Add field' }).click();
+  await expect(editor.getByRole('textbox', { name: 'Curfew' })).toBeFocused();
+  await page.keyboard.type('10 pm');
+  await page.keyboard.press('Tab');
+  // A second location, and the frame shot there rather than at its scene's.
+  await locations.getByRole('button', { name: '+ New location' }).click();
+  await page.keyboard.type('Barn');
+  await page.keyboard.press('Enter');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  const shotAt = inspector.getByRole('combobox', { name: 'This frame shot at' });
+  await expect(shotAt).toHaveValue('');
+  await expect(shotAt.locator('option').first()).toHaveText('The scene’s location (Diner)');
+  await shotAt.selectOption({ label: 'Barn' });
+  // The shot list's location column says Barn for it.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Export' }).getByRole('radio', { name: 'Shot list (CSV)' }).check();
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Save…' }).click();
+  const csv = readFileSync(await (await downloaded).path(), 'utf8');
+  expect(csv.replace(/^\uFEFF/, '').split('\r\n')[1]?.split(',')[3]).toBe('Barn');
 });

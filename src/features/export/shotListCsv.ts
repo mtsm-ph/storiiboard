@@ -1,3 +1,4 @@
+import { frameLocationId } from '../../core/model/location';
 import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/customFields';
 import { departmentName, departmentStates, departmentStatesText } from '../../core/model/departmentStatus';
 import { loadSeen, NO_SEEN, type Seen } from '../../core/storage/seen';
@@ -51,9 +52,11 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
   const custom = fieldNamesOf(scenes.flatMap((scene) => scene.shots.map((shot) => shot.record)));
   const rows: string[][] = [[...COLUMNS.map((key) => t(key)), ...custom]];
   for (const scene of scenes) {
-    const location = scene.fields.locationId ? records[scene.fields.locationId] : undefined;
-    const place = location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : '';
     for (const shot of scene.shots) {
+      // Where the frame is shot: its own location over its scene's (3.3); one in the Trash reads as none.
+      const at = frameLocationId(records, shot.record);
+      const named = at ? records[at]?.props.name : undefined;
+      const place = typeof named === 'string' ? named : '';
       const f = shot.fields;
       const own = customFieldsOf(shot.record.props);
       rows.push([

@@ -68,6 +68,33 @@ export function projectLocations(
 }
 
 /**
+ * Where a frame is shot (3.3, docs/PHASE3_DECISIONS.md 2): its own location when it has one (an insert or a pickup
+ * shot elsewhere), else its scene's. Only a live location counts: one in the Trash reads as none.
+ */
+export function frameLocationId(records: Readonly<Record<string, SbdRecord>>, shot: SbdRecord): string | null {
+  const live = (id: unknown) => {
+    const record = typeof id === 'string' ? records[id] : undefined;
+    return record?.type === 'location' && record.trashedAt === null ? record.id : null;
+  };
+  const own = live(shot.props.location_id);
+  if (own) return own;
+  const scene = shot.parentId ? records[shot.parentId] : undefined;
+  return scene ? live(scene.props.location_id) : null;
+}
+
+/** The custom field names the project's live locations use (3.3), as frames' are worked out from frames. */
+export function locationFieldRecords(records: Readonly<Record<string, SbdRecord>>): SbdRecord[] {
+  return Object.values(records).filter((r) => r.type === 'location' && r.trashedAt === null);
+}
+
+/** A location's photos (3.3): its live pictures, in order. */
+export function locationPhotos(records: Readonly<Record<string, SbdRecord>>, locationId: string): SbdRecord[] {
+  return Object.values(records)
+    .filter((r) => r.type === 'media' && r.parentId === locationId && r.trashedAt === null)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+}
+
+/**
  * A map search for the location, by its address (or its name with none): OpenStreetMap's, which needs no key and
  * opens in any browser. Null when there's nothing to search for. Nothing is fetched: the person opens the link.
  */

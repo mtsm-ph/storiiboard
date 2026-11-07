@@ -12,7 +12,7 @@ import { copyHex, editPalette, generatePalette } from './palette/actions';
 import { PaletteEditor } from './palette/PaletteEditor';
 import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from './palette/Eyedropper';
 import { framesWithPictures } from './palette/read';
-import { setCustomField, setSceneNumber } from './board';
+import { locations, setCustomField, setFrameLocation, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
@@ -159,6 +159,18 @@ export function InspectorTile() {
   const location = locationId ? records[locationId] : undefined;
   const locationName =
     location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : null;
+  // A frame shot somewhere other than its scene's location (3.3): its own, among the project's live ones.
+  const ownLocation = shot && typeof shot.props.location_id === 'string' && records[shot.props.location_id]?.trashedAt === null ? shot.props.location_id : '';
+  const frameLocation = shot
+    ? {
+        value: ownLocation,
+        sceneName: locationName,
+        choices: locations(records, project.projectId),
+        onChange: (id: string | null) => {
+          void projectStore.getState().applyWith((now) => ({ changes: setFrameLocation(now, shot.id, id) }));
+        },
+      }
+    : undefined;
 
   return (
     <ProjectPictures>
@@ -213,6 +225,7 @@ export function InspectorTile() {
         {...(seen ? { seen } : {})}
         picture={picture}
         locationName={locationName}
+        {...(frameLocation ? { frameLocation } : {})}
         strokeCount={shot ? strokesOf(records, shot.id).length : 0}
         onSketch={() => {
           if (shot) openSketch(shot.id);

@@ -469,6 +469,20 @@ export function locationNameTaken(records: Records, projectId: string, name: str
 }
 
 /**
+ * A frame's own location (3.3), over its scene's: an insert or a pickup shot elsewhere. Null puts it back on its
+ * scene's. Nothing when that's already so, or the location isn't a live one.
+ */
+export function setFrameLocation(records: Records, shotId: string, locationId: string | null): Change[] {
+  const shot = records[shotId];
+  if (shot?.type !== 'shot') return [];
+  const current = typeof shot.props.location_id === 'string' ? shot.props.location_id : null;
+  if (locationId === null) return current === null ? [] : [{ kind: 'update', id: shotId, unset: ['location_id'] }];
+  const location = records[locationId];
+  if (location?.type !== 'location' || location.trashedAt !== null || current === locationId) return [];
+  return [{ kind: 'update', id: shotId, set: { location_id: locationId } }];
+}
+
+/**
  * Sets a scene's location by name: the location already in the project with that name (whatever its case), or a new
  * one, in the same op group. Phase 3 gives locations their addresses and contacts.
  */

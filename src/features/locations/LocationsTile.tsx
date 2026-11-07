@@ -19,6 +19,11 @@ import { TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, trashLocation } from './locationEdits';
+import { LocationPhotos } from './LocationPhotos';
+import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
+import { locationFieldRecords } from '../../core/model/location';
+import { CustomFields } from '../storyboard/InspectorView';
+import { setCustomField } from '../storyboard/board';
 
 // The Locations tile (3.3), in the Production workspace: every place the project shoots, each with its address, its
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
@@ -139,6 +144,9 @@ export function LocationsTile() {
       {selected && (
         <LocationEditor
           key={selected.record.id}
+          id={selected.record.id}
+          props={selected.record.props}
+          knownFields={fieldNamesOf(locationFieldRecords(records))}
           fields={selected.fields}
           scenes={selected.scenes}
           nameField={nameField}
@@ -174,6 +182,10 @@ export function LocationsTile() {
 }
 
 interface LocationEditorProps {
+  id: string;
+  props: SbdRecord['props'];
+  /** Every custom field name the project's locations use, for a new field's suggestions. */
+  knownFields: readonly string[];
   fields: LocationFields;
   scenes: SbdRecord[];
   nameField: React.RefObject<HTMLInputElement | null>;
@@ -182,7 +194,7 @@ interface LocationEditorProps {
   onDelete: () => void;
 }
 
-function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: LocationEditorProps) {
+function LocationEditor({ id, props, knownFields, fields, scenes, nameField, onChange, onDelete }: LocationEditorProps) {
   const editor = useRef<HTMLElement>(null);
   const headingId = useId();
   const text = (prop: 'name' | LocationTextField, label: string, long = false, type?: string) => {
@@ -231,6 +243,20 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
         }}
       />
       {LOCATION_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]))}
+      <LocationPhotos locationId={id} name={fields.name || t('locations.unnamed')} />
+      <div className="flex flex-col gap-3">
+        <h4 className="sb-label">{t('location.customFields')}</h4>
+        {/* The location's own fields (drone permit, curfew, anything), as a frame's are (1.19). */}
+        <CustomFields
+          fields={customFieldsOf(props)}
+          known={knownFields}
+          hidden={hiddenFieldNames(props)}
+          onChange={async (name, value) => {
+            // Worked out when it lands, so two fields added quickly both stay.
+            await projectStore.getState().applyWith((now) => ({ changes: setCustomField(now, id, name, value) }));
+          }}
+        />
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {

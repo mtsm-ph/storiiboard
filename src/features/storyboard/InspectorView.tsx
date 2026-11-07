@@ -137,6 +137,11 @@ export interface InspectorViewProps {
   strokeCount?: number;
   /** The scene's location, set from the "/" menu; null when it has none. */
   locationName?: string | null;
+  /**
+   * Where this frame is shot, when it isn't its scene's location (3.3): an insert or a pickup elsewhere. `value` is its
+   * own location's id, or '' for the scene's; `choices` the project's locations.
+   */
+  frameLocation?: { value: string; sceneName: string | null; choices: readonly { id: string; name: string }[]; onChange: (id: string | null) => void };
   /** The frame's own fields (1.19), by name. */
   customFields?: Readonly<Record<string, string>>;
   /** Every field name the project's frames use. */
@@ -331,7 +336,7 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
 }
 
 /** A frame's own fields (1.19): each saves like the others; a new one takes a name, offering the project's. */
-function CustomFields({
+export function CustomFields({
   fields,
   known,
   hidden,
@@ -498,6 +503,7 @@ export function InspectorView({
   onCancelSaveClip,
   onCropChange,
   locationName = null,
+  frameLocation,
   onSketch,
   strokeCount = 0,
   customFields = {},
@@ -941,13 +947,34 @@ export function InspectorView({
         <ul className="flex flex-col gap-1.5 text-[13px]">
           <li className="flex justify-between gap-3">
             <span>{t('inspectorView.location')}</span>
-            {/* Linked from the board's "/" menu; addresses, contacts and parking arrive in Phase 3. */}
+            {/* The scene's, from the board's "/" menu; its details are in the Locations tile (3.3). */}
             {locationName ? (
               <span className="truncate font-semibold">{locationName}</span>
             ) : (
               <span className="sb-label text-text-muted">{t('inspectorView.onTheBoard')}</span>
             )}
           </li>
+          {frameLocation && frameLocation.choices.length > 0 && (
+            <li>
+              <Select
+                label={t('inspectorView.frameShotAt')}
+                value={frameLocation.value}
+                onChange={(event) => {
+                  const id = event.currentTarget.value;
+                  frameLocation.onChange(id === '' ? null : id);
+                }}
+              >
+                <option value="">
+                  {frameLocation.sceneName ? t('inspectorView.scenesLocation', { name: frameLocation.sceneName }) : t('inspectorView.scenesLocationNone')}
+                </option>
+                {frameLocation.choices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.name}
+                  </option>
+                ))}
+              </Select>
+            </li>
+          )}
           {[
             [t('inspector.shootDay'), t('phase.number', { phase: 3 })],
             [t('inspector.birdsEye'), t('phase.number', { phase: 6 })],

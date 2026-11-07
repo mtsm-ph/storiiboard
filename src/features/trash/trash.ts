@@ -109,6 +109,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const file = plain(mediaFields(record.props)?.sourceName || t('trash.pastedPicture'));
       const parent = record.parentId ? records[record.parentId] : undefined;
       if (parent?.type === 'media') return [file, plain(t('trash.videoPoster'))];
+      // A location's photo (3.3), by its location's name.
+      if (parent?.type === 'location') return [file, plain(t('trash.photoOf', { name: typeof parent.props.name === 'string' ? parent.props.name : '' }))];
       return parent?.type === 'shot' ? [file, plain(t('trash.pictureOf')), mono(shotFields(parent.props).number)] : [file, plain(t('trash.logoPicture'))];
     }
   }
@@ -201,6 +203,8 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
     case 'note':
       return parent?.type === 'scene' ? withScene(parent, id) : [{ kind: 'restore', id }];
     case 'media': {
+      // A location's photo comes back with its location if that's in the Trash too, so it's seen again (3.3).
+      if (parent?.type === 'location') return [...(parent.trashedAt !== null ? [{ kind: 'restore' as const, id: parent.id }] : []), { kind: 'restore', id }];
       if (parent?.type !== 'shot') return [{ kind: 'restore', id }];
       const current = shotFields(parent.props).mediaId;
       const showing = current ? records[current] : undefined;

@@ -389,6 +389,13 @@ A `location` record (under the project) is one place the project shoots, named o
 `contact_name`, `contact_phone`, `contact_email`, `parking`, `power`, `notes` (text). The contact's phone and email are
 private: shown in the app, never logged. No table change.
 
+3.3b, also no table change:
+- Photos are `media` records (kind `image`, as a frame's pictures) whose parent is the location, ordered by sort key;
+  their bytes are in `media_files` and `thumbnails` as any picture's.
+- `custom` on a location: its own fields, an object of name to text, as a shot's `custom`.
+- `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
+  A location in the Trash reads as none, for the shot as for the scene.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project

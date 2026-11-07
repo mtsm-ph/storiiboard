@@ -40,7 +40,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | #88 | Done |
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
 | 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
-| 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | | Not started |
+| 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | | In review |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
 | 3.5 Cast and crew, Team | People with departments, roles, titles and contacts (private: never logged); characters linked to cast; the Team section; you in Cast & crew in place of the local project role | | Not started |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
@@ -53,6 +53,19 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
 as ids (it alters existing data).
+
+3.3b as built (Nov 7): photos, own fields, and a frame shot elsewhere.
+- A location's editor has Photos: Add photos… stores recce pictures in the project as frames' pictures are (`media`
+  records under the location), all of one pick in one edit; each has Remove, to the Trash on its own, labelled there
+  "(photo of Diner)", and restoring one whose location is in the Trash brings the location back with it.
+- "Your fields" on a location: custom fields as frames have them (the `custom` prop), names suggested from the
+  project's other locations.
+- The Inspector's Links has "This frame shot at": the scene's location by default, or another live location for an
+  insert or a pickup shot elsewhere (`shot.location_id`). The shot list's location column reads the frame's own one
+  first; a trashed location reads as none.
+- Tests: frame location (own, scene's, trashed), the edits (none when nothing changes), photos added and trashed, the
+  Trash label and restore; end to end, a photo added, a field of its own, a frame set to another location and the
+  shot list CSV saying so.
 
 3.3a as built (Nov 7): the Locations tile (`src/features/locations/`, `src/core/model/location.ts`).
 - The Production workspace's Locations tile lists the project's locations (status, how many scenes are set there),
