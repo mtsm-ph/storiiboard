@@ -320,7 +320,7 @@ Lows deferred (noted, not planned yet):
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless (PR #86, merged Nov 7; three review rounds; see "2.9 as built" and "2.9: decisions").
 3. **Phase 2 gate** (reached Nov 7): every Phase 2 milestone is merged. The gate checkpoint, `checkpoint/phase2-gate`
-   on `v2` at d42f6ed (2.9's merge), runs smoke and screenshots on Linux and the Mac and both installers; the
+   on `v2` at d42f6ed (2.9's merge), passed every job Nov 7 (smoke and screenshots on Linux and the Mac, both installers); the
    checklist is "Phase 2 gate: Kevin's checklist" below. The gate itself: a still from a reference clip lands in a
    frame in a few clicks, on Kevin's own footage (item 3). Don't wait; Phase 3 follows.
 4. **Phase 3** (production data; plan and decision sheet written Nov 7: "Phase 3 milestones" in `docs/PLAN.md`,

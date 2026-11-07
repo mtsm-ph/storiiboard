@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: plan and decision sheet next (Kevin's queued rules, docs/HANDOFF.md). Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint is running and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: plan and decision sheet next (Kevin's queued rules, docs/HANDOFF.md). Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
