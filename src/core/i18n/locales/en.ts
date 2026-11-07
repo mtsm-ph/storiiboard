@@ -853,7 +853,8 @@ export const en = {
   'inspector.videoFrames.other': '{count} frames',
   'inspector.relink': 'Relink…',
   'saveClip.button': 'Save clip as file…',
-  'saveClip.savingShort': 'Saving clip…',
+  'saveClip.cancel': 'Cancel saving clip',
+  'saveClip.lutMissing': 'This video’s LUT isn’t in the project, so its clip can’t be graded. Choose its LUT again.',
   'saveClip.saving': 'Saving {name}…',
   'saveClip.saved': 'Saved {name}.',
   'saveClip.desktopOnly': 'Saving a clip as a file needs the Storiiboard desktop app, which has the video tools to make it.',
@@ -1002,6 +1003,8 @@ export const en = {
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'The clip couldn\'t be saved there.',
+  'error.clipCancelled': 'Saving the clip was cancelled.',
+  'error.clipOverVideo': 'A clip is never saved over a video that\'s there. Choose another name.',
   'error.copyFailed': 'That video couldn\'t be made into a playback copy.',
   'error.lutMissing': 'This video’s LUT isn’t in the project, so its playback copy can’t be made.',
   'error.copyCancelled': 'The playback copy was cancelled.',

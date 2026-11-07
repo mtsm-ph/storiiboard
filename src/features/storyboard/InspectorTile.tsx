@@ -24,7 +24,7 @@ import { fpsLabel, relinkVideo } from '../video/relink';
 import { useVideoMissing } from '../video/videoStatus';
 import { cancelCopy, makeCopy, useCopy, useCopyUrl, type CopyState } from '../video/playbackCopies';
 import { loadLut, setLut, useProjectLuts } from '../video/lutEdits';
-import { saveClip } from '../video/saveClip';
+import { cancelSaveClip, saveClip } from '../video/saveClip';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
@@ -253,6 +253,9 @@ export function InspectorTile() {
           void saveClip(id).finally(() => {
             setSavingFor((now) => (now === id ? null : now));
           });
+        }}
+        onCancelSaveClip={() => {
+          void cancelSaveClip();
         }}
         onLoadLut={() => {
           if (clip) void loadLut(clip.videoId);

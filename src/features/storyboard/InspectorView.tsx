@@ -123,6 +123,8 @@ export interface InspectorViewProps {
   /** Saves the frame's clip as a file (2.8b); `savingClip` while it's being made. */
   onSaveClip?: () => void;
   savingClip?: boolean;
+  /** Stops the clip being saved. */
+  onCancelSaveClip?: () => void;
   /** Asks for a `.cube` and sets it as the video's LUT (2.5). */
   onLoadLut?: () => void;
   /** Sets the video's LUT to one the project has, or none (null). */
@@ -493,6 +495,7 @@ export function InspectorView({
   onSetLut,
   onSaveClip,
   savingClip = false,
+  onCancelSaveClip,
   onCropChange,
   locationName = null,
   onSketch,
@@ -738,9 +741,9 @@ export function InspectorView({
                   </Button>
                 )}
                 {!video.gone && !video.missing && onSaveClip && (
-                  // Not disabled while it works: focus stays on it.
-                  <Button data-save-clip="" aria-disabled={savingClip} onClick={savingClip ? undefined : onSaveClip}>
-                    {savingClip ? t('saveClip.savingShort') : t('saveClip.button')}
+                  // While it works, the same button stops it: focus stays on it, and a long take can be given up on.
+                  <Button data-save-clip="" onClick={savingClip ? onCancelSaveClip : onSaveClip}>
+                    {savingClip ? t('saveClip.cancel') : t('saveClip.button')}
                   </Button>
                 )}
                 <Button

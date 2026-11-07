@@ -18,7 +18,7 @@ vi.mock('../../app/notice', () => ({
 }));
 
 const { projectStore } = await import('../../app/projectStore');
-const { clipFileName, saveClip } = await import('./saveClip');
+const { cancelSaveClip, clipFileName, saveClip } = await import('./saveClip');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -112,5 +112,28 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4').mockRejectedValueOnce(new Error("The clip couldn't be saved there."));
     expect(await saveClip('s1')).toBe(false);
     expect(notices.said.at(-1)).toBe("The clip couldn't be saved there.");
+  });
+  it('names a frame with no shot number by its place in its scene, as the picture export does', async () => {
+    await projectStore.getState().apply([
+      { kind: 'create', record: { id: 's0', type: 'shot', parentId: 'sc4', sortKey: '0', props: {} } },
+      { kind: 'update', id: 's1', set: { number: '' } },
+    ]);
+    tauri.invoke.mockResolvedValueOnce(null);
+    await saveClip('s1');
+    expect(tauri.invoke.mock.calls[0]).toEqual(['export_choose_file', { name: 'SC004_2.mp4' }]);
+  });
+
+  it('a clip whose LUT isn’t stored is said as such, and nothing is saved ungraded', async () => {
+    await projectStore.getState().apply([{ kind: 'update', id: 'v1', set: { lut: 'lut-gone' } }]);
+    tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4');
+    expect(await saveClip('s1')).toBe(false);
+    expect(tauri.invoke).toHaveBeenCalledTimes(1);
+    expect(notices.said.at(-1)).toContain('LUT');
+  });
+
+  it('cancel asks Rust to stop the clip being saved', async () => {
+    tauri.invoke.mockResolvedValueOnce(true);
+    await cancelSaveClip();
+    expect(tauri.invoke).toHaveBeenCalledWith('clip_cancel');
   });
 });

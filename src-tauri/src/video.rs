@@ -293,9 +293,19 @@ fn run(command: Command, timeout: Duration) -> Result<Vec<u8>, String> {
 /// Runs a sidecar to the end, or gives up after `timeout`: how it ended, what it wrote, and (if `errors`) what it said
 /// on its error output. Both are read while it runs, so neither pipe fills and stalls it.
 fn run_heard(
+    command: Command,
+    timeout: Duration,
+    errors: bool,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
+    run_stoppable(command, timeout, errors, None)
+}
+
+/// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`.
+fn run_stoppable(
     mut command: Command,
     timeout: Duration,
     errors: bool,
+    stop: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
     let mut child = command
         .stdout(Stdio::piped())
@@ -334,8 +344,14 @@ fn run_heard(
     );
     let started = Instant::now();
     let status = loop {
+        let stopped = stop.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst));
         match child.try_wait() {
             Ok(Some(status)) => break status,
+            Ok(None) if stopped => {
+                let _ = child.kill();
+                std::thread::spawn(move || child.wait());
+                return Err(CLIP_CANCELLED.into());
+            }
             Ok(None) if started.elapsed() < timeout => {
                 std::thread::sleep(Duration::from_millis(20));
             }
@@ -873,20 +889,76 @@ pub struct ClipWindow {
 /// The long edge a saved clip is made at, at most: a reference to send or cut with, not a master.
 const CLIP_LONG_EDGE: u32 = 1920;
 
+pub(crate) const CLIP_CANCELLED: &str = "Saving the clip was cancelled.";
+const CLIP_NOT_SAVED: &str = "The clip couldn't be saved there.";
+const CLIP_OVER_VIDEO: &str =
+    "A clip is never saved over a video that's there. Choose another name.";
+
+/// A clip being saved, and whether it's been asked to stop: one at a time, as the export dialog allows.
+static CLIP_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CLIP_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stops the clip being saved, if one is (a Cancel, or the app quitting): its ffmpeg ends and nothing is left of it.
+pub fn cancel_clip() -> bool {
+    let busy = CLIP_BUSY.load(std::sync::atomic::Ordering::SeqCst);
+    if busy {
+        CLIP_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    busy
+}
+
+/// A hidden file of its own beside `dest`, made new (never one already there, never through a link), for ffmpeg to
+/// write the clip into before it's put in place: as export.rs makes its temporary files.
+fn clip_partial(dest: &Path) -> Result<PathBuf, String> {
+    let folder = dest.parent().ok_or(CLIP_NOT_SAVED)?;
+    let name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or(CLIP_NOT_SAVED)?;
+    for n in 0..100 {
+        let partial = folder.join(format!(".{name}.{}-{n}.part", std::process::id()));
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial)
+            .is_ok()
+        {
+            return Ok(partial);
+        }
+    }
+    Err(CLIP_NOT_SAVED.into())
+}
+
+/// Whether a clip may be saved at `dest`: never over the file it's made from, nor over any file there that reads as
+/// a video (a camera original the Save panel opened beside), whatever the dialog asked.
+fn clip_may_go(dest: &Path, source: &Path) -> bool {
+    let same = matches!((std::fs::canonicalize(dest), std::fs::canonicalize(source)), (Ok(a), Ok(b)) if a == b);
+    !same && !(dest.exists() && probe(dest).is_ok())
+}
+
 /// A saved clip's filters: deinterlaced; the frames before its in point dropped by their own timestamps (so nothing is
 /// graded for nothing); its pixels made square at full size; cut to the frame's window; fitted to 1920 px on its long
 /// edge; graded with the LUT (as the copy and the still are) or, for HDR without one, tone-mapped; its times from 0.
-fn clip_filter(colour: &Colour, at: f64, window: ClipWindow, graded: bool) -> String {
+fn clip_filter(
+    colour: &Colour,
+    at: f64,
+    zero: f64,
+    (num, den): (u32, u32),
+    window: ClipWindow,
+    graded: bool,
+) -> String {
     let w = window.width.clamp(0.01, 1.0);
     let h = window.height.clamp(0.01, 1.0);
     let l = window.left.clamp(0.0, 1.0 - w);
     let t = window.top.clamp(0.0, 1.0 - h);
-    let fit = format!("min(1,{CLIP_LONG_EDGE}/max(iw,ih))");
+    // Cut from the picture as stored, then one scale for the pixels' shape and the fit together: an 8K 2x anamorphic
+    // frame is never blown up to 16K on the way (the window's fractions are the same either side of a sideways
+    // stretch). At the video's own rate: a phone's variable-rate clip comes out as the copy plays it, frame for frame.
+    let fit = format!("min(1,{CLIP_LONG_EDGE}/max(iw*sar,ih))");
     let middle = format!(
-        "bwdif=mode=send_frame:deint=interlaced,trim=start={at:.6},\
-         scale=w='trunc(iw*sar/2)*2':h=ih,setsar=1,\
+        "bwdif=mode=send_frame:deint=interlaced,trim=start={at:.6},fps={num}/{den},\
          crop=w='trunc(iw*{w:.6}/2)*2':h='trunc(ih*{h:.6}/2)*2':x='iw*{l:.6}':y='ih*{t:.6}',\
-         scale=w='trunc(iw*{fit}/2)*2':h='trunc(ih*{fit}/2)*2'"
+         scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
     );
     let hdr = tone_map(colour);
     let picture = match (graded, hdr) {
@@ -898,7 +970,8 @@ fn clip_filter(colour: &Colour, at: f64, window: ClipWindow, graded: bool) -> St
         (false, Some(hdr)) => hdr.around(&middle),
         (false, None) => middle,
     };
-    format!("{picture},setpts=PTS-STARTPTS")
+    // The in frame's own time is 0, for the sound too: the two keep together.
+    format!("{picture},setpts=PTS-{zero:.6}/TB")
 }
 
 /// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly.
@@ -929,20 +1002,26 @@ pub fn save_clip(
         return Err(CANT_READ.into());
     }
     let facts = facts(path)?;
-    let has_audio = probe(path)?.has_audio;
+    // The sound only if it plays: a track ffmpeg can't decode would fail the whole clip (the copy drops it too).
+    let has_audio = probe(path)?.has_audio && matches!(sound_plays(path), Ok(true));
     let (early, at) = still_times(&facts, in_frame, fps_num, fps_den);
+    // The in frame's own time on the file's clock, where the picture and the sound both start.
+    let zero = facts.stream_start + in_frame as f64 * f64::from(fps_den) / f64::from(fps_num);
     let frames = out_frame - in_frame + 1;
     let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num);
     let grade = match lut {
         Some(lut) => Some(crate::playback::LutFile::write(lut)?),
         None => None,
     };
-    let filter = clip_filter(&facts.colour, at, window, grade.is_some());
-    let partial = {
-        let mut name = dest.as_os_str().to_owned();
-        name.push(".partial");
-        PathBuf::from(name)
-    };
+    let filter = clip_filter(
+        &facts.colour,
+        at,
+        zero,
+        (fps_num, fps_den),
+        window,
+        grade.is_some(),
+    );
+    let partial = clip_partial(dest)?;
     let mut said = String::from(CANT_READ);
     for encoder in crate::playback::encoders() {
         let mut command = command("ffmpeg");
@@ -959,11 +1038,16 @@ pub fn save_clip(
             .arg("-frames:v")
             .arg(frames.to_string())
             .args(&encoder)
-            .args(["-fps_mode", "passthrough"]);
+            .args(["-fps_mode", "cfr", "-r"])
+            .arg(format!("{fps_num}/{fps_den}"));
         if has_audio {
             command
                 .args(["-map", "0:a:0?", "-af"])
-                .arg(format!("atrim=start={at:.6},asetpts=PTS-STARTPTS"))
+                .arg(format!(
+                    // From the in frame's own time, which is 0 for the picture too; a sound that starts after it is
+                    // padded with silence from 0, so it plays where it was recorded.
+                    "atrim=start={zero:.6},asetpts=PTS-{zero:.6}/TB,aresample=async=1:first_pts=0"
+                ))
                 .args(["-c:a", "aac", "-b:a", "192k", "-ac", "2"]);
         }
         command
@@ -971,19 +1055,35 @@ pub fn save_clip(
             .arg(format!("{seconds:.6}"))
             .args(["-movflags", "+faststart", "-f", "mp4"])
             .arg(&partial);
-        match run(command, clip_timeout(frames, fps_num, fps_den)) {
-            Ok(_) => {
+        let outcome = run_stoppable(
+            command,
+            clip_timeout(frames, fps_num, fps_den),
+            true,
+            Some(&CLIP_STOP),
+        );
+        match outcome {
+            Ok((status, _, _)) if status.success() => {
                 return std::fs::rename(&partial, dest).map_err(|_| {
                     let _ = std::fs::remove_file(&partial);
-                    "The clip couldn't be saved there.".to_string()
+                    CLIP_NOT_SAVED.to_string()
                 });
             }
+            // Cancelled, or too slow: no other encoder would do better, and trying one would double the wait.
             Err(error) => {
                 let _ = std::fs::remove_file(&partial);
-                said = error;
+                return Err(error);
+            }
+            // Failed: the source unreadable says so; else the next encoder (a hardware one that wouldn't open).
+            Ok((_, _, errors)) => {
+                if read_failed_in(&String::from_utf8_lossy(&errors), path) {
+                    let _ = std::fs::remove_file(&partial);
+                    return Err(CANT_READ.into());
+                }
+                said = CLIP_NOT_SAVED.into();
             }
         }
     }
+    let _ = std::fs::remove_file(&partial);
     Err(said)
 }
 
@@ -1226,17 +1326,32 @@ pub async fn clip_save(
         if !crate::export::take_chosen_file(&app, &dest) {
             return Err("Storiiboard writes exports only where you choose.".into());
         }
-        save_clip(
+        if !clip_may_go(&dest, path) {
+            return Err(CLIP_OVER_VIDEO.into());
+        }
+        if CLIP_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(CLIP_NOT_SAVED.into());
+        }
+        CLIP_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+        let saved = save_clip(
             path,
             (in_frame, out_frame),
             (fps_num, fps_den),
             window,
             lut.as_ref(),
             &dest,
-        )
+        );
+        CLIP_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+        saved
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+/// Stops the clip being saved (2.8b); false when none is.
+#[tauri::command]
+pub fn clip_cancel() -> bool {
+    cancel_clip()
 }
 
 /// Whether a linked video's file is still where the project says, and its size, for the missing flag and Relink.
@@ -2394,18 +2509,51 @@ mod tests {
             (last - 160).abs() <= 3,
             "last frame is the out frame: {last}"
         );
-        // Nothing half made beside it.
-        assert!(!dir.join("SC004_4A.mp4.partial").exists());
-        // Through a LUT (an identity one): the same frames.
-        let identity = crate::playback::Lut {
-            sha256: "ef".repeat(32),
-            cube: "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n"
+        // The sound starts with the picture and lasts as long: in sync, whatever led in the original.
+        let timing = command("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,start_time,duration",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&dest)
+            .output()
+            .unwrap();
+        let timing = String::from_utf8_lossy(&timing.stdout).to_string();
+        for line in timing.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            let start: f64 = parts.get(1).and_then(|v| v.parse().ok()).unwrap_or(9.0);
+            let length: f64 = parts.get(2).and_then(|v| v.parse().ok()).unwrap_or(0.0);
+            assert!(start.abs() < 0.03, "{line}: starts at 0");
+            assert!((length - 0.44).abs() < 0.05, "{line}: 11 frames long");
+        }
+        // Through a LUT (an inverting one, so it shows): frame 10's grey 80 comes out near 255 - 80.
+        let invert = crate::playback::Lut {
+            sha256: "ab".repeat(32),
+            cube: "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n"
                 .to_owned(),
         };
         let graded = dir.join("SC004_4B.mp4");
-        save_clip(&take, (10, 20), (25, 1), window, Some(&identity), &graded).unwrap();
+        save_clip(&take, (10, 20), (25, 1), window, Some(&invert), &graded).unwrap();
         let first = i32::from(grey(&dir, &still(&graded, 0, 25, 1).unwrap()));
-        assert!((first - 80).abs() <= 4, "graded, the in frame: {first}");
+        assert!(
+            (first - 175).abs() <= 8,
+            "graded, the in frame inverted: {first}"
+        );
+        // Never over footage: not over the take itself, nor over any file there that reads as a video.
+        assert!(!clip_may_go(&take, &take));
+        assert!(!clip_may_go(&dest, &take));
+        assert!(clip_may_go(&dir.join("SC004_4D.mp4"), &take));
+        fs::write(dir.join("notes.mp4"), b"not a video").unwrap();
+        assert!(clip_may_go(&dir.join("notes.mp4"), &take));
+        // No unfinished file left anywhere beside them.
+        assert!(fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().ends_with(".part")));
         // A backwards clip is refused, and makes nothing.
         let none = dir.join("SC004_4C.mp4");
         assert!(save_clip(&take, (20, 10), (25, 1), window, None, &none).is_err());

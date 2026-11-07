@@ -19,6 +19,23 @@ export function clipFileName(sceneNumber: string, shotNumber: string): string {
   return frameFileName(sceneNumber, shotNumber, 'mp4');
 }
 
+type Records = ReturnType<typeof projectStore.getState>['records'];
+
+/** A record's place among its live siblings of its type, from 1: a number for a scene or frame that has none. */
+function placeOf(records: Records, id: string): string {
+  const record = records[id];
+  if (!record) return '1';
+  const siblings = Object.values(records)
+    .filter((r) => r.type === record.type && r.parentId === record.parentId && r.trashedAt === null)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+  return String(siblings.findIndex((r) => r.id === id) + 1);
+}
+
+/** Stops the clip being saved; it leaves nothing behind. */
+export async function cancelSaveClip(): Promise<void> {
+  if (isTauriApp) await invoke<boolean>('clip_cancel');
+}
+
 /** Asks where, then saves the frame's clip there; says when it's saved, or why it couldn't be. */
 export async function saveClip(shotId: string): Promise<boolean> {
   const { project, records } = projectStore.getState();
@@ -32,12 +49,13 @@ export async function saveClip(shotId: string): Promise<boolean> {
     showNotice(new Error(t('saveClip.desktopOnly')));
     return false;
   }
-  const name = clipFileName(sceneFields(scene.props).number, shotFields(shot.props).number);
+  // A scene or frame with no number takes its place in order, as the picture export's names do.
+  const name = clipFileName(sceneFields(scene.props).number || placeOf(records, scene.id), shotFields(shot.props).number || placeOf(records, shotId));
   try {
     const dest = await invoke<string | null>('export_choose_file', { name });
     if (dest === null) return false;
     const lut = video.lutId ? await lutForCopy(project.file, video.lutId) : null;
-    if (video.lutId && !lut) throw new Error(t('error.lutMissing'));
+    if (video.lutId && !lut) throw new Error(t('saveClip.lutMissing'));
     const frameAspect = aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio);
     const box = cropWindow(clip.crop, displayAspect(video), frameAspect);
     const chosen = dest.split(/[/\\]/).pop() ?? name;

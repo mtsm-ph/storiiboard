@@ -79,6 +79,7 @@ pub fn run() {
             pictures::script_choose,
             pictures::lut_choose,
             video::clip_save,
+            video::clip_cancel,
             export::export_choose_file,
             export::export_choose_folder,
             export::export_write,
@@ -171,6 +172,8 @@ pub fn run() {
                 app.state::<sbd::OpenFiles>().close_all();
                 // A playback copy being made stops with the app, rather than going on alone (playback.rs).
                 app.state::<playback::PlaybackCache>().cancel_all();
+                // And a clip being saved (video.rs): its ffmpeg ends, and its unfinished file goes.
+                video::cancel_clip();
             }
             // On a Mac a double-click arrives as an Apple Event, whether or not the app was running.
             #[cfg(target_os = "macos")]

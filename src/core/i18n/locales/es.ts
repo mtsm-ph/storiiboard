@@ -855,7 +855,8 @@ export const es: Messages = {
   'inspector.videoFrames.other': '{count} cuadros',
   'inspector.relink': 'Volver a vincular…',
   'saveClip.button': 'Guardar clip como archivo…',
-  'saveClip.savingShort': 'Guardando el clip…',
+  'saveClip.cancel': 'Cancelar el guardado del clip',
+  'saveClip.lutMissing': 'El LUT de este video no está en el proyecto, así que su clip no se puede graduar. Elige su LUT de nuevo.',
   'saveClip.saving': 'Guardando {name}…',
   'saveClip.saved': 'Se guardó {name}.',
   'saveClip.desktopOnly': 'Guardar un clip como archivo requiere la app de escritorio de Storiiboard, que tiene las herramientas de video para hacerlo.',
@@ -1004,6 +1005,8 @@ export const es: Messages = {
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'No se pudo guardar el clip ahí.',
+  'error.clipCancelled': 'Se canceló el guardado del clip.',
+  'error.clipOverVideo': 'Un clip nunca se guarda encima de un video que ya está ahí. Elige otro nombre.',
   'error.copyFailed': 'No se pudo hacer una copia de reproducción de ese video.',
   'error.lutMissing': 'El LUT de este video no está en el proyecto, así que no se puede hacer su copia de reproducción.',
   'error.copyCancelled': 'Se canceló la copia de reproducción.',

@@ -339,6 +339,19 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 2.8b: review
+
+Round 1: one high, four mediums, all fixed. A clip could be saved over a camera original (the same file, or any
+video at the chosen name): Rust refuses the source itself and any file there that probes as a video, and the export
+writer never writes `.mp4`. Variable-frame-rate takes now come out at the clip's rate (an `fps` filter and constant
+frame rate), so the frame count holds. Sound is cut from the same zero point as the picture and resampled to stay in
+sync, and a take whose sound is left out of the mix (2.3c) saves without it. The file is written to a hidden partial
+next to the destination and renamed only when it's whole; a timeout, a cancel or quitting the app leaves nothing. While
+it saves, the button reads Cancel saving clip. Lows fixed: an anamorphic take is cropped first and scaled once; a LUT
+that isn't stored has its own words; a frame or scene with no number is named by its place, as the picture export
+names it; more tests. Lows left: a take whose sound is split over mono tracks (some MXF) keeps its first track only;
+there's no progress readout, only the saving notice and Cancel.
+
 ### 2.8a: review
 
 Round 1: no high; three mediums fixed. The preview seeked back to the in point while playing, so the frame after the
