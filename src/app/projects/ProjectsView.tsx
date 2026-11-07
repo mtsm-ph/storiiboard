@@ -22,6 +22,8 @@ export interface ProjectsViewProps {
   onOpenRecent: (path: string) => void;
   onForget: (path: string) => void;
   onOpenBackup: () => void;
+  /** Import project data… (2.9): a project's JSON export, made into a new project. */
+  onImportData?: () => void;
 }
 
 type Shown = 'recent' | 'archived';
@@ -31,7 +33,7 @@ export function openedAtLabel(iso: string): string {
   return localDateTime(new Date(iso));
 }
 
-export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenRecent, onForget, onOpenBackup }: ProjectsViewProps) {
+export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenRecent, onForget, onOpenBackup, onImportData }: ProjectsViewProps) {
   const [shown, setShown] = useState<Shown>('recent');
   // An archived project leaves Recent for the Archived list (CLAUDE.md, Data model).
   const listed = recent.filter((entry) => (entry.state === 'archived') === (shown === 'archived'));
@@ -48,6 +50,9 @@ export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenR
             </Button>
             <Button disabled={!canOpen} onClick={onOpenBackup}>
               {t('projectsView.openBackup')}
+            </Button>
+            <Button data-import-project-data="" disabled={!canOpen} onClick={onImportData}>
+              {t('projectsView.importData')}
             </Button>
             {!canOpen && <p className="sb-label ml-2 text-text-muted">{t('projectsView.projectsOpenInTheDesktop')}</p>}
           </div>

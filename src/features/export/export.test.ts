@@ -79,6 +79,7 @@ describe('export names', () => {
       ['pdf-storyboard', 'file'],
       ['shot-list-csv', 'file'],
       ['png-frames', 'folder'],
+      ['project-json', 'file'],
     ]);
   });
 });

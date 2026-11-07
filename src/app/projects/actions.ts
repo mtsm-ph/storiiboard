@@ -2,6 +2,9 @@ import type { ProjectState } from '../../core/model/project';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { appDataDir } from '@tauri-apps/api/path';
 import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
+import { importProjectJson, ProjectJsonError, projectJsonTitle, readProjectJson } from '../../core/storage/projectJson';
+import { chooseProjectJson } from '../projectJsonFile';
+import { safeName } from '../../features/export/names';
 import type { NamedVersion } from '../../core/storage/versions';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
@@ -95,6 +98,52 @@ export async function newProject(): Promise<void> {
     // The new project's first step: its look, which can be skipped (docs/PLAN.md B).
     const created = projectStore.getState().project;
     if (created?.file.path === path) openOnboarding({ projectId: created.projectId, path });
+  });
+}
+
+/** Why a project's JSON can't be imported, in words. */
+function projectJsonWords(error: ProjectJsonError, name: string): string {
+  switch (error.problem) {
+    case 'notJson':
+      return t('projectJson.notJson', { name });
+    case 'notProject':
+      return t('projectJson.notProject', { name });
+    case 'formatNewer':
+      return t('projectJson.formatNewer', { name });
+    case 'schemaNewer':
+      return t('projectJson.schemaNewer', { name });
+    case 'tables':
+      return t('projectJson.tables', { name });
+    case 'tooLarge':
+      return t('projectJson.tooLarge', { name });
+  }
+}
+
+/**
+ * Import project data… (2.9): a project's JSON export made into a new project, at the place the Save dialog picks,
+ * then opened. The JSON is checked before anything is made; the new file holds exactly what the exported one did.
+ */
+export async function importProjectData(): Promise<void> {
+  await attempt(async () => {
+    const chosen = await chooseProjectJson();
+    if (chosen === null) return;
+    let data;
+    try {
+      data = readProjectJson(new TextDecoder('utf-8').decode(await chosen.bytes()));
+    } catch (error) {
+      if (error instanceof ProjectJsonError) throw new Error(projectJsonWords(error, chosen.name));
+      throw error;
+    }
+    const title = projectJsonTitle(data);
+    const path = await pickNewProjectPath(title ? safeName(title) : undefined, t('dialogs.importProjectData'));
+    if (path === null) return;
+    try {
+      await importProjectJson(appDriver, path, data);
+    } catch (error) {
+      if (error instanceof ProjectJsonError) throw new Error(projectJsonWords(error, chosen.name));
+      throw error;
+    }
+    await openProjectFile(path, files);
   });
 }
 

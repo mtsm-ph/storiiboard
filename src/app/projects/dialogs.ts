@@ -26,12 +26,15 @@ export function withSbdExtension(path: string): string {
   return /\.sbd$/i.test(path) ? path : `${path}.sbd`;
 }
 
-/** Name and folder for a new project, in one dialog. It starts in Documents, or locally when Documents is synced. */
-export async function pickNewProjectPath(): Promise<string | null> {
+/**
+ * Name and folder for a new project, in one dialog. It starts in Documents, or locally when Documents is synced.
+ * `name`: the name it suggests (an imported project's title), else Untitled; `title`: the dialog's own.
+ */
+export async function pickNewProjectPath(name?: string, title = t('dialogs.newProject')): Promise<string | null> {
   if (fileMode === 'memory') return promptForPath(t('dialogs.newProjectName'));
   const path = await save({
-    title: t('dialogs.newProject'),
-    defaultPath: await join(await projectsFolderForNew(), `${t('dialogs.untitledFile')}.sbd`),
+    title,
+    defaultPath: await join(await projectsFolderForNew(), `${name ?? t('dialogs.untitledFile')}.sbd`),
     filters: projectFilter(),
   });
   return path === null ? null : withSbdExtension(path);

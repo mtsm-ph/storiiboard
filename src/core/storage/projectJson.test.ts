@@ -1,0 +1,195 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { lutStatements, prepareLut } from '../media/lut';
+import { apply, undo } from '../ops/ops';
+import type { ProjectFile, Row } from './driver';
+import { MIGRATIONS } from './migrations';
+import { nodeDriver } from './nodeDriver';
+import { createProject, openProject, type Project } from './project';
+import {
+  importProjectJson,
+  MAX_IMPORT_CHARS,
+  ProjectJsonError,
+  projectJsonBytes,
+  projectJsonTitle,
+  readProjectJson,
+  type ProjectJson,
+} from './projectJson';
+import { markSeenStatement } from './seen';
+import { makeTestFolder, type TestFolder } from './testFolder';
+import { nameVersion } from './versions';
+
+// Project data as JSON (2.9): the whole project out and back with nothing lost, History, Trash, pictures, LUTs,
+// versions and all. The test fills a project with one of everything the file holds, exports it, imports the JSON as a
+// new project, and holds every table of the two files to each other, row for row and byte for byte.
+
+let folder: TestFolder;
+let project: Project;
+const at = () => new Date('2026-11-07T12:00:00.000Z');
+
+const bytes = (seed: number, length: number) => new Uint8Array(length).map((_, i) => (i * seed + 7) % 256);
+
+beforeEach(async () => {
+  folder = makeTestFolder();
+  project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+  const file = project.file;
+  const root = project.projectId;
+  // A picture and its thumbnail (bytes of every value 0 to 255), a LUT, frames, one in the Trash, an undone edit.
+  const sha = 'a'.repeat(64);
+  await file.tx([
+    {
+      sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
+        VALUES (?, ?, 'image/png', 4, 4, 512, 'srgb', ?, ?, ?)`,
+      params: ['m1', sha, at().toISOString(), at().toISOString(), bytes(3, 512)],
+    },
+    {
+      sql: `INSERT INTO thumbnails (id, sha256, long_edge, mime, width, height, created_at, updated_at, bytes)
+        VALUES (?, ?, 640, 'image/jpeg', 4, 4, ?, ?, ?)`,
+      params: ['t1', sha, at().toISOString(), at().toISOString(), bytes(5, 300)],
+    },
+  ]);
+  const lut = await prepareLut('SLog3 to 709.cube', 'TITLE "x"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n');
+  if (!lut.ok) throw new Error('a good cube');
+  await apply(
+    file,
+    [
+      { kind: 'create', record: { id: 'sc4', type: 'scene', parentId: root, sortKey: 'a', props: { number: '4', heading: 'INT. DINER – NIGHT' } } },
+      {
+        kind: 'create',
+        record: { id: 's1', type: 'shot', parentId: 'sc4', sortKey: 'a', props: { number: '4A', media_id: 'p1', lens_mm: 35, notes: 'Ñandú “quoted”   line' } },
+      },
+      { kind: 'create', record: { id: 'p1', type: 'media', parentId: 's1', sortKey: 'a', props: { kind: 'image', sha256: sha, width: 4, height: 4 } } },
+      { kind: 'create', record: { id: 's2', type: 'shot', parentId: 'sc4', sortKey: 'b', props: { number: '4B' } } },
+    ],
+    { author: 'Kevin', now: at, alsoWrite: lutStatements('lut-1', lut.lut, at()) },
+  );
+  await apply(file, [{ kind: 'trash', id: 's2' }], { author: 'Kevin', now: at });
+  await apply(file, [{ kind: 'update', id: 's1', set: { lens_mm: 50 } }], { author: 'Kevin', now: at });
+  await undo(file, { author: 'Kevin', now: at });
+  const [group] = await file.query('SELECT id FROM op_groups ORDER BY seq DESC LIMIT 1');
+  await nameVersion(file, { name: 'Lock', note: 'Before the recce', opGroupId: String(group?.id), createdBy: 'Kevin' }, at());
+  await file.tx([
+    markSeenStatement('s1', ['camera', 'art'], at().toISOString()),
+    {
+      sql: `INSERT INTO slate_numbers (id, scene_id, number, shot_id, created_at, updated_at) VALUES ('n1', 'sc4', '4B', 's2', ?, ?)`,
+      params: [at().toISOString(), at().toISOString()],
+    },
+  ]);
+});
+
+afterEach(async () => {
+  await project.close();
+  folder.remove();
+});
+
+/** Every table of a file, row for row in stored order, blobs as bytes. */
+async function everything(file: ProjectFile): Promise<Record<string, Row[]>> {
+  const tables = await file.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+  const all: Record<string, Row[]> = {};
+  for (const { name } of tables) all[String(name)] = await file.query(`SELECT * FROM "${String(name)}" ORDER BY rowid`);
+  return all;
+}
+
+/** What may differ in an imported copy: its own file id, and the app that last opened it. */
+function withoutOwnIds(tables: Record<string, Row[]>): Record<string, Row[]> {
+  return { ...tables, meta: (tables.meta ?? []).filter((row) => row.key !== 'file_id' && row.key !== 'app_version') };
+}
+
+describe('project data as JSON (2.9)', () => {
+  it('carries the whole project out and back: every table, row for row, byte for byte', async () => {
+    const text = new TextDecoder().decode(await projectJsonBytes(project.file, at()));
+    const data = readProjectJson(text);
+    expect(data.schema_version).toBe(MIGRATIONS.length);
+    expect(projectJsonTitle(data)).toBe('Bey County');
+    // A row to a line, so it reads and diffs a row at a time.
+    expect(text.split('\n').some((line) => line.startsWith('["s1","shot",'))).toBe(true);
+    expect(text).toContain('"rows":[\n[');
+
+    const copy = folder.path('Bey County (imported).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const before = await everything(project.file);
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after)).toEqual(withoutOwnIds(before));
+      // The pictures' bytes, the Trash, History, the version, Seen and slate numbers all came across.
+      expect(after.media_files?.[0]?.bytes).toEqual(bytes(3, 512));
+      expect(after.records?.find((r) => r.id === 's2')?.trashed_at).not.toBeNull();
+      expect(after.ops?.length).toBe(before.ops?.length);
+      expect(after.versions?.[0]?.name).toBe('Lock');
+      // Its own file id: a new file, whose backups are its own.
+      const id = (rows: Row[] | undefined) => rows?.find((r) => r.key === 'file_id')?.value;
+      expect(id(after.meta)).not.toBe(id(before.meta));
+      // Out again, it's the same JSON but for the moment and the id.
+      const again = new TextDecoder().decode(await projectJsonBytes(imported.file, at()));
+      // (Opening a file writes its id if it has none and which app opened it last, as any open does: those rows aside.)
+      const strip = (json: string) =>
+        json
+          .split('\n')
+          .filter((line) => !line.includes('"file_id"') && !line.includes('"app_version",'))
+          .join('\n');
+      expect(strip(again)).toBe(strip(text));
+    } finally {
+      await imported.close();
+    }
+  });
+
+  it('imports a project exported at an older schema, then upgrades it as on open', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    // Schema 7 had no video tables: the same project without them, said to be at 7.
+    const older: ProjectJson = { ...data, schema_version: 7, tables: { ...data.tables } };
+    delete older.tables.luts;
+    const meta = older.tables.meta;
+    if (!meta) throw new Error('meta');
+    const value = meta.columns.indexOf('value');
+    const key = meta.columns.indexOf('key');
+    older.tables.meta = { ...meta, rows: meta.rows.map((row) => (row[key] === 'schema_version' ? row.map((cell, i) => (i === value ? '7' : cell)) : row)) };
+    const copy = folder.path('Older.sbd');
+    await importProjectJson(nodeDriver, copy, older, at());
+    const opened = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      expect(opened.migration).toMatchObject({ from: 7, to: MIGRATIONS.length });
+      expect((await opened.file.query("SELECT id FROM records WHERE id = 's1'")).length).toBe(1);
+    } finally {
+      await opened.close();
+    }
+  });
+
+  it('refuses what isn’t a project it can read, naming why', () => {
+    const problem = (text: string) => {
+      try {
+        readProjectJson(text);
+        return null;
+      } catch (error) {
+        return error instanceof ProjectJsonError ? error.problem : 'other';
+      }
+    };
+    expect(problem('{not json')).toBe('notJson');
+    expect(problem('{"format":"something else"}')).toBe('notProject');
+    expect(problem('{"format":"storiiboard-project","format_version":2,"schema_version":1,"tables":{}}')).toBe('formatNewer');
+    expect(problem(`{"format":"storiiboard-project","format_version":1,"schema_version":${String(MIGRATIONS.length + 1)},"tables":{}}`)).toBe(
+      'schemaNewer',
+    );
+    expect(problem('{"format":"storiiboard-project","format_version":1,"schema_version":1,"tables":{"meta":{"columns":["id"],"rows":[["a","b"]]}}}')).toBe(
+      'tables',
+    );
+    // A number too large to be exact, a nested object.
+    expect(problem('{"format":"storiiboard-project","format_version":1,"schema_version":1,"tables":{"meta":{"columns":["id"],"rows":[[1e300]]}}}')).toBe(
+      'tables',
+    );
+    expect(problem(' '.repeat(MAX_IMPORT_CHARS + 1))).toBe('tooLarge');
+  });
+
+  it('refuses tables or columns the schema doesn’t have, and a path that’s taken', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    const extra: ProjectJson = { ...data, tables: { ...data.tables, secrets: { columns: ['id'], rows: [['x']] } } };
+    await expect(importProjectJson(nodeDriver, folder.path('Extra.sbd'), extra, at())).rejects.toBeInstanceOf(ProjectJsonError);
+    const records = data.tables.records;
+    if (!records) throw new Error('records');
+    const injected: ProjectJson = {
+      ...data,
+      tables: { ...data.tables, records: { columns: [...records.columns.slice(0, -1), 'updated_at") VALUES (1); DROP TABLE ops; --'], rows: records.rows } },
+    };
+    await expect(importProjectJson(nodeDriver, folder.path('Injected.sbd'), injected, at())).rejects.toBeInstanceOf(ProjectJsonError);
+    await expect(importProjectJson(nodeDriver, project.file.path, data, at())).rejects.toThrow();
+  });
+});

@@ -649,6 +649,43 @@ Importing:
   dropped.
 - Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
 
+## Project data as JSON (2.9)
+
+Export → Project data (JSON) writes the whole .sbd as one UTF-8 JSON file, and Import project data… (the Projects
+screen) makes a new project from one (src/core/storage/projectJson.ts). It's the project, not a view of it, so unlike
+the other exports it carries everything: every record, live and in the Trash; the History (every op and op group);
+named versions; pictures and thumbnails; LUTs; slate numbers; Seen. Imported, the new file holds exactly what the old
+one did, row for row and byte for byte, but for its own `meta.file_id` (a new file keys its own local backups) and
+`meta.app_version`, which every open writes.
+
+```json
+{"format":"storiiboard-project","format_version":1,"schema_version":8,"app_version":"0.1.0","exported_at":"2026-11-07T12:00:00.000Z","tables":{
+"meta":{"columns":["id","key","value","created_at","updated_at"],"rows":[
+["…","schema_version","8","…","…"],
+…
+]},
+"records":{"columns":[…],"rows":[
+…
+]}
+}}
+```
+
+- `tables` holds every table of the file, by its name, with its `columns` in the schema's order and its `rows` in the
+  order SQLite stored them, one row to a line, so the file reads (and diffs) a row at a time.
+- A value is JSON's own: text as a string (a JSON column such as `props` stays the text it is), an integer as a number,
+  null as null, and a blob (a picture's bytes) as `{"base64": "…"}`. Every column today is TEXT, INTEGER or BLOB
+  (all tables are STRICT), so nothing is rounded.
+- Tables come in the order rows refer to each other: meta, media_files, thumbnails, luts, records, op_groups, ops,
+  versions, slate_numbers, shot_seen, then any other by name. A table a later schema adds is carried without a change
+  to the code, which reads the tables the file has.
+- Import refuses a file that isn't this format, a `format_version` above 1 or a `schema_version` above this app's
+  (update Storiiboard), and any table or column the named schema doesn't have. It builds a new .sbd at that
+  `schema_version`, puts every row in in one transaction (foreign keys checked at commit), and opening it then
+  upgrades it as any older file is, with a migration backup beside it. It never writes over a file.
+- Limits: the page reads the file in one piece, so a project JSON of more than about 400 million characters (roughly
+  300 MB of pictures) is refused as too large to import. Video stays outside the project as before: a video record's
+  path, relative to the old .sbd, may need Relink if the new file sits elsewhere.
+
 ## File type
 
 The installers register `.sbd` as "Storiiboard Project", with Storiiboard as its owner, so a double-click opens it.

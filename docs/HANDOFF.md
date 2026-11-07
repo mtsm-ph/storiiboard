@@ -316,7 +316,7 @@ Lows deferred (noted, not planned yet):
    Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (PR #85, merged Nov 7; four review rounds; see "2.8b as built"; rendered
    from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
-   **2.9** JSON export and import, lossless.
+   **2.9** JSON export and import, lossless (in review, branch `phase2/2.9-json`; see "2.9 as built" and "2.9: decisions").
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
@@ -338,6 +338,20 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.9: decisions
+
+- The JSON export carries the Trash and the History, though CLAUDE.md says exports skip the Trash. That rule is for
+  views of the project (PDF, CSV, PNG); this export is the project itself, and "round-trip without data loss" can't
+  leave the Trash out. Export says so beside the format ("All of it: … the Trash, the History …"). If Kevin wants a
+  choice to leave them out, it's an option on the format, not a change to the file.
+- One JSON file, a row to a line, pictures as base64, rather than a zip of JSON and image files: one file anyone can
+  read, with no new dependency. The cost: base64 adds a third, and an import reads the file in one piece, so about
+  300 MB of pictures is the most it takes (said if exceeded). Collect project (.sbdpack, later) is for moving big ones.
+- Import makes a new project, never merges into the open one, and keeps everything, the title included; only the file's
+  own id is new, so its backups on this computer are its own.
+- Its columns can only be checked once the new file has its schema, so a JSON that fails that check (hand-edited, or
+  not Storiiboard's) leaves the new file empty, which opens as an empty project. Low; noted.
 
 ### 2.8b: review
 
