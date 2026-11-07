@@ -23,6 +23,9 @@ describe('the Player', () => {
     // Its copy's length bounds it once the <video> knows it: 48 frames in 2.002 s, none when it's not known.
     expect(framesOfLength((48 * 1001) / 24000, fps)).toBe(48);
     expect(framesOfLength(2.002001, fps)).toBe(48);
+    // A copy whose sound runs 15 ms past its picture: still 48 frames, never a 49th that isn't there.
+    expect(framesOfLength(48 / 24 + 0.015, { num: 24, den: 1 })).toBe(48);
+    expect(framesOfLength((48 * 1001) / 24000 - 1e-6, fps)).toBe(48);
     expect(framesOfLength(Number.NaN, fps)).toBe(0);
     expect(framesOfLength(Number.POSITIVE_INFINITY, fps)).toBe(0);
   });

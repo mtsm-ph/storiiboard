@@ -363,6 +363,12 @@ its copy's end and O would save that point. Such a video now takes its length fr
 (`framesOfLength`), which also gives its scrubber an end; before that it's unbounded above, as before. Only the lows
 listed in round 5 remain.
 
+Round 7: no high; one medium fixed, the reviewer's own fix: the copy's length rounded up, so a copy whose sound runs past
+its picture (AAC padding, a camera's sound) had a 49th frame of 48; it now rounds down, since the picture is constant
+rate and ends on a whole frame. Tested. Lows left: no component or e2e test of a video of unknown length (the DOM
+library question); an in point past a copy's real length isn't clamped until the first step (shown only). This was the
+last round: its one fix is the reviewer's, tested here, and the checkpoint of f131794 covers everything else.
+
 Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
 with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
 passed them on Mac with the same code. Those three tests aren't about the encoder, so they now use the light one, as the

@@ -38,11 +38,13 @@ export function frameInVideo(seconds: number, fps: Rational, durationFrames: num
 }
 
 /**
- * The frames in a copy `seconds` long (a `<video>`'s duration): the bound for a video whose record has no length. 0 when
+ * The frames in a copy `seconds` long (a `<video>`'s duration, its longest track's): the bound for a video whose record has no length. 0 when
  * the `<video>` doesn't know it either (NaN, or Infinity for a stream).
  */
 export function framesOfLength(seconds: number, fps: Rational): number {
-  return Number.isFinite(seconds) && seconds > 0 ? Math.max(0, Math.ceil((seconds * fps.num) / fps.den - 1e-3)) : 0;
+  // Rounded down: the copy's picture is constant rate, so it ends on a whole frame; a part frame past it is sound (AAC's
+  // padding, a camera's sound running on), not a frame.
+  return Number.isFinite(seconds) && seconds > 0 ? Math.max(0, Math.floor((seconds * fps.num) / fps.den + 1e-3)) : 0;
 }
 
 /** Whether `frame` is a frame of the video: any frame of one whose length isn't known. */

@@ -193,7 +193,7 @@ export function PlayerTile() {
         if (event.type === 'loadeddata') {
           element.currentTime = timeOfFrame(frame, fps);
           setRemadeFor(null);
-          if (opened) setCopyFrames({ url: opened.url, frames: framesOfLength(element.duration, fps) });
+          if (ready) setCopyFrames({ url: ready.url, frames: framesOfLength(element.duration, fps) });
         }
         else if (!element.paused) setFrame(frameAt(element.currentTime));
       }}
