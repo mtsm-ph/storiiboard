@@ -1,3 +1,4 @@
+import { COMPANY_LOGO_ROLE } from '../../core/model/company';
 import { mediaFields } from '../../core/media/store';
 import { videoFields } from '../../core/media/video';
 import type { SbdRecord } from '../../core/model/record';
@@ -132,7 +133,7 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     if (!kind || (record.type !== 'scene' && record.type !== 'media' && trashedWithParent(records, record))) continue;
     // A company's replaced logo (3.2) belongs to the company's copy, which undo puts back: restored alone, it would be
     // a picture nothing shows. Empty Trash still clears it.
-    if (record.type === 'media' && record.props.role === 'company_logo') continue;
+    if (isCompanyLogo(record)) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
@@ -196,6 +197,17 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
   }
 }
 
+/** A company's logo (3.2): kept with the company's copy, so the Trash doesn't list it on its own. */
+const isCompanyLogo = (record: SbdRecord) => record.type === 'media' && record.props.role === COMPANY_LOGO_ROLE;
+
+/**
+ * Company logos replaced or detached (3.2), in the Trash though it doesn't list them: Empty Trash clears them too, so
+ * it counts them, to be offered while they're all there is, and to say so.
+ */
+export function oldCompanyLogos(records: Records, projectId: string): number {
+  return Object.values(records).filter((r) => r.trashedAt !== null && r.parentId === projectId && isCompanyLogo(r)).length;
+}
+
 /** How many of these Trash rows are gone from the project: what an Empty Trash deleted, counted as the Trash lists it. */
 export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
   return rows.filter((row) => !records[row.id]).length;
@@ -205,9 +217,11 @@ export function rowsGone(records: Records, rows: readonly TrashItem[]): number {
  * The Empty Trash confirm, the same in the Trash tile and Settings → Storage. `hidden` counts items the Trash tile's
  * filters hide, since it empties them too. `unknown`: some slate numbers from before schema 5 couldn't be recovered.
  */
-export function emptyTrashMessage(records: Records, count: number, hidden = 0, unknown = false): string {
+export function emptyTrashMessage(records: Records, count: number, hidden = 0, unknown = false, logos = 0): string {
   const items = tn('count.items', count);
-  const what = hidden > 0 ? t('trash.itemsHidden', { items, hidden }) : items;
+  const listed = hidden > 0 ? t('trash.itemsHidden', { items, hidden }) : items;
+  // Old company logos aren't listed, so they're named: they go too.
+  const what = logos === 0 ? listed : count === 0 ? tn('trash.oldLogos', logos) : t('trash.andOldLogos', { items: listed, logos: tn('trash.oldLogos', logos) });
   // A locked scene keeps every number it has given out (1.26), so emptying the Trash can't free one. The exception is
   // what an Empty Trash deleted before that: gone, numbers and all. Said while any scene is locked.
   const locked = Object.values(records).some((r) => r.type === 'scene' && r.trashedAt === null && sceneFields(r.props).numbersLocked);

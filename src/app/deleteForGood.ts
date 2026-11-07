@@ -1,6 +1,6 @@
 import type { StoreApi } from 'zustand';
 import { trashedRoots } from '../core/ops/ops';
-import { emptyTrashMessage, rowsGone, trashItems } from '../features/trash/trash';
+import { emptyTrashMessage, oldCompanyLogos, rowsGone, trashItems } from '../features/trash/trash';
 import { forGood, type ForGood } from './forGood';
 import type { ProjectState } from './projectStore';
 import { tn } from '../core/i18n';
@@ -25,7 +25,7 @@ export function emptyTrashConfirmed(
   const confirmed = new Set(trashedRoots(Object.values(records)));
   return forGood(
     running,
-    () => ask(emptyTrashMessage(records, rows.length, hidden, slateUnknown)),
+    () => ask(emptyTrashMessage(records, rows.length, hidden, slateUnknown, oldCompanyLogos(records, project.projectId))),
     () => store.getState().project === project,
     async () => {
       const done = await store.getState().emptyTrash(confirmed);

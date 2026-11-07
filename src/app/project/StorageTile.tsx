@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { historyOnlyPictures } from '../../core/ops/ops';
 import { fileSpace } from '../../core/storage/compact';
-import { trashItems } from '../../features/trash/trash';
+import { oldCompanyLogos, trashItems } from '../../features/trash/trash';
 import { Button } from '../../ui/Button';
 import { confirmForGood, sizeLabel } from '../confirm';
 import { cleanUpConfirmed, emptyTrashConfirmed } from '../deleteForGood';
@@ -82,6 +82,8 @@ export function StorageTile() {
   }
   // As the Trash tile counts them: a scene's frames deleted with it are part of its row.
   const inTrash = trashItems(records, project.projectId).length;
+  // Old company logos aren't listed, but Empty Trash clears them, so it's offered for them too (3.2).
+  const logosInTrash = oldCompanyLogos(records, project.projectId);
 
   const run = async (
     act: () => Promise<ForGood<{ freed: number } | null>>,
@@ -169,7 +171,7 @@ export function StorageTile() {
         <Button
           variant="warning"
           className="self-start"
-          disabled={inTrash === 0}
+          disabled={inTrash === 0 && logosInTrash === 0}
           onClick={() =>
             void run(
               () => emptyTrashConfirmed(projectStore, running, (text) => confirmForGood(t('trash.emptyTitle'), text, t('trash.emptyAction'))),

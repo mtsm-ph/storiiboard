@@ -37,6 +37,13 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
   const attachedValue = copy ? (profile ? profile.id : COPY_ONLY) : '';
   // What the menu shows: the person's pick until it's attached or changed again, else what's attached.
   const [picked, setPicked] = useState<string | null>(null);
+  // An undo or redo that changes what's attached leaves the menu showing that, not an older pick.
+  const [pickedFor, setPickedFor] = useState(attachedValue);
+  if (pickedFor !== attachedValue) {
+    setPickedFor(attachedValue);
+    setPicked(null);
+  }
+  const menuId = useId();
   const shown = picked ?? attachedValue;
   const choice = companies.find((c) => c.id === shown) ?? null;
 
@@ -65,6 +72,10 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
     try {
       await work();
       setPicked(null);
+      // The button pressed goes once its work is done (Attach once attached, Detach with the copy): focus to the menu.
+      requestAnimationFrame(() => {
+        document.getElementById(menuId)?.focus();
+      });
     } catch (error) {
       setProblem(localizeError(error instanceof Error ? error.message : String(error)));
     } finally {
@@ -91,6 +102,7 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           <Select
+            id={menuId}
             label={t('company.attached')}
             value={shown}
             onChange={(event) => {

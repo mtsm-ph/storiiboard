@@ -1,4 +1,4 @@
-import { companyProp, logoMark, projectCompany, type CompanyProfile } from '../../core/model/company';
+import { COMPANY_LOGO_ROLE, companyProp, logoMark, projectCompany, type CompanyProfile } from '../../core/model/company';
 import { imageStatements, mediaProps, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
 import { keyBetween } from '../../core/ops/order';
@@ -12,8 +12,7 @@ import type { Statement } from '../../core/storage/driver';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-/** Marks a picture as a company's logo, kept with the copy, not one a person handles on its own. */
-export const COMPANY_LOGO_ROLE = 'company_logo';
+export { COMPANY_LOGO_ROLE };
 
 /**
  * The project's company logo as the copy names it: a live picture under this project, nothing else. A `logo_id` that
@@ -21,7 +20,8 @@ export const COMPANY_LOGO_ROLE = 'company_logo';
  */
 export function companyLogo(records: Records, projectId: string, logoId: string | null): SbdRecord | null {
   const media = logoId ? records[logoId] : undefined;
-  return media?.type === 'media' && media.parentId === projectId && media.trashedAt === null ? media : null;
+  // Marked as a company's: the theme's image is a picture under the project too, never to be trashed as a logo.
+  return media?.type === 'media' && media.parentId === projectId && media.trashedAt === null && media.props.role === COMPANY_LOGO_ROLE ? media : null;
 }
 
 /** Whether attaching `profile` needs its logo made into a picture: not when the project already has that very logo. */

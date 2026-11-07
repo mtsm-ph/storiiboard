@@ -10,14 +10,15 @@ import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
 import { ProfileTab } from './profile';
+import { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
 import { NoticeBar } from '../NoticeBar';
 
 // Settings in a window of the app's own (polish B), not a workspace of tiles: the project's settings and the person's
 // in one place, a tab each, opened from the sidebar's gear or with ⌘, (Ctrl+,), and from the profile button at its
-// Profile tab. It remembers the tab last open this session.
+// Profile tab. It remembers the tab last open this session. Which tab is open lives in settingsStore.ts, so a tab's
+// content can open Settings at another tab without importing this window; it's re-exported here as before.
 
-import { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
-export { SETTINGS_TABS, type SettingsTab } from './settingsStore';
+export { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
 
 const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   project: 'settings.tab.project',
@@ -36,9 +37,6 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   storage: StorageTile,
   profile: ProfileTab,
 };
-
-// The store lives in settingsStore.ts, so a tab's content can open Settings at another tab without importing this.
-export { closeSettings, openSettings, settingsStore } from './settingsStore';
 
 /** ⌘, on a Mac, Ctrl+, elsewhere: where every app keeps its settings. */
 export function isSettingsShortcut(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'repeat'>, mac: boolean): boolean {

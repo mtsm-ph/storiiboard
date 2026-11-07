@@ -362,6 +362,15 @@ puts focus on the App tab; a copy whose profile id is empty can't read as None. 
 long name, logo kept when unchanged, a bad `logo_id`, History's three lines, the Trash's list; end to end, the arrow
 keys attach nothing, the project's logo shown.
 
+Round 2: no high; one medium fixed. Leaving old company logos out of the Trash's list left Empty Trash off while they
+were all there was, so they could pile up with no way to clear them: Empty Trash now counts them (to be offered, in
+the Trash tile and Settings → Storage) and its confirm names them ("1 item and 2 old company logos"). Lows fixed: only a
+picture marked as the company's is ever taken as its logo (never the theme's image a `logo_id` names); focus goes back
+to the menu once its button's work is done; an undo or redo of what's attached resets the menu; a copy with no logo in
+the project keeps no logo mark, so it reads as differing from its profile and Update puts the logo back; History's
+company lines keep the "picture removed" tag; the format doc names the `role` mark; tidier imports. Low left: a logo
+saved before the new 150k cap (dev builds only, before 3.2 shipped) is dropped on load.
+
 ### 3.1: review
 
 Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last

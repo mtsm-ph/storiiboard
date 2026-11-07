@@ -42,9 +42,12 @@ describe('company profiles', () => {
   });
 
   it('tells a copy apart from a profile that changed since, its logo included', () => {
-    const copy = projectCompany({ company: companyProp(undefined, profile, null) });
+    const copy = projectCompany({ company: companyProp(undefined, profile, 'l1') });
     if (!copy) throw new Error('the copy');
     expect(profileChanged(copy, profile)).toBe(false);
+    // A copy that ended up with no logo in the project differs from a profile that has one: Update puts it back.
+    const bare = projectCompany({ company: companyProp(undefined, profile, null) });
+    expect(bare && profileChanged(bare, profile)).toBe(true);
     expect(profileChanged(copy, { ...profile, phone: '+1 212 555 0199' })).toBe(true);
     expect(profileChanged(copy, { ...profile, logo: 'data:image/png;base64,AAAA' })).toBe(true);
     expect(profileChanged(copy, { ...profile, logo: null })).toBe(true);

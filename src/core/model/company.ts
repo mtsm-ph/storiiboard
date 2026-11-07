@@ -5,6 +5,9 @@ import type { JsonValue, Props } from './record';
 // logo into the project as a picture, so the file carries them to another computer that has no such profile. The copy
 // stays as it was until Update from profile; call sheets (Phase 4) and brand-kit cards (Phase 5) read it.
 
+/** Marks a picture as a company's logo (3.2), kept with the copy, not one a person handles on its own. */
+export const COMPANY_LOGO_ROLE = 'company_logo';
+
 /** A company as saved in the app's settings. */
 export interface CompanyProfile {
   id: string;
@@ -124,7 +127,8 @@ export function companyProp(stored: JsonValue | undefined, profile: CompanyProfi
     email: profile.email,
     website: profile.website,
     logo_id: logoId,
-    logo_source: logoMark(profile.logo),
+    // Only with a logo in the project: a copy that has none reads as differing from a profile that has one.
+    logo_source: logoId === null ? null : logoMark(profile.logo),
   };
 }
 

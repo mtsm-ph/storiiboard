@@ -25,7 +25,7 @@ const { addCompany, companiesStore, removeCompany, saveCompany } = await import(
 const { attachCompany, COMPANY_LOGO_ROLE, detachCompany, needsLogo } = await import('./companyEdits');
 const { describeEdit } = await import('../../features/history/summary');
 type LoggedOp = import('../../core/ops/ops').LoggedOp;
-const { trashItems } = await import('../../features/trash/trash');
+const { emptyTrashMessage, oldCompanyLogos, trashItems } = await import('../../features/trash/trash');
 
 const record = (id: string, type: SbdRecord['type'], parentId: string | null, props: SbdRecord['props'], trashedAt: string | null = null): SbdRecord => ({
   id,
@@ -159,5 +159,17 @@ describe('a company attached to a project (3.2)', () => {
       t1: record('t1', 'media', 'p', { kind: 'image', file: 'b'.repeat(64) }, '2026-11-07T12:00:00.000Z'),
     };
     expect(trashItems(records, 'p').map((item) => item.id)).toEqual(['t1']);
+    // Empty Trash still counts it, so it's offered while it's all there is, and says it goes.
+    expect(oldCompanyLogos(records, 'p')).toBe(1);
+    expect(emptyTrashMessage(records, 1, 0, false, 1)).toMatch(/^Delete 1 item and 1 old company logo for good\?|1 item and 1 old company logo/);
+    expect(emptyTrashMessage(records, 0, 0, false, 2)).toContain('2 old company logos');
+  });
+
+  it('never takes the theme’s image as the company’s logo, even when a logo_id names it', () => {
+    const records = {
+      p: record('p', 'project', null, { company: { profile_id: 'co1', name: 'Zima', logo_id: 'theme-image' } }),
+      'theme-image': record('theme-image', 'media', 'p', { kind: 'image', file: 'c'.repeat(64) }),
+    };
+    expect(detachCompany(records, 'p')).toEqual([{ kind: 'update', id: 'p', unset: ['company'] }]);
   });
 });
