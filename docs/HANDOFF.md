@@ -46,6 +46,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
+| #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -280,7 +281,7 @@ Lows deferred (noted, not planned yet):
 
 ## Next steps, in order
 
-0. **2.3c** (PR #79, in review): silent tracks left out of the mix; a relink's undo never leaves the other file's
+0. **2.3c** (PR #79, merged Nov 7; checkpoint r5 all green): silent tracks left out of the mix; a relink's undo never leaves the other file's
    copy. Review round 1: two mediums fixed (five 4-second windows could miss a mic live for minutes of a long take,
    and a take of unknown length was read whole: now forty 1-second windows, never more than 40 s read, its own 90 s
    allowance), and lows (a track ffmpeg says nothing of is kept; the Trash no longer stops a copy; two tests made able
