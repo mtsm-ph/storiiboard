@@ -144,6 +144,13 @@ test('played to the end, it stops on the last frame, and O sets the out point th
   // Out already on the last frame: no edit, and the clip never runs past the video.
   await expect(range(page)).toContainText('00:00:00:10 – 00:00:01:23 · 38 frames');
   await expect(player(page)).toContainText('Out 00:00:01:23');
+  // Space again replays from the in point, and pausing at once stops near it, far from the end.
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+  const [, , sec = 0, f = 0] = (await timecode(page).innerText()).split(':').map(Number);
+  expect(sec * 24 + f).toBeLessThan(40);
 });
 
 test('a copy the <video> can’t play says so, with Try again, and is remade once at most', async ({ page }) => {

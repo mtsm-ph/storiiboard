@@ -3,7 +3,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { readClip, videoFields } from '../../core/media/video';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
-import { clipWithIn, clipWithOut, frameOfPresentation, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
+import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
@@ -88,14 +88,16 @@ export function PlayerTile() {
     if (!playing || !element || !('requestVideoFrameCallback' in element)) return;
     let handle = 0;
     const next: VideoFrameRequestCallback = (_now, metadata) => {
-      setFrame(frameOfPresentation(metadata.mediaTime, fps));
+      // A copy can run a little longer than the video's record: never past its last frame.
+      const at = frameOfPresentation(metadata.mediaTime, fps);
+      setFrame(duration > 0 ? Math.min(at, duration - 1) : at);
       handle = element.requestVideoFrameCallback(next);
     };
     handle = element.requestVideoFrameCallback(next);
     return () => {
       element.cancelVideoFrameCallback(handle);
     };
-  }, [playing, fps]);
+  }, [playing, fps, duration]);
 
   const ready = usable && copy.kind === 'made' && opened?.videoId === videoId ? opened : null;
   const status: PlayerStatus = !project
@@ -123,7 +125,7 @@ export function PlayerTile() {
       : null;
 
   /** The frame at a time of the copy, never past the video's last. */
-  const frameAt = (seconds: number) => stepFrame(frameOfTime(seconds, fps), 0, duration);
+  const frameAt = (seconds: number) => frameInVideo(seconds, fps, duration);
   const seek = (to: number) => {
     const target = stepFrame(to, 0, duration);
     setFrame(target);
@@ -137,7 +139,7 @@ export function PlayerTile() {
     void projectStore.getState().applyWith((now) => {
       const current = now[shotId];
       const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
-      if (!currentClip || currentClip.videoId !== videoId || at >= duration) return { changes: [] };
+      if (!currentClip || currentClip.videoId !== videoId || !inVideo(at, duration)) return { changes: [] };
       const next = which === 'in' ? clipWithIn(currentClip, at) : clipWithOut(currentClip, at);
       // Where it is already: no edit, so no undo step for nothing.
       if (next.inFrame === currentClip.inFrame && next.outFrame === currentClip.outFrame) return { changes: [] };
@@ -155,7 +157,11 @@ export function PlayerTile() {
       onPlayPause={() => {
         const element = videoRef.current;
         if (!element) return;
-        if (element.paused) void element.play().catch(() => undefined);
+        if (element.paused) {
+          // Stopped on the last frame (played to the end): from the frame's in point again, as a replay.
+          if (duration > 0 && frame >= duration - 1 && clip) seek(clip.inFrame);
+          void element.play().catch(() => undefined);
+        }
         else element.pause();
       }}
       onStep={(delta) => {

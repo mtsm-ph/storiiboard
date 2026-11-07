@@ -347,6 +347,12 @@ the video in e2e, the error path's remake rule in unit tests, `find` ignoring a 
 can't-play test can't see the remake cap (the stand-in's copies never go missing); a copy removed by the cap says "can't
 be played" for a moment before it's queued again.
 
+Round 4: no high; one medium fixed. A video whose length isn't known (ffprobe can't read it; durationFrames 0) was held
+at frame 0 by round 3's clamp, so a pause jumped back to the start and I and O did nothing: the clamp now applies only
+to a known length (`frameInVideo`, `inVideo`). Lows fixed: Space on the last frame replays from the in point (it played
+half a frame), and the frame shown while playing never passes the last either. Left as a low: no test pins the Player's
+own use of `copyMayBeGone` (a component test needs a DOM library, a new dependency: Kevin's call, as before).
+
 Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
 with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
 passed them on Mac with the same code. Those three tests aren't about the encoder, so they now use the light one, as the

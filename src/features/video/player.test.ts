@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CROP } from '../../core/media/crop';
-import { clipWithIn, clipWithOut, frameOfPresentation, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
+import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, frameOfTime, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 
 // The Player's arithmetic (2.4): a copy's frame 0 is the video's first frame, at the video's exact rate.
 
@@ -8,6 +8,21 @@ const ntsc = { num: 24000, den: 1001 };
 const clip = { videoId: 'v1', inFrame: 10, outFrame: 20, crop: DEFAULT_CROP };
 
 describe('the Player', () => {
+  it('keeps a frame inside the video at its end, but holds back no video whose length is unknown', () => {
+    const fps = { num: 24000, den: 1001 };
+    // The end of 48 frames: its whole length, a frame past the last.
+    expect(frameOfTime((48 * 1001) / 24000, fps)).toBe(48);
+    expect(frameInVideo((48 * 1001) / 24000, fps, 48)).toBe(47);
+    expect(frameInVideo(1, fps, 48)).toBe(23);
+    // Length unknown: three seconds in is frame 71, not 0.
+    expect(frameInVideo(3, fps, 0)).toBe(71);
+    expect(inVideo(47, 48)).toBe(true);
+    expect(inVideo(48, 48)).toBe(false);
+    expect(inVideo(71, 0)).toBe(true);
+    expect(inVideo(-1, 0)).toBe(false);
+  });
+
+
   it('seeks to the middle of a frame, and reads that frame back, at 23.976 and over an hour in', () => {
     for (const frame of [0, 1, 47, 86_313]) {
       expect(frameOfTime(timeOfFrame(frame, ntsc), ntsc)).toBe(frame);

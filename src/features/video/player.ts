@@ -28,6 +28,20 @@ export function timeOfFrame(frame: number, fps: Rational): number {
   return frameSeconds(frame + 0.5, fps);
 }
 
+/**
+ * The frame at `seconds` of the copy, never past the video's last: at its end a `<video>`'s time is its whole length, a
+ * frame past the last. A video whose length isn't known (`durationFrames` 0) isn't held back.
+ */
+export function frameInVideo(seconds: number, fps: Rational, durationFrames: number): number {
+  const at = frameOfTime(seconds, fps);
+  return durationFrames > 0 ? Math.min(at, durationFrames - 1) : at;
+}
+
+/** Whether `frame` is a frame of the video: any frame of one whose length isn't known. */
+export function inVideo(frame: number, durationFrames: number): boolean {
+  return frame >= 0 && (durationFrames <= 0 || frame < durationFrames);
+}
+
 /** A frame `delta` frames on, inside the video's `durationFrames`. */
 export function stepFrame(frame: number, delta: number, durationFrames: number): number {
   return Math.min(Math.max(0, durationFrames - 1), Math.max(0, frame + delta));
