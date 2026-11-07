@@ -46,10 +46,10 @@ export function PlayerTile() {
 
   // A copy the <video> can't play: its URL, so it isn't opened again until a remake (it passes through being made) or
   // Try again; and the video it was remade for, once, so a copy that never plays can't be remade over and over.
-  const [broken, setBroken] = useState<string | null>(null);
+  const [broken, setBroken] = useState<{ videoId: string; url: string } | null>(null);
   const [remadeFor, setRemadeFor] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
-  if (broken !== null && copy.kind !== 'made') setBroken(null);
+  if (broken !== null && (broken.videoId !== videoId || copy.kind !== 'made')) setBroken(null);
 
   // A copy is asked for when the Player shows a video that has had none since it came into view (PLAN 2.3b: "and (2.4)
   // by the Player"). Once one was waiting, made or failed while shown, a copy gone after is the person's doing (Cancel,
@@ -69,7 +69,7 @@ export function PlayerTile() {
     copyToPlay(videoId)
       .then((found) => {
         if (!live) return;
-        if (found && found.url === broken) setOpened(null);
+        if (found && found.url === broken?.url) setOpened(null);
         else if (found) setOpened({ videoId, ...found });
         // Gone since it was made: made again.
         else makeCopy(videoId);
@@ -175,16 +175,29 @@ export function PlayerTile() {
         } else if (videoId) makeCopy(videoId);
       }}
       onTime={(event) => {
-        // Paused, the frame is where it was put; a play moves it. Loaded, the <video> is put on the frame showing.
+        // Paused, the frame is where it was put; a play moves it. Loaded, the <video> is put on the frame showing, and
+        // a copy that plays earns another remake should it go missing later.
         const element = event.currentTarget;
-        if (event.type === 'loadeddata') element.currentTime = timeOfFrame(frame, fps);
+        if (event.type === 'loadeddata') {
+          element.currentTime = timeOfFrame(frame, fps);
+          setRemadeFor(null);
+        }
         else if (!element.paused) setFrame(frameOfTime(element.currentTime, fps));
       }}
-      onPlaying={setPlaying}
+      onPlaying={(now) => {
+        setPlaying(now);
+        // Paused: the readout, the picture and the <video>'s time all settle on the frame it stopped in.
+        const element = videoRef.current;
+        if (!now && element) {
+          const at = frameOfTime(element.currentTime, fps);
+          setFrame(at);
+          element.currentTime = timeOfFrame(at, fps);
+        }
+      }}
       onVideoError={() => {
         // The copy went (the cap, a Move) or can't be read: made again once, and opened once it is; if it's still
         // there, the Player says it can't play it, with Try again.
-        setBroken(opened?.url ?? null);
+        setBroken(opened && videoId ? { videoId, url: opened.url } : null);
         setOpened(null);
         setPlaying(false);
         if (videoId && remadeFor !== videoId) {

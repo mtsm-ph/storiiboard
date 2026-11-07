@@ -1020,7 +1020,9 @@ impl PlaybackCache {
                 folders
                     .iter()
                     .map(|folder| folder.join(&name))
-                    .find(|copy| copy.is_file())
+                    .find(|copy| {
+                        fs::symlink_metadata(copy).is_ok_and(|meta| meta.file_type().is_file())
+                    })
                     .map(|path| Made {
                         path,
                         silent,

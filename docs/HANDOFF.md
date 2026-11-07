@@ -331,6 +331,14 @@ copies are never served through a link. Left as lows: a request for a large copy
 as a 206 (no webview asks that way), HEAD gets a body, and the browser build's kept files aren't let go when a project
 closes.
 
+Round 2: no high; two mediums fixed: the Player's one automatic remake now resets once a copy plays (a copy evicted
+again an hour later is remade, not called unplayable), and a pause settles the readout, the picture and the <video>'s
+time on one frame (the readout could stay a frame behind). A copy that can't be played is now tested end to end (an
+error on the <video>: said, Try again plays it, a second error never loops). Lows fixed: the "can't be played" mark is
+the video's own; I and O by their key only on layouts that type no Latin letter there (a Dvorak's KeyI is "c");
+`find` refuses links, as serving does. Left as a low: on a French AZERTY, Shift steps ten forward (Shift+":") but not
+back (its comma is on KeyM, where Shift types "?").
+
 ## Review stop A (after 2.4): Kevin's checklist, in this order
 
 On Kevin's own computers, with the 2.4 installers (or a dev build):

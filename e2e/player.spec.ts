@@ -128,3 +128,20 @@ test('asks for a copy of a video shown without one, but leaves a cancelled one c
   await page.waitForTimeout(500);
   await expect(inspector(page).locator('[data-copy-state]')).toHaveText('No playback copy yet.');
 });
+
+test('a copy the <video> can’t play says so, with Try again, and is remade once at most', async ({ page }) => {
+  await linkAndOpen(page);
+  const fail = () => player(page).locator('video').dispatchEvent('error');
+  await fail();
+  await expect(player(page).locator('[data-player-state]')).toContainText('This playback copy can’t be played here.');
+  // Try again opens it anew, and it plays.
+  await player(page).getByRole('button', { name: 'Try again' }).click();
+  await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible();
+  await expect
+    .poll(() => player(page).locator('video').evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(2);
+  // Failing again after playing: said again, never a loop of remakes.
+  await fail();
+  await expect(player(page).locator('[data-player-state]')).toContainText('This playback copy can’t be played here.');
+  await expect(player(page).getByRole('button', { name: 'Try again' })).toBeVisible();
+});

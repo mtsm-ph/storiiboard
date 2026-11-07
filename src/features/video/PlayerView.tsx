@@ -71,8 +71,10 @@ function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
     return;
   }
   if (event.repeat || event.shiftKey) return;
-  if (key === 'i' || event.code === 'KeyI') act(props.onSetIn);
-  else if (key === 'o' || event.code === 'KeyO') act(props.onSetOut);
+  // By its key only where the layout types no Latin letter there (Cyrillic, Greek): a Dvorak's KeyI is "c".
+  const byKey = !/^[a-z]$/.test(key);
+  if (key === 'i' || (byKey && event.code === 'KeyI')) act(props.onSetIn);
+  else if (key === 'o' || (byKey && event.code === 'KeyO')) act(props.onSetOut);
   // Space on a button presses the button; anywhere else in the Player, it plays or pauses.
   else if (key === ' ' && target.tagName !== 'BUTTON') act(props.onPlayPause);
 }
