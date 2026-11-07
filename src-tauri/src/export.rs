@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// What an export may write: the file extensions of its formats.
-const EXTENSIONS: &[&str] = &["csv", "png", "pdf"];
+const EXTENSIONS: &[&str] = &["csv", "png", "pdf", "mp4"];
 
 /// The places chosen this session: whole files from the Save dialog, and folders made for a set of files.
 #[derive(Default)]
@@ -38,6 +38,12 @@ fn has(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
 /// the session, the page could write over it again long after the person had moved on to other work in it.
 fn take(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
     set.lock().is_ok_and(|mut paths| paths.remove(path))
+}
+
+/// Takes the file the Save dialog picked for `path`, once, for a writer other than `export_write` (a clip saved as a
+/// file, 2.8b, which ffmpeg writes): only a file the person chose, as every export.
+pub(crate) fn take_chosen_file(app: &AppHandle, path: &Path) -> bool {
+    take(&app.state::<Chosen>().files, path)
 }
 
 /// One plain name for a file or folder inside another: no folders, no way up, nothing hidden. A colon is refused

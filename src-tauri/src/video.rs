@@ -860,6 +860,133 @@ fn graded_still_filter(colour: &Colour, at: f64) -> String {
     )
 }
 
+/// The part of the picture a saved clip keeps (2.8b): the frame's window, as fractions of the take's picture once
+/// it's upright with square pixels (src/core/media/crop.ts cropWindow, as fractions).
+#[derive(Clone, Copy, Debug, serde::Deserialize)]
+pub struct ClipWindow {
+    pub left: f64,
+    pub top: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// The long edge a saved clip is made at, at most: a reference to send or cut with, not a master.
+const CLIP_LONG_EDGE: u32 = 1920;
+
+/// A saved clip's filters: deinterlaced; the frames before its in point dropped by their own timestamps (so nothing is
+/// graded for nothing); its pixels made square at full size; cut to the frame's window; fitted to 1920 px on its long
+/// edge; graded with the LUT (as the copy and the still are) or, for HDR without one, tone-mapped; its times from 0.
+fn clip_filter(colour: &Colour, at: f64, window: ClipWindow, graded: bool) -> String {
+    let w = window.width.clamp(0.01, 1.0);
+    let h = window.height.clamp(0.01, 1.0);
+    let l = window.left.clamp(0.0, 1.0 - w);
+    let t = window.top.clamp(0.0, 1.0 - h);
+    let fit = format!("min(1,{CLIP_LONG_EDGE}/max(iw,ih))");
+    let middle = format!(
+        "bwdif=mode=send_frame:deint=interlaced,trim=start={at:.6},\
+         scale=w='trunc(iw*sar/2)*2':h=ih,setsar=1,\
+         crop=w='trunc(iw*{w:.6}/2)*2':h='trunc(ih*{h:.6}/2)*2':x='iw*{l:.6}':y='ih*{t:.6}',\
+         scale=w='trunc(iw*{fit}/2)*2':h='trunc(ih*{fit}/2)*2'"
+    );
+    let hdr = tone_map(colour);
+    let picture = match (graded, hdr) {
+        (true, hdr) => format!(
+            "{}{middle},lut3d=file={}:interp=tetrahedral,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+            hdr.map_or("", |hdr| hdr.before),
+            crate::playback::LUT_FILE
+        ),
+        (false, Some(hdr)) => hdr.around(&middle),
+        (false, None) => middle,
+    };
+    format!("{picture},setpts=PTS-STARTPTS")
+}
+
+/// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly.
+fn clip_timeout(frames: u64, fps_num: u32, fps_den: u32) -> Duration {
+    let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num.max(1));
+    Duration::from_secs_f64(60.0 + seconds * 8.0)
+}
+
+/// Saves frames `in_frame` to `out_frame` of a video (both included, counted as a still's are) as an H.264 MP4 at
+/// `dest`: from the original, never the copy; framed by `window`; graded with `lut` when given; with its first sound
+/// track, from the same moment. Each of the computer's encoders is tried in turn. It's written beside `dest` first and
+/// put in place only once whole, so a clip given up on leaves nothing half made.
+pub fn save_clip(
+    path: &Path,
+    (in_frame, out_frame): (u64, u64),
+    (fps_num, fps_den): (u32, u32),
+    window: ClipWindow,
+    lut: Option<&crate::playback::Lut>,
+    dest: &Path,
+) -> Result<(), String> {
+    if fps_num == 0 || fps_den == 0 {
+        return Err("That video's frame rate can't be read.".into());
+    }
+    if out_frame < in_frame {
+        return Err(CANT_READ.into());
+    }
+    if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
+        return Err(CANT_READ.into());
+    }
+    let facts = facts(path)?;
+    let has_audio = probe(path)?.has_audio;
+    let (early, at) = still_times(&facts, in_frame, fps_num, fps_den);
+    let frames = out_frame - in_frame + 1;
+    let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num);
+    let grade = match lut {
+        Some(lut) => Some(crate::playback::LutFile::write(lut)?),
+        None => None,
+    };
+    let filter = clip_filter(&facts.colour, at, window, grade.is_some());
+    let partial = {
+        let mut name = dest.as_os_str().to_owned();
+        name.push(".partial");
+        PathBuf::from(name)
+    };
+    let mut said = String::from(CANT_READ);
+    for encoder in crate::playback::encoders() {
+        let mut command = command("ffmpeg");
+        if let Some(grade) = &grade {
+            command.current_dir(&grade.folder);
+        }
+        command
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-copyts"])
+            .args(["-protocol_whitelist", "file", "-ss"])
+            .arg(format!("{early:.6}"))
+            .arg("-i")
+            .arg(path)
+            .args(["-map", "0:V:0", "-vf", &filter])
+            .arg("-frames:v")
+            .arg(frames.to_string())
+            .args(&encoder)
+            .args(["-fps_mode", "passthrough"]);
+        if has_audio {
+            command
+                .args(["-map", "0:a:0?", "-af"])
+                .arg(format!("atrim=start={at:.6},asetpts=PTS-STARTPTS"))
+                .args(["-c:a", "aac", "-b:a", "192k", "-ac", "2"]);
+        }
+        command
+            .arg("-t")
+            .arg(format!("{seconds:.6}"))
+            .args(["-movflags", "+faststart", "-f", "mp4"])
+            .arg(&partial);
+        match run(command, clip_timeout(frames, fps_num, fps_den)) {
+            Ok(_) => {
+                return std::fs::rename(&partial, dest).map_err(|_| {
+                    let _ = std::fs::remove_file(&partial);
+                    "The clip couldn't be saved there.".to_string()
+                });
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&partial);
+                said = error;
+            }
+        }
+    }
+    Err(said)
+}
+
 /// File types a video may be (src/core/media/video.ts, VIDEO_EXTENSIONS). RAW formats need a maker's SDK.
 const VIDEO_EXTENSIONS: &[&str] = &[
     "mov", "mp4", "m4v", "mxf", "mts", "m2ts", "ts", "mkv", "avi", "webm", "mpg", "mpeg", "3gp",
@@ -1072,6 +1199,41 @@ pub async fn video_still(
         let path = Path::new(&path);
         Access::of(&app, handle).readable(path)?;
         still_graded(path, frame, fps_num, fps_den, lut.as_ref()).map(Response::new)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Saves a frame's clip as a file (2.8b), to the file the Save dialog picked (export_choose_file), once.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn clip_save(
+    app: AppHandle,
+    path: String,
+    handle: Option<u32>,
+    in_frame: u64,
+    out_frame: u64,
+    fps_num: u32,
+    fps_den: u32,
+    window: ClipWindow,
+    lut: Option<crate::playback::Lut>,
+    dest: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = Path::new(&path);
+        Access::of(&app, handle).readable(path)?;
+        let dest = PathBuf::from(&dest);
+        if !crate::export::take_chosen_file(&app, &dest) {
+            return Err("Storiiboard writes exports only where you choose.".into());
+        }
+        save_clip(
+            path,
+            (in_frame, out_frame),
+            (fps_num, fps_den),
+            window,
+            lut.as_ref(),
+            &dest,
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -2170,6 +2332,84 @@ mod tests {
                 "frame {frame}: grey {level}, expected {expected}"
             );
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saves_a_clip_frame_exact_framed_and_with_its_sound() {
+        let dir = temp_dir("clip");
+        // Frame n is grey 8 (n mod 32), with its sound starting a tenth of a second before its picture.
+        let take = make(
+            &dir,
+            "A001_C003.MTS",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:size=320x180:rate=25:duration=3",
+                "-itsoffset",
+                "-0.1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=3",
+            ],
+            &[
+                "-vf",
+                "format=gray,geq=lum='mod(N,32)*8',format=yuv420p",
+                "-c:v",
+                "mpeg2video",
+                "-q:v",
+                "1",
+                "-g",
+                "12",
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-c:a",
+                "mp2",
+            ],
+        );
+        let window = ClipWindow {
+            left: 0.25,
+            top: 0.25,
+            width: 0.5,
+            height: 0.5,
+        };
+        let dest = dir.join("SC004_4A.mp4");
+        save_clip(&take, (10, 20), (25, 1), window, None, &dest).unwrap();
+        let saved = probe(&dest).unwrap();
+        // The frame's window, half the picture each way; frames 10 to 20, eleven of them; its sound with it.
+        assert_eq!((saved.width, saved.height), (160, 90));
+        assert_eq!(saved.duration_frames, 11);
+        assert!(saved.has_audio);
+        let first = i32::from(grey(&dir, &still(&dest, 0, 25, 1).unwrap()));
+        let last = i32::from(grey(&dir, &still(&dest, 10, 25, 1).unwrap()));
+        assert!(
+            (first - 80).abs() <= 3,
+            "first frame is the in frame: {first}"
+        );
+        assert!(
+            (last - 160).abs() <= 3,
+            "last frame is the out frame: {last}"
+        );
+        // Nothing half made beside it.
+        assert!(!dir.join("SC004_4A.mp4.partial").exists());
+        // Through a LUT (an identity one): the same frames.
+        let identity = crate::playback::Lut {
+            sha256: "ef".repeat(32),
+            cube: "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n"
+                .to_owned(),
+        };
+        let graded = dir.join("SC004_4B.mp4");
+        save_clip(&take, (10, 20), (25, 1), window, Some(&identity), &graded).unwrap();
+        let first = i32::from(grey(&dir, &still(&graded, 0, 25, 1).unwrap()));
+        assert!((first - 80).abs() <= 4, "graded, the in frame: {first}");
+        // A backwards clip is refused, and makes nothing.
+        let none = dir.join("SC004_4C.mp4");
+        assert!(save_clip(&take, (20, 10), (25, 1), window, None, &none).is_err());
+        assert!(!none.exists());
         let _ = fs::remove_dir_all(&dir);
     }
 

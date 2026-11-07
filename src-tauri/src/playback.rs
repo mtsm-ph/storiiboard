@@ -511,7 +511,7 @@ fn touch(path: &Path) {
 /// The encoders to try, in order, each with the pixel format it takes: the computer's own hardware first, then its
 /// software encoder where one can stand in. Linux builds only for the tests, with no H.264 encoder in an LGPL build, so
 /// it makes MPEG-4 there.
-fn encoders() -> Vec<Vec<&'static str>> {
+pub(crate) fn encoders() -> Vec<Vec<&'static str>> {
     #[cfg(target_os = "macos")]
     return vec![vec![
         "-c:v",

@@ -313,7 +313,8 @@ Lows deferred (noted, not planned yet):
    checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
    see "2.7 as built"; from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (PR #84, merged
-   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (rendered from the original,
+   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (in progress, branch `phase2/2.8b-save-clip`; see "2.8b as built"; rendered
+   from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -542,7 +543,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    (or Grab still). The frame's picture should be that frame, framed as the window was, graded with the take's LUT,
    within a second or two; the inspector says "Still at <timecode>" matching Resolve's for that frame. ⌘Z takes it
    back. Try a 6K or 8K original too.
-4. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+4. Save clip as file (2.8b): set a frame's in and out and framing on real footage, Save clip as file…, and open the
+   MP4 in Resolve or Premiere: its first and last frames are the in and out (match the timecode), framed as the
+   window was, graded, with sound in sync. Try a long take on an external drive, and a 6K or 8K original.
+5. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)

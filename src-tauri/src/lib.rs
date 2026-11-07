@@ -78,6 +78,7 @@ pub fn run() {
             licences::licence_text,
             pictures::script_choose,
             pictures::lut_choose,
+            video::clip_save,
             export::export_choose_file,
             export::export_choose_folder,
             export::export_write,

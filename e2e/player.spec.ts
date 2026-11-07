@@ -362,3 +362,9 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await expect(player(page)).toContainText('· 1 frame');
   await expect(preview.getByRole('button', { name: 'Play clip' })).toBeDisabled();
 });
+
+test('Save clip as file says it needs the desktop app in the browser build (2.8b)', async ({ page }) => {
+  await linkAndOpen(page);
+  await inspector(page).getByRole('button', { name: 'Save clip as file…' }).click();
+  await expect(page.locator('[data-notice]')).toContainText('Saving a clip as a file needs the Storiiboard desktop app');
+});
