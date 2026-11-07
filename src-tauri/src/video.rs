@@ -2691,7 +2691,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stopped_save_ends_its_ffmpeg_and_leaves_no_file_and_one_saves_at_a_time() {
+    fn a_stopped_render_ends_its_ffmpeg_and_leaves_no_file() {
         let dir = temp_dir("stopped");
         let partial = dir.join(".SC004_4A.mp4.1-0.part");
         // A render that would run for a minute, stopped a moment in.

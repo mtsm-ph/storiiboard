@@ -148,13 +148,37 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     });
     expect(clipSaving.getState().shotId).toBe('s1');
     expect(await saveClip('s1')).toBe(false);
-    expect(notices.said.at(-1)).toBe('The clip of SC 4 4A is being saved. Wait for it, or cancel it on that frame.');
+    expect(notices.said.at(-1)).toBe('SC004_4A.mp4 is being saved. Wait for it, or cancel it on its frame.');
     expect(tauri.invoke.mock.calls.filter(([name]) => name === 'export_choose_file')).toHaveLength(1);
     await cancelSaveClip();
     expect(await first).toBe(false);
     // Said as what happened, as information, and the next save may start.
     expect(notices.said.at(-1)).toBe('Saving the clip was cancelled.');
     expect(clipSaving.getState()).toEqual({ shotId: null, cancelled: false });
+  });
+
+  it('a Cancel that reaches Rust before the save does is asked again until Rust has it', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    let asked = 0;
+    tauri.invoke.mockImplementation((name: string) => {
+      if (name === 'export_choose_file') return Promise.resolve('/Exports/SC004_4A.mp4');
+      if (name === 'clip_save') return new Promise((resolve) => (finish = resolve));
+      if (name === 'clip_cancel') {
+        asked += 1;
+        // Not started yet the first time; the second time it's stopped.
+        if (asked === 1) return Promise.resolve(false);
+        finish(Promise.reject(new Error('Saving the clip was cancelled.')));
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(null);
+    });
+    const saving = saveClip('s1');
+    await vi.waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith('clip_save', expect.anything());
+    });
+    await cancelSaveClip();
+    expect(asked).toBe(2);
+    expect(await saving).toBe(false);
   });
 
   it('a Cancel while the Save dialog is open stops it there: Rust is never asked', async () => {

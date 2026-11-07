@@ -49,7 +49,13 @@ export async function cancelSaveClip(): Promise<void> {
   if (clipSaving.getState().shotId === null) return;
   // Before Rust has it (the dialog, the LUT read), the flag stops it there; once it has, Rust stops it.
   clipSaving.setState({ cancelled: true });
-  if (isTauriApp) await invoke<boolean>('clip_cancel');
+  if (!isTauriApp) return;
+  // Asked again until Rust has it: a Cancel that overtakes the save on its way to Rust finds nothing to stop yet.
+  for (let tries = 0; tries < 100; tries++) {
+    if (await invoke<boolean>('clip_cancel')) return;
+    if (clipSaving.getState().shotId === null || !clipSaving.getState().cancelled) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 /** Asks where, then saves the frame's clip there; says when it's saved, or why it couldn't be. */
@@ -68,15 +74,15 @@ export async function saveClip(shotId: string): Promise<boolean> {
   // Another clip is on its way: said, before a Save dialog asks for a place this one couldn't use yet.
   const busyWith = clipSaving.getState().shotId;
   if (busyWith !== null) {
-    // Named, since its Cancel is on that frame, not this one.
+    // Named as its file is, since its Cancel is on that frame, not this one; one that isn't in this project now (a
+    // project opened since) is said without a name.
     const other = records[busyWith];
     const otherScene = other?.parentId ? records[other.parentId] : undefined;
     showNotice(
       new Error(
-        t('saveClip.busy', {
-          scene: otherScene ? sceneFields(otherScene.props).number : '',
-          shot: other ? shotFields(other.props).number : '',
-        }),
+        other && otherScene
+          ? t('saveClip.busy', { name: clipFileName(sceneFields(otherScene.props).number, shotFields(other.props).number || placeOf(records, busyWith)) })
+          : t('error.clipBusy'),
       ),
     );
     return false;

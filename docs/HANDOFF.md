@@ -377,6 +377,11 @@ be saved over (the Save dialog asks first); a Save dialog cancelled from Cancel 
 (the export writer refuses mp4, so nothing can use it); quitting during the probes before ffmpeg starts waits at most
 three seconds.
 
+Round 4: no high, no medium; review done. Lows fixed: a Cancel that reaches Rust before the save does is asked
+again until Rust has it; the busy notice names the clip as its file is named (and says no name for a frame in another
+project). Lows left: the Cancel is on the saving frame's inspector only, so a frame trashed mid-save has none (the save
+still ends by itself); the stops before each encoder and before the rename have no test of their own.
+
 ### 2.8a: review
 
 Round 1: no high; three mediums fixed. The preview seeked back to the in point while playing, so the frame after the

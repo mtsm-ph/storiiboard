@@ -855,7 +855,7 @@ export const es: Messages = {
   'inspector.videoFrames.other': '{count} cuadros',
   'inspector.relink': 'Volver a vincular…',
   'saveClip.button': 'Guardar clip como archivo…',
-  'saveClip.busy': 'Se está guardando el clip de SC {scene} {shot}. Espera a que termine o cancélalo en ese cuadro.',
+  'saveClip.busy': 'Se está guardando {name}. Espera a que termine o cancélalo en su cuadro.',
   'saveClip.cancel': 'Cancelar el guardado del clip',
   'saveClip.lutMissing': 'El LUT de este video no está en el proyecto, así que su clip no se puede graduar. Elige su LUT de nuevo.',
   'saveClip.saving': 'Guardando {name}…',
