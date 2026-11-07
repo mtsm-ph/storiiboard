@@ -7,18 +7,18 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 2 · Video and images**: plan approved Nov 5 (PHASE2_PLAN, below); Phase 1's polish is done and its gate (a real scene boarded in one sitting) is Kevin's to run |
+| **Current phase** | **Phase 3 · Production data**: plan and decision sheet next (Kevin's queued rules, docs/HANDOFF.md). Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint is running and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.8a merged; 2.8b next) |
+| Last updated | Nov 7, 2026 (2.9 merged; Phase 2 built, gate checkpoint and checklist) |
 
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
-| 2 · Video and images | **Current**, building |
-| 3 · Production data | Not started |
+| 2 · Video and images | Built (Nov 7); the gate is Kevin's |
+| 3 · Production data | **Current**: plan next |
 | 4 · Call sheets | Not started |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
