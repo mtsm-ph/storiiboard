@@ -124,7 +124,7 @@ export function InspectorTile() {
           missing: videoMissing,
           gone: false,
           ...(copy.kind === 'unknown' ? {} : { copy: inspectorCopy(copy) }),
-          lut: { id: linked.lutId, choices: projectLuts.rows.map((lut) => ({ id: lut.id, name: lut.name })), listed: projectLuts.listed },
+          lut: { id: linked.lutId, choices: projectLuts.rows.map((lut) => ({ id: lut.id, name: lut.name })), listed: projectLuts.listed && (linked.lutId === null || !projectLuts.pending.includes(linked.lutId)) },
         };
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;

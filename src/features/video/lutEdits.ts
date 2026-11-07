@@ -28,8 +28,11 @@ const PROBLEM: Record<LutProblem, MessageKey> = {
   domain: 'lut.domain',
 };
 
-/** Bumped when a LUT is stored, so the lists of the project's LUTs read again. */
-const stored = createStore<{ version: number }>()(() => ({ version: 0 }));
+/**
+ * Bumped when a LUT is stored, so the lists of the project's LUTs read again; `pending`: LUTs being stored, which a
+ * video may name before the list has them (shown as being read, never as missing).
+ */
+const stored = createStore<{ version: number; pending: readonly string[] }>()(() => ({ version: 0, pending: [] }));
 
 /**
  * Sets the video's LUT, unless it's that already or the video is gone (one undo step, or none for nothing). Its copy
@@ -38,6 +41,7 @@ const stored = createStore<{ version: number }>()(() => ({ version: 0 }));
 export async function setLut(videoId: string, lutId: string | null, alsoWrite: ReturnType<typeof lutStatements> = []): Promise<void> {
   // Set inside the edit, read after it lands.
   const outcome = { changed: false };
+  if (alsoWrite.length > 0 && lutId !== null) stored.setState((s) => ({ pending: [...s.pending, lutId] }));
   await projectStore.getState().applyWith((records) => {
     const record = records[videoId];
     const video = record?.type === 'media' && record.trashedAt === null ? videoFields(record.props) : null;
@@ -45,8 +49,8 @@ export async function setLut(videoId: string, lutId: string | null, alsoWrite: R
     if (!outcome.changed) return { changes: [] };
     return { changes: [setLutChange(videoId, lutId)], ...(alsoWrite.length > 0 ? { alsoWrite } : {}) };
   });
-  if (!outcome.changed) return;
   if (alsoWrite.length > 0) stored.setState((s) => ({ version: s.version + 1 }));
+  if (!outcome.changed) return;
   remakeCopy(videoId);
 }
 
@@ -76,6 +80,8 @@ async function loadNow(videoId: string): Promise<void> {
     }
     // Loaded before (for this take or another): the one stored.
     const existing = await lutWithSha(project.file, prepared.lut.sha256);
+    // Another project opened while the file was read: what was looked up is the last one's.
+    if (projectStore.getState().project !== project) return;
     const id = existing ?? crypto.randomUUID();
     await setLut(videoId, id, existing ? [] : lutStatements(id, prepared.lut, new Date()));
   } catch (error) {
@@ -87,21 +93,26 @@ async function loadNow(videoId: string): Promise<void> {
  * The project's LUTs, by name, for the inspector's list; read again as LUTs are stored and projects change. `listed`:
  * read for this project (until then, a LUT the video names may only be still on its way).
  */
-export function useProjectLuts(): { rows: readonly LutRow[]; listed: boolean } {
+export function useProjectLuts(): { rows: readonly LutRow[]; listed: boolean; pending: readonly string[] } {
   const project = useProject((s) => s.project);
   const version = useStore(stored, (s) => s.version);
+  const pending = useStore(stored, (s) => s.pending);
   const [rows, setRows] = useState<{ for: unknown; rows: readonly LutRow[] }>({ for: null, rows: [] });
   useEffect(() => {
     if (!project) return;
     let live = true;
     listLuts(project.file)
       .then((read) => {
-        if (live) setRows({ for: project, rows: read });
+        if (!live) return;
+        setRows({ for: project, rows: read });
+        // Stored and listed now: no longer on its way.
+        const listedIds = new Set(read.map((row) => row.id));
+        stored.setState((s) => ({ pending: s.pending.filter((id) => !listedIds.has(id)) }));
       })
-      .catch(() => undefined);
+      .catch(showNotice);
     return () => {
       live = false;
     };
   }, [project, version]);
-  return rows.for === project ? { rows: rows.rows, listed: true } : { rows: [], listed: false };
+  return rows.for === project ? { rows: rows.rows, listed: true, pending } : { rows: [], listed: false, pending };
 }

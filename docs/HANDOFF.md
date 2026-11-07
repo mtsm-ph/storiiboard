@@ -358,6 +358,12 @@ conversion and the graded copy is tagged BT.709, so a browser may show a slight 
 the one as shot (camera files are tagged); in a browser that never fires a file input's `cancel`, a cancelled dialog
 would hold later loads on that page (current Chromium, Firefox and WebKit fire it).
 
+Round 3: no high, no medium; review done. Lows fixed: right after a new `.cube` was stored, the list said "LUT not in
+the project" until it was read again (a LUT being stored now shows as being read; tested end to end, and the test fails
+without the fix); a failed read of the list says so; a load that finishes after another project opened stops. Lows
+left: changing one LUT to another reads "a LUT → a LUT" in History (the names live in `luts`, not in records); rows
+straight after the last row are refused where lut3d would ignore them (the safer way).
+
 ### 2.4: review
 
 Round 1 (Nov 7): four mediums, fixed with tests. The timecode read one frame early while playing in Chromium (media

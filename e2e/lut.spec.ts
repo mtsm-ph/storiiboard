@@ -51,8 +51,19 @@ const chosen = (page: Page) => lutList(page).evaluate((select: HTMLSelectElement
 
 test('loads a LUT for the video, makes its graded copy, and undoes and redoes it in one step each', async ({ page }) => {
   await expect.poll(() => chosen(page)).toBe('None (as shot)');
+  // Every option the list shows from here: a LUT just stored is never called missing while the list reads it again.
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { lutOptions: string[] }).lutOptions = seen;
+    const list = document.querySelector('[data-video-lut]');
+    if (!list) return;
+    new MutationObserver(() => {
+      for (const option of list.querySelectorAll('option')) seen.push(option.textContent ?? '');
+    }).observe(list, { subtree: true, childList: true, characterData: true });
+  });
   await loadLut(page, 'Invert.cube', INVERT);
   await expect.poll(() => chosen(page)).toBe('Invert');
+  expect(await page.evaluate(() => (window as unknown as { lutOptions: string[] }).lutOptions)).not.toContain('LUT not in the project');
   // Another LUT is another copy: made at once, as after a relink.
   await expect(copyLine(page)).not.toHaveText('Playback copy ready.');
   await expect(copyLine(page)).toHaveText('Playback copy ready.', READY);
