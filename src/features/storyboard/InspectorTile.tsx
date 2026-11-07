@@ -92,12 +92,19 @@ export function InspectorTile() {
   // A picture deleted for good and named again by a restore (sha256 '') shows as missing here too, as on the board,
   // with Remove to clear it.
   // A still from the frame's video names no file of its own: the Video section names the video (2.2b).
-  const fromItsVideo = Boolean(fields?.mediaId && readFromVideo(records[fields.mediaId]?.props ?? {}));
+  const fromVideo = fields?.mediaId ? readFromVideo(records[fields.mediaId]?.props ?? {}) : null;
+  const fromItsVideo = fromVideo !== null;
+  // Said by where it came from instead (2.7): the frame's timecode, as on the slate, and the LUT it was graded with.
+  const stillFrom = fromVideo
+    ? fromVideo.lutName
+      ? t('inspector.stillAtWithLut', { timecode: fromVideo.timecode, lut: fromVideo.lutName })
+      : t('inspector.stillAt', { timecode: fromVideo.timecode })
+    : '';
   const picture: InspectorPicture | null = !view
     ? null
     : media
       ? fromItsVideo
-        ? { view, sourceName: '', sourcePath: '' }
+        ? { view, sourceName: stillFrom, sourcePath: '' }
         : { view, sourceName: media.sourceName, sourcePath: media.sourcePath }
       : view.sha256 === ''
         ? { view, sourceName: '', sourcePath: '' }

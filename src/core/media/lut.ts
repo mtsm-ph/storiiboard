@@ -145,6 +145,12 @@ export async function listLuts(file: ProjectFile): Promise<LutRow[]> {
   return rows.map((row) => ({ id: String(row.id), sha256: String(row.sha256), name: String(row.name), fileName: String(row.file_name) }));
 }
 
+/** A LUT's name as the app shows it, for a still's `from_video` (2.7); null when it isn't stored. */
+export async function lutName(file: ProjectFile, id: string): Promise<string | null> {
+  const [row] = await file.query('SELECT name FROM luts WHERE id = ?', [id]);
+  return row ? String(row.name) : null;
+}
+
 /** A LUT as a playback copy is made with it: its SHA-256 (in the copy's key) and the text ffmpeg reads. */
 export async function lutForCopy(file: ProjectFile, id: string): Promise<CubeForCopy | null> {
   const [row] = await file.query('SELECT sha256, cube FROM luts WHERE id = ?', [id]);

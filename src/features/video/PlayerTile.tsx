@@ -6,6 +6,7 @@ import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
 import { cropProp, DEFAULT_CROP } from '../../core/media/crop';
 import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, inVideo, setClip, stepFrame, timeOfFrame } from './player';
+import { grabStill } from './grabStill';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
@@ -30,6 +31,8 @@ export function PlayerTile() {
   const [opened, setOpened] = useState<{ videoId: string; url: string; silent: boolean; quiet: boolean } | null>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // A still being grabbed (2.7), so a second press waits for it rather than grab twice.
+  const [grabbing, setGrabbing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   // The take's shape, upright with square pixels, for the frame's window over it (2.6); read before anything is
   // memoised from the record.
@@ -184,6 +187,16 @@ export function PlayerTile() {
       }}
       onSetOut={() => {
         setPoint('out');
+      }}
+      grabbing={grabbing}
+      onGrabStill={() => {
+        if (!shotId || grabbing) return;
+        // The frame showing, paused there, so the picture is the one on screen.
+        videoRef.current?.pause();
+        setGrabbing(true);
+        void grabStill(shotId, frame).finally(() => {
+          setGrabbing(false);
+        });
       }}
       onMakeCopy={() => {
         if (broken !== null) {

@@ -262,3 +262,27 @@ test('frames the clip over the take: the window zooms and moves by keys and by h
   await player(page).getByRole('button', { name: 'Centre' }).click();
   await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
 });
+
+test('grabs the frame showing into its frame: the picture changes, says its timecode, and one undo takes it back (2.7)', async ({ page }) => {
+  await linkAndOpen(page);
+  const card = page.getByRole('region', { name: 'Storyboard', exact: true }).locator('[data-shot-id]').first();
+  const picture = () => card.locator('img[data-frame-image]').getAttribute('src');
+  await expect(card.locator('img[data-frame-image]')).toBeVisible();
+  const first = await picture();
+  // Ten frames in, then G (the key, from anywhere in the Player).
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
+  await expect(timecode(page)).toHaveText('00:00:00:10');
+  await page.keyboard.press('g');
+  await expect.poll(picture, { timeout: 10_000 }).not.toBe(first);
+  await expect(inspector(page)).toContainText('Still at 00:00:00:10');
+  // The frame still plays its clip; its in and out are as they were.
+  await expect(player(page)).toContainText('In 00:00:00:00 · Out 00:00:01:23 · 48 frames');
+  // One undo takes the grab back: the first frame's picture again.
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect.poll(picture).toBe(first);
+  await expect(inspector(page)).toContainText('Still at 00:00:00:00');
+  // The button does the same.
+  await player(page).getByRole('button', { name: 'Grab still' }).click();
+  await expect.poll(picture, { timeout: 10_000 }).not.toBe(first);
+});

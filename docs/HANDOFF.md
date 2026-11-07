@@ -308,7 +308,8 @@ Lows deferred (noted, not planned yet):
 2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
    `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
    the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
-   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
+   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (in progress, branch `phase2/2.7-stills`;
+   see "2.7 as built"; from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -494,7 +495,11 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 2. Framing (2.6): in the Player, zoom the frame's window and move it over a take, by hand and with the keys; it
    should feel like a frame-line overlay on a monitor. Each move is one ⌘Z. Try a 2.39 project over 16:9 footage and
    a 9:16 one over the same.
-3. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+3. Still capture (2.7), the gate itself: on your own footage, frame a shot in the Player, step to the moment, press G
+   (or Grab still). The frame's picture should be that frame, framed as the window was, graded with the take's LUT,
+   within a second or two; the inspector says "Still at <timecode>" matching Resolve's for that frame. ⌘Z takes it
+   back. Try a 6K or 8K original too.
+4. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)

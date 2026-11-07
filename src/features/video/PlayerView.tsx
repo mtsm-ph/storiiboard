@@ -47,6 +47,9 @@ export interface PlayerViewProps {
   onSetIn?: () => void;
   onSetOut?: () => void;
   onMakeCopy?: () => void;
+  /** Grabs the frame showing into the frame, as its picture (2.7); `grabbing` while it's being made. */
+  onGrabStill?: () => void;
+  grabbing?: boolean;
   /** The <video>'s own events: its time, its play state, an error (a copy gone missing). */
   onTime?: (event: SyntheticEvent<HTMLVideoElement>) => void;
   onPlaying?: (playing: boolean) => void;
@@ -111,6 +114,7 @@ function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
   const byKey = !/^[a-z]$/.test(key);
   if (key === 'i' || (byKey && event.code === 'KeyI')) act(props.onSetIn);
   else if (key === 'o' || (byKey && event.code === 'KeyO')) act(props.onSetOut);
+  else if (key === 'g' || (byKey && event.code === 'KeyG')) act(props.grabbing ? undefined : props.onGrabStill);
   // Space on a button presses the button; anywhere else in the Player, it plays or pauses.
   else if (key === ' ' && target.tagName !== 'BUTTON') act(props.onPlayPause);
 }
@@ -194,6 +198,11 @@ export function PlayerView(props: PlayerViewProps) {
             </Button>
             <Button onClick={props.onSetIn}>{t('player.setIn')}</Button>
             <Button onClick={props.onSetOut}>{t('player.setOut')}</Button>
+            {props.onGrabStill && (
+              <Button data-grab-still="" disabled={props.grabbing === true} onClick={props.onGrabStill}>
+                {props.grabbing ? t('player.grabbing') : t('player.grabStill')}
+              </Button>
+            )}
             {/* Not a live region: it changes every frame while playing. The playhead's own value says it to a screen reader. */}
             <span data-player-timecode="" aria-hidden="true" className="ml-auto font-mono text-[13px] font-bold">
               {tc(frame)}
