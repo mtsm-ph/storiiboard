@@ -51,18 +51,24 @@ export function locationFields(props: Props): LocationFields {
   };
 }
 
-/** The live locations in the project, by name (an unnamed one last), with the live scenes set there. */
+/** The live locations in the project, by name (an unnamed one last), with the live scenes and frames set there. */
 export function projectLocations(
   records: Readonly<Record<string, SbdRecord>>,
   projectId: string,
-): { record: SbdRecord; fields: LocationFields; scenes: SbdRecord[] }[] {
+): { record: SbdRecord; fields: LocationFields; scenes: SbdRecord[]; frames: SbdRecord[] }[] {
   const all = Object.values(records);
+  const liveScene = (id: string | null) => {
+    const scene = id ? records[id] : undefined;
+    return scene?.type === 'scene' && scene.trashedAt === null;
+  };
   return all
     .filter((r) => r.type === 'location' && r.parentId === projectId && r.trashedAt === null)
     .map((record) => ({
       record,
       fields: locationFields(record.props),
       scenes: all.filter((s) => s.type === 'scene' && s.trashedAt === null && s.props.location_id === record.id),
+      // Frames shot here though their scene is set elsewhere (3.3b), so a place only they use never reads as unused.
+      frames: all.filter((f) => f.type === 'shot' && f.trashedAt === null && f.props.location_id === record.id && liveScene(f.parentId)),
     }))
     .sort((a, b) => (a.fields.name === '' ? 1 : b.fields.name === '' ? -1 : a.fields.name.localeCompare(b.fields.name)));
 }

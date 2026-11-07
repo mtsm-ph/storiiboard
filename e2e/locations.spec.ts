@@ -123,6 +123,11 @@ test('a location’s photos and own fields, and a frame shot somewhere other tha
   await expect(editor.getByRole('textbox', { name: 'Curfew' })).toBeFocused();
   await page.keyboard.type('10 pm');
   await page.keyboard.press('Tab');
+  await expect(editor.getByRole('button', { name: 'Remove Curfew from this location' })).toBeVisible();
+  // A photo removed goes to the Trash; the focus moves on to Add photos.
+  await editor.getByRole('button', { name: 'Remove Photo 1 of Diner' }).click();
+  await expect(editor.getByRole('img', { name: 'Photo 1 of Diner' })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Add photos…' })).toBeFocused();
   // A second location, and the frame shot there rather than at its scene's.
   await locations.getByRole('button', { name: '+ New location' }).click();
   await page.keyboard.type('Barn');
@@ -132,7 +137,7 @@ test('a location’s photos and own fields, and a frame shot somewhere other tha
   const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
   const shotAt = inspector.getByRole('combobox', { name: 'This frame shot at' });
   await expect(shotAt).toHaveValue('');
-  await expect(shotAt.locator('option').first()).toHaveText('The scene’s location (Diner)');
+  await expect(shotAt.locator('option')).toHaveText(['The scene’s location (Diner)', 'Barn']);
   await shotAt.selectOption({ label: 'Barn' });
   // The shot list's location column says Barn for it.
   await page.getByRole('button', { name: 'Project', exact: true }).click();

@@ -343,6 +343,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.3b: review
+
+Round 1: no high, five mediums, fixed.
+- History named a location's photos as "the picture of an item": it now says "Added 2 photos of Diner", and a photo
+  restored with its location reads as the location coming back.
+- A location's own fields used a frame's words and reserved names ("Remove Curfew from this frame"; "Lens" refused,
+  "Parking" allowed twice): they now have a location's wording and reserve the location editor's own labels.
+- Restoring a photo whose location is in the Trash skipped the one-name-per-place check: it now checks the location.
+- A location only frames are shot at read as unused ("0 scenes"): the row and the editor now count and list them.
+- A missing photo wasn't named: its placeholder now says which photo, in words and with a warning edge.
+- Lows fixed: the Inspector's "This frame shot at" no longer offers the scene's own location again (it would pin the
+  frame there silently), and shows a frame's own one that's unnamed or in the Trash so it can be taken off; an unnamed
+  location's photo has a name in the Trash; a field left as its location goes to the Trash isn't written to it.
+- Lows left: a location's own History filter leaves out its photos (steps.ts takes in children for frames only); a
+  keyboard arrow on a closed select may make one edit per press on Windows, as the other selects do; the Inspector's
+  Location row still shows the scene's location above the frame's own one.
+
 ### 3.3a: review
 
 Round 1: one high and four mediums, fixed. History showed a location contact's phone and email (and its address) as

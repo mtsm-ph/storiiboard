@@ -28,7 +28,7 @@ import {
 } from '../../core/model/storyboard';
 import { SHOT_STATUSES, type ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { fieldKey, fieldName, MAX_FIELD_NAME } from '../../core/model/customFields';
+import { fieldKey, fieldName, MAX_FIELD_NAME, type FieldsOf } from '../../core/model/customFields';
 import { Button, IconButton } from '../../ui/Button';
 import { BarGauge, Select, TextField } from '../../ui/fields';
 import { CloseGlyph } from '../../ui/glyphs';
@@ -341,7 +341,10 @@ export function CustomFields({
   known,
   hidden,
   onChange,
+  of = 'frame',
 }: {
+  /** A frame's fields, or a location's (3.3): their reserved names and words. */
+  of?: FieldsOf;
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
   known: readonly string[];
@@ -367,7 +370,7 @@ export function CustomFields({
     });
   };
   const add = () => {
-    const tidy = fieldName(name, known, hidden);
+    const tidy = fieldName(name, known, hidden, of);
     if (!tidy.ok) {
       setError(tidy.problem);
       return;
@@ -413,7 +416,7 @@ export function CustomFields({
               />
             </div>
             <IconButton
-              label={t('inspector.removeField', { field })}
+              label={t(of === 'location' ? 'location.removeField' : 'inspector.removeField', { field })}
               onClick={() => {
                 remove(field);
               }}
@@ -432,7 +435,7 @@ export function CustomFields({
               value={name}
               list={listId}
               maxLength={MAX_FIELD_NAME}
-              placeholder={t('inspectorView.droneVfxBudget')}
+              placeholder={t(of === 'location' ? 'location.fieldExamples' : 'inspectorView.droneVfxBudget')}
               aria-invalid={error !== null}
               aria-describedby={error ? errorId : undefined}
               onChange={(event) => {

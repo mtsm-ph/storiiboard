@@ -9,6 +9,7 @@ import { imageUrl } from '../../core/media/urls';
 import { locationPhotos } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
 import { Button, IconButton } from '../../ui/Button';
+import { cx } from '../../ui/cx';
 import { CloseGlyph } from '../../ui/glyphs';
 import { addLocationPhotos, trashLocationPhoto } from './locationEdits';
 
@@ -114,7 +115,15 @@ function Photo({ photo, written, alt, onRemove }: { photo: SbdRecord; written: n
       {shown ? (
         <img src={shown} alt={alt} className="block h-[72px] w-[96px] border border-border object-cover" />
       ) : (
-        <span className="flex h-[72px] w-[96px] items-center justify-center border border-dashed border-border text-[11px] text-text-muted">
+        // Named as the photo is, so the flag says which one; missing in words and a dashed warning edge (two cues).
+        <span
+          role="img"
+          aria-label={url ? t('location.photoMissingNamed', { photo: alt }) : alt}
+          className={cx(
+            'sb-label flex h-[72px] w-[96px] items-center justify-center border border-dashed',
+            url ? 'border-warning text-warning dark:border-text dark:text-text' : 'border-border',
+          )}
+        >
           {url ? t('location.photoMissing') : ''}
         </span>
       )}

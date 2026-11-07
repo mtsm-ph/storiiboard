@@ -476,6 +476,16 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {
+        // A location's photos (3.3): named by their location, as the step left it or as it was then (`around`).
+        const parentId = found[0]?.after?.parentId ?? found[0]?.before?.parentId ?? null;
+        const written = ops.find((op) => op.recordId === parentId);
+        const parent = written ? record(written) : parentId === null ? null : (around.get(parentId) ?? null);
+        if (parent?.type === 'location') {
+          // Restored with its location: the location coming back is the news.
+          if (kind === 'restore' && written?.kind === 'restore') return line(ONE.restore.location, { name: nameOf(parent) });
+          const what = kind === 'create' ? 'history.locationPhotos.added' : kind === 'trash' ? 'history.locationPhotos.removed' : 'history.locationPhotos.restored';
+          return [...line(what, { name: nameOf(parent) }, { photos: tn('count.photos', found.length) }), tag];
+        }
         const shot = ops.find((op) => op.kind === 'update' && record(op)?.type === 'shot');
         const what = kind === 'create' ? 'history.pictureOf.set' : kind === 'trash' ? 'history.pictureOf.removed' : 'history.pictureOf.restored';
         return [...line(what, { name: nameOf(shot ? record(shot) : null) }), tag];

@@ -162,3 +162,71 @@ describe('a frame’s own location, and a location’s photos (3.3b)', () => {
     expect(restoreChanges(trashed, 'p', 'ph2')).toEqual([{ kind: 'restore', id: 'l3' }, { kind: 'restore', id: 'ph2' }]);
   });
 });
+
+describe('3.3b review', () => {
+  type LoggedOp = import('../ops/ops').LoggedOp;
+  const logged = (kind: LoggedOp['kind'], before: SbdRecord | null, after: SbdRecord | null, seq = 1): LoggedOp => ({
+    id: `${kind}${String(seq)}`,
+    seq,
+    groupId: 'g',
+    groupKind: 'edit',
+    recordId: (after ?? before)?.id ?? '',
+    kind,
+    before,
+    after,
+    author: 'Kevin',
+    timestamp: '2026-11-07T12:00:00.000Z',
+  });
+  const photo = (id: string) => record(id, 'media', 'l1', { kind: 'image', file: 'a'.repeat(64), source_name: `${id}.jpg` });
+  const gone = <T extends SbdRecord>(r: T): T => ({ ...r, trashedAt: '2026-11-07T12:00:00.000Z' });
+
+  it('History names a location’s photos by their location, and a restore with the location as the location’s', async () => {
+    const { describeEdit, lineText } = await import('../../features/history/summary');
+    const diner = records().l1;
+    const around = new Map([['l1', diner]]);
+    const text = (ops: LoggedOp[]) => lineText(describeEdit(ops, new Set(['a'.repeat(64)]), around));
+    expect(text([logged('create', null, photo('ph1')), logged('create', null, photo('ph2'), 2)])).toMatch(/^Added 2 photos of .*Diner/);
+    expect(text([logged('trash', photo('ph1'), gone(photo('ph1')))])).toMatch(/^Removed 1 photo of .*Diner/);
+    expect(text([logged('restore', gone(diner), diner), logged('restore', gone(photo('ph1')), photo('ph1'), 2)])).toMatch(/Diner/);
+    expect(text([logged('restore', gone(diner), diner), logged('restore', gone(photo('ph1')), photo('ph1'), 2)])).not.toMatch(/photo|picture/i);
+  });
+
+  it('a location’s own fields: its labels are reserved, a frame’s aren’t', async () => {
+    const { fieldName } = await import('./customFields');
+    expect(fieldName('Parking', [], [], 'location')).toMatchObject({ ok: false });
+    expect(fieldName('Lens', [], [], 'location')).toEqual({ ok: true, name: 'Lens' });
+    expect(fieldName('Lens', [], [])).toMatchObject({ ok: false });
+    expect(fieldName('Curfew', [], [], 'location')).toEqual({ ok: true, name: 'Curfew' });
+  });
+
+  it('restoring a photo checks its trashed location’s name, as restoring the location does', async () => {
+    const { restoreClash, trashItems } = await import('../../features/trash/trash');
+    const base = { ...records(), ph: gone(record('ph', 'media', 'l3', { kind: 'image', file: 'a'.repeat(64) })) };
+    expect(restoreClash(base, 'ph')).toBeNull();
+    expect(restoreClash({ ...base, l2: record('l2', 'location', 'p', { name: 'Gone' }) }, 'ph')).toBe('Gone');
+    // An unnamed location's photo still reads sensibly in the Trash.
+    const unnamed = { ...base, l3: gone(record('l3', 'location', 'p', { name: ' ' })) };
+    expect(trashItems(unnamed, 'p').find((i) => i.id === 'ph')?.name).not.toMatch(/of \)$/);
+  });
+
+  it('a location only frames are shot at counts them, so it never reads as unused', () => {
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', { location_id: 'l2' }), s2: record('s2', 'shot', 'sc3', { location_id: 'l2' }) };
+    const barn = projectLocations(all, 'p').find((l) => l.record.id === 'l2');
+    expect(barn?.scenes).toEqual([]);
+    // Not one whose scene is in the Trash.
+    expect(barn?.frames.map((f) => f.id)).toEqual(['s1']);
+  });
+
+  it('the shot list’s location column: the frame’s own, else its scene’s, a trashed own one as the scene’s', async () => {
+    const { shotListCsv } = await import('../../features/export/shotListCsv');
+    const all = {
+      ...records(),
+      s1: record('s1', 'shot', 'sc1', { number: '1A' }),
+      s2: record('s2', 'shot', 'sc1', { number: '1B', location_id: 'l2' }),
+      s3: record('s3', 'shot', 'sc1', { number: '1C', location_id: 'l3' }),
+    };
+    const rows = shotListCsv(all, 'p', { kind: 'project' }).replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    const column = (rows[0] ?? '').split(',').indexOf('Location');
+    expect(rows.slice(1).map((row) => row.split(',')[column])).toEqual(['Diner', 'Barn', 'Diner']);
+  });
+});

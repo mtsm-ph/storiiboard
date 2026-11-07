@@ -41,12 +41,35 @@ export const BUILT_IN_FIELDS = [
   'field.newField',
 ] as const satisfies readonly MessageKey[];
 
+/** A location's own fields (3.3): its editor's labels, so no label is there twice. */
+export const LOCATION_BUILT_IN_FIELDS = [
+  'location.name',
+  'location.status',
+  'location.address',
+  'location.contactName',
+  'location.contactPhone',
+  'location.contactEmail',
+  'location.parking',
+  'location.power',
+  'location.notes',
+  'location.photos',
+  'field.newField',
+] as const satisfies readonly MessageKey[];
+
+/** What the fields are on: a frame's names and words, or a location's (3.3). */
+export type FieldsOf = 'frame' | 'location';
+
+const RESERVED: Readonly<Record<FieldsOf, { keys: readonly MessageKey[]; problem: MessageKey }>> = {
+  frame: { keys: BUILT_IN_FIELDS, problem: 'field.builtIn' },
+  location: { keys: LOCATION_BUILT_IN_FIELDS, problem: 'field.locationBuiltIn' },
+};
+
 /**
  * The reserved names, lower-cased: in English, so a field named in one language never collides when the project is
  * opened in another, and in the app's language, the words its columns and labels show now.
  */
-function builtIn(): Set<string> {
-  return new Set(BUILT_IN_FIELDS.flatMap((key) => [en[key].toLowerCase(), t(key).toLowerCase()]));
+function builtIn(of: FieldsOf): Set<string> {
+  return new Set(RESERVED[of].keys.flatMap((key) => [en[key].toLowerCase(), t(key).toLowerCase()]));
 }
 
 /** The `custom` prop as stored, anything in it kept: a later version or a hand edit may hold more than text. */
@@ -110,12 +133,12 @@ export type FieldName = { ok: true; name: string } | { ok: false; problem: strin
  * already in use (`vfx` becomes `VFX`). Refused when empty, too long, one of the frame's built-in fields, or a name the
  * frame keeps something other than text under (`hidden`).
  */
-export function fieldName(typed: string, known: readonly string[], hidden: readonly string[] = []): FieldName {
+export function fieldName(typed: string, known: readonly string[], hidden: readonly string[] = [], of: FieldsOf = 'frame'): FieldName {
   const name = typed.trim().replace(/\s+/g, ' ');
   if (name === '' || name.length > MAX_FIELD_NAME) return { ok: false, problem: t('field.nameLength', { max: MAX_FIELD_NAME }) };
   // A name the project already uses stays usable, even one that became a built-in field later ("Title", Nov 5).
   const already = known.some((k) => k.toLowerCase() === name.toLowerCase());
-  if (!already && builtIn().has(name.toLowerCase())) return { ok: false, problem: t('field.builtIn', { name }) };
+  if (!already && builtIn(of).has(name.toLowerCase())) return { ok: false, problem: t(RESERVED[of].problem, { name }) };
   if (hidden.some((h) => h.toLowerCase() === name.toLowerCase())) {
     return { ok: false, problem: t('field.hidden', { name }) };
   }
