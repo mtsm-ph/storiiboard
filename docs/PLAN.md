@@ -43,6 +43,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | D1 zimg and dav1d built into ffmpeg: HDR stills and copies tone-mapped to BT.709; AV1 | #76 | Done |
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | Done |
+| 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | | In review |
 | 2.4 The Player plays real footage (Stop A) | | Not started |
 | 2.5 LUTs per video | | Not started |
 | 2.6 Crop | | Not started |
@@ -53,6 +54,18 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.3c as built (Nov 7), Kevin's answers of Nov 7:
+- Silent tracks are left out of the mix. Each separate mono track is listened to first (`video::track_peaks`): one run
+  of ffmpeg reads five 4-second windows spread through the take (all of a take under 40 s), so a mic live only later
+  is heard without reading a 100 GB MXF end to end. A track whose loudest moment stays at or below -70 dB (an input
+  with nothing plugged in; a live mic's room tone alone comes above it) is left out; the others are mixed, each at 1/N
+  of them, so an FX6 with two empty tracks plays at its live pair's level. One live track plays as it is. Every track
+  silent: a copy without sound, named `<key>-quiet.mp4`, whole as it is (never made again), and the inspector says
+  every sound track is silent. If the tracks can't be listened to now, all are mixed as before. Recipe `2.3-4`.
+- A video whose file changes (a relink, or its undo or redo) while its copy is made: that copy is stopped and one of
+  the new file made; anything else known about the old file (made, failed) is dropped and looked for again; and a
+  result about a file the video no longer points at is never kept as its own (`playbackCopies.ts`, `fileOf`).
 
 2.3b as built (Nov 6): what the person sees of the copies, and the sound of files that keep each channel apart.
 - The queue lives on the page (`src/features/video/playbackCopies.ts`): one `playback_make` at a time, the rest waiting

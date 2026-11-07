@@ -468,6 +468,92 @@ pub(crate) fn audio_tracks(path: &Path) -> Result<Vec<u32>, String> {
     Ok(read_audio_tracks(&json))
 }
 
+/// A track whose loudest moment stays at or below this, in dB below full scale, is silent: a camera input with nothing
+/// plugged in, which sits far below it, where a live mic's room tone alone comes above it (2.3c, Kevin).
+pub(crate) const SILENT_DB: f64 = -70.0;
+/// Where a long take is listened to: this many windows of this many seconds, spread through it, so a mic live only
+/// later on is heard, without reading the whole file (a 100 GB MXF) before its copy is made.
+const LISTEN_WINDOWS: usize = 5;
+const LISTEN_SECONDS: f64 = 4.0;
+
+/// The loudest each of the file's sound `tracks` (their indexes among its sound tracks) gets, in dB below full scale,
+/// over a few seconds spread through its `seconds` (the whole of a short one), in one run of ffmpeg. A track with
+/// nothing in those seconds reads as `-inf`.
+pub(crate) fn track_peaks(path: &Path, tracks: &[usize], seconds: f64) -> Result<Vec<f64>, String> {
+    let windows = LISTEN_WINDOWS as f64;
+    let starts: Vec<f64> = if seconds > 2.0 * windows * LISTEN_SECONDS {
+        (0..LISTEN_WINDOWS)
+            .map(|i| seconds * (2.0 * i as f64 + 1.0) / (2.0 * windows) - LISTEN_SECONDS / 2.0)
+            .collect()
+    } else {
+        vec![0.0]
+    };
+    let mut command = command("ffmpeg");
+    command.args(["-hide_banner", "-nostats"]);
+    for start in &starts {
+        command.args(["-protocol_whitelist", "file"]);
+        if starts.len() > 1 {
+            command
+                .args(["-ss", &format!("{start:.3}"), "-t"])
+                .arg(LISTEN_SECONDS.to_string());
+        }
+        command.arg("-i").arg(path);
+    }
+    // Per track: its windows end to end, then volumedetect; so each track's volumedetect is its chain's second filter.
+    let graph: Vec<String> = tracks
+        .iter()
+        .enumerate()
+        .map(|(j, track)| {
+            let inputs: String = (0..starts.len())
+                .map(|i| format!("[{i}:a:{track}]"))
+                .collect();
+            format!(
+                "{inputs}concat=n={}:v=0:a=1,volumedetect[p{j}]",
+                starts.len()
+            )
+        })
+        .collect();
+    command.args(["-filter_complex", &graph.join(";")]);
+    for j in 0..tracks.len() {
+        command.args(["-map", &format!("[p{j}]")]);
+    }
+    command.args(["-f", "null", "-"]);
+    let (status, _, said) = run_heard(command, PROBE_TIMEOUT, true)?;
+    let said = String::from_utf8_lossy(&said);
+    if !status.success() || read_failed_in(&said, path) {
+        return Err(CANT_READ.into());
+    }
+    Ok(read_track_peaks(&said, tracks.len()))
+}
+
+/// `track_peaks` from ffmpeg's words: "[Parsed_volumedetect_<n> @ 0x…] max_volume: -12.3 dB", track j's at n = 2j + 1.
+fn read_track_peaks(said: &str, tracks: usize) -> Vec<f64> {
+    let mut peaks = vec![f64::NEG_INFINITY; tracks];
+    for line in said.lines() {
+        let Some((_, rest)) = line.split_once("[Parsed_volumedetect_") else {
+            continue;
+        };
+        let Some((index, rest)) = rest.split_once(' ') else {
+            continue;
+        };
+        let Some((_, value)) = rest.split_once("max_volume: ") else {
+            continue;
+        };
+        let (Ok(index), Ok(db)) = (
+            index.parse::<usize>(),
+            value.trim().trim_end_matches("dB").trim().parse::<f64>(),
+        ) else {
+            continue;
+        };
+        if index % 2 == 1 {
+            if let Some(peak) = peaks.get_mut(index / 2) {
+                *peak = db;
+            }
+        }
+    }
+    peaks
+}
+
 /// `audio_tracks` from ffprobe's JSON; a track that doesn't say counts as one channel.
 fn read_audio_tracks(json: &Value) -> Vec<u32> {
     json["streams"]
@@ -991,6 +1077,69 @@ mod tests {
     use super::*;
 
     use std::fs;
+
+    #[test]
+    fn reads_each_tracks_peak_from_ffmpegs_words() {
+        let said = "[Parsed_volumedetect_1 @ 0x6000] n_samples: 960000\n\
+            [Parsed_volumedetect_1 @ 0x6000] max_volume: -6.0 dB\n\
+            [Parsed_volumedetect_3 @ 0x6010] max_volume: -inf dB\n\
+            [Parsed_concat_2 @ 0x6020] max_volume: -1.0 dB\n";
+        let peaks = read_track_peaks(said, 3);
+        assert_eq!(peaks[0], -6.0);
+        assert_eq!(peaks[1], f64::NEG_INFINITY);
+        // Not said at all (no sound in the windows): silent.
+        assert_eq!(peaks[2], f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn hears_a_mic_live_only_later_in_a_long_take_and_not_an_empty_input() {
+        let dir = temp_dir("peaks");
+        // A minute, three mono tracks: an empty input; a lav live only from 40 s to 45 s; another at a whisper of
+        // room tone (-60 dB) throughout.
+        let take = dir.join("C0089.mka");
+        let status = command("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-y"])
+            .args(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=60"])
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "aevalsrc=if(between(t\\,40\\,45)\\,0.5*sin(2*PI*1000*t)\\,0):s=48000:d=60",
+            ])
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "aevalsrc=0.001*sin(2*PI*300*t):s=48000:d=60",
+            ])
+            .args([
+                "-map",
+                "0:a",
+                "-map",
+                "1:a",
+                "-map",
+                "2:a",
+                "-c:a",
+                "pcm_s24le",
+            ])
+            .arg(&take)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let peaks = track_peaks(&take, &[0, 1, 2], 60.0).unwrap();
+        assert!(peaks[0] <= SILENT_DB, "the empty input: {}", peaks[0]);
+        assert!(
+            peaks[1] > -10.0,
+            "the lav, heard in a later window: {}",
+            peaks[1]
+        );
+        assert!(
+            peaks[2] > SILENT_DB && peaks[2] < -50.0,
+            "room tone: {}",
+            peaks[2]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn counts_the_channels_of_each_sound_track() {

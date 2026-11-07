@@ -1243,6 +1243,7 @@ export const es: Messages = {
   'inspector.copyMaking': 'Haciendo la copia de reproducción…',
   'inspector.copyProgress': 'Copia de reproducción',
   'inspector.copyMade': 'Copia de reproducción lista.',
+  'inspector.copyQuiet': 'Copia de reproducción lista, sin sonido: todas las pistas de sonido del video están en silencio.',
   'inspector.copySilent': 'Copia de reproducción lista, sin sonido: no se pudo leer el sonido del video.',
   'inspector.makeCopy': 'Hacer copia de reproducción',
   'inspector.copyTryAgain': 'Intentar de nuevo',

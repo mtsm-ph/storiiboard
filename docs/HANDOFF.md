@@ -270,8 +270,6 @@ Lows deferred (noted, not planned yet):
   comes back (a Clear, a bigger cap, a lower floor).
 - Reopening the same project (after a sync conflict, say) stops the copy being made and drops the queue, as any project
   switch does; it could carry on instead.
-- An undo or a redo of a relink while the relinked file's copy is being made lets that copy finish and show as the
-  video's; a failure of it stays shown for the file put back.
 - After a mix that couldn't be checked (the file stopped answering) and a second failure, the sound test tries only
   the first track; an earlier copy without sound is likewise kept by a test of the first track only.
 - The cap or the floor going back after a failed save has no test that can fail: the unit tests draw the page once
@@ -282,6 +280,7 @@ Lows deferred (noted, not planned yet):
 
 ## Next steps, in order
 
+0. **2.3c** (in review): silent tracks left out of the mix; a relink's undo never leaves the other file's copy.
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
@@ -331,6 +330,11 @@ Lows deferred (noted, not planned yet):
 ## Decisions
 
 - **Pending for Kevin:** none.
+- **Decided by Kevin (Nov 7):** the defaults stand, with one change to the mix: silent tracks are left out (measured
+  first; each live track at 1/N of the live ones; all silent, the copy has no sound and says so), done in 2.3c. Fix the
+  relink-undo bug before 2.4 (done in 2.3c); the other two leftover 2.3b lows wait. Then 2.4, review stop A as a
+  checkpoint with a checklist without waiting, the rest of Phase 2 to its gate, then Phase 3 under the rules below,
+  stopping at its gate. A report after every milestone; this file kept current.
 - **Decided by Kevin (Nov 6):** a copy of a file whose sound is several mono tracks (Sony and Canon MXF) mixes them all
   into one stereo track, its gain kept low enough that it never clips; a file with a single stereo track stays as it
   is (2.3b).

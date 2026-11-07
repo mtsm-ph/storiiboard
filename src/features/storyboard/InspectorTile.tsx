@@ -47,7 +47,7 @@ function inspectorCopy(copy: Exclude<CopyState, { kind: 'unknown' }>): Inspector
     case 'making':
       return { state: 'making', done: copy.done };
     case 'made':
-      return { state: 'made', silent: copy.silent };
+      return { state: 'made', silent: copy.silent, ...(copy.quiet ? { quiet: true } : {}) };
     case 'failed':
       return { state: 'failed', message: copy.message };
   }
