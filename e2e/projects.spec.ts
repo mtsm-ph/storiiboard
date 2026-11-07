@@ -266,9 +266,17 @@ test('a company profile saved once is attached to a project, with its logo, upda
   // Attached in Settings → Project: the project keeps a copy.
   await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
   panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
-  await panel.getByRole('combobox', { name: 'Company', exact: true }).selectOption({ label: 'Zima Blue Pictures' });
+  const menu = panel.getByRole('combobox', { name: 'Company', exact: true });
+  // Moving through the menu attaches nothing: Attach does.
+  await menu.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowUp');
   const copy = panel.locator('[data-project-company]');
+  await expect(copy).toHaveCount(0);
+  await menu.selectOption({ label: 'Zima Blue Pictures' });
+  await panel.getByRole('button', { name: 'Attach', exact: true }).click();
   await expect(copy).toContainText('https://example.com');
+  await expect(copy.getByRole('img', { name: 'Logo of Zima Blue Pictures' })).toBeVisible();
   await expect(copy).toContainText('The same as its profile on this computer.');
 
   // The profile changes: the copy doesn't, until Update from profile.

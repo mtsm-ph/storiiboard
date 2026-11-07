@@ -4,7 +4,8 @@ import { COMPANY_FIELDS, MAX_COMPANIES, type CompanyField, type CompanyProfile }
 import { Button } from '../../ui/Button';
 import { TextField } from '../../ui/fields';
 import { choosePictures } from '../pictures';
-import { addCompany, logoFromPicture, removeCompany, saveCompany, useCompanies } from './companies';
+import { ask } from '../ask';
+import { addCompany, logoFromPicture, removeCompany, saveCompany, useCompanies, type CompanyProblem } from './companies';
 
 // Company profiles in Settings → App (3.2): production companies saved once on this computer, to attach to any
 // project from Settings → Project. They're the person's, not a project's, so changing one is no edit and doesn't undo;
@@ -24,8 +25,9 @@ export function CompanyProfilesPanel() {
   const companies = useCompanies();
   const headingId = useId();
   const [problem, setProblem] = useState<string | null>(null);
-  const said = (ok: boolean, why = t('company.notSaved')) => {
-    setProblem(ok ? null : why);
+  /** Says why the last change wasn't kept, or clears what was said. */
+  const said = (problem: CompanyProblem | null, words?: string) => {
+    setProblem(problem === null ? null : (words ?? (problem === 'tooManyLogos' ? t('company.tooManyLogos') : t('company.notSaved'))));
   };
   return (
     <section aria-labelledby={headingId} className="flex max-w-[640px] flex-col gap-3 border-t border-text p-4">
@@ -50,7 +52,7 @@ export function CompanyProfilesPanel() {
         className="self-start"
         disabled={companies.length >= MAX_COMPANIES}
         onClick={() => {
-          said(addCompany() !== null);
+          said(addCompany());
         }}
       >
         {t('company.add')}
@@ -59,7 +61,7 @@ export function CompanyProfilesPanel() {
   );
 }
 
-function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; index: number; onSaved: (ok: boolean, why?: string) => void }) {
+function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; index: number; onSaved: (problem: CompanyProblem | null, words?: string) => void }) {
   const groupId = useId();
   const title = company.name || t('company.untitled', { n: index + 1 });
   return (
@@ -95,12 +97,12 @@ function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; i
             void (async () => {
               const [picked] = await choosePictures(false);
               if (!picked) return;
-              const logo = await logoFromPicture(await picked.read());
-              if (logo === null) {
-                onSaved(false, t('company.logoUnreadable', { name: picked.name }));
+              const made = await logoFromPicture(await picked.read());
+              if (made === 'unreadable') {
+                onSaved('notSaved', t('company.logoUnreadable', { name: picked.name }));
                 return;
               }
-              onSaved(saveCompany({ ...company, logo }));
+              onSaved(saveCompany({ ...company, logo: made.logo }));
             })();
           }}
         >
@@ -118,7 +120,19 @@ function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; i
         <Button
           className="ml-auto"
           onClick={() => {
-            onSaved(removeCompany(company.id));
+            void (async () => {
+              // Not an edit, so no ⌘Z: asked first. Projects it was attached to keep their copies.
+              const answer = await ask({
+                title: t('company.removeTitle', { name: title }),
+                text: t('company.removeText'),
+                choices: [
+                  { id: 'cancel', label: t('common.cancel') },
+                  { id: 'remove', label: t('company.removeConfirm'), variant: 'warning' },
+                ],
+                cancel: 'cancel',
+              });
+              if (answer === 'remove') onSaved(removeCompany(company.id));
+            })();
           }}
         >
           {t('company.remove', { name: title })}

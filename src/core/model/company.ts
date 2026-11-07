@@ -22,9 +22,14 @@ export const COMPANY_FIELDS = ['name', 'address', 'phone', 'email', 'website'] a
 export type CompanyField = (typeof COMPANY_FIELDS)[number];
 
 /** A profile's logo is kept this small: enough for a call sheet's header, little in the app's settings. */
-export const LOGO_EDGE = 512;
-/** At most this many characters of data URL: a 512 px logo is well under it; the settings stay small. */
-export const MAX_LOGO_CHARS = 400_000;
+export const LOGO_EDGE = 320;
+/** At most this many characters of data URL for one logo. */
+export const MAX_LOGO_CHARS = 150_000;
+/**
+ * At most this many characters of logo across every profile: the app's settings share one small browser store with
+ * the theme, the backups' numbers and the rest, which a full store would silently stop saving.
+ */
+export const MAX_ALL_LOGOS_CHARS = 600_000;
 /** At most this many profiles are kept. */
 export const MAX_COMPANIES = 20;
 /** Text fields are cut to this many characters. */
@@ -45,7 +50,8 @@ export interface ProjectCompany {
   logoSource: string | null;
 }
 
-const text = (value: unknown, max = MAX_COMPANY_TEXT): string => (typeof value === 'string' ? value.slice(0, max) : '');
+// Cut by characters as people count them, as the profile's text is cleaned when saved, so it reads back the same.
+const text = (value: unknown, max = MAX_COMPANY_TEXT): string => (typeof value === 'string' ? Array.from(value).slice(0, max).join('') : '');
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isLogo = (value: unknown): value is string => typeof value === 'string' && value.startsWith('data:image/png;base64,') && value.length <= MAX_LOGO_CHARS;
 

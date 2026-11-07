@@ -407,6 +407,17 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
   if (ops.some((op) => op.after?.type === 'project' && op.before && JSON.stringify(op.before.props.theme) !== JSON.stringify(op.after.props.theme))) {
     return [t('history.changedTheme', { tag })];
   }
+  // The production company (3.2), with or without its logo: by its name, never its details.
+  const company = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.company) !== JSON.stringify(op.after.props.company));
+  if (company) {
+    const name = (value: JsonValue | undefined) => (isObject(value) && typeof value.name === 'string' && value.name !== '' ? value.name : t('history.aCompany'));
+    const before = company.before?.props.company;
+    const after = company.after?.props.company;
+    if (before === undefined) return line('history.companyAttached', { name: name(after) });
+    if (after === undefined) return line('history.companyDetached', { name: name(before) });
+    const same = isObject(before) && isObject(after) && before.profile_id === after.profile_id;
+    return line(same ? 'history.companyUpdated' : 'history.companyAttached', { name: name(after) });
+  }
   const watermark = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.watermark) !== JSON.stringify(op.after.props.watermark));
   if (watermark) return [`${describeWatermark(watermark.before?.props.watermark, watermark.after?.props.watermark)}${tag}`];
 

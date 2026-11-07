@@ -130,6 +130,9 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     if (record.trashedAt === null) continue;
     const kind = kindOf(record);
     if (!kind || (record.type !== 'scene' && record.type !== 'media' && trashedWithParent(records, record))) continue;
+    // A company's replaced logo (3.2) belongs to the company's copy, which undo puts back: restored alone, it would be
+    // a picture nothing shows. Empty Trash still clears it.
+    if (record.type === 'media' && record.props.role === 'company_logo') continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;

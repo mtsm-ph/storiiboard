@@ -343,6 +343,25 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.2: review
+
+Round 1: one high and five mediums, fixed. History read an attach or detach with a logo as "Set the picture of an
+item": it now says "Attached (Updated, Detached) the production company Zima Blue Pictures". Picking in the menu
+attached at once, so the arrow keys attached a profile per press (and lost focus): the menu only picks; Attach (or
+Replace company) copies, and controls are never disabled under focus. Logos could fill the browser store the app's
+settings share, silently stopping the backups' numbers and the rest from saving: logos are smaller (320 px, at most
+150k characters, stepped down to fit), and all logos together are capped (600k), refused in words past it. A replaced
+logo in the Trash could be restored as a picture nothing shows: it's marked as the company's (`role: company_logo`),
+left out of the Trash's list (undo brings it back with the company; Empty Trash clears it), and Update from profile
+keeps the same logo rather than make another. A `logo_id` naming a frame, a scene or the project itself was trashed
+on Detach: only a picture under the project is ever taken as the logo. The project's own logo now shows. Lows fixed:
+Remove profile asks first (it can't be undone); text cut by characters, so a long name with an emoji reads back the
+same; a too-heavy logo is made smaller rather than refused; a double click can't attach twice; no English word
+stored as the logo's file name; the Settings store has a module of its own (no import circle); Open App settings
+puts focus on the App tab; a copy whose profile id is empty can't read as None. Tests: the budget, the round trip of a
+long name, logo kept when unchanged, a bad `logo_id`, History's three lines, the Trash's list; end to end, the arrow
+keys attach nothing, the project's logo shown.
+
 ### 3.1: review
 
 Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last
