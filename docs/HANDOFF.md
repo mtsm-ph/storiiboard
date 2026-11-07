@@ -289,6 +289,9 @@ Lows deferred (noted, not planned yet):
    start. Review round 2: lows only, fixed (a restore from the Trash makes the inspector look again at once; the
    40 s cap on a take of unknown length tested); the hook-level test of that restore waits for a DOM test library
    (a new dependency, Kevin's call).
+   Checkpoint r1: Windows green; the Mac's Rust tests failed four copies that stalled together, ffmpeg stuck in
+   VideoToolbox's service, as at D2: the runner's virtual GPU hangs when several encode sessions run at once, and 2.3c
+   added copies. The app makes one at a time; the Mac tests now do too (a test-only turn in `encode`).
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.

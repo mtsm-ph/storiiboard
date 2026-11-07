@@ -1354,6 +1354,10 @@ impl PlaybackCache {
         asked: &Asked,
         mut on_frame: impl FnMut(f64),
     ) -> Result<Said, Stop> {
+        // The tests on a Mac: one encode at a time, as the app makes them. A CI runner's virtual GPU hangs
+        // VideoToolbox when several sessions run at once (checkpoints D2 and 2.3c-r1: every encode stalled together).
+        #[cfg(all(test, target_os = "macos"))]
+        let _one_at_a_time = mac_test_encode_turn();
         let (fps_num, fps_den) = run.rate;
         // Square pixels and the long-edge cap in one scale; deinterlaced first if the frames are interlaced. The
         // encoder's own pixel format comes with its options.
@@ -1865,6 +1869,14 @@ struct Run<'a> {
     /// The separate mono tracks mixed into the copy's one stereo track (see `mix_filter`), by their index among the
     /// file's sound tracks; with one, that track as it is; with none, the first track as it is.
     tracks: &'a [usize],
+}
+
+/// The Mac tests' one turn to encode (see `encode`).
+#[cfg(all(test, target_os = "macos"))]
+fn mac_test_encode_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Separate mono tracks (Sony and Canon MXF keep each channel on its own) mixed into one stereo track that never
