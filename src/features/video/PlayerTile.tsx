@@ -220,10 +220,11 @@ export function PlayerTile() {
               crop: clip?.crop ?? DEFAULT_CROP,
               imageAspect,
               frameAspect,
-              onCommit: (crop) => {
+              frameKey: shown,
+              onCommit: async (crop) => {
                 if (!shotId) return;
                 // On the clip as it is when the edit lands; nothing for a framing where it is already.
-                void projectStore.getState().applyWith((now) => {
+                await projectStore.getState().applyWith((now) => {
                   const current = now[shotId];
                   const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
                   if (!currentClip || currentClip.videoId !== videoId) return { changes: [] };

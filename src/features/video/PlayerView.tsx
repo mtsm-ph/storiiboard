@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
+import { useEffect, useId, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
 import { DEFAULT_CROP, type Crop } from '../../core/media/crop';
 import { localizeError, t, tn } from '../../core/i18n';
 import { frameTimecode, type Rational } from '../../core/media/timecode';
@@ -55,7 +55,7 @@ export interface PlayerViewProps {
    * The frame's window over the take (2.6): the clip's crop, the take's shape (upright, square pixels) and the
    * project's frame; `onCommit` sets the clip's crop, one undo step. Left out, the picture shows as it is.
    */
-  framing?: { crop: Crop; imageAspect: number; frameAspect: number; onCommit: (crop: Crop) => void } | undefined;
+  framing?: { crop: Crop; imageAspect: number; frameAspect: number; onCommit: (crop: Crop) => Promise<void>; frameKey: string } | undefined;
 }
 
 /** The largest box of `aspect` that fits `width` by `height`. */
@@ -63,12 +63,15 @@ function fit(width: number, height: number, aspect: number): { width: number; he
   return width / height > aspect ? { width: height * aspect, height } : { width, height: width / aspect };
 }
 
-/** The picture's box, fitted to the space it's given as that changes (the tile resized, docked elsewhere). */
+/**
+ * The picture's box, fitted to the space it's given as that changes (the tile resized, docked elsewhere). The area is
+ * held as state, not a ref: it appears only once a copy is ready, after the Player is drawn, and is drawn anew for
+ * each video, and each new one is measured.
+ */
 function useFitted(aspect: number) {
-  const area = useRef<HTMLDivElement>(null);
+  const [element, area] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => {
-    const element = area.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
       const { clientWidth, clientHeight } = element;
@@ -80,8 +83,8 @@ function useFitted(aspect: number) {
     return () => {
       observer.disconnect();
     };
-  }, [aspect]);
-  return { area, size };
+  }, [element, aspect]);
+  return { area, size: element ? size : null };
 }
 
 /**
@@ -116,8 +119,14 @@ export function PlayerView(props: PlayerViewProps) {
   const { status, video, frame, playing } = props;
   const helpId = useId();
   const frameHintId = useId();
-  const noop = () => undefined;
-  const framing = useFraming({ crop: props.framing?.crop ?? DEFAULT_CROP, onCommit: props.framing?.onCommit ?? noop });
+  const noop = () => Promise.resolve();
+  const framing = useFraming({
+    crop: props.framing?.crop ?? DEFAULT_CROP,
+    imageAspect: props.framing?.imageAspect ?? 16 / 9,
+    frameAspect: props.framing?.frameAspect ?? 16 / 9,
+    onCommit: props.framing?.onCommit ?? noop,
+    frameKey: props.framing?.frameKey ?? '',
+  });
   const tc = (index: number) => (video ? frameTimecode(index, video.fps, video.startTimecode) : '');
   const last = video ? Math.max(0, video.durationFrames - 1) : 0;
   const at = (index: number) => `${String(last > 0 ? (index / last) * 100 : 0)}%`;

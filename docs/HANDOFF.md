@@ -340,6 +340,20 @@ Lows deferred (noted, not planned yet):
   editor's own comment says Escape goes back to the pencil, but focus ends on the card; harmless (the keys carry on
   from the frame either way), but the two disagree.
 
+### 2.6: review
+
+Round 1: one high, two mediums, fixed. The picture's box was never measured (the Player measured it only when the
+take's shape changed, and the box appears only once a copy is ready), so the window lay over the bars too: the box is
+measured whenever it appears now, and the end-to-end test checks the window sits exactly on the picture as drawn.
+Quick taps lost steps and the window jumped back until each edit landed: a move let go stays shown until its edit
+lands, and the next builds on it (tested with taps and no waits between). The window's focus ring was ink on ink in
+the light theme: paper now, drawn inside the edge. Lows fixed: ⌘, Ctrl or Alt with the window's keys are left to the
+app and the system; a draft is dropped when the frame or video changes; a gesture the system takes over puts the
+window back rather than saving; Shift let go before the arrow makes no extra step; a fast drag's last move is kept; a
+move that changes nothing on screen makes no edit (a stored crop outside today's clamp stays as it was); "Framed at…"
+is said once the edit has landed. Lows left: the Player tile scrolls inside its tile's own scroll area (harmless);
+no end-to-end test of a non-16:9 project or a rotated take yet (the maths is unit-tested for 2.39 and 4:5).
+
 ### 2.5: review
 
 Round 1: no high; three mediums fixed. A domain lut3d can't apply was kept and graded wrongly with no word (measured:
