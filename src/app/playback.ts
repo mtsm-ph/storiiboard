@@ -1,6 +1,7 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { t } from '../core/i18n';
 import { isTauriApp } from './fileAccess';
+import { videoFileUrl } from './videoFiles';
 
 // Playback copies (2.3): the app plays every video from a light H.264 copy Rust makes with the computer's own encoder
 // (src-tauri/src/playback.rs), one at a time, in a folder of the app's own that it keeps under a cap and above a free
@@ -49,6 +50,8 @@ export interface PlaybackDriver {
   make(video: CopySource, handle: number | undefined, onProgress: (done: number) => void): Promise<MadeCopy>;
   /** The copy made, if there is one; null while the copies are being moved. */
   find(video: CopySource, handle: number | undefined): Promise<MadeCopy | null>;
+  /** Where a `<video>` plays a copy from (2.4). */
+  url(copy: MadeCopy): string;
   /** Stops every copy of this video being made or waiting in Rust. */
   cancel(video: CopySource): Promise<boolean>;
   info(): Promise<CopiesInfo>;
@@ -84,6 +87,8 @@ const desktop: PlaybackDriver = {
     return call<MadeCopy>('playback_make', { path: video.path, handle: handle ?? null, progress });
   },
   find: (video, handle) => call<MadeCopy | null>('playback_find', { path: video.path, handle: handle ?? null }),
+  // By its file name, through the copies' own scheme, which serves copies and nothing else (playback.rs).
+  url: (copy) => convertFileSrc(copy.path.split(/[\\/]/).pop() ?? '', 'sbdcopy'),
   cancel: (video) => call<boolean>('playback_cancel', { path: video.path }),
   info: () => call<CopiesInfo>('playback_info'),
   clear: () => call<number>('playback_clear'),
@@ -102,6 +107,11 @@ const PRETEND_BYTES = 2_400_000;
 const PRETEND_STEPS = 10;
 const PRETEND_STEP_MS = 250;
 
+/** A pretend copy's path: the file handed over, which the browser build's Player plays (src/app/videoFiles.ts). */
+function pretendPath(videoId: string): string {
+  return videoFileUrl(videoId) ?? videoId;
+}
+
 /** The browser build's copies, by video record: made in memory, in a few steps. */
 function standIn(): PlaybackDriver {
   const made = new Set<string>();
@@ -112,7 +122,7 @@ function standIn(): PlaybackDriver {
     make: (video, _handle, onProgress) =>
       new Promise((resolve, reject) => {
         if (made.has(video.videoId)) {
-          resolve({ path: video.videoId, silent: false });
+          resolve({ path: pretendPath(video.videoId), silent: false });
           return;
         }
         let step = 0;
@@ -123,7 +133,7 @@ function standIn(): PlaybackDriver {
           clearInterval(timer);
           making.delete(video.videoId);
           made.add(video.videoId);
-          resolve({ path: video.videoId, silent: false });
+          resolve({ path: pretendPath(video.videoId), silent: false });
         }, PRETEND_STEP_MS);
         making.set(video.videoId, {
           stop: () => {
@@ -133,7 +143,8 @@ function standIn(): PlaybackDriver {
           },
         });
       }),
-    find: (video) => Promise.resolve(made.has(video.videoId) ? { path: video.videoId, silent: false } : null),
+    find: (video) => Promise.resolve(made.has(video.videoId) ? { path: pretendPath(video.videoId), silent: false } : null),
+    url: (copy) => copy.path,
     cancel: (video) => {
       const run = making.get(video.videoId);
       run?.stop();

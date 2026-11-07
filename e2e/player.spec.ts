@@ -1,0 +1,101 @@
+import { fileURLToPath } from 'node:url';
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
+import { answerAsk } from './ask';
+import { skipOnboarding } from './onboarding';
+import { closeSettings, openSettings } from './settings';
+
+// The Player (2.4) in the memory build: it plays the file the person handed over (the browser build has no copies;
+// src/app/videoFiles.ts) once its pretend copy is made. The fixture: 2 s of H.264 at 24000/1001, 320 x 180, 48 frames,
+// no source timecode, so it runs from 00:00:00:00.
+
+const clipPath = fileURLToPath(new URL('./fixtures/video/A001_C003_2398.mp4', import.meta.url));
+
+test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?files=memory');
+  await page.evaluate(() => {
+    window.localStorage.clear();
+  });
+  await page.reload();
+  page.once('dialog', (dialog) => void dialog.accept('Bey County'));
+  await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await page.getByRole('region', { name: 'Storyboard', exact: true }).getByRole('button', { name: '+ Frame in SC 01' }).click();
+});
+
+const inspector = (page: Page) => page.getByRole('region', { name: 'Frame inspector', exact: true });
+const player = (page: Page) => page.getByRole('group', { name: 'Player', exact: true });
+const timecode = (page: Page) => player(page).locator('[data-player-timecode]');
+const range = (page: Page) => inspector(page).locator('[data-video-details]');
+const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
+
+async function linkAndOpen(page: Page) {
+  const chooser = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Link video…' }).click();
+  await (await chooser).setFiles(clipPath);
+  // The pretend copy takes 2.5 s; then the Player opens it.
+  await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() => player(page).locator('video').evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(2);
+}
+
+test('plays the selected frame’s video: steps a frame at a time, and I and O set its in and out, one undo each', async ({ page }) => {
+  await linkAndOpen(page);
+  await expect(timecode(page)).toHaveText('00:00:00:00');
+  await expect(player(page)).toContainText('In 00:00:00:00 · Out 00:00:01:23 · 48 frames');
+
+  // Comma and period step a frame, with Shift ten, wherever focus is in the Player.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('.');
+  await expect(timecode(page)).toHaveText('00:00:00:03');
+  // The picture is that frame: the <video> sits in its middle.
+  const shown = await player(page)
+    .locator('video')
+    .evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001));
+  expect(shown).toBe(3);
+  await page.keyboard.press('i');
+  await expect(range(page)).toContainText('00:00:00:03 – 00:00:01:23 · 45 frames');
+  await page.keyboard.press('Shift+.');
+  await page.keyboard.press(',');
+  await expect(timecode(page)).toHaveText('00:00:00:12');
+  await page.keyboard.press('o');
+  await expect(range(page)).toContainText('00:00:00:03 – 00:00:00:12 · 10 frames');
+  await expect(player(page)).toContainText('In 00:00:00:03 · Out 00:00:00:12 · 10 frames');
+
+  // One undo takes the out point back.
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect(range(page)).toContainText('00:00:00:03 – 00:00:01:23 · 45 frames');
+
+  // Space plays and pauses; the frame moves on.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(timecode(page)).not.toHaveText('00:00:00:12', { timeout: 5_000 });
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+
+  expect(await new AxeBuilder({ page }).include('[data-player]').analyze().then((r) => r.violations)).toEqual([]);
+});
+
+test('says what it waits for: a frame to select, a video to link, the copy being made', async ({ page }) => {
+  await expect(player(page)).toContainText('This frame has no video. Link one from the inspector.');
+  const chooser = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Link video…' }).click();
+  await (await chooser).setFiles(clipPath);
+  await expect(player(page).locator('[data-player-state]')).toHaveText(/Making the playback copy…|Waiting its turn/);
+  await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible({ timeout: 15_000 });
+});
+
+test('a copy cleared while it’s shown is made again, and plays again', async ({ page }) => {
+  await linkAndOpen(page);
+  const storage = await openSettings(page, 'Storage');
+  await storage.getByRole('button', { name: 'Clear playback copies…' }).click();
+  await answerAsk(page, true);
+  await closeSettings(page);
+  // Gone under it: the Player says so, has it made again, and opens it.
+  await expect(player(page).locator('[data-player-state]')).toHaveText(/Making the playback copy…|Waiting its turn|No playback copy yet/);
+  await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible({ timeout: 15_000 });
+});

@@ -167,6 +167,17 @@ export function makeCopy(videoId: string): void {
   next();
 }
 
+/**
+ * The video's copy to play (the Player, 2.4): where a `<video>` reads it, and whether it's without sound. Null when
+ * there's none now (the cap or a Clear took it, or the copies are being moved).
+ */
+export async function copyToPlay(videoId: string): Promise<{ url: string; silent: boolean; quiet: boolean } | null> {
+  const found = sourceOf(videoId);
+  if (!found) return null;
+  const made = await playbackDriver.find(found.source, found.handle);
+  return made ? { url: playbackDriver.url(made), silent: made.silent, quiet: made.quiet === true } : null;
+}
+
 /** Videos the page shows now (the inspector's), by how many places show each. */
 const shown = new Map<string, number>();
 

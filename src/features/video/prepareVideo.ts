@@ -28,5 +28,6 @@ export async function prepareVideo(file: VideoFile, handle: number | undefined):
     probe,
     still,
     source: { name: file.name, ...(file.path ? { path: file.path } : {}), ...(size !== null ? { size } : {}) },
+    ...(!isTauriApp && file.file ? { file: file.file } : {}),
   };
 }
