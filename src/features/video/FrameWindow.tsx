@@ -42,19 +42,21 @@ export function useFraming({ crop, imageAspect, frameAspect, onCommit, frameKey 
   const gesture = useRef<{ key: string; crop: Crop } | null>(null);
   const [pending, setPending] = useState<Crop | null>(null);
   const [said, setSaid] = useState('');
-  // Another frame or video: nothing carried over.
-  const [keyFor, setKeyFor] = useState(frameKey);
-  if (keyFor !== frameKey) {
-    setKeyFor(frameKey);
+  // Another frame or video, or the picture gone: nothing carried over. Each reset starts a generation of its own, so
+  // a move held when the picture went can't count again when the same frame comes back.
+  const [keyFor, setKeyFor] = useState({ frameKey, generation: 0 });
+  if (keyFor.frameKey !== frameKey) {
+    setKeyFor((now) => ({ frameKey, generation: now.generation + 1 }));
     setDraftState(null);
     setPending(null);
   }
+  const heldKey = `${String(keyFor.generation)}|${frameKey}`;
   // As drawn: the stored crop may be outside what this frame allows (another aspect ratio since); drawing clamps it.
   const saved = clampCrop(crop, imageAspect, frameAspect);
   const shown = draft ?? pending ?? saved;
-  const mine = (held: { key: string; crop: Crop } | null) => (held?.key === frameKey ? held.crop : null);
+  const mine = (held: { key: string; crop: Crop } | null) => (held?.key === heldKey ? held.crop : null);
   const setDraft = (next: Crop | null) => {
-    latest.current = next ? { key: frameKey, crop: next } : null;
+    latest.current = next ? { key: heldKey, crop: next } : null;
     setDraftState(next);
   };
   const commit = (given?: Crop | null) => {
@@ -85,7 +87,7 @@ export function useFraming({ crop, imageAspect, frameAspect, onCommit, frameKey 
     const held = mine(gesture.current);
     if (held) return held;
     const from = base();
-    gesture.current = { key: frameKey, crop: from };
+    gesture.current = { key: heldKey, crop: from };
     return from;
   };
   return { shown, draft, setDraft, commit, revert, base, gestureStart, said };
@@ -169,7 +171,8 @@ export function FrameWindow({ framing, imageAspect, frameAspect, hintId }: { fra
         aria-label={t('player.frameWindow', { zoom: Math.round(shown.zoom * 100) })}
         aria-describedby={hintId}
         data-frame-window=""
-        className="group absolute cursor-grab touch-none border-[1.5px] border-paper-fixed outline outline-1 outline-ink-fixed focus-visible:outline-1 active:cursor-grabbing"
+        // Its ink outline stays on its edge when focused (the app's focus rule would push it 2px out).
+        className="group/window absolute cursor-grab touch-none border-[1.5px] border-paper-fixed outline outline-1 outline-ink-fixed focus-visible:outline-offset-0 active:cursor-grabbing"
         style={{ left: `${String(box.left)}%`, top: `${String(box.top)}%`, width: `${String(box.width)}%`, height: `${String(box.height)}%` }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -189,7 +192,7 @@ export function FrameWindow({ framing, imageAspect, frameAspect, hintId }: { fra
             it), since what's under it is the footage itself, bright or dark. */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-[3px] hidden border-2 border-paper-fixed outline outline-2 outline-ink-fixed group-focus-visible:block"
+          className="pointer-events-none absolute inset-[3px] hidden border-2 border-paper-fixed outline outline-2 outline-ink-fixed group-focus-visible/window:block"
         />
       </div>
     </div>

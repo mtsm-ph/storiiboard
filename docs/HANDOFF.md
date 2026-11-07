@@ -363,6 +363,13 @@ window's place; the slider ignores Shift let go; a move under way is dropped if 
 Lows left: for a moment on a new video the box may show the last one's size before it's measured (it measures in the
 same frame in practice); the quick-taps test's tolerance is a twentieth of a percent.
 
+Round 3: one medium fixed, then nothing high or medium; review done. A move held when the picture went (the copy
+remade, a play error) came back with the frame and could be saved by passing through the slider: each reset is a
+generation of its own now, so a held move never counts again (tested end to end; the test fails without the fix).
+Lows fixed: the window's ink outline stays on its edge when focused; the ring is the window's own named group. Lows
+left: if the picture returns within moments of an edit landing, a tap in between can build on the saved crop rather
+than the one in flight (one tap lost).
+
 ### 2.5: review
 
 Round 1: no high; three mediums fixed. A domain lut3d can't apply was kept and graded wrongly with no word (measured:
