@@ -353,6 +353,12 @@ to a known length (`frameInVideo`, `inVideo`). Lows fixed: Space on the last fra
 half a frame), and the frame shown while playing never passes the last either. Left as a low: no test pins the Player's
 own use of `copyMayBeGone` (a component test needs a DOM library, a new dependency: Kevin's call, as before).
 
+Round 5: no high; one medium fixed, round 4's other half: a step (comma, period) on a video of unknown length still went
+to frame 0; `stepFrame` now holds back only a known length, tested. Lows left: no test renders the Player with an unknown
+length (the e2e fixture has one; a component test needs a DOM library); the scrubber of such a video can't move (it has
+no end to scale to); a relink to a shorter file can leave an in point past the end, so Space can't replay (the relink
+warns about clips past the end); a copy a frame or two shorter than its record lets O set a point past the copy.
+
 Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
 with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
 passed them on Mac with the same code. Those three tests aren't about the encoder, so they now use the light one, as the

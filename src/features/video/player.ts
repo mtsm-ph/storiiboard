@@ -42,9 +42,10 @@ export function inVideo(frame: number, durationFrames: number): boolean {
   return frame >= 0 && (durationFrames <= 0 || frame < durationFrames);
 }
 
-/** A frame `delta` frames on, inside the video's `durationFrames`. */
+/** A frame `delta` frames on, inside the video's `durationFrames`; of a video whose length isn't known (0), any after 0. */
 export function stepFrame(frame: number, delta: number, durationFrames: number): number {
-  return Math.min(Math.max(0, durationFrames - 1), Math.max(0, frame + delta));
+  const at = Math.max(0, frame + delta);
+  return durationFrames > 0 ? Math.min(durationFrames - 1, at) : at;
 }
 
 /** The clip with its in point at `frame`; an out point before it moves with it, so the clip is never backwards. */

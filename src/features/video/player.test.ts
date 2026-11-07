@@ -42,6 +42,9 @@ describe('the Player', () => {
   it('steps inside the video', () => {
     expect(stepFrame(5, 1, 48)).toBe(6);
     expect(stepFrame(0, -1, 48)).toBe(0);
+    // Length unknown: steps on, never before 0.
+    expect(stepFrame(71, 1, 0)).toBe(72);
+    expect(stepFrame(3, -10, 0)).toBe(0);
     expect(stepFrame(47, 10, 48)).toBe(47);
     expect(stepFrame(3, -10, 48)).toBe(0);
   });

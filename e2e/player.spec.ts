@@ -150,6 +150,8 @@ test('played to the end, it stops on the last frame, and O sets the out point th
   await page.keyboard.press(' ');
   await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
   const [, , sec = 0, f = 0] = (await timecode(page).innerText()).split(':').map(Number);
+  // From the in point (frame 10), not the start.
+  expect(sec * 24 + f).toBeGreaterThanOrEqual(10);
   expect(sec * 24 + f).toBeLessThan(40);
 });
 
