@@ -316,7 +316,7 @@ Lows deferred (noted, not planned yet):
    Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (PR #85, merged Nov 7; four review rounds; see "2.8b as built"; rendered
    from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
-   **2.9** JSON export and import, lossless.
+   **2.9** JSON export and import, lossless (in review, branch `phase2/2.9-json`; see "2.9 as built" and "2.9: decisions").
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
    follows.
@@ -338,6 +338,61 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.9: decisions
+
+- Decided by default, review: the JSON export carries the Trash and the History, though CLAUDE.md says exports skip
+  the Trash. That rule is for
+  views of the project (PDF, CSV, PNG); this export is the project itself, and "round-trip without data loss" can't
+  leave the Trash out. Export says so beside the format ("All of it: … the Trash, the History …"). If Kevin wants a
+  choice to leave them out, it's an option on the format, not a change to the file.
+- One JSON file, a row to a line, pictures as base64, rather than a zip of JSON and image files: one file anyone can
+  read, with no new dependency. The cost: base64 adds a third, and an import reads the file in one piece, so about
+  300 MB of pictures is the most it takes (said if exceeded). Collect project (.sbdpack, later) is for moving big ones.
+- Import makes a new project, never merges into the open one, and keeps everything, the title included; only the file's
+  own id is new, so its backups on this computer are its own.
+- Its columns and rows can only be checked once the new file has its schema, so a JSON that fails then (a table or
+  column it doesn't have, or rows SQLite refuses at commit), or a quit during a long import, leaves the new file
+  empty at the name chosen: it opens as an empty project, and a second try needs another name. A hidden draft renamed
+  on success would need a new driver call; low, left.
+- The copy keeps every id, the project's included: Phases 7 and 9 (change files, review copies) must tell two files
+  apart by `meta.file_id`, not the project id.
+- The JSON is plain text: contact details, and every old value History keeps, can be read in it. Export says so
+  ("everyone's contact details … Share it as you would the project file").
+
+### 2.9: review
+
+Round 1: no high; two mediums fixed. The export read table after table, so a still or a picture landing meanwhile
+could give a thumbnail without its picture (a JSON that never imports) or a step without its frame: it reads again if
+the connection wrote anything in between, and after three tries says so. Nothing stopped an export too large to
+import back: its size is worked out first (blobs as base64, text as it is) and refused past the import limit, and the
+bytes are made a piece at a time. Lows fixed: a meta schema version that isn't the header's is refused; SQLite's own
+refusal at commit is said in the app's words; the size is checked before the file is decoded, and text that isn't
+UTF-8 is refused rather than read with replacement characters; the Rust cap is the page's limit (400 MB); Stop stops
+the read; one import at a time; the parsed file is let go before the new project loads; the words say what's in it
+(contact details, share it as the project file) and no longer promise "nothing lost" (videos stay outside); the Spanish
+says "datos del proyecto" throughout. Tests: rows in any order (thumbnails before pictures, op groups reversed), the
+deferred checks in Rust too; a commit-time refusal; the meta mismatch; an edit mid-read; the size estimate; an empty
+project exports; a JSON that isn't project data is refused in words, end to end. Lows left: memory at the limit hasn't
+been measured on a real webview (a Phase 2 gate check); an empty blob reads as null on the desktop (none exist today);
+a failed import's empty file (above).
+
+Round 2: no high; two mediums fixed, both in round 1's fixes. The size estimate counts characters, but the limit is
+bytes (accents, quotes escaped in JSON text), so a project just under it could still write a JSON the import refuses:
+the bytes themselves are checked before the file is written, the estimate kept as the early refusal. Every failed
+import transaction was said as a bad file, a full disk or a sync included: only SQLite refusing the rows (a constraint,
+a value of the wrong kind) is; anything else is said as it is. Lows fixed: the mid-read test counts its two passes and
+finds the edit in the frame's own row; the reorder test says what it reorders (rows within a table); the too-large
+words name the History as well as the pictures. Lows left: an import holds the parsed file and its statements at once
+(the gate's memory check); in the browser build a file input that never says Cancel holds the import guard until a
+reload; Compact during an export isn't seen by the change count (both open from different tiles; unlikely).
+
+Round 3: no high, no medium; review done. Lows fixed: tests that the bytes refuse an export the import wouldn't take
+(nothing written), that SQLite refusing a row (CHECK, NOT NULL, UNIQUE, a foreign key) is said as data that doesn't
+fit and a full disk as it is; a failed ROLLBACK no longer hides the error that caused it (Node and sql.js drivers).
+Low left: a sync replacing the new file mid-import says "the project file changed on disk", which could be read as
+the open project's (nothing else happens).
+
 
 ### 2.8b: review
 
@@ -601,6 +656,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    window was, graded, with sound in sync. Try a long take on an external drive, and a 6K or 8K original.
 5. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
+6. Project data as JSON (2.9): export a real project (Export → Project data (JSON)), then Import project data… on the
+   Projects screen: the new project has every frame, picture, note, the Trash and History, and undo still works in it.
+   Try the largest board you have, on a Mac and on Windows, and say how long each takes and if the app strains. And
+   say whether the JSON should carry the Trash and History (it does; "2.9: decisions").
 
 ## The rules for this run (Kevin's queued instructions)
 

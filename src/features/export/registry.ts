@@ -5,6 +5,7 @@ import { pdfStoryboard } from './pdfStoryboardFormat';
 import { pngFrames } from './pngFrames';
 import type { ExportScope } from './scope';
 import type { WatermarkUse } from './watermark';
+import { projectJsonFormat } from './projectJsonFormat';
 import { shotListCsvFormat } from './shotListCsv';
 
 // The export registry (1.24, docs/PLAN.md D): a format is one file plus one line below. Each says what it makes, for
@@ -42,6 +43,11 @@ export interface ExportFormat {
   watermark?: WatermarkUse;
   /** The choices Export offers for it. */
   options?: ExportFormatOptions;
+  /**
+   * It's the project itself, not a view of it (Project data as JSON, 2.9): always all of it, History and Trash
+   * included, so Export offers no choice of scenes.
+   */
+  wholeProject?: true;
   /** The file's name, or the new folder's, for this scope. */
   name: (title: string, sceneNumber: string | null) => string;
   /** Resolves to what it wrote. */
@@ -55,4 +61,4 @@ export interface ExportResult {
   warning?: string;
 }
 
-export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames];
+export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, projectJsonFormat];

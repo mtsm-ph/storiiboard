@@ -50,11 +50,24 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.7 Still capture into a frame | #83 | Done |
 | 2.8a The frame's clip plays in the inspector | #84 | Done |
 | 2.8b Save clip as file | #85 | Done |
-| 2.9 JSON export and import carry all of it | | Not started |
+| 2.9 JSON export and import carry all of it | #86 | Done |
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.9 as built (Nov 7): project data as JSON, out and back (`src/core/storage/projectJson.ts`, docs/SBD_FORMAT.md
+"Project data as JSON").
+- Export → Project data (JSON) writes the whole project as one JSON file, `Bey County project data.json`: every table
+  of the .sbd, row by row, pictures as base64, a row to a line. It's the project, not a view: the Trash, the History,
+  named versions, LUTs, slate numbers and Seen go too, whatever scene is picked, and no watermark.
+- Import project data… on the Projects screen reads one, checks it (format, versions, every table and column against
+  the schema it names), asks where the new project goes (named after its title), builds it at the JSON's schema, puts
+  every row in in one transaction and opens it, upgraded as any older file. It never writes over a file.
+- Tests: a project with one of everything (pictures with every byte value, a LUT, frames, one in the Trash, an undone
+  edit, a named version, Seen, a slate number) out and back, every table equal row for row, and out again to the same
+  JSON; an import from an older schema, upgraded on open; refusals named; an injected column name refused; end to end
+  in the memory build: export, import, the frame in the Trash restored in the new project.
 
 2.8b as built (Nov 7): Save clip as file (`src/features/video/saveClip.ts`, video.rs `save_clip`, `clip_save`).
 - Save clip as file… in the inspector's Video section renders the frame's clip, in to out, from the original (never

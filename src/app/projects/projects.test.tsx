@@ -62,7 +62,9 @@ describe('the Projects screen', () => {
     );
     expect(html).toContain('No recent projects yet.');
     expect(html).toContain('Projects open in the desktop app.');
-    expect(html.split('disabled=""').length - 1).toBe(3);
+    // New, Open, Open backup and Import project data.
+    expect(html.split('disabled=""').length - 1).toBe(4);
+    expect(html).toContain('Import project data…');
   });
 
   it('lists only live projects under Recent, each with its state; archived ones wait under Archived', () => {

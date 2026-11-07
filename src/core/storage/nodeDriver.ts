@@ -159,7 +159,12 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
             for (const { sql, params } of statements) db.prepare(sql).run(...(params ?? []));
             db.exec('COMMIT');
           } catch (error) {
-            db.exec('ROLLBACK');
+            // SQLite may have rolled back itself (a full disk, out of memory): the error that did it is the one said.
+            try {
+              db.exec('ROLLBACK');
+            } catch {
+              // Nothing open to roll back.
+            }
             throw error;
           }
         } finally {

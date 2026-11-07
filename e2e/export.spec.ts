@@ -744,3 +744,44 @@ test('Strength goes as low as a stored watermark can be, 5%, and keeps it', asyn
   await expect(dialog(page, 'Watermark Settings').getByRole('slider', { name: /^Strength/ })).toHaveValue('5');
   await expect(dialog(page, 'Watermark Settings').getByRole('slider', { name: /^Strength/ })).toHaveAttribute('aria-valuetext', '5%');
 });
+
+test('exports the whole project as JSON, which imports back as a new project with its frames, Trash and History', async ({ page }) => {
+  // One frame to the Trash first: the JSON is the project, so it goes too.
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  await page.keyboard.press('Delete');
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(1);
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Project data (JSON)' }).check();
+  // The whole project, always: no scene to pick.
+  await expect(dialog(page, 'Export').getByRole('combobox', { name: /^Scenes/ })).toHaveCount(0);
+  const downloaded = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const file = await downloaded;
+  expect(file.suggestedFilename()).toBe('Bey County project data.json');
+  const text = readFileSync(await file.path(), 'utf8');
+  const data = JSON.parse(text) as { format: string; tables: Record<string, { rows: unknown[][] }> };
+  expect(data.format).toBe('storiiboard-project');
+  await expect(page.getByRole('status').getByText('Exported the whole project to “Bey County project data.json”.')).toBeVisible();
+
+  // Imported from the Projects screen, as a project of its own.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Project: Bey County' }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import project data…' }).click();
+  page.once('dialog', (prompt) => void prompt.accept('Bey County imported'));
+  await (await chooser).setFiles(await file.path());
+  // It keeps its title, as everything else; the file is the new one.
+  await expect(page.getByRole('region', { name: 'Projects', exact: true })).toHaveCount(0);
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(1);
+  // Its Trash and History came with it: the frame deleted before the export is there to restore, and restored.
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  const trash = page.getByRole('region', { name: 'Trash', exact: true });
+  await trash.getByRole('button', { name: 'Restore frame 1B' }).click();
+  await expect(board(page).locator('[data-shot-id]')).toHaveCount(2);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Project: Bey County' }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  const recent = page.getByRole('list', { name: 'Recent projects' }).getByRole('listitem');
+  await expect(recent.filter({ hasText: '/memory/Bey County imported.sbd' })).toContainText('Open');
+  await expect(recent.filter({ hasText: '/memory/Bey County.sbd' })).not.toContainText('Open');
+});

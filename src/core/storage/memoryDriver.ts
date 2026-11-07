@@ -170,7 +170,12 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
             for (const { sql, params } of statements) db.run(sql, params ?? []);
             db.exec('COMMIT');
           } catch (error) {
-            db.exec('ROLLBACK');
+            // SQLite may have rolled back itself (a full disk, out of memory): the error that did it is the one said.
+            try {
+              db.exec('ROLLBACK');
+            } catch {
+              // Nothing open to roll back.
+            }
             throw error;
           }
           save();

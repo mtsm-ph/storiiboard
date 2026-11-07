@@ -2,6 +2,9 @@ import type { ProjectState } from '../../core/model/project';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { appDataDir } from '@tauri-apps/api/path';
 import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
+import { importProjectJson, ProjectJsonError, projectJsonText, projectJsonTitle, readProjectJson, type ProjectJson } from '../../core/storage/projectJson';
+import { chooseProjectJson } from '../projectJsonFile';
+import { safeName } from '../../features/export/names';
 import type { NamedVersion } from '../../core/storage/versions';
 import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
@@ -96,6 +99,69 @@ export async function newProject(): Promise<void> {
     const created = projectStore.getState().project;
     if (created?.file.path === path) openOnboarding({ projectId: created.projectId, path });
   });
+}
+
+/** Why a project's JSON can't be imported, in words. */
+function projectJsonWords(error: ProjectJsonError, name: string): string {
+  switch (error.problem) {
+    case 'notJson':
+      return t('projectJson.notJson', { name });
+    case 'notProject':
+      return t('projectJson.notProject', { name });
+    case 'formatNewer':
+      return t('projectJson.formatNewer', { name });
+    case 'schemaNewer':
+      return t('projectJson.schemaNewer', { name });
+    case 'tables':
+      return t('projectJson.tables', { name });
+    case 'tooLarge':
+      return t('projectJson.tooLarge', { name });
+  }
+}
+
+let importing = false;
+
+/**
+ * Import project data… (2.9): a project's JSON export made into a new project, at the place the Save dialog picks,
+ * then opened. The JSON is checked before anything is made; the new file holds exactly what the exported one did.
+ */
+export async function importProjectData(): Promise<void> {
+  // One at a time: a second click while one is read or written does nothing.
+  if (importing) return;
+  importing = true;
+  try {
+    await attempt(() => importChosen());
+  } finally {
+    importing = false;
+  }
+}
+
+/** Read in a function of its own, so the file's bytes and text are let go once parsed: a large one is hundreds of MB. */
+async function readChosen(chosen: { name: string; bytes(): Promise<ArrayBuffer> }): Promise<ProjectJson> {
+  return readProjectJson(projectJsonText(await chosen.bytes()));
+}
+
+async function importChosen(): Promise<void> {
+  const chosen = await chooseProjectJson();
+  if (chosen === null) return;
+  let data: ProjectJson | null;
+  try {
+    data = await readChosen(chosen);
+  } catch (error) {
+    if (error instanceof ProjectJsonError) throw new Error(projectJsonWords(error, chosen.name));
+    throw error;
+  }
+  const title = projectJsonTitle(data);
+  const path = await pickNewProjectPath(title ? safeName(title) : undefined, t('dialogs.importProjectData'));
+  if (path === null) return;
+  try {
+    await importProjectJson(appDriver, path, data);
+  } catch (error) {
+    if (error instanceof ProjectJsonError) throw new Error(projectJsonWords(error, chosen.name));
+    throw error;
+  }
+  data = null;
+  await openProjectFile(path, files);
 }
 
 export async function openWithDialog(): Promise<void> {

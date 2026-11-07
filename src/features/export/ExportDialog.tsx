@@ -21,8 +21,9 @@ import { localizeError, pluralKey, t } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 
 // Export Project (1.24, the project menu): a format from the registry, the whole project or one scene, then where it
-// goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash. The watermark, when the format
-// carries one, is shown here and set in Watermark Settings. A running export can be stopped; what it wrote stays.
+// goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash, but for Project data (JSON),
+// which is the project itself (2.9). The watermark, when the format carries one, is shown here and set in Watermark
+// Settings. A running export can be stopped; what it wrote stays.
 
 export function ExportHost() {
   const open = useExportDialog();
@@ -85,7 +86,8 @@ function ExportDialog() {
   const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
   if (!project) return null;
   const format = FORMATS.find((f) => f.id === formatId) ?? FORMATS[0];
-  const scene = scenes.find((s) => s.record.id === sceneId) ?? null;
+  const whole = format?.wholeProject === true;
+  const scene = whole ? null : (scenes.find((s) => s.record.id === sceneId) ?? null);
   const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
   const props = records[project.projectId]?.props;
   const title = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
@@ -177,6 +179,7 @@ function ExportDialog() {
           }}
         />
       )}
+      {!whole && (
       <Select
         label={t('exportDialog.scenes')}
         value={sceneId}
@@ -191,10 +194,15 @@ function ExportDialog() {
           </option>
         ))}
       </Select>
-      <p className="text-[13px]">
-        <Trans k={pluralKey('export.framesNoTrash', frames)} parts={{ count: <span className="font-mono">{String(frames)}</span> }} />{' '}
-        {carries ? t('export.watermark', { text: watermark.text, position: POSITION_LABEL[watermark.position].toLowerCase() }) : t('export.noWatermark')}
-      </p>
+      )}
+      {whole ? (
+        <p className="text-[13px]">{t('export.wholeProject')}</p>
+      ) : (
+        <p className="text-[13px]">
+          <Trans k={pluralKey('export.framesNoTrash', frames)} parts={{ count: <span className="font-mono">{String(frames)}</span> }} />{' '}
+          {carries ? t('export.watermark', { text: watermark.text, position: POSITION_LABEL[watermark.position].toLowerCase() }) : t('export.noWatermark')}
+        </p>
+      )}
       {failed !== null && (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
           {failed}
@@ -207,7 +215,7 @@ function ExportDialog() {
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
-        <Button variant="primary" disabled={running !== null || frames === 0} onClick={() => void run()}>
+        <Button variant="primary" disabled={running !== null || (frames === 0 && !whole)} onClick={() => void run()}>
           {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>

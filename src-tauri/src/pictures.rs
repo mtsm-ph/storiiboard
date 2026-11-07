@@ -31,6 +31,12 @@ const LUT_EXTENSIONS: &[&str] = &["cube"];
 /// The largest LUT read: a 65-point cube, the largest in common use, is about 8 MB of text.
 const MAX_LUT_BYTES: u64 = 16 * 1024 * 1024;
 
+/// What the Open dialog offers for project data to import (2.9): the JSON a project exports.
+const PROJECT_JSON_EXTENSIONS: &[&str] = &["json"];
+/// The largest project JSON read, the page's own limit (src/core/storage/projectJson.ts, MAX_IMPORT_CHARS): it
+/// parses it in one piece, and a webview's longest string is about 512 million characters.
+const MAX_PROJECT_JSON_BYTES: u64 = 400_000_000;
+
 /// How large a file may be read, by what it is.
 fn max_bytes(path: &Path) -> u64 {
     let extension = path
@@ -41,6 +47,7 @@ fn max_bytes(path: &Path) -> u64 {
         Some("pdf") => MAX_SCRIPT_PDF_BYTES,
         Some(e) if SCRIPT_EXTENSIONS.contains(&e) => MAX_SCRIPT_BYTES,
         Some(e) if LUT_EXTENSIONS.contains(&e) => MAX_LUT_BYTES,
+        Some(e) if PROJECT_JSON_EXTENSIONS.contains(&e) => MAX_PROJECT_JSON_BYTES,
         _ => MAX_BYTES,
     }
 }
@@ -165,6 +172,16 @@ pub async fn lut_choose(
     choose(app, title, (kind, LUT_EXTENSIONS), false).await
 }
 
+/// The Open dialog for project data to import (2.9); the file picked becomes readable through `pictures_read`.
+#[tauri::command]
+pub async fn project_json_choose(
+    app: AppHandle,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    choose(app, title, (kind, PROJECT_JSON_EXTENSIONS), false).await
+}
+
 pub(crate) async fn choose(
     app: AppHandle,
     title: String,
@@ -248,6 +265,11 @@ mod tests {
         assert_eq!(
             max_bytes(Path::new("/Films/Bey County.pdf")),
             MAX_SCRIPT_PDF_BYTES
+        );
+        // Project data (2.9) may hold every picture of a feature, so it's allowed far more than a script.
+        assert_eq!(
+            max_bytes(Path::new("/Films/Bey County project data.JSON")),
+            MAX_PROJECT_JSON_BYTES
         );
         // A LUT: a 65-point cube is about 8 MB of text.
         assert_eq!(
