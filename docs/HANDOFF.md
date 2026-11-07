@@ -49,6 +49,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
 | #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
+| #82 | 2.6: framing a frame's clip over the Player (the window moves and zooms over the take, one undo step each); see "2.6 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -306,8 +307,8 @@ Lows deferred (noted, not planned yet):
    write the checklist into the handoff, and keep going (Kevin tests in batches).
 2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
    `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
-   the original; the LUT joins the copy's key. Then **2.6** crop over the Player (in progress, branch
-   `phase2/2.6-crop`; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
+   the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
+   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The

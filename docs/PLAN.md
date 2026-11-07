@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.5 merged; 2.6 in review) |
+| Last updated | Nov 7, 2026 (2.6 merged; 2.7 next) |
 
 | Phase | State |
 |---|---|
@@ -46,7 +46,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | #79 | Done |
 | 2.4 The Player plays real footage (Stop A) | #80 | Done |
 | 2.5 LUTs per video | #81 | Done |
-| 2.6 Crop | | In review |
+| 2.6 Crop | #82 | Done |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
