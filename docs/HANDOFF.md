@@ -385,6 +385,10 @@ played says so (as the Player does) and Play is off; a missing original isn't re
 passed 20 of 20 under load. Lows left: under heavy load a webview could present the frame after the out point once
 before the pause lands (the test holds it to the out point; none seen).
 
+Checkpoints 2.8a and 2.8a-r2: everything green but the Mac's Rust tests, which hung with VideoToolbox's encoder
+service and sixteen ffmpegs stuck, the runner's virtual GPU again (2.3c, stop A). 2.8a changed no Rust; checkpoint
+2.8b, built on 2.8a's head, passed every job, the Mac's Rust tests included, and stands for it. Merged Nov 7.
+
 ### 2.7: review
 
 Round 1: no high; two mediums fixed. G while playing grabbed the frame from the last render and then paused, so the
