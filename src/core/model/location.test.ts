@@ -215,6 +215,9 @@ describe('3.3b review', () => {
     expect(barn?.scenes).toEqual([]);
     // Not one whose scene is in the Trash.
     expect(barn?.frames.map((f) => f.id)).toEqual(['s1']);
+    // A frame pinned to its own scene's location is counted with the scene, not twice.
+    const diner = projectLocations({ ...all, s3: record('s3', 'shot', 'sc1', { location_id: 'l1' }) }, 'p').find((l) => l.record.id === 'l1');
+    expect(diner?.frames).toEqual([]);
   });
 
   it('the shot list’s location column: the frame’s own, else its scene’s, a trashed own one as the scene’s', async () => {

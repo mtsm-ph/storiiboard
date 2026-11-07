@@ -68,7 +68,7 @@ export function projectLocations(
       fields: locationFields(record.props),
       scenes: all.filter((s) => s.type === 'scene' && s.trashedAt === null && s.props.location_id === record.id),
       // Frames shot here though their scene is set elsewhere (3.3b), so a place only they use never reads as unused.
-      frames: all.filter((f) => f.type === 'shot' && f.trashedAt === null && f.props.location_id === record.id && liveScene(f.parentId)),
+      frames: all.filter((f) => f.type === 'shot' && f.trashedAt === null && f.props.location_id === record.id && liveScene(f.parentId) && records[f.parentId ?? '']?.props.location_id !== record.id),
     }))
     .sort((a, b) => (a.fields.name === '' ? 1 : b.fields.name === '' ? -1 : a.fields.name.localeCompare(b.fields.name)));
 }

@@ -673,7 +673,7 @@ export const es: Messages = {
   'locations.unnamed': 'Locación sin nombre',
   'locations.frames.one': '{count} cuadro',
   'locations.frames.other': '{count} cuadros',
-  'location.framesHere': 'Cuadros filmados aquí',
+  'location.framesHere': 'Cuadros que se ruedan aquí',
   'locations.scenes.one': '{count} escena',
   'locations.scenes.other': '{count} escenas',
   'locations.trashed': 'Se movió {name} a la papelera. Sus escenas la recuperan si se restaura.',

@@ -356,7 +356,10 @@ Round 1: no high, five mediums, fixed.
 - Lows fixed: the Inspector's "This frame shot at" no longer offers the scene's own location again (it would pin the
   frame there silently), and shows a frame's own one that's unnamed or in the Trash so it can be taken off; an unnamed
   location's photo has a name in the Trash; a field left as its location goes to the Trash isn't written to it.
-- Lows left: a location's own History filter leaves out its photos (steps.ts takes in children for frames only); a
+- Round 2: none at high or medium. Lows fixed: a frame pinned to its own scene's location isn't counted twice; an
+  unnamed scene location reads as unnamed in the Inspector, not as none. Lows left: the delete notice doesn't count
+  frames pinned to the location; `field.hidden` still says "frame" on a location (only for non-text custom values).
+- Lows left from round 1: a location's own History filter leaves out its photos (steps.ts takes in children for frames only); a
   keyboard arrow on a closed select may make one edit per press on Windows, as the other selects do; the Inspector's
   Location row still shows the scene's location above the frame's own one.
 

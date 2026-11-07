@@ -157,8 +157,13 @@ export function InspectorTile() {
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
   const location = locationId ? records[locationId] : undefined;
+  // A live one without a name reads as unnamed, not as none.
   const locationName =
-    location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : null;
+    location?.type === 'location' && location.trashedAt === null
+      ? typeof location.props.name === 'string' && location.props.name.trim() !== ''
+        ? location.props.name
+        : t('locations.unnamed')
+      : null;
   // A frame shot somewhere other than its scene's location (3.3): its own, among the project's live ones. The scene's
   // own location isn't offered again (picking it would pin the frame there for good, with nothing to show it). One the
   // frame has that the list leaves out (unnamed, or in the Trash) is shown as it is, so it can be taken off.
