@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
@@ -55,6 +55,11 @@ export function LocationsTile() {
   // The tile's own width, for the layout: a container, not the window, decides.
   const [width, setWidth] = useState(0);
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // Measured as the element arrives too, so a wide tile never shows the narrow layout first.
+  const measure = useCallback((element: HTMLDivElement | null) => {
+    setBox(element);
+    if (element) setWidth(element.getBoundingClientRect().width);
+  }, []);
   useEffect(() => {
     if (!box) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -74,7 +79,7 @@ export function LocationsTile() {
   const edit = (build: (now: Records) => ReturnType<typeof locationChange>) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
   return (
-    <div ref={setBox} className={cx('flex min-h-0 flex-1', wide ? 'flex-row' : 'flex-col')}>
+    <div ref={measure} className={cx('flex min-h-0 flex-1', wide ? 'flex-row' : 'flex-col')}>
       <div className={cx('flex shrink-0 flex-col border-border', wide ? 'w-[220px] border-r' : 'max-h-[40%] border-b')}>
         <div className="flex items-center gap-2 border-b border-border p-2">
           <p className="sb-label flex-1 font-mono">{tn('locations.count', all.length)}</p>
@@ -140,11 +145,13 @@ export function LocationsTile() {
           onChange={(prop, value) => {
             // One name per place: a rename onto another live location's name is refused, so the "/" menu never
             // offers two of the same.
-            if (prop === 'name' && locationNameTaken(projectStore.getState().records, projectId, value, selected.record.id)) {
-              showNotice(new Error(t('location.nameTaken', { name: value.trim() })));
+            const taken = prop === 'name' ? locationNameTaken(projectStore.getState().records, projectId, value, selected.record.id) : null;
+            if (taken) {
+              showNotice(new Error(t(taken === 'live' ? 'location.nameTaken' : 'location.nameInTrash', { name: value.trim() })));
               return false;
             }
-            void edit((now) => locationChange(now, selected.record.id, prop, value));
+            // A name is kept trimmed, so the "/" menu and a typed name find it.
+            void edit((now) => locationChange(now, selected.record.id, prop, prop === 'name' ? value.trim() : value));
             return true;
           }}
           onDelete={() => {

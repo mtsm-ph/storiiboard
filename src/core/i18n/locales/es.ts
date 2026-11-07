@@ -678,6 +678,8 @@ export const es: Messages = {
   'location.notes': 'Notas',
   'location.nameTaken': 'Ya hay otra locación llamada “{name}”. Cada locación tiene un nombre propio.',
   'location.nothingToMap': 'Primero dale a esta locación una dirección o un nombre.',
+  'location.nameInTrash': 'Hay una locación en la papelera llamada “{name}”. Restáurala desde la papelera o elige otro nombre.',
+  'trash.locationClash': 'Ahora hay otra locación llamada “{name}”. Cambia primero el nombre de una de las dos: cada locación tiene un nombre propio.',
   'location.copyMapLink': 'Copiar enlace del mapa',
   'location.linkCopied': 'Se copió un enlace al mapa de esta locación.',
   'location.linkNotCopied': 'No se pudo copiar el enlace: {link}',

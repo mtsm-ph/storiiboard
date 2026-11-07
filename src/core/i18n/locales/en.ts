@@ -676,6 +676,8 @@ export const en = {
   'location.notes': 'Notes',
   'location.nameTaken': 'Another location is already called “{name}”. Locations each have a name of their own.',
   'location.nothingToMap': 'Give this location an address or a name first.',
+  'location.nameInTrash': 'A location in the Trash is called “{name}”. Restore it from the Trash, or choose another name.',
+  'trash.locationClash': 'Another location is called “{name}” now. Rename one of them first: locations each have a name of their own.',
   'location.copyMapLink': 'Copy map link',
   'location.linkCopied': 'Copied a map link for this location.',
   'location.linkNotCopied': 'The link couldn’t be copied: {link}',

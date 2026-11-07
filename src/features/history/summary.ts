@@ -162,8 +162,7 @@ export const isMono = (prop: string): boolean => MONO.has(prop);
 /** A stored code by the word the board and the inspector show for it ("hmu" → "HMU", "need" → "Need to shoot"). */
 const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   departments: DEPARTMENT_LABELS,
-  // A frame's status (have, need, source) or a location's (TBD, confirmed, cancelled, 3.3): the codes never overlap.
-  status: { ...SHOT_STATUS_LABELS, ...LOCATION_STATUS_LABEL },
+  status: SHOT_STATUS_LABELS,
   size: SHOT_SIZE_LABEL,
   support: SUPPORT_LABEL,
   height: HEIGHT_LABEL,
@@ -173,7 +172,10 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
 const choiceLabel = (prop: string, value: string): string => {
-  const table = CHOICE[prop];
+  // A location's status (TBD, confirmed, cancelled, 3.3) shares the prop with a frame's (have, need, source): the codes
+  // never overlap. Each table read as it is, so the words follow the language now, never the one at load.
+  const table: Readonly<Record<string, string>> | undefined =
+    prop === 'status' && Object.hasOwn(LOCATION_STATUS_LABEL, value) ? LOCATION_STATUS_LABEL : CHOICE[prop];
   const label = table && Object.hasOwn(table, value) ? (table[value] ?? value) : value;
   return CAPITALISED.has(prop) ? label.charAt(0).toUpperCase() + label.slice(1) : label;
 };

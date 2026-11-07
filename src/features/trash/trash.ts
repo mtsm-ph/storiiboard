@@ -132,6 +132,21 @@ export function restoredName(records: Records, id: string): string | null {
   return record && kind ? partsOf(records, record, kind).map((p) => p.text).join('') : null;
 }
 
+/**
+ * The live location a restore of this one would sit beside under the same name (3.3: one name per place), or null.
+ * The Trash says so rather than restore it.
+ */
+export function restoreClash(records: Records, id: string): string | null {
+  const record = records[id];
+  if (record?.type !== 'location' || typeof record.props.name !== 'string') return null;
+  const wanted = record.props.name.trim().toLowerCase();
+  if (wanted === '') return null;
+  const live = Object.values(records).find(
+    (r) => r.type === 'location' && r.id !== id && r.trashedAt === null && r.parentId === record.parentId && typeof r.props.name === 'string' && r.props.name.trim().toLowerCase() === wanted,
+  );
+  return live ? record.props.name.trim() : null;
+}
+
 /** Everything in the project's Trash, the most recently deleted first; a scene's frames deleted with it are in its row. */
 export function trashItems(records: Records, projectId: string): TrashItem[] {
   const items: TrashItem[] = [];

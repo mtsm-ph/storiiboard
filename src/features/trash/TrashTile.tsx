@@ -2,11 +2,11 @@ import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { emptyTrashConfirmed } from '../../app/deleteForGood';
 import { switchedMessage } from '../../app/forGood';
-import { showInfo } from '../../app/notice';
+import { showInfo, showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { oldCompanyLogos, restoreChanges, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
@@ -71,6 +71,11 @@ export function TrashTile() {
 
   const restore = (id: string, name: string, index: number) => {
     if (restoring.current) return;
+    const clash = restoreClash(projectStore.getState().records, id);
+    if (clash) {
+      showNotice(new Error(t('trash.locationClash', { name: clash })));
+      return;
+    }
     restoring.current = true;
     let restored = false;
     void projectStore

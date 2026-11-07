@@ -68,9 +68,14 @@ describe('one name per place (3.3)', () => {
       { kind: 'update', id: 'sc1', set: { location_id: 'l1' } },
     ]);
     // A rename onto another live location's name is taken, whatever its case; its own name isn't.
-    expect(locationNameTaken(records(), 'p', ' barn ', 'l1')).toBe(true);
-    expect(locationNameTaken(records(), 'p', 'Barn', 'l2')).toBe(false);
-    expect(locationNameTaken(records(), 'p', 'Gone', 'l1')).toBe(false);
+    expect(locationNameTaken(records(), 'p', ' barn ', 'l1')).toBe('live');
+    expect(locationNameTaken(records(), 'p', 'Barn', 'l2')).toBeNull();
+    // One in the Trash holds its name too: a restore would put it beside the new one.
+    expect(locationNameTaken(records(), 'p', 'gone', 'l1')).toBe('trashed');
+    // A live name kept with a stray space still matches a typed one: no second location.
+    const spaced = { ...records(), l1: record('l1', 'location', 'p', { name: 'Diner ' }) };
+    expect(setSceneLocation(spaced, 'p', 'sc1', 'Diner')).toEqual([]);
+    expect(setSceneLocation(spaced, 'p', 'sc3', 'diner')).toEqual([]);
   });
 
   it('lists a trashed location in the Trash by name and restores it alone', async () => {
@@ -78,6 +83,13 @@ describe('one name per place (3.3)', () => {
     const item = trashItems(records(), 'p').find((i) => i.id === 'l3');
     expect(item).toMatchObject({ kind: 'location', name: 'Gone', sceneId: null });
     expect(restoreChanges(records(), 'p', 'l3')).toEqual([{ kind: 'restore', id: 'l3' }]);
+  });
+
+  it('won’t restore a location beside a live one with its name: says so instead', async () => {
+    const { restoreClash } = await import('../../features/trash/trash');
+    expect(restoreClash(records(), 'l3')).toBeNull();
+    const clash = { ...records(), l2: record('l2', 'location', 'p', { name: 'gone ' }) };
+    expect(restoreClash(clash, 'l3')).toBe('Gone');
   });
 });
 
@@ -91,5 +103,18 @@ describe('a location’s contact in History (3.3)', () => {
     expect(lines).toContain('contact phone: — → not shown');
     expect(lines).toContain('address: changed → changed');
     expect(lines).toContain('status: — → Confirmed');
+  });
+
+  it('says a location’s status and a frame’s in the language chosen now', async () => {
+    const { setLocale } = await import('../i18n');
+    const { valueLabel } = await import('../../features/history/summary');
+    setLocale('es');
+    try {
+      expect(valueLabel('status', 'confirmed')).toBe('Confirmada');
+      expect(valueLabel('status', 'have')).not.toBe('Have');
+    } finally {
+      setLocale('en');
+    }
+    expect(valueLabel('status', 'confirmed')).toBe('Confirmed');
   });
 });

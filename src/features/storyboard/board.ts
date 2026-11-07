@@ -456,10 +456,16 @@ export function trashedLocationNamed(records: Records, projectId: string, name: 
   );
 }
 
-/** Whether a live location other than `except` already has this name (whatever its case): names stay one each. */
-export function locationNameTaken(records: Records, projectId: string, name: string, except: string): boolean {
+/**
+ * Whether another location, live or in the Trash, already has this name (whatever its case): `live` for one in use,
+ * `trashed` for one that a restore would bring back beside it; null when it's free. Names stay one each.
+ */
+export function locationNameTaken(records: Records, projectId: string, name: string, except: string): 'live' | 'trashed' | null {
   const wanted = name.trim().toLowerCase();
-  return wanted !== '' && locations(records, projectId).some((l) => l.id !== except && l.name.trim().toLowerCase() === wanted);
+  if (wanted === '') return null;
+  if (locations(records, projectId).some((l) => l.id !== except && l.name.trim().toLowerCase() === wanted)) return 'live';
+  const trashed = trashedLocationNamed(records, projectId, wanted);
+  return trashed && trashed.id !== except ? 'trashed' : null;
 }
 
 /**
@@ -469,7 +475,7 @@ export function locationNameTaken(records: Records, projectId: string, name: str
 export function setSceneLocation(records: Records, projectId: string, sceneId: string, name: string): Change[] {
   const trimmed = name.trim();
   if (!records[sceneId] || trimmed === '') return [];
-  const existing = locations(records, projectId).find((l) => l.name.toLowerCase() === trimmed.toLowerCase());
+  const existing = locations(records, projectId).find((l) => l.name.trim().toLowerCase() === trimmed.toLowerCase());
   // Already this scene's location: no edit, so no empty step in History.
   if (existing && sceneFields(records[sceneId].props).locationId === existing.id) return [];
   if (existing) return [{ kind: 'update', id: sceneId, set: { location_id: existing.id } }];
