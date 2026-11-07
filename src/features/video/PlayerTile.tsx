@@ -41,11 +41,16 @@ export function PlayerTile() {
     setPlaying(false);
   }
 
-  // A copy is asked for when the Player shows a video without one (PLAN 2.3b: "and (2.4) by the Player").
+  // A copy is asked for when the Player shows a video that has had none since it came into view (PLAN 2.3b: "and (2.4)
+  // by the Player"). Once one was waiting, made or failed while shown, a copy gone after is the person's doing (Cancel,
+  // Clear), so the Player offers Make playback copy rather than undo it; a copy that vanishes mid-play is made again
+  // below (onVideoError).
   const usable = videoId !== null && linked !== null && !missing;
+  const [worked, setWorked] = useState<string | null>(null);
+  if (videoId !== null && copy.kind !== 'none' && copy.kind !== 'unknown' && worked !== videoId) setWorked(videoId);
   useEffect(() => {
-    if (usable && copy.kind === 'none') makeCopy(videoId);
-  }, [usable, videoId, copy.kind]);
+    if (usable && copy.kind === 'none' && worked !== videoId) makeCopy(videoId);
+  }, [usable, videoId, copy.kind, worked]);
 
   // Made: found and opened.
   useEffect(() => {

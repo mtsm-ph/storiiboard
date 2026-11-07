@@ -89,13 +89,25 @@ test('says what it waits for: a frame to select, a video to link, the copy being
   await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible({ timeout: 15_000 });
 });
 
-test('a copy cleared while it’s shown is made again, and plays again', async ({ page }) => {
+test('a copy cleared or cancelled while it’s shown stays gone until the person makes it again', async ({ page }) => {
   await linkAndOpen(page);
   const storage = await openSettings(page, 'Storage');
   await storage.getByRole('button', { name: 'Clear playback copies…' }).click();
   await answerAsk(page, true);
   await closeSettings(page);
-  // Gone under it: the Player says so, has it made again, and opens it.
-  await expect(player(page).locator('[data-player-state]')).toHaveText(/Making the playback copy…|Waiting its turn|No playback copy yet/);
+  // Cleared by the person: the Player says so and offers to make it, rather than undoing the Clear.
+  await expect(player(page).locator('[data-player-state]')).toHaveText('No playback copy yet.');
+  await player(page).getByRole('button', { name: 'Make playback copy' }).click();
   await expect(player(page).getByRole('slider', { name: 'Playhead' })).toBeVisible({ timeout: 15_000 });
+});
+
+test('asks for a copy of a video shown without one, but leaves a cancelled one cancelled', async ({ page }) => {
+  const chooser = page.waitForEvent('filechooser');
+  await inspector(page).getByRole('button', { name: 'Link video…' }).click();
+  await (await chooser).setFiles(clipPath);
+  await inspector(page).getByRole('button', { name: 'Cancel copy' }).click();
+  await expect(player(page).locator('[data-player-state]')).toHaveText('No playback copy yet.');
+  // Still cancelled a moment later: the Player didn't ask again behind the person's back.
+  await page.waitForTimeout(500);
+  await expect(inspector(page).locator('[data-copy-state]')).toHaveText('No playback copy yet.');
 });
