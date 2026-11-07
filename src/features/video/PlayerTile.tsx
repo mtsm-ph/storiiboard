@@ -4,7 +4,7 @@ import { displayAspect, readClip, videoFields } from '../../core/media/video';
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
-import { DEFAULT_CROP } from '../../core/media/crop';
+import { cropProp, DEFAULT_CROP } from '../../core/media/crop';
 import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
@@ -222,15 +222,21 @@ export function PlayerTile() {
               frameAspect,
               frameKey: shown,
               onCommit: async (crop) => {
-                if (!shotId) return;
-                // On the clip as it is when the edit lands; nothing for a framing where it is already.
-                await projectStore.getState().applyWith((now) => {
+                if (!shotId) return false;
+                // On the clip as it is when the edit lands; nothing for a framing where it is already, as stored
+                // (rounded to a thousandth: a move smaller than that is none).
+                const stored = cropProp(crop);
+                // Set inside the edit, read after it lands.
+                const outcome = { changed: false };
+                const landed = await projectStore.getState().applyWith((now) => {
                   const current = now[shotId];
                   const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
                   if (!currentClip || currentClip.videoId !== videoId) return { changes: [] };
-                  const same = currentClip.crop.x === crop.x && currentClip.crop.y === crop.y && currentClip.crop.zoom === crop.zoom;
+                  const same = currentClip.crop.x === stored.x && currentClip.crop.y === stored.y && currentClip.crop.zoom === stored.zoom;
+                  outcome.changed = !same;
                   return same ? { changes: [] } : { changes: [setClip(shotId, { ...currentClip, crop })] };
                 });
+                return landed && outcome.changed;
               },
             }
           : undefined

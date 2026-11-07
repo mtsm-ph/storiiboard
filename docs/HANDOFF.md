@@ -354,6 +354,15 @@ move that changes nothing on screen makes no edit (a stored crop outside today's
 is said once the edit has landed. Lows left: the Player tile scrolls inside its tile's own scroll area (harmless);
 no end-to-end test of a non-16:9 project or a rotated take yet (the maths is unit-tested for 2.39 and 4:5).
 
+Round 2: no high; one medium fixed: the paper focus ring (round 1's fix) sat inside the window on the footage itself,
+so it vanished over a bright sky or wall; it's two-tone now (paper with ink round it), inside the edge (tested end to
+end). Lows fixed: a draft is kept with its frame, so a move under way can't be saved onto another video after an undo
+changes it; "Framed at…" only when the edit landed; a failed save can't leave the window stuck; a move smaller than
+the stored rounding makes no edit; the zoom slider zooms from where its drag began, so out and back in keeps the
+window's place; the slider ignores Shift let go; a move under way is dropped if the picture goes (a copy remade).
+Lows left: for a moment on a new video the box may show the last one's size before it's measured (it measures in the
+same frame in practice); the quick-taps test's tolerance is a twentieth of a percent.
+
 ### 2.5: review
 
 Round 1: no high; three mediums fixed. A domain lut3d can't apply was kept and graded wrongly with no word (measured:

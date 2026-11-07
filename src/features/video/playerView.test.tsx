@@ -49,7 +49,7 @@ describe('the Player tile (2.4)', () => {
 
   it('draws the frame’s window over the take, with its keys, its zoom and Centre (2.6)', () => {
     const framed = (crop: { x: number; y: number; zoom: number }) =>
-      render({ framing: { crop, imageAspect: 16 / 9, frameAspect: 2.39, onCommit: () => Promise.resolve(), frameKey: 's1|v1' } });
+      render({ framing: { crop, imageAspect: 16 / 9, frameAspect: 2.39, onCommit: () => Promise.resolve(true), frameKey: 's1|v1' } });
     const html = framed({ x: 0.5, y: 0.5, zoom: 1 });
     // A 2.39 frame over a 16:9 take: the full width, a centred band of its height.
     expect(html).toMatch(/role="application" tabindex="0" aria-label="The frame’s window over the take, zoom 100%"[^>]*data-frame-window=""[^>]*style="left:0%;top:12\.8/);

@@ -21,8 +21,8 @@ export interface FrameWindowProps {
   imageAspect: number;
   /** The project's frame. */
   frameAspect: number;
-  /** Saves the clip's crop; settles once the edit has landed (or was refused). */
-  onCommit: (crop: Crop) => Promise<void>;
+  /** Saves the clip's crop; settles once the edit has landed, true if it did (false: refused, or nothing to save). */
+  onCommit: (crop: Crop) => Promise<boolean>;
   /** The frame and video the framing is of: a change drops a draft, so it never lands on another frame. */
   frameKey: string;
 }
@@ -34,8 +34,12 @@ export interface FrameWindowProps {
  */
 export function useFraming({ crop, imageAspect, frameAspect, onCommit, frameKey }: FrameWindowProps) {
   const [draft, setDraftState] = useState<Crop | null>(null);
-  // The latest draft for the handlers, which can run before React has drawn the last move (a fast drag's pointerup).
-  const latest = useRef<Crop | null>(null);
+  // The latest draft for the handlers, which can run before React has drawn the last move (a fast drag's pointerup);
+  // kept with the frame it's of, so a draft of another frame is never saved onto this one.
+  const latest = useRef<{ key: string; crop: Crop } | null>(null);
+  // Where a slider gesture began: zooming from there, not from the last (clamped) step, keeps the window's place
+  // when it's zoomed out and back in one drag.
+  const gesture = useRef<{ key: string; crop: Crop } | null>(null);
   const [pending, setPending] = useState<Crop | null>(null);
   const [said, setSaid] = useState('');
   // Another frame or video: nothing carried over.
@@ -48,28 +52,43 @@ export function useFraming({ crop, imageAspect, frameAspect, onCommit, frameKey 
   // As drawn: the stored crop may be outside what this frame allows (another aspect ratio since); drawing clamps it.
   const saved = clampCrop(crop, imageAspect, frameAspect);
   const shown = draft ?? pending ?? saved;
+  const mine = (held: { key: string; crop: Crop } | null) => (held?.key === frameKey ? held.crop : null);
   const setDraft = (next: Crop | null) => {
-    latest.current = next;
+    latest.current = next ? { key: frameKey, crop: next } : null;
     setDraftState(next);
   };
-  const commit = (next: Crop | null = latest.current) => {
+  const commit = (given?: Crop | null) => {
+    const next = given === undefined ? mine(latest.current) : given;
     setDraft(null);
+    gesture.current = null;
     // Nothing moved on screen: no edit, so the stored choice stays as the person left it.
     if (!next || same(next, pending ?? saved)) return;
     setPending(next);
-    void onCommit(next).then(() => {
-      setPending((now) => (now === next ? null : now));
-      // Said once it's saved, not on every step: where the window's centre is, and the zoom.
-      setSaid(t('player.framed', { zoom: Math.round(next.zoom * 100), x: Math.round(next.x * 100), y: Math.round(next.y * 100) }));
-    });
+    onCommit(next)
+      .then((landed) => {
+        // Said once it's saved, not on every step: where the window's centre is, and the zoom.
+        if (landed) setSaid(t('player.framed', { zoom: Math.round(next.zoom * 100), x: Math.round(next.x * 100), y: Math.round(next.y * 100) }));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setPending((now) => (now === next ? null : now));
+      });
   };
   /** Back to what's saved, unsaved (a gesture the system took over). */
   const revert = () => {
     setDraft(null);
   };
   /** Where the next step starts from: the move under way, else the last one let go, else what's saved. */
-  const base = () => latest.current ?? pending ?? saved;
-  return { shown, draft, setDraft, commit, revert, base, said };
+  const base = () => mine(latest.current) ?? pending ?? saved;
+  /** Where a slider gesture began (the first step of it sets it). */
+  const gestureStart = () => {
+    const held = mine(gesture.current);
+    if (held) return held;
+    const from = base();
+    gesture.current = { key: frameKey, crop: from };
+    return from;
+  };
+  return { shown, draft, setDraft, commit, revert, base, gestureStart, said };
 }
 
 export type Framing = ReturnType<typeof useFraming>;
@@ -150,9 +169,7 @@ export function FrameWindow({ framing, imageAspect, frameAspect, hintId }: { fra
         aria-label={t('player.frameWindow', { zoom: Math.round(shown.zoom * 100) })}
         aria-describedby={hintId}
         data-frame-window=""
-        // Always on ink (the footage dimmed, the bars), in both themes: its focus ring is paper, drawn inside the edge so
-        // the picture's box never clips it.
-        className="absolute cursor-grab touch-none border-[1.5px] border-paper-fixed outline outline-1 outline-ink-fixed focus-visible:outline-2 focus-visible:-outline-offset-[5px] focus-visible:outline-paper-fixed active:cursor-grabbing"
+        className="group absolute cursor-grab touch-none border-[1.5px] border-paper-fixed outline outline-1 outline-ink-fixed focus-visible:outline-1 active:cursor-grabbing"
         style={{ left: `${String(box.left)}%`, top: `${String(box.top)}%`, width: `${String(box.width)}%`, height: `${String(box.height)}%` }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -167,14 +184,21 @@ export function FrameWindow({ framing, imageAspect, frameAspect, hintId }: { fra
         onBlur={() => {
           if (draft) commit();
         }}
-      />
+      >
+        {/* The focus ring: inside the edge, so the picture's box never clips it, and two-tone (paper with ink round
+            it), since what's under it is the footage itself, bright or dark. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-[3px] hidden border-2 border-paper-fixed outline outline-2 outline-ink-fixed group-focus-visible:block"
+        />
+      </div>
     </div>
   );
 }
 
 /** The zoom slider and Centre, under the Player, with the live line that says each framing once it's saved. */
 export function FramingControls({ framing, imageAspect, frameAspect }: { framing: Framing; imageAspect: number; frameAspect: number }) {
-  const { shown, setDraft, commit, base, said } = framing;
+  const { shown, setDraft, commit, gestureStart, said } = framing;
   const zoomId = useId();
   const percent = Math.round(shown.zoom * 100);
   return (
@@ -190,14 +214,15 @@ export function FramingControls({ framing, imageAspect, frameAspect }: { framing
         step={5}
         value={percent}
         onChange={(event) => {
-          setDraft(zoomCrop(base(), Number(event.currentTarget.value) / 100, imageAspect, frameAspect));
+          setDraft(zoomCrop(gestureStart(), Number(event.currentTarget.value) / 100, imageAspect, frameAspect));
         }}
         // Saved when let go, as the inspector's controls are.
         onPointerUp={() => {
           commit();
         }}
-        onKeyUp={() => {
-          commit();
+        // Saved when the moving key is let go, not Shift let go first while an arrow still repeats.
+        onKeyUp={(event) => {
+          if (!['Shift', 'Meta', 'Control', 'Alt'].includes(event.key)) commit();
         }}
         onBlur={() => {
           commit();

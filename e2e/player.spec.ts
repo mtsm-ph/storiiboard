@@ -195,6 +195,9 @@ test('frames the clip over the take: the window zooms and moves by keys and by h
 
   await window.focus();
   await page.keyboard.press('+');
+  // Focused from the keyboard, the window shows its two-tone ring, inside its edge.
+  await expect(window.locator('span[aria-hidden="true"]')).toBeVisible();
+  await expect(window.locator('span[aria-hidden="true"]')).toHaveCSS('border-top-width', '2px');
   await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
   await page.keyboard.press('Shift+ArrowLeft');
   await expect.poll(async () => (await box()).left).toBeCloseTo(0, 1);

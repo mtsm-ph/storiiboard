@@ -55,7 +55,7 @@ export interface PlayerViewProps {
    * The frame's window over the take (2.6): the clip's crop, the take's shape (upright, square pixels) and the
    * project's frame; `onCommit` sets the clip's crop, one undo step. Left out, the picture shows as it is.
    */
-  framing?: { crop: Crop; imageAspect: number; frameAspect: number; onCommit: (crop: Crop) => Promise<void>; frameKey: string } | undefined;
+  framing?: { crop: Crop; imageAspect: number; frameAspect: number; onCommit: (crop: Crop) => Promise<boolean>; frameKey: string } | undefined;
 }
 
 /** The largest box of `aspect` that fits `width` by `height`. */
@@ -119,13 +119,14 @@ export function PlayerView(props: PlayerViewProps) {
   const { status, video, frame, playing } = props;
   const helpId = useId();
   const frameHintId = useId();
-  const noop = () => Promise.resolve();
+  const noop = () => Promise.resolve(false);
   const framing = useFraming({
     crop: props.framing?.crop ?? DEFAULT_CROP,
     imageAspect: props.framing?.imageAspect ?? 16 / 9,
     frameAspect: props.framing?.frameAspect ?? 16 / 9,
     onCommit: props.framing?.onCommit ?? noop,
-    frameKey: props.framing?.frameKey ?? '',
+    // A picture gone mid-move (the copy remade, an error) drops the move: it isn't shown as saved when it's back.
+    frameKey: `${props.framing?.frameKey ?? ''}|${status.kind === 'ready' ? 'shown' : 'gone'}`,
   });
   const tc = (index: number) => (video ? frameTimecode(index, video.fps, video.startTimecode) : '');
   const last = video ? Math.max(0, video.durationFrames - 1) : 0;
