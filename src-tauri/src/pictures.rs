@@ -26,6 +26,11 @@ const MAX_SCRIPT_BYTES: u64 = 10 * 1024 * 1024;
 /// A script PDF may carry pictures (a title page, storyboards), so it may be larger.
 const MAX_SCRIPT_PDF_BYTES: u64 = 50 * 1024 * 1024;
 
+/// What the Open dialog offers for a LUT (2.5): Resolve's `.cube`, which cameras and colourists ship.
+const LUT_EXTENSIONS: &[&str] = &["cube"];
+/// The largest LUT read: a 65-point cube, the largest in common use, is about 8 MB of text.
+const MAX_LUT_BYTES: u64 = 16 * 1024 * 1024;
+
 /// How large a file may be read, by what it is.
 fn max_bytes(path: &Path) -> u64 {
     let extension = path
@@ -35,6 +40,7 @@ fn max_bytes(path: &Path) -> u64 {
     match extension.as_deref() {
         Some("pdf") => MAX_SCRIPT_PDF_BYTES,
         Some(e) if SCRIPT_EXTENSIONS.contains(&e) => MAX_SCRIPT_BYTES,
+        Some(e) if LUT_EXTENSIONS.contains(&e) => MAX_LUT_BYTES,
         _ => MAX_BYTES,
     }
 }
@@ -149,6 +155,16 @@ pub async fn script_choose(
     choose(app, title, (kind, SCRIPT_EXTENSIONS), false).await
 }
 
+/// The Open dialog for a LUT to load for a video (2.5); the file picked becomes readable through `pictures_read`.
+#[tauri::command]
+pub async fn lut_choose(
+    app: AppHandle,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    choose(app, title, (kind, LUT_EXTENSIONS), false).await
+}
+
 pub(crate) async fn choose(
     app: AppHandle,
     title: String,
@@ -232,6 +248,11 @@ mod tests {
         assert_eq!(
             max_bytes(Path::new("/Films/Bey County.pdf")),
             MAX_SCRIPT_PDF_BYTES
+        );
+        // A LUT: a 65-point cube is about 8 MB of text.
+        assert_eq!(
+            max_bytes(Path::new("/Luts/SLog3SGamut3.CineToLC-709.CUBE")),
+            MAX_LUT_BYTES
         );
         assert_eq!(max_bytes(Path::new("/Films/still.jpg")), MAX_BYTES);
         assert_eq!(max_bytes(Path::new("/Films/no-extension")), MAX_BYTES);

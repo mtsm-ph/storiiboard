@@ -71,6 +71,11 @@ export interface InspectorVideo {
   gone: boolean;
   /** Its playback copy (2.3b); left out while it hasn't been looked for. */
   copy?: InspectorCopy;
+  /**
+   * Its LUT (2.5): the one set (null for none) and the project's LUTs to pick from. Every frame of the take shows it;
+   * it grades the playback copy, never the original.
+   */
+  lut?: { id: string | null; choices: readonly { id: string; name: string }[]; listed?: boolean };
 }
 
 /** A video's playback copy (2.3b): none yet, waiting its turn, being made (how far, 0 to 1, when known), made (without
@@ -112,6 +117,10 @@ export interface InspectorViewProps {
   onUnlinkVideo?: () => void;
   /** Puts the video's playback copy on the queue, or tries again (2.3b). */
   onMakeCopy?: () => void;
+  /** Asks for a `.cube` and sets it as the video's LUT (2.5). */
+  onLoadLut?: () => void;
+  /** Sets the video's LUT to one the project has, or none (null). */
+  onSetLut?: (lutId: string | null) => void;
   onCancelCopy?: () => void;
   onCropChange?: (crop: Crop) => void;
   /** Opens the frame's sketch in the editor. */
@@ -235,6 +244,47 @@ interface SectionProps {
   dropShotId?: string;
   /** Where Enter on a frame takes focus. */
   start?: boolean;
+}
+
+/**
+ * A video's LUT (2.5): the project's LUTs to pick from, with None, and Load LUT… for a `.cube` not loaded yet. A LUT
+ * the list hasn't read yet is still shown as set; one not in it once read says so.
+ */
+function LutPicker({
+  lut,
+  onLoad,
+  onSet,
+}: {
+  lut: NonNullable<InspectorVideo['lut']>;
+  onLoad: (() => void) | undefined;
+  onSet: ((lutId: string | null) => void) | undefined;
+}) {
+  const known = lut.id === null || lut.choices.some((choice) => choice.id === lut.id);
+  return (
+    <div data-video-lut="" className="flex flex-wrap items-end gap-2">
+      <div className="min-w-0 flex-1">
+        <Select
+          label={t('inspector.lut')}
+          value={lut.id ?? ''}
+          onChange={(event) => {
+            onSet?.(event.target.value === '' ? null : event.target.value);
+          }}
+        >
+          <option value="">{t('inspector.lutNone')}</option>
+          {/* Not in the list: still being read, or (once read) named but not stored, a file edited by hand. */}
+          {!known && lut.id !== null && <option value={lut.id}>{lut.listed ? t('inspector.lutMissing') : t('inspector.lutReading')}</option>}
+          {lut.choices.map((choice) => (
+            <option key={choice.id} value={choice.id}>
+              {choice.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Button data-load-lut="" onClick={onLoad}>
+        {t('inspector.loadLut')}
+      </Button>
+    </div>
+  );
 }
 
 /** The playback copy's line (2.3b). The live region is always there, so the line is heard as it changes; the
@@ -433,6 +483,8 @@ export function InspectorView({
   onUnlinkVideo,
   onMakeCopy,
   onCancelCopy,
+  onLoadLut,
+  onSetLut,
   onCropChange,
   locationName = null,
   onSketch,
@@ -635,6 +687,7 @@ export function InspectorView({
                 )}
                 {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} lineRef={copyLine} />}
               </div>
+              {!video.gone && video.lut && <LutPicker lut={video.lut} onLoad={onLoadLut} onSet={onSetLut} />}
               <div className="flex flex-wrap items-center gap-2">
                 {!video.gone && (
                   <Button data-relink-video="" variant={video.missing ? 'primary' : 'secondary'} onClick={onRelinkVideo}>

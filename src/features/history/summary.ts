@@ -57,6 +57,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   media_id: 'history.field.mediaId',
   crop: 'history.field.crop',
   clip: 'history.field.clip',
+  lut: 'history.field.lut',
   custom: 'history.field.custom',
   name: 'history.field.name',
   int_ext: 'history.field.intExt',
@@ -170,6 +171,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'location_id') return t('history.aLocation');
   if (prop === 'media_id') return t('history.aPicture');
   if (prop === 'clip') return t('history.aClip');
+  // A video's LUT (2.5), kept by the id of its row.
+  if (prop === 'lut') return t('history.aLut');
   if (prop === 'lens_mm' && typeof value === 'number') return t('history.lens', { mm: value });
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.

@@ -48,6 +48,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
+| #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -303,8 +304,9 @@ Lows deferred (noted, not planned yet):
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-2. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
-   copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
+2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
+   `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
+   the original; the LUT joins the copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -317,6 +319,51 @@ Lows deferred (noted, not planned yet):
    shoot days with totals and the Calendar tile (month and week); gear per day linked to shots; a client contact and
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
+
+### 2.5: decisions taken (Kevin can overrule any; none changes the file format)
+
+- A LUT belongs to the video record, so every frame of a take shows the same grade. A frame of its own grade would
+  need a second video record for the same file (Link video again); say if frames should carry their own.
+- For HDR footage (HLG, PQ) a LUT replaces the tone-mapping rather than following it: a camera's LUT is made for the
+  signal it recorded. A LUT made for tone-mapped Rec.709 would look wrong on HDR footage; say if that's the case.
+- A LUT change asks for the graded copy straight away, as a relink does, so the Player shows the grade without a click.
+- LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
+  (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
+- Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.5: review
+
+Round 1: no high; three mediums fixed. A domain lut3d can't apply was kept and graded wrongly with no word (measured:
+it ignores DOMAIN_MIN and never scales up): only 0 to 1 or more is kept now, Resolve's LUT_3D_INPUT_RANGE read as one.
+Two loads of the same file at once could leave a video naming a row never written: loads take turns. The grade test
+used grey, which every matrix keeps: a saturated patch, tagged BT.709 and untagged, through an identity LUT now.
+Lows fixed: the copy's key is the hash of what ffmpeg reads, not of the file (a title no longer splits copies, and a
+change to how files are read can't keep stale ones); the LUT's folder is a random name made new, its file made new (a
+shared Linux /tmp can't be planted); HDR footage with a matrix FFmpeg's filters refuse keeps its re-tag ahead of the
+LUT (tested, with HDR under a LUT skipping the tone-map); comments after a row, and a keyword after the last row, are
+read as lut3d reads them; the end-to-end test now tells a copy found from one made again. Lows left:
+- In WebView2 a closed `<select>` changes with the arrow keys, so arrowing through the list sets each LUT in turn
+  (an undo step and a copy started each); a listbox that commits on Enter would avoid it.
+- The words say 2 to 256 points, but the 16 MB read cap stops near 80 (a 65-point cube is 8 MB); bigger gets the
+  general "too large" words.
+- A refused write (the file changed on disk) still asks for a copy after `setLut`; harmless.
+- A LUT folder left by a crash isn't cleaned up (temp folders are the OS's to clear); on Windows a stalled ffmpeg the
+  app gave up on can hold its folder until it exits.
+- No unit tests of `chooseLut` or of the picker's "Reading the LUT…" state.
+
+Round 2: no high; the round-1 fixes held. One medium fixed: History showed a LUT change as "lut", untranslated, with
+the row's id as its value; it reads "LUT" and "a LUT" now, in both languages, tested. Lows fixed: a video naming a LUT
+that isn't stored says so in the list ("LUT not in the project") rather than "Reading the LUT…" for good; rows after a
+keyword past the last row are left, as ffmpeg leaves them. Lows left: untagged HD footage is read as BT.601 by lut3d's
+conversion and the graded copy is tagged BT.709, so a browser may show a slight hue shift between the graded copy and
+the one as shot (camera files are tagged); in a browser that never fires a file input's `cancel`, a cancelled dialog
+would hold later loads on that page (current Chromium, Firefox and WebKit fire it).
+
+Round 3: no high, no medium; review done. Lows fixed: right after a new `.cube` was stored, the list said "LUT not in
+the project" until it was read again (a LUT being stored now shows as being read; tested end to end, and the test fails
+without the fix); a failed read of the list says so; a load that finishes after another project opened stops. Lows
+left: changing one LUT to another reads "a LUT → a LUT" in History (the names live in `luts`, not in records); rows
+straight after the last row are refused where lut3d would ignore them (the safer way).
 
 ### 2.4: review
 
@@ -397,6 +444,15 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 8. The Player's edges: play a take to the end (it stops on its last frame; O there sets the out point on it, never
    past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
    streamed file) steps and pauses where it is, and stops at its copy's end.
+
+## Phase 2 gate: Kevin's checklist so far (added to as milestones land)
+
+1. LUTs (2.5), on a Mac and on Windows with real log footage: load the camera maker's LUT (an S-Log3 or LogC to
+   Rec.709 `.cube`) for a take; the Player shows the graded copy within a minute or so; compare a frame with Resolve
+   under the same LUT (it should match closely; say if colours look shifted). Undo takes it off; pick None and back.
+   Load one with a 1D shaper (a Resolve "Shaper + 3D" export) and see it refused with words that say why.
+2. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+   your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)
 

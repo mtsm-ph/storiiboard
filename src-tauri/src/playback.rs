@@ -307,19 +307,83 @@ fn fnv128(bytes: &[u8]) -> String {
 /// copy; the old one ages out under the cap. The time counts in two-second steps: a network share can report a file's
 /// time finer one moment and coarser the next (to the second, or to FAT's two seconds), and the same file must keep its
 /// copy.
-pub fn key_of(path: &Path) -> Result<String, String> {
+pub fn key_of(path: &Path, lut: Option<&str>) -> Result<String, String> {
     let meta = fs::metadata(path).map_err(|_| "That file isn't there any more.".to_string())?;
     let modified = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs() & !1);
-    let text = format!(
+    let mut text = format!(
         "{RECIPE}\0{}\0{}\0{modified}",
         path.to_string_lossy(),
         meta.len()
     );
+    // A LUT joins the key (2.5): the same take under another LUT, or none, is another copy. Without one, the key is
+    // what it was before LUTs, so no copy made earlier is made again.
+    if let Some(sha256) = lut {
+        text.push_str("\0lut\0");
+        text.push_str(sha256);
+    }
     Ok(fnv128(text.as_bytes()))
+}
+
+/// A LUT for a video's copy (2.5): the `.cube` text, and the SHA-256 the project stores it by (docs/SBD_FORMAT.md,
+/// `luts`), which names it in the copy's key. Applied to the copy only, never the original.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Lut {
+    pub sha256: String,
+    pub cube: String,
+}
+
+/// Whether `sha256` reads as the hex SHA-256 the project names a LUT by.
+pub fn is_lut_name(sha256: &str) -> bool {
+    sha256.len() == 64
+        && sha256
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// The name a request for a video's copy goes by on the list, where Cancel finds it: its path, and its LUT's SHA-256
+/// when it has one, so the same file under two LUTs (two frames of one take, graded apart) is two requests.
+pub fn job_name(path: &str, lut: Option<&str>) -> String {
+    match lut {
+        Some(sha256) => format!("{path}\0{sha256}"),
+        None => path.to_owned(),
+    }
+}
+
+/// The `.cube` a copy is made with, in a folder of its own for the one encode, gone when it is: ffmpeg runs in that
+/// folder and names the file alone, so no path needs escaping in its filter.
+struct LutFile {
+    folder: PathBuf,
+}
+
+/// The file's name inside its folder.
+const LUT_FILE: &str = "grade.cube";
+
+impl LutFile {
+    /// A folder no one can have made ahead of it: a random name, made new (never one already there, which on a
+    /// computer several people share could be someone else's, or lead elsewhere), and the file made new in it.
+    fn write(lut: &Lut) -> Result<Self, String> {
+        let folder =
+            std::env::temp_dir().join(format!("storiiboard-lut-{}", crate::lock::random_id()));
+        fs::create_dir(&folder).map_err(|_| FAILED.to_string())?;
+        let file = Self { folder };
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(file.folder.join(LUT_FILE))
+            .map_err(|_| FAILED.to_string())?;
+        std::io::Write::write_all(&mut out, lut.cube.as_bytes()).map_err(|_| FAILED.to_string())?;
+        Ok(file)
+    }
+}
+
+impl Drop for LutFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.folder);
+    }
 }
 
 /// The file name of a finished copy. One made without sound has a name of its own, so it's never taken for a whole one.
@@ -1000,9 +1064,9 @@ impl PlaybackCache {
     /// The finished copy of a video, if there is one; marked as used. A whole one before one made without sound;
     /// where copies go now first, then the other folders of ours. None while the copies are being moved: where one is
     /// can't be told until the Move is done, and a make waits for it.
-    pub fn find(&self, path: &Path) -> Result<Option<Made>, String> {
+    pub fn find(&self, path: &Path, lut: Option<&str>) -> Result<Option<Made>, String> {
         // The original first, outside the lock: a share slow to answer never holds a Move up.
-        let key = key_of(path)?;
+        let key = key_of(path, lut)?;
         let Some(_settled) = self.settled() else {
             return Ok(None);
         };
@@ -1083,8 +1147,20 @@ impl PlaybackCache {
     /// command puts its request on the list itself, before it checks the file.
     #[cfg(test)]
     pub fn make(&self, path: &Path, on_progress: impl FnMut(f64)) -> Result<Made, String> {
-        let asked = self.ask(&path.to_string_lossy());
-        self.make_asked(&asked, path, on_progress)
+        self.make_graded(path, None, on_progress)
+    }
+
+    /// `make`, with a LUT.
+    #[cfg(test)]
+    pub fn make_graded(
+        &self,
+        path: &Path,
+        lut: Option<&Lut>,
+        on_progress: impl FnMut(f64),
+    ) -> Result<Made, String> {
+        let name = job_name(&path.to_string_lossy(), lut.map(|lut| lut.sha256.as_str()));
+        let asked = self.ask(&name);
+        self.make_asked(&asked, path, lut, on_progress)
     }
 
     /// Makes the playback copy of a video for a request already on the list, or finds the one already made. One at a
@@ -1094,6 +1170,7 @@ impl PlaybackCache {
         &self,
         asked: &Asked,
         path: &Path,
+        lut: Option<&Lut>,
         mut on_progress: impl FnMut(f64),
     ) -> Result<Made, String> {
         if asked.stopped() {
@@ -1103,8 +1180,12 @@ impl PlaybackCache {
         if self.is_a_copy(path) {
             return Err(A_COPY.into());
         }
-        let key = key_of(path)?;
-        let found = self.find(path)?;
+        let sha256 = lut.map(|lut| lut.sha256.as_str());
+        if sha256.is_some_and(|sha256| !is_lut_name(sha256)) {
+            return Err(FAILED.into());
+        }
+        let key = key_of(path, sha256)?;
+        let found = self.find(path, sha256)?;
         if self.ready(found.as_ref(), &key) {
             return Ok(found.expect("ready means found"));
         }
@@ -1113,7 +1194,7 @@ impl PlaybackCache {
             return Err(CANCELLED.into());
         }
         // Made while this one waited its turn (or moved meanwhile: a Move holds the turn too).
-        let found = self.find(path)?;
+        let found = self.find(path, sha256)?;
         if self.ready(found.as_ref(), &key) {
             return Ok(found.expect("ready means found"));
         }
@@ -1136,7 +1217,16 @@ impl PlaybackCache {
         let (folder, _) = self.folder()?;
         let probe = video::probe(path)?;
         let facts = video::facts(path)?;
-        let tone_map = video::tone_map(&facts.colour);
+        // A LUT is made for the signal the camera recorded (S-Log3, an HLG or PQ grade), so it takes the place of the
+        // tone-mapping: the LUT brings the picture to BT.709 itself.
+        let grade = match lut {
+            Some(lut) => Some(LutFile::write(lut)?),
+            None => None,
+        };
+        let hdr = video::tone_map(&facts.colour);
+        // HDR footage whose matrix FFmpeg's own filters refuse is still re-tagged for them ahead of the LUT.
+        let retag = hdr.as_ref().map_or("", |hdr| hdr.before);
+        let tone_map = if grade.is_some() { None } else { hdr };
         if asked.stopped() {
             return Err(CANCELLED.into());
         }
@@ -1225,6 +1315,8 @@ impl PlaybackCache {
                     rate: (probe.fps_num, probe.fps_den),
                     offset: facts.stream_start - facts.file_start,
                     tone_map: tone_map.as_ref(),
+                    lut: grade.as_ref().map(|grade| grade.folder.as_path()),
+                    retag,
                     encoder,
                     sound,
                     tracks: &tracks,
@@ -1307,7 +1399,7 @@ impl PlaybackCache {
             })
             .and_then(|said| {
                 // The original changed while it was read (an offload still writing): this copy isn't of it.
-                if key_of(path)? != key {
+                if key_of(path, sha256)? != key {
                     return Err(FAILED.into());
                 }
                 let made = video::probe(&partial)?;
@@ -1382,15 +1474,25 @@ impl PlaybackCache {
         let filter = format!(
             "bwdif=mode=send_frame:deint=interlaced,scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1"
         );
-        // HDR brought to normal-range BT.709 after the scale, so the tone-mapping works on the smaller picture.
-        let filter = match run.tone_map {
-            Some(tone_map) => tone_map.around(&filter),
-            None => filter,
+        // HDR brought to normal-range BT.709 after the scale, so the tone-mapping works on the smaller picture. A LUT,
+        // likewise after the scale: tetrahedral, as grading tools interpolate.
+        let filter = match (run.tone_map, run.lut) {
+            // Its output said to be BT.709 on the frames too, where an encoder takes its colour from.
+            (_, Some(_)) => format!(
+                "{}{filter},lut3d=file={LUT_FILE}:interp=tetrahedral,\
+                 setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+                run.retag
+            ),
+            (Some(tone_map), None) => tone_map.around(&filter),
+            (None, None) => filter,
         };
         let mut command = video::command("ffmpeg");
         command
             .args(["-hide_banner", "-loglevel", "error", "-y"])
             .args(["-protocol_whitelist", "file"]);
+        if let Some(folder) = run.lut {
+            command.current_dir(folder);
+        }
         // Starts at the video's first frame (a quarter frame early, so rounding keeps it): sound that leads the
         // picture is left out, and the copy's frame 0 is the original's.
         if run.offset > 0.0 {
@@ -1415,7 +1517,7 @@ impl PlaybackCache {
             .arg(format!("{fps_num}/{fps_den}"))
             .args(run.encoder);
         // Said in the file too, so a player shows the copy as what it is now.
-        if run.tone_map.is_some() {
+        if run.tone_map.is_some() || run.lut.is_some() {
             command.args(["-color_primaries", "bt709", "-color_trc", "bt709"]);
             command.args(["-colorspace", "bt709", "-color_range", "tv"]);
         }
@@ -1879,8 +1981,12 @@ struct Run<'a> {
     partial: &'a Path,
     rate: (u32, u32),
     offset: f64,
-    /// HDR's way to normal range (video::tone_map), when the original is HDR.
+    /// HDR's way to normal range (video::tone_map), when the original is HDR and has no LUT.
     tone_map: Option<&'a video::ToneMap>,
+    /// The folder holding the LUT the copy is graded with (`LUT_FILE` in it), when it has one (2.5).
+    lut: Option<&'a Path>,
+    /// What goes ahead of FFmpeg's own filters for HDR footage graded by a LUT (video::ToneMap's `before`); empty else.
+    retag: &'static str,
     encoder: &'a [&'a str],
     sound: bool,
     /// The separate mono tracks mixed into the copy's one stereo track (see `mix_filter`), by their index among the
@@ -2042,15 +2148,17 @@ pub async fn playback_make(
     app: AppHandle,
     path: String,
     handle: Option<u32>,
+    lut: Option<Lut>,
     progress: Channel<Progress>,
 ) -> Result<MadeCopy, String> {
-    let asked = app.state::<PlaybackCache>().ask(&path);
+    let name = job_name(&path, lut.as_ref().map(|lut| lut.sha256.as_str()));
+    let asked = app.state::<PlaybackCache>().ask(&name);
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
         Access::of(&app, handle).readable(path)?;
         let made = app
             .state::<PlaybackCache>()
-            .make_asked(&asked, path, |done| {
+            .make_asked(&asked, path, lut.as_ref(), |done| {
                 let _ = progress.send(Progress { done });
             })?;
         Ok(made.into())
@@ -2065,21 +2173,29 @@ pub async fn playback_find(
     app: AppHandle,
     path: String,
     handle: Option<u32>,
+    lut: Option<String>,
 ) -> Result<Option<MadeCopy>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
         Access::of(&app, handle).readable(path)?;
-        Ok(app.state::<PlaybackCache>().find(path)?.map(MadeCopy::from))
+        if lut.as_deref().is_some_and(|sha256| !is_lut_name(sha256)) {
+            return Ok(None);
+        }
+        Ok(app
+            .state::<PlaybackCache>()
+            .find(path, lut.as_deref())?
+            .map(MadeCopy::from))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Stops the copy of a video being made. Only work already asked for can be stopped, so it reads nothing. Off the main
-/// thread, so it never holds up the window.
+/// Stops the copy of a video being made (under its LUT, if any). Only work already asked for can be stopped, so it
+/// reads nothing. Off the main thread, so it never holds up the window.
 #[tauri::command(async)]
-pub fn playback_cancel(app: AppHandle, path: String) -> bool {
-    app.state::<PlaybackCache>().cancel(&path)
+pub fn playback_cancel(app: AppHandle, path: String, lut: Option<String>) -> bool {
+    app.state::<PlaybackCache>()
+        .cancel(&job_name(&path, lut.as_deref()))
 }
 
 #[tauri::command]
@@ -2389,11 +2505,229 @@ mod tests {
         assert!(!video::probe(&made.path).unwrap().has_audio);
         // Whole as it is: found again, and asked for again, nothing is made (an encoder that can't make anything
         // isn't even tried).
-        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(made.clone()));
         cache.encoders = vec![vec!["-c:v", "no_such_encoder"]];
         assert_eq!(cache.make(&clip, |_| {}).unwrap(), made);
         // Not kept as an earlier copy after a failed attempt (which would mark it settled for this run): found whole.
-        assert!(!lock(&cache.checked_silent).contains(&key_of(&clip).unwrap()));
+        assert!(!lock(&cache.checked_silent).contains(&key_of(&clip, None).unwrap()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_luts_file_is_made_new_in_a_folder_of_its_own_and_goes_with_it() {
+        let lut = Lut {
+            sha256: "ab".repeat(32),
+            cube: "LUT_3D_SIZE 2\n".to_owned(),
+        };
+        let (one, two) = (LutFile::write(&lut).unwrap(), LutFile::write(&lut).unwrap());
+        assert_ne!(one.folder, two.folder, "never shared");
+        assert_eq!(
+            fs::read_to_string(one.folder.join(LUT_FILE)).unwrap(),
+            lut.cube
+        );
+        let folder = one.folder.clone();
+        drop(one);
+        assert!(!folder.exists(), "gone with it");
+        assert!(two.folder.join(LUT_FILE).is_file());
+    }
+
+    /// An inverting 2-point `.cube`, written here: no camera maker's LUT is ever shipped.
+    const INVERT: &str = "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
+
+    #[test]
+    fn a_lut_grades_a_copy_of_its_own_and_never_the_one_without() {
+        let dir = temp_dir("lut-copy");
+        let cache = sound_test_cache(&dir.join("cache"));
+        let clip = make_clip(
+            &dir,
+            "C0090.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x202020:size=320x180:rate=25:duration=1",
+            ],
+            &["-c:v", "mpeg4", "-q:v", "2"],
+        );
+        let plain = cache.make(&clip, |_| {}).unwrap();
+        assert!(grey_at(&plain.path, 0) < 60, "dark as shot");
+        let lut = Lut {
+            sha256: "ab".repeat(32),
+            cube: INVERT.to_owned(),
+        };
+        let graded = cache.make_graded(&clip, Some(&lut), |_| {}).unwrap();
+        assert_ne!(graded.path, plain.path, "a copy of its own");
+        assert!(
+            grey_at(&graded.path, 0) > 190,
+            "dark through the inverting LUT is light"
+        );
+        // Each found by its own key; the one without is left as it was.
+        assert_eq!(
+            cache.find(&clip, Some(&lut.sha256)).unwrap(),
+            Some(graded.clone())
+        );
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(plain.clone()));
+        assert!(grey_at(&plain.path, 0) < 60);
+        // Said as BT.709 in the file, as the LUT made it.
+        let tags = video::command("ffprobe")
+            .args(["-v", "error", "-select_streams", "v:0"])
+            .args([
+                "-show_entries",
+                "stream=color_primaries,color_transfer",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&graded.path)
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&tags.stdout).trim(), "bt709,bt709");
+
+        // A LUT named by anything but a SHA-256 is refused before anything is written.
+        let odd = Lut {
+            sha256: "../../x".to_owned(),
+            cube: INVERT.to_owned(),
+        };
+        assert_eq!(
+            cache.make_graded(&clip, Some(&odd), |_| {}).unwrap_err(),
+            FAILED
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An identity 2-point `.cube`: what goes in comes out.
+    const IDENTITY: &str =
+        "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+
+    /// The RGB of the middle of a copy's first frame, read back with the sidecar.
+    fn rgb_middle(copy: &Path) -> [i32; 3] {
+        let out = video::command("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(copy)
+            .args(["-vf", "crop=8:8,scale=1:1:flags=area,format=rgb24"])
+            .args(["-frames:v", "1", "-f", "rawvideo", "-"])
+            .output()
+            .unwrap();
+        assert_eq!(out.stdout.len(), 3, "one pixel of {}", copy.display());
+        [0, 1, 2].map(|i| i32::from(out.stdout[i]))
+    }
+
+    #[test]
+    fn an_identity_lut_keeps_a_saturated_colour_as_it_was_tagged_or_not() {
+        let dir = temp_dir("lut-colour");
+        let cache = sound_test_cache(&dir.join("cache"));
+        let lut = Lut {
+            sha256: "cd".repeat(32),
+            cube: IDENTITY.to_owned(),
+        };
+        // A strong red-orange, where BT.601 and BT.709 part most; tagged BT.709, and untagged.
+        for (name, tags) in [
+            (
+                "tagged.mov",
+                ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709",
+            ),
+            ("untagged.mov", ""),
+        ] {
+            let clip = make_clip(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=0xC03020:size=320x180:rate=25:duration=1",
+                ],
+                &[
+                    "-vf",
+                    &format!("format=yuv420p{tags}"),
+                    "-c:v",
+                    "mpeg4",
+                    "-q:v",
+                    "2",
+                ],
+            );
+            let plain = rgb_middle(&cache.make(&clip, |_| {}).unwrap().path);
+            let graded = rgb_middle(&cache.make_graded(&clip, Some(&lut), |_| {}).unwrap().path);
+            for (channel, (a, b)) in plain.iter().zip(graded).enumerate() {
+                assert!(
+                    (a - b).abs() <= 3,
+                    "{name}: channel {channel} {plain:?} through the LUT {graded:?}"
+                );
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hdr_footage_under_a_lut_is_graded_by_the_lut_alone_even_with_a_matrix_scale_refuses() {
+        let dir = temp_dir("lut-hdr");
+        let _gone = Gone(dir.clone());
+        let cache = sound_test_cache(&dir.join("cache"));
+        let lut = Lut {
+            sha256: "ef".repeat(32),
+            cube: IDENTITY.to_owned(),
+        };
+        // 203-nit white in PQ, tagged once with a matrix FFmpeg's own filters refuse (as the HDR copy test has).
+        for (name, matrix) in [("pq.mov", "bt2020nc"), ("pq ictcp.mov", "ictcp")] {
+            let clip = make_clip(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:size=320x180:rate=25:duration=1",
+                ],
+                &[
+                    "-vf",
+                    &format!(
+                        "format=yuv422p10le,geq=lum=572:cb=512:cr=512,setparams=range=tv:\
+                         color_primaries=bt2020:color_trc=smpte2084:colorspace={matrix}"
+                    ),
+                    "-c:v",
+                    "prores_ks",
+                ],
+            );
+            let graded = cache.make_graded(&clip, Some(&lut), |_| {}).unwrap();
+            // Not tone-mapped (that brings it near SDR white, about 218): the LUT alone made it, from the signal as
+            // recorded, which an identity LUT leaves near PQ's own level, about 140.
+            let level = grey_at(&graded.path, 0);
+            assert!((120..=165).contains(&level), "{name}: {level}");
+        }
+    }
+
+    #[test]
+    fn a_lut_joins_the_key_and_the_request_name_but_no_lut_keeps_the_key_it_had() {
+        let dir = temp_dir("lut-key");
+        let clip = pcm_clip(&dir, "C0091.mov");
+        let sha = "0f".repeat(32);
+        let plain = key_of(&clip, None).unwrap();
+        assert_ne!(key_of(&clip, Some(&sha)).unwrap(), plain);
+        assert_ne!(
+            key_of(&clip, Some(&sha)).unwrap(),
+            key_of(&clip, Some(&"1e".repeat(32))).unwrap()
+        );
+        // Without a LUT, what it was before 2.5: no copy made earlier is made again.
+        let meta = fs::metadata(&clip).unwrap();
+        let modified = meta
+            .modified()
+            .unwrap()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            & !1;
+        let before = format!(
+            "{RECIPE}\0{}\0{}\0{modified}",
+            clip.to_string_lossy(),
+            meta.len()
+        );
+        assert_eq!(plain, fnv128(before.as_bytes()));
+        let path = clip.to_string_lossy();
+        assert_eq!(job_name(&path, None), path);
+        assert_ne!(job_name(&path, Some(&sha)), path);
+        assert!(is_lut_name(&sha));
+        assert!(
+            !is_lut_name(&"0F".repeat(32)) && !is_lut_name("abc") && !is_lut_name(&"g0".repeat(32))
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2406,11 +2740,11 @@ mod tests {
         let silence = "anullsrc=r=48000:cl=mono:d=1";
         let clip = tracks_clip(&dir, "C0089.mov", &[silence], "pcm_s24le");
         let made = cache.make(&clip, |_| {}).unwrap();
-        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(made.clone()));
         fs::write(dir.join("outside.mp4"), b"private").unwrap();
         fs::remove_file(&made.path).unwrap();
         std::os::unix::fs::symlink(dir.join("outside.mp4"), &made.path).unwrap();
-        assert_eq!(cache.find(&clip).unwrap(), None);
+        assert_eq!(cache.find(&clip, None).unwrap(), None);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2608,20 +2942,20 @@ mod tests {
                 .unwrap();
         };
         at(1_800_000_000, 100_000_000);
-        let first = key_of(&clip).unwrap();
+        let first = key_of(&clip, None).unwrap();
         assert_eq!(first.len(), 32);
         // A share that reports the time coarser one moment and finer the next (to the second, or FAT's two seconds):
         // the same file, the same copy.
         at(1_800_000_000, 700_000_000);
-        assert_eq!(key_of(&clip).unwrap(), first);
+        assert_eq!(key_of(&clip, None).unwrap(), first);
         at(1_800_000_001, 900_000_000);
-        assert_eq!(key_of(&clip).unwrap(), first);
+        assert_eq!(key_of(&clip, None).unwrap(), first);
         at(1_800_000_002, 100_000_000);
-        assert_ne!(key_of(&clip).unwrap(), first);
+        assert_ne!(key_of(&clip, None).unwrap(), first);
         at(1_800_000_000, 100_000_000);
         fs::write(&clip, "take two, longer").unwrap();
         at(1_800_000_000, 100_000_000);
-        assert_ne!(key_of(&clip).unwrap(), first);
+        assert_ne!(key_of(&clip, None).unwrap(), first);
         let whole = Ours {
             key: &first,
             silent: false,
@@ -2684,7 +3018,7 @@ mod tests {
         assert!(probe.has_audio);
         // Stepping and scrubbing land fast: a keyframe every 12 frames, whatever the computer's encoder.
         assert_eq!(keyframes(&copy), [0, 12, 24, 36]);
-        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(made.clone()));
         // Asked again: the same copy, nothing made.
         let mut again = 0;
         assert_eq!(cache.make(&clip, |_| again += 1).unwrap(), made);
@@ -2773,7 +3107,7 @@ mod tests {
             }
         });
         assert_eq!(outcome.unwrap_err(), CANCELLED);
-        assert_eq!(cache.find(&clip).unwrap(), None);
+        assert_eq!(cache.find(&clip, None).unwrap(), None);
         let (folder, _) = cache.folder().unwrap();
         assert_eq!(fs::read_dir(&folder).unwrap().count(), 0, "nothing left");
         assert!(!cache.info().unwrap().busy);
@@ -2809,7 +3143,7 @@ mod tests {
         assert!(cache.cancel(&name));
         drop(turn);
         assert_eq!(waiting.join().unwrap().unwrap_err(), CANCELLED);
-        assert_eq!(cache.find(&clip).unwrap(), None);
+        assert_eq!(cache.find(&clip, None).unwrap(), None);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2871,7 +3205,7 @@ mod tests {
         for ask in asks {
             assert_eq!(ask.join().unwrap().unwrap_err(), CANCELLED);
         }
-        assert_eq!(cache.find(&long).unwrap(), None);
+        assert_eq!(cache.find(&long, None).unwrap(), None);
         let (folder, _) = cache.folder().unwrap();
         assert!(names(&folder).is_empty(), "nothing half-made");
         assert!(lock(&cache.jobs).is_empty());
@@ -2916,7 +3250,7 @@ mod tests {
         let probe = video::probe(&made.path).unwrap();
         assert!(!probe.has_audio);
         assert_eq!(probe.duration_frames, 50);
-        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(made.clone()));
         // Asked again in this run: the same copy, nothing made or checked again.
         let mut again = 0;
         assert_eq!(cache.make(&clip, |_| again += 1).unwrap(), made);
@@ -2929,14 +3263,14 @@ mod tests {
 
         // The sound reads in a later run (the app updated, say; here, the good take in the soundless copy's place):
         // a copy with sound is made and the one without goes.
-        let good_key = key_of(&good).unwrap();
+        let good_key = key_of(&good, None).unwrap();
         let (folder, _) = later.folder().unwrap();
         fs::copy(&made.path, folder.join(file_name(&good_key, true))).unwrap();
         let whole = later.make(&good, |_| {}).unwrap();
         assert!(!whole.silent);
         assert!(video::probe(&whole.path).unwrap().has_audio);
         assert!(!folder.join(file_name(&good_key, true)).exists());
-        assert_eq!(later.find(&good).unwrap(), Some(whole.clone()));
+        assert_eq!(later.find(&good, None).unwrap(), Some(whole.clone()));
 
         // A later run whose copy with sound can't be made after all (the encoder failing, say) keeps playing the copy
         // without it rather than having none.
@@ -3160,6 +3494,8 @@ ssize_t read(int fd, void *buf, size_t count) {
             rate: (probe.fps_num, probe.fps_den),
             offset: 0.0,
             tone_map: None,
+            lut: None,
+            retag: "",
             encoder: &cache.encoders[0],
             sound: true,
             tracks: &[],
@@ -3311,7 +3647,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert!(cache.cancel(&name));
         assert_eq!(
             cache
-                .make_asked(&asked, &clip, |_| panic!("never encodes"))
+                .make_asked(&asked, &clip, None, |_| panic!("never encodes"))
                 .unwrap_err(),
             CANCELLED
         );
@@ -3359,12 +3695,12 @@ ssize_t read(int fd, void *buf, size_t count) {
         drop(file);
         let moving = cache.layout.write().unwrap();
         // Where it is can't be told until the Move is done; a make waits its turn behind the Move.
-        assert_eq!(cache.find(&clip).unwrap(), None);
+        assert_eq!(cache.find(&clip, None).unwrap(), None);
         assert_eq!(cache.clear().unwrap_err(), MOVING);
         cache.set_cap(1).unwrap();
         assert!(big.is_file(), "the cap waits for the Move");
         drop(moving);
-        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        assert_eq!(cache.find(&clip, None).unwrap(), Some(made.clone()));
         // A Move keeps to a cap lowered while it ran, once it's done (here a Move with nothing to move).
         assert_eq!(cache.move_to(None).unwrap(), 0);
         assert!(!big.exists() && made.path.is_file());
@@ -3583,10 +3919,10 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert_eq!(info.copies, 1, "A's copy is still counted");
         let clip = dir.join("C0058.mov");
         fs::write(&clip, "take").unwrap();
-        let key = key_of(&clip).unwrap();
+        let key = key_of(&clip, None).unwrap();
         fs::rename(&on_a, a.join(FOLDER_NAME).join(file_name(&key, false))).unwrap();
         assert_eq!(
-            cache.find(&clip).unwrap().map(|made| made.path),
+            cache.find(&clip, None).unwrap().map(|made| made.path),
             Some(a.join(FOLDER_NAME).join(file_name(&key, false)))
         );
         // The next move takes it along, and A comes off the list.
@@ -3610,7 +3946,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         assert_eq!(cache.move_to(None).unwrap(), 1);
         assert!(cache.settings().leftovers.is_empty());
         assert!(cache
-            .find(&clip)
+            .find(&clip, None)
             .unwrap()
             .is_some_and(|made| made.path.starts_with(dir.join("cache"))));
         let _ = fs::remove_dir_all(&dir);
@@ -4218,7 +4554,7 @@ ssize_t read(int fd, void *buf, size_t count) {
         let (folder, _) = cache.folder().unwrap();
         // A copy without sound from an earlier run, of a video whose sound reads now.
         let clip = pcm_clip(&dir, "C0073.mov");
-        let key = key_of(&clip).unwrap();
+        let key = key_of(&clip, None).unwrap();
         let silent = cache.make(&pcm_clip(&dir, "C0074.mov"), |_| {}).unwrap();
         fs::rename(&silent.path, folder.join(file_name(&key, true))).unwrap();
         cache.free = Arc::new(|_| Some(GB));

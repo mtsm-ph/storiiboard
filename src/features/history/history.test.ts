@@ -147,6 +147,21 @@ describe('History', () => {
     expect(valueLabel('watermark', mark('DRAFT', 0.35))).toBe('“DRAFT”, bottom right, 35%');
     expect(valueLabel('watermark', { ...mark('DRAFT', 0.5), position: 'center' })).toBe('“DRAFT”, centre, 50%');
   });
+
+  it('names a video’s LUT change in words, never by its row’s id (2.5)', async () => {
+    const lut = 'b1d3c0de-0000-4000-8000-000000000001';
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'v1', type: 'media', parentId: project.projectId, sortKey: 'a', props: { kind: 'video', source_name: 'C0042.MP4' } } },
+    ]);
+    await store.getState().apply([{ kind: 'update', id: 'v1', set: { lut } }]);
+    await store.getState().apply([{ kind: 'update', id: 'v1', unset: ['lut'] }]);
+    const [set, off] = (await lines()).slice(-2);
+    for (const line of [set, off]) {
+      expect(line).toContain('LUT');
+      expect(line).not.toContain(lut);
+    }
+    expect([set, off]).toEqual([expect.stringContaining('— → a LUT'), expect.stringContaining('a LUT → —')]);
+  });
 });
 
 /** The ids of scene 4's live frames, in board order. */
