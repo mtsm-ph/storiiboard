@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.3c merged; 2.4 next) |
+| Last updated | Nov 7, 2026 (2.4 merged, review stop A reached; 2.5 next) |
 
 | Phase | State |
 |---|---|
@@ -44,8 +44,8 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | Done |
 | 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | #79 | Done |
-| 2.4 The Player plays real footage (Stop A) | | In review |
-| 2.5 LUTs per video | | Not started |
+| 2.4 The Player plays real footage (Stop A) | #80 | Done |
+| 2.5 LUTs per video | | In progress |
 | 2.6 Crop | | Not started |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |

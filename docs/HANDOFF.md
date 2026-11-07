@@ -47,6 +47,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
+| #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -297,7 +298,7 @@ Lows deferred (noted, not planned yet):
    virtual GPU wedges once a run opens many sessions in a row, whichever copy it lands on. The sound tests, which test
    the sound, now encode their picture with FFmpeg's own MPEG-4 (as on Linux), sparing about ten sessions; every
    other test still uses VideoToolbox. The app is unchanged.
-1. **2.4** (in progress; see "2.4 as built" in `docs/PLAN.md` and Review stop A below): the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+1. **2.4** (PR #80, merged Nov 7; seven review rounds, checkpoint stop-a-r7 all green; review stop A reached, its checklist below; see "2.4 as built" in `docs/PLAN.md` and Review stop A below): the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
@@ -393,6 +394,9 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 7. Windows: the screenshot baselines (`*-win32.png`) predate the Player's content in its tile, so the Windows run of
    `e2e/visual.spec.ts` will differ there; regenerate them on Windows (`npx playwright test e2e/visual.spec.ts
    --project=chromium --update-snapshots`) and commit them. The Linux and Mac ones came from `checkpoint/baselines-2.4`.
+8. The Player's edges: play a take to the end (it stops on its last frame; O there sets the out point on it, never
+   past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
+   streamed file) steps and pauses where it is, and stops at its copy's end.
 
 ## The rules for this run (Kevin's queued instructions)
 
