@@ -21,8 +21,9 @@ import { localizeError, pluralKey, t } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 
 // Export Project (1.24, the project menu): a format from the registry, the whole project or one scene, then where it
-// goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash. The watermark, when the format
-// carries one, is shown here and set in Watermark Settings. A running export can be stopped; what it wrote stays.
+// goes (the Save dialog for a file, a folder for a set). Exports leave out the Trash, but for Project data (JSON),
+// which is the project itself (2.9). The watermark, when the format carries one, is shown here and set in Watermark
+// Settings. A running export can be stopped; what it wrote stays.
 
 export function ExportHost() {
   const open = useExportDialog();

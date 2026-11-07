@@ -130,3 +130,23 @@ test('Escape in Settings keeps what was typed in a field not yet left', async ({
   await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0);
   await expect((await openSettings(page, 'Project')).getByLabel('Notes')).toHaveValue('Call at 6');
 });
+
+test('an empty project still exports its data as JSON, and a JSON that isn’t project data is refused in words', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  const exporting = page.getByRole('dialog', { name: 'Export' });
+  await exporting.getByRole('radio', { name: 'Project data (JSON)' }).check();
+  await expect(exporting.getByText(/^All of it:/)).toBeVisible();
+  // No frames, yet there's a project to export.
+  const downloaded = page.waitForEvent('download');
+  await exporting.getByRole('button', { name: 'Save…' }).click();
+  expect((await downloaded).suggestedFilename()).toBe('Bey County project data.json');
+
+  await page.getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import project data…' }).click();
+  await (await chooser).setFiles({ name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"title":"Not a project"}') });
+  await expect(page.getByText('“notes.json” isn’t Storiiboard project data.')).toBeVisible();
+});

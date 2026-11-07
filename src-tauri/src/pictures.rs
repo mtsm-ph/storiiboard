@@ -33,9 +33,9 @@ const MAX_LUT_BYTES: u64 = 16 * 1024 * 1024;
 
 /// What the Open dialog offers for project data to import (2.9): the JSON a project exports.
 const PROJECT_JSON_EXTENSIONS: &[&str] = &["json"];
-/// The largest project JSON read: the page parses it in one piece, and a webview's longest string is about 512
-/// million characters (src/core/storage/projectJson.ts, MAX_IMPORT_CHARS).
-const MAX_PROJECT_JSON_BYTES: u64 = 512 * 1024 * 1024;
+/// The largest project JSON read, the page's own limit (src/core/storage/projectJson.ts, MAX_IMPORT_CHARS): it
+/// parses it in one piece, and a webview's longest string is about 512 million characters.
+const MAX_PROJECT_JSON_BYTES: u64 = 400_000_000;
 
 /// How large a file may be read, by what it is.
 fn max_bytes(path: &Path) -> u64 {

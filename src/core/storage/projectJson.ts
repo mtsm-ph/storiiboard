@@ -10,7 +10,8 @@ import { MIGRATIONS } from './migrations';
 // project that holds exactly what the old one did. docs/SBD_FORMAT.md, "Project data as JSON", has the layout.
 //
 // Generic on purpose: it reads the tables the file has, so a table a later schema adds is carried without a change
-// here, and an import checks every table and column against the schema the file says it's at.
+// here (an ordinary rowid table; a WITHOUT ROWID or full-text table would need one), and an import checks every table
+// and column against the schema the file says it's at.
 
 export const PROJECT_JSON_FORMAT = 'storiiboard-project';
 export const PROJECT_JSON_VERSION = 1;
@@ -97,11 +98,62 @@ function fromBase64(text: string): Uint8Array {
 }
 
 /**
+ * About how many characters the project's JSON would be: its text as it is, its blobs as base64. Read before an
+ * export, so a project too large to import back is said before anything is written.
+ */
+export async function projectJsonSize(file: ProjectFile): Promise<number> {
+  let size = 0;
+  for (const [table, columns] of await schemaOf(file)) {
+    const sums = columns.map((c) => `coalesce(sum(length(${quote(c.name)})), 0) AS ${quote(c.name)}`).join(', ');
+    const [row] = await file.query(`SELECT count(*) AS "__rows", ${sums} FROM ${quote(table)}`);
+    if (!row) continue;
+    size += Number(row.__rows) * (columns.length * 4 + 4);
+    for (const column of columns) size += Number(row[column.name]) * (column.blob ? 4 / 3 : 1.1);
+  }
+  return Math.ceil(size);
+}
+
+/** How many times an export reads the project again when an edit landed while it read (a still being grabbed). */
+const READ_TRIES = 3;
+
+/** An edit landed on every try: the export couldn't read one consistent project. */
+export class ProjectJsonChangedError extends Error {
+  constructor() {
+    super('projectJsonChanged');
+    this.name = 'ProjectJsonChangedError';
+  }
+}
+
+/**
  * The project as JSON text, in pieces: the header, then one line per row, so the file reads (and diffs) a row at a
  * time and no one string has to hold a project's every picture. Rows are in the order SQLite stored them.
- * `progress` hears each table as it's read.
+ *
+ * One consistent project: the tables are read one after another, and a still or a picture being prepared can land
+ * an edit in between (the export dialog stops typing, not work already under way), which would give a thumbnail
+ * without its picture or a step without its frame. So the connection's change count is read before and after, and
+ * if anything was written meanwhile the whole read starts again. `signal` stops it between rows.
  */
-export async function projectJsonChunks(file: ProjectFile, now = new Date(), progress?: (table: string) => void): Promise<string[]> {
+export async function projectJsonChunks(
+  file: ProjectFile,
+  now = new Date(),
+  progress?: (table: string) => void,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  for (let attempt = 0; attempt < READ_TRIES; attempt += 1) {
+    const before = await changes(file);
+    const chunks = await readChunks(file, now, progress, signal);
+    if ((await changes(file)) === before) return chunks;
+  }
+  throw new ProjectJsonChangedError();
+}
+
+/** Rows this connection has written since it opened: the same before and after a read means nothing landed between. */
+async function changes(file: ProjectFile): Promise<number> {
+  const [row] = await file.query('SELECT total_changes() AS changes');
+  return Number(row?.changes);
+}
+
+async function readChunks(file: ProjectFile, now: Date, progress?: (table: string) => void, signal?: AbortSignal): Promise<string[]> {
   const schema = await schemaOf(file);
   const [version] = await file.query("SELECT value FROM meta WHERE key = 'schema_version'");
   const header = {
@@ -122,6 +174,7 @@ export async function projectJsonChunks(file: ProjectFile, now = new Date(), pro
     chunks.push(`${firstTable ? '' : ','}\n${JSON.stringify(table)}:{"columns":${JSON.stringify(columns.map((c) => c.name))},"rows":[`);
     firstTable = false;
     for (const [index, row] of rows.entries()) {
+      signal?.throwIfAborted();
       const values: JsonValue[] = [];
       for (const column of columns) {
         if (column.blob) {
@@ -141,9 +194,20 @@ export async function projectJsonChunks(file: ProjectFile, now = new Date(), pro
 }
 
 /** The project as one JSON file's bytes. */
-export async function projectJsonBytes(file: ProjectFile, now = new Date(), progress?: (table: string) => void): Promise<Uint8Array> {
+export async function projectJsonBytes(
+  file: ProjectFile,
+  now = new Date(),
+  progress?: (table: string) => void,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
   const encoder = new TextEncoder();
-  const parts = (await projectJsonChunks(file, now, progress)).map((chunk) => encoder.encode(chunk));
+  const chunks = await projectJsonChunks(file, now, progress, signal);
+  // Each piece's text let go as it's encoded, so the text and its bytes aren't all held at once.
+  const parts: Uint8Array[] = [];
+  for (let i = 0; i < chunks.length; i += 1) {
+    parts.push(encoder.encode(chunks[i]));
+    chunks[i] = '';
+  }
   const bytes = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
   let at = 0;
   for (const part of parts) {
@@ -167,9 +231,22 @@ function isValue(value: unknown): value is JsonValue {
   return isRecord(value) && typeof value.base64 === 'string' && Object.keys(value).length === 1;
 }
 
+/**
+ * A project JSON file's bytes as text: refused as too large before it's decoded (its UTF-8 is at least as many bytes
+ * as characters), and as not JSON if it isn't UTF-8, rather than read with replacement characters.
+ */
+export function projectJsonText(bytes: ArrayBuffer, limit = MAX_IMPORT_CHARS): string {
+  if (bytes.byteLength > limit) throw new ProjectJsonError('tooLarge');
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new ProjectJsonError('notJson');
+  }
+}
+
 /** Reads a project JSON file's text, checking its shape (not yet its tables, which need the schema it names). */
-export function readProjectJson(text: string): ProjectJson {
-  if (text.length > MAX_IMPORT_CHARS) throw new ProjectJsonError('tooLarge');
+export function readProjectJson(text: string, limit = MAX_IMPORT_CHARS): ProjectJson {
+  if (text.length > limit) throw new ProjectJsonError('tooLarge');
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -194,6 +271,13 @@ export function readProjectJson(text: string): ProjectJson {
     }
     read[name] = { columns, rows };
   }
+  // The rows' own schema version must be the one the header names: the file is built at that one, then upgraded from
+  // what meta says, and the two disagreeing would skip a migration or label a file wrongly.
+  const meta = read.meta;
+  const key = meta?.columns.indexOf('key') ?? -1;
+  const value = meta?.columns.indexOf('value') ?? -1;
+  const versions = meta?.rows.filter((row) => row[key] === 'schema_version') ?? [];
+  if (versions.length !== 1 || versions[0]?.[value] !== String(schemaVersion)) throw new ProjectJsonError('tables');
   return {
     format: PROJECT_JSON_FORMAT,
     format_version: formatVersion,
@@ -276,7 +360,12 @@ export async function importProjectJson(driver: SqlDriver, path: string, data: P
   try {
     await migrate(file, { isNew: true, migrations: MIGRATIONS.slice(0, data.schema_version), now: () => now });
     const statements = fillStatements(data, await schemaOf(file));
-    await file.tx(statements);
+    try {
+      await file.tx(statements);
+    } catch {
+      // SQLite's own refusal (a row naming a picture that isn't there, a value of the wrong kind): the data doesn't fit.
+      throw new ProjectJsonError('tables');
+    }
   } finally {
     await file.close();
   }

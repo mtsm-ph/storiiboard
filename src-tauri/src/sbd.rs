@@ -1252,6 +1252,56 @@ mod tests {
     }
 
     #[test]
+    fn takes_rows_before_the_rows_they_name_when_told_to_check_at_commit() {
+        // An imported project's rows (2.9, projectJson.ts) go in in one transaction that defers the foreign-key
+        // checks to its commit: a child row may come before its parent.
+        let dir = temp_dir("deferred");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement("CREATE TABLE parents (id TEXT PRIMARY KEY)", vec![]),
+            statement(
+                "CREATE TABLE children (id TEXT PRIMARY KEY, parent TEXT REFERENCES parents (id))",
+                vec![],
+            ),
+        ])
+        .unwrap();
+        let child_first = |defer: bool| {
+            let mut statements = Vec::new();
+            if defer {
+                statements.push(statement("PRAGMA defer_foreign_keys = ON", vec![]));
+            }
+            statements.push(statement(
+                "INSERT INTO children (id, parent) VALUES (?, ?)",
+                vec![
+                    serde_json::json!(if defer { "c1" } else { "c0" }),
+                    serde_json::json!(if defer { "p1" } else { "p0" }),
+                ],
+            ));
+            statements.push(statement(
+                "INSERT INTO parents (id) VALUES (?)",
+                vec![serde_json::json!(if defer { "p1" } else { "p0" })],
+            ));
+            statements
+        };
+        assert!(
+            file.tx(&child_first(false)).is_err(),
+            "checked at once without it"
+        );
+        file.tx(&child_first(true)).unwrap();
+        // And a child whose parent never comes is still refused, at the commit.
+        assert!(file
+            .tx(&[
+                statement("PRAGMA defer_foreign_keys = ON", vec![]),
+                statement(
+                    "INSERT INTO children (id, parent) VALUES ('c2', 'nobody')",
+                    vec![]
+                ),
+            ])
+            .is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn stores_and_reads_back_image_bytes_sent_raw() {
         let dir = temp_dir("blobs");
         let mut file = new_file(&dir, "Bey County.sbd");

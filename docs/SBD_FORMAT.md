@@ -655,8 +655,11 @@ Export → Project data (JSON) writes the whole .sbd as one UTF-8 JSON file, and
 screen) makes a new project from one (src/core/storage/projectJson.ts). It's the project, not a view of it, so unlike
 the other exports it carries everything: every record, live and in the Trash; the History (every op and op group);
 named versions; pictures and thumbnails; LUTs; slate numbers; Seen. Imported, the new file holds exactly what the old
-one did, row for row and byte for byte, but for its own `meta.file_id` (a new file keys its own local backups) and
-`meta.app_version`, which every open writes.
+one did, every value of every row in the same order, but for its own `meta.file_id` (a new file keys its own local
+backups) and `meta.app_version`, which every open writes. SQLite's own row numbers aren't kept, only their order
+(nothing reads them). Every record keeps its id, the project record's included, so the copy and the original share
+them: a later change file or review copy keyed by project id (Phases 7 and 9) must tell the two files apart by
+`file_id`.
 
 ```json
 {"format":"storiiboard-project","format_version":1,"schema_version":8,"app_version":"0.1.0","exported_at":"2026-11-07T12:00:00.000Z","tables":{
@@ -677,9 +680,14 @@ one did, row for row and byte for byte, but for its own `meta.file_id` (a new fi
   (all tables are STRICT), so nothing is rounded.
 - Tables come in the order rows refer to each other: meta, media_files, thumbnails, luts, records, op_groups, ops,
   versions, slate_numbers, shot_seen, then any other by name. A table a later schema adds is carried without a change
-  to the code, which reads the tables the file has.
-- Import refuses a file that isn't this format, a `format_version` above 1 or a `schema_version` above this app's
-  (update Storiiboard), and any table or column the named schema doesn't have. It builds a new .sbd at that
+  to the code, which reads the tables the file has, as long as it's an ordinary rowid table (a WITHOUT ROWID or
+  full-text table would need one).
+- The export reads one consistent project: if an edit lands while it reads (a still being grabbed), it reads again,
+  and after three tries says so rather than write a file that might not import. It's refused before anything is read
+  if the project is too large to import back.
+- Import refuses a file that isn't UTF-8 JSON in this format, a `format_version` above 1 or a `schema_version` above
+  this app's (update Storiiboard), a meta `schema_version` row that isn't the header's, any table or column the named
+  schema doesn't have, and rows SQLite won't take as they are (a thumbnail of a picture that isn't there). It builds a new .sbd at that
   `schema_version`, puts every row in in one transaction (foreign keys checked at commit), and opening it then
   upgrades it as any older file is, with a migration backup beside it. It never writes over a file.
 - Limits: the page reads the file in one piece, so a project JSON of more than about 400 million characters (roughly

@@ -7,9 +7,12 @@ import { nodeDriver } from './nodeDriver';
 import { createProject, openProject, type Project } from './project';
 import {
   importProjectJson,
-  MAX_IMPORT_CHARS,
+  ProjectJsonChangedError,
   ProjectJsonError,
   projectJsonBytes,
+  projectJsonChunks,
+  projectJsonSize,
+  projectJsonText,
   projectJsonTitle,
   readProjectJson,
   type ProjectJson,
@@ -176,7 +179,83 @@ describe('project data as JSON (2.9)', () => {
     expect(problem('{"format":"storiiboard-project","format_version":1,"schema_version":1,"tables":{"meta":{"columns":["id"],"rows":[[1e300]]}}}')).toBe(
       'tables',
     );
-    expect(problem(' '.repeat(MAX_IMPORT_CHARS + 1))).toBe('tooLarge');
+    // A limit of its own here, so the test holds no 400 MB string.
+    expect(() => readProjectJson(' '.repeat(101), 100)).toThrow(ProjectJsonError);
+    expect(() => projectJsonText(new Uint8Array(101).buffer, 100)).toThrow(ProjectJsonError);
+    // Not UTF-8: refused, never read with replacement characters.
+    try {
+      projectJsonText(new Uint8Array([0x7b, 0xff, 0x7d]).buffer);
+      expect.unreachable();
+    } catch (error) {
+      expect(error instanceof ProjectJsonError && error.problem).toBe('notJson');
+    }
+  });
+
+  it('refuses a JSON whose rows say another schema than its header', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    const meta = data.tables.meta;
+    if (!meta) throw new Error('meta');
+    const key = meta.columns.indexOf('key');
+    const said = (rows: typeof meta.rows) => JSON.stringify({ ...data, tables: { ...data.tables, meta: { ...meta, rows } } });
+    expect(() => readProjectJson(said(meta.rows.filter((row) => row[key] !== 'schema_version')))).toThrow(ProjectJsonError);
+    const value = meta.columns.indexOf('value');
+    expect(() => readProjectJson(said(meta.rows.map((row) => (row[key] === 'schema_version' ? row.map((c, i) => (i === value ? '7' : c)) : row)))))
+      .toThrow(ProjectJsonError);
+  });
+
+  it('puts rows back in any order, references checked once at commit; a row naming what isn’t there is refused in words', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    const { thumbnails, media_files: pictures, op_groups: groups, ...rest } = data.tables;
+    if (!thumbnails || !pictures || !groups) throw new Error('tables');
+    // Thumbnails before their pictures, and every op group before the ones it names: only deferred checks take it.
+    const reordered: ProjectJson = { ...data, tables: { thumbnails, ...rest, op_groups: { ...groups, rows: [...groups.rows].reverse() }, media_files: pictures } };
+    const copy = folder.path('Reordered.sbd');
+    await importProjectJson(nodeDriver, copy, reordered, at());
+    const opened = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      expect((await opened.file.query('SELECT count(*) AS n FROM op_groups'))[0]?.n).toBe(groups.rows.length);
+    } finally {
+      await opened.close();
+    }
+    // A thumbnail of a picture that isn't there: SQLite refuses it at commit, and it's said as data that doesn't fit.
+    const orphan: ProjectJson = { ...data, tables: { ...data.tables, media_files: { ...pictures, rows: [] } } };
+    await expect(importProjectJson(nodeDriver, folder.path('Orphan.sbd'), orphan, at())).rejects.toMatchObject({ problem: 'tables' });
+  });
+
+  it('reads one consistent project: an edit landing mid-read starts it again, and one that never stops is refused', async () => {
+    let edits = 0;
+    const edit = async () => {
+      edits += 1;
+      await apply(project.file, [{ kind: 'update', id: 's1', set: { notes: `take ${String(edits)}` } }], { now: at });
+    };
+    // Once, between tables: read again, and the JSON has the edit, its frame and its step together.
+    let landed = false;
+    const pending: Promise<void>[] = [];
+    const chunks = await projectJsonChunks(project.file, at(), (table) => {
+      if (table === 'ops' && !landed) {
+        landed = true;
+        pending.push(edit());
+      }
+    });
+    await Promise.all(pending);
+    const text = chunks.join('');
+    expect(text).toContain('take 1');
+    expect(readProjectJson(text).tables.ops?.rows.some((row) => JSON.stringify(row).includes('take 1'))).toBe(true);
+    // Every time: refused, rather than a JSON that might not import.
+    const always: Promise<void>[] = [];
+    await expect(
+      projectJsonChunks(project.file, at(), (table) => {
+        if (table === 'ops') always.push(edit());
+      }),
+    ).rejects.toBeInstanceOf(ProjectJsonChangedError);
+    await Promise.all(always);
+  });
+
+  it('knows about how large the JSON will be before it reads it', async () => {
+    const size = await projectJsonSize(project.file);
+    const actual = (await projectJsonBytes(project.file, at())).length;
+    expect(size).toBeGreaterThan(actual * 0.8);
+    expect(size).toBeLessThan(actual * 1.6);
   });
 
   it('refuses tables or columns the schema doesn’t have, and a path that’s taken', async () => {

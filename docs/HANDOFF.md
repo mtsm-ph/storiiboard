@@ -341,7 +341,8 @@ Lows deferred (noted, not planned yet):
 
 ### 2.9: decisions
 
-- The JSON export carries the Trash and the History, though CLAUDE.md says exports skip the Trash. That rule is for
+- Decided by default, review: the JSON export carries the Trash and the History, though CLAUDE.md says exports skip
+  the Trash. That rule is for
   views of the project (PDF, CSV, PNG); this export is the project itself, and "round-trip without data loss" can't
   leave the Trash out. Export says so beside the format ("All of it: … the Trash, the History …"). If Kevin wants a
   choice to leave them out, it's an option on the format, not a change to the file.
@@ -350,8 +351,32 @@ Lows deferred (noted, not planned yet):
   300 MB of pictures is the most it takes (said if exceeded). Collect project (.sbdpack, later) is for moving big ones.
 - Import makes a new project, never merges into the open one, and keeps everything, the title included; only the file's
   own id is new, so its backups on this computer are its own.
-- Its columns can only be checked once the new file has its schema, so a JSON that fails that check (hand-edited, or
-  not Storiiboard's) leaves the new file empty, which opens as an empty project. Low; noted.
+- Its columns and rows can only be checked once the new file has its schema, so a JSON that fails then (a table or
+  column it doesn't have, or rows SQLite refuses at commit), or a quit during a long import, leaves the new file
+  empty at the name chosen: it opens as an empty project, and a second try needs another name. A hidden draft renamed
+  on success would need a new driver call; low, left.
+- The copy keeps every id, the project's included: Phases 7 and 9 (change files, review copies) must tell two files
+  apart by `meta.file_id`, not the project id.
+- The JSON is plain text: contact details, and every old value History keeps, can be read in it. Export says so
+  ("everyone's contact details … Share it as you would the project file").
+
+### 2.9: review
+
+Round 1: no high; two mediums fixed. The export read table after table, so a still or a picture landing meanwhile
+could give a thumbnail without its picture (a JSON that never imports) or a step without its frame: it reads again if
+the connection wrote anything in between, and after three tries says so. Nothing stopped an export too large to
+import back: its size is worked out first (blobs as base64, text as it is) and refused past the import limit, and the
+bytes are made a piece at a time. Lows fixed: a meta schema version that isn't the header's is refused; SQLite's own
+refusal at commit is said in the app's words; the size is checked before the file is decoded, and text that isn't
+UTF-8 is refused rather than read with replacement characters; the Rust cap is the page's limit (400 MB); Stop stops
+the read; one import at a time; the parsed file is let go before the new project loads; the words say what's in it
+(contact details, share it as the project file) and no longer promise "nothing lost" (videos stay outside); the Spanish
+says "datos del proyecto" throughout. Tests: rows in any order (thumbnails before pictures, op groups reversed), the
+deferred checks in Rust too; a commit-time refusal; the meta mismatch; an edit mid-read; the size estimate; an empty
+project exports; a JSON that isn't project data is refused in words, end to end. Lows left: memory at the limit hasn't
+been measured on a real webview (a Phase 2 gate check); an empty blob reads as null on the desktop (none exist today);
+a failed import's empty file (above).
+
 
 ### 2.8b: review
 
@@ -609,6 +634,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    window was, graded, with sound in sync. Try a long take on an external drive, and a 6K or 8K original.
 5. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
+6. Project data as JSON (2.9): export a real project (Export → Project data (JSON)), then Import project data… on the
+   Projects screen: the new project has every frame, picture, note, the Trash and History, and undo still works in it.
+   Try the largest board you have, on a Mac and on Windows, and say how long each takes and if the app strains. And
+   say whether the JSON should carry the Trash and History (it does; "2.9: decisions").
 
 ## The rules for this run (Kevin's queued instructions)
 
