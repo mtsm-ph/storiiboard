@@ -503,7 +503,7 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
  */
 const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media', 'location', 'person']);
 
-/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
+/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note, picture, location or person (not what's under them). */
 export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
 }
@@ -516,7 +516,7 @@ function namedBy(record: SbdRecord): string[] {
 }
 
 /**
- * Every record Empty Trash deletes: each trashed scene, frame, note or picture and everything under it. With `only`,
+ * Every record Empty Trash deletes: each trashed scene, frame, note, picture, location or person and everything under it. With `only`,
  * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
  */
 export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {

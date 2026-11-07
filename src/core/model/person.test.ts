@@ -77,9 +77,31 @@ describe('cast and crew (3.5)', () => {
     expect(lineText(made)).toBe('Added Kevin Matos to cast and crew');
   });
 
+  it('History says a person’s phone, notes and own fields only as set or changed, in the step’s line too', async () => {
+    const { describeEdit, fieldChanges, changeValue, lineText } = await import('../../features/history/summary');
+    const before = record('a', 'person', 'p', { name: 'Kevin Matos', notes: '', custom: { Agent: '' } });
+    const after = record('a', 'person', 'p', { name: 'Kevin Matos', notes: 'Allergic to latex', custom: { Agent: '+1 212 555 0199' } });
+    const values = fieldChanges(before, after).map((c) => changeValue(c, c.after));
+    expect(values.join(' | ')).not.toMatch(/latex|555/);
+    const step = (b: SbdRecord, a: SbdRecord) =>
+      lineText(describeEdit([{ id: 'o', seq: 1, groupId: 'g', groupKind: 'edit', recordId: 'a', kind: 'update', before: b, after: a, author: 'Kevin', timestamp: '2026-11-07T12:00:00.000Z' }], new Set()));
+    const phoned = record('a', 'person', 'p', { name: 'Kevin Matos', phone: '+1 212 555 0100' });
+    expect(step(record('a', 'person', 'p', { name: 'Kevin Matos' }), phoned)).not.toMatch(/555/);
+    expect(step(record('a', 'person', 'p', { name: 'Kevin Matos', notes: 'a' }), record('a', 'person', 'p', { name: 'Kevin Matos', notes: 'Allergic to latex' }))).not.toMatch(/latex/);
+    // A frame's notes still read as written.
+    expect(step(record('a', 'shot', 'sc1', { notes: 'a' }), record('a', 'shot', 'sc1', { notes: 'Dolly in' }))).toMatch(/Dolly in/);
+  });
+
+  it('keeps department ids this version doesn’t know, and never writes over a field that isn’t text', () => {
+    const all = { ...records(), e: record('e', 'person', 'p', { name: 'Lou', departments: ['camera', 'vfx'], title: { long: 'x' } }) };
+    expect(personDepartment(all, 'e', 'sound', true)).toEqual([{ kind: 'update', id: 'e', set: { departments: ['camera', 'sound', 'vfx'] } }]);
+    expect(personChange(all, 'e', 'title', '2nd AC')).toEqual([]);
+  });
+
   it('a person’s own fields: their labels are reserved, a frame’s aren’t', async () => {
     const { fieldName } = await import('./customFields');
     expect(fieldName('Phone', [], [], 'person')).toMatchObject({ ok: false });
+    expect(fieldName('Title', [], [], 'person')).toMatchObject({ ok: false });
     expect(fieldName('Lens', [], [], 'person')).toEqual({ ok: true, name: 'Lens' });
     expect(fieldName('Agent', [], [], 'person')).toEqual({ ok: true, name: 'Agent' });
   });

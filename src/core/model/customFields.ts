@@ -62,6 +62,7 @@ export const PERSON_BUILT_IN_FIELDS = [
   'person.role',
   'person.departments',
   'person.title',
+  'field.title',
   'person.phone',
   'person.email',
   'person.notes',

@@ -343,6 +343,24 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.5a: review
+
+Round 1: no high, four mediums, fixed.
+- A person's notes and own fields read word for word in History (an agent's phone, an allergy): they're now said
+  only as set, changed or removed, as their phone and email are.
+- Turning a department on or off dropped ids this version doesn't know; and a field holding something other than
+  text was written over. Both are kept now.
+- Decision 16 (3.4's HTTP client) was wrong on the facts: reqwest, tokio and hyper are already in the build through
+  Tauri. Rewritten: reqwest with the OS's own TLS is the recommendation, and the schema 9 table is noted as allowed.
+- Tests added: Empty Trash takes a person's phone out of History and the file; the JSON round trip carries a person;
+  the step's own line hides a phone and notes; unknown departments kept.
+- Lows fixed: the focus ring on a picked department (paper, inside, on the ink); the Delete notice names the person as
+  the edit finds them; focus after Delete goes to the next person, and the editor follows; phone and email fields
+  (people's and locations') turn the browser's autofill off; Spanish wording matched; "Their fields" has its own key;
+  "Title" is reserved; stale comments.
+- Lows left: a person has no item history in the History tile yet (Notifications, 3.10, filters by item); the
+  Locations tile's Delete notice reads the name from before the edit, as this one did.
+
 ### 3.3b: review
 
 Round 1: no high, five mediums, fixed.

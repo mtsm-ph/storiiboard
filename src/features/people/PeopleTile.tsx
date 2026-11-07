@@ -107,6 +107,7 @@ export function PeopleTile() {
                   <button
                     type="button"
                     aria-current={current || undefined}
+                    data-person-id={record.id}
                     onClick={() => {
                       setChosen(record.id);
                     }}
@@ -144,17 +145,29 @@ export function PeopleTile() {
             void edit((now) => personDepartment(now, selected.record.id, department, on));
           }}
           onDelete={() => {
-            const name = selected.fields.name || t('people.unnamed');
-            void edit((now) => trashPerson(now, selected.record.id)).then((done) => {
-              if (!done) return;
-              // A note about this step: an undo clears it.
-              showInfo(t('people.trashed', { name }), { step: true });
-              // Focus to the list, whose row went; to New person when it was the last.
-              requestAnimationFrame(() => {
-                const row = document.getElementById(listId)?.querySelector<HTMLElement>('button');
-                (row ?? newButton.current)?.focus();
+            const id = selected.record.id;
+            const at = all.findIndex((p) => p.record.id === id);
+            // Named as the edit finds them, so a name typed and not yet left is the one the notice says.
+            let name = '';
+            void projectStore
+              .getState()
+              .applyWith((now) => {
+                const person = now[id];
+                name = (person && typeof person.props.name === 'string' && person.props.name.trim()) || t('people.unnamed');
+                return { changes: trashPerson(now, id) };
+              })
+              .then((done) => {
+                if (!done) return;
+                // A note about this step: an undo clears it.
+                showInfo(t('people.trashed', { name }), { step: true });
+                // The one after takes its place, else the one before; New person when it was the last.
+                const next = all[at + 1] ?? all[at - 1] ?? null;
+                setChosen(next?.record.id ?? null);
+                requestAnimationFrame(() => {
+                  const row = next ? document.getElementById(listId)?.querySelector<HTMLElement>(`[data-person-id="${next.record.id}"]`) : null;
+                  (row ?? newButton.current)?.focus();
+                });
               });
-            });
           }}
         />
       )}
@@ -197,6 +210,8 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
         label={label}
         data-field={prop}
         {...(type ? { type } : {})}
+        // Never offered from, or saved to, the browser's own autofill: a cast member's phone stays in the project.
+        autoComplete="off"
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();
         }}
@@ -241,8 +256,9 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
                   onDepartment(department, !on);
                 }}
                 className={cx(
-                  'border border-text px-2 py-0.5 text-[12px] font-semibold',
-                  on ? 'bg-text text-text-inverse focus-visible:outline-offset-2' : 'hover:bg-surface-raised',
+                  'border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                  // On the ink fill, the focus ring is paper and inside (DESIGN.md: never ink on ink).
+                  on ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
                 )}
               >
                 {DEPARTMENT_LABELS[department]}
@@ -253,7 +269,7 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
       </div>
       {PERSON_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), prop === 'notes', FIELD_TYPE[prop]))}
       <div className="flex flex-col gap-3">
-        <h4 className="sb-label">{t('location.customFields')}</h4>
+        <h4 className="sb-label">{t('person.customFields')}</h4>
         <CustomFields
           of="person"
           fields={customFieldsOf(props)}

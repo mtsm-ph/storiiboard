@@ -52,6 +52,9 @@ test('a person is added, named, given a role, departments and contacts; Delete a
   // Delete, then Restore from the Trash.
   await editor.getByRole('button', { name: 'Delete person' }).click();
   await expect(people.getByText('No one yet.', { exact: false })).toBeVisible();
+  // The last one gone: the focus goes to New person.
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  await expect(page.getByText('Moved Kevin Matos to the Trash.')).toBeVisible();
   await page.getByRole('button', { name: /^Layout/ }).click();
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await page.getByRole('region', { name: 'Trash', exact: true }).getByRole('button', { name: 'Restore person Kevin Matos' }).click();

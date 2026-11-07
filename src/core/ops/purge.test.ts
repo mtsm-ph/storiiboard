@@ -13,7 +13,7 @@ import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, openProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
 import { deleteVersion, listVersions, nameVersion } from '../storage/versions';
-import { cleanUpPictures, historyOnlyPictures, log, restoreTo, trashedRoots } from './ops';
+import { cleanUpPictures, historyOnlyPictures, log, opsOfRecords, restoreTo, trashedRoots } from './ops';
 
 function picture(seed: number): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -128,6 +128,20 @@ describe('Empty Trash', () => {
     expect(await readThumbnail(project.file, own)).toBeNull();
     expect(await readOriginal(project.file, shared)).not.toBeNull();
     expect(shotFields(records()[kept]?.props ?? {}).number).toBe('4A');
+  });
+
+  it('deletes a trashed person for good, their phone gone from History and from the file (3.5)', async () => {
+    const id = 'pe1';
+    await store.getState().apply([{ kind: 'create', record: { id, type: 'person', parentId: project.projectId, sortKey: 'a', props: { name: 'Ana Ruiz' } } }]);
+    await store.getState().apply([{ kind: 'update', id, set: { phone: '+1 212 555 0177' } }]);
+    await store.getState().apply([{ kind: 'trash', id }]);
+    expect(trashedRoots(Object.values(records()))).toContain(id);
+    await store.getState().emptyTrash();
+    expect(records()[id]).toBeUndefined();
+    const left = await opsOfRecords(project.file, [id]);
+    expect(left.every((op) => op.before === null && op.after === null)).toBe(true);
+    await reopen();
+    expect(readFileSync(folder.path('Bey County.sbd')).includes(Buffer.from('555 0177'))).toBe(false);
   });
 
   it('deletes only what the confirm counted: a frame trashed while it was up stays in the Trash', async () => {

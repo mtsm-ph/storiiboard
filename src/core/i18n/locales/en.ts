@@ -680,6 +680,7 @@ export const en = {
   'person.phone': 'Phone',
   'person.email': 'Email',
   'person.notes': 'Notes',
+  'person.customFields': 'Their fields',
   'person.removeField': 'Remove {field} from this person',
   'person.fieldExamples': 'Agent, union number, diet…',
   'field.personBuiltIn': '{name} is one of the person’s own fields. Choose another name.',

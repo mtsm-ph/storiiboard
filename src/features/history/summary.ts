@@ -252,6 +252,9 @@ export interface FieldChange {
   key?: string;
   before: JsonValue | undefined;
   after: JsonValue | undefined;
+  /** Said only as set, changed or removed, never as itself: a person's notes and own fields (3.5), which may hold
+   * anything from an agent's phone to an allergy. */
+  private?: true;
 }
 
 const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
@@ -283,7 +286,7 @@ function clientValue(change: FieldChange & { key: string }, value: JsonValue | u
 
 /** Every field an op changed, each custom field and each department's status on its own. */
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
-  return changedProps(before, after).flatMap((prop): FieldChange[] => {
+  const changes = changedProps(before, after).flatMap((prop): FieldChange[] => {
     const byId = prop === 'deliverables';
     if (!BY_ENTRY.has(prop) && !byId) return [{ prop, before: before.props[prop], after: after.props[prop] }];
     const was = byId ? deliverablesById(before.props) : entriesOf(before.props, prop);
@@ -294,7 +297,11 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     // A checklist that changed with no item changed (reordered, or an entry without an id): the list as a whole.
     return byId && entries.length === 0 ? [{ prop, before: before.props[prop], after: after.props[prop] }] : entries;
   });
+  return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
+
+/** A person's props said only as set, changed or removed (3.5): their notes and own fields, besides PRIVATE_PROPS. */
+const PERSON_PRIVATE: ReadonlySet<string> = new Set(['notes', 'custom']);
 
 const isStatus = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'department_status' && change.key !== undefined;
 
@@ -316,11 +323,12 @@ export const changeLabel = (change: FieldChange): string =>
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
 const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email', 'phone', 'email']);
+const isPrivate = (change: FieldChange): boolean => change.private === true || (change.key === undefined && PRIVATE_PROPS.has(change.prop));
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+  isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -331,7 +339,7 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
         : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+  isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -341,7 +349,7 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
         ? deliverableText(value, true)
         : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
-  change.key === undefined && !PRIVATE_PROPS.has(change.prop) ? valuePart(change.prop, value) : changeValue(change, value);
+  change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null): Part {

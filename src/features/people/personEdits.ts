@@ -27,8 +27,10 @@ export function newPerson(records: Records, projectId: string, id: string = cryp
 export function personChange(records: Records, id: string, prop: string, value: string): Change[] {
   const person = live(records, id);
   if (!person) return [];
-  const current = typeof person.props[prop] === 'string' ? person.props[prop] : '';
-  return current === value ? [] : [{ kind: 'update', id, set: { [prop]: value } }];
+  const stored = person.props[prop];
+  // Something other than text there (a later version's, or a hand edit) is never written over from here.
+  if (stored !== undefined && stored !== null && typeof stored !== 'string') return [];
+  return (stored ?? '') === value ? [] : [{ kind: 'update', id, set: { [prop]: value } }];
 }
 
 /** Their main role, or none; nothing when it's already that. */
@@ -46,8 +48,11 @@ export function personDepartment(records: Records, id: string, department: Depar
   if (!person) return [];
   const current = personDepartments(person.props.departments);
   if (current.includes(department) === on) return [];
-  const next = DEPARTMENTS.filter((d) => (d === department ? on : current.includes(d)));
-  return [{ kind: 'update', id, set: { departments: next } }];
+  const known = DEPARTMENTS.filter((d) => (d === department ? on : current.includes(d)));
+  // Ids this version doesn't know (a later version's departments) stay as they are, after the known ones.
+  const stored = Array.isArray(person.props.departments) ? person.props.departments : [];
+  const unknown = stored.filter((d) => !(typeof d === 'string' && (DEPARTMENTS as readonly string[]).includes(d)));
+  return [{ kind: 'update', id, set: { departments: [...known, ...unknown] } }];
 }
 
 /** A person to the Trash. */

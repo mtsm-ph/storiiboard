@@ -335,11 +335,11 @@ function Section({ title, children, dropShotId, start = false }: SectionProps) {
   );
 }
 
-/** A frame's own fields (1.19): each saves like the others; a new one takes a name, offering the project's. */
 /** Each kind's own words for its fields (3.3, 3.5). */
 const REMOVE_FIELD = { frame: 'inspector.removeField', location: 'location.removeField', person: 'person.removeField' } as const satisfies Record<FieldsOf, MessageKey>;
 const FIELD_EXAMPLES = { frame: 'inspectorView.droneVfxBudget', location: 'location.fieldExamples', person: 'person.fieldExamples' } as const satisfies Record<FieldsOf, MessageKey>;
 
+/** A frame's own fields (1.19), a location's or a person's: each saves like the others; a new one takes a name, offering the project's. */
 export function CustomFields({
   fields,
   known,
@@ -347,7 +347,7 @@ export function CustomFields({
   onChange,
   of = 'frame',
 }: {
-  /** A frame's fields, or a location's (3.3): their reserved names and words. */
+  /** A frame's fields, a location's (3.3) or a person's (3.5): their reserved names and words. */
   of?: FieldsOf;
   fields: Readonly<Record<string, string>>;
   /** Every field name the project's frames use, for the new field's suggestions. */
