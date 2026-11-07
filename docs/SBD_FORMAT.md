@@ -396,6 +396,15 @@ private: shown in the app, never logged. No table change.
 - `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
   A location in the Trash reads as none, for the shot as for the scene.
 
+## Person props (3.5)
+
+A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the
+app's role ids: `director`, `dp`, `producer`, `first-ad`, `gaffer`, `key-grip`, `production-designer`, `hmu`,
+`wardrobe`, `sound`, `editor`, `cast`, `client`, `other`; missing or odd reads as none); `departments` (a list of
+department ids, kept in the call sheet's order; unknown ids are ignored); `title` (the call sheet's free text),
+`phone`, `email`, `notes` (text); `custom` (their own fields, as a shot's). The phone and email are private: shown in
+the app, never logged, never shown in History. No table change.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project

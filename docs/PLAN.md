@@ -41,8 +41,9 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
 | 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
 | 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | #91 | Done |
-| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
-| 3.5 Cast and crew, Team | People with departments, roles, titles and contacts (private: never logged); characters linked to cast; the Team section; you in Cast & crew in place of the local project role | | Not started |
+| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
+| 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | | In review |
+| 3.5b Characters and Team | Characters linked to cast; the Team section; you in Cast and crew in place of the local project role | | Not started |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
@@ -51,8 +52,19 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
-Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
-as ids (it alters existing data).
+Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
+as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.5a as built (Nov 7): the Cast and crew tile (`src/features/people/`, `src/core/model/person.ts`).
+- Production's Cast and crew tile lists the project's people by name, each with their role and departments, with
+  + New person; the one picked opens in an editor: name, role (the app's 14), departments (several, in the call
+  sheet's order), a title for the call sheet, phone, email and notes, each one edit when it's left, and their own
+  fields as frames and locations have them.
+- Phone and email are private: History names the field and says it was set, changed or removed, never the value.
+- Delete person sends them to the Trash (a new kind there: listed, filtered, restored, cleared by Empty Trash).
+- Tests: fields read, the list, each edit (one each, none when nothing changes), the Trash, History's words and its
+  hidden contacts, the reserved field names; end to end, a person added, named, given a role, departments and a
+  phone, one undo, axe light and dark, Delete and Restore.
 
 3.3b as built (Nov 7): photos, own fields, and a frame shot elsewhere.
 - A location's editor has Photos: Add photos… stores recce pictures in the project as frames' pictures are (`media`

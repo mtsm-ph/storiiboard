@@ -3,6 +3,7 @@ import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
+import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -88,6 +89,9 @@ const FIELD: Readonly<Record<string, string>> = labels({
   contact_phone: 'history.field.contactPhone',
   contact_email: 'history.field.contactEmail',
   parking: 'history.field.parking',
+  phone: 'history.field.phone',
+  email: 'history.field.email',
+  role: 'history.field.role',
   power: 'history.field.power',
 });
 
@@ -168,6 +172,7 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   height: HEIGHT_LABEL,
   move: MOVE_LABEL,
   stage: PROJECT_STAGE_LABEL,
+  role: ROLE_LABELS,
 };
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
@@ -310,7 +315,7 @@ export const changeLabel = (change: FieldChange): string =>
  * Contact details and addresses (a location's, 3.3; call sheets treat them as private): History names the field and
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
-const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email']);
+const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email', 'phone', 'email']);
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
@@ -354,6 +359,8 @@ function nameOf(record: SbdRecord | null): Part {
       return typeof record.props.name === 'string' ? record.props.name : t('history.aLocation');
     case 'character':
       return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
+    case 'person':
+      return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
     case 'project':
       return t('history.theProject');
     case 'media':
@@ -374,6 +381,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   note: 'count.notes',
   location: 'count.locations',
   character: 'count.characters',
+  person: 'count.people',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -383,10 +391,10 @@ const count = (type: SbdRecord['type'], n: number): string => {
 };
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
-const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character', MessageKey>>>> = {
-  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character' },
-  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character' },
-  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character' },
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person' },
 };
 const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
   create: 'history.addedCount',
@@ -472,7 +480,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character'] as const) {
+    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {

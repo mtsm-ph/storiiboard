@@ -133,7 +133,7 @@ test('opens any built tile in any workspace from the Layout menu, and only built
   await expect(page.getByRole('button', { name: /^Layout/ })).toBeFocused();
 
   // With every built tile open, the group offers nothing, though Calendar, Gear and the rest aren't open.
-  for (const name of ['History', 'Color script', 'Locations']) {
+  for (const name of ['History', 'Color script', 'Locations', 'Cast and crew']) {
     await page.getByRole('button', { name: /^Layout/ }).click();
     await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name, exact: true }).click();
   }
