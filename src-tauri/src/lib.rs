@@ -172,8 +172,8 @@ pub fn run() {
                 app.state::<sbd::OpenFiles>().close_all();
                 // A playback copy being made stops with the app, rather than going on alone (playback.rs).
                 app.state::<playback::PlaybackCache>().cancel_all();
-                // And a clip being saved (video.rs): its ffmpeg ends, and its unfinished file goes.
-                video::cancel_clip();
+                // And a clip being saved (video.rs): its ffmpeg ends, and its unfinished file goes, before the app does.
+                video::stop_clip_for_exit();
             }
             // On a Mac a double-click arrives as an Apple Event, whether or not the app was running.
             #[cfg(target_os = "macos")]

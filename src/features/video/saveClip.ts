@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { useStore } from 'zustand';
+import { createStore } from 'zustand/vanilla';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { projectStore } from '../../app/projectStore';
@@ -31,8 +33,22 @@ function placeOf(records: Records, id: string): string {
   return String(siblings.findIndex((r) => r.id === id) + 1);
 }
 
-/** Stops the clip being saved; it leaves nothing behind. */
+/**
+ * The clip being saved, from the Save dialog to the file in place: one at a time (Rust renders one), kept outside the
+ * inspector so its Cancel is there whichever frame was shown in between, or after the tile was closed and opened.
+ */
+export const clipSaving = createStore<{ shotId: string | null; cancelled: boolean }>()(() => ({ shotId: null, cancelled: false }));
+
+/** The frame whose clip is being saved, if any. */
+export function useClipSaving(): string | null {
+  return useStore(clipSaving, (s) => s.shotId);
+}
+
+/** Stops the clip being saved, at whatever step it's at; it leaves nothing behind. */
 export async function cancelSaveClip(): Promise<void> {
+  if (clipSaving.getState().shotId === null) return;
+  // Before Rust has it (the dialog, the LUT read), the flag stops it there; once it has, Rust stops it.
+  clipSaving.setState({ cancelled: true });
   if (isTauriApp) await invoke<boolean>('clip_cancel');
 }
 
@@ -49,13 +65,22 @@ export async function saveClip(shotId: string): Promise<boolean> {
     showNotice(new Error(t('saveClip.desktopOnly')));
     return false;
   }
-  // A scene or frame with no number takes its place in order, as the picture export's names do.
-  const name = clipFileName(sceneFields(scene.props).number || placeOf(records, scene.id), shotFields(shot.props).number || placeOf(records, shotId));
+  // Another clip is on its way: said, before a Save dialog asks for a place this one couldn't use yet.
+  if (clipSaving.getState().shotId !== null) {
+    showNotice(new Error(t('error.clipBusy')));
+    return false;
+  }
+  clipSaving.setState({ shotId, cancelled: false });
+  const cancelled = () => clipSaving.getState().cancelled;
+  // A frame with no number takes its place in its scene, as a scene's picture export names it; a scene with none
+  // keeps its empty number, as that export does.
+  const name = clipFileName(sceneFields(scene.props).number, shotFields(shot.props).number || placeOf(records, shotId));
   try {
     const dest = await invoke<string | null>('export_choose_file', { name });
-    if (dest === null) return false;
+    if (dest === null || cancelled()) return false;
     const lut = video.lutId ? await lutForCopy(project.file, video.lutId) : null;
     if (video.lutId && !lut) throw new Error(t('saveClip.lutMissing'));
+    if (cancelled()) throw new Error(t('error.clipCancelled'));
     const frameAspect = aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio);
     const box = cropWindow(clip.crop, displayAspect(video), frameAspect);
     const chosen = dest.split(/[/\\]/).pop() ?? name;
@@ -74,7 +99,11 @@ export async function saveClip(shotId: string): Promise<boolean> {
     showInfo(t('saveClip.saved', { name: chosen }));
     return true;
   } catch (error) {
-    showNotice(error);
+    // A cancel asked for is said as what happened, not as a fault.
+    if (cancelled()) showInfo(t('error.clipCancelled'));
+    else showNotice(error);
     return false;
+  } finally {
+    clipSaving.setState({ shotId: null, cancelled: false });
   }
 }

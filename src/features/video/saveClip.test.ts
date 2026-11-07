@@ -18,7 +18,7 @@ vi.mock('../../app/notice', () => ({
 }));
 
 const { projectStore } = await import('../../app/projectStore');
-const { cancelSaveClip, clipFileName, saveClip } = await import('./saveClip');
+const { cancelSaveClip, clipFileName, clipSaving, saveClip } = await import('./saveClip');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -131,9 +131,41 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     expect(notices.said.at(-1)).toContain('LUT');
   });
 
-  it('cancel asks Rust to stop the clip being saved', async () => {
-    tauri.invoke.mockResolvedValueOnce(true);
+  it('one clip at a time: a second is refused before its Save dialog, and Cancel stops the first and says so', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    tauri.invoke.mockImplementation((name: string) => {
+      if (name === 'export_choose_file') return Promise.resolve('/Exports/SC004_4A.mp4');
+      if (name === 'clip_save') return new Promise((resolve) => (finish = resolve));
+      if (name === 'clip_cancel') {
+        finish(Promise.reject(new Error('Saving the clip was cancelled.')));
+        return Promise.resolve(true);
+      }
+      return Promise.resolve(null);
+    });
+    const first = saveClip('s1');
+    await vi.waitFor(() => {
+      expect(tauri.invoke).toHaveBeenCalledWith('clip_save', expect.anything());
+    });
+    expect(clipSaving.getState().shotId).toBe('s1');
+    expect(await saveClip('s1')).toBe(false);
+    expect(notices.said.at(-1)).toBe('Another clip is being saved. Wait for it, or cancel it.');
+    expect(tauri.invoke.mock.calls.filter(([name]) => name === 'export_choose_file')).toHaveLength(1);
     await cancelSaveClip();
-    expect(tauri.invoke).toHaveBeenCalledWith('clip_cancel');
+    expect(await first).toBe(false);
+    // Said as what happened, as information, and the next save may start.
+    expect(notices.said.at(-1)).toBe('Saving the clip was cancelled.');
+    expect(clipSaving.getState()).toEqual({ shotId: null, cancelled: false });
+  });
+
+  it('a Cancel while the Save dialog is open stops it there: Rust is never asked', async () => {
+    tauri.invoke.mockImplementation((name: string) => {
+      if (name === 'export_choose_file') {
+        void cancelSaveClip();
+        return Promise.resolve('/Exports/SC004_4A.mp4');
+      }
+      return Promise.resolve(true);
+    });
+    expect(await saveClip('s1')).toBe(false);
+    expect((tauri.invoke.mock.calls as [string][]).map(([name]) => name)).not.toContain('clip_save');
   });
 });

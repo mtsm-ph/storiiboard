@@ -297,15 +297,18 @@ fn run_heard(
     timeout: Duration,
     errors: bool,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
-    run_stoppable(command, timeout, errors, None)
+    run_stoppable(command, timeout, errors, None, None)
 }
 
-/// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`.
+/// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`. `leftover`, a file
+/// the sidecar writes, is removed when it's stopped or given up on, once it has ended: Windows can't delete a file a
+/// process still has open, and on a Mac a sidecar told to stop as the app quits would otherwise finish it alone.
 fn run_stoppable(
     mut command: Command,
     timeout: Duration,
     errors: bool,
     stop: Option<&std::sync::atomic::AtomicBool>,
+    leftover: Option<&Path>,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
     let mut child = command
         .stdout(Stdio::piped())
@@ -342,14 +345,35 @@ fn run_stoppable(
             .take()
             .map(|p| Box::new(p) as Box<dyn Read + Send>),
     );
+    let leftover = leftover.map(Path::to_path_buf);
+    // Killed: waited for here a moment (a stop asked for should end with the file gone, before the app quits), else
+    // on a thread of its own, which removes the file once the process has let it go.
+    let end = move |mut child: std::process::Child, wait: Duration| {
+        let _ = child.kill();
+        let started = Instant::now();
+        while started.elapsed() < wait {
+            if let Ok(Some(_)) = child.try_wait() {
+                if let Some(file) = &leftover {
+                    let _ = std::fs::remove_file(file);
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            if let Some(file) = &leftover {
+                let _ = std::fs::remove_file(file);
+            }
+        });
+    };
     let started = Instant::now();
     let status = loop {
         let stopped = stop.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst));
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if stopped => {
-                let _ = child.kill();
-                std::thread::spawn(move || child.wait());
+                end(child, Duration::from_secs(2));
                 return Err(CLIP_CANCELLED.into());
             }
             Ok(None) if started.elapsed() < timeout => {
@@ -358,8 +382,7 @@ fn run_stoppable(
             Ok(None) => {
                 // A read stuck on a share that stopped answering can hold the kill back until it returns, so the
                 // wait for the process happens on a thread of its own, never here.
-                let _ = child.kill();
-                std::thread::spawn(move || child.wait());
+                end(child, Duration::ZERO);
                 return Err(TOO_SLOW.into());
             }
             Err(_) => return Err(CANT_READ.into()),
@@ -892,7 +915,10 @@ const CLIP_LONG_EDGE: u32 = 1920;
 pub(crate) const CLIP_CANCELLED: &str = "Saving the clip was cancelled.";
 const CLIP_NOT_SAVED: &str = "The clip couldn't be saved there.";
 const CLIP_OVER_VIDEO: &str =
-    "A clip is never saved over a video that's there. Choose another name.";
+    "A clip is only saved over a clip Storiiboard saved. Choose another name.";
+const CLIP_BUSY_NOW: &str = "Another clip is being saved. Wait for it, or cancel it.";
+/// Written into every clip saved, so a clip saved again at its slate name may replace the last one, and nothing else.
+const CLIP_MARK: &str = "Saved by Storiiboard";
 
 /// A clip being saved, and whether it's been asked to stop: one at a time, as the export dialog allows.
 static CLIP_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -905,6 +931,57 @@ pub fn cancel_clip() -> bool {
         CLIP_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
     }
     busy
+}
+
+/// As the app quits: stops the clip being saved and waits, a few seconds at most, until its ffmpeg has ended and its
+/// unfinished file is gone (on a Mac and Linux nothing else would end it).
+pub fn stop_clip_for_exit() {
+    if !cancel_clip() {
+        return;
+    }
+    let started = Instant::now();
+    while CLIP_BUSY.load(std::sync::atomic::Ordering::SeqCst)
+        && started.elapsed() < Duration::from_secs(3)
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Marks a clip being saved as busy until it's dropped, panic or not: a save that went wrong never blocks the next.
+struct ClipBusy;
+
+impl ClipBusy {
+    fn take() -> Option<Self> {
+        // A Cancel for an earlier save never stops this one; one asked for from now on does.
+        CLIP_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+        if CLIP_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            None
+        } else {
+            Some(Self)
+        }
+    }
+}
+
+impl Drop for ClipBusy {
+    fn drop(&mut self) {
+        CLIP_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether a file is a clip Storiiboard saved: its comment is the mark.
+fn is_saved_clip(path: &Path) -> bool {
+    let mut command = command("ffprobe");
+    command
+        .args(["-v", "error", "-protocol_whitelist", "file"])
+        .args([
+            "-show_entries",
+            "format_tags=comment",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            "-i",
+        ])
+        .arg(path);
+    run(command, PROBE_TIMEOUT).is_ok_and(|out| String::from_utf8_lossy(&out).trim() == CLIP_MARK)
 }
 
 /// A hidden file of its own beside `dest`, made new (never one already there, never through a link), for ffmpeg to
@@ -929,11 +1006,14 @@ fn clip_partial(dest: &Path) -> Result<PathBuf, String> {
     Err(CLIP_NOT_SAVED.into())
 }
 
-/// Whether a clip may be saved at `dest`: never over the file it's made from, nor over any file there that reads as
-/// a video (a camera original the Save panel opened beside), whatever the dialog asked.
+/// Whether a clip may be saved at `dest`: where nothing is, or over a clip Storiiboard saved (the same slate name,
+/// saved again), never over the file it's made from. Not over any other file, whatever the Save dialog asked: a
+/// camera original beside it, even one that can't be read now (a card pulled mid-take, a share that's slow), is
+/// exactly the file someone hopes to keep.
 fn clip_may_go(dest: &Path, source: &Path) -> bool {
     let same = matches!((std::fs::canonicalize(dest), std::fs::canonicalize(source)), (Ok(a), Ok(b)) if a == b);
-    !same && !(dest.exists() && probe(dest).is_ok())
+    let there = std::fs::symlink_metadata(dest).is_ok();
+    !same && (!there || (dest.is_file() && is_saved_clip(dest)))
 }
 
 /// A saved clip's filters: deinterlaced; the frames before its in point dropped by their own timestamps (so nothing is
@@ -1053,6 +1133,7 @@ pub fn save_clip(
         command
             .arg("-t")
             .arg(format!("{seconds:.6}"))
+            .args(["-metadata", &format!("comment={CLIP_MARK}")])
             .args(["-movflags", "+faststart", "-f", "mp4"])
             .arg(&partial);
         let outcome = run_stoppable(
@@ -1060,6 +1141,7 @@ pub fn save_clip(
             clip_timeout(frames, fps_num, fps_den),
             true,
             Some(&CLIP_STOP),
+            Some(&partial),
         );
         match outcome {
             Ok((status, _, _)) if status.success() => {
@@ -1329,20 +1411,17 @@ pub async fn clip_save(
         if !clip_may_go(&dest, path) {
             return Err(CLIP_OVER_VIDEO.into());
         }
-        if CLIP_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            return Err(CLIP_NOT_SAVED.into());
-        }
-        CLIP_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
-        let saved = save_clip(
+        let Some(_busy) = ClipBusy::take() else {
+            return Err(CLIP_BUSY_NOW.into());
+        };
+        save_clip(
             path,
             (in_frame, out_frame),
             (fps_num, fps_den),
             window,
             lut.as_ref(),
             &dest,
-        );
-        CLIP_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
-        saved
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -2543,12 +2622,18 @@ mod tests {
             (first - 175).abs() <= 8,
             "graded, the in frame inverted: {first}"
         );
-        // Never over footage: not over the take itself, nor over any file there that reads as a video.
+        // Never over footage: not over the take itself, nor any file there but a clip it saved (saved again at its
+        // slate name), not even one that can't be read (a card pulled mid-take).
+        assert!(is_saved_clip(&dest));
+        assert!(!is_saved_clip(&take));
         assert!(!clip_may_go(&take, &take));
-        assert!(!clip_may_go(&dest, &take));
+        assert!(clip_may_go(&dest, &take));
         assert!(clip_may_go(&dir.join("SC004_4D.mp4"), &take));
-        fs::write(dir.join("notes.mp4"), b"not a video").unwrap();
-        assert!(clip_may_go(&dir.join("notes.mp4"), &take));
+        let original = dir.join("A001_C004.mp4");
+        fs::copy(&take, &original).unwrap();
+        assert!(!clip_may_go(&original, &take));
+        fs::write(dir.join("broken.mp4"), b"moov atom not found").unwrap();
+        assert!(!clip_may_go(&dir.join("broken.mp4"), &take));
         // No unfinished file left anywhere beside them.
         assert!(fs::read_dir(&dir)
             .unwrap()
@@ -2558,6 +2643,57 @@ mod tests {
         let none = dir.join("SC004_4C.mp4");
         assert!(save_clip(&take, (20, 10), (25, 1), window, None, &none).is_err());
         assert!(!none.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stopped_save_ends_its_ffmpeg_and_leaves_no_file_and_one_saves_at_a_time() {
+        let dir = temp_dir("stopped");
+        let partial = dir.join(".SC004_4A.mp4.1-0.part");
+        // A render that would run for a minute, stopped a moment in.
+        let mut render = command("ffmpeg");
+        render
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-re",
+                "-f",
+                "lavfi",
+                "-i",
+            ])
+            .args([
+                "color=c=black:size=320x180:rate=25:duration=60",
+                "-f",
+                "mp4",
+            ])
+            .arg(&partial);
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let outcome = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(500));
+                stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+            run_stoppable(
+                render,
+                Duration::from_secs(60),
+                true,
+                Some(&stop),
+                Some(&partial),
+            )
+        });
+        assert_eq!(outcome.unwrap_err(), CLIP_CANCELLED);
+        assert!(
+            !partial.exists(),
+            "the unfinished file is gone once it's stopped"
+        );
+        // One save at a time; a save that's over, however it ended, never holds up the next.
+        let first = ClipBusy::take().unwrap();
+        // (No Cancel here: the flag it sets is the one the clip test beside this one saves under.)
+        assert!(ClipBusy::take().is_none());
+        drop(first);
+        drop(ClipBusy::take().unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 

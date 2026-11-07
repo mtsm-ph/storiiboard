@@ -345,12 +345,27 @@ Round 1: one high, four mediums, all fixed. A clip could be saved over a camera 
 video at the chosen name): Rust refuses the source itself and any file there that probes as a video, and the export
 writer never writes `.mp4`. Variable-frame-rate takes now come out at the clip's rate (an `fps` filter and constant
 frame rate), so the frame count holds. Sound is cut from the same zero point as the picture and resampled to stay in
-sync, and a take whose sound is left out of the mix (2.3c) saves without it. The file is written to a hidden partial
+sync, and a take whose sound track can't be decoded saves without it. The file is written to a hidden partial
 next to the destination and renamed only when it's whole; a timeout, a cancel or quitting the app leaves nothing. While
 it saves, the button reads Cancel saving clip. Lows fixed: an anamorphic take is cropped first and scaled once; a LUT
-that isn't stored has its own words; a frame or scene with no number is named by its place, as the picture export
-names it; more tests. Lows left: a take whose sound is split over mono tracks (some MXF) keeps its first track only;
+that isn't stored has its own words; a frame with no number is named by its place in its scene, as that scene's
+picture export names it; more tests. Lows left: a take whose sound is split over mono tracks (some MXF) keeps its first track only;
 there's no progress readout, only the saving notice and Cancel.
+
+Round 2: no high; four mediums fixed. Quitting while a clip saved left its ffmpeg running on a Mac and Linux, writing
+a partial that was never removed: the app now waits, three seconds at most, for it to end and its file to go. On
+Windows a cancelled or timed-out save couldn't delete the partial ffmpeg still had open: it's removed once ffmpeg has
+ended. A second save while one ran said the folder was at fault, and its Cancel could stop the other: the save in
+progress is kept outside the inspector (its Cancel is there whatever was shown since), a second is refused before its
+Save dialog with words of its own, and a Cancel during the dialog or the LUT read stops it before Rust has it. A clip
+was refused over only files that read as video, so a damaged original could be replaced, and saving again at the
+slate name was always refused: every clip now carries a mark (its comment, `Saved by Storiiboard`), and a clip goes
+only where nothing is or over a clip with that mark. Lows fixed: a panic can't leave saving stuck (a drop guard); a
+stale Cancel can't stop the next save; a cancel is said as information, not as a fault; tests for a stopped render
+leaving no file, one save at a time, the busy and cancel flow, and the button. Lows left: the clip's sound is the
+first track only, where the copy mixes the live ones (2.3c); a variable-rate take with a gap at its in point can start
+on the next real frame; a hung hardware encoder isn't retried in software (the timeout says the video was slow). The
+export writer takes only csv, png, pdf and mp4 names, so it can't be pointed at a `.mov` or `.mxf`.
 
 ### 2.8a: review
 

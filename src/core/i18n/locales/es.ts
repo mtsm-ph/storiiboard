@@ -1006,7 +1006,8 @@ export const es: Messages = {
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'No se pudo guardar el clip ahí.',
   'error.clipCancelled': 'Se canceló el guardado del clip.',
-  'error.clipOverVideo': 'Un clip nunca se guarda encima de un video que ya está ahí. Elige otro nombre.',
+  'error.clipOverVideo': 'Un clip solo se guarda encima de un clip que guardó Storiiboard. Elige otro nombre.',
+  'error.clipBusy': 'Se está guardando otro clip. Espera a que termine o cancélalo.',
   'error.copyFailed': 'No se pudo hacer una copia de reproducción de ese video.',
   'error.lutMissing': 'El LUT de este video no está en el proyecto, así que no se puede hacer su copia de reproducción.',
   'error.copyCancelled': 'Se canceló la copia de reproducción.',

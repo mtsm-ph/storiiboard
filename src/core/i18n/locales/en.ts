@@ -1004,7 +1004,8 @@ export const en = {
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'The clip couldn\'t be saved there.',
   'error.clipCancelled': 'Saving the clip was cancelled.',
-  'error.clipOverVideo': 'A clip is never saved over a video that\'s there. Choose another name.',
+  'error.clipOverVideo': 'A clip is only saved over a clip Storiiboard saved. Choose another name.',
+  'error.clipBusy': 'Another clip is being saved. Wait for it, or cancel it.',
   'error.copyFailed': 'That video couldn\'t be made into a playback copy.',
   'error.lutMissing': 'This video’s LUT isn’t in the project, so its playback copy can’t be made.',
   'error.copyCancelled': 'The playback copy was cancelled.',

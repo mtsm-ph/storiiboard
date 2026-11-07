@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { showNotice } from '../../app/notice';
 import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -24,7 +23,7 @@ import { fpsLabel, relinkVideo } from '../video/relink';
 import { useVideoMissing } from '../video/videoStatus';
 import { cancelCopy, makeCopy, useCopy, useCopyUrl, type CopyState } from '../video/playbackCopies';
 import { loadLut, setLut, useProjectLuts } from '../video/lutEdits';
-import { cancelSaveClip, saveClip } from '../video/saveClip';
+import { cancelSaveClip, saveClip, useClipSaving } from '../video/saveClip';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
@@ -73,7 +72,7 @@ export function InspectorTile() {
   const copy = useCopy(clipVideoId);
   const copyUrl = useCopyUrl(clipVideoId, copy, videoMissing);
   // The frame whose clip is being saved (2.8b), so a second press waits for it.
-  const [savingFor, setSavingFor] = useState<string | null>(null);
+  const savingFor = useClipSaving();
   const projectLuts = useProjectLuts();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
@@ -247,12 +246,7 @@ export function InspectorTile() {
         }}
         savingClip={savingFor !== null && savingFor === shot?.id}
         onSaveClip={() => {
-          if (!shot || savingFor === shot.id) return;
-          const id = shot.id;
-          setSavingFor(id);
-          void saveClip(id).finally(() => {
-            setSavingFor((now) => (now === id ? null : now));
-          });
+          if (shot) void saveClip(shot.id);
         }}
         onCancelSaveClip={() => {
           void cancelSaveClip();
