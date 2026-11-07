@@ -1178,7 +1178,8 @@ impl PlaybackCache {
                 tracks = tracks
                     .iter()
                     .zip(&peaks)
-                    .filter(|(_, &peak)| peak > video::SILENT_DB)
+                    // NaN (not heard either way) keeps the track: only a track heard to be silent is left out.
+                    .filter(|(_, &peak)| peak.is_nan() || peak > video::SILENT_DB)
                     .map(|(&track, _)| track)
                     .collect();
                 if tracks.is_empty() {
@@ -2254,6 +2255,8 @@ mod tests {
         assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
         cache.encoders = vec![vec!["-c:v", "no_such_encoder"]];
         assert_eq!(cache.make(&clip, |_| {}).unwrap(), made);
+        // Not kept as an earlier copy after a failed attempt (which would mark it settled for this run): found whole.
+        assert!(!lock(&cache.checked_silent).contains(&key_of(&clip).unwrap()));
         let _ = fs::remove_dir_all(&dir);
     }
 

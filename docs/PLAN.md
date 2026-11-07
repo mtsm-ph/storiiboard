@@ -57,15 +57,17 @@ needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exc
 
 2.3c as built (Nov 7), Kevin's answers of Nov 7:
 - Silent tracks are left out of the mix. Each separate mono track is listened to first (`video::track_peaks`): one run
-  of ffmpeg reads five 4-second windows spread through the take (all of a take under 40 s), so a mic live only later
-  is heard without reading a 100 GB MXF end to end. A track whose loudest moment stays at or below -70 dB (an input
-  with nothing plugged in; a live mic's room tone alone comes above it) is left out; the others are mixed, each at 1/N
+  of ffmpeg reads forty 1-second windows spread evenly through the take (the first 40 s of a shorter one, or of one
+  whose length isn't known), so a mic live for any stretch longer than a fortieth of the take is heard, while only
+  40 s of a 100 GB MXF are read. A track whose loudest moment there stays at or below -70 dB (an input with nothing
+  plugged in; a live mic's room tone alone comes above it) is left out; one ffmpeg says nothing of is kept; the others are mixed, each at 1/N
   of them, so an FX6 with two empty tracks plays at its live pair's level. One live track plays as it is. Every track
   silent: a copy without sound, named `<key>-quiet.mp4`, whole as it is (never made again), and the inspector says
   every sound track is silent. If the tracks can't be listened to now, all are mixed as before. Recipe `2.3-4`.
 - A video whose file changes (a relink, or its undo or redo) while its copy is made: that copy is stopped and one of
   the new file made; anything else known about the old file (made, failed) is dropped and looked for again; and a
-  result about a file the video no longer points at is never kept as its own (`playbackCopies.ts`, `fileOf`).
+  result about a file the video no longer points at is never kept as its own (`playbackCopies.ts`, `fileOf`). A video
+  put in the Trash isn't another file: its copy carries on, and is looked for again once it's restored.
 
 2.3b as built (Nov 6): what the person sees of the copies, and the sound of files that keep each channel apart.
 - The queue lives on the page (`src/features/video/playbackCopies.ts`): one `playback_make` at a time, the rest waiting

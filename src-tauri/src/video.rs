@@ -471,17 +471,23 @@ pub(crate) fn audio_tracks(path: &Path) -> Result<Vec<u32>, String> {
 /// A track whose loudest moment stays at or below this, in dB below full scale, is silent: a camera input with nothing
 /// plugged in, which sits far below it, where a live mic's room tone alone comes above it (2.3c, Kevin).
 pub(crate) const SILENT_DB: f64 = -70.0;
-/// Where a long take is listened to: this many windows of this many seconds, spread through it, so a mic live only
-/// later on is heard, without reading the whole file (a 100 GB MXF) before its copy is made.
-const LISTEN_WINDOWS: usize = 5;
-const LISTEN_SECONDS: f64 = 4.0;
+/// Where a take is listened to: this many windows of this many seconds, spread evenly through it, so a mic live for
+/// any stretch longer than a fortieth of the take (a wireless lav unmuted for a few minutes of half an hour) is heard,
+/// while only 40 s of a 100 GB MXF are read before its copy is made. A take this short, or of unknown length, is
+/// listened to from its start for as long.
+const LISTEN_WINDOWS: usize = 40;
+const LISTEN_SECONDS: f64 = 1.0;
+/// Up to 40 files' opening, seeking and a second each: more than a probe.
+const LISTEN_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The loudest each of the file's sound `tracks` (their indexes among its sound tracks) gets, in dB below full scale,
-/// over a few seconds spread through its `seconds` (the whole of a short one), in one run of ffmpeg. A track with
-/// nothing in those seconds reads as `-inf`.
+/// over 40 seconds spread through its `seconds` (the start of a short one), in one run of ffmpeg. A track with nothing in
+/// those seconds reads as `-inf`; one ffmpeg says nothing of (no samples where it was listened to) reads as NaN, not
+/// silent: it's kept in the mix.
 pub(crate) fn track_peaks(path: &Path, tracks: &[usize], seconds: f64) -> Result<Vec<f64>, String> {
     let windows = LISTEN_WINDOWS as f64;
-    let starts: Vec<f64> = if seconds > 2.0 * windows * LISTEN_SECONDS {
+    let whole = windows * LISTEN_SECONDS;
+    let starts: Vec<f64> = if seconds > whole {
         (0..LISTEN_WINDOWS)
             .map(|i| seconds * (2.0 * i as f64 + 1.0) / (2.0 * windows) - LISTEN_SECONDS / 2.0)
             .collect()
@@ -496,6 +502,9 @@ pub(crate) fn track_peaks(path: &Path, tracks: &[usize], seconds: f64) -> Result
             command
                 .args(["-ss", &format!("{start:.3}"), "-t"])
                 .arg(LISTEN_SECONDS.to_string());
+        } else {
+            // Short, or of unknown length: from its start, never more than the windows would read.
+            command.args(["-t"]).arg(whole.to_string());
         }
         command.arg("-i").arg(path);
     }
@@ -518,7 +527,7 @@ pub(crate) fn track_peaks(path: &Path, tracks: &[usize], seconds: f64) -> Result
         command.args(["-map", &format!("[p{j}]")]);
     }
     command.args(["-f", "null", "-"]);
-    let (status, _, said) = run_heard(command, PROBE_TIMEOUT, true)?;
+    let (status, _, said) = run_heard(command, LISTEN_TIMEOUT, true)?;
     let said = String::from_utf8_lossy(&said);
     if !status.success() || read_failed_in(&said, path) {
         return Err(CANT_READ.into());
@@ -528,7 +537,7 @@ pub(crate) fn track_peaks(path: &Path, tracks: &[usize], seconds: f64) -> Result
 
 /// `track_peaks` from ffmpeg's words: "[Parsed_volumedetect_<n> @ 0x…] max_volume: -12.3 dB", track j's at n = 2j + 1.
 fn read_track_peaks(said: &str, tracks: usize) -> Vec<f64> {
-    let mut peaks = vec![f64::NEG_INFINITY; tracks];
+    let mut peaks = vec![f64::NAN; tracks];
     for line in said.lines() {
         let Some((_, rest)) = line.split_once("[Parsed_volumedetect_") else {
             continue;
@@ -1087,8 +1096,8 @@ mod tests {
         let peaks = read_track_peaks(said, 3);
         assert_eq!(peaks[0], -6.0);
         assert_eq!(peaks[1], f64::NEG_INFINITY);
-        // Not said at all (no sound in the windows): silent.
-        assert_eq!(peaks[2], f64::NEG_INFINITY);
+        // Not said at all (no samples where it was listened to): not known to be silent, so kept.
+        assert!(peaks[2].is_nan());
     }
 
     #[test]

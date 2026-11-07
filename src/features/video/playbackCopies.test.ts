@@ -261,8 +261,8 @@ describe('the queue of playback copies', () => {
   });
 
   it('never keeps a copy of the file a video no longer points at: a relink, and its undo, while copies are made (2.3c)', async () => {
-    const [ofA, ofB] = [pending(), pending()];
-    driver.make.mockImplementationOnce(ofA.impl).mockImplementationOnce(ofB.impl).mockResolvedValue({ path: '/cache/a.mp4', silent: false });
+    const [ofA, ofB, ofAAgain] = [pending(), pending(), pending()];
+    driver.make.mockImplementationOnce(ofA.impl).mockImplementationOnce(ofB.impl).mockImplementationOnce(ofAAgain.impl);
     const at = (name: string) => ({ videoId: 'a', path: folder.path(`Footage/${name}`) });
     makeCopy('a');
     // Relinked to another file while its copy is made: that copy stops, and one of the new file is made.
@@ -277,11 +277,33 @@ describe('the queue of playback copies', () => {
     // Undone while the new file's copy is made: it stops too, and its copy, finishing after, is never the video's.
     await projectStore.getState().undo();
     expect(driver.cancel).toHaveBeenCalledWith(at('C0099.MP4'));
+    // Every state the video goes through from here: C0099's copy, finishing after all, is never one of them.
+    const seen: string[] = [];
+    const stop = copiesStore.subscribe((s) => seen.push(s.byVideo.a?.kind ?? 'unknown'));
     ofB.resolve();
     await settle();
+    stop();
+    expect(seen).not.toContain('made');
+    expect(state('a')).toEqual({ kind: 'making', done: null });
+    ofAAgain.resolve();
     await settle();
     expect(driver.make.mock.calls.map(([source]) => source as { videoId: string; path: string })).toEqual([at('C0042.MP4'), at('C0099.MP4'), at('C0042.MP4')]);
     expect(state('a')).toEqual({ kind: 'made', silent: false });
+  });
+
+  it('lets a copy carry on while its video is in the Trash, and looks for it again once it is back', async () => {
+    const copy = pending();
+    driver.make.mockImplementationOnce(copy.impl);
+    makeCopy('a');
+    await projectStore.getState().apply([{ kind: 'trash', id: 'a' }]);
+    // Not another file: nothing is stopped.
+    expect(driver.cancel).not.toHaveBeenCalled();
+    copy.resolve();
+    await settle();
+    // Made while it was in the Trash: not kept as its state then, so looked for again once restored.
+    expect(state('a')).toEqual({ kind: 'unknown' });
+    await projectStore.getState().undo();
+    expect(driver.make).toHaveBeenCalledTimes(1);
   });
 
   it('drops what it knew of a video whose file changed, to look again', async () => {

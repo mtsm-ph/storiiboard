@@ -81,6 +81,15 @@ function stillAt(videoId: string, path: string): boolean {
   return sourceOf(videoId)?.source.path === path;
 }
 
+/**
+ * A result about a file the video doesn't point at now (it's in the Trash, say): not kept, and the video's copy is
+ * looked for again when it's next shown.
+ */
+function forget(videoId: string): void {
+  fileOf.delete(videoId);
+  if (stateOf(videoId).kind === 'making') setState(videoId, UNKNOWN);
+}
+
 /** Sets the video's state, as being about `path`. */
 function setAbout(videoId: string, path: string, state: CopyState): void {
   fileOf.set(videoId, path);
@@ -116,13 +125,21 @@ function next(): void {
     .then(
       (made) => {
         // Cancelled: Cancel said so already, and anything asked since (queued again, looked for) is newer.
-        if (cancelled.has(videoId) || projectStore.getState().project !== project || !stillAt(videoId, source.path)) return;
+        if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
+        if (!stillAt(videoId, source.path)) {
+          forget(videoId);
+          return;
+        }
         setAbout(videoId, source.path, madeState(made));
         // Room for it may have come from older copies (the floor, the cap): those shown now are looked for again.
         for (const other of shown.keys()) if (other !== videoId) stillMade(other);
       },
       (error: unknown) => {
-        if (cancelled.has(videoId) || projectStore.getState().project !== project || !stillAt(videoId, source.path)) return;
+        if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
+        if (!stillAt(videoId, source.path)) {
+          forget(videoId);
+          return;
+        }
         setAbout(videoId, source.path, { kind: 'failed', message: message(error) });
       },
     )
@@ -280,7 +297,9 @@ function watch(): void {
     if (state.records === records) return;
     records = state.records;
     for (const [videoId, path] of [...fileOf]) {
-      if (stillAt(videoId, path)) continue;
+      // In the Trash (or gone): not another file, so its copy carries on; a result is kept only once it's back.
+      const now = sourceOf(videoId);
+      if (!now || now.source.path === path) continue;
       fileChanged(videoId);
     }
   });

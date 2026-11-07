@@ -280,7 +280,13 @@ Lows deferred (noted, not planned yet):
 
 ## Next steps, in order
 
-0. **2.3c** (in review): silent tracks left out of the mix; a relink's undo never leaves the other file's copy.
+0. **2.3c** (PR #79, in review): silent tracks left out of the mix; a relink's undo never leaves the other file's
+   copy. Review round 1: two mediums fixed (five 4-second windows could miss a mic live for minutes of a long take,
+   and a take of unknown length was read whole: now forty 1-second windows, never more than 40 s read, its own 90 s
+   allowance), and lows (a track ffmpeg says nothing of is kept; the Trash no longer stops a copy; two tests made able
+   to fail). Left as lows: a Cancel during the listening waits for it to end (up to 90 s on a share that stopped
+   answering), as the sound checks do; a relink undone before its old copy finishes makes that copy again from the
+   start.
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
