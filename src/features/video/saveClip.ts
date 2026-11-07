@@ -66,8 +66,19 @@ export async function saveClip(shotId: string): Promise<boolean> {
     return false;
   }
   // Another clip is on its way: said, before a Save dialog asks for a place this one couldn't use yet.
-  if (clipSaving.getState().shotId !== null) {
-    showNotice(new Error(t('error.clipBusy')));
+  const busyWith = clipSaving.getState().shotId;
+  if (busyWith !== null) {
+    // Named, since its Cancel is on that frame, not this one.
+    const other = records[busyWith];
+    const otherScene = other?.parentId ? records[other.parentId] : undefined;
+    showNotice(
+      new Error(
+        t('saveClip.busy', {
+          scene: otherScene ? sceneFields(otherScene.props).number : '',
+          shot: other ? shotFields(other.props).number : '',
+        }),
+      ),
+    );
     return false;
   }
   clipSaving.setState({ shotId, cancelled: false });

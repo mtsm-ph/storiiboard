@@ -853,6 +853,7 @@ export const en = {
   'inspector.videoFrames.other': '{count} frames',
   'inspector.relink': 'Relink…',
   'saveClip.button': 'Save clip as file…',
+  'saveClip.busy': 'The clip of SC {scene} {shot} is being saved. Wait for it, or cancel it on that frame.',
   'saveClip.cancel': 'Cancel saving clip',
   'saveClip.lutMissing': 'This video’s LUT isn’t in the project, so its clip can’t be graded. Choose its LUT again.',
   'saveClip.saving': 'Saving {name}…',

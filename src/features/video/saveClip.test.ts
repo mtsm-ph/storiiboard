@@ -148,7 +148,7 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     });
     expect(clipSaving.getState().shotId).toBe('s1');
     expect(await saveClip('s1')).toBe(false);
-    expect(notices.said.at(-1)).toBe('Another clip is being saved. Wait for it, or cancel it.');
+    expect(notices.said.at(-1)).toBe('The clip of SC 4 4A is being saved. Wait for it, or cancel it on that frame.');
     expect(tauri.invoke.mock.calls.filter(([name]) => name === 'export_choose_file')).toHaveLength(1);
     await cancelSaveClip();
     expect(await first).toBe(false);
@@ -167,5 +167,6 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     });
     expect(await saveClip('s1')).toBe(false);
     expect((tauri.invoke.mock.calls as [string][]).map(([name]) => name)).not.toContain('clip_save');
+    expect(clipSaving.getState()).toEqual({ shotId: null, cancelled: false });
   });
 });

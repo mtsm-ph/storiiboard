@@ -952,13 +952,23 @@ struct ClipBusy;
 
 impl ClipBusy {
     fn take() -> Option<Self> {
+        if CLIP_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            // Refused, it leaves the save in progress as it was, a Cancel asked of it included.
+            return None;
+        }
         // A Cancel for an earlier save never stops this one; one asked for from now on does.
         CLIP_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
-        if CLIP_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            None
-        } else {
-            Some(Self)
-        }
+        Some(Self)
+    }
+}
+
+/// `CLIP_CANCELLED` once a Cancel has been asked for: looked at between the steps before ffmpeg starts (each probe
+/// can take a while on a share) and before the finished clip is put in place.
+fn clip_stopped() -> Result<(), String> {
+    if CLIP_STOP.load(std::sync::atomic::Ordering::SeqCst) {
+        Err(CLIP_CANCELLED.into())
+    } else {
+        Ok(())
     }
 }
 
@@ -993,7 +1003,11 @@ fn clip_partial(dest: &Path) -> Result<PathBuf, String> {
         .and_then(|n| n.to_str())
         .ok_or(CLIP_NOT_SAVED)?;
     for n in 0..100 {
-        let partial = folder.join(format!(".{name}.{}-{n}.part", std::process::id()));
+        // Never a name used before in this run: a stopped save's ffmpeg, still ending, removes its own partial later,
+        // and that must never be the next save's.
+        static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let made = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let partial = folder.join(format!(".{name}.{}-{made}-{n}.part", std::process::id()));
         if std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1081,7 +1095,9 @@ pub fn save_clip(
     if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
         return Err(CANT_READ.into());
     }
+    clip_stopped()?;
     let facts = facts(path)?;
+    clip_stopped()?;
     // The sound only if it plays: a track ffmpeg can't decode would fail the whole clip (the copy drops it too).
     let has_audio = probe(path)?.has_audio && matches!(sound_plays(path), Ok(true));
     let (early, at) = still_times(&facts, in_frame, fps_num, fps_den);
@@ -1104,6 +1120,10 @@ pub fn save_clip(
     let partial = clip_partial(dest)?;
     let mut said = String::from(CANT_READ);
     for encoder in crate::playback::encoders() {
+        if let Err(stopped) = clip_stopped() {
+            let _ = std::fs::remove_file(&partial);
+            return Err(stopped);
+        }
         let mut command = command("ffmpeg");
         if let Some(grade) = &grade {
             command.current_dir(&grade.folder);
@@ -1145,6 +1165,11 @@ pub fn save_clip(
         );
         match outcome {
             Ok((status, _, _)) if status.success() => {
+                // Cancelled as it finished: nothing is put in place, nor anything there replaced.
+                if let Err(stopped) = clip_stopped() {
+                    let _ = std::fs::remove_file(&partial);
+                    return Err(stopped);
+                }
                 return std::fs::rename(&partial, dest).map_err(|_| {
                     let _ = std::fs::remove_file(&partial);
                     CLIP_NOT_SAVED.to_string()
@@ -1402,6 +1427,11 @@ pub async fn clip_save(
     dest: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // Busy from the first step, so a Cancel pressed while the checks run (a probe of the clip already at that
+        // name, on a slow share) stops it, and quitting waits for it.
+        let Some(_busy) = ClipBusy::take() else {
+            return Err(CLIP_BUSY_NOW.into());
+        };
         let path = Path::new(&path);
         Access::of(&app, handle).readable(path)?;
         let dest = PathBuf::from(&dest);
@@ -1411,9 +1441,6 @@ pub async fn clip_save(
         if !clip_may_go(&dest, path) {
             return Err(CLIP_OVER_VIDEO.into());
         }
-        let Some(_busy) = ClipBusy::take() else {
-            return Err(CLIP_BUSY_NOW.into());
-        };
         save_clip(
             path,
             (in_frame, out_frame),
@@ -2643,6 +2670,23 @@ mod tests {
         let none = dir.join("SC004_4C.mp4");
         assert!(save_clip(&take, (20, 10), (25, 1), window, None, &none).is_err());
         assert!(!none.exists());
+        // One save at a time (the flags are the app's, so this is here, after this test's saves, not in a test of
+        // its own that could run beside them). A refused second save leaves the first's Cancel as it was; a Cancel
+        // asked for before ffmpeg starts stops it with nothing made; a save that's over never holds up the next.
+        let first = ClipBusy::take().unwrap();
+        assert!(cancel_clip());
+        assert!(ClipBusy::take().is_none());
+        assert!(CLIP_STOP.load(std::sync::atomic::Ordering::SeqCst));
+        let stopped = dir.join("SC004_4E.mp4");
+        assert_eq!(
+            save_clip(&take, (10, 20), (25, 1), window, None, &stopped).unwrap_err(),
+            CLIP_CANCELLED
+        );
+        assert!(!stopped.exists());
+        drop(first);
+        assert!(!cancel_clip());
+        drop(ClipBusy::take().unwrap());
+        assert!(!CLIP_STOP.load(std::sync::atomic::Ordering::SeqCst));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2672,7 +2716,13 @@ mod tests {
         let stop = std::sync::atomic::AtomicBool::new(false);
         let outcome = std::thread::scope(|scope| {
             scope.spawn(|| {
-                std::thread::sleep(Duration::from_millis(500));
+                // Stopped once it's writing, so the file's going is the stop's doing.
+                let started = Instant::now();
+                while !partial.exists() && started.elapsed() < Duration::from_secs(30) {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                assert!(partial.exists(), "ffmpeg makes its file");
+                std::thread::sleep(Duration::from_millis(200));
                 stop.store(true, std::sync::atomic::Ordering::SeqCst);
             });
             run_stoppable(
@@ -2688,12 +2738,6 @@ mod tests {
             !partial.exists(),
             "the unfinished file is gone once it's stopped"
         );
-        // One save at a time; a save that's over, however it ended, never holds up the next.
-        let first = ClipBusy::take().unwrap();
-        // (No Cancel here: the flag it sets is the one the clip test beside this one saves under.)
-        assert!(ClipBusy::take().is_none());
-        drop(first);
-        drop(ClipBusy::take().unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 

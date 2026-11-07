@@ -49,7 +49,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.6 Crop | #82 | Done |
 | 2.7 Still capture into a frame | #83 | Done |
 | 2.8a The frame's clip plays in the inspector | #84 | Done |
-| 2.8b Save clip as file | | In review |
+| 2.8b Save clip as file | #85 | Done |
 | 2.9 JSON export and import carry all of it | | Not started |
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter

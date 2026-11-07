@@ -313,7 +313,7 @@ Lows deferred (noted, not planned yet):
    checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
    see "2.7 as built"; from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (PR #84, merged
-   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (in progress, branch `phase2/2.8b-save-clip`; see "2.8b as built"; rendered
+   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (PR #85, merged Nov 7; four review rounds; see "2.8b as built"; rendered
    from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless.
@@ -366,6 +366,16 @@ leaving no file, one save at a time, the busy and cancel flow, and the button. L
 first track only, where the copy mixes the live ones (2.3c); a variable-rate take with a gap at its in point can start
 on the next real frame; a hung hardware encoder isn't retried in software (the timeout says the video was slow). The
 export writer takes only csv, png, pdf and mp4 names, so it can't be pointed at a `.mov` or `.mxf`.
+
+Round 3: no high; one medium fixed. A Cancel pressed while Rust was still checking the place (a probe of the clip
+already at that name, on a slow share) was lost, and the clip was saved anyway: the save is busy from its first step,
+a Cancel is looked at between each step before ffmpeg starts and again before the clip is put in place, and a refused
+second save no longer clears the first's Cancel. Lows fixed: each partial has a name never used before in the run, so
+a stopped ffmpeg still ending can't remove the next save's; a second save names the frame being saved, whose Cancel
+it is; the stop test waits until ffmpeg is writing. Lows left: a saved clip that the project also uses as a video can
+be saved over (the Save dialog asks first); a Save dialog cancelled from Cancel leaves its pick allowed for the session
+(the export writer refuses mp4, so nothing can use it); quitting during the probes before ffmpeg starts waits at most
+three seconds.
 
 ### 2.8a: review
 
