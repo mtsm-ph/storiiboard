@@ -109,6 +109,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const file = plain(mediaFields(record.props)?.sourceName || t('trash.pastedPicture'));
       const parent = record.parentId ? records[record.parentId] : undefined;
       if (parent?.type === 'media') return [file, plain(t('trash.videoPoster'))];
+      // A location's photo (3.3), by its location's name.
+      if (parent?.type === 'location') return [file, plain(t('trash.photoOf', { name: typeof parent.props.name === 'string' && parent.props.name.trim() !== '' ? parent.props.name : t('trash.unnamedLocation') }))];
       return parent?.type === 'shot' ? [file, plain(t('trash.pictureOf')), mono(shotFields(parent.props).number)] : [file, plain(t('trash.logoPicture'))];
     }
   }
@@ -138,6 +140,9 @@ export function restoredName(records: Records, id: string): string | null {
  */
 export function restoreClash(records: Records, id: string): string | null {
   const record = records[id];
+  // A location's photo brings its trashed location back with it (restoreChanges), so it's that location's clash.
+  const parent = record?.type === 'media' && record.parentId ? records[record.parentId] : undefined;
+  if (parent?.type === 'location' && parent.trashedAt !== null) return restoreClash(records, parent.id);
   if (record?.type !== 'location' || typeof record.props.name !== 'string') return null;
   const wanted = record.props.name.trim().toLowerCase();
   if (wanted === '') return null;
@@ -183,6 +188,7 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
  *   scene (polish 5); a frame's scene renumbers unless locked;
  * - a frame's picture comes back with its frame, as the frame's picture again, and the one it has now goes to the
  *   Trash in its place, so nothing is lost and undo swaps them back;
+ * - a location's photo comes back with its location, if that's in the Trash too (3.3);
  * - the project's logo or key image comes back on its own; Settings → Theme makes it the theme's image again.
  */
 export function restoreChanges(records: Records, projectId: string, id: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
@@ -201,6 +207,8 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
     case 'note':
       return parent?.type === 'scene' ? withScene(parent, id) : [{ kind: 'restore', id }];
     case 'media': {
+      // A location's photo comes back with its location if that's in the Trash too, so it's seen again (3.3).
+      if (parent?.type === 'location') return [...(parent.trashedAt !== null ? [{ kind: 'restore' as const, id: parent.id }] : []), { kind: 'restore', id }];
       if (parent?.type !== 'shot') return [{ kind: 'restore', id }];
       const current = shotFields(parent.props).mediaId;
       const showing = current ? records[current] : undefined;

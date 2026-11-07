@@ -51,20 +51,53 @@ export function locationFields(props: Props): LocationFields {
   };
 }
 
-/** The live locations in the project, by name (an unnamed one last), with the live scenes set there. */
+/** The live locations in the project, by name (an unnamed one last), with the live scenes and frames set there. */
 export function projectLocations(
   records: Readonly<Record<string, SbdRecord>>,
   projectId: string,
-): { record: SbdRecord; fields: LocationFields; scenes: SbdRecord[] }[] {
+): { record: SbdRecord; fields: LocationFields; scenes: SbdRecord[]; frames: SbdRecord[] }[] {
   const all = Object.values(records);
+  const liveScene = (id: string | null) => {
+    const scene = id ? records[id] : undefined;
+    return scene?.type === 'scene' && scene.trashedAt === null;
+  };
   return all
     .filter((r) => r.type === 'location' && r.parentId === projectId && r.trashedAt === null)
     .map((record) => ({
       record,
       fields: locationFields(record.props),
       scenes: all.filter((s) => s.type === 'scene' && s.trashedAt === null && s.props.location_id === record.id),
+      // Frames shot here though their scene is set elsewhere (3.3b), so a place only they use never reads as unused.
+      frames: all.filter((f) => f.type === 'shot' && f.trashedAt === null && f.props.location_id === record.id && liveScene(f.parentId) && records[f.parentId ?? '']?.props.location_id !== record.id),
     }))
     .sort((a, b) => (a.fields.name === '' ? 1 : b.fields.name === '' ? -1 : a.fields.name.localeCompare(b.fields.name)));
+}
+
+/**
+ * Where a frame is shot (3.3, docs/PHASE3_DECISIONS.md 2): its own location when it has one (an insert or a pickup
+ * shot elsewhere), else its scene's. Only a live location counts: one in the Trash reads as none.
+ */
+export function frameLocationId(records: Readonly<Record<string, SbdRecord>>, shot: SbdRecord): string | null {
+  const live = (id: unknown) => {
+    const record = typeof id === 'string' ? records[id] : undefined;
+    return record?.type === 'location' && record.trashedAt === null ? record.id : null;
+  };
+  const own = live(shot.props.location_id);
+  if (own) return own;
+  const scene = shot.parentId ? records[shot.parentId] : undefined;
+  return scene ? live(scene.props.location_id) : null;
+}
+
+/** The custom field names the project's live locations use (3.3), as frames' are worked out from frames. */
+export function locationFieldRecords(records: Readonly<Record<string, SbdRecord>>): SbdRecord[] {
+  return Object.values(records).filter((r) => r.type === 'location' && r.trashedAt === null);
+}
+
+/** A location's photos (3.3): its live pictures, in order. */
+export function locationPhotos(records: Readonly<Record<string, SbdRecord>>, locationId: string): SbdRecord[] {
+  return Object.values(records)
+    .filter((r) => r.type === 'media' && r.parentId === locationId && r.trashedAt === null)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
 }
 
 /**

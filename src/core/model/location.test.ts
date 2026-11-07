@@ -118,3 +118,118 @@ describe('a location’s contact in History (3.3)', () => {
     expect(valueLabel('status', 'confirmed')).toBe('Confirmed');
   });
 });
+
+describe('a frame’s own location, and a location’s photos (3.3b)', () => {
+  it('reads a frame’s own location over its scene’s, and a trashed one as none', async () => {
+    const { frameLocationId } = await import('./location');
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', {}), s2: record('s2', 'shot', 'sc1', { location_id: 'l2' }), s3: record('s3', 'shot', 'sc1', { location_id: 'l3' }) };
+    expect(frameLocationId(all, all.s1)).toBe('l1');
+    expect(frameLocationId(all, all.s2)).toBe('l2');
+    // Its own is in the Trash: the scene's again.
+    expect(frameLocationId(all, all.s3)).toBe('l1');
+  });
+
+  it('sets a frame’s own location and puts it back on its scene’s, nothing when nothing changes', async () => {
+    const { setFrameLocation } = await import('../../features/storyboard/board');
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', {}), s2: record('s2', 'shot', 'sc1', { location_id: 'l2' }) };
+    expect(setFrameLocation(all, 's1', 'l2')).toEqual([{ kind: 'update', id: 's1', set: { location_id: 'l2' } }]);
+    expect(setFrameLocation(all, 's2', 'l2')).toEqual([]);
+    expect(setFrameLocation(all, 's2', null)).toEqual([{ kind: 'update', id: 's2', unset: ['location_id'] }]);
+    expect(setFrameLocation(all, 's1', null)).toEqual([]);
+    // Not to a location in the Trash, nor to something that isn't one.
+    expect(setFrameLocation(all, 's1', 'l3')).toEqual([]);
+    expect(setFrameLocation(all, 's1', 'sc2')).toEqual([]);
+  });
+
+  it('adds photos to a live location in one edit, and sends one to the Trash named by its location', async () => {
+    const { addLocationPhotos, trashLocationPhoto } = await import('../../features/locations/locationEdits');
+    const { restoreChanges, trashItems } = await import('../../features/trash/trash');
+    const bytes = new Uint8Array(200).map((_, i) => i % 256);
+    const image: import('../media/store').PreparedImage = {
+      original: { sha256: 'a'.repeat(64), bytes, mime: 'image/jpeg', width: 400, height: 300, colorSpace: 'srgb' },
+      thumbnail: { bytes: bytes.slice(0, 50), mime: 'image/jpeg', width: 400, height: 300, longEdge: 400 },
+    };
+    const added = addLocationPhotos(records(), 'l1', [{ image, source: { name: 'recce-1.jpg' } }, { image, source: { name: 'recce-2.jpg' } }], '/Films/Bey County.sbd');
+    expect(added.changes.map((c) => c.kind === 'create' && c.record.parentId)).toEqual(['l1', 'l1']);
+    expect(added.alsoWrite.length).toBeGreaterThan(0);
+    expect(addLocationPhotos(records(), 'l3', [{ image, source: {} }], '').changes).toEqual([]);
+    const { mediaProps } = await import('../media/store');
+    const photo = record('ph1', 'media', 'l1', mediaProps(image, { name: 'recce-1.jpg' }));
+    expect(trashLocationPhoto({ ...records(), ph1: photo }, 'ph1')).toEqual([{ kind: 'trash', id: 'ph1' }]);
+    // In the Trash: named by its location; restored with its location when that's in the Trash too.
+    const trashed = { ...records(), ph1: { ...photo, trashedAt: '2026-11-07T12:00:00.000Z' }, ph2: record('ph2', 'media', 'l3', { kind: 'image', file: 'b'.repeat(64) }, '2026-11-07T12:00:00.000Z') };
+    expect(trashItems(trashed, 'p').find((i) => i.id === 'ph1')?.name).toBe('recce-1.jpg (photo of Diner)');
+    expect(restoreChanges(trashed, 'p', 'ph2')).toEqual([{ kind: 'restore', id: 'l3' }, { kind: 'restore', id: 'ph2' }]);
+  });
+});
+
+describe('3.3b review', () => {
+  type LoggedOp = import('../ops/ops').LoggedOp;
+  const logged = (kind: LoggedOp['kind'], before: SbdRecord | null, after: SbdRecord | null, seq = 1): LoggedOp => ({
+    id: `${kind}${String(seq)}`,
+    seq,
+    groupId: 'g',
+    groupKind: 'edit',
+    recordId: (after ?? before)?.id ?? '',
+    kind,
+    before,
+    after,
+    author: 'Kevin',
+    timestamp: '2026-11-07T12:00:00.000Z',
+  });
+  const photo = (id: string) => record(id, 'media', 'l1', { kind: 'image', file: 'a'.repeat(64), source_name: `${id}.jpg` });
+  const gone = <T extends SbdRecord>(r: T): T => ({ ...r, trashedAt: '2026-11-07T12:00:00.000Z' });
+
+  it('History names a location’s photos by their location, and a restore with the location as the location’s', async () => {
+    const { describeEdit, lineText } = await import('../../features/history/summary');
+    const diner = records().l1;
+    const around = new Map([['l1', diner]]);
+    const text = (ops: LoggedOp[]) => lineText(describeEdit(ops, new Set(['a'.repeat(64)]), around));
+    expect(text([logged('create', null, photo('ph1')), logged('create', null, photo('ph2'), 2)])).toMatch(/^Added 2 photos of .*Diner/);
+    expect(text([logged('trash', photo('ph1'), gone(photo('ph1')))])).toMatch(/^Removed 1 photo of .*Diner/);
+    expect(text([logged('restore', gone(diner), diner), logged('restore', gone(photo('ph1')), photo('ph1'), 2)])).toMatch(/Diner/);
+    expect(text([logged('restore', gone(diner), diner), logged('restore', gone(photo('ph1')), photo('ph1'), 2)])).not.toMatch(/photo|picture/i);
+  });
+
+  it('a location’s own fields: its labels are reserved, a frame’s aren’t', async () => {
+    const { fieldName } = await import('./customFields');
+    expect(fieldName('Parking', [], [], 'location')).toMatchObject({ ok: false });
+    expect(fieldName('Lens', [], [], 'location')).toEqual({ ok: true, name: 'Lens' });
+    expect(fieldName('Lens', [], [])).toMatchObject({ ok: false });
+    expect(fieldName('Curfew', [], [], 'location')).toEqual({ ok: true, name: 'Curfew' });
+  });
+
+  it('restoring a photo checks its trashed location’s name, as restoring the location does', async () => {
+    const { restoreClash, trashItems } = await import('../../features/trash/trash');
+    const base = { ...records(), ph: gone(record('ph', 'media', 'l3', { kind: 'image', file: 'a'.repeat(64) })) };
+    expect(restoreClash(base, 'ph')).toBeNull();
+    expect(restoreClash({ ...base, l2: record('l2', 'location', 'p', { name: 'Gone' }) }, 'ph')).toBe('Gone');
+    // An unnamed location's photo still reads sensibly in the Trash.
+    const unnamed = { ...base, l3: gone(record('l3', 'location', 'p', { name: ' ' })) };
+    expect(trashItems(unnamed, 'p').find((i) => i.id === 'ph')?.name).not.toMatch(/of \)$/);
+  });
+
+  it('a location only frames are shot at counts them, so it never reads as unused', () => {
+    const all = { ...records(), s1: record('s1', 'shot', 'sc1', { location_id: 'l2' }), s2: record('s2', 'shot', 'sc3', { location_id: 'l2' }) };
+    const barn = projectLocations(all, 'p').find((l) => l.record.id === 'l2');
+    expect(barn?.scenes).toEqual([]);
+    // Not one whose scene is in the Trash.
+    expect(barn?.frames.map((f) => f.id)).toEqual(['s1']);
+    // A frame pinned to its own scene's location is counted with the scene, not twice.
+    const diner = projectLocations({ ...all, s3: record('s3', 'shot', 'sc1', { location_id: 'l1' }) }, 'p').find((l) => l.record.id === 'l1');
+    expect(diner?.frames).toEqual([]);
+  });
+
+  it('the shot list’s location column: the frame’s own, else its scene’s, a trashed own one as the scene’s', async () => {
+    const { shotListCsv } = await import('../../features/export/shotListCsv');
+    const all = {
+      ...records(),
+      s1: record('s1', 'shot', 'sc1', { number: '1A' }),
+      s2: record('s2', 'shot', 'sc1', { number: '1B', location_id: 'l2' }),
+      s3: record('s3', 'shot', 'sc1', { number: '1C', location_id: 'l3' }),
+    };
+    const rows = shotListCsv(all, 'p', { kind: 'project' }).replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    const column = (rows[0] ?? '').split(',').indexOf('Location');
+    expect(rows.slice(1).map((row) => row.split(',')[column])).toEqual(['Diner', 'Barn', 'Diner']);
+  });
+});

@@ -12,13 +12,18 @@ import {
   type LocationTextField,
 } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
-import { sceneFields, sceneLabel } from '../../core/model/storyboard';
+import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, trashLocation } from './locationEdits';
+import { LocationPhotos } from './LocationPhotos';
+import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
+import { locationFieldRecords } from '../../core/model/location';
+import { CustomFields } from '../storyboard/InspectorView';
+import { setCustomField } from '../storyboard/board';
 
 // The Locations tile (3.3), in the Production workspace: every place the project shoots, each with its address, its
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
@@ -108,7 +113,7 @@ export function LocationsTile() {
           <p className="p-3 text-[13px] text-text-muted">{t('locations.none')}</p>
         ) : (
           <ul id={listId} aria-label={t('locations.list')} className="min-h-0 flex-1 overflow-y-auto">
-            {all.map(({ record, fields, scenes }) => {
+            {all.map(({ record, fields, scenes, frames }) => {
               const current = record.id === selected?.record.id;
               return (
                 <li key={record.id}>
@@ -128,6 +133,7 @@ export function LocationsTile() {
                     <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('locations.unnamed')}</span>
                     <span className="sb-label">
                       {LOCATION_STATUS_LABEL[fields.status]} · {tn('locations.scenes', scenes.length)}
+                      {frames.length > 0 && ` · ${tn('locations.frames', frames.length)}`}
                     </span>
                   </button>
                 </li>
@@ -139,8 +145,12 @@ export function LocationsTile() {
       {selected && (
         <LocationEditor
           key={selected.record.id}
+          id={selected.record.id}
+          props={selected.record.props}
+          knownFields={fieldNamesOf(locationFieldRecords(records))}
           fields={selected.fields}
           scenes={selected.scenes}
+          frames={selected.frames}
           nameField={nameField}
           onChange={(prop, value) => {
             // One name per place: a rename onto another live location's name is refused, so the "/" menu never
@@ -174,15 +184,21 @@ export function LocationsTile() {
 }
 
 interface LocationEditorProps {
+  id: string;
+  props: SbdRecord['props'];
+  /** Every custom field name the project's locations use, for a new field's suggestions. */
+  knownFields: readonly string[];
   fields: LocationFields;
   scenes: SbdRecord[];
+  /** Frames shot here though their scene is set elsewhere. */
+  frames: SbdRecord[];
   nameField: React.RefObject<HTMLInputElement | null>;
   /** False when the change is refused (a name another location has): the field goes back to what's stored. */
   onChange: (prop: string, value: string) => boolean;
   onDelete: () => void;
 }
 
-function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: LocationEditorProps) {
+function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameField, onChange, onDelete }: LocationEditorProps) {
   const editor = useRef<HTMLElement>(null);
   const headingId = useId();
   const text = (prop: 'name' | LocationTextField, label: string, long = false, type?: string) => {
@@ -231,6 +247,22 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
         }}
       />
       {LOCATION_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]))}
+      <LocationPhotos locationId={id} name={fields.name || t('locations.unnamed')} />
+      <div className="flex flex-col gap-3">
+        <h4 className="sb-label">{t('location.customFields')}</h4>
+        {/* The location's own fields (drone permit, curfew, anything), as a frame's are (1.19). */}
+        <CustomFields
+          of="location"
+          fields={customFieldsOf(props)}
+          known={knownFields}
+          hidden={hiddenFieldNames(props)}
+          onChange={async (name, value) => {
+            // Worked out when it lands, so two fields added quickly both stay.
+            // Only while it's live: a field left as Delete lands isn't written to the trashed location.
+            await projectStore.getState().applyWith((now) => ({ changes: now[id]?.type === 'location' && now[id].trashedAt === null ? setCustomField(now, id, name, value) : [] }));
+          }}
+        />
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {
@@ -278,6 +310,19 @@ function LocationEditor({ fields, scenes, nameField, onChange, onDelete }: Locat
           </ul>
         )}
       </div>
+      {frames.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <h4 className="sb-label">{t('location.framesHere')}</h4>
+          <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[13px]">
+            {frames
+              .map((frame) => shotFields(frame.props).number)
+              .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+              .map((number, i) => (
+                <li key={`${number}:${String(i)}`}>{number || t('trash.unnumberedFrame')}</li>
+              ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

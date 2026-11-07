@@ -1,4 +1,6 @@
+import { imageStatements, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
+import type { Statement } from '../../core/storage/driver';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
@@ -27,4 +29,37 @@ export function locationChange(records: Records, id: string, prop: string, value
 export function trashLocation(records: Records, id: string): Change[] {
   const location = records[id];
   return location?.type === 'location' && location.trashedAt === null ? [{ kind: 'trash', id }] : [];
+}
+
+/**
+ * Photos added to a location (3.3), after its others, in one edit: each a picture under the location, stored as a
+ * frame's picture is. Nothing when the location isn't live.
+ */
+export function addLocationPhotos(
+  records: Records,
+  locationId: string,
+  photos: readonly { image: PreparedImage; source: ImageSource }[],
+  projectPath: string,
+  now = new Date(),
+): { changes: Change[]; alsoWrite: Statement[] } {
+  const location = records[locationId];
+  if (location?.type !== 'location' || location.trashedAt !== null || photos.length === 0) return { changes: [], alsoWrite: [] };
+  let last = Object.values(records)
+    .filter((r) => r.parentId === locationId)
+    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+  const changes: Change[] = [];
+  const alsoWrite: Statement[] = [];
+  for (const { image, source } of photos) {
+    last = keyBetween(last, null);
+    changes.push({ kind: 'create', record: { id: crypto.randomUUID(), type: 'media', parentId: locationId, sortKey: last, props: mediaProps(image, source, projectPath) } });
+    alsoWrite.push(...imageStatements(image, now));
+  }
+  return { changes, alsoWrite };
+}
+
+/** A location's photo to the Trash. */
+export function trashLocationPhoto(records: Records, photoId: string): Change[] {
+  const photo = records[photoId];
+  const parent = photo?.parentId ? records[photo.parentId] : undefined;
+  return photo?.type === 'media' && photo.trashedAt === null && parent?.type === 'location' ? [{ kind: 'trash', id: photoId }] : [];
 }

@@ -12,7 +12,7 @@ import { copyHex, editPalette, generatePalette } from './palette/actions';
 import { PaletteEditor } from './palette/PaletteEditor';
 import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from './palette/Eyedropper';
 import { framesWithPictures } from './palette/read';
-import { setCustomField, setSceneNumber } from './board';
+import { locations, setCustomField, setFrameLocation, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
@@ -157,8 +157,32 @@ export function InspectorTile() {
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
   const location = locationId ? records[locationId] : undefined;
+  // A live one without a name reads as unnamed, not as none.
   const locationName =
-    location && location.trashedAt === null && typeof location.props.name === 'string' ? location.props.name : null;
+    location?.type === 'location' && location.trashedAt === null
+      ? typeof location.props.name === 'string' && location.props.name.trim() !== ''
+        ? location.props.name
+        : t('locations.unnamed')
+      : null;
+  // A frame shot somewhere other than its scene's location (3.3): its own, among the project's live ones. The scene's
+  // own location isn't offered again (picking it would pin the frame there for good, with nothing to show it). One the
+  // frame has that the list leaves out (unnamed, or in the Trash) is shown as it is, so it can be taken off.
+  const ownId = shot && typeof shot.props.location_id === 'string' ? shot.props.location_id : '';
+  const own = ownId ? records[ownId] : undefined;
+  const ownLocation = own?.type === 'location' ? ownId : '';
+  const live = locations(records, project.projectId).filter((choice) => choice.id !== locationId || choice.id === ownLocation);
+  const ownMissing = own?.type === 'location' && !live.some((choice) => choice.id === ownLocation);
+  const ownName = own && typeof own.props.name === 'string' && own.props.name.trim() !== '' ? own.props.name : t('locations.unnamed');
+  const frameLocation = shot
+    ? {
+        value: ownLocation,
+        sceneName: locationName,
+        choices: ownMissing ? [...live, { id: ownLocation, name: own.trashedAt !== null ? t('inspectorView.inTheTrash', { name: ownName }) : ownName }] : live,
+        onChange: (id: string | null) => {
+          void projectStore.getState().applyWith((now) => ({ changes: setFrameLocation(now, shot.id, id) }));
+        },
+      }
+    : undefined;
 
   return (
     <ProjectPictures>
@@ -213,6 +237,7 @@ export function InspectorTile() {
         {...(seen ? { seen } : {})}
         picture={picture}
         locationName={locationName}
+        {...(frameLocation ? { frameLocation } : {})}
         strokeCount={shot ? strokesOf(records, shot.id).length : 0}
         onSketch={() => {
           if (shot) openSketch(shot.id);

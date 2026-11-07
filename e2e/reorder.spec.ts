@@ -154,7 +154,7 @@ test('the "/" menu sets the scene’s location, reusing one the project has', as
   await page.keyboard.type('Penn Station');
   await expect(page.getByRole('option', { name: /New location “Penn Station”/ })).toBeVisible();
   await page.keyboard.press('Enter');
-  await expect(inspector(page).getByText('Penn Station')).toBeVisible();
+  await expect(inspector(page).locator('span', { hasText: /^Penn Station$/ })).toBeVisible();
 
   await frames(page, 'SC 02').nth(0).click();
   await page.keyboard.press('/');
@@ -164,7 +164,7 @@ test('the "/" menu sets the scene’s location, reusing one the project has', as
   // The project's own location comes first; a new one with what was typed is still offered.
   await expect(page.getByRole('listbox').getByRole('option')).toHaveText([/^Penn Station/, /^New location “penn”/]);
   await page.keyboard.press('Enter');
-  await expect(inspector(page).getByText('Penn Station')).toBeVisible();
+  await expect(inspector(page).locator('span', { hasText: /^Penn Station$/ })).toBeVisible();
 });
 
 test('⌘ with an arrow, pressed twice quickly, moves a frame two places', async ({ page }) => {

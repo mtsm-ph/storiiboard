@@ -66,6 +66,10 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     const stroke = ops.find((op) => (op.after ?? op.before)?.type === 'stroke');
     const shotId = stroke ? (stroke.after ?? stroke.before)?.parentId : null;
     if (stroke && shotId && !ops.some((op) => op.recordId === shotId)) asks.push({ group, id: shotId, seq: stroke.seq });
+    // A picture's parent, when the step didn't write it: a location's photos (3.3) read "photos of Diner", not a frame's.
+    const picture = ops.find((op) => (op.after ?? op.before)?.type === 'media');
+    const parentId = picture ? (picture.after ?? picture.before)?.parentId : null;
+    if (picture && parentId && !ops.some((op) => op.recordId === parentId)) asks.push({ group, id: parentId, seq: picture.seq });
     // As the step left it: a location picked by a new name is made in the same step.
     // Not Math.max(...seqs), which throws past about 125k arguments: a Restore to here can be a step that big.
     const end = ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1;
