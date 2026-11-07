@@ -10,7 +10,8 @@ import { setLettersAllowIO } from '../../features/storyboard/board';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
-import { ProjectDetailsFields } from './ProjectDetailsFields';
+import { ProjectDetailsFields, type DetailsChange } from './ProjectDetailsFields';
+import type { Change } from '../../core/ops/ops';
 import { localizeError, t } from '../../core/i18n';
 
 // The Project tile in Settings: the project's state, title and notes, the storyboard's frame shape and shot letters,
@@ -41,15 +42,24 @@ export function ProjectHome() {
       <ProjectDetailsFields
         record={record}
         onChange={(change) => {
-          // From the project record as it is at the edit's turn, so two edits a moment apart both land.
-          void applyWith((now) => {
-            const current = now[record.id];
-            return { changes: current ? [{ kind: 'update', id: record.id, set: change(current.props) }] : [] };
-          });
+          void applyWith((now) => ({ changes: detailsEdit(now, record.id, change) }));
         }}
       />
     </>
   );
+}
+
+/**
+ * A production details change (3.1) as an edit, from the project record as it is at the edit's turn, so two edits a
+ * moment apart both land; nothing when it changes nothing (a second Remove of a row already gone), so no empty step
+ * goes into History.
+ */
+export function detailsEdit(records: Readonly<Record<string, SbdRecord>>, id: string, change: DetailsChange): Change[] {
+  const current = records[id];
+  if (!current) return [];
+  const set = change(current.props);
+  const changed = Object.entries(set).some(([key, value]) => JSON.stringify(current.props[key] ?? null) !== JSON.stringify(value ?? null));
+  return changed ? [{ kind: 'update', id, set }] : [];
 }
 
 /**
@@ -109,8 +119,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
   return (
     <>
       <div className="flex max-w-[640px] flex-col gap-4 p-4">
-        {/* An op like any edit: archiving undoes with ⌘Z. It sits outside the keyed block below, so arrowing
-            through the states keeps focus on the control. */}
+        {/* An op like any edit: archiving undoes with ⌘Z. */}
         <SegmentedControl
           label={t('projectHome.state')}
           options={PROJECT_STATES.map((value) => ({ value, label: PROJECT_STATE_LABEL[value] }))}

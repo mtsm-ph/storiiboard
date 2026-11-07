@@ -357,6 +357,15 @@ box 24 px; each deliverable's field named by its place; a deliverable emptied ke
 Remove leaves focus on the next box. Tests: two edits fired together both land; History's lines (no email or phone in
 them); end to end, focus kept from field to field and after Enter and Remove, a rename and a remove each undone.
 
+Round 2: no high; one medium fixed. History cut the whole checklist to one 40-character line, so a tick past the
+first items read the same before and after: each deliverable added, removed or changed is now a line of its own,
+matched by id ("deliverable: 3 × 9:16 cutdowns → 3 × 9:16 cutdowns (delivered)"). Lows fixed: an edit that changes
+nothing (a second Remove of a row already gone) writes no step; only the client's name and company are ever shown in
+History (an email, a phone or a field a later version adds is said as set, changed or removed); spaces added to a
+deliverable go; a stale comment. Tests: the edits go through Settings → Project's own `detailsEdit`; undo and redo
+with Settings open show in the field and keep focus where it was. Low left: a field typed in again within the moment
+its own commit takes can lose what was typed (only that field, only then).
+
 ### 2.9: decisions
 
 - Decided by default, review: the JSON export carries the Trash and the History, though CLAUDE.md says exports skip

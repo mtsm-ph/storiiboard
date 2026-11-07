@@ -663,6 +663,7 @@ export const es: Messages = {
   'history.client.unknownField': '{field} del cliente',
   'history.notShown': 'no se muestra',
   'history.deliverableDone': '{text} (entregado)',
+  'history.deliverable': 'entregable',
   'history.field.intExt': 'INT/EXT',
   'history.field.dayNight': 'momento del día',
   'history.field.locationId': 'locación',

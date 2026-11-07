@@ -145,8 +145,8 @@ export function ProjectDetailsFields({ record, onChange }: ProjectDetailsFieldsP
                   defaultValue={item.text}
                   onBlur={(event) => {
                     const value = event.currentTarget.value.trim();
-                    // Emptied, it keeps its text: Remove is the way to take one off.
-                    if (value === '') {
+                    // Emptied, it keeps its text: Remove is the way to take one off. Spaces alone go too.
+                    if (value === '' || value === item.text) {
                       event.currentTarget.value = item.text;
                       return;
                     }

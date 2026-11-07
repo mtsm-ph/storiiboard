@@ -661,6 +661,7 @@ export const en = {
   'history.client.unknownField': 'client {field}',
   'history.notShown': 'not shown',
   'history.deliverableDone': '{text} (delivered)',
+  'history.deliverable': 'deliverable',
   'history.field.intExt': 'INT/EXT',
   'history.field.dayNight': 'time of day',
   'history.field.locationId': 'location',

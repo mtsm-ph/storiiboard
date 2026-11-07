@@ -222,3 +222,24 @@ test('production details keep keyboard focus from field to field, and a rename a
   panel = await openSettings(page, 'Project');
   await expect(panel.getByRole('textbox', { name: 'Deliverable 1' })).toHaveValue('Master');
 });
+
+test('undo and redo with Settings open show in the field they changed, and focus stays where it was', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  const panel = await openSettings(page, 'Project');
+  await panel.getByRole('textbox', { name: 'New deliverable' }).fill('Master');
+  await page.keyboard.press('Enter');
+  const text = panel.getByRole('textbox', { name: 'Deliverable 1' });
+  await text.fill('60s master');
+  // Tab writes the rename and moves to its Remove button, where ⌘Z works.
+  await page.keyboard.press('Tab');
+  const remove = panel.getByRole('button', { name: /^Remove deliverable:/ });
+  await expect(remove).toBeFocused();
+  await expect(remove).toHaveAccessibleName('Remove deliverable: 60s master');
+  const undo = await undoKey(page);
+  await page.keyboard.press(undo);
+  await expect(text).toHaveValue('Master');
+  await expect(remove).toBeFocused();
+  await page.keyboard.press(undo.replace('+z', '+Shift+z'));
+  await expect(text).toHaveValue('60s master');
+  await expect(remove).toBeFocused();
+});

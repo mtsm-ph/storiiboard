@@ -135,13 +135,18 @@ function paletteText(value: JsonObject): string {
   return typeof value.size === 'number' ? t('history.paletteWithCount', { colours: list, count: value.size }) : list;
 }
 
-/** A deliverables checklist as a line: each item's text, a delivered one marked. */
-function deliverablesText(items: readonly JsonValue[]): string {
-  const named = items.flatMap((item) =>
-    isObject(item) && typeof item.text === 'string' ? [item.done === true ? t('history.deliverableDone', { text: item.text }) : item.text] : [],
-  );
-  return named.length === 0 ? '—' : named.join(', ');
+/** One deliverable as a step names it: its text, marked once delivered; `—` where there was none. */
+function deliverableText(item: JsonValue | undefined, full: boolean): string {
+  if (!isObject(item) || typeof item.text !== 'string') return '—';
+  const text = full ? item.text : valueLabel('', item.text);
+  return item.done === true ? t('history.deliverableDone', { text }) : text;
 }
+
+/** A project's deliverables by id: each one added, removed or changed is a change of its own (3.1). */
+const deliverablesById = (props: Props): Readonly<Record<string, JsonValue>> => {
+  const items = Array.isArray(props.deliverables) ? props.deliverables : [];
+  return Object.fromEntries(items.flatMap((item) => (isObject(item) && typeof item.id === 'string' ? [[item.id, item] as const] : [])));
+};
 
 /** Whether a field's values are technical ones, shown in mono. */
 export const isMono = (prop: string): boolean => MONO.has(prop);
@@ -167,8 +172,7 @@ const choiceLabel = (prop: string, value: string): string => {
 /** A value as a step's line shows it: in the board's words, `—` for nothing, and a long text cut to one short line. */
 export function valueLabel(prop: string, value: JsonValue | undefined): string {
   const text = valueText(prop, value);
-  // A checklist is cut short as a text is: a step's line stays one line.
-  if (typeof value !== 'string' && typeof value !== 'number' && prop !== 'deliverables') return text;
+  if (typeof value !== 'string' && typeof value !== 'number') return text;
   const line = text.replace(/\s+/g, ' ');
   return line.length > 40 ? `${line.slice(0, 39)}…` : line;
 }
@@ -194,8 +198,6 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
   if (prop === 'page_eighths' && typeof value === 'number') return pageLabel(value);
-  // A project's deliverables (3.1): each by its text, a delivered one marked, never its id.
-  if (prop === 'deliverables' && Array.isArray(value)) return deliverablesText(value);
   if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
   // A scene's palette (polish PP): its colours in order, a locked one marked, so steps can be told apart.
   if (prop === 'palette' && isObject(value)) return paletteText(value);
@@ -242,25 +244,32 @@ const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValu
 /** Props kept as one object whose entries History lists one by one: the project's client contact (3.1) too. */
 const BY_ENTRY = new Set(['custom', 'department_status', 'client']);
 
-/** A client contact's fields by name; its email and phone are named in History, never shown there (3.1). */
+/** A client contact's fields by name; only its name and company are shown in History (3.1). */
 const CLIENT_FIELD: Readonly<Record<string, string>> = labels({
   name: 'history.client.name',
   company: 'history.client.company',
   email: 'history.client.email',
   phone: 'history.client.phone',
 });
-const PRIVATE_CLIENT_FIELDS = new Set(['email', 'phone']);
+/** Shown in History; any other client field (an email, a phone, one a later version adds) never is: History feeds notifications. */
+const SHOWN_CLIENT_FIELDS = new Set(['name', 'company']);
 const isClient = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'client' && change.key !== undefined;
-/** A client field's value: its email and phone said only as set or not, since History feeds notifications. */
-const clientValue = (change: FieldChange & { key: string }, value: JsonValue | undefined, full: boolean): string =>
-  PRIVATE_CLIENT_FIELDS.has(change.key) ? (isBlank(value) ? '—' : t('history.notShown')) : full ? valueText('', value) : valueLabel('', value);
+const isDeliverable = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'deliverables' && change.key !== undefined;
+/** A client field's value: a private one said only as set, changed or removed, never as itself. */
+function clientValue(change: FieldChange & { key: string }, value: JsonValue | undefined, full: boolean): string {
+  if (SHOWN_CLIENT_FIELDS.has(change.key)) return full ? valueText('', value) : valueLabel('', value);
+  if (isBlank(value)) return '—';
+  // Both sides set: it changed; one side: set or removed reads from the other side's `—`.
+  return !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
+}
 
 /** Every field an op changed, each custom field and each department's status on its own. */
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
   return changedProps(before, after).flatMap((prop): FieldChange[] => {
-    if (!BY_ENTRY.has(prop)) return [{ prop, before: before.props[prop], after: after.props[prop] }];
-    const was = entriesOf(before.props, prop);
-    const now = entriesOf(after.props, prop);
+    const byId = prop === 'deliverables';
+    if (!BY_ENTRY.has(prop) && !byId) return [{ prop, before: before.props[prop], after: after.props[prop] }];
+    const was = byId ? deliverablesById(before.props) : entriesOf(before.props, prop);
+    const now = byId ? deliverablesById(after.props) : entriesOf(after.props, prop);
     return [...new Set([...Object.keys(was), ...Object.keys(now)])]
       .filter((key) => JSON.stringify(was[key]) !== JSON.stringify(now[key]))
       .map((key) => ({ prop, key, before: was[key], after: now[key] }));
@@ -275,16 +284,30 @@ export const changeLabel = (change: FieldChange): string =>
     ? departmentName(change.key)
     : isClient(change)
       ? (CLIENT_FIELD[change.key] ?? t('history.client.unknownField', { field: change.key }))
-      : (change.key ?? fieldLabel(change.prop));
+      : isDeliverable(change)
+        ? t('history.deliverable')
+        : (change.key ?? fieldLabel(change.prop));
 /**
  * A change's value. A custom field that isn't on the frame at all reads "no field", apart from an empty one (`—`):
  * putting back one takes the field off, the other keeps it.
  */
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change) ? statusText(value) : isClient(change) ? clientValue(change, value, false) : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
+  isStatus(change)
+    ? statusText(value)
+    : isClient(change)
+      ? clientValue(change, value, false)
+      : isDeliverable(change)
+        ? deliverableText(value, false)
+        : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change) ? statusText(value) : isClient(change) ? clientValue(change, value, true) : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
+  isStatus(change)
+    ? statusText(value)
+    : isClient(change)
+      ? clientValue(change, value, true)
+      : isDeliverable(change)
+        ? deliverableText(value, true)
+        : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
 
