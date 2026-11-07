@@ -38,6 +38,7 @@ export function TextArea({ label, rows = 2, ...rest }: TextAreaProps) {
       <label htmlFor={id} className="sb-label">
         {label}
       </label>
+      {/* Its own id, last, so the label always points at it. */}
       <textarea rows={rows} className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text" {...rest} id={id} />
     </div>
   );

@@ -83,3 +83,26 @@ test('Delete sends a location to the Trash; Restore brings it back with its scen
   await trash.getByRole('button', { name: 'Restore location Diner' }).click();
   await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).getByText('Diner')).toBeVisible();
 });
+
+test('one name per place: a trashed location holds its name, and the Trash won’t restore one beside a namesake', async ({ page }) => {
+  const locations = tile(page);
+  const editor = locations.locator('[data-location-editor]');
+  await locations.getByRole('button', { name: 'Delete location' }).click();
+  // A new one can't take the trashed one's name.
+  await locations.getByRole('button', { name: '+ New location' }).click();
+  await expect(editor.getByRole('textbox', { name: 'Name' })).toBeFocused();
+  await page.keyboard.type('diner');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('A location in the Trash is called “diner”.', { exact: false })).toBeVisible();
+  await expect(editor.getByRole('textbox', { name: 'Name' })).toHaveValue('');
+  // "Diner" typed on a scene brings the trashed one back rather than make a second: still one.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('/');
+  await page.keyboard.type('loc');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Diner');
+  await page.keyboard.press('Enter');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
+  await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button', { name: /^Diner/ })).toHaveCount(1);
+});

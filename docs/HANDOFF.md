@@ -368,6 +368,11 @@ its own id for its label. Lows left: the import preview counts a location it wil
 address, phone and email are kept out of History (contact name, parking, power and notes show, as the client's name
 does).
 
+Round 3: no high, no medium; review done. Lows fixed: an end-to-end test of a trashed location holding its name (the
+tile's refusal) and of a typed name bringing the trashed one back; a comment on TextArea's own id. Lows left: the name
+checks run before the edit's turn, so an import queued at that instant could still make a namesake; a stray space
+typed onto an unchanged name stays in the field until it's redrawn.
+
 ### 3.2: review
 
 Round 1: one high and five mediums, fixed. History read an attach or detach with a logo as "Set the picture of an
