@@ -8,7 +8,7 @@ import { prepareImage } from '../../core/media/image';
 import type { PreparedImage } from '../../core/media/store';
 import { lutForCopy, lutName } from '../../core/media/lut';
 import { frameTimecode } from '../../core/media/timecode';
-import { clipProp, fromVideoProp, readClip, resolveSourcePath, videoFields, type VideoFields } from '../../core/media/video';
+import { fromVideoProp, readClip, resolveSourcePath, videoFields, type VideoFields } from '../../core/media/video';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import type { Statement } from '../../core/storage/driver';
@@ -21,18 +21,25 @@ import { setCrop, setPicture } from '../storyboard/framePictures';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-/** The frame's video as it is now: its record and fields, if the frame still plays it. */
+/** The frame's video as it is now: its record and fields, and the shot's clip prop as stored, if it still plays it. */
 function liveClip(records: Records, shotId: string, videoId: string) {
   const shot = records[shotId];
   const clip = shot?.type === 'shot' && shot.trashedAt === null ? readClip(shot.props) : null;
   const record = clip?.videoId === videoId ? records[videoId] : undefined;
   const video = record?.type === 'media' && record.trashedAt === null ? videoFields(record.props) : null;
-  return clip && video ? { clip, video } : null;
+  const stored = shot?.props.clip;
+  return clip && video && typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? { clip, video, stored } : null;
+}
+
+/** Whether a video still names the same file at the same rate: a relink since would make the still another file's. */
+function sameFile(a: VideoFields, b: VideoFields): boolean {
+  return a.sourcePath === b.sourcePath && a.fps.num === b.fps.num && a.fps.den === b.fps.den && a.startTimecode === b.startTimecode;
 }
 
 /**
- * The edit that makes a grabbed still the frame's picture: the old picture to the Trash, the clip kept, and the
- * picture framed by the clip's crop. Nothing when the frame no longer plays that video (changed while it was grabbed).
+ * The edit that makes a grabbed still the frame's picture: the old picture to the Trash, the clip kept as it is, and
+ * the picture framed by the clip's crop. `taken`: the video as it was when the still was grabbed. Nothing when the
+ * frame no longer plays that video, or the video names another file now (relinked while it was grabbed).
  */
 export function stillEdit(
   records: Records,
@@ -42,11 +49,13 @@ export function stillEdit(
   image: PreparedImage,
   lut: { id: string; name: string } | null,
   projectPath: string,
+  taken: VideoFields,
   now = new Date(),
 ): { changes: Change[]; alsoWrite: Statement[] } {
   const live = liveClip(records, shotId, videoId);
-  if (!live) return { changes: [], alsoWrite: [] };
-  const { clip, video } = live;
+  if (!live || !sameFile(live.video, taken)) return { changes: [], alsoWrite: [] };
+  const { clip, stored } = live;
+  const video = taken;
   const edit = setPicture(
     records,
     shotId,
@@ -54,7 +63,8 @@ export function stillEdit(
       image,
       source: { name: video.sourceName, ...(video.sourcePath ? { path: video.sourcePath } : {}) },
       fromVideo: fromVideoProp(videoId, video, frame, lut),
-      clip: clipProp(clip),
+      // As stored, so nothing of it is lost in the reading.
+      clip: stored,
     },
     projectPath,
     now,
@@ -89,9 +99,9 @@ export async function grabStill(shotId: string, frame: number): Promise<boolean>
     const image = await prepareImage(new File([png], `${video.sourceName} ${timecode}.png`, { type: 'image/png' }));
     // Another project open since: this still isn't its.
     if (projectStore.getState().project !== project) return false;
-    return await projectStore
-      .getState()
-      .applyWith((now) => stillEdit(now, shotId, videoId, frame, image, video.lutId && name ? { id: video.lutId, name } : null, project.file.path));
+    // The browser build grabs ungraded, so its still names no LUT.
+    const graded = isTauriApp && video.lutId && name ? { id: video.lutId, name } : null;
+    return await projectStore.getState().applyWith((now) => stillEdit(now, shotId, videoId, frame, image, graded, project.file.path, video));
   } catch (error) {
     showNotice(error);
     return false;

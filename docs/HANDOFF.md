@@ -334,6 +334,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 2.7: review
+
+Round 1: no high; two mediums fixed. G while playing grabbed the frame from the last render and then paused, so the
+still could be a frame off the one the Player settled on (and up to a few frames on a webview without frame callbacks,
+which updates its readout about four times a second): it pauses first and grabs the frame it settles on. The end-to-end
+test checks the still's timecode matches the readout after G while playing; in Chromium the two rarely differ, so it
+can't force the old fault. A graded still of HDR footage kept its PQ or HLG tags in the PNG (probed: "bt2020,
+smpte2084"), so it would be converted a second time when stored: tagged BT.709 now, as the copy is, tested by its
+tags. Lows fixed: a relink during a grab no longer lands the old file's still under the new file's name and timecode;
+Grab still stays focusable while it works (the Player's keys carry on) and says when it has landed; the grabbing
+state is the frame's own; the browser build's still names no LUT (it grabs ungraded); a still without a timecode says
+"Still from its video"; a long LUT name can be read whole; the clip prop is kept as stored. New Rust test: a graded
+still is the frame asked for, in a file whose sound starts before its picture. Lows left: on Windows a grab that times
+out can leave its LUT folder in the temp folder while ffmpeg is still being stopped; a tile remounted mid-grab (a
+workspace switch) could start a second grab of the same frame.
+
 ### 2.6: notes
 
 - The titles end-to-end test (`e2e/titles.spec.ts`, F2) failed once in a full local run: after Escape in a title, focus

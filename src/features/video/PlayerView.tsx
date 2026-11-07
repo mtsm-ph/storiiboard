@@ -50,6 +50,8 @@ export interface PlayerViewProps {
   /** Grabs the frame showing into the frame, as its picture (2.7); `grabbing` while it's being made. */
   onGrabStill?: () => void;
   grabbing?: boolean;
+  /** Said once a grab has landed. */
+  grabSaid?: string;
   /** The <video>'s own events: its time, its play state, an error (a copy gone missing). */
   onTime?: (event: SyntheticEvent<HTMLVideoElement>) => void;
   onPlaying?: (playing: boolean) => void;
@@ -199,9 +201,15 @@ export function PlayerView(props: PlayerViewProps) {
             <Button onClick={props.onSetIn}>{t('player.setIn')}</Button>
             <Button onClick={props.onSetOut}>{t('player.setOut')}</Button>
             {props.onGrabStill && (
-              <Button data-grab-still="" disabled={props.grabbing === true} onClick={props.onGrabStill}>
+              // Not disabled while it works: a disabled button would drop focus, and with it the Player's keys.
+              <Button data-grab-still="" aria-disabled={props.grabbing === true} onClick={props.grabbing ? undefined : props.onGrabStill}>
                 {props.grabbing ? t('player.grabbing') : t('player.grabStill')}
               </Button>
+            )}
+            {props.onGrabStill && (
+              <span aria-live="polite" className="sr-only">
+                {props.grabSaid}
+              </span>
             )}
             {/* Not a live region: it changes every frame while playing. The playhead's own value says it to a screen reader. */}
             <span data-player-timecode="" aria-hidden="true" className="ml-auto font-mono text-[13px] font-bold">

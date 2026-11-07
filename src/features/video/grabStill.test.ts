@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { mediaFields, type PreparedImage } from '../../core/media/store';
-import { clipProp, readClip, readFromVideo, videoProps, type VideoProbe } from '../../core/media/video';
+import { clipProp, readClip, readFromVideo, videoFields, videoProps, type VideoFields, type VideoProbe } from '../../core/media/video';
 import { readCrop } from '../../core/media/crop';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
@@ -47,6 +47,11 @@ const record = (id: string, type: SbdRecord['type'], parentId: string | null, pr
 });
 
 const crop = { x: 0.3, y: 0.6, zoom: 2 };
+const asTaken = (start: Record<string, SbdRecord>): VideoFields => {
+  const fields = videoFields(start.v1?.props ?? {});
+  if (!fields) throw new Error('the video');
+  return fields;
+};
 const records = (): Record<string, SbdRecord> => ({
   v1: record('v1', 'media', 'p', videoProps(probe, { name: 'A001_C003.MOV', path: '/Footage/A001_C003.MOV', size: 1 }, '/Films/Bey County.sbd', null)),
   old: record('old', 'media', 's1', { kind: 'image', sha256: 'f'.repeat(64), width: 100, height: 100, mime: 'image/png' }),
@@ -75,7 +80,7 @@ function after(start: Record<string, SbdRecord>, changes: readonly Change[]): Re
 describe('a still grabbed into its frame (2.7)', () => {
   it('becomes the frame’s picture, framed by the clip’s crop, saying where it came from and with what LUT', () => {
     const start = records();
-    const edit = stillEdit(start, 's1', 'v1', 48, still(3), { id: 'lut-1', name: 'SLog3 to 709' }, '/Films/Bey County.sbd');
+    const edit = stillEdit(start, 's1', 'v1', 48, still(3), { id: 'lut-1', name: 'SLog3 to 709' }, '/Films/Bey County.sbd', asTaken(start));
     const now = after(start, edit.changes);
     const shot = now.s1;
     if (!shot) throw new Error('the frame');
@@ -98,7 +103,9 @@ describe('a still grabbed into its frame (2.7)', () => {
     expect(readCrop(shot.props)).toEqual(crop);
     // The old picture goes to the Trash with it; its bytes are written in the same transaction.
     expect(now.old?.trashedAt).not.toBeNull();
-    expect(edit.alsoWrite.length).toBeGreaterThan(0);
+    expect(edit.alsoWrite.some((statement) => statement.params?.includes(still(3).original.sha256))).toBe(true);
+    // The clip prop is kept as stored, every field of it.
+    expect(shot.props.clip).toEqual(start.s1?.props.clip);
   });
 
   it('a centred clip leaves the picture centred; no LUT is said as none', () => {
@@ -106,19 +113,23 @@ describe('a still grabbed into its frame (2.7)', () => {
     const centred = start.s1;
     if (!centred) throw new Error('the frame');
     start.s1 = { ...centred, props: { ...centred.props, clip: clipProp({ videoId: 'v1', inFrame: 0, outFrame: 10, crop: { x: 0.5, y: 0.5, zoom: 1 } }) } };
-    const now = after(start, stillEdit(start, 's1', 'v1', 0, still(4), null, '/Films/Bey County.sbd').changes);
+    const now = after(start, stillEdit(start, 's1', 'v1', 0, still(4), null, '/Films/Bey County.sbd', asTaken(start)).changes);
     expect(now.s1?.props.crop).toBeUndefined();
     const id = now.s1?.props.media_id;
     const picture = typeof id === 'string' ? now[id] : undefined;
     expect(picture && readFromVideo(picture.props)?.lutId).toBeNull();
   });
 
-  it('makes no edit when the frame no longer plays that video, or is in the Trash', () => {
+  it('makes no edit when the frame no longer plays that video, the video was relinked meanwhile, or the frame is in the Trash', () => {
     const start = records();
-    expect(stillEdit(start, 's1', 'v2', 48, still(5), null, '').changes).toEqual([]);
+    const taken = asTaken(start);
+    expect(stillEdit(start, 's1', 'v2', 48, still(5), null, '', taken).changes).toEqual([]);
+    // Relinked while the still was made: it's the old file's, so it isn't the frame's picture under the new one.
+    expect(stillEdit(start, 's1', 'v1', 48, still(5), null, '', { ...taken, sourcePath: '/Footage/A001_C004.MOV' }).changes).toEqual([]);
+    expect(stillEdit(start, 's1', 'v1', 48, still(5), null, '', { ...taken, fps: { num: 25, den: 1 } }).changes).toEqual([]);
     const shot = start.s1;
     if (!shot) throw new Error('the frame');
     start.s1 = { ...shot, trashedAt: 'now' };
-    expect(stillEdit(start, 's1', 'v1', 48, still(5), null, '').changes).toEqual([]);
+    expect(stillEdit(start, 's1', 'v1', 48, still(5), null, '', taken).changes).toEqual([]);
   });
 });

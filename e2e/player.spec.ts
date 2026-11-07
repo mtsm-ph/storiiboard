@@ -282,7 +282,18 @@ test('grabs the frame showing into its frame: the picture changes, says its time
   await page.keyboard.press(`${await command(page)}+z`);
   await expect.poll(picture).toBe(first);
   await expect(inspector(page)).toContainText('Still at 00:00:00:00');
-  // The button does the same.
+  // The button does the same, and focus stays on it, so the Player's keys carry on.
   await player(page).getByRole('button', { name: 'Grab still' }).click();
   await expect.poll(picture, { timeout: 10_000 }).not.toBe(first);
+  await expect(player(page).getByRole('button', { name: 'Grab still' })).toBeFocused();
+
+  // While it plays: paused first, and the still is the frame the Player settles on.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('g');
+  await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+  const settled = await timecode(page).innerText();
+  await expect(inspector(page)).toContainText(`Still at ${settled}`, { timeout: 10_000 });
 });

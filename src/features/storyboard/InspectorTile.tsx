@@ -95,11 +95,13 @@ export function InspectorTile() {
   const fromVideo = fields?.mediaId ? readFromVideo(records[fields.mediaId]?.props ?? {}) : null;
   const fromItsVideo = fromVideo !== null;
   // Said by where it came from instead (2.7): the frame's timecode, as on the slate, and the LUT it was graded with.
-  const stillFrom = fromVideo
-    ? fromVideo.lutName
-      ? t('inspector.stillAtWithLut', { timecode: fromVideo.timecode, lut: fromVideo.lutName })
-      : t('inspector.stillAt', { timecode: fromVideo.timecode })
-    : '';
+  const stillFrom = !fromVideo
+    ? ''
+    : fromVideo.timecode === ''
+      ? t('inspector.stillFromVideo')
+      : fromVideo.lutName
+        ? t('inspector.stillAtWithLut', { timecode: fromVideo.timecode, lut: fromVideo.lutName })
+        : t('inspector.stillAt', { timecode: fromVideo.timecode });
   const picture: InspectorPicture | null = !view
     ? null
     : media

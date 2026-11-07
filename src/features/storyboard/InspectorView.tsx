@@ -609,7 +609,11 @@ export function InspectorView({
                 />
                 {(picture.sourceName || picture.sourcePath) && (
                   <p className="flex min-w-0 flex-col font-mono text-[11px] text-text-muted">
-                    {picture.sourceName && <span className="truncate">{picture.sourceName}</span>}
+                    {picture.sourceName && (
+                      <span className="truncate" title={picture.sourceName}>
+                        {picture.sourceName}
+                      </span>
+                    )}
                     {/* Only a pointer to the original: the board keeps its own copy. */}
                     {picture.sourcePath && (
                       <span className="truncate" title={picture.sourcePath}>
