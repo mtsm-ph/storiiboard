@@ -37,7 +37,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | | In review |
+| 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | #88 | Done |
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | | Not started |
 | 3.3 Locations | The Locations tile: list and editor (address as text, contacts, parking and power notes, status, photos, custom fields), a shot's location over its scene's, Open in Maps, the Trash | | Not started |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |

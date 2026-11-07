@@ -145,14 +145,12 @@ export function ProjectDetailsFields({ record, onChange }: ProjectDetailsFieldsP
                   defaultValue={item.text}
                   onBlur={(event) => {
                     const value = event.currentTarget.value.trim();
-                    // Emptied, it keeps its text: Remove is the way to take one off. Spaces alone go too.
+                    // Emptied, it keeps its text (Remove is the way to take one off); spaces typed round it go.
                     if (value === '' || value === item.text) {
                       event.currentTarget.value = item.text;
                       return;
                     }
-                    if (value !== item.text) {
-                      onChange((props) => deliverablesChange(props, (items) => items.map((i) => (i.id === item.id ? { ...i, text: value } : i))));
-                    }
+                    onChange((props) => deliverablesChange(props, (items) => items.map((i) => (i.id === item.id ? { ...i, text: value } : i))));
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.currentTarget.blur();

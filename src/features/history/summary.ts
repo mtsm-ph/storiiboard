@@ -230,7 +230,7 @@ export function changedProps(before: SbdRecord, after: SbdRecord): string[] {
  */
 export interface FieldChange {
   prop: string;
-  /** For a custom field: its name in `custom`; for a department's status, the department's id. */
+  /** A custom field's name in `custom`; a department's id; a client contact's field (3.1); a deliverable's id (3.1). */
   key?: string;
   before: JsonValue | undefined;
   after: JsonValue | undefined;
@@ -270,9 +270,11 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     if (!BY_ENTRY.has(prop) && !byId) return [{ prop, before: before.props[prop], after: after.props[prop] }];
     const was = byId ? deliverablesById(before.props) : entriesOf(before.props, prop);
     const now = byId ? deliverablesById(after.props) : entriesOf(after.props, prop);
-    return [...new Set([...Object.keys(was), ...Object.keys(now)])]
+    const entries = [...new Set([...Object.keys(was), ...Object.keys(now)])]
       .filter((key) => JSON.stringify(was[key]) !== JSON.stringify(now[key]))
       .map((key) => ({ prop, key, before: was[key], after: now[key] }));
+    // A checklist that changed with no item changed (reordered, or an entry without an id): the list as a whole.
+    return byId && entries.length === 0 ? [{ prop, before: before.props[prop], after: after.props[prop] }] : entries;
   });
 }
 

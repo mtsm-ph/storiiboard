@@ -95,6 +95,8 @@ export function clientChange(props: Props | undefined, field: keyof ClientContac
  * doesn't know.
  */
 export function deliverablesChange(props: Props | undefined, change: (items: Record<string, JsonValue>[]) => Record<string, JsonValue>[]): Props {
-  const stored = Array.isArray(props?.deliverables) ? props.deliverables.filter(isRecord) : [];
-  return { deliverables: change(stored) };
+  const stored = Array.isArray(props?.deliverables) ? props.deliverables : [];
+  // Entries that aren't items (from a later version, or by hand) are kept, after the items, never dropped.
+  const others = stored.filter((item) => !isRecord(item));
+  return { deliverables: [...change(stored.filter(isRecord)), ...others] };
 }

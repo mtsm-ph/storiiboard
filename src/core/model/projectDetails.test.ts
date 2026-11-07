@@ -44,6 +44,10 @@ describe('a project’s production details', () => {
     expect(deliverablesChange(props, (items) => items.map((item) => ({ ...item, done: true })))).toEqual({
       deliverables: [{ id: 'd1', text: 'Master', done: true, due: '2026-12-01' }],
     });
+    // An entry that isn't an item is kept, never dropped by an edit.
+    expect(deliverablesChange({ deliverables: [{ id: 'd1', text: 'Master' }, 'from a later version'] }, (items) => items)).toEqual({
+      deliverables: [{ id: 'd1', text: 'Master' }, 'from a later version'],
+    });
     expect(deliverablesChange(undefined, (items) => [...items, { id: 'd2', text: 'Cutdown', done: false }])).toEqual({
       deliverables: [{ id: 'd2', text: 'Cutdown', done: false }],
     });

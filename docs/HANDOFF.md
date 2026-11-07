@@ -366,6 +366,10 @@ deliverable go; a stale comment. Tests: the edits go through Settings → Projec
 with Settings open show in the field and keep focus where it was. Low left: a field typed in again within the moment
 its own commit takes can lose what was typed (only that field, only then).
 
+Round 3: no high, no medium; review done. Lows fixed: a checklist change no item shows (a reorder) reads as the list;
+an entry in the list that isn't an item is kept by every edit; two comments. Low left: a step's line cuts a
+deliverable's text at 40 characters, as every text, so a rename past that reads the same on both sides there.
+
 ### 2.9: decisions
 
 - Decided by default, review: the JSON export carries the Trash and the History, though CLAUDE.md says exports skip
