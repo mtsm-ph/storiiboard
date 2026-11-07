@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// What an export may write: the file extensions of its formats.
-const EXTENSIONS: &[&str] = &["csv", "png", "pdf"];
+const EXTENSIONS: &[&str] = &["csv", "png", "pdf", "mp4"];
 
 /// The places chosen this session: whole files from the Save dialog, and folders made for a set of files.
 #[derive(Default)]
@@ -38,6 +38,19 @@ fn has(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
 /// the session, the page could write over it again long after the person had moved on to other work in it.
 fn take(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
     set.lock().is_ok_and(|mut paths| paths.remove(path))
+}
+
+/// Takes the file the Save dialog picked for `path`, once, for a writer other than `export_write` (a clip saved as a
+/// file, 2.8b, which ffmpeg writes): only a file the person chose, as every export.
+pub(crate) fn take_chosen_file(app: &AppHandle, path: &Path) -> bool {
+    take(&app.state::<Chosen>().files, path)
+}
+
+/// Whether a path names a video file (an export of type mp4).
+fn is_video_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|e| e.eq_ignore_ascii_case("mp4"))
 }
 
 /// One plain name for a file or folder inside another: no folders, no way up, nothing hidden. A colon is refused
@@ -248,6 +261,10 @@ enum Target {
 fn target_of(chosen: &Chosen, header: &WriteHeader) -> Result<Target, String> {
     let path = PathBuf::from(&header.path);
     match &header.name {
+        // Never a video from here: only a clip's own render writes one (video.rs save_clip), with its own guards.
+        None if is_video_path(&path) => {
+            Err("Storiiboard writes exports only where you choose.".into())
+        }
         None if take(&chosen.files, &path) => Ok(Target::Chosen(path)),
         Some(name) if has(&chosen.folders, &path) && plain_name(name) => inside(&path, name)
             .map(Target::New)
@@ -326,6 +343,23 @@ fn replace(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn writes_no_video_through_the_export_writer() {
+        // A clip is rendered by video.rs, with its own guards; bytes the page sends are never a video, even to a file
+        // the Save dialog picked (which could be a camera original).
+        let chosen = Chosen::default();
+        remember(&chosen.files, Path::new("/Footage/A001_C003.MP4"));
+        let header = WriteHeader {
+            path: "/Footage/A001_C003.MP4".into(),
+            name: None,
+        };
+        assert!(target_of(&chosen, &header).is_err());
+        assert!(
+            has(&chosen.files, Path::new("/Footage/A001_C003.MP4")),
+            "not taken either"
+        );
+    }
     use super::*;
 
     fn temp(label: &str) -> PathBuf {

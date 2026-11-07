@@ -49,12 +49,23 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.6 Crop | #82 | Done |
 | 2.7 Still capture into a frame | #83 | Done |
 | 2.8a The frame's clip plays in the inspector | #84 | Done |
-| 2.8b Save clip as file | | Not started |
+| 2.8b Save clip as file | #85 | Done |
 | 2.9 JSON export and import carry all of it | | Not started |
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.8b as built (Nov 7): Save clip as file (`src/features/video/saveClip.ts`, video.rs `save_clip`, `clip_save`).
+- Save clip as file… in the inspector's Video section renders the frame's clip, in to out, from the original (never
+  the playback copy) as an H.264 MP4 with the computer's own encoder: frame-exact (two seeks, then the frames by their
+  own timestamps, as a still is grabbed), its pixels made square at full size, cut to the frame's window (the clip's
+  crop), fitted to 1920 px on its long edge, graded with the video's LUT (or, for HDR without one, tone-mapped), with
+  its first sound track from the same moment, as AAC stereo.
+- It's named as the frame's picture exports, `SC004_4A.mp4`, so an editor matches it to the slate, and goes only where
+  the person chooses, through the export Save dialog (MP4 joins the export file types). It's written beside the file
+  first and put in place only once whole. The notice line says when it's saving and when it's saved.
+- The browser build has no ffmpeg: there it says the desktop app is needed.
 
 2.8a as built (Nov 7): the frame's clip plays in the inspector (`src/features/video/ClipPreview.tsx`).
 - The Video section shows the frame's clip, in to out, framed as the frame is (the clip's crop, 2.6), from the

@@ -96,6 +96,31 @@ describe('the Frame inspector’s Video section (2.2b)', () => {
     expect(html).toMatch(/<button[^>]*class="[^"]*bg-accent[^"]*"[^>]*data-relink-video=""/);
   });
 
+  it('offers Save clip as file, and while it saves the same button cancels it', () => {
+    const withSave = (saving: boolean) =>
+      renderToString(
+        <InspectorView
+          scene={scene}
+          shot={shot}
+          otherSceneNumbers={[]}
+          onShotChange={noop}
+          onSceneChange={noop}
+          onSceneNumberChange={noop}
+          onBack={noop}
+          video={video}
+          onSaveClip={noop}
+          savingClip={saving}
+          onCancelSaveClip={noop}
+        />,
+      );
+    // One button either way, never disabled, so focus stays on it from Save to Cancel.
+    const idle = withSave(false).match(/<button[^>]*data-save-clip=""[^>]*>([^<]*)<\/button>/);
+    const busy = withSave(true).match(/<button[^>]*data-save-clip=""[^>]*>([^<]*)<\/button>/);
+    expect(idle?.[1]).toBe('Save clip as file…');
+    expect(busy?.[1]).toBe('Cancel saving clip');
+    expect(busy?.[0]).not.toMatch(/ disabled=|aria-disabled="true"/);
+  });
+
   it('leaves only Unlink for a clip whose video is gone from the project', () => {
     const html = render({ ...video, missing: true, gone: true });
     expect(html).toContain('The video this frame played isn’t in the project any more.');

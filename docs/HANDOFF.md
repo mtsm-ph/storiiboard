@@ -313,7 +313,8 @@ Lows deferred (noted, not planned yet):
    checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
    see "2.7 as built"; from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (PR #84, merged
-   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (rendered from the original,
+   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (PR #85, merged Nov 7; four review rounds; see "2.8b as built"; rendered
+   from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -338,6 +339,55 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 2.8b: review
+
+Round 1: one high, four mediums, all fixed. A clip could be saved over a camera original (the same file, or any
+video at the chosen name): Rust refuses the source itself and any file there that probes as a video, and the export
+writer never writes `.mp4`. Variable-frame-rate takes now come out at the clip's rate (an `fps` filter and constant
+frame rate), so the frame count holds. Sound is cut from the same zero point as the picture and resampled to stay in
+sync, and a take whose sound track can't be decoded saves without it. The file is written to a hidden partial
+next to the destination and renamed only when it's whole; a timeout, a cancel or quitting the app leaves nothing. While
+it saves, the button reads Cancel saving clip. Lows fixed: an anamorphic take is cropped first and scaled once; a LUT
+that isn't stored has its own words; a frame with no number is named by its place in its scene, as that scene's
+picture export names it; more tests. Lows left: a take whose sound is split over mono tracks (some MXF) keeps its first track only;
+there's no progress readout, only the saving notice and Cancel.
+
+Round 2: no high; four mediums fixed. Quitting while a clip saved left its ffmpeg running on a Mac and Linux, writing
+a partial that was never removed: the app now waits, three seconds at most, for it to end and its file to go. On
+Windows a cancelled or timed-out save couldn't delete the partial ffmpeg still had open: it's removed once ffmpeg has
+ended. A second save while one ran said the folder was at fault, and its Cancel could stop the other: the save in
+progress is kept outside the inspector (its Cancel is there whatever was shown since), a second is refused before its
+Save dialog with words of its own, and a Cancel during the dialog or the LUT read stops it before Rust has it. A clip
+was refused over only files that read as video, so a damaged original could be replaced, and saving again at the
+slate name was always refused: every clip now carries a mark (its comment, `Saved by Storiiboard`), and a clip goes
+only where nothing is or over a clip with that mark. Lows fixed: a panic can't leave saving stuck (a drop guard); a
+stale Cancel can't stop the next save; a cancel is said as information, not as a fault; tests for a stopped render
+leaving no file, one save at a time, the busy and cancel flow, and the button. Lows left: the clip's sound is the
+first track only, where the copy mixes the live ones (2.3c); a variable-rate take with a gap at its in point can start
+on the next real frame; a hung hardware encoder isn't retried in software (the timeout says the video was slow). The
+export writer takes only csv, png, pdf and mp4 names, so it can't be pointed at a `.mov` or `.mxf`.
+
+Round 3: no high; one medium fixed. A Cancel pressed while Rust was still checking the place (a probe of the clip
+already at that name, on a slow share) was lost, and the clip was saved anyway: the save is busy from its first step,
+a Cancel is looked at between each step before ffmpeg starts and again before the clip is put in place, and a refused
+second save no longer clears the first's Cancel. Lows fixed: each partial has a name never used before in the run, so
+a stopped ffmpeg still ending can't remove the next save's; a second save names the frame being saved, whose Cancel
+it is; the stop test waits until ffmpeg is writing. Lows left: a saved clip that the project also uses as a video can
+be saved over (the Save dialog asks first); a Save dialog cancelled from Cancel leaves its pick allowed for the session
+(the export writer refuses mp4, so nothing can use it); quitting during the probes before ffmpeg starts waits at most
+three seconds.
+
+Round 4: no high, no medium; review done. Lows fixed: a Cancel that reaches Rust before the save does is asked
+again until Rust has it; the busy notice names the clip as its file is named (and says no name for a frame in another
+project). Lows left: the Cancel is on the saving frame's inspector only, so a frame trashed mid-save has none (the save
+still ends by itself); the stops before each encoder and before the rename have no test of their own.
+
+Checkpoint 2.8b-r4: everything green but the Mac's Rust tests, where the clip test's VideoToolbox session hung until
+the clip's timeout (its encoder service and an ffmpeg still stuck at the end), the runner's virtual GPU again. The
+clip tests now save with FFmpeg's own MPEG-4, as the copies' tests do (`save_clip_with`); what they test doesn't depend
+on the encoder, and the app still uses the computer's. On a Mac, VideoToolbox is the only H.264 encoder in the LGPL
+build, so a hung session there has no software one to fall back to (the low above).
+
 ### 2.8a: review
 
 Round 1: no high; three mediums fixed. The preview seeked back to the in point while playing, so the frame after the
@@ -355,6 +405,10 @@ play on into the frame after); a turn whose seek never ended can't hold the loop
 played says so (as the Player does) and Play is off; a missing original isn't remade from nothing. The clip test
 passed 20 of 20 under load. Lows left: under heavy load a webview could present the frame after the out point once
 before the pause lands (the test holds it to the out point; none seen).
+
+Checkpoints 2.8a and 2.8a-r2: everything green but the Mac's Rust tests, which hung with VideoToolbox's encoder
+service and sixteen ffmpegs stuck, the runner's virtual GPU again (2.3c, stop A). 2.8a changed no Rust; checkpoint
+2.8b, built on 2.8a's head, passed every job, the Mac's Rust tests included, and stands for it. Merged Nov 7.
 
 ### 2.7: review
 
@@ -542,7 +596,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    (or Grab still). The frame's picture should be that frame, framed as the window was, graded with the take's LUT,
    within a second or two; the inspector says "Still at <timecode>" matching Resolve's for that frame. ⌘Z takes it
    back. Try a 6K or 8K original too.
-4. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+4. Save clip as file (2.8b): set a frame's in and out and framing on real footage, Save clip as file…, and open the
+   MP4 in Resolve or Premiere: its first and last frames are the in and out (match the timecode), framed as the
+   window was, graded, with sound in sync. Try a long take on an external drive, and a 6K or 8K original.
+5. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)

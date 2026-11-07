@@ -120,6 +120,11 @@ export interface InspectorViewProps {
   onUnlinkVideo?: () => void;
   /** Puts the video's playback copy on the queue, or tries again (2.3b). */
   onMakeCopy?: () => void;
+  /** Saves the frame's clip as a file (2.8b); `savingClip` while it's being made. */
+  onSaveClip?: () => void;
+  savingClip?: boolean;
+  /** Stops the clip being saved. */
+  onCancelSaveClip?: () => void;
   /** Asks for a `.cube` and sets it as the video's LUT (2.5). */
   onLoadLut?: () => void;
   /** Sets the video's LUT to one the project has, or none (null). */
@@ -488,6 +493,9 @@ export function InspectorView({
   onCancelCopy,
   onLoadLut,
   onSetLut,
+  onSaveClip,
+  savingClip = false,
+  onCancelSaveClip,
   onCropChange,
   locationName = null,
   onSketch,
@@ -730,6 +738,12 @@ export function InspectorView({
                     }}
                   >
                     {copyAction === 'cancel' ? t('inspector.cancelCopy') : copyState === 'failed' ? t('inspector.copyTryAgain') : t('inspector.makeCopy')}
+                  </Button>
+                )}
+                {!video.gone && !video.missing && onSaveClip && (
+                  // While it works, the same button stops it: focus stays on it, and a long take can be given up on.
+                  <Button data-save-clip="" onClick={savingClip ? onCancelSaveClip : onSaveClip}>
+                    {savingClip ? t('saveClip.cancel') : t('saveClip.button')}
                   </Button>
                 )}
                 <Button
