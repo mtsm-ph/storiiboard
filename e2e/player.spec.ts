@@ -171,3 +171,94 @@ test('a copy the <video> can’t play says so, with Try again, and is remade onc
   await expect(player(page).locator('[data-player-state]')).toContainText('This playback copy can’t be played here.');
   await expect(player(page).getByRole('button', { name: 'Try again' })).toBeVisible();
 });
+
+test('a move held when the picture goes is dropped, and never saved once it’s back (2.6)', async ({ page }) => {
+  await linkAndOpen(page);
+  const window = player(page).locator('[data-frame-window]');
+  const width = () => window.evaluate((element: HTMLElement) => parseFloat(element.style.width));
+  // A zoom held on the slider, never let go, when the copy can't be played.
+  await player(page).getByRole('slider', { name: 'Framing' }).focus();
+  await page.keyboard.down('ArrowRight');
+  await expect.poll(width).toBeLessThan(100);
+  await player(page).locator('video').dispatchEvent('error');
+  await expect(player(page).locator('[data-player-state]')).toContainText('This playback copy can’t be played here.');
+  await page.keyboard.up('ArrowRight');
+  await player(page).getByRole('button', { name: 'Try again' }).click();
+  await expect(window).toBeVisible();
+  // Back: the saved framing, and passing through the slider saves nothing.
+  expect(await width()).toBe(100);
+  await player(page).getByRole('slider', { name: 'Framing' }).focus();
+  await page.keyboard.press('Tab');
+  expect(await width()).toBe(100);
+  await page.keyboard.press(`${await command(page)}+z`);
+  // The one undo takes back the link itself, not a framing: the frame has no video now.
+  await expect(player(page).locator('[data-player-state]')).toContainText('This frame has no video.');
+});
+
+test('frames the clip over the take: the window zooms and moves by keys and by hand, one undo step each (2.6)', async ({ page }) => {
+  await linkAndOpen(page);
+  const window = player(page).locator('[data-frame-window]');
+  const box = () =>
+    window.evaluate((element: HTMLElement) => ({ left: parseFloat(element.style.left), top: parseFloat(element.style.top), width: parseFloat(element.style.width) }));
+  // A 16:9 frame over a 16:9 take: the window is the whole picture, with nowhere to go until it's zoomed.
+  expect(await box()).toEqual({ left: 0, top: 0, width: 100 });
+  // The picture's own box, measured once the copy is ready: the window lies on the picture, not on the bars.
+  await expect.poll(() => player(page).locator('[data-player-picture]').evaluate((element: HTMLElement) => element.style.width)).toMatch(/px$/);
+  const picture = await player(page).locator('video').evaluate((video: HTMLVideoElement) => {
+    const rect = video.getBoundingClientRect();
+    // Where the picture is drawn inside the <video>: contained, centred.
+    const scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight);
+    const [width, height] = [video.videoWidth * scale, video.videoHeight * scale];
+    return { x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height };
+  });
+  const drawn = await window.boundingBox();
+  if (!drawn) throw new Error('the window is drawn');
+  for (const side of ['x', 'y', 'width', 'height'] as const) expect(Math.abs(drawn[side] - picture[side])).toBeLessThan(2);
+  expect(await new AxeBuilder({ page }).include('[data-player]').analyze().then((r) => r.violations)).toEqual([]);
+
+  await window.focus();
+  await page.keyboard.press('+');
+  // Focused from the keyboard, the window shows its two-tone ring, inside its edge.
+  await expect(window.locator('span[aria-hidden="true"]')).toBeVisible();
+
+  await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await box()).left).toBeCloseTo(0, 1);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await box()).left).toBeGreaterThan(1);
+  await expect(window).toHaveAttribute('aria-label', 'The frame’s window over the take, zoom 110%');
+  // Quick taps with no wait between them: each counts, each built on the last, though its edit hasn't landed yet.
+  const quick = (await box()).left;
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(async () => (await box()).left).toBeCloseTo(quick + 2, 1);
+  // The Player's own keys still work with the window focused: period steps a frame.
+  await page.keyboard.press('.');
+  await expect(timecode(page)).toHaveText('00:00:00:01');
+
+  // Dragged by hand: down and to the right.
+  const before = await box();
+  const at = await window.boundingBox();
+  if (!at) throw new Error('the window is drawn');
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x + at.width / 2 + 10, at.y + at.height / 2 + 10, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await box()).top).toBeGreaterThan(before.top);
+
+
+  // Focus elsewhere: no ring, the edge alone.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await expect(window.locator('span[aria-hidden="true"]')).toBeHidden();
+  // Each move was one step (zoom, three by key, three quick taps, a drag): undone in turn, back to the whole picture;
+  // Centre is off once it's there.
+  for (let i = 0; i < 7; i += 1) await page.keyboard.press(`${await command(page)}+z`);
+  await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
+  await expect(player(page).getByRole('button', { name: 'Centre' })).toBeDisabled();
+  // Redone, and taken back to the centre with Centre in one step.
+  await page.keyboard.press(`${await command(page)}+Shift+z`);
+  await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
+  await player(page).getByRole('button', { name: 'Centre' }).click();
+  await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
+});

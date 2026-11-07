@@ -74,6 +74,30 @@ export function zoomCrop(crop: Crop, zoom: number, imageAspect: number, frameAsp
   return clampCrop({ ...crop, zoom }, imageAspect, frameAspect);
 }
 
+/**
+ * The other way round (2.6, the Player): the part of the picture the frame shows, as left, top, width and height in
+ * percentages of the picture. The Player draws it over the whole take, so the window is moved, not the picture.
+ */
+export function cropWindow(crop: Crop, imageAspect: number, frameAspect: number) {
+  const fitted = clampCrop(crop, imageAspect, frameAspect);
+  const { width, height } = scaled(fitted.zoom, imageAspect, frameAspect);
+  return {
+    left: (fitted.x - 0.5 / width) * 100,
+    top: (fitted.y - 0.5 / height) * 100,
+    width: 100 / width,
+    height: 100 / height,
+  };
+}
+
+/**
+ * Moves the window over the picture by a drag or an arrow key: `dx` and `dy` are fractions of the picture's width and
+ * height, positive to the right and down. The window follows the hand, so its centre point moves the same way.
+ */
+export function moveWindow(crop: Crop, dx: number, dy: number, imageAspect: number, frameAspect: number): Crop {
+  const fitted = clampCrop(crop, imageAspect, frameAspect);
+  return clampCrop({ ...fitted, x: fitted.x + dx, y: fitted.y + dy }, imageAspect, frameAspect);
+}
+
 /** True when the crop is the centred default, so a shot can drop its `crop` prop. */
 export function isDefaultCrop(crop: Crop): boolean {
   return crop.x === DEFAULT_CROP.x && crop.y === DEFAULT_CROP.y && crop.zoom === DEFAULT_CROP.zoom;

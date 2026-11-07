@@ -49,6 +49,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
 | #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
+| #82 | 2.6: framing a frame's clip over the Player (the window moves and zooms over the take, one undo step each); see "2.6 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -306,7 +307,8 @@ Lows deferred (noted, not planned yet):
    write the checklist into the handoff, and keep going (Kevin tests in batches).
 2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
    `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
-   the original; the LUT joins the copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
+   the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
+   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -330,6 +332,44 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.6: notes
+
+- The titles end-to-end test (`e2e/titles.spec.ts`, F2) failed once in a full local run: after Escape in a title, focus
+  comes back a frame or two later and settles on the frame card, and under load that late move pulled focus off the
+  next frame the test went to. The test now waits for it to settle (40 of 40 under load). Left as a low: the title
+  editor's own comment says Escape goes back to the pencil, but focus ends on the card; harmless (the keys carry on
+  from the frame either way), but the two disagree.
+
+### 2.6: review
+
+Round 1: one high, two mediums, fixed. The picture's box was never measured (the Player measured it only when the
+take's shape changed, and the box appears only once a copy is ready), so the window lay over the bars too: the box is
+measured whenever it appears now, and the end-to-end test checks the window sits exactly on the picture as drawn.
+Quick taps lost steps and the window jumped back until each edit landed: a move let go stays shown until its edit
+lands, and the next builds on it (tested with taps and no waits between). The window's focus ring was ink on ink in
+the light theme: paper now, drawn inside the edge. Lows fixed: ⌘, Ctrl or Alt with the window's keys are left to the
+app and the system; a draft is dropped when the frame or video changes; a gesture the system takes over puts the
+window back rather than saving; Shift let go before the arrow makes no extra step; a fast drag's last move is kept; a
+move that changes nothing on screen makes no edit (a stored crop outside today's clamp stays as it was); "Framed at…"
+is said once the edit has landed. Lows left: the Player tile scrolls inside its tile's own scroll area (harmless);
+no end-to-end test of a non-16:9 project or a rotated take yet (the maths is unit-tested for 2.39 and 4:5).
+
+Round 2: no high; one medium fixed: the paper focus ring (round 1's fix) sat inside the window on the footage itself,
+so it vanished over a bright sky or wall; it's two-tone now (paper with ink round it), inside the edge (tested end to
+end). Lows fixed: a draft is kept with its frame, so a move under way can't be saved onto another video after an undo
+changes it; "Framed at…" only when the edit landed; a failed save can't leave the window stuck; a move smaller than
+the stored rounding makes no edit; the zoom slider zooms from where its drag began, so out and back in keeps the
+window's place; the slider ignores Shift let go; a move under way is dropped if the picture goes (a copy remade).
+Lows left: for a moment on a new video the box may show the last one's size before it's measured (it measures in the
+same frame in practice); the quick-taps test's tolerance is a twentieth of a percent.
+
+Round 3: one medium fixed, then nothing high or medium; review done. A move held when the picture went (the copy
+remade, a play error) came back with the frame and could be saved by passing through the slider: each reset is a
+generation of its own now, so a held move never counts again (tested end to end; the test fails without the fix).
+Lows fixed: the window's ink outline stays on its edge when focused; the ring is the window's own named group. Lows
+left: if the picture returns within moments of an edit landing, a tap in between can build on the saved crop rather
+than the one in flight (one tap lost).
 
 ### 2.5: review
 
@@ -451,7 +491,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    Rec.709 `.cube`) for a take; the Player shows the graded copy within a minute or so; compare a frame with Resolve
    under the same LUT (it should match closely; say if colours look shifted). Undo takes it off; pick None and back.
    Load one with a 1D shaper (a Resolve "Shaper + 3D" export) and see it refused with words that say why.
-2. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+2. Framing (2.6): in the Player, zoom the frame's window and move it over a take, by hand and with the keys; it
+   should feel like a frame-line overlay on a monitor. Each move is one ⌘Z. Try a 2.39 project over 16:9 footage and
+   a 9:16 one over the same.
+3. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)
