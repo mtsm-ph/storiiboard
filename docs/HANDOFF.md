@@ -47,6 +47,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
 | #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
+| #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -297,7 +298,7 @@ Lows deferred (noted, not planned yet):
    virtual GPU wedges once a run opens many sessions in a row, whichever copy it lands on. The sound tests, which test
    the sound, now encode their picture with FFmpeg's own MPEG-4 (as on Linux), sparing about ten sessions; every
    other test still uses VideoToolbox. The app is unchanged.
-1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+1. **2.4** (PR #80, merged Nov 7; seven review rounds, checkpoint stop-a-r7 all green; review stop A reached, its checklist below; see "2.4 as built" in `docs/PLAN.md` and Review stop A below): the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
@@ -316,6 +317,86 @@ Lows deferred (noted, not planned yet):
    shoot days with totals and the Calendar tile (month and week); gear per day linked to shots; a client contact and
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
+
+### 2.4: review
+
+Round 1 (Nov 7): four mediums, fixed with tests. The timecode read one frame early while playing in Chromium (media
+time is kept in whole microseconds: a frame's start now rounds, the current time floors with a thousandth of a frame's
+margin); Shift with comma or period didn't step ten on real keyboards (">" in English) and an AZERTY's period stepped
+ten (now the characters step one and Shift on those keys ten; I and O also by their key); a copy the webview can't
+play left the Player on "Opening…" for good, and a copy without sound could be remade over and over (now it says it
+can't be played, with Try again, and is remade once at most); the timecode was a live region read out every frame.
+Lows fixed: 2 MB slices (a seek answers sooner); the playhead resets per frame, not per video; a picture gone isn't
+"playing"; holding I, O or Space makes no steps or toggles; an in or out point where it already is makes no edit;
+copies are never served through a link. Left as lows: a request for a large copy without a range gets its first slice
+as a 206 (no webview asks that way), HEAD gets a body, and the browser build's kept files aren't let go when a project
+closes.
+
+Round 2: no high; two mediums fixed: the Player's one automatic remake now resets once a copy plays (a copy evicted
+again an hour later is remade, not called unplayable), and a pause settles the readout, the picture and the <video>'s
+time on one frame (the readout could stay a frame behind). A copy that can't be played is now tested end to end (an
+error on the <video>: said, Try again plays it, a second error never loops). Lows fixed: the "can't be played" mark is
+the video's own; I and O by their key only on layouts that type no Latin letter there (a Dvorak's KeyI is "c");
+`find` refuses links, as serving does. Left as a low: on a French AZERTY, Shift steps ten forward (Shift+":") but not
+back (its comma is on KeyM, where Shift types "?").
+
+Round 3: no high; two mediums fixed. Played to the end, a pause read the video's whole length as a frame past its last,
+and O then saved an out point past the video: the frame is now kept inside the video, and I and O never set a point past
+it. A copy without sound that loaded and then failed was made again without end (its retry for sound passed the
+one-remake cap): after a <video> error the copy is now made again only if it's gone (`copyMayBeGone`). Tests: the end of
+the video in e2e, the error path's remake rule in unit tests, `find` ignoring a link in Rust. Left as lows: the e2e
+can't-play test can't see the remake cap (the stand-in's copies never go missing); a copy removed by the cap says "can't
+be played" for a moment before it's queued again.
+
+Round 4: no high; one medium fixed. A video whose length isn't known (ffprobe can't read it; durationFrames 0) was held
+at frame 0 by round 3's clamp, so a pause jumped back to the start and I and O did nothing: the clamp now applies only
+to a known length (`frameInVideo`, `inVideo`). Lows fixed: Space on the last frame replays from the in point (it played
+half a frame), and the frame shown while playing never passes the last either. Left as a low: no test pins the Player's
+own use of `copyMayBeGone` (a component test needs a DOM library, a new dependency: Kevin's call, as before).
+
+Round 5: no high; one medium fixed, round 4's other half: a step (comma, period) on a video of unknown length still went
+to frame 0; `stepFrame` now holds back only a known length, tested. Lows left: no test renders the Player with an unknown
+length (the e2e fixture has one; a component test needs a DOM library); a relink to a shorter file can leave an in point past the end, so Space can't replay (the relink
+warns about clips past the end); a copy a frame or two shorter than its record lets O set a point past the copy.
+
+Round 6: no high; one borderline medium fixed: with round 5's fix, a video of unknown length could be stepped far past
+its copy's end and O would save that point. Such a video now takes its length from its copy once the <video> knows it
+(`framesOfLength`), which also gives its scrubber an end; before that it's unbounded above, as before. Only the lows
+listed in round 5 remain.
+
+Round 7: no high; one medium fixed, the reviewer's own fix: the copy's length rounded up, so a copy whose sound runs past
+its picture (AAC padding, a camera's sound) had a 49th frame of 48; it now rounds down, since the picture is constant
+rate and ends on a whole frame. Tested. Lows left: no component or e2e test of a video of unknown length (the DOM
+library question); an in point past a copy's real length isn't clamped until the first step (shown only). This was the
+last round: its one fix is the reviewer's, tested here, and the checkpoint of f131794 covers everything else.
+
+Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
+with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
+passed them on Mac with the same code. Those three tests aren't about the encoder, so they now use the light one, as the
+sound tests do; the encoder's own tests still use VideoToolbox.
+
+## Review stop A (after 2.4): Kevin's checklist, in this order
+
+On Kevin's own computers, with the 2.4 installers (or a dev build):
+1. Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder. Task Manager's GPU
+   "Video Encode" graph should rise while it's made.
+2. A Mac: a long take on an external drive; unplug the drive halfway through its copy. The copy should fail, say so,
+   and leave nothing in the copies' folder.
+3. The Player on a Mac (WKWebView) and on Windows (WebView2), with real footage:
+   - the copy plays, scrubs and steps without stalling (copies keep their index at the end, no `+faststart`; if the
+     Mac stumbles on that, say so, and it comes back with a time allowance);
+   - comma and period land on the frame the timecode says (compare with Resolve on the same clip);
+   - I and O set the frame's in and out, and ⌘Z or Ctrl+Z takes each back.
+4. A Sony FX6/FX9 or Canon MXF: separate mono tracks mixed, the empty inputs left out (the live pair at its own
+   level); a clip with every input empty says it has no sound.
+5. Settings → Storage: Clear while a copy plays (the Player offers Make playback copy); Move to another drive and back.
+6. Relink a frame's video while its copy is being made, then undo: the copy shown is of the file the frame points at.
+7. Windows: the screenshot baselines (`*-win32.png`) predate the Player's content in its tile, so the Windows run of
+   `e2e/visual.spec.ts` will differ there; regenerate them on Windows (`npx playwright test e2e/visual.spec.ts
+   --project=chromium --update-snapshots`) and commit them. The Linux and Mac ones came from `checkpoint/baselines-2.4`.
+8. The Player's edges: play a take to the end (it stops on its last frame; O there sets the out point on it, never
+   past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
+   streamed file) steps and pauses where it is, and stops at its copy's end.
 
 ## The rules for this run (Kevin's queued instructions)
 

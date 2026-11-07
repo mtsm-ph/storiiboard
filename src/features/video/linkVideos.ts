@@ -22,6 +22,8 @@ export interface PreparedVideo {
   source: VideoSource;
   /** Frame 0 through the picture pipeline: the frame's picture, and the poster of a new video record. */
   still: PreparedImage;
+  /** The file itself, in the browser build, whose Player plays it (no copies there; src/app/videoFiles.ts). */
+  file?: Blob;
 }
 
 /** One file of a drop, prepared, in the order it was dropped. */

@@ -2,6 +2,7 @@ import { ask } from '../../app/ask';
 import { showNotice } from '../../app/notice';
 import { projectStore } from '../../app/projectStore';
 import { videoDriver, type VideoFile } from '../../app/video';
+import { rememberVideoFile } from '../../app/videoFiles';
 import { localizeError, t, tn, type MessageKey } from '../../core/i18n';
 import { frameTimecode, rateValue, type Rational } from '../../core/media/timecode';
 import { readClip, relinkChange, videoFields, type VideoFields, type VideoProbe } from '../../core/media/video';
@@ -113,7 +114,10 @@ export async function relinkVideo(videoId: string): Promise<void> {
     const source = { name: file.name, ...(file.path ? { path: file.path } : {}), ...(size !== null ? { size } : {}) };
     const relinked = await projectStore.getState().applyWith(() => ({ changes: [relinkChange(videoId, probe, source, project.file.path)] }));
     // The copy of the old file doesn't play this one (2.3b).
-    if (relinked) remakeCopy(videoId);
+    if (relinked) {
+      rememberVideoFile(videoId, file.file);
+      remakeCopy(videoId);
+    }
     await checkVideos();
   } catch (error) {
     showNotice(localizeError(reason(error)));

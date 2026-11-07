@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.3c merged; 2.4 next) |
+| Last updated | Nov 7, 2026 (2.4 merged, review stop A reached; 2.5 next) |
 
 | Phase | State |
 |---|---|
@@ -44,8 +44,8 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | D2 windows-sys: the free-space floor (10 GB) for copies; ffmpeg stops with the app on Windows, crash or not | #77 | Done |
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | Done |
 | 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | #79 | Done |
-| 2.4 The Player plays real footage (Stop A) | | Not started |
-| 2.5 LUTs per video | | Not started |
+| 2.4 The Player plays real footage (Stop A) | #80 | Done |
+| 2.5 LUTs per video | | In progress |
 | 2.6 Crop | | Not started |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
@@ -54,6 +54,23 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.4 as built (Nov 7): the Player tile (`src/features/video/PlayerTile.tsx`, `PlayerView.tsx`, `player.ts`).
+- It plays the selected frame's video from its playback copy, never the original. Copies are served to the page by a
+  URL scheme of the app's own, `sbdcopy` (playback.rs `serve_copy`): a request names one finished copy by its file name,
+  found only in the copies' folders, so nothing else on the computer is reached; answers come in slices of at most
+  8 MB, as range requests ask, so a copy is never read into memory whole. The first request marks the copy used, for
+  the cap. No new dependency: Tauri's asset protocol would have needed its `protocol-asset` feature (and a crate with
+  it) and a scope that can't name a drive picked at run time. The page's content policy allows media from it.
+- Comma and period step a frame (with Shift, ten), I and O set the frame's in and out (one undo step each, never a
+  backwards clip), Space plays and pauses; the keys work wherever focus is in the Player. The scrubber is a native
+  range input (arrow keys step a frame) over a drawn rule, the clip's in to out as an ink band and the playhead in the
+  accent, outlined in ink. The frame showing is read from each frame the `<video>` presents where the webview says
+  (`requestVideoFrameCallback`), else from its time updates; a seek goes to the middle of a frame. Timecode in mono.
+- The Player asks for a copy of a video shown without one, once; a copy cancelled or cleared while shown is left to
+  the person (Make playback copy), and one that vanishes while it plays (the cap, a Move) is made again.
+- The browser build keeps each video handed over for the page (`src/app/videoFiles.ts`), which its stand-in copies
+  point at, so the end-to-end tests play real footage.
 
 2.3c as built (Nov 7), Kevin's answers of Nov 7:
 - Silent tracks are left out of the mix. Each separate mono track is listened to first (`video::track_peaks`): one run

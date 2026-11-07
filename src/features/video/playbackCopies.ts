@@ -167,6 +167,17 @@ export function makeCopy(videoId: string): void {
   next();
 }
 
+/**
+ * The video's copy to play (the Player, 2.4): where a `<video>` reads it, and whether it's without sound. Null when
+ * there's none now (the cap or a Clear took it, or the copies are being moved).
+ */
+export async function copyToPlay(videoId: string): Promise<{ url: string; silent: boolean; quiet: boolean } | null> {
+  const found = sourceOf(videoId);
+  if (!found) return null;
+  const made = await playbackDriver.find(found.source, found.handle);
+  return made ? { url: playbackDriver.url(made), silent: made.silent, quiet: made.quiet === true } : null;
+}
+
 /** Videos the page shows now (the inspector's), by how many places show each. */
 const shown = new Map<string, number>();
 
@@ -212,6 +223,15 @@ function remakeIfGone(videoId: string): void {
     })
     // The file can't be read now: the missing flag says so.
     .catch(() => undefined);
+}
+
+/**
+ * The Player's <video> couldn't read the copy (2.4): made again only if it's gone. A copy there but without sound is
+ * not made again for sound here, which could loop on a copy that loads and then fails.
+ */
+export function copyMayBeGone(videoId: string): void {
+  watch();
+  if (stateOf(videoId).kind === 'made') remakeIfGone(videoId);
 }
 
 /** Takes the video's copy off the queue, or stops it being made; no copy is left half made. */

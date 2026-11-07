@@ -319,7 +319,7 @@ test('the Layout menu: four labelled groups, shortcuts at the right, Undo layout
   await expect(panel.getByRole('button', { name: 'Maximize tile' })).toBeDisabled();
   // A press anywhere on a tile, even where nothing takes focus, makes it the one; the item names it.
   await page.keyboard.press('Escape');
-  await page.getByRole('region', { name: 'Player', exact: true }).getByText('Proxy playback', { exact: false }).click();
+  await page.getByRole('region', { name: 'Player', exact: true }).locator('[data-player-state]').click();
   await layout.click();
   await panel.getByRole('button', { name: 'Maximize Player' }).click();
   await expect(page.getByRole('region', { name: 'Scenes', exact: true })).toHaveCount(0);

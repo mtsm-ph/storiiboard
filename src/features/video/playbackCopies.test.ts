@@ -17,7 +17,7 @@ const driver = vi.hoisted(() => ({
 vi.mock('../../app/playback', () => ({ playbackDriver: driver }));
 
 const { projectStore } = await import('../../app/projectStore');
-const { copiesChanged, copiesStore, cancelCopy, makeCopy, remakeCopy, showCopy } = await import('./playbackCopies');
+const { copiesChanged, copiesStore, cancelCopy, copyMayBeGone, makeCopy, remakeCopy, showCopy } = await import('./playbackCopies');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -125,6 +125,28 @@ describe('the queue of playback copies', () => {
     expect(driver.make).toHaveBeenCalledTimes(2);
     makeCopy('b');
     expect(driver.make).toHaveBeenCalledTimes(3);
+  });
+
+  it('after a <video> error, makes a copy again only if it is gone, never to retry its sound', async () => {
+    // Made without sound but still there: a copy that loads and then fails isn't made again and again.
+    driver.make.mockResolvedValue({ path: '/cache/copy-silent.mp4', silent: true });
+    makeCopy('a');
+    await settle();
+    expect(state('a')).toEqual({ kind: 'made', silent: true });
+    driver.find.mockResolvedValue({ path: '/cache/copy-silent.mp4', silent: true });
+    copyMayBeGone('a');
+    await settle();
+    expect(driver.make).toHaveBeenCalledTimes(1);
+    expect(state('a')).toEqual({ kind: 'made', silent: true });
+    // Gone: made again.
+    driver.find.mockResolvedValue(null);
+    copyMayBeGone('a');
+    await settle();
+    expect(driver.make).toHaveBeenCalledTimes(2);
+    // Never asked of a video with no copy made.
+    copyMayBeGone('b');
+    await settle();
+    expect(driver.make).toHaveBeenCalledTimes(2);
   });
 
   it('makes again a copy made before that the cap or a Clear has removed since', async () => {
