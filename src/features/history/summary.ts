@@ -74,6 +74,12 @@ const FIELD: Readonly<Record<string, string>> = labels({
   state: 'history.field.state',
   palette: 'history.field.palette',
   shot_letters_allow_io: 'history.field.lettersAllowIO',
+  stage: 'history.field.stage',
+  logline: 'history.field.logline',
+  format: 'history.field.format',
+  runtime: 'history.field.runtime',
+  client: 'history.field.client',
+  deliverables: 'history.field.deliverables',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */

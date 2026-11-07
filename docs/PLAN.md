@@ -37,7 +37,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | | Not started |
+| 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | | In review |
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | | Not started |
 | 3.3 Locations | The Locations tile: list and editor (address as text, contacts, parking and power notes, status, photos, custom fields), a shot's location over its scene's, Open in Maps, the Trash | | Not started |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
@@ -52,6 +52,17 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
 as ids (it alters existing data).
+
+3.1 as built (Nov 7): production details (`src/core/model/projectDetails.ts`, Settings → Project).
+- Settings → Project gains Production details: the stage (Discovery, Contract, Pre-production, Production, Editing,
+  Revising, Pending invoice, Complete, or none), logline, format and runtime as free text, the client contact (name,
+  company, email, phone) and the deliverables checklist (add, tick, rename, remove). Props on the project record, so
+  each change is an op: ⌘Z takes it back, and History names the field. No format change (docs/SBD_FORMAT.md).
+- The stage is never the project's state (draft, active, archived). Client and deliverable fields this version doesn't
+  know are kept when one is changed. The client's email and phone are private: shown here, never logged.
+- Tests: the details read (an odd or unknown value as empty), every stage named, a change keeping unknown fields; the
+  tile's fields and checklist boxes; end to end, the stage, client and deliverables set, a tick undone, all there
+  after a reload.
 
 ### Phase 2 milestones
 

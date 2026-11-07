@@ -10,10 +10,11 @@ import { setLettersAllowIO } from '../../features/storyboard/board';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
+import { ProjectDetailsFields } from './ProjectDetailsFields';
 import { localizeError, t } from '../../core/i18n';
 
-// The Project tile in Settings: the project's state, title and notes, and the storyboard's frame shape and shot
-// letters. Every change is an op, so ⌘Z takes it back.
+// The Project tile in Settings: the project's state, title and notes, the storyboard's frame shape and shot letters,
+// and its production details (3.1). Every change is an op, so ⌘Z takes it back.
 
 export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
@@ -35,6 +36,12 @@ export function ProjectHome() {
           // Renumbers every unlocked scene in the same edit.
           // From the records and slate numbers as they are at its turn, like every renumbering edit.
           void applyWith((now, slate) => ({ changes: setLettersAllowIO(now, record.id, allowIO, slate) }));
+        }}
+      />
+      <ProjectDetailsFields
+        record={record}
+        onChange={(set) => {
+          void apply([{ kind: 'update', id: record.id, set }]);
         }}
       />
     </>

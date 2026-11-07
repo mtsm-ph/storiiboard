@@ -1,6 +1,6 @@
 # The .sbd file format
 
-**Status:** schema v7 (polish 6b); sections marked planned aren't built yet. Every
+**Status:** schema v8 (Phase 2); sections marked planned aren't built yet. Every
 schema change is recorded here, and the schema changes only with Kevin's approval (CLAUDE.md).
 
 ## The file
@@ -422,7 +422,11 @@ and MCP read them.
 
 | Prop | Value | Notes |
 |---|---|---|
-| state | `draft`, `active` or `archived` | Archive Project sets `archived`. New projects start as `draft`, as in the prototype; a missing value reads as `active`. A Notion-style production stage (Discovery to Complete), when it comes, is a separate `stage` prop |
+| state | `draft`, `active` or `archived` | Archive Project sets `archived`. New projects start as `draft`, as in the prototype; a missing value reads as `active`. The production stage is a separate prop, `stage` |
+| stage | `discovery`, `contract`, `preproduction`, `production`, `editing`, `revising`, `pending_invoice`, `complete`, or null | 3.1. The job's progress, as in Kevin's Notion projects; null or missing means none. Never mixed with `state` |
+| logline, format, runtime | text | 3.1. Free text: `TVC · 60s`, `12 min` |
+| client | `name`, `company`, `email`, `phone` (text) | 3.1. The client contact. Private: shown in the app, never logged. Fields this version doesn't know are kept |
+| deliverables | array of `id` (UUID), `text`, `done` (true or false) | 3.1. The deliverables checklist, in order. Fields this version doesn't know are kept |
 | theme | object (below) | Phase 1 |
 | watermark | `text`, `position` (`top-left`, `top-right`, `center`, `bottom-left`, `bottom-right`), `opacity` (0.05 to 1), `applies_to` (any of `pdf`, `png`, `review`) | 1.24, Watermark Settings. Missing, or empty text, means no watermark |
 | aspect_ratio | `2.39:1`, `2:1`, `1.85:1`, `16:9`, `4:3`, `1:1`, `4:5`, `9:16` | 1.6. The storyboard's frame shape; missing reads as `16:9` |
