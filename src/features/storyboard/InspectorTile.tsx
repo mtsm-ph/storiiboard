@@ -69,7 +69,7 @@ export function InspectorTile() {
   const clipVideoId = shotId ? (readClip(records[shotId]?.props ?? {})?.videoId ?? null) : null;
   const videoMissing = useVideoMissing(clipVideoId);
   const copy = useCopy(clipVideoId);
-  const copyUrl = useCopyUrl(clipVideoId, copy);
+  const copyUrl = useCopyUrl(clipVideoId, copy, videoMissing);
   const projectLuts = useProjectLuts();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;

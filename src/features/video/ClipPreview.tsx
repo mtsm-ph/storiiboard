@@ -39,8 +39,10 @@ export function ClipPreview({ videoId, frameKey, url, inFrame, outFrame, fps: ra
   const [playing, setPlaying] = useState(false);
   // Going back to the in point: the pause and the seek that make the turn, not the person's.
   const turning = useRef(false);
-  // The URL whose error has been answered, so a copy that can't be read is looked for once.
+  // The URL whose error has been answered, so a copy that can't be read is looked for once; and whether it still
+  // can't be played after that (it's there, but this webview can't read it), which is said, as the Player says it.
   const answered = useRef<string | null>(null);
+  const [broken, setBroken] = useState<string | null>(null);
   const box = cropBox(crop, imageAspect, frameAspect);
   const { num, den } = rate;
   const inStart = frameSeconds(inFrame, { num, den });
@@ -129,22 +131,31 @@ export function ClipPreview({ videoId, frameKey, url, inFrame, outFrame, fps: ra
           // The copy can't be read (the cap took it, or it went outside the app): looked for, and made again if it's
           // gone, once for this copy, as the Player does.
           onError={() => {
+            turning.current = false;
+            setPlaying(false);
+            setBroken(url);
             if (answered.current === url) return;
             answered.current = url;
-            setPlaying(false);
             copyMayBeGone(videoId);
+          }}
+          onLoadedMetadata={() => {
+            setBroken(null);
           }}
         />
       </div>
+      {broken === url && <p className="inline-block self-start bg-warning px-[7px] py-1 text-[12px] text-paper-fixed">{t('player.cantPlay')}</p>}
       <Button
         className="self-start"
-        disabled={still}
+        disabled={still || broken === url}
         onClick={() => {
           const element = video.current;
           if (!element) return;
           if (!playing) {
-            // From the in point unless it's inside the clip already, never from the take's start.
-            if (element.ended || element.currentTime < inStart - EPSILON || element.currentTime >= end - EPSILON) element.currentTime = start;
+            // A turn whose seek never ended is over: this play starts afresh.
+            turning.current = false;
+            // From the in point unless it's inside the clip before its out frame, never from the take's start, and
+            // never on into the frame after the out point.
+            if (element.ended || element.currentTime < inStart - EPSILON || element.currentTime >= outStart - EPSILON) element.currentTime = start;
             setPlaying(true);
             void element.play().catch(() => {
               setPlaying(false);

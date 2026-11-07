@@ -51,6 +51,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
 | #82 | 2.6: framing a frame's clip over the Player (the window moves and zooms over the take, one undo step each); see "2.6 as built" |
 | #83 | 2.7: still capture into a frame (from the original, graded, framed, one undo step); see "2.7 as built" |
+| #84 | 2.8a: the frame's clip plays in the inspector (in to out, framed, from the copy, only when asked); see "2.8a as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -311,8 +312,8 @@ Lows deferred (noted, not planned yet):
    the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
    checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
    see "2.7 as built"; from the original, LUT and crop
-   applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (in progress,
-   branch `phase2/2.8-clips`; see "2.8a as built"), then **2.8b** Save clip as file (rendered from the original,
+   applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (PR #84, merged
+   Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (rendered from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -348,6 +349,12 @@ a made copy found missing is made again. Lows fixed: the end-to-end test samples
 to the out point exactly (and covers the last frame, and a clip of one frame); another frame, even of the same clip,
 starts again; the button says its state in its words alone. Lows left: changing the in or out while it plays isn't
 tested end to end (it stops on the new in point by its key).
+
+Round 2: no high, no medium; review done. Lows fixed: Play from the out frame goes back to the in point (it could
+play on into the frame after); a turn whose seek never ended can't hold the loop; a copy that's there but can't be
+played says so (as the Player does) and Play is off; a missing original isn't remade from nothing. The clip test
+passed 20 of 20 under load. Lows left: under heavy load a webview could present the frame after the out point once
+before the pause lands (the test holds it to the out point; none seen).
 
 ### 2.7: review
 

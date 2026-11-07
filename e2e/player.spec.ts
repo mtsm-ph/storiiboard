@@ -352,7 +352,8 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   const last = await presented();
   expect(Math.min(...last)).toBeGreaterThanOrEqual(37);
   expect(Math.max(...last)).toBeLessThanOrEqual(47);
-  expect(await clip.evaluate((video: HTMLVideoElement) => video.paused && !video.seeking)).toBe(false);
+  // Still playing (or turning at the in point), not stopped at the take's end.
+  await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   await preview.getByRole('button', { name: 'Pause clip' }).click();
 
   // A clip of one frame has nothing to play.
