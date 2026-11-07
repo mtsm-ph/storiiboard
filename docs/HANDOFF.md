@@ -303,8 +303,9 @@ Lows deferred (noted, not planned yet):
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
    write the checklist into the handoff, and keep going (Kevin tests in batches).
-2. **2.5** LUTs (a `.cube` per video, applied to playback copies and stills, never the original; the LUT joins the
-   copy's key); **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
+2. **2.5** LUTs (in progress, branch `phase2/2.5-luts`; see "2.5 as built" in `docs/PLAN.md` and "2.5: decisions"
+   below): a `.cube` per video, applied to playback copies (stills in 2.7), never the original; the LUT joins the
+   copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -317,6 +318,17 @@ Lows deferred (noted, not planned yet):
    shoot days with totals and the Calendar tile (month and week); gear per day linked to shots; a client contact and
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
+
+### 2.5: decisions taken (Kevin can overrule any; none changes the file format)
+
+- A LUT belongs to the video record, so every frame of a take shows the same grade. A frame of its own grade would
+  need a second video record for the same file (Link video again); say if frames should carry their own.
+- For HDR footage (HLG, PQ) a LUT replaces the tone-mapping rather than following it: a camera's LUT is made for the
+  signal it recorded. A LUT made for tone-mapped Rec.709 would look wrong on HDR footage; say if that's the case.
+- A LUT change asks for the graded copy straight away, as a relink does, so the Player shows the grade without a click.
+- LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
+  (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
+- Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
 ### 2.4: review
 

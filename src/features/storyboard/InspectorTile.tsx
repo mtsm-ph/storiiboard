@@ -22,6 +22,7 @@ import { addVideos } from '../video/addVideos';
 import { fpsLabel, relinkVideo } from '../video/relink';
 import { useVideoMissing } from '../video/videoStatus';
 import { cancelCopy, makeCopy, useCopy, type CopyState } from '../video/playbackCopies';
+import { loadLut, setLut, useProjectLuts } from '../video/lutEdits';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
@@ -68,6 +69,7 @@ export function InspectorTile() {
   const clipVideoId = shotId ? (readClip(records[shotId]?.props ?? {})?.videoId ?? null) : null;
   const videoMissing = useVideoMissing(clipVideoId);
   const copy = useCopy(clipVideoId);
+  const projectLuts = useProjectLuts();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -122,6 +124,7 @@ export function InspectorTile() {
           missing: videoMissing,
           gone: false,
           ...(copy.kind === 'unknown' ? {} : { copy: inspectorCopy(copy) }),
+          lut: { id: linked.lutId, choices: projectLuts.map((lut) => ({ id: lut.id, name: lut.name })) },
         };
 
   const locationId = scene ? sceneFields(scene.props).locationId : null;
@@ -212,6 +215,12 @@ export function InspectorTile() {
         }}
         onCancelCopy={() => {
           if (clip) cancelCopy(clip.videoId);
+        }}
+        onLoadLut={() => {
+          if (clip) void loadLut(clip.videoId);
+        }}
+        onSetLut={(lutId) => {
+          if (clip) void setLut(clip.videoId, lutId);
         }}
         onUnlinkVideo={() => {
           // The picture stays; the frame stops playing the video. The video's record stays for other frames.

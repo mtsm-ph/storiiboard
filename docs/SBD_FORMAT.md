@@ -370,6 +370,8 @@ after the video is relinked or its LUT changes.
 
 `luts`: LUTs loaded for videos (2.5). Content-addressed like pictures: the same `.cube` loaded twice is stored once,
 and a row is never changed after it's written. A video names its LUT by id, so a LUT change is an op like any other.
+The row is written in the same transaction as the op that first names it; an undo leaves it stored (rows are small,
+and a redo needs it). Only 3D LUTs are stored (`LUT_3D_SIZE` 2 to 256); the app checks a file before it stores it.
 
 | Column | Type | Notes |
 |---|---|---|

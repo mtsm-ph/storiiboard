@@ -14,7 +14,8 @@ vi.mock('@tauri-apps/api/core', () => tauri);
 
 const { playbackDriver } = await import('./playback');
 
-const video = { videoId: 'v1', path: '/Volumes/Footage/A001_C003.MOV' };
+const video = { videoId: 'v1', path: '/Volumes/Footage/A001_C003.MOV', lut: null };
+const graded = { ...video, lut: { sha256: 'ab'.repeat(32), cube: 'LUT_3D_SIZE 2\n' } };
 
 beforeEach(() => {
   tauri.invoke.mockReset();
@@ -34,6 +35,20 @@ describe('the desktop playback driver', () => {
     expect(args.progress).toBeInstanceOf(tauri.Channel);
     args.progress.onmessage?.({ done: 0.4 });
     expect(seen).toEqual([0.4]);
+    expect(args).toMatchObject({ lut: null });
+  });
+
+  it('makes a graded copy with the LUT’s text, and finds and stops it by the LUT’s SHA-256 alone', async () => {
+    tauri.invoke.mockResolvedValue({ path: '/cache/copy.mp4', silent: false });
+    await playbackDriver.make(graded, undefined, () => undefined);
+    await playbackDriver.find(graded, 7);
+    await playbackDriver.cancel(graded);
+    const calls = tauri.invoke.mock.calls as [string, Record<string, unknown>][];
+    expect(calls[0]?.[1]).toMatchObject({ path: video.path, lut: graded.lut });
+    expect(calls.slice(1)).toEqual([
+      ['playback_find', { path: video.path, handle: 7, lut: graded.lut.sha256 }],
+      ['playback_cancel', { path: video.path, lut: graded.lut.sha256 }],
+    ]);
   });
 
   it('names every other command and its arguments as Rust has them', async () => {
@@ -49,8 +64,8 @@ describe('the desktop playback driver', () => {
     await playbackDriver.forgetKnown();
     await playbackDriver.licence('zimg-LICENSE.txt');
     expect(tauri.invoke.mock.calls).toEqual([
-      ['playback_find', { path: video.path, handle: null }],
-      ['playback_cancel', { path: video.path }],
+      ['playback_find', { path: video.path, handle: null, lut: null }],
+      ['playback_cancel', { path: video.path, lut: null }],
       ['playback_info', undefined],
       ['playback_clear', undefined],
       ['playback_set_cap', { gb: 80 }],

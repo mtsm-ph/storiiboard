@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.4 merged, review stop A reached; 2.5 next) |
+| Last updated | Nov 7, 2026 (2.4 merged, review stop A reached; 2.5 in review) |
 
 | Phase | State |
 |---|---|
@@ -45,7 +45,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.3b Playback copies, what you see: the queue, the copy's state in the inspector, Settings → Storage (copies, remembered videos), ffmpeg's licence; several mono tracks mixed into the copy's sound | #78 | Done |
 | 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | #79 | Done |
 | 2.4 The Player plays real footage (Stop A) | #80 | Done |
-| 2.5 LUTs per video | | In progress |
+| 2.5 LUTs per video | | In review |
 | 2.6 Crop | | Not started |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
@@ -55,11 +55,31 @@ HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or H
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
 
+2.5 as built (Nov 7): LUTs per video (`src/core/media/lut.ts`, `src/features/video/lutEdits.ts`, playback.rs).
+- A LUT belongs to the video, not the frame: every frame of a take shows it. The inspector's Video section lists the
+  project's LUTs with None (as shot), and Load LUT… opens a `.cube`. Loading, picking and taking one off are each one
+  edit of the video's record, so each undoes. The `.cube` text is stored once per project by its SHA-256 (schema 8's
+  `luts` table, no format change), in the same transaction as the edit that first uses it; loading the same text
+  again, under any name, uses the row stored.
+- A `.cube` is read by its rules before it's stored: a 3D LUT of 2 to 256 points (FFmpeg's limit), an optional
+  DOMAIN_MIN and DOMAIN_MAX, and exactly size³ rows of three numbers. A 1D LUT, or a 1D shaper before the 3D one, is
+  refused with words that say so; so is a short or garbled file. FFmpeg is handed the size, the domain and the rows
+  alone, so a keyword it doesn't know (a Resolve export's LUT_3D_INPUT_RANGE) never trips it.
+- The LUT grades the playback copy, never the original. Its SHA-256 joins the copy's key, so the same take under
+  another LUT, or none, is another copy, and a copy made before 2.5 keeps its key. ffmpeg runs in a folder of the
+  LUT's own, made for the one encode and gone after, and names the file alone (no path to escape on Windows). The LUT
+  goes after the scale, with tetrahedral interpolation as grading tools use, and the copy is tagged BT.709. For HDR
+  footage the LUT takes the place of the tone-mapping: a LUT is made for the signal the camera recorded.
+- A LUT change asks for the graded copy at once, as a relink does; a copy being made under the old LUT is stopped,
+  and its result is never kept. The same file under two LUTs (two videos of one take, graded apart) is two requests.
+- Stills grade with the LUT in 2.7 (still capture), which reads from the original; the frame's picture isn't touched
+  by a LUT change.
+
 2.4 as built (Nov 7): the Player tile (`src/features/video/PlayerTile.tsx`, `PlayerView.tsx`, `player.ts`).
 - It plays the selected frame's video from its playback copy, never the original. Copies are served to the page by a
   URL scheme of the app's own, `sbdcopy` (playback.rs `serve_copy`): a request names one finished copy by its file name,
   found only in the copies' folders, so nothing else on the computer is reached; answers come in slices of at most
-  8 MB, as range requests ask, so a copy is never read into memory whole. The first request marks the copy used, for
+  2 MB, as range requests ask, so a copy is never read into memory whole. The first request marks the copy used, for
   the cap. No new dependency: Tauri's asset protocol would have needed its `protocol-asset` feature (and a crate with
   it) and a scope that can't name a drive picked at run time. The page's content policy allows media from it.
 - Comma and period step a frame (with Shift, ten), I and O set the frame's in and out (one undo step each, never a

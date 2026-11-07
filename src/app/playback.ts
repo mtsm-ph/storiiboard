@@ -8,10 +8,14 @@ import { videoFileUrl } from './videoFiles';
 // floor. The browser build (dev and the end-to-end tests) has no ffmpeg, so a stand-in pretends: it "makes" a copy in a
 // few steps and keeps the copies in memory, enough to test what the page shows and does, never what the desktop does.
 
-/** The video a copy is of: its record, and its file where the project says it is (the desktop app's key). */
+/**
+ * The video a copy is of: its record, its file where the project says it is (the desktop app's key), and the LUT it's
+ * graded with (2.5): its SHA-256, which joins the copy's key, and the text ffmpeg reads; null for none.
+ */
 export interface CopySource {
   videoId: string;
   path: string;
+  lut: { sha256: string; cube: string } | null;
 }
 
 /**
@@ -84,12 +88,14 @@ const desktop: PlaybackDriver = {
     progress.onmessage = (message) => {
       onProgress(message.done);
     };
-    return call<MadeCopy>('playback_make', { path: video.path, handle: handle ?? null, progress });
+    return call<MadeCopy>('playback_make', { path: video.path, handle: handle ?? null, lut: video.lut, progress });
   },
-  find: (video, handle) => call<MadeCopy | null>('playback_find', { path: video.path, handle: handle ?? null }),
+  // Found and stopped by the LUT's SHA-256 alone: its text is needed only to make the copy.
+  find: (video, handle) =>
+    call<MadeCopy | null>('playback_find', { path: video.path, handle: handle ?? null, lut: video.lut?.sha256 ?? null }),
   // By its file name, through the copies' own scheme, which serves copies and nothing else (playback.rs).
   url: (copy) => convertFileSrc(copy.path.split(/[\\/]/).pop() ?? '', 'sbdcopy'),
-  cancel: (video) => call<boolean>('playback_cancel', { path: video.path }),
+  cancel: (video) => call<boolean>('playback_cancel', { path: video.path, lut: video.lut?.sha256 ?? null }),
   info: () => call<CopiesInfo>('playback_info'),
   clear: () => call<number>('playback_clear'),
   setCap: (gb) => call<null>('playback_set_cap', { gb }).then(() => undefined),
@@ -112,7 +118,15 @@ function pretendPath(videoId: string): string {
   return videoFileUrl(videoId) ?? videoId;
 }
 
-/** The browser build's copies, by video record: made in memory, in a few steps. */
+/** A pretend copy's key: the video, and its LUT, as the desktop's key has the file and the LUT. */
+function pretendKey(video: CopySource): string {
+  return `${video.videoId}\u0000${video.lut?.sha256 ?? ''}`;
+}
+
+/**
+ * The browser build's copies, by video record and LUT: made in memory, in a few steps. It plays the file as it is, so
+ * a LUT shows only as another copy being made.
+ */
 function standIn(): PlaybackDriver {
   const made = new Set<string>();
   const making = new Map<string, { stop: () => void }>();
@@ -121,7 +135,8 @@ function standIn(): PlaybackDriver {
   return {
     make: (video, _handle, onProgress) =>
       new Promise((resolve, reject) => {
-        if (made.has(video.videoId)) {
+        const key = pretendKey(video);
+        if (made.has(key)) {
           resolve({ path: pretendPath(video.videoId), silent: false });
           return;
         }
@@ -131,22 +146,22 @@ function standIn(): PlaybackDriver {
           onProgress(step / PRETEND_STEPS);
           if (step < PRETEND_STEPS) return;
           clearInterval(timer);
-          making.delete(video.videoId);
-          made.add(video.videoId);
+          making.delete(key);
+          made.add(key);
           resolve({ path: pretendPath(video.videoId), silent: false });
         }, PRETEND_STEP_MS);
-        making.set(video.videoId, {
+        making.set(key, {
           stop: () => {
             clearInterval(timer);
-            making.delete(video.videoId);
+            making.delete(key);
             reject(new Error(t('error.copyCancelled')));
           },
         });
       }),
-    find: (video) => Promise.resolve(made.has(video.videoId) ? { path: pretendPath(video.videoId), silent: false } : null),
+    find: (video) => Promise.resolve(made.has(pretendKey(video)) ? { path: pretendPath(video.videoId), silent: false } : null),
     url: (copy) => copy.path,
     cancel: (video) => {
-      const run = making.get(video.videoId);
+      const run = making.get(pretendKey(video));
       run?.stop();
       return Promise.resolve(run !== undefined);
     },

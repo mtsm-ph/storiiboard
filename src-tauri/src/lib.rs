@@ -77,6 +77,7 @@ pub fn run() {
             playback::playback_move_back,
             licences::licence_text,
             pictures::script_choose,
+            pictures::lut_choose,
             export::export_choose_file,
             export::export_choose_folder,
             export::export_write,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VideoProbe } from '../../core/media/video';
+import { lutStatements, prepareLut } from '../../core/media/lut';
 import { relinkChange, videoProps } from '../../core/media/video';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
@@ -103,7 +104,7 @@ describe('the queue of playback copies', () => {
     makeCopy('a');
     expect(driver.make).toHaveBeenCalledTimes(1);
     const [source, handle] = driver.make.mock.calls[0] as [{ videoId: string; path: string }, number | undefined];
-    expect(source).toEqual({ videoId: 'a', path: folder.path('Footage/C0042.MP4') });
+    expect(source).toEqual({ videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null });
     expect(handle).toBe(7);
     expect(state('a')).toEqual({ kind: 'making', done: null });
     expect(state('b')).toEqual({ kind: 'queued' });
@@ -230,7 +231,7 @@ describe('the queue of playback copies', () => {
     expect(copiesStore.getState().waiting).toEqual(['c']);
     // Being made: Rust is told, and however its make ends, it ended cancelled.
     cancelCopy('a');
-    expect(driver.cancel).toHaveBeenCalledWith({ videoId: 'a', path: folder.path('Footage/C0042.MP4') });
+    expect(driver.cancel).toHaveBeenCalledWith({ videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null });
     expect(state('a')).toEqual({ kind: 'none' });
     first.reject('The playback copy was cancelled.');
     await settle();
@@ -269,7 +270,7 @@ describe('the queue of playback copies', () => {
     driver.make.mockImplementationOnce(first.impl);
     makeCopy('a');
     makeCopy('b');
-    const source = { videoId: 'a', path: folder.path('Footage/C0042.MP4') };
+    const source = { videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null };
     const other = await createProject(folder.path('Lake Mead.sbd'), { driver: nodeDriver, backups: false });
     await projectStore.getState().open(other);
     expect(driver.cancel).toHaveBeenCalledWith(source);
@@ -285,7 +286,7 @@ describe('the queue of playback copies', () => {
   it('never keeps a copy of the file a video no longer points at: a relink, and its undo, while copies are made (2.3c)', async () => {
     const [ofA, ofB, ofAAgain] = [pending(), pending(), pending()];
     driver.make.mockImplementationOnce(ofA.impl).mockImplementationOnce(ofB.impl).mockImplementationOnce(ofAAgain.impl);
-    const at = (name: string) => ({ videoId: 'a', path: folder.path(`Footage/${name}`) });
+    const at = (name: string) => ({ videoId: 'a', path: folder.path(`Footage/${name}`), lut: null });
     makeCopy('a');
     // Relinked to another file while its copy is made: that copy stops, and one of the new file is made.
     await projectStore.getState().applyWith(() => ({
@@ -311,6 +312,62 @@ describe('the queue of playback copies', () => {
     await settle();
     expect(driver.make.mock.calls.map(([source]) => source as { videoId: string; path: string })).toEqual([at('C0042.MP4'), at('C0099.MP4'), at('C0042.MP4')]);
     expect(state('a')).toEqual({ kind: 'made', silent: false });
+  });
+
+  it('makes a graded copy of its own once a LUT is set, never keeping the one of the take as shot (2.5)', async () => {
+    const prepared = await prepareLut('Invert.cube', 'TITLE "Invert"\nLUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n');
+    if (!prepared.ok) throw new Error('a good cube');
+    const lutId = 'b1d3c0de-0000-4000-8000-000000000001';
+    const plain = { videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null };
+    // Ffmpeg reads the LUT without its title; the copy's key takes the file's own hash.
+    const graded = { ...plain, lut: { sha256: prepared.lut.sha256, cube: 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n' } };
+    const [asShot, withLut] = [pending(), pending()];
+    driver.make.mockImplementationOnce(asShot.impl).mockImplementationOnce(withLut.impl);
+    makeCopy('a');
+    expect(driver.make.mock.calls[0]?.[0]).toEqual(plain);
+    // A LUT set while the copy as shot is made: that one stops, and the graded one is made.
+    await projectStore.getState().apply([{ kind: 'update', id: 'a', set: { lut: lutId } }], { alsoWrite: lutStatements(lutId, prepared.lut, new Date()) });
+    expect(driver.cancel).toHaveBeenCalledWith(plain);
+    const seen: string[] = [];
+    const stop = copiesStore.subscribe((s) => seen.push(s.byVideo.a?.kind ?? 'unknown'));
+    asShot.resolve();
+    await settle();
+    expect(seen).not.toContain('made');
+    stop();
+    expect(driver.make.mock.calls[1]?.[0]).toEqual(graded);
+    withLut.resolve();
+    await settle();
+    expect(state('a')).toEqual({ kind: 'made', silent: false });
+    // Undone: the copy as shot is the video's again.
+    await projectStore.getState().undo();
+    expect(state('a')).toEqual({ kind: 'unknown' });
+    makeCopy('a');
+    await settle();
+    expect(driver.make.mock.calls[2]?.[0]).toEqual(plain);
+  });
+
+  it('cancels a graded copy by its LUT, and refuses to make one whose LUT isn’t stored', async () => {
+    const copy = pending();
+    driver.make.mockImplementationOnce(copy.impl);
+    // Named but not stored (a file edited by hand): no copy without the grade it should have.
+    await projectStore.getState().apply([{ kind: 'update', id: 'b', set: { lut: 'b1d3c0de-0000-4000-8000-00000000dead' } }]);
+    makeCopy('b');
+    await settle();
+    expect(driver.make).not.toHaveBeenCalled();
+    expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT isn’t in the project, so its playback copy can’t be made.' });
+    // A graded copy being made is stopped by its LUT.
+    const prepared = await prepareLut('Invert.cube', 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n');
+    if (!prepared.ok) throw new Error('a good cube');
+    const lutId = 'b1d3c0de-0000-4000-8000-000000000002';
+    await projectStore.getState().apply([{ kind: 'update', id: 'c', set: { lut: lutId } }], { alsoWrite: lutStatements(lutId, prepared.lut, new Date()) });
+    makeCopy('c');
+    await settle();
+    cancelCopy('c');
+    const [stopped] = driver.cancel.mock.calls.at(-1) as [{ videoId: string; lut: { sha256: string } | null }];
+    expect([stopped.videoId, stopped.lut?.sha256]).toEqual(['c', prepared.lut.sha256]);
+    copy.reject('The playback copy was cancelled.');
+    await settle();
+    expect(state('c')).toEqual({ kind: 'none' });
   });
 
   it('lets a copy carry on while its video is in the Trash, and looks for it again once it is back', async () => {
