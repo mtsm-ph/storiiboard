@@ -323,7 +323,8 @@ Lows deferred (noted, not planned yet):
    on `v2` at d42f6ed (2.9's merge), runs smoke and screenshots on Linux and the Mac and both installers; the
    checklist is "Phase 2 gate: Kevin's checklist" below. The gate itself: a still from a reference clip lands in a
    frame in a few clicks, on Kevin's own footage (item 3). Don't wait; Phase 3 follows.
-4. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+4. **Phase 3** (production data; plan and decision sheet written Nov 7: "Phase 3 milestones" in `docs/PLAN.md`,
+   `docs/PHASE3_DECISIONS.md`; build from 3.1), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;

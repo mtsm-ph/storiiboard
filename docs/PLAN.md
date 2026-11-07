@@ -27,6 +27,32 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
 
+### Phase 3 milestones
+
+Plan written Nov 7, 2026, under Kevin's queued rules (docs/HANDOFF.md): additive format changes go ahead, each with
+a migration, a backup first and tests; anything easy to undo takes the recommendation, marked "decided by default,
+review"; anything that alters existing data or adds a dependency waits. The decisions, one page:
+`docs/PHASE3_DECISIONS.md`. One PR per milestone into `v2`, each with its tests, reviewed until nothing high or medium
+is left. The gate: a real shoot's people, places and gear are entered.
+
+| Milestone | Scope | PR | State |
+|---|---|---|---|
+| 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | | Not started |
+| 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | | Not started |
+| 3.3 Locations | The Locations tile: list and editor (address as text, contacts, parking and power notes, status, photos, custom fields), a shot's location over its scene's, Open in Maps, the Trash | | Not started |
+| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
+| 3.5 Cast and crew, Team | People with departments, roles, titles and contacts (private: never logged); characters linked to cast; the Team section; you in Cast & crew in place of the local project role | | Not started |
+| 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
+| 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
+| 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
+| 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
+| 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
+| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
+| Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
+
+Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
+as ids (it alters existing data).
+
 ### Phase 2 milestones
 
 Plan approved Nov 5, 2026: ffmpeg as LGPL sidecars (the one new dependency), schema 8 for video, a playback-copy
