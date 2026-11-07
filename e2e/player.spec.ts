@@ -171,3 +171,45 @@ test('a copy the <video> can’t play says so, with Try again, and is remade onc
   await expect(player(page).locator('[data-player-state]')).toContainText('This playback copy can’t be played here.');
   await expect(player(page).getByRole('button', { name: 'Try again' })).toBeVisible();
 });
+
+test('frames the clip over the take: the window zooms and moves by keys and by hand, one undo step each (2.6)', async ({ page }) => {
+  await linkAndOpen(page);
+  const window = player(page).locator('[data-frame-window]');
+  const box = () =>
+    window.evaluate((element: HTMLElement) => ({ left: parseFloat(element.style.left), top: parseFloat(element.style.top), width: parseFloat(element.style.width) }));
+  // A 16:9 frame over a 16:9 take: the window is the whole picture, with nowhere to go until it's zoomed.
+  expect(await box()).toEqual({ left: 0, top: 0, width: 100 });
+  expect(await new AxeBuilder({ page }).include('[data-player]').analyze().then((r) => r.violations)).toEqual([]);
+
+  await window.focus();
+  await page.keyboard.press('+');
+  await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect.poll(async () => (await box()).left).toBeCloseTo(0, 1);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await box()).left).toBeGreaterThan(1);
+  await expect(window).toHaveAttribute('aria-label', 'The frame’s window over the take, zoom 110%');
+  // The Player's own keys still work with the window focused: period steps a frame.
+  await page.keyboard.press('.');
+  await expect(timecode(page)).toHaveText('00:00:00:01');
+
+  // Dragged by hand: down and to the right.
+  const before = await box();
+  const at = await window.boundingBox();
+  if (!at) throw new Error('the window is drawn');
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x + at.width / 2 + 10, at.y + at.height / 2 + 10, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await box()).top).toBeGreaterThan(before.top);
+
+  // Each move was one step: undone in turn, back to the whole picture; Centre is off once it's there.
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press(`${await command(page)}+z`);
+  await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
+  await expect(player(page).getByRole('button', { name: 'Centre' })).toBeDisabled();
+  // Redone, and taken back to the centre with Centre in one step.
+  await page.keyboard.press(`${await command(page)}+Shift+z`);
+  await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
+  await player(page).getByRole('button', { name: 'Centre' }).click();
+  await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
+});

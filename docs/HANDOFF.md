@@ -306,7 +306,8 @@ Lows deferred (noted, not planned yet):
    write the checklist into the handoff, and keep going (Kevin tests in batches).
 2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
    `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
-   the original; the LUT joins the copy's key. Then **2.6** crop over the Player; **2.7** still capture into a frame (from the original, LUT and crop
+   the original; the LUT joins the copy's key. Then **2.6** crop over the Player (in progress, branch
+   `phase2/2.6-crop`; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -330,6 +331,14 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.6: notes
+
+- The titles end-to-end test (`e2e/titles.spec.ts`, F2) failed once in a full local run: after Escape in a title, focus
+  comes back a frame or two later and settles on the frame card, and under load that late move pulled focus off the
+  next frame the test went to. The test now waits for it to settle (40 of 40 under load). Left as a low: the title
+  editor's own comment says Escape goes back to the pencil, but focus ends on the card; harmless (the keys carry on
+  from the frame either way), but the two disagree.
 
 ### 2.5: review
 
@@ -451,7 +460,10 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    Rec.709 `.cube`) for a take; the Player shows the graded copy within a minute or so; compare a frame with Resolve
    under the same LUT (it should match closely; say if colours look shifted). Undo takes it off; pick None and back.
    Load one with a 1D shaper (a Resolve "Shaper + 3D" export) and see it refused with words that say why.
-2. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+2. Framing (2.6): in the Player, zoom the frame's window and move it over a take, by hand and with the keys; it
+   should feel like a frame-line overlay on a monitor. Each move is one ⌘Z. Try a 2.39 project over 16:9 footage and
+   a 9:16 one over the same.
+3. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)

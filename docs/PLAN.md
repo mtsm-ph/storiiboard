@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.5 merged; 2.6 next) |
+| Last updated | Nov 7, 2026 (2.5 merged; 2.6 in review) |
 
 | Phase | State |
 |---|---|
@@ -46,7 +46,7 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.3c Silent tracks left out of the mix; a relink's undo never leaves the other file's copy on the video | #79 | Done |
 | 2.4 The Player plays real footage (Stop A) | #80 | Done |
 | 2.5 LUTs per video | #81 | Done |
-| 2.6 Crop | | Not started |
+| 2.6 Crop | | In review |
 | 2.7 Still capture into a frame | | Not started |
 | 2.8 Clip capture into a frame | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
@@ -54,6 +54,20 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.6 as built (Nov 7): framing a frame's clip over the Player (`src/features/video/FrameWindow.tsx`, `crop.ts`
+`cropWindow` and `moveWindow`).
+- The Player draws the frame's window over the whole take: the part the frame shows, in the project's aspect ratio,
+  with the rest dimmed and the window's edge in paper on ink, so it shows on any footage. It's the clip's `crop`
+  (schema 8, no format change), the same model as a frame picture's crop (1.11) seen the other way round: the window
+  moves over the picture, rather than the picture under the frame.
+- Drag the window, or with it focused use the arrow keys (Shift for bigger steps), + and − to zoom and 0 to centre;
+  or the Framing slider and Centre under the Player. A change saves once, when it's let go, so each move is one undo
+  step; one where it is already makes no edit. The Player's own keys (comma, period, I, O, Space) still work while
+  the window has focus. A screen reader hears the framing once it's saved.
+- The picture sits in a box of its own shape, fitted to the tile as it's resized, so the window lies on the picture
+  and not on the bars around it. The picture never shrinks below 120 px for the controls; a short tile scrolls.
+- The frame's picture keeps its own crop. Still capture (2.7) and clip capture (2.8) take the clip's.
 
 2.5 as built (Nov 7): LUTs per video (`src/core/media/lut.ts`, `src/features/video/lutEdits.ts`, playback.rs).
 - A LUT belongs to the video, not the frame: every frame of a take shows it. The inspector's Video section lists the

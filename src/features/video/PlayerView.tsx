@@ -1,8 +1,10 @@
-import { useId, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
+import { DEFAULT_CROP, type Crop } from '../../core/media/crop';
 import { localizeError, t, tn } from '../../core/i18n';
 import { frameTimecode, type Rational } from '../../core/media/timecode';
 import { Button } from '../../ui/Button';
 import { BarGauge } from '../../ui/fields';
+import { FrameWindow, FramingControls, useFraming, type Framing } from './FrameWindow';
 
 // The Player tile (2.4): the selected frame's video, played from its playback copy (never the original, CLAUDE.md),
 // with a scrubber, the frame's in and out, and the keys an editor expects: comma and period step a frame, I and O set
@@ -49,6 +51,37 @@ export interface PlayerViewProps {
   onTime?: (event: SyntheticEvent<HTMLVideoElement>) => void;
   onPlaying?: (playing: boolean) => void;
   onVideoError?: () => void;
+  /**
+   * The frame's window over the take (2.6): the clip's crop, the take's shape (upright, square pixels) and the
+   * project's frame; `onCommit` sets the clip's crop, one undo step. Left out, the picture shows as it is.
+   */
+  framing?: { crop: Crop; imageAspect: number; frameAspect: number; onCommit: (crop: Crop) => void } | undefined;
+}
+
+/** The largest box of `aspect` that fits `width` by `height`. */
+function fit(width: number, height: number, aspect: number): { width: number; height: number } {
+  return width / height > aspect ? { width: height * aspect, height } : { width, height: width / aspect };
+}
+
+/** The picture's box, fitted to the space it's given as that changes (the tile resized, docked elsewhere). */
+function useFitted(aspect: number) {
+  const area = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    const element = area.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const { clientWidth, clientHeight } = element;
+      setSize(clientWidth > 0 && clientHeight > 0 ? fit(clientWidth, clientHeight, aspect) : null);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [aspect]);
+  return { area, size };
 }
 
 /**
@@ -82,6 +115,9 @@ function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
 export function PlayerView(props: PlayerViewProps) {
   const { status, video, frame, playing } = props;
   const helpId = useId();
+  const frameHintId = useId();
+  const noop = () => undefined;
+  const framing = useFraming({ crop: props.framing?.crop ?? DEFAULT_CROP, onCommit: props.framing?.onCommit ?? noop });
   const tc = (index: number) => (video ? frameTimecode(index, video.fps, video.startTimecode) : '');
   const last = video ? Math.max(0, video.durationFrames - 1) : 0;
   const at = (index: number) => `${String(last > 0 ? (index / last) * 100 : 0)}%`;
@@ -94,7 +130,7 @@ export function PlayerView(props: PlayerViewProps) {
       aria-label={t('tile.player.title')}
       aria-describedby={status.kind === 'ready' ? helpId : undefined}
       data-player=""
-      className="flex h-full min-h-0 flex-col gap-2 p-3"
+      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3"
       onKeyDown={(event) => {
         playerKeys(event, props);
       }}
@@ -104,10 +140,10 @@ export function PlayerView(props: PlayerViewProps) {
           {video.name}
         </p>
       )}
-      <PlayerScreen {...props} />
+      <PlayerScreen {...props} framed={props.framing ? { framing, frameHintId } : null} />
       {status.kind === 'ready' && video && (
         <>
-          <div className="relative h-[22px]">
+          <div className="relative h-[22px] shrink-0">
             <input
               type="range"
               min={0}
@@ -136,7 +172,7 @@ export function PlayerView(props: PlayerViewProps) {
               style={{ left: at(frame) }}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button aria-label={t('player.previousFrame')} onClick={() => props.onStep?.(-1)}>
               ,
             </Button>
@@ -156,9 +192,15 @@ export function PlayerView(props: PlayerViewProps) {
           <p className="font-mono text-[11px] text-text-muted">
             {t('player.inOut', { in: tc(video.inFrame), out: tc(video.outFrame), frames: tn('count.frames', video.outFrame - video.inFrame + 1) })}
           </p>
+          {props.framing && <FramingControls framing={framing} imageAspect={props.framing.imageAspect} frameAspect={props.framing.frameAspect} />}
           <p id={helpId} className="text-[11px] text-text-muted">
             {t('player.keys')}
           </p>
+          {props.framing && (
+            <p id={frameHintId} className="text-[11px] text-text-muted">
+              {t('player.frameHint')}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -166,11 +208,30 @@ export function PlayerView(props: PlayerViewProps) {
 }
 
 /** The picture, or what stands in its place, with a live region that says why. */
-function PlayerScreen({ status, videoRef, onTime, onPlaying, onVideoError, onMakeCopy }: PlayerViewProps) {
+function PlayerScreen({
+  status,
+  videoRef,
+  onTime,
+  onPlaying,
+  onVideoError,
+  onMakeCopy,
+  framing: frame,
+  framed,
+}: PlayerViewProps & { framed: { framing: Framing; frameHintId: string } | null }) {
+  const aspect = frame?.imageAspect ?? 16 / 9;
+  const { area, size } = useFitted(aspect);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+    <div className="flex min-h-fit flex-1 flex-col gap-1.5">
       {status.kind === 'ready' ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-ink-fixed">
+        // Never squeezed to nothing by the controls: in a short tile, the tile scrolls instead.
+        <div ref={area} className="relative min-h-[120px] flex-1 overflow-hidden bg-ink-fixed">
+          {/* The picture's own box, so the frame's window sits on the picture, not on the bars around it. Placed over
+              the area, so its size never feeds back into the area's; until it's measured, the whole area. */}
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+            data-player-picture=""
+            style={size ? { width: size.width, height: size.height } : { width: '100%', height: '100%' }}
+          >
           {/* No native controls: the Player's own, keyboard first. Camera footage carries no captions to give it. */}
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
@@ -179,7 +240,7 @@ function PlayerScreen({ status, videoRef, onTime, onPlaying, onVideoError, onMak
             preload="auto"
             playsInline
             aria-label={t('player.picture')}
-            className="max-h-full max-w-full"
+            className="block h-full w-full"
             onTimeUpdate={onTime}
             onSeeked={onTime}
             onLoadedData={onTime}
@@ -188,6 +249,10 @@ function PlayerScreen({ status, videoRef, onTime, onPlaying, onVideoError, onMak
             onEnded={() => onPlaying?.(false)}
             onError={onVideoError}
           />
+          {frame && framed && (
+            <FrameWindow framing={framed.framing} imageAspect={frame.imageAspect} frameAspect={frame.frameAspect} hintId={framed.frameHintId} />
+          )}
+          </div>
         </div>
       ) : (
         <div className="flex min-h-[80px] flex-1 items-center justify-center border border-dashed border-text-muted" />

@@ -76,6 +76,9 @@ test('a frame’s title: F2 on the frame, or its pencil, the next Tab stop; it s
   await board(page).getByRole('textbox', { name: 'title of 1B' }).fill('Jay comes in');
   await page.keyboard.press('Escape');
   await expect(frames(page).nth(1).locator('[data-frame-title]')).toHaveCount(0);
+  // Escape hands focus back a frame or two later, and it settles on the frame: waited for, so a late move can't pull
+  // focus off the next frame the test goes to.
+  await expect(frames(page).nth(1)).toBeFocused();
 
   // An emptied title is taken off; one undo brings it back.
   await frames(page).nth(0).focus();

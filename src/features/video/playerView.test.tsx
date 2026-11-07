@@ -46,4 +46,22 @@ describe('the Player tile (2.4)', () => {
     // No picture, no scrubber or keys to offer.
     expect(says({ kind: 'none' })).not.toContain('type="range"');
   });
+
+  it('draws the frame’s window over the take, with its keys, its zoom and Centre (2.6)', () => {
+    const framed = (crop: { x: number; y: number; zoom: number }) =>
+      render({ framing: { crop, imageAspect: 16 / 9, frameAspect: 2.39, onCommit: () => undefined } });
+    const html = framed({ x: 0.5, y: 0.5, zoom: 1 });
+    // A 2.39 frame over a 16:9 take: the full width, a centred band of its height.
+    expect(html).toMatch(/role="application" tabindex="0" aria-label="The frame’s window over the take, zoom 100%"[^>]*data-frame-window=""[^>]*style="left:0%;top:12\.8/);
+    expect(html).toContain('The bright window is what the frame shows.');
+    expect(html).toMatch(/<label[^>]*>Framing<\/label>/);
+    expect(html).toMatch(/max="400"[^>]*value="100"/);
+    // Centred: nothing for Centre to do.
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Centre</);
+    const zoomed = framed({ x: 0.3, y: 0.6, zoom: 2 });
+    expect(zoomed).toContain('zoom 200%');
+    expect(zoomed).not.toMatch(/<button[^>]*disabled=""[^>]*>Centre</);
+    // Without framing (a frame that can't be framed yet), the picture alone.
+    expect(render()).not.toContain('data-frame-window');
+  });
 });

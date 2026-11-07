@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { projectStore, useProject } from '../../app/projectStore';
-import { readClip, videoFields } from '../../core/media/video';
+import { displayAspect, readClip, videoFields } from '../../core/media/video';
+import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
+import { DEFAULT_CROP } from '../../core/media/crop';
 import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
@@ -29,6 +31,10 @@ export function PlayerTile() {
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // The take's shape, upright with square pixels, for the frame's window over it (2.6); read before anything is
+  // memoised from the record.
+  const imageAspect = linked ? displayAspect(linked) : 16 / 9;
+  const frameAspect = project ? aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio) : 16 / 9;
   const fpsNum = linked?.fps.num ?? 24;
   const fpsDen = linked?.fps.den ?? 1;
   const fps = useMemo(() => ({ num: fpsNum, den: fpsDen }), [fpsNum, fpsDen]);
@@ -208,6 +214,26 @@ export function PlayerTile() {
           element.currentTime = timeOfFrame(at, fps);
         }
       }}
+      framing={
+        video && linked && project
+          ? {
+              crop: clip?.crop ?? DEFAULT_CROP,
+              imageAspect,
+              frameAspect,
+              onCommit: (crop) => {
+                if (!shotId) return;
+                // On the clip as it is when the edit lands; nothing for a framing where it is already.
+                void projectStore.getState().applyWith((now) => {
+                  const current = now[shotId];
+                  const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
+                  if (!currentClip || currentClip.videoId !== videoId) return { changes: [] };
+                  const same = currentClip.crop.x === crop.x && currentClip.crop.y === crop.y && currentClip.crop.zoom === crop.zoom;
+                  return same ? { changes: [] } : { changes: [setClip(shotId, { ...currentClip, crop })] };
+                });
+              },
+            }
+          : undefined
+      }
       onVideoError={() => {
         // The copy went (the cap, a Move) or can't be read: made again once, and opened once it is; if it's still
         // there, the Player says it can't play it, with Try again.

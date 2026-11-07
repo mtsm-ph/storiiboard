@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampCrop, cropBox, cropProp, DEFAULT_CROP, isDefaultCrop, MAX_ZOOM, panCrop, readCrop, zoomCrop } from './crop';
+import { clampCrop, cropBox, cropProp, cropWindow, DEFAULT_CROP, isDefaultCrop, MAX_ZOOM, moveWindow, panCrop, readCrop, zoomCrop } from './crop';
 
 const WIDE = 16 / 9;
 const SCOPE = 2.39;
@@ -50,5 +50,42 @@ describe('framing a picture', () => {
     expect(readCrop({ crop: { x: 9, y: -1, zoom: 99 } })).toEqual({ x: 1, y: 0, zoom: MAX_ZOOM });
     expect(isDefaultCrop(readCrop({}))).toBe(true);
     expect(cropProp({ x: 0.123456, y: 0.5, zoom: 1.98765 })).toEqual({ x: 0.123, y: 0.5, zoom: 1.988 });
+  });
+});
+
+describe('the frame’s window over a take (2.6)', () => {
+  it('is the part of the picture the frame shows: a 2.39 frame over a 16:9 take, full width, centred', () => {
+    const box = cropWindow(DEFAULT_CROP, 16 / 9, 2.39);
+    expect(box.left).toBeCloseTo(0);
+    expect(box.width).toBeCloseTo(100);
+    expect(box.height).toBeCloseTo((100 * (16 / 9)) / 2.39);
+    expect(box.top).toBeCloseTo((100 - box.height) / 2);
+    // A 4:5 frame over the same take: full height, a slice of its width.
+    const tall = cropWindow(DEFAULT_CROP, 16 / 9, 4 / 5);
+    expect([tall.top, tall.height]).toEqual([expect.closeTo(0), expect.closeTo(100)]);
+    expect(tall.width).toBeCloseTo((100 * (4 / 5)) / (16 / 9));
+  });
+
+  it('agrees with where the picture sits in the frame, and zooms about its centre', () => {
+    const crop = { x: 0.3, y: 0.6, zoom: 2 };
+    const picture = cropBox(crop, 16 / 9, 2.39);
+    const window = cropWindow(crop, 16 / 9, 2.39);
+    // The window's width is the frame's share of the picture; its left edge, where the frame's left edge falls.
+    expect(window.width).toBeCloseTo(100 * (100 / picture.width));
+    expect(window.left).toBeCloseTo((-picture.left / picture.width) * 100);
+    expect(window.left + window.width / 2).toBeCloseTo(30);
+  });
+
+  it('moves with the hand, and never leaves the picture', () => {
+    const right = moveWindow(DEFAULT_CROP, 0, 0.1, 16 / 9, 2.39);
+    expect(right.y).toBeCloseTo(0.6);
+    // Already full width: it can't go left or right.
+    expect(moveWindow(DEFAULT_CROP, 0.2, 0, 16 / 9, 2.39).x).toBeCloseTo(0.5);
+    const top = cropWindow(moveWindow(DEFAULT_CROP, 0, -9, 16 / 9, 2.39), 16 / 9, 2.39);
+    expect(top.top).toBeCloseTo(0);
+    const zoomed = { ...DEFAULT_CROP, zoom: 2 };
+    const corner = cropWindow(moveWindow(zoomed, 9, 9, 16 / 9, 2.39), 16 / 9, 2.39);
+    expect(corner.left + corner.width).toBeCloseTo(100);
+    expect(corner.top + corner.height).toBeCloseTo(100);
   });
 });
