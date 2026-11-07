@@ -150,3 +150,96 @@ test('an empty project still exports its data as JSON, and a JSON that isn’t p
   await (await chooser).setFiles({ name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"title":"Not a project"}') });
   await expect(page.getByText('“notes.json” isn’t Storiiboard project data.')).toBeVisible();
 });
+
+test('a project’s production details: stage, client and deliverables, each an edit that undoes and stays after a reload', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  let panel = await openSettings(page, 'Project');
+  await panel.getByRole('combobox', { name: 'Stage' }).selectOption({ label: 'Pre-production' });
+  await panel.getByRole('textbox', { name: 'Format' }).fill('TVC · 60s');
+  await panel.getByRole('textbox', { name: 'Company' }).click();
+  await panel.getByRole('textbox', { name: 'Company' }).fill('Bey Foods');
+  await panel.getByRole('textbox', { name: 'Name' }).first().click();
+  await panel.getByRole('textbox', { name: 'New deliverable' }).fill('60s master');
+  await page.keyboard.press('Enter');
+  await panel.getByRole('textbox', { name: 'New deliverable' }).fill('3 × 9:16 cutdowns');
+  await panel.getByRole('button', { name: 'Add', exact: true }).click();
+  const done = panel.getByRole('checkbox', { name: 'Delivered: 60s master' });
+  await done.click();
+  await expect(done).toHaveAttribute('aria-checked', 'true');
+  await expect(panel.getByRole('list', { name: 'Deliverables' }).getByRole('listitem')).toHaveCount(2);
+  // An edit like any other: ⌘Z takes back the tick.
+  await closeSettings(page);
+  await page.keyboard.press(await undoKey(page));
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('checkbox', { name: 'Delivered: 60s master' })).toHaveAttribute('aria-checked', 'false');
+  // In the file: there after a reload.
+  await closeSettings(page);
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /Bey County/ }).first().click();
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('combobox', { name: 'Stage' })).toHaveValue('preproduction');
+  await expect(panel.getByRole('textbox', { name: 'Format' })).toHaveValue('TVC · 60s');
+  await expect(panel.getByRole('textbox', { name: 'Company' })).toHaveValue('Bey Foods');
+  await expect(panel.getByRole('list', { name: 'Deliverables' }).getByRole('listitem')).toHaveCount(2);
+});
+
+test('production details keep keyboard focus from field to field, and a rename and a remove each undo', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  let panel = await openSettings(page, 'Project');
+  // Leaving a field writes it; the next field keeps focus, and what's typed in it straight away.
+  const name = panel.getByRole('textbox', { name: 'Name', exact: true });
+  await name.click();
+  await page.keyboard.type('Ana Ruiz');
+  await page.keyboard.press('Tab');
+  await expect(panel.getByRole('textbox', { name: 'Company' })).toBeFocused();
+  await page.keyboard.type('Bey Foods');
+  await page.keyboard.press('Tab');
+  await expect(panel.getByRole('textbox', { name: 'Email' })).toBeFocused();
+  await expect(panel.getByRole('textbox', { name: 'Company' })).toHaveValue('Bey Foods');
+  // Enter adds a deliverable and stays in the field for the next one.
+  const adding = panel.getByRole('textbox', { name: 'New deliverable' });
+  await adding.click();
+  await page.keyboard.type('Master');
+  await page.keyboard.press('Enter');
+  await expect(adding).toBeFocused();
+  await page.keyboard.type('Cutdowns');
+  await page.keyboard.press('Enter');
+  const items = panel.getByRole('list', { name: 'Deliverables' }).getByRole('listitem');
+  await expect(items).toHaveCount(2);
+  // A rename, then a remove, each one edit: Remove leaves focus on the next box.
+  await panel.getByRole('textbox', { name: 'Deliverable 1' }).fill('60s master');
+  await panel.getByRole('textbox', { name: 'Deliverable 1' }).press('Enter');
+  await expect(panel.getByRole('checkbox', { name: 'Delivered: 60s master' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Remove deliverable: 60s master' }).click();
+  await expect(items).toHaveCount(1);
+  await expect(panel.getByRole('checkbox', { name: 'Delivered: Cutdowns' })).toBeFocused();
+  await closeSettings(page);
+  await page.keyboard.press(await undoKey(page));
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('textbox', { name: 'Deliverable 1' })).toHaveValue('60s master');
+  await closeSettings(page);
+  await page.keyboard.press(await undoKey(page));
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('textbox', { name: 'Deliverable 1' })).toHaveValue('Master');
+});
+
+test('undo and redo with Settings open show in the field they changed, and focus stays where it was', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  const panel = await openSettings(page, 'Project');
+  await panel.getByRole('textbox', { name: 'New deliverable' }).fill('Master');
+  await page.keyboard.press('Enter');
+  const text = panel.getByRole('textbox', { name: 'Deliverable 1' });
+  await text.fill('60s master');
+  // Tab writes the rename and moves to its Remove button, where ⌘Z works.
+  await page.keyboard.press('Tab');
+  const remove = panel.getByRole('button', { name: /^Remove deliverable:/ });
+  await expect(remove).toBeFocused();
+  await expect(remove).toHaveAccessibleName('Remove deliverable: 60s master');
+  const undo = await undoKey(page);
+  await page.keyboard.press(undo);
+  await expect(text).toHaveValue('Master');
+  await expect(remove).toBeFocused();
+  await page.keyboard.press(undo.replace('+z', '+Shift+z'));
+  await expect(text).toHaveValue('60s master');
+  await expect(remove).toBeFocused();
+});

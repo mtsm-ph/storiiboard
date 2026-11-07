@@ -320,7 +320,7 @@ Lows deferred (noted, not planned yet):
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless (PR #86, merged Nov 7; three review rounds; see "2.9 as built" and "2.9: decisions").
 3. **Phase 2 gate** (reached Nov 7): every Phase 2 milestone is merged. The gate checkpoint, `checkpoint/phase2-gate`
-   on `v2` at d42f6ed (2.9's merge), runs smoke and screenshots on Linux and the Mac and both installers; the
+   on `v2` at d42f6ed (2.9's merge), passed every job Nov 7 (smoke and screenshots on Linux and the Mac, both installers); the
    checklist is "Phase 2 gate: Kevin's checklist" below. The gate itself: a still from a reference clip lands in a
    frame in a few clicks, on Kevin's own footage (item 3). Don't wait; Phase 3 follows.
 4. **Phase 3** (production data; plan and decision sheet written Nov 7: "Phase 3 milestones" in `docs/PLAN.md`,
@@ -342,6 +342,33 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 3.1: review
+
+Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last
+change), so Tab from one field to the next lost focus and text typed straight after was thrown away: each field is
+now keyed by its own stored value, so an undo shows in the field it changed and focus stays where it is (the same fix
+for the older title and notes fields). Edits were built from the props as last drawn, so a rename then a tick (or two
+client fields) a moment apart could undo each other: each is now worked out from the project as it is at its turn
+(`applyWith`). History showed the checklist as raw JSON with ids, and every client change as "changed": the checklist
+reads by its items, a delivered one marked, and the client by field ("client company: — → Bey Foods"), its email and
+phone said only as set ("not shown"), since History feeds notifications. Lows fixed: stages in History in words; the
+box 24 px; each deliverable's field named by its place; a deliverable emptied keeps its text (Remove takes it off);
+Remove leaves focus on the next box. Tests: two edits fired together both land; History's lines (no email or phone in
+them); end to end, focus kept from field to field and after Enter and Remove, a rename and a remove each undone.
+
+Round 2: no high; one medium fixed. History cut the whole checklist to one 40-character line, so a tick past the
+first items read the same before and after: each deliverable added, removed or changed is now a line of its own,
+matched by id ("deliverable: 3 × 9:16 cutdowns → 3 × 9:16 cutdowns (delivered)"). Lows fixed: an edit that changes
+nothing (a second Remove of a row already gone) writes no step; only the client's name and company are ever shown in
+History (an email, a phone or a field a later version adds is said as set, changed or removed); spaces added to a
+deliverable go; a stale comment. Tests: the edits go through Settings → Project's own `detailsEdit`; undo and redo
+with Settings open show in the field and keep focus where it was. Low left: a field typed in again within the moment
+its own commit takes can lose what was typed (only that field, only then).
+
+Round 3: no high, no medium; review done. Lows fixed: a checklist change no item shows (a reorder) reads as the list;
+an entry in the list that isn't an item is kept by every edit; two comments. Low left: a step's line cuts a
+deliverable's text at 40 characters, as every text, so a rename past that reads the same on both sides there.
 
 ### 2.9: decisions
 

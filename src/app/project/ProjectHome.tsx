@@ -10,10 +10,12 @@ import { setLettersAllowIO } from '../../features/storyboard/board';
 import { Select, TextField, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useProject } from '../projectStore';
+import { ProjectDetailsFields, type DetailsChange } from './ProjectDetailsFields';
+import type { Change } from '../../core/ops/ops';
 import { localizeError, t } from '../../core/i18n';
 
-// The Project tile in Settings: the project's state, title and notes, and the storyboard's frame shape and shot
-// letters. Every change is an op, so ⌘Z takes it back.
+// The Project tile in Settings: the project's state, title and notes, the storyboard's frame shape and shot letters,
+// and its production details (3.1). Every change is an op, so ⌘Z takes it back.
 
 export function ProjectHome() {
   const projectId = useProject((s) => s.project?.projectId);
@@ -37,8 +39,27 @@ export function ProjectHome() {
           void applyWith((now, slate) => ({ changes: setLettersAllowIO(now, record.id, allowIO, slate) }));
         }}
       />
+      <ProjectDetailsFields
+        record={record}
+        onChange={(change) => {
+          void applyWith((now) => ({ changes: detailsEdit(now, record.id, change) }));
+        }}
+      />
     </>
   );
+}
+
+/**
+ * A production details change (3.1) as an edit, from the project record as it is at the edit's turn, so two edits a
+ * moment apart both land; nothing when it changes nothing (a second Remove of a row already gone), so no empty step
+ * goes into History.
+ */
+export function detailsEdit(records: Readonly<Record<string, SbdRecord>>, id: string, change: DetailsChange): Change[] {
+  const current = records[id];
+  if (!current) return [];
+  const set = change(current.props);
+  const changed = Object.entries(set).some(([key, value]) => JSON.stringify(current.props[key] ?? null) !== JSON.stringify(value ?? null));
+  return changed ? [{ kind: 'update', id, set }] : [];
 }
 
 /**
@@ -98,8 +119,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
   return (
     <>
       <div className="flex max-w-[640px] flex-col gap-4 p-4">
-        {/* An op like any edit: archiving undoes with ⌘Z. It sits outside the keyed block below, so arrowing
-            through the states keeps focus on the control. */}
+        {/* An op like any edit: archiving undoes with ⌘Z. */}
         <SegmentedControl
           label={t('projectHome.state')}
           options={PROJECT_STATES.map((value) => ({ value, label: PROJECT_STATE_LABEL[value] }))}
@@ -135,9 +155,11 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
         <p className="-mt-2 text-[12px] text-text-muted">
           {t('projectHome.framesTakeTheSceneNumber')}
         </p>
-        {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
-        <div key={record.updatedAt} className="flex flex-col gap-4">
+        {/* Each field keyed by its own value, so an undo or redo shows in it at once, and leaving one for the next
+            (a commit, so a change to the record) never takes focus from the other or what's typed in it. */}
+        <div className="flex flex-col gap-4">
           <TextField
+            key={`title:${title}`}
             label={t('projectHome.title')}
             defaultValue={title}
             onBlur={(event) => {
@@ -152,6 +174,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
               {t('projectHome.notes')}
             </label>
             <textarea
+              key={`notes:${notes}`}
               id={notesId}
               rows={10}
               defaultValue={notes}
