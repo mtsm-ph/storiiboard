@@ -62,14 +62,21 @@ needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exc
   `luts` table, no format change), in the same transaction as the edit that first uses it; loading the same text
   again, under any name, uses the row stored.
 - A `.cube` is read by its rules before it's stored: a 3D LUT of 2 to 256 points (FFmpeg's limit), an optional
-  DOMAIN_MIN and DOMAIN_MAX, and exactly size³ rows of three numbers. A 1D LUT, or a 1D shaper before the 3D one, is
-  refused with words that say so; so is a short or garbled file. FFmpeg is handed the size, the domain and the rows
-  alone, so a keyword it doesn't know (a Resolve export's LUT_3D_INPUT_RANGE) never trips it.
-- The LUT grades the playback copy, never the original. Its SHA-256 joins the copy's key, so the same take under
-  another LUT, or none, is another copy, and a copy made before 2.5 keeps its key. ffmpeg runs in a folder of the
-  LUT's own, made for the one encode and gone after, and names the file alone (no path to escape on Windows). The LUT
+  domain, and exactly size³ rows of three numbers, comments allowed anywhere. A 1D LUT, or a 1D shaper before the 3D
+  one, is refused with words that say so; so is a short or garbled file, and a domain FFmpeg's lut3d can't apply as
+  the file means it: measured with the sidecar, lut3d scales by the domain's width but never shifts by its start and
+  never scales up, so only DOMAIN_MIN 0 with DOMAIN_MAX 1 or more is kept (Resolve's LUT_3D_INPUT_RANGE the same).
+  FFmpeg is handed the size, the domain and the rows alone, so a keyword it doesn't know never trips it.
+- The LUT grades the playback copy, never the original. The SHA-256 of the text ffmpeg reads joins the copy's key, so
+  the same take under another LUT, or none, is another copy; two files that differ only in a title share one; a change
+  to how files are read makes new copies; a copy made before 2.5 keeps its key. ffmpeg runs in a folder of the LUT's
+  own, a random name made new for the one encode (never one already there) and gone after, and names the file alone
+  (no path to escape on Windows). The LUT
   goes after the scale, with tetrahedral interpolation as grading tools use, and the copy is tagged BT.709. For HDR
-  footage the LUT takes the place of the tone-mapping: a LUT is made for the signal the camera recorded.
+  footage the LUT takes the place of the tone-mapping: a LUT is made for the signal the camera recorded. Colours keep
+  their matrix through it (an identity LUT leaves a saturated BT.709 patch, tagged or not, within 3 of the copy
+  without one).
+- Loads of a LUT take turns, so two loads of the same file at once store it once and both videos name it.
 - A LUT change asks for the graded copy at once, as a relink does; a copy being made under the old LUT is stopped,
   and its result is never kept. The same file under two LUTs (two videos of one take, graded apart) is two requests.
 - Stills grade with the LUT in 2.7 (still capture), which reads from the original; the frame's picture isn't touched

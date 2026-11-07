@@ -37,6 +37,8 @@ const copyLine = (page: Page) => inspector(page).locator('[data-copy-state]');
 const lutList = (page: Page) => inspector(page).getByRole('combobox', { name: 'LUT' });
 /** A pretend copy takes 2.5 s; a loaded runner's timers can run late. */
 const READY = { timeout: 15_000 };
+/** Shorter than a pretend copy takes: a copy ready this soon was found, not made again. */
+const FOUND = { timeout: 2_000 };
 const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
 
 async function loadLut(page: Page, name: string, text: string) {
@@ -60,11 +62,11 @@ test('loads a LUT for the video, makes its graded copy, and undoes and redoes it
   await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.keyboard.press(`${await command(page)}+z`);
   await expect.poll(() => chosen(page)).toBe('None (as shot)');
-  await expect(copyLine(page)).toHaveText('Playback copy ready.', READY);
+  await expect(copyLine(page)).toHaveText('Playback copy ready.', FOUND);
   // Redo puts it back, and its graded copy is found, not made again.
   await page.keyboard.press(`${await command(page)}+Shift+z`);
   await expect.poll(() => chosen(page)).toBe('Invert');
-  await expect(copyLine(page)).toHaveText('Playback copy ready.');
+  await expect(copyLine(page)).toHaveText('Playback copy ready.', FOUND);
 });
 
 test('picks among the project’s LUTs, takes one off, and stores a LUT loaded twice once', async ({ page }) => {

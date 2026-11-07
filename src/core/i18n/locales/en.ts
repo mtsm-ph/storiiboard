@@ -858,7 +858,7 @@ export const en = {
   'lut.oneD': '{name} is a 1D LUT. Load a 3D LUT (one with LUT_3D_SIZE) instead.',
   'lut.size': '{name} has a size Storiiboard can’t use: a 3D LUT takes 2 to 256 points.',
   'lut.rows': '{name} doesn’t have the rows its size says, or one of them isn’t three numbers.',
-  'lut.domain': '{name} has a DOMAIN_MIN or DOMAIN_MAX that can’t be read.',
+  'lut.domain': '{name} has a domain Storiiboard can’t apply: it takes a DOMAIN_MIN of 0 and a DOMAIN_MAX of 1 or more.',
   'inspector.unlinkVideo': 'Unlink video',
   'relink.differentRate': 'Not the same frame rate',
   'relink.differentLength': 'Not the same length',

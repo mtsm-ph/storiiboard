@@ -50,8 +50,20 @@ export async function setLut(videoId: string, lutId: string | null, alsoWrite: R
   remakeCopy(videoId);
 }
 
+/**
+ * Loads waiting their turn: each looks for the LUT stored and stores its own in one turn, so two loads of the same file
+ * at once can't both find none, and leave one video naming a row the other's ignored insert never wrote.
+ */
+let loads: Promise<void> = Promise.resolve();
+
 /** Asks for a `.cube`, checks it, stores it once and sets it as the video's LUT. */
-export async function loadLut(videoId: string): Promise<void> {
+export function loadLut(videoId: string): Promise<void> {
+  const load = loads.then(() => loadNow(videoId));
+  loads = load.catch(() => undefined);
+  return load;
+}
+
+async function loadNow(videoId: string): Promise<void> {
   const { project } = projectStore.getState();
   if (!project) return;
   try {

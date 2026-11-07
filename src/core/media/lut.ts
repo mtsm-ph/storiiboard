@@ -26,7 +26,11 @@ export interface LutRow {
   fileName: string;
 }
 
-/** What ffmpeg reads: the size, the domain if it isn't 0 to 1, and the rows; nothing else from the file. */
+/**
+ * What ffmpeg reads: the size, the domain if it isn't 0 to 1, and the rows; nothing else from the file. `sha256` is
+ * of that text, so a copy's key is what grades it: two files that differ only in title or comments share a copy, and a
+ * change to how files are read makes new copies rather than keep old ones.
+ */
 export interface CubeForCopy {
   sha256: string;
   cube: string;
@@ -45,9 +49,11 @@ function numbers(parts: readonly string[]): number[] | null {
 
 /**
  * A `.cube` (Adobe's and Resolve's format) read by its rules: comments and a TITLE skipped, LUT_3D_SIZE from 2 to 256,
- * an optional DOMAIN_MIN and DOMAIN_MAX, then size³ rows of three numbers. A 1D LUT (LUT_1D_SIZE), or a 1D shaper
- * before a 3D one, is refused: FFmpeg's lut3d takes the 3D kind only. On success, the text ffmpeg is given: the same
- * LUT with nothing it might trip on (a keyword it doesn't know, a title between the rows).
+ * an optional domain, then size³ rows of three numbers. A 1D LUT (LUT_1D_SIZE), or a 1D shaper before a 3D one, is
+ * refused: FFmpeg's lut3d takes the 3D kind only. So is a domain it can't apply: lut3d scales by the domain's width but
+ * never shifts by its start, and never scales up, so only a domain from 0 to 1 or more grades as the file means. (Resolve's
+ * LUT_3D_INPUT_RANGE is the same thing, for all three channels.) On success, the text ffmpeg is given: the same LUT
+ * with nothing it might trip on.
  */
 export function readCube(text: string): { ok: true; size: number; forCopy: string } | { ok: false; problem: LutProblem } {
   let size: number | null = null;
@@ -55,8 +61,9 @@ export function readCube(text: string): { ok: true; size: number; forCopy: strin
   let max = [1, 1, 1];
   const rows: string[] = [];
   for (const raw of text.split(/\r\n|\r|\n/)) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) continue;
+    // A comment can follow a row or a keyword too.
+    const line = raw.replace(/#.*/, '').trim();
+    if (line === '') continue;
     const [word = '', ...rest] = line.split(/\s+/);
     if (NUMBER.test(word)) {
       if (size === null) return { ok: false, problem: 'notCube' };
@@ -65,7 +72,8 @@ export function readCube(text: string): { ok: true; size: number; forCopy: strin
       rows.push(values.join(' '));
       continue;
     }
-    // Keywords come before the rows.
+    // Keywords come before the rows; after the last one, ffmpeg reads no further.
+    if (size !== null && rows.length === size ** 3) continue;
     if (rows.length > 0) return { ok: false, problem: 'rows' };
     if (word === 'LUT_1D_SIZE') return { ok: false, problem: 'oneD' };
     if (word === 'LUT_3D_SIZE') {
@@ -77,12 +85,18 @@ export function readCube(text: string): { ok: true; size: number; forCopy: strin
       if (!values) return { ok: false, problem: 'domain' };
       if (word === 'DOMAIN_MIN') min = values;
       else max = values;
+    } else if (word === 'LUT_3D_INPUT_RANGE') {
+      const [low, high] = rest;
+      const values = rest.length === 2 && low !== undefined && high !== undefined ? numbers([low, high, '0']) : null;
+      if (!values) return { ok: false, problem: 'domain' };
+      min = [values[0] ?? 0, values[0] ?? 0, values[0] ?? 0];
+      max = [values[1] ?? 1, values[1] ?? 1, values[1] ?? 1];
     }
     // TITLE, LUT_3D_INPUT_RANGE and the like: names and notes, not the LUT.
   }
   if (size === null) return { ok: false, problem: 'notCube' };
   if (rows.length !== size ** 3) return { ok: false, problem: 'rows' };
-  if (!min.every((low, i) => low < (max[i] ?? low))) return { ok: false, problem: 'domain' };
+  if (!min.every((low, i) => low === 0 && (max[i] ?? 0) >= 1)) return { ok: false, problem: 'domain' };
   const domain =
     min.join(' ') === '0 0 0' && max.join(' ') === '1 1 1' ? [] : [`DOMAIN_MIN ${min.join(' ')}`, `DOMAIN_MAX ${max.join(' ')}`];
   return { ok: true, size, forCopy: [`LUT_3D_SIZE ${String(size)}`, ...domain, ...rows, ''].join('\n') };
@@ -130,5 +144,5 @@ export async function lutForCopy(file: ProjectFile, id: string): Promise<CubeFor
   const [row] = await file.query('SELECT sha256, cube FROM luts WHERE id = ?', [id]);
   if (!row) return null;
   const read = readCube(String(row.cube));
-  return read.ok ? { sha256: String(row.sha256), cube: read.forCopy } : null;
+  return read.ok ? { sha256: await sha256Of(read.forCopy), cube: read.forCopy } : null;
 }

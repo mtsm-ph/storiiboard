@@ -330,6 +330,26 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 2.5: review
+
+Round 1: no high; three mediums fixed. A domain lut3d can't apply was kept and graded wrongly with no word (measured:
+it ignores DOMAIN_MIN and never scales up): only 0 to 1 or more is kept now, Resolve's LUT_3D_INPUT_RANGE read as one.
+Two loads of the same file at once could leave a video naming a row never written: loads take turns. The grade test
+used grey, which every matrix keeps: a saturated patch, tagged BT.709 and untagged, through an identity LUT now.
+Lows fixed: the copy's key is the hash of what ffmpeg reads, not of the file (a title no longer splits copies, and a
+change to how files are read can't keep stale ones); the LUT's folder is a random name made new, its file made new (a
+shared Linux /tmp can't be planted); HDR footage with a matrix FFmpeg's filters refuse keeps its re-tag ahead of the
+LUT (tested, with HDR under a LUT skipping the tone-map); comments after a row, and a keyword after the last row, are
+read as lut3d reads them; the end-to-end test now tells a copy found from one made again. Lows left:
+- In WebView2 a closed `<select>` changes with the arrow keys, so arrowing through the list sets each LUT in turn
+  (an undo step and a copy started each); a listbox that commits on Enter would avoid it.
+- The words say 2 to 256 points, but the 16 MB read cap stops near 80 (a 65-point cube is 8 MB); bigger gets the
+  general "too large" words.
+- A refused write (the file changed on disk) still asks for a copy after `setLut`; harmless.
+- A LUT folder left by a crash isn't cleaned up (temp folders are the OS's to clear); on Windows a stalled ffmpeg the
+  app gave up on can hold its folder until it exits.
+- No unit tests of `chooseLut` or of the picker's "Reading the LUT…" state.
+
 ### 2.4: review
 
 Round 1 (Nov 7): four mediums, fixed with tests. The timecode read one frame early while playing in Chromium (media

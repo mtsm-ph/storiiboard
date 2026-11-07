@@ -860,7 +860,7 @@ export const es: Messages = {
   'lut.oneD': '{name} es un LUT 1D. Carga un LUT 3D (uno con LUT_3D_SIZE).',
   'lut.size': '{name} tiene un tamaño que Storiiboard no puede usar: un LUT 3D va de 2 a 256 puntos.',
   'lut.rows': '{name} no tiene las filas que dice su tamaño, o una de ellas no son tres números.',
-  'lut.domain': '{name} tiene un DOMAIN_MIN o DOMAIN_MAX que no se puede leer.',
+  'lut.domain': '{name} tiene un dominio que Storiiboard no puede aplicar: acepta un DOMAIN_MIN de 0 y un DOMAIN_MAX de 1 o más.',
   'inspector.unlinkVideo': 'Desvincular video',
   'relink.differentRate': 'No tiene la misma cadencia',
   'relink.differentLength': 'No tiene la misma duración',

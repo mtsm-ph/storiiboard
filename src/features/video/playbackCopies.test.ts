@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VideoProbe } from '../../core/media/video';
 import { lutStatements, prepareLut } from '../../core/media/lut';
@@ -319,8 +320,9 @@ describe('the queue of playback copies', () => {
     if (!prepared.ok) throw new Error('a good cube');
     const lutId = 'b1d3c0de-0000-4000-8000-000000000001';
     const plain = { videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null };
-    // Ffmpeg reads the LUT without its title; the copy's key takes the file's own hash.
-    const graded = { ...plain, lut: { sha256: prepared.lut.sha256, cube: 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n' } };
+    // Ffmpeg reads the LUT without its title, and the copy's key takes the hash of what it reads.
+    const forCopy = 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n';
+    const graded = { ...plain, lut: { sha256: createHash('sha256').update(forCopy).digest('hex'), cube: forCopy } };
     const [asShot, withLut] = [pending(), pending()];
     driver.make.mockImplementationOnce(asShot.impl).mockImplementationOnce(withLut.impl);
     makeCopy('a');
@@ -331,19 +333,24 @@ describe('the queue of playback copies', () => {
     const seen: string[] = [];
     const stop = copiesStore.subscribe((s) => seen.push(s.byVideo.a?.kind ?? 'unknown'));
     asShot.resolve();
-    await settle();
+    // The graded copy is asked for once its LUT is read from the project (a query and a hash): waited for, not timed.
+    await vi.waitFor(() => {
+      expect(driver.make).toHaveBeenCalledTimes(2);
+    });
     expect(seen).not.toContain('made');
     stop();
     expect(driver.make.mock.calls[1]?.[0]).toEqual(graded);
     withLut.resolve();
-    await settle();
-    expect(state('a')).toEqual({ kind: 'made', silent: false });
+    await vi.waitFor(() => {
+      expect(state('a')).toEqual({ kind: 'made', silent: false });
+    });
     // Undone: the copy as shot is the video's again.
     await projectStore.getState().undo();
     expect(state('a')).toEqual({ kind: 'unknown' });
     makeCopy('a');
-    await settle();
-    expect(driver.make.mock.calls[2]?.[0]).toEqual(plain);
+    await vi.waitFor(() => {
+      expect(driver.make.mock.calls[2]?.[0]).toEqual(plain);
+    });
   });
 
   it('cancels a graded copy by its LUT, and refuses to make one whose LUT isn’t stored', async () => {
@@ -352,21 +359,27 @@ describe('the queue of playback copies', () => {
     // Named but not stored (a file edited by hand): no copy without the grade it should have.
     await projectStore.getState().apply([{ kind: 'update', id: 'b', set: { lut: 'b1d3c0de-0000-4000-8000-00000000dead' } }]);
     makeCopy('b');
-    await settle();
+    await vi.waitFor(() => {
+      expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT isn’t in the project, so its playback copy can’t be made.' });
+    });
     expect(driver.make).not.toHaveBeenCalled();
-    expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT isn’t in the project, so its playback copy can’t be made.' });
     // A graded copy being made is stopped by its LUT.
     const prepared = await prepareLut('Invert.cube', 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n');
     if (!prepared.ok) throw new Error('a good cube');
     const lutId = 'b1d3c0de-0000-4000-8000-000000000002';
     await projectStore.getState().apply([{ kind: 'update', id: 'c', set: { lut: lutId } }], { alsoWrite: lutStatements(lutId, prepared.lut, new Date()) });
     makeCopy('c');
-    await settle();
+    await vi.waitFor(() => {
+      expect(driver.make).toHaveBeenCalledTimes(1);
+    });
     cancelCopy('c');
     const [stopped] = driver.cancel.mock.calls.at(-1) as [{ videoId: string; lut: { sha256: string } | null }];
+    // The text is the file's own here (nothing to leave out), so its hash is the file's.
     expect([stopped.videoId, stopped.lut?.sha256]).toEqual(['c', prepared.lut.sha256]);
     copy.reject('The playback copy was cancelled.');
-    await settle();
+    await vi.waitFor(() => {
+      expect(copiesStore.getState().making).toBeNull();
+    });
     expect(state('c')).toEqual({ kind: 'none' });
   });
 

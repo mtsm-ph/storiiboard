@@ -363,12 +363,19 @@ struct LutFile {
 const LUT_FILE: &str = "grade.cube";
 
 impl LutFile {
-    fn write(lut: &Lut, key: &str, id: u64) -> Result<Self, String> {
-        let folder = std::env::temp_dir().join(format!("storiiboard-lut-{key}-{id}"));
-        let _ = fs::remove_dir_all(&folder);
-        fs::create_dir_all(&folder).map_err(|_| FAILED.to_string())?;
+    /// A folder no one can have made ahead of it: a random name, made new (never one already there, which on a
+    /// computer several people share could be someone else's, or lead elsewhere), and the file made new in it.
+    fn write(lut: &Lut) -> Result<Self, String> {
+        let folder =
+            std::env::temp_dir().join(format!("storiiboard-lut-{}", crate::lock::random_id()));
+        fs::create_dir(&folder).map_err(|_| FAILED.to_string())?;
         let file = Self { folder };
-        fs::write(file.folder.join(LUT_FILE), &lut.cube).map_err(|_| FAILED.to_string())?;
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(file.folder.join(LUT_FILE))
+            .map_err(|_| FAILED.to_string())?;
+        std::io::Write::write_all(&mut out, lut.cube.as_bytes()).map_err(|_| FAILED.to_string())?;
         Ok(file)
     }
 }
@@ -1213,14 +1220,13 @@ impl PlaybackCache {
         // A LUT is made for the signal the camera recorded (S-Log3, an HLG or PQ grade), so it takes the place of the
         // tone-mapping: the LUT brings the picture to BT.709 itself.
         let grade = match lut {
-            Some(lut) => Some(LutFile::write(lut, &key, asked.id)?),
+            Some(lut) => Some(LutFile::write(lut)?),
             None => None,
         };
-        let tone_map = if grade.is_some() {
-            None
-        } else {
-            video::tone_map(&facts.colour)
-        };
+        let hdr = video::tone_map(&facts.colour);
+        // HDR footage whose matrix FFmpeg's own filters refuse is still re-tagged for them ahead of the LUT.
+        let retag = hdr.as_ref().map_or("", |hdr| hdr.before);
+        let tone_map = if grade.is_some() { None } else { hdr };
         if asked.stopped() {
             return Err(CANCELLED.into());
         }
@@ -1310,6 +1316,7 @@ impl PlaybackCache {
                     offset: facts.stream_start - facts.file_start,
                     tone_map: tone_map.as_ref(),
                     lut: grade.as_ref().map(|grade| grade.folder.as_path()),
+                    retag,
                     encoder,
                     sound,
                     tracks: &tracks,
@@ -1472,8 +1479,9 @@ impl PlaybackCache {
         let filter = match (run.tone_map, run.lut) {
             // Its output said to be BT.709 on the frames too, where an encoder takes its colour from.
             (_, Some(_)) => format!(
-                "{filter},lut3d=file={LUT_FILE}:interp=tetrahedral,\
-                 setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+                "{}{filter},lut3d=file={LUT_FILE}:interp=tetrahedral,\
+                 setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+                run.retag
             ),
             (Some(tone_map), None) => tone_map.around(&filter),
             (None, None) => filter,
@@ -1977,6 +1985,8 @@ struct Run<'a> {
     tone_map: Option<&'a video::ToneMap>,
     /// The folder holding the LUT the copy is graded with (`LUT_FILE` in it), when it has one (2.5).
     lut: Option<&'a Path>,
+    /// What goes ahead of FFmpeg's own filters for HDR footage graded by a LUT (video::ToneMap's `before`); empty else.
+    retag: &'static str,
     encoder: &'a [&'a str],
     sound: bool,
     /// The separate mono tracks mixed into the copy's one stereo track (see `mix_filter`), by their index among the
@@ -2503,6 +2513,24 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn a_luts_file_is_made_new_in_a_folder_of_its_own_and_goes_with_it() {
+        let lut = Lut {
+            sha256: "ab".repeat(32),
+            cube: "LUT_3D_SIZE 2\n".to_owned(),
+        };
+        let (one, two) = (LutFile::write(&lut).unwrap(), LutFile::write(&lut).unwrap());
+        assert_ne!(one.folder, two.folder, "never shared");
+        assert_eq!(
+            fs::read_to_string(one.folder.join(LUT_FILE)).unwrap(),
+            lut.cube
+        );
+        let folder = one.folder.clone();
+        drop(one);
+        assert!(!folder.exists(), "gone with it");
+        assert!(two.folder.join(LUT_FILE).is_file());
+    }
+
     /// An inverting 2-point `.cube`, written here: no camera maker's LUT is ever shipped.
     const INVERT: &str = "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
 
@@ -2553,18 +2581,7 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&tags.stdout).trim(), "bt709,bt709");
-        // The LUT's file went with its encode.
-        let key = key_of(&clip, Some(&lut.sha256)).unwrap();
-        let left = fs::read_dir(std::env::temp_dir())
-            .unwrap()
-            .filter_map(Result::ok)
-            .any(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(&format!("storiiboard-lut-{key}"))
-            });
-        assert!(!left, "no LUT file left behind");
+
         // A LUT named by anything but a SHA-256 is refused before anything is written.
         let odd = Lut {
             sha256: "../../x".to_owned(),
@@ -2575,6 +2592,107 @@ mod tests {
             FAILED
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An identity 2-point `.cube`: what goes in comes out.
+    const IDENTITY: &str =
+        "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+
+    /// The RGB of the middle of a copy's first frame, read back with the sidecar.
+    fn rgb_middle(copy: &Path) -> [i32; 3] {
+        let out = video::command("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(copy)
+            .args(["-vf", "crop=8:8,scale=1:1:flags=area,format=rgb24"])
+            .args(["-frames:v", "1", "-f", "rawvideo", "-"])
+            .output()
+            .unwrap();
+        assert_eq!(out.stdout.len(), 3, "one pixel of {}", copy.display());
+        [0, 1, 2].map(|i| i32::from(out.stdout[i]))
+    }
+
+    #[test]
+    fn an_identity_lut_keeps_a_saturated_colour_as_it_was_tagged_or_not() {
+        let dir = temp_dir("lut-colour");
+        let cache = sound_test_cache(&dir.join("cache"));
+        let lut = Lut {
+            sha256: "cd".repeat(32),
+            cube: IDENTITY.to_owned(),
+        };
+        // A strong red-orange, where BT.601 and BT.709 part most; tagged BT.709, and untagged.
+        for (name, tags) in [
+            (
+                "tagged.mov",
+                ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709",
+            ),
+            ("untagged.mov", ""),
+        ] {
+            let clip = make_clip(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=0xC03020:size=320x180:rate=25:duration=1",
+                ],
+                &[
+                    "-vf",
+                    &format!("format=yuv420p{tags}"),
+                    "-c:v",
+                    "mpeg4",
+                    "-q:v",
+                    "2",
+                ],
+            );
+            let plain = rgb_middle(&cache.make(&clip, |_| {}).unwrap().path);
+            let graded = rgb_middle(&cache.make_graded(&clip, Some(&lut), |_| {}).unwrap().path);
+            for (channel, (a, b)) in plain.iter().zip(graded).enumerate() {
+                assert!(
+                    (a - b).abs() <= 3,
+                    "{name}: channel {channel} {plain:?} through the LUT {graded:?}"
+                );
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hdr_footage_under_a_lut_is_graded_by_the_lut_alone_even_with_a_matrix_scale_refuses() {
+        let dir = temp_dir("lut-hdr");
+        let _gone = Gone(dir.clone());
+        let cache = sound_test_cache(&dir.join("cache"));
+        let lut = Lut {
+            sha256: "ef".repeat(32),
+            cube: IDENTITY.to_owned(),
+        };
+        // 203-nit white in PQ, tagged once with a matrix FFmpeg's own filters refuse (as the HDR copy test has).
+        for (name, matrix) in [("pq.mov", "bt2020nc"), ("pq ictcp.mov", "ictcp")] {
+            let clip = make_clip(
+                &dir,
+                name,
+                &[
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:size=320x180:rate=25:duration=1",
+                ],
+                &[
+                    "-vf",
+                    &format!(
+                        "format=yuv422p10le,geq=lum=572:cb=512:cr=512,setparams=range=tv:\
+                         color_primaries=bt2020:color_trc=smpte2084:colorspace={matrix}"
+                    ),
+                    "-c:v",
+                    "prores_ks",
+                ],
+            );
+            let graded = cache.make_graded(&clip, Some(&lut), |_| {}).unwrap();
+            // Not tone-mapped (that brings it near SDR white, about 218): the LUT alone made it, from the signal as
+            // recorded, which an identity LUT leaves near PQ's own level, about 140.
+            let level = grey_at(&graded.path, 0);
+            assert!((120..=165).contains(&level), "{name}: {level}");
+        }
     }
 
     #[test]
@@ -3377,6 +3495,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             offset: 0.0,
             tone_map: None,
             lut: None,
+            retag: "",
             encoder: &cache.encoders[0],
             sound: true,
             tracks: &[],

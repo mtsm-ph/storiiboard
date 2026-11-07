@@ -26,9 +26,23 @@ describe('reading a .cube', () => {
     if (!read.ok) return;
     expect(read.forCopy.split('\n').slice(0, 4)).toEqual(['LUT_3D_SIZE 2', 'DOMAIN_MIN 0 0 0', 'DOMAIN_MAX 1.5 1.5 1.5', '0 0 0']);
     expect(read.forCopy.split('\n')[4]).toBe('1 0 0');
-    // A Resolve keyword ffmpeg might not know is left out of what it reads.
+    // Resolve's input range of 0 to 1 is the domain ffmpeg assumes: nothing to say.
     const resolve = readCube(cube(['LUT_3D_SIZE 2', 'LUT_3D_INPUT_RANGE 0 1']));
     expect(resolve).toEqual({ ok: true, size: 2, forCopy: cube(['LUT_3D_SIZE 2']) });
+    // Comments after a row or a keyword, and a keyword after the last row, as some tools write them.
+    const noted = readCube(['LUT_3D_SIZE 2 # 2 points', ...INVERT.map((row, i) => (i === 0 ? `${row} # black in` : row)), 'TITLE "after"', ''].join('\n'));
+    expect(noted).toEqual({ ok: true, size: 2, forCopy: cube(['LUT_3D_SIZE 2']) });
+  });
+
+  it('refuses a domain FFmpeg’s lut3d can’t apply as the file means it', () => {
+    // lut3d scales by the domain's width but never shifts by its start, and never scales up (measured with the
+    // sidecar: grey 128 through an identity LUT on 0.5 to 1 came out 128, not 0).
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'DOMAIN_MIN 0.5 0.5 0.5', 'DOMAIN_MAX 1 1 1']))).toEqual({ ok: false, problem: 'domain' });
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'DOMAIN_MAX 0.5 0.5 0.5']))).toEqual({ ok: false, problem: 'domain' });
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'LUT_3D_INPUT_RANGE -0.0625 1.0625']))).toEqual({ ok: false, problem: 'domain' });
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'LUT_3D_INPUT_RANGE 0']))).toEqual({ ok: false, problem: 'domain' });
+    // 0 to 2 it applies (grey 128 came out 64): kept.
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'LUT_3D_INPUT_RANGE 0 2'])).ok).toBe(true);
   });
 
   it('refuses what lut3d can’t use, saying why', () => {
@@ -43,10 +57,11 @@ describe('reading a .cube', () => {
     expect(readCube(cube(['LUT_3D_SIZE 2'], INVERT.slice(1)))).toEqual({ ok: false, problem: 'rows' });
     expect(readCube(cube(['LUT_3D_SIZE 2'], [...INVERT.slice(1), '0 0']))).toEqual({ ok: false, problem: 'rows' });
     expect(readCube(cube(['LUT_3D_SIZE 2'], [...INVERT.slice(1), '0 0 x']))).toEqual({ ok: false, problem: 'rows' });
-    // A keyword between the rows.
+    // A keyword between the rows (one after the last is fine, above).
     expect(readCube(cube(['LUT_3D_SIZE 2'], [...INVERT.slice(0, 4), 'TITLE "late"', ...INVERT.slice(4)]))).toEqual({ ok: false, problem: 'rows' });
     expect(readCube(cube(['LUT_3D_SIZE 2', 'DOMAIN_MIN 0 0']))).toEqual({ ok: false, problem: 'domain' });
     expect(readCube(cube(['LUT_3D_SIZE 2', 'DOMAIN_MIN 1 1 1', 'DOMAIN_MAX 0 0 0']))).toEqual({ ok: false, problem: 'domain' });
+    expect(readCube(cube(['LUT_3D_SIZE 2', 'DOMAIN_MAX 1 x 1']))).toEqual({ ok: false, problem: 'domain' });
   });
 
   it('names a LUT by its file without .cube, and its SHA-256 by the file’s text as it was', async () => {
@@ -84,8 +99,9 @@ describe('LUTs in the project file', () => {
     await apply(project.file, [{ kind: 'update', id: 'v1', set: { lut: id } }], { alsoWrite: lutStatements(id, prepared.lut, new Date()) });
     expect(await lutWithSha(project.file, prepared.lut.sha256)).toBe(id);
     expect(await listLuts(project.file)).toEqual([{ id, sha256: prepared.lut.sha256, name: 'Invert', fileName: 'Invert.cube' }]);
-    // The text ffmpeg reads, and the hash the copy's key takes; the stored text is the file's own.
-    expect(await lutForCopy(project.file, id)).toEqual({ sha256: prepared.lut.sha256, cube: cube(['LUT_3D_SIZE 2']) });
+    // The text ffmpeg reads, and the copy's key takes its hash, not the file's: a title or a comment changes no grade.
+    const forCopy = cube(['LUT_3D_SIZE 2']);
+    expect(await lutForCopy(project.file, id)).toEqual({ sha256: createHash('sha256').update(forCopy).digest('hex'), cube: forCopy });
     const [row] = await project.file.query('SELECT cube, byte_size FROM luts');
     expect(row).toEqual({ cube: prepared.lut.cube, byte_size: prepared.lut.cube.length });
     // Stored again under another id (a second load raced the first): the one there stays, the other is ignored.
