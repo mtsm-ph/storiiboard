@@ -377,6 +377,16 @@ project exports; a JSON that isn't project data is refused in words, end to end.
 been measured on a real webview (a Phase 2 gate check); an empty blob reads as null on the desktop (none exist today);
 a failed import's empty file (above).
 
+Round 2: no high; two mediums fixed, both in round 1's fixes. The size estimate counts characters, but the limit is
+bytes (accents, quotes escaped in JSON text), so a project just under it could still write a JSON the import refuses:
+the bytes themselves are checked before the file is written, the estimate kept as the early refusal. Every failed
+import transaction was said as a bad file, a full disk or a sync included: only SQLite refusing the rows (a constraint,
+a value of the wrong kind) is; anything else is said as it is. Lows fixed: the mid-read test counts its two passes and
+finds the edit in the frame's own row; the reorder test says what it reorders (rows within a table); the too-large
+words name the History as well as the pictures. Lows left: an import holds the parsed file and its statements at once
+(the gate's memory check); in the browser build a file input that never says Cancel holds the import guard until a
+reload; Compact during an export isn't seen by the change count (both open from different tiles; unlikely).
+
 
 ### 2.8b: review
 

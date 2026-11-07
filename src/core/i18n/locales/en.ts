@@ -501,7 +501,7 @@ export const en = {
   'export.json.fileWord': 'project data',
   'export.json.reading': 'Reading the whole project…',
   'export.json.what': 'the whole project',
-  'export.json.tooLarge': 'This project is too large to export as one JSON file that could be imported again: its pictures come to more than about 300 MB.',
+  'export.json.tooLarge': 'This project is too large to export as one JSON file that could be imported again: its pictures and History come to more than about 300 MB.',
   'export.json.changing': 'The project kept changing while it was read, so nothing was exported. Wait for pictures and stills to finish, then export again.',
   'export.wholeProject': 'All of it: every scene and frame, the Trash, the History and named versions, pictures and LUTs, and everyone’s contact details. No watermark. Share it as you would the project file.',
   'projectJson.notJson': '“{name}” isn’t a JSON file Storiiboard can read.',

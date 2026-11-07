@@ -119,12 +119,12 @@ function projectJsonWords(error: ProjectJsonError, name: string): string {
   }
 }
 
+let importing = false;
+
 /**
  * Import project data… (2.9): a project's JSON export made into a new project, at the place the Save dialog picks,
  * then opened. The JSON is checked before anything is made; the new file holds exactly what the exported one did.
  */
-let importing = false;
-
 export async function importProjectData(): Promise<void> {
   // One at a time: a second click while one is read or written does nothing.
   if (importing) return;

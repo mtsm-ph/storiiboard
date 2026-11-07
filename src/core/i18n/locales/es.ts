@@ -503,7 +503,7 @@ export const es: Messages = {
   'export.json.fileWord': 'datos del proyecto',
   'export.json.reading': 'Leyendo el proyecto entero…',
   'export.json.what': 'el proyecto entero',
-  'export.json.tooLarge': 'Este proyecto es demasiado grande para exportarlo como un archivo JSON que se pueda volver a importar: sus imágenes pasan de unos 300 MB.',
+  'export.json.tooLarge': 'Este proyecto es demasiado grande para exportarlo como un archivo JSON que se pueda volver a importar: sus imágenes y su historial pasan de unos 300 MB.',
   'export.json.changing': 'El proyecto siguió cambiando mientras se leía, así que no se exportó nada. Espera a que terminen las imágenes y los fotogramas, y exporta de nuevo.',
   'export.wholeProject': 'Todo: cada escena y cuadro, la papelera, el historial y las versiones con nombre, imágenes y LUT, y los datos de contacto de todos. Sin marca de agua. Compártelo como compartirías el archivo del proyecto.',
   'projectJson.notJson': '“{name}” no es un archivo JSON que Storiiboard pueda leer.',

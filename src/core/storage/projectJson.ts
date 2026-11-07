@@ -348,6 +348,12 @@ function fillStatements(data: ProjectJson, schema: Map<string, Column[]>): State
   return statements;
 }
 
+/** Whether a failed transaction was SQLite refusing the rows themselves, not the disk or the app failing. */
+function refusesData(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /constraint failed|cannot store|datatype mismatch|malformed JSON/i.test(message);
+}
+
 /**
  * Makes a new .sbd at `path` holding exactly the JSON's project, at the JSON's schema; opening it then upgrades it as
  * any older file is (project.ts). Refuses a path that's taken. The rows go in in one transaction, so none or all of
@@ -362,9 +368,11 @@ export async function importProjectJson(driver: SqlDriver, path: string, data: P
     const statements = fillStatements(data, await schemaOf(file));
     try {
       await file.tx(statements);
-    } catch {
-      // SQLite's own refusal (a row naming a picture that isn't there, a value of the wrong kind): the data doesn't fit.
-      throw new ProjectJsonError('tables');
+    } catch (error) {
+      // SQLite's own refusal of the rows (a thumbnail of a picture that isn't there, a value of the wrong kind): the
+      // data doesn't fit. Anything else (a full disk, a sync, memory) is said as it is.
+      if (refusesData(error)) throw new ProjectJsonError('tables');
+      throw error;
     }
   } finally {
     await file.close();

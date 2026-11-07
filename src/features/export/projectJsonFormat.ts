@@ -31,6 +31,8 @@ export const projectJsonFormat: ExportFormat = {
       throw error;
     }
     signal.throwIfAborted();
+    // The estimate counts characters; the file is bytes (accents, escaped quotes), so the bytes themselves decide.
+    if (bytes.length > MAX_IMPORT_CHARS) throw new Error(t('export.json.tooLarge'));
     await target.write(exportName(title, null, t('export.json.fileWord'), 'json'), bytes);
     return { what: t('export.json.what') };
   },

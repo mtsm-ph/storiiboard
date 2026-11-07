@@ -207,7 +207,8 @@ describe('project data as JSON (2.9)', () => {
     const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
     const { thumbnails, media_files: pictures, op_groups: groups, ...rest } = data.tables;
     if (!thumbnails || !pictures || !groups) throw new Error('tables');
-    // Thumbnails before their pictures, and every op group before the ones it names: only deferred checks take it.
+    // Every op group before the earlier ones it names (undo_top, stack_below): only checks deferred to the commit
+    // take it. (Tables go in in the schema's order whatever the JSON's, so it's rows within a table that can be out.)
     const reordered: ProjectJson = { ...data, tables: { thumbnails, ...rest, op_groups: { ...groups, rows: [...groups.rows].reverse() }, media_files: pictures } };
     const copy = folder.path('Reordered.sbd');
     await importProjectJson(nodeDriver, copy, reordered, at());
@@ -230,8 +231,10 @@ describe('project data as JSON (2.9)', () => {
     };
     // Once, between tables: read again, and the JSON has the edit, its frame and its step together.
     let landed = false;
+    let passes = 0;
     const pending: Promise<void>[] = [];
     const chunks = await projectJsonChunks(project.file, at(), (table) => {
+      if (table === 'meta') passes += 1;
       if (table === 'ops' && !landed) {
         landed = true;
         pending.push(edit());
@@ -239,7 +242,10 @@ describe('project data as JSON (2.9)', () => {
     });
     await Promise.all(pending);
     const text = chunks.join('');
-    expect(text).toContain('take 1');
+    expect(passes).toBe(2);
+    // The frame and its step from the same read.
+    const records = readProjectJson(text).tables.records;
+    expect(records?.rows.some((row) => row[0] === 's1' && JSON.stringify(row).includes('take 1'))).toBe(true);
     expect(readProjectJson(text).tables.ops?.rows.some((row) => JSON.stringify(row).includes('take 1'))).toBe(true);
     // Every time: refused, rather than a JSON that might not import.
     const always: Promise<void>[] = [];
@@ -254,6 +260,7 @@ describe('project data as JSON (2.9)', () => {
   it('knows about how large the JSON will be before it reads it', async () => {
     const size = await projectJsonSize(project.file);
     const actual = (await projectJsonBytes(project.file, at())).length;
+    // An estimate for the early refusal; the bytes themselves decide just before the file is written.
     expect(size).toBeGreaterThan(actual * 0.8);
     expect(size).toBeLessThan(actual * 1.6);
   });
