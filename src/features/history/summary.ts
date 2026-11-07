@@ -1,6 +1,7 @@
 import { mediaFields } from '../../core/media/store';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
+import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -82,6 +83,12 @@ const FIELD: Readonly<Record<string, string>> = labels({
   client: 'history.field.client',
   deliverables: 'history.field.deliverables',
   company: 'history.field.company',
+  address: 'history.field.address',
+  contact_name: 'history.field.contactName',
+  contact_phone: 'history.field.contactPhone',
+  contact_email: 'history.field.contactEmail',
+  parking: 'history.field.parking',
+  power: 'history.field.power',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -165,7 +172,10 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
 const choiceLabel = (prop: string, value: string): string => {
-  const table = CHOICE[prop];
+  // A location's status (TBD, confirmed, cancelled, 3.3) shares the prop with a frame's (have, need, source): the codes
+  // never overlap. Each table read as it is, so the words follow the language now, never the one at load.
+  const table: Readonly<Record<string, string>> | undefined =
+    prop === 'status' && Object.hasOwn(LOCATION_STATUS_LABEL, value) ? LOCATION_STATUS_LABEL : CHOICE[prop];
   const label = table && Object.hasOwn(table, value) ? (table[value] ?? value) : value;
   return CAPITALISED.has(prop) ? label.charAt(0).toUpperCase() + label.slice(1) : label;
 };
@@ -296,8 +306,18 @@ export const changeLabel = (change: FieldChange): string =>
  * A change's value. A custom field that isn't on the frame at all reads "no field", apart from an empty one (`—`):
  * putting back one takes the field off, the other keeps it.
  */
+/**
+ * Contact details and addresses (a location's, 3.3; call sheets treat them as private): History names the field and
+ * says it was set, changed or removed, never the value, since History feeds notifications.
+ */
+const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email']);
+const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
+  isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
+
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change)
+  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+    ? privateValue(change, value)
+    : isStatus(change)
     ? statusText(value)
     : isClient(change)
       ? clientValue(change, value, false)
@@ -306,7 +326,9 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
         : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change)
+  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+    ? privateValue(change, value)
+    : isStatus(change)
     ? statusText(value)
     : isClient(change)
       ? clientValue(change, value, true)
@@ -314,7 +336,7 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
         ? deliverableText(value, true)
         : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
-  change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
+  change.key === undefined && !PRIVATE_PROPS.has(change.prop) ? valuePart(change.prop, value) : changeValue(change, value);
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null): Part {

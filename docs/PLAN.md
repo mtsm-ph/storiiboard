@@ -39,7 +39,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 |---|---|---|---|
 | 3.1 Project details | Logline, format, runtime, stage (Notion's pipeline, apart from state), client contact, deliverables checklist; the Project panel | #88 | Done |
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
-| 3.3 Locations | The Locations tile: list and editor (address as text, contacts, parking and power notes, status, photos, custom fields), a shot's location over its scene's, Open in Maps, the Trash | | Not started |
+| 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
+| 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | | Not started |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Not started |
 | 3.5 Cast and crew, Team | People with departments, roles, titles and contacts (private: never logged); characters linked to cast; the Team section; you in Cast & crew in place of the local project role | | Not started |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
@@ -52,6 +53,19 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), and scene character lists
 as ids (it alters existing data).
+
+3.3a as built (Nov 7): the Locations tile (`src/features/locations/`, `src/core/model/location.ts`).
+- The Production workspace's Locations tile lists the project's locations (status, how many scenes are set there),
+  with + New location; the one picked opens in an editor: name, status (TBD, Confirmed, Cancelled), address, contact
+  (name, phone, email), parking, power and notes, each one edit when it's left, and the scenes set there. A location
+  typed on a scene from the "/" menu is the same record, so a change here is a change for every scene there.
+- Copy map link puts an OpenStreetMap search for its address on the clipboard: nothing is looked up from the app (the
+  Nominatim search is 3.4). Opening the link in the browser needs Tauri's opener plugin, a new dependency, so it
+  waits for Kevin (docs/PHASE3_DECISIONS.md 1).
+- Delete location sends it to the Trash (a new kind there: listed, filtered, restored, and cleared by Empty Trash); its
+  scenes keep their link, so Restore brings them back with it, and views read them as having no location meanwhile.
+- Tests: fields read, the list with its live scenes, the map link, the edits (one each, none when nothing changes);
+  end to end, a location set from the "/" menu edited, undone, a new one named, Delete and Restore, axe light and dark.
 
 3.2 as built (Nov 7): company profiles (`src/core/model/company.ts`, `src/app/company/`).
 - Settings → App gains Company profiles: production companies (name, address, phone, email, website, logo) saved on

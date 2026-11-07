@@ -4,7 +4,7 @@ import { isSceneNumber, sceneFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import type { Script, ScriptScene } from '../../core/script/script';
-import { compareSceneNumbers, locations } from '../storyboard/board';
+import { compareSceneNumbers, locations, trashedLocationNamed } from '../storyboard/board';
 import { t } from '../../core/i18n';
 
 // From a parsed script to the project (1.17): a scene shell for every scene the board doesn't have yet, with its
@@ -179,6 +179,13 @@ export function importChanges(records: Records, projectId: string, plan: ImportP
   const placeIds = new Map([...liveNames(records, projectId, 'location')].map(([k, v]) => [k, v.id]));
   let placeKey = lastKey('location');
   for (const name of plan.locations.created) {
+    // One in the Trash by that name comes back, its address and contact with it, rather than a second (3.3).
+    const trashed = trashedLocationNamed(records, projectId, name);
+    if (trashed) {
+      changes.push({ kind: 'restore', id: trashed.id });
+      placeIds.set(key(name), trashed.id);
+      continue;
+    }
     const made = create('location', { name }, placeKey);
     placeKey = made.sortKey;
     placeIds.set(key(name), made.id);

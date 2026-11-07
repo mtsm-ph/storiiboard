@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cx } from './cx';
 import { ChevronGlyph } from './glyphs';
 
@@ -23,6 +23,24 @@ export function TextField({ label, mono = false, type = 'text', ...rest }: TextF
         {...rest}
       />
     </label>
+  );
+}
+
+interface TextAreaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'> {
+  label: string;
+}
+
+/** A labelled text box of a few lines, as TextField is one line: notes, an address. */
+export function TextArea({ label, rows = 2, ...rest }: TextAreaProps) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-[5px]">
+      <label htmlFor={id} className="sb-label">
+        {label}
+      </label>
+      {/* Its own id, last, so the label always points at it. */}
+      <textarea rows={rows} className="w-full border border-text bg-surface-raised px-2.5 py-2 text-[13px] text-text" {...rest} id={id} />
+    </div>
   );
 }
 

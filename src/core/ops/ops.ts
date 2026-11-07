@@ -501,7 +501,7 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
  * trashed too but isn't in the Trash (1.13, 1.20): it goes only with its frame, so a frame still on the board keeps
  * its sketch's History.
  */
-const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media']);
+const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media', 'location']);
 
 /** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note or picture (not what's under them). */
 export function trashedRoots(records: readonly SbdRecord[]): string[] {

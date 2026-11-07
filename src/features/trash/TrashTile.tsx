@@ -2,18 +2,18 @@ import { useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { emptyTrashConfirmed } from '../../app/deleteForGood';
 import { switchedMessage } from '../../app/forGood';
-import { showInfo } from '../../app/notice';
+import { showInfo, showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { oldCompanyLogos, restoreChanges, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
 // undone. Any workspace can open it from the Layout menu; it's in no default layout (CLAUDE.md).
 
-const KINDS: readonly TrashKind[] = ['scene', 'frame', 'note', 'picture'];
+const KINDS: readonly TrashKind[] = ['scene', 'frame', 'note', 'picture', 'location'];
 
 /** "Today 14:05", "Yesterday 09:12", or "Nov 2 14:05", in the person's own time. */
 function when(iso: string, now = new Date()): string {
@@ -71,6 +71,11 @@ export function TrashTile() {
 
   const restore = (id: string, name: string, index: number) => {
     if (restoring.current) return;
+    const clash = restoreClash(projectStore.getState().records, id);
+    if (clash) {
+      showNotice(new Error(t('trash.locationClash', { name: clash })));
+      return;
+    }
     restoring.current = true;
     let restored = false;
     void projectStore
