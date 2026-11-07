@@ -83,8 +83,11 @@ async function loadNow(videoId: string): Promise<void> {
   }
 }
 
-/** The project's LUTs, by name, for the inspector's list; read again as LUTs are stored and projects change. */
-export function useProjectLuts(): readonly LutRow[] {
+/**
+ * The project's LUTs, by name, for the inspector's list; read again as LUTs are stored and projects change. `listed`:
+ * read for this project (until then, a LUT the video names may only be still on its way).
+ */
+export function useProjectLuts(): { rows: readonly LutRow[]; listed: boolean } {
   const project = useProject((s) => s.project);
   const version = useStore(stored, (s) => s.version);
   const [rows, setRows] = useState<{ for: unknown; rows: readonly LutRow[] }>({ for: null, rows: [] });
@@ -100,5 +103,5 @@ export function useProjectLuts(): readonly LutRow[] {
       live = false;
     };
   }, [project, version]);
-  return rows.for === project ? rows.rows : [];
+  return rows.for === project ? { rows: rows.rows, listed: true } : { rows: [], listed: false };
 }

@@ -75,7 +75,7 @@ export interface InspectorVideo {
    * Its LUT (2.5): the one set (null for none) and the project's LUTs to pick from. Every frame of the take shows it;
    * it grades the playback copy, never the original.
    */
-  lut?: { id: string | null; choices: readonly { id: string; name: string }[] };
+  lut?: { id: string | null; choices: readonly { id: string; name: string }[]; listed?: boolean };
 }
 
 /** A video's playback copy (2.3b): none yet, waiting its turn, being made (how far, 0 to 1, when known), made (without
@@ -248,7 +248,7 @@ interface SectionProps {
 
 /**
  * A video's LUT (2.5): the project's LUTs to pick from, with None, and Load LUT… for a `.cube` not loaded yet. A LUT
- * the list hasn't read yet is still shown as set.
+ * the list hasn't read yet is still shown as set; one not in it once read says so.
  */
 function LutPicker({
   lut,
@@ -271,7 +271,8 @@ function LutPicker({
           }}
         >
           <option value="">{t('inspector.lutNone')}</option>
-          {!known && lut.id !== null && <option value={lut.id}>{t('inspector.lutReading')}</option>}
+          {/* Not in the list: still being read, or (once read) named but not stored, a file edited by hand. */}
+          {!known && lut.id !== null && <option value={lut.id}>{lut.listed ? t('inspector.lutMissing') : t('inspector.lutReading')}</option>}
           {lut.choices.map((choice) => (
             <option key={choice.id} value={choice.id}>
               {choice.name}

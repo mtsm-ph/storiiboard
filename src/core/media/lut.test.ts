@@ -32,6 +32,8 @@ describe('reading a .cube', () => {
     // Comments after a row or a keyword, and a keyword after the last row, as some tools write them.
     const noted = readCube(['LUT_3D_SIZE 2 # 2 points', ...INVERT.map((row, i) => (i === 0 ? `${row} # black in` : row)), 'TITLE "after"', ''].join('\n'));
     expect(noted).toEqual({ ok: true, size: 2, forCopy: cube(['LUT_3D_SIZE 2']) });
+    // Anything after a keyword past the last row is left, as ffmpeg leaves it.
+    expect(readCube([cube(['LUT_3D_SIZE 2']), 'TITLE "x"', '0 0 0', ''].join('\n'))).toEqual({ ok: true, size: 2, forCopy: cube(['LUT_3D_SIZE 2']) });
   });
 
   it('refuses a domain FFmpeg’s lut3d can’t apply as the file means it', () => {

@@ -350,6 +350,14 @@ read as lut3d reads them; the end-to-end test now tells a copy found from one ma
   app gave up on can hold its folder until it exits.
 - No unit tests of `chooseLut` or of the picker's "Reading the LUT…" state.
 
+Round 2: no high; the round-1 fixes held. One medium fixed: History showed a LUT change as "lut", untranslated, with
+the row's id as its value; it reads "LUT" and "a LUT" now, in both languages, tested. Lows fixed: a video naming a LUT
+that isn't stored says so in the list ("LUT not in the project") rather than "Reading the LUT…" for good; rows after a
+keyword past the last row are left, as ffmpeg leaves them. Lows left: untagged HD footage is read as BT.601 by lut3d's
+conversion and the graded copy is tagged BT.709, so a browser may show a slight hue shift between the graded copy and
+the one as shot (camera files are tagged); in a browser that never fires a file input's `cancel`, a cancelled dialog
+would hold later loads on that page (current Chromium, Firefox and WebKit fire it).
+
 ### 2.4: review
 
 Round 1 (Nov 7): four mediums, fixed with tests. The timecode read one frame early while playing in Chromium (media

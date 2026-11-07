@@ -60,7 +60,10 @@ export function readCube(text: string): { ok: true; size: number; forCopy: strin
   let min = [0, 0, 0];
   let max = [1, 1, 1];
   const rows: string[] = [];
+  // Past the last row and a keyword after it, ffmpeg reads no further, so neither does this.
+  let ended = false;
   for (const raw of text.split(/\r\n|\r|\n/)) {
+    if (ended) break;
     // A comment can follow a row or a keyword too.
     const line = raw.replace(/#.*/, '').trim();
     if (line === '') continue;
@@ -73,7 +76,10 @@ export function readCube(text: string): { ok: true; size: number; forCopy: strin
       continue;
     }
     // Keywords come before the rows; after the last one, ffmpeg reads no further.
-    if (size !== null && rows.length === size ** 3) continue;
+    if (size !== null && rows.length === size ** 3) {
+      ended = true;
+      continue;
+    }
     if (rows.length > 0) return { ok: false, problem: 'rows' };
     if (word === 'LUT_1D_SIZE') return { ok: false, problem: 'oneD' };
     if (word === 'LUT_3D_SIZE') {
