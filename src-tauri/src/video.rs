@@ -1136,6 +1136,13 @@ mod tests {
             .unwrap();
         assert!(status.success());
         let peaks = track_peaks(&take, &[0, 1, 2], 60.0).unwrap();
+        // Its length not known: only its first 40 s are read, so the lav (40 to 45 s) isn't heard.
+        let start = track_peaks(&take, &[1], 0.0).unwrap();
+        assert!(
+            start[0] <= SILENT_DB,
+            "no more than 40 s read: {}",
+            start[0]
+        );
         assert!(peaks[0] <= SILENT_DB, "the empty input: {}", peaks[0]);
         assert!(
             peaks[1] > -10.0,

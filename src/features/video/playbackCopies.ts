@@ -331,7 +331,8 @@ export function useCopy(videoId: string | null): CopyState {
   const state = useStore(copiesStore, (s) => (videoId ? (s.byVideo[videoId] ?? UNKNOWN) : UNKNOWN));
   const path = useStore(projectStore, (s) => {
     const record = videoId ? s.records[videoId] : undefined;
-    return record?.type === 'media' ? (videoFields(record.props)?.sourcePath ?? null) : null;
+    // Null in the Trash, so a restore counts as a change and the copy is looked for again.
+    return record?.type === 'media' && record.trashedAt === null ? (videoFields(record.props)?.sourcePath ?? null) : null;
   });
   useEffect(() => {
     if (videoId) lookUp(videoId);

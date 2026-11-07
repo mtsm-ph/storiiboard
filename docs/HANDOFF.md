@@ -286,7 +286,9 @@ Lows deferred (noted, not planned yet):
    allowance), and lows (a track ffmpeg says nothing of is kept; the Trash no longer stops a copy; two tests made able
    to fail). Left as lows: a Cancel during the listening waits for it to end (up to 90 s on a share that stopped
    answering), as the sound checks do; a relink undone before its old copy finishes makes that copy again from the
-   start.
+   start. Review round 2: lows only, fixed (a restore from the Trash makes the inspector look again at once; the
+   40 s cap on a take of unknown length tested); the hook-level test of that restore waits for a DOM test library
+   (a new dependency, Kevin's call).
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
