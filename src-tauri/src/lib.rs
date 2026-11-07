@@ -81,6 +81,38 @@ pub fn run() {
             export::export_choose_folder,
             export::export_write,
         ])
+        // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
+        // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.
+        .register_asynchronous_uri_scheme_protocol(
+            playback::COPY_SCHEME,
+            |ctx, request, responder| {
+                let app = ctx.app_handle().clone();
+                let path = request.uri().path().to_owned();
+                let range = request
+                    .headers()
+                    .get("range")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned);
+                thread::spawn(move || {
+                    let answer = playback::serve_copy(
+                        &app.state::<playback::PlaybackCache>(),
+                        &path,
+                        range.as_deref(),
+                    );
+                    let mut response = tauri::http::Response::builder().status(answer.status);
+                    for (name, value) in answer.headers {
+                        response = response.header(name, value);
+                    }
+                    let response = response.body(answer.body).unwrap_or_else(|_| {
+                        tauri::http::Response::builder()
+                            .status(500)
+                            .body(Vec::new())
+                            .unwrap_or_default()
+                    });
+                    responder.respond(response);
+                });
+            },
+        )
         // Files dragged over the window, and dropped as pictures the page may read (pictures.rs).
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(drag) = event {

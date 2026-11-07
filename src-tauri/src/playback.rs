@@ -13,7 +13,7 @@
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1033,6 +1033,20 @@ impl PlaybackCache {
         Ok(found)
     }
 
+    /// A finished copy by its file name (`<key>.mp4`, `-silent`, `-quiet`), in any folder of ours, for the Player (2.4);
+    /// nothing else on the computer is ever reached this way. None while the copies are being moved.
+    pub fn copy_named(&self, name: &str) -> Option<PathBuf> {
+        if ours(name).is_none_or(|found| found.partial) {
+            return None;
+        }
+        let _settled = self.settled()?;
+        let (now, _) = self.folder().ok()?;
+        std::iter::once(now)
+            .chain(self.all_folders())
+            .map(|folder| folder.join(name))
+            .find(|copy| copy.is_file())
+    }
+
     /// Puts a request for the copy of the video the page names `name` on the list, where Cancel finds it, before
     /// anything is read; off again when it drops. Once the app is quitting a request is stopped before it starts.
     pub fn ask(&self, name: &str) -> Asked {
@@ -1923,6 +1937,100 @@ fn tracks_that_play(path: &Path, tracks: &[usize], asked: &Asked) -> Vec<usize> 
     playing
 }
 
+/// The URL scheme the Player reads copies through (2.4): `sbdcopy://localhost/<copy's file name>` (on Windows,
+/// `http://sbdcopy.localhost/…`). It serves finished copies only, found by name in the copies' folders, so no other file
+/// is ever reached; and in slices, as a `<video>` asks for them, so a copy is never read into memory whole.
+pub const COPY_SCHEME: &str = "sbdcopy";
+/// The most one answer carries; a `<video>` asks again for the rest.
+const SLICE: u64 = 8 * 1024 * 1024;
+
+/// One answer of the copies' scheme.
+#[derive(Debug, PartialEq)]
+pub struct CopyAnswer {
+    pub status: u16,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Vec<u8>,
+}
+
+impl CopyAnswer {
+    fn bare(status: u16) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+}
+
+/// The bytes asked for, `first..=last`, as a `Range` header gives them ("bytes=a-b", "bytes=a-", "bytes=-n"), held to
+/// a slice; no header, the start. None: nothing of the copy is asked for (416).
+fn byte_range(header: Option<&str>, len: u64) -> Option<(u64, u64)> {
+    if len == 0 {
+        return None;
+    }
+    let (first, last) = match header {
+        None => (0, len - 1),
+        Some(header) => {
+            let (first, last) = header
+                .trim()
+                .strip_prefix("bytes=")?
+                .split(',')
+                .next()?
+                .split_once('-')?;
+            match (first.trim(), last.trim()) {
+                ("", suffix) => {
+                    let count: u64 = suffix.parse().ok()?;
+                    (len.saturating_sub(count), len - 1)
+                }
+                (first, "") => (first.parse().ok()?, len - 1),
+                (first, last) => (first.parse().ok()?, last.parse::<u64>().ok()?.min(len - 1)),
+            }
+        }
+    };
+    (first <= last && first < len).then(|| (first, last.min(first + SLICE - 1)))
+}
+
+/// The answer to a request for `path` (`/<copy's file name>`) with its `Range` header, if any.
+pub fn serve_copy(cache: &PlaybackCache, path: &str, range: Option<&str>) -> CopyAnswer {
+    let name = path.trim_start_matches('/');
+    let Some(copy) = cache.copy_named(name) else {
+        return CopyAnswer::bare(404);
+    };
+    let Ok(mut file) = fs::File::open(&copy) else {
+        return CopyAnswer::bare(404);
+    };
+    let len = file.metadata().map_or(0, |meta| meta.len());
+    let Some((first, last)) = byte_range(range, len) else {
+        let mut answer = CopyAnswer::bare(416);
+        answer
+            .headers
+            .push(("Content-Range", format!("bytes */{len}")));
+        return answer;
+    };
+    // The start of a play: the copy is in use, so the cap keeps it longer.
+    if first == 0 {
+        touch(&copy);
+    }
+    let mut body = vec![0; usize::try_from(last - first + 1).unwrap_or(0)];
+    if file.seek(SeekFrom::Start(first)).is_err() || file.read_exact(&mut body).is_err() {
+        return CopyAnswer::bare(500);
+    }
+    let whole = first == 0 && last == len - 1;
+    let mut headers = vec![
+        ("Content-Type", "video/mp4".to_owned()),
+        ("Accept-Ranges", "bytes".to_owned()),
+        ("Content-Length", body.len().to_string()),
+    ];
+    if !(whole && range.is_none()) {
+        headers.push(("Content-Range", format!("bytes {first}-{last}/{len}")));
+    }
+    CopyAnswer {
+        status: if whole && range.is_none() { 200 } else { 206 },
+        headers,
+        body,
+    }
+}
+
 /// Makes a video's playback copy (or finds it) and returns where it is, reporting progress on `progress`. The request
 /// goes on the list before the original is even checked, so a Cancel reaches it while a slow drive wakes.
 #[tauri::command]
@@ -2389,6 +2497,63 @@ mod tests {
                 (average + 12.0).abs() < 1.0,
                 "the other track alone (track {broken} broken): {average} dB"
             );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_the_bytes_a_range_asks_for_held_to_a_slice() {
+        assert_eq!(byte_range(None, 100), Some((0, 99)));
+        assert_eq!(byte_range(Some("bytes=10-19"), 100), Some((10, 19)));
+        assert_eq!(byte_range(Some("bytes=90-"), 100), Some((90, 99)));
+        assert_eq!(byte_range(Some("bytes=-30"), 100), Some((70, 99)));
+        assert_eq!(byte_range(Some("bytes=95-500"), 100), Some((95, 99)));
+        // Past the end, backwards, or not bytes: nothing.
+        assert_eq!(byte_range(Some("bytes=100-"), 100), None);
+        assert_eq!(byte_range(Some("bytes=20-10"), 100), None);
+        assert_eq!(byte_range(Some("items=0-1"), 100), None);
+        assert_eq!(byte_range(None, 0), None);
+        // A big copy, asked for whole: a slice at a time.
+        assert_eq!(
+            byte_range(Some("bytes=0-"), 10 * SLICE),
+            Some((0, SLICE - 1))
+        );
+        assert_eq!(byte_range(None, 10 * SLICE), Some((0, SLICE - 1)));
+    }
+
+    #[test]
+    fn serves_a_finished_copy_by_name_in_slices_and_nothing_else() {
+        let dir = temp_dir("serve");
+        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let (folder, _) = cache.folder().unwrap();
+        let name = format!("{}.mp4", "a".repeat(32));
+        let bytes: Vec<u8> = (0..=255).collect();
+        fs::write(folder.join(&name), &bytes).unwrap();
+        // Whole, with no range; then the bytes a range asks for.
+        let whole = serve_copy(&cache, &format!("/{name}"), None);
+        assert_eq!((whole.status, whole.body.len()), (200, 256));
+        let part = serve_copy(&cache, &format!("/{name}"), Some("bytes=16-31"));
+        assert_eq!(part.status, 206);
+        assert_eq!(part.body, bytes[16..=31]);
+        assert!(part
+            .headers
+            .contains(&("Content-Range", "bytes 16-31/256".to_owned())));
+        assert_eq!(
+            serve_copy(&cache, &format!("/{name}"), Some("bytes=300-")).status,
+            416
+        );
+        // Nothing that isn't a finished copy of ours: a partial, another file, a way out of the folder.
+        fs::write(folder.join(format!("{name}.partial")), b"half").unwrap();
+        fs::write(folder.join("notes.txt"), b"private").unwrap();
+        fs::write(dir.join("secret.mp4"), b"private").unwrap();
+        for path in [
+            format!("/{name}.partial"),
+            "/notes.txt".to_owned(),
+            "/../../secret.mp4".to_owned(),
+            format!("/../{}", name),
+            "/".to_owned(),
+        ] {
+            assert_eq!(serve_copy(&cache, &path, None).status, 404, "{path}");
         }
         let _ = fs::remove_dir_all(&dir);
     }
