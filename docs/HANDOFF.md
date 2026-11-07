@@ -347,6 +347,11 @@ the video in e2e, the error path's remake rule in unit tests, `find` ignoring a 
 can't-play test can't see the remake cap (the stand-in's copies never go missing); a copy removed by the cap says "can't
 be played" for a moment before it's queued again.
 
+Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
+with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
+passed them on Mac with the same code. Those three tests aren't about the encoder, so they now use the light one, as the
+sound tests do; the encoder's own tests still use VideoToolbox.
+
 ## Review stop A (after 2.4): Kevin's checklist, in this order
 
 On Kevin's own computers, with the 2.4 installers (or a dev build):

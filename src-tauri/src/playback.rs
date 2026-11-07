@@ -2308,7 +2308,8 @@ mod tests {
     /// 2.3c r1 to r4: a copy hung opening its session, and every encode after it); the other tests still use it.
     const LIGHT_ENCODER: [&str; 6] = ["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
 
-    /// A cache in `folder` whose copies use `LIGHT_ENCODER`.
+    /// A cache in `folder` whose copies use `LIGHT_ENCODER`: for the tests of sound, the queue, the stall watch and the
+    /// Move, which aren't about the encoder.
     fn sound_test_cache(folder: &Path) -> PlaybackCache {
         let mut cache = PlaybackCache::in_folder(folder);
         cache.encoders = vec![LIGHT_ENCODER.to_vec()];
@@ -2816,7 +2817,8 @@ mod tests {
     fn two_requests_for_one_video_share_one_copy_and_one_cancel_stops_both() {
         let dir = temp_dir("twice");
         let clip = pcm_clip(&dir, "C0052.mov");
-        let cache = Arc::new(PlaybackCache::in_folder(&dir.join("cache")));
+        // The queue is tested here, not the encoder: the light one (VideoToolbox wedges on the Mac runner).
+        let cache = Arc::new(sound_test_cache(&dir.join("cache")));
         let name = clip.to_string_lossy().into_owned();
         let encodes = Arc::new(AtomicU64::new(0));
         let ask = || {
@@ -3277,7 +3279,8 @@ ssize_t read(int fd, void *buf, size_t count) {
     fn stops_an_encode_that_says_nothing_for_the_stall_time_and_frees_the_turn() {
         let dir = temp_dir("stall");
         let clip = long_clip(&dir);
-        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        // The stall watch is tested here, not the encoder: the light one (VideoToolbox wedges on the Mac runner).
+        let mut cache = sound_test_cache(&dir.join("cache"));
         // Shorter than ffmpeg takes to say anything at all.
         cache.stall = Duration::from_millis(1);
         let started = Instant::now();
@@ -3342,7 +3345,8 @@ ssize_t read(int fd, void *buf, size_t count) {
         let dir = temp_dir("moving");
         // Its 2 GB copy goes even when an assertion fails (NTFS sets the space aside).
         let _gone = Gone(dir.clone());
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        // The Move is tested here, not the encoder: the light one (VideoToolbox wedges on the Mac runner).
+        let cache = sound_test_cache(&dir.join("cache"));
         let clip = pcm_clip(&dir, "C0062.mov");
         let made = cache.make(&clip, |_| {}).unwrap();
         // A copy over the 1 GB cap, used before the other one (sparse: no gigabytes written).
