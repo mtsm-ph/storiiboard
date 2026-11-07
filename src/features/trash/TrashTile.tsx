@@ -137,6 +137,8 @@ export function TrashTile() {
       {all.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
           {t('trashTile.theTrashIsEmptyFrames')}
+          {/* Not listed, but Empty Trash is on for them: said why. */}
+          {oldCompanyLogos(records, project.projectId) > 0 && ` ${tn('trash.oldLogosWaiting', oldCompanyLogos(records, project.projectId))}`}
         </p>
       ) : shown.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">

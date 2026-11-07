@@ -28,6 +28,7 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
   const records = useProject((s) => s.records);
   const written = useProject((s) => s.picturesWritten);
   const headingId = useId();
+  const section = useRef<HTMLElement>(null);
   // A ref, not state: a second click can land before the first re-renders.
   const working = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -63,6 +64,8 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
     };
   }, [file, sha256, written]);
   const shownLogo = sha256 && logoUrl?.sha256 === sha256 ? logoUrl : null;
+  // A copy whose logo isn't in the project any more (a hand-edited file, another tool): Update puts it back.
+  const changed = copy !== null && profile !== null && (profileChanged(copy, profile) || (copy.logoId !== null && logo === null));
 
   const run = async (work: () => Promise<unknown>) => {
     if (working.current) return;
@@ -72,9 +75,11 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
     try {
       await work();
       setPicked(null);
-      // The button pressed goes once its work is done (Attach once attached, Detach with the copy): focus to the menu.
+      // The button pressed goes once its work is done (Attach once attached, Detach with the copy): focus to the menu,
+      // unless the person has moved on to something else meanwhile.
       requestAnimationFrame(() => {
-        document.getElementById(menuId)?.focus();
+        const active = document.activeElement;
+        if (active === null || active === document.body || section.current?.contains(active)) document.getElementById(menuId)?.focus();
       });
     } catch (error) {
       setProblem(localizeError(error instanceof Error ? error.message : String(error)));
@@ -95,7 +100,7 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
   const detach = () => run(() => applyWith((now) => ({ changes: detachCompany(now, record.id) })));
 
   return (
-    <section aria-labelledby={headingId} className="flex max-w-[640px] flex-col gap-3 border-t border-text p-4">
+    <section ref={section} aria-labelledby={headingId} className="flex max-w-[640px] flex-col gap-3 border-t border-text p-4">
       <h3 id={headingId} className="sb-label">
         {t('company.production')}
       </h3>
@@ -177,7 +182,7 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
             ))}
           </dl>
           <div className="flex flex-wrap gap-2">
-            {profile && profileChanged(copy, profile) && (
+            {profile && changed && (
               <Button
                 aria-disabled={busy}
                 onClick={() => {
@@ -196,7 +201,7 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
               {t('company.detach')}
             </Button>
           </div>
-          {profile && !profileChanged(copy, profile) && <p className="text-[12px] text-text-muted">{t('company.upToDate')}</p>}
+          {profile && !changed && <p className="text-[12px] text-text-muted">{t('company.upToDate')}</p>}
         </div>
       )}
       {problem && (

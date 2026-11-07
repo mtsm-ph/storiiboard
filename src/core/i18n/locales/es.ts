@@ -655,6 +655,8 @@ export const es: Messages = {
   'trash.oldLogos.one': '{count} logo antiguo de empresa',
   'trash.oldLogos.other': '{count} logos antiguos de empresa',
   'trash.andOldLogos': '{items} y {logos}',
+  'trash.oldLogosWaiting.one': 'Un logo antiguo de empresa espera a que se vacíe la papelera.',
+  'trash.oldLogosWaiting.other': '{count} logos antiguos de empresa esperan a que se vacíe la papelera.',
   'trash.itemsHidden': '{items} ({hidden} que ocultan los filtros)',
   'trash.emptyConfirm': 'Esto borra para siempre {what}, con sus bocetos e imágenes.',
   'trash.emptyCantUndo': 'No se puede deshacer: el Historial no puede traerlos de vuelta, y Deshacer no pasa de este punto.',

@@ -653,6 +653,8 @@ export const en = {
   'trash.oldLogos.one': '{count} old company logo',
   'trash.oldLogos.other': '{count} old company logos',
   'trash.andOldLogos': '{items} and {logos}',
+  'trash.oldLogosWaiting.one': 'An old company logo is waiting to be cleared.',
+  'trash.oldLogosWaiting.other': '{count} old company logos are waiting to be cleared.',
   'trash.itemsHidden': '{items} ({hidden} hidden by the filters)',
   'trash.emptyConfirm': '{what} will be deleted for good, with their sketches and pictures.',
   'trash.emptyCantUndo': 'This can’t be undone, History can’t bring them back, and Undo won’t go back past it.',

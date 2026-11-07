@@ -371,6 +371,13 @@ the project keeps no logo mark, so it reads as differing from its profile and Up
 company lines keep the "picture removed" tag; the format doc names the `role` mark; tidier imports. Low left: a logo
 saved before the new 150k cap (dev builds only, before 3.2 shipped) is dropped on load.
 
+Round 3: no high, no medium; review done. Lows fixed: focus goes back to the menu after an action only if the person
+hasn't moved on; with only old logos waiting, the Trash tile and Settings → Storage say so beside the Empty Trash they
+turn on; a copy whose logo isn't in the project any more offers Update. Low left: after an Empty Trash of only old
+logos, the notice counts "0 items" (the space freed is still said). The screenshot baselines for Settings (its App
+tab now shows Company profiles) were regenerated on Linux and the Mac (`checkpoint/baselines-3.2-r1`) and committed;
+the Windows ones are Kevin's to regenerate (checklist item 7).
+
 ### 3.1: review
 
 Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last
