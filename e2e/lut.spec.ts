@@ -58,7 +58,7 @@ test('loads a LUT for the video, makes its graded copy, and undoes and redoes it
     const list = document.querySelector('[data-video-lut]');
     if (!list) return;
     new MutationObserver(() => {
-      for (const option of list.querySelectorAll('option')) seen.push(option.textContent ?? '');
+      for (const option of list.querySelectorAll('option')) seen.push(option.textContent);
     }).observe(list, { subtree: true, childList: true, characterData: true });
   });
   await loadLut(page, 'Invert.cube', INVERT);
