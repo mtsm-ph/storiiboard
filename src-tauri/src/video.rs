@@ -1080,11 +1080,33 @@ fn clip_timeout(frames: u64, fps_num: u32, fps_den: u32) -> Duration {
 /// put in place only once whole, so a clip given up on leaves nothing half made.
 pub fn save_clip(
     path: &Path,
-    (in_frame, out_frame): (u64, u64),
-    (fps_num, fps_den): (u32, u32),
+    frames: (u64, u64),
+    rate: (u32, u32),
     window: ClipWindow,
     lut: Option<&crate::playback::Lut>,
     dest: &Path,
+) -> Result<(), String> {
+    save_clip_with(
+        path,
+        frames,
+        rate,
+        (window, lut),
+        dest,
+        &crate::playback::encoders(),
+    )
+}
+
+/// `save_clip` with these encoders, tried in turn: the computer's in the app; in tests, FFmpeg's own MPEG-4, as the
+/// copies' tests do (playback.rs `LIGHT_ENCODER`), since VideoToolbox on the Mac runner's virtual GPU wedges once a
+/// run opens many sessions. What's tested here, the frames, the window, the sound and the files, doesn't depend on
+/// the encoder, whose own tests are the copies'.
+fn save_clip_with(
+    path: &Path,
+    (in_frame, out_frame): (u64, u64),
+    (fps_num, fps_den): (u32, u32),
+    (window, lut): (ClipWindow, Option<&crate::playback::Lut>),
+    dest: &Path,
+    encoders: &[Vec<&'static str>],
 ) -> Result<(), String> {
     if fps_num == 0 || fps_den == 0 {
         return Err("That video's frame rate can't be read.".into());
@@ -1119,7 +1141,7 @@ pub fn save_clip(
     );
     let partial = clip_partial(dest)?;
     let mut said = String::from(CANT_READ);
-    for encoder in crate::playback::encoders() {
+    for encoder in encoders {
         if let Err(stopped) = clip_stopped() {
             let _ = std::fs::remove_file(&partial);
             return Err(stopped);
@@ -1137,7 +1159,7 @@ pub fn save_clip(
             .args(["-map", "0:V:0", "-vf", &filter])
             .arg("-frames:v")
             .arg(frames.to_string())
-            .args(&encoder)
+            .args(encoder)
             .args(["-fps_mode", "cfr", "-r"])
             .arg(format!("{fps_num}/{fps_den}"));
         if has_audio {
@@ -2556,6 +2578,18 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A 25 fps clip saved with FFmpeg's own MPEG-4 (see `save_clip_with`).
+    fn light_clip(
+        take: &Path,
+        frames: (u64, u64),
+        window: ClipWindow,
+        lut: Option<&crate::playback::Lut>,
+        dest: &Path,
+    ) -> Result<(), String> {
+        let light = vec!["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
+        save_clip_with(take, frames, (25, 1), (window, lut), dest, &[light])
+    }
+
     #[test]
     fn saves_a_clip_frame_exact_framed_and_with_its_sound() {
         let dir = temp_dir("clip");
@@ -2599,7 +2633,7 @@ mod tests {
             height: 0.5,
         };
         let dest = dir.join("SC004_4A.mp4");
-        save_clip(&take, (10, 20), (25, 1), window, None, &dest).unwrap();
+        light_clip(&take, (10, 20), window, None, &dest).unwrap();
         let saved = probe(&dest).unwrap();
         // The frame's window, half the picture each way; frames 10 to 20, eleven of them; its sound with it.
         assert_eq!((saved.width, saved.height), (160, 90));
@@ -2643,7 +2677,7 @@ mod tests {
                 .to_owned(),
         };
         let graded = dir.join("SC004_4B.mp4");
-        save_clip(&take, (10, 20), (25, 1), window, Some(&invert), &graded).unwrap();
+        light_clip(&take, (10, 20), window, Some(&invert), &graded).unwrap();
         let first = i32::from(grey(&dir, &still(&graded, 0, 25, 1).unwrap()));
         assert!(
             (first - 175).abs() <= 8,
@@ -2668,7 +2702,7 @@ mod tests {
             .all(|entry| !entry.file_name().to_string_lossy().ends_with(".part")));
         // A backwards clip is refused, and makes nothing.
         let none = dir.join("SC004_4C.mp4");
-        assert!(save_clip(&take, (20, 10), (25, 1), window, None, &none).is_err());
+        assert!(light_clip(&take, (20, 10), window, None, &none).is_err());
         assert!(!none.exists());
         // One save at a time (the flags are the app's, so this is here, after this test's saves, not in a test of
         // its own that could run beside them). A refused second save leaves the first's Cancel as it was; a Cancel
@@ -2679,7 +2713,7 @@ mod tests {
         assert!(CLIP_STOP.load(std::sync::atomic::Ordering::SeqCst));
         let stopped = dir.join("SC004_4E.mp4");
         assert_eq!(
-            save_clip(&take, (10, 20), (25, 1), window, None, &stopped).unwrap_err(),
+            light_clip(&take, (10, 20), window, None, &stopped).unwrap_err(),
             CLIP_CANCELLED
         );
         assert!(!stopped.exists());
