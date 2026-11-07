@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VideoProbe } from '../../core/media/video';
-import { videoProps } from '../../core/media/video';
+import { relinkChange, videoProps } from '../../core/media/video';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
@@ -257,6 +257,75 @@ describe('the queue of playback copies', () => {
     first.resolve();
     await settle();
     expect(copiesStore.getState().byVideo).toEqual({});
+    expect(driver.make).toHaveBeenCalledTimes(1);
+  });
+
+  it('never keeps a copy of the file a video no longer points at: a relink, and its undo, while copies are made (2.3c)', async () => {
+    const [ofA, ofB, ofAAgain] = [pending(), pending(), pending()];
+    driver.make.mockImplementationOnce(ofA.impl).mockImplementationOnce(ofB.impl).mockImplementationOnce(ofAAgain.impl);
+    const at = (name: string) => ({ videoId: 'a', path: folder.path(`Footage/${name}`) });
+    makeCopy('a');
+    // Relinked to another file while its copy is made: that copy stops, and one of the new file is made.
+    await projectStore.getState().applyWith(() => ({
+      changes: [relinkChange('a', probe, { name: 'C0099.MP4', path: folder.path('Footage/C0099.MP4'), size: 1234 }, project.file.path)],
+    }));
+    expect(driver.cancel).toHaveBeenCalledWith(at('C0042.MP4'));
+    expect(state('a')).toEqual({ kind: 'queued' });
+    ofA.resolve();
+    await settle();
+    expect(driver.make.mock.calls[1]?.[0]).toEqual(at('C0099.MP4'));
+    // Undone while the new file's copy is made: it stops too, and its copy, finishing after, is never the video's.
+    await projectStore.getState().undo();
+    expect(driver.cancel).toHaveBeenCalledWith(at('C0099.MP4'));
+    // Every state the video goes through from here: C0099's copy, finishing after all, is never one of them.
+    const seen: string[] = [];
+    const stop = copiesStore.subscribe((s) => seen.push(s.byVideo.a?.kind ?? 'unknown'));
+    ofB.resolve();
+    await settle();
+    stop();
+    expect(seen).not.toContain('made');
+    expect(state('a')).toEqual({ kind: 'making', done: null });
+    ofAAgain.resolve();
+    await settle();
+    expect(driver.make.mock.calls.map(([source]) => source as { videoId: string; path: string })).toEqual([at('C0042.MP4'), at('C0099.MP4'), at('C0042.MP4')]);
+    expect(state('a')).toEqual({ kind: 'made', silent: false });
+  });
+
+  it('lets a copy carry on while its video is in the Trash, and looks for it again once it is back', async () => {
+    const copy = pending();
+    driver.make.mockImplementationOnce(copy.impl);
+    makeCopy('a');
+    await projectStore.getState().apply([{ kind: 'trash', id: 'a' }]);
+    // Not another file: nothing is stopped.
+    expect(driver.cancel).not.toHaveBeenCalled();
+    copy.resolve();
+    await settle();
+    // Made while it was in the Trash: not kept as its state then, so looked for again once restored.
+    expect(state('a')).toEqual({ kind: 'unknown' });
+    await projectStore.getState().undo();
+    expect(driver.make).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops what it knew of a video whose file changed, to look again', async () => {
+    driver.make.mockRejectedValueOnce(new Error('That video stopped being read partway.'));
+    makeCopy('a');
+    await settle();
+    expect(state('a')).toEqual({ kind: 'failed', message: 'That video stopped being read partway.' });
+    await projectStore.getState().applyWith(() => ({
+      changes: [relinkChange('a', probe, { name: 'C0099.MP4', path: folder.path('Footage/C0099.MP4'), size: 1234 }, project.file.path)],
+    }));
+    // The failure was the other file's.
+    expect(state('a')).toEqual({ kind: 'unknown' });
+  });
+
+  it('keeps a copy whose every sound track is silent as whole: asked for again, nothing to make', async () => {
+    driver.make.mockResolvedValue({ path: '/cache/copy.mp4', silent: true, quiet: true });
+    driver.find.mockResolvedValue({ path: '/cache/copy.mp4', silent: true, quiet: true });
+    makeCopy('a');
+    await settle();
+    expect(state('a')).toEqual({ kind: 'made', silent: true, quiet: true });
+    makeCopy('a');
+    await settle();
     expect(driver.make).toHaveBeenCalledTimes(1);
   });
 

@@ -32,8 +32,8 @@ use crate::video::{self, Access};
 /// The folder of copies, inside the cache folder or a folder the person picks.
 pub const FOLDER_NAME: &str = "Storiiboard Playback Copies";
 /// Changes when the way copies are made changes, so older copies are made again rather than played. 2.3-2: HDR
-/// tone-mapped (D1). 2.3-3: separate mono tracks mixed (2.3b).
-const RECIPE: &str = "2.3-3";
+/// tone-mapped (D1). 2.3-3: separate mono tracks mixed (2.3b). 2.3-4: silent ones left out of the mix (2.3c).
+const RECIPE: &str = "2.3-4";
 /// The long edge of a copy, at most.
 const LONG_EDGE: u32 = 1920;
 const DEFAULT_CAP_GB: u64 = 50;
@@ -331,7 +331,14 @@ fn file_name(key: &str, silent: bool) -> String {
     }
 }
 
-/// A file of ours in the folder, by its name: a finished copy (`<key>.mp4`, or `<key>-silent.mp4` without sound), or
+/// The file name of a copy without sound because every one of the original's sound tracks is silent (2.3c): whole as it
+/// is, nothing to try again, and the app says why.
+fn quiet_name(key: &str) -> String {
+    format!("{key}-quiet.mp4")
+}
+
+/// A file of ours in the folder, by its name: a finished copy (`<key>.mp4`, `<key>-silent.mp4` without sound, or
+/// `<key>-quiet.mp4` without sound as every track is silent), or
 /// one being made (`.partial` after either, or `<key>-<request>-<attempt>.mp4.partial`, each attempt its own).
 #[derive(Debug, PartialEq)]
 struct Ours<'a> {
@@ -355,7 +362,7 @@ fn ours(name: &str) -> Option<Ours<'_>> {
     }
     let silent = match &stem[32..] {
         "" => false,
-        "-silent" => true,
+        "-silent" | "-quiet" => true,
         attempt
             if partial
                 && attempt.len() > 1
@@ -737,11 +744,12 @@ pub struct Progress {
 }
 
 /// A finished copy: where it is, and whether it was made without sound because the original's sound couldn't be read
-/// (the app says so).
-#[derive(Debug, Clone, PartialEq)]
+/// (`silent`), or, also `quiet`, because every one of its sound tracks is silent (the app says which).
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Made {
     pub path: PathBuf,
     pub silent: bool,
+    pub quiet: bool,
 }
 
 /// `Made`, for the page.
@@ -750,6 +758,7 @@ pub struct Made {
 pub struct MadeCopy {
     pub path: String,
     pub silent: bool,
+    pub quiet: bool,
 }
 
 impl From<Made> for MadeCopy {
@@ -757,6 +766,7 @@ impl From<Made> for MadeCopy {
         Self {
             path: made.path.to_string_lossy().into_owned(),
             silent: made.silent,
+            quiet: made.quiet,
         }
     }
 }
@@ -998,14 +1008,25 @@ impl PlaybackCache {
         };
         let (now, _) = self.folder()?;
         let folders: Vec<PathBuf> = std::iter::once(now).chain(self.all_folders()).collect();
-        let found = [false, true].into_iter().find_map(|silent| {
-            let name = file_name(&key, silent);
-            folders
-                .iter()
-                .map(|folder| folder.join(&name))
-                .find(|copy| copy.is_file())
-                .map(|path| Made { path, silent })
-        });
+        // Whole first, then the one whose tracks are all silent (as good as whole), then one whose sound couldn't be read.
+        let found = [(false, false), (true, true), (true, false)]
+            .into_iter()
+            .find_map(|(silent, quiet)| {
+                let name = if quiet {
+                    quiet_name(&key)
+                } else {
+                    file_name(&key, silent)
+                };
+                folders
+                    .iter()
+                    .map(|folder| folder.join(&name))
+                    .find(|copy| copy.is_file())
+                    .map(|path| Made {
+                        path,
+                        silent,
+                        quiet,
+                    })
+            });
         if let Some(made) = &found {
             touch(&made.path);
         }
@@ -1036,7 +1057,9 @@ impl PlaybackCache {
     /// A copy found that serves as it is: a whole one, or one without sound whose sound was found unreadable in this
     /// run.
     fn ready(&self, found: Option<&Made>, key: &str) -> bool {
-        found.is_some_and(|made| !made.silent || lock(&self.checked_silent).contains(key))
+        found.is_some_and(|made| {
+            !made.silent || made.quiet || lock(&self.checked_silent).contains(key)
+        })
     }
 
     /// Makes the playback copy of a video, or finds the one already made; see `make_asked`. The tests' way in; the
@@ -1146,6 +1169,29 @@ impl PlaybackCache {
                 Vec::new()
             };
         let mut mix_tested = false;
+        // Silent ones left out (2.3c, Kevin): an FX6's two empty inputs don't halve its two live mics. Each track is
+        // listened to; the ones with sound are mixed, each at 1/N of them. None: a copy without sound that says why.
+        // If they can't be listened to now, all are mixed, as before, which never clips either.
+        let mut quiet = false;
+        if tracks.len() >= 2 {
+            if let Ok(peaks) = video::track_peaks(path, &tracks, seconds) {
+                tracks = tracks
+                    .iter()
+                    .zip(&peaks)
+                    // NaN (not heard either way) keeps the track: only a track heard to be silent is left out.
+                    .filter(|(_, &peak)| peak.is_nan() || peak > video::SILENT_DB)
+                    .map(|(&track, _)| track)
+                    .collect();
+                if tracks.is_empty() {
+                    quiet = true;
+                    sound = false;
+                    sound_tested = true;
+                }
+            }
+            if asked.stopped() {
+                return Err(CANCELLED.into());
+            }
+        }
         let mut stalled = false;
         let mut measured = false;
         let mut outcome = Err(Stop::Failed(Said::default()));
@@ -1276,22 +1322,30 @@ impl PlaybackCache {
             };
         }
         let silent = probe.has_audio && !sound;
-        let done = folder.join(file_name(&key, silent));
+        let done = folder.join(if quiet {
+            quiet_name(&key)
+        } else {
+            file_name(&key, silent)
+        });
         fs::rename(&partial, &done).map_err(|_| {
             let _ = fs::remove_file(&partial);
             UNWRITABLE.to_string()
         })?;
-        if silent {
+        if silent && !quiet {
             lock(&self.checked_silent).insert(key);
         } else {
-            // The sound reads now: the copy without it goes.
+            // The sound reads now (or is known silent): the copy without it goes.
             for folder in self.all_folders() {
                 let _ = fs::remove_file(folder.join(file_name(&key, true)));
             }
         }
         on_progress(1.0);
         self.keep_under_cap(&done);
-        Ok(Made { path: done, silent })
+        Ok(Made {
+            path: done,
+            silent,
+            quiet,
+        })
     }
 
     fn encode(
@@ -1300,6 +1354,10 @@ impl PlaybackCache {
         asked: &Asked,
         mut on_frame: impl FnMut(f64),
     ) -> Result<Said, Stop> {
+        // The tests on a Mac: one encode at a time, as the app makes them, which spares a CI runner's virtual GPU (its
+        // VideoToolbox wedges once a run opens many sessions; the sound tests leave it alone, LIGHT_ENCODER).
+        #[cfg(all(test, target_os = "macos"))]
+        let _one_at_a_time = mac_test_encode_turn();
         let (fps_num, fps_den) = run.rate;
         // Square pixels and the long-edge cap in one scale; deinterlaced first if the frames are interlaced. The
         // encoder's own pixel format comes with its options.
@@ -1813,6 +1871,14 @@ struct Run<'a> {
     tracks: &'a [usize],
 }
 
+/// The Mac tests' one turn to encode (see `encode`).
+#[cfg(all(test, target_os = "macos"))]
+fn mac_test_encode_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Separate mono tracks (Sony and Canon MXF keep each channel on its own) mixed into one stereo track that never
 /// clips (Kevin, Nov 6): each track at 1/N (`normalize`), a decibel to spare for the AAC encoder, and the same mix on
 /// both sides. A file with a single track, stereo or not, keeps it as it is. `tracks`: their indexes among the file's
@@ -2125,38 +2191,64 @@ mod tests {
         )
     }
 
+    /// The picture encoder for tests of the sound: FFmpeg's own MPEG-4, as on Linux. They test the sound, and on a CI
+    /// Mac the virtual GPU's VideoToolbox wedges once a run has opened many sessions in a row (checkpoints D2 and
+    /// 2.3c r1 to r4: a copy hung opening its session, and every encode after it); the other tests still use it.
+    const LIGHT_ENCODER: [&str; 6] = ["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
+
+    /// A cache in `folder` whose copies use `LIGHT_ENCODER`.
+    fn sound_test_cache(folder: &Path) -> PlaybackCache {
+        let mut cache = PlaybackCache::in_folder(folder);
+        cache.encoders = vec![LIGHT_ENCODER.to_vec()];
+        cache
+    }
+
     #[test]
     fn mixes_separate_mono_tracks_into_one_stereo_track_that_never_clips() {
         let dir = temp_dir("mono-tracks");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
-        // The second track alone has sound (a lavalier on CH2, CH1 left empty): the copy has it.
-        let second = tracks_clip(
-            &dir,
-            "C0080.mov",
-            &[
-                "anullsrc=r=48000:cl=mono:d=3",
-                "aevalsrc=0.5*sin(2*PI*1000*t):s=48000:d=3",
-            ],
-            "pcm_s24le",
+        let cache = sound_test_cache(&dir.join("cache"));
+        let silence = "anullsrc=r=48000:cl=mono:d=3";
+        let (low, high) = (
+            "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=3",
+            "aevalsrc=0.5*sin(2*PI*1000*t):s=48000:d=3",
         );
+        // A lavalier on CH2, CH1 left empty: the empty one is left out (2.3c), so the lav plays as its own track would:
+        // -9 dB on average, 3 dB less on each side as one track is spread over two. (Mixed with the empty one, -16.)
+        let second = tracks_clip(&dir, "C0080.mov", &[silence, high], "pcm_s24le");
         let (_, average, layout) = sound_of(&cache.make(&second, |_| {}).unwrap().path);
         assert_eq!(layout, [2], "one stereo track");
-        // -9 dB on average as its own track (a sine at half scale), 6 dB less as one of two, a decibel to spare. (The
-        // second track alone would be -12, the first alone silence.)
         assert!(
-            (average + 16.0).abs() < 1.0,
-            "the second track is heard: {average} dB"
+            (average + 12.0).abs() < 1.0,
+            "the second track alone, not halved: {average} dB"
+        );
+        // Two live mics: each at half, a decibel to spare, the same on both sides: two half-scale tones at a quarter
+        // each come to -12 dB, then -13.
+        let pair = tracks_clip(&dir, "C0086.mov", &[low, high], "pcm_s24le");
+        let (_, average, _) = sound_of(&cache.make(&pair, |_| {}).unwrap().path);
+        assert!((average + 13.0).abs() < 1.0, "the pair mixed: {average} dB");
+        // An FX6's four tracks, the last two empty: the live pair's own level, not a quarter each (-19).
+        let fx6 = tracks_clip(
+            &dir,
+            "C0087.mov",
+            &[low, high, silence, silence],
+            "pcm_s24le",
+        );
+        let (_, average, layout) = sound_of(&cache.make(&fx6, |_| {}).unwrap().path);
+        assert_eq!(layout, [2]);
+        assert!(
+            (average + 13.0).abs() < 1.0,
+            "the live pair's level: {average} dB"
         );
         // Hardware first, then software, as on Windows without a GPU: the first encoder's failure isn't the mix's, so
         // the second still mixes the tracks.
         let mut fallback = PlaybackCache::in_folder(&dir.join("fallback"));
-        fallback.encoders = vec![vec!["-c:v", "no_such_encoder"], encoders().pop().unwrap()];
-        let made = fallback.make(&second, |_| {}).unwrap();
+        fallback.encoders = vec![vec!["-c:v", "no_such_encoder"], LIGHT_ENCODER.to_vec()];
+        let made = fallback.make(&pair, |_| {}).unwrap();
         assert!(!made.silent);
         let (_, average, layout) = sound_of(&made.path);
         assert_eq!(layout, [2]);
         assert!(
-            (average + 16.0).abs() < 1.0,
+            (average + 13.0).abs() < 1.0,
             "still mixed after an encoder failed: {average} dB"
         );
         // Four tracks of the same full-scale tone, the loudest a mix can be: it never reaches full scale.
@@ -2172,9 +2264,30 @@ mod tests {
     }
 
     #[test]
+    fn a_video_whose_every_track_is_silent_gets_a_copy_without_sound_that_says_why_and_isnt_made_again(
+    ) {
+        let dir = temp_dir("all-silent");
+        let mut cache = sound_test_cache(&dir.join("cache"));
+        let silence = "anullsrc=r=48000:cl=mono:d=3";
+        let clip = tracks_clip(&dir, "C0088.mov", &[silence, silence], "pcm_s24le");
+        let made = cache.make(&clip, |_| {}).unwrap();
+        assert!(made.silent && made.quiet, "without sound, and why");
+        assert!(made.path.to_string_lossy().ends_with("-quiet.mp4"));
+        assert!(!video::probe(&made.path).unwrap().has_audio);
+        // Whole as it is: found again, and asked for again, nothing is made (an encoder that can't make anything
+        // isn't even tried).
+        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        cache.encoders = vec![vec!["-c:v", "no_such_encoder"]];
+        assert_eq!(cache.make(&clip, |_| {}).unwrap(), made);
+        // Not kept as an earlier copy after a failed attempt (which would mark it settled for this run): found whole.
+        assert!(!lock(&cache.checked_silent).contains(&key_of(&clip).unwrap()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn keeps_a_single_stereo_track_as_it_is() {
         let dir = temp_dir("stereo-track");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let cache = sound_test_cache(&dir.join("cache"));
         // A camera's own stereo track, a sine at half scale on each side (-9 dB on average): the copy plays it at the
         // same level, not mixed down.
         let stereo = tracks_clip(
@@ -2259,7 +2372,7 @@ mod tests {
     #[test]
     fn a_mono_track_that_wont_decode_leaves_the_copy_the_one_that_does() {
         let dir = temp_dir("mono-broken");
-        let cache = PlaybackCache::in_folder(&dir.join("cache"));
+        let cache = sound_test_cache(&dir.join("cache"));
         // The second track broken, then the first: either way the copy has the other one, never no sound.
         for (broken, name) in [(1, "C0083"), (0, "C0084")] {
             let clip = broken_track_clip(&dir, name, broken);
@@ -2642,7 +2755,8 @@ mod tests {
             kept,
             Made {
                 path: soundless,
-                silent: true
+                silent: true,
+                quiet: false
             }
         );
         let _ = fs::remove_dir_all(&dir);

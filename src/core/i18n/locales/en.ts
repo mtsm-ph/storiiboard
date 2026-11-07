@@ -1242,6 +1242,7 @@ export const en = {
   'inspector.copyMaking': 'Making the playback copy…',
   'inspector.copyProgress': 'Playback copy',
   'inspector.copyMade': 'Playback copy ready.',
+  'inspector.copyQuiet': 'Playback copy ready, without sound: every one of the video’s sound tracks is silent.',
   'inspector.copySilent': 'Playback copy ready, without sound: the video’s sound couldn’t be read.',
   'inspector.makeCopy': 'Make playback copy',
   'inspector.copyTryAgain': 'Try again',

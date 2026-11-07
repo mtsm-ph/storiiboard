@@ -46,6 +46,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #74 | 2.3a: the playback-copy engine (`src-tauri/src/playback.rs`); see "2.3a as built" in `docs/PLAN.md` |
 | #76 | D1: zimg and dav1d built into ffmpeg; HDR stills and copies tone-mapped to BT.709; AV1; see "D1 as built" |
 | #77 | D2: the free-space floor for copies; ffmpeg ends with the app, crash or not (`src-tauri/src/os.rs`); see "D2 as built" |
+| #79 | 2.3c: silent tracks left out of the mix; a relink's undo never leaves the other file's copy; see "2.3c as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -270,8 +271,6 @@ Lows deferred (noted, not planned yet):
   comes back (a Clear, a bigger cap, a lower floor).
 - Reopening the same project (after a sync conflict, say) stops the copy being made and drops the queue, as any project
   switch does; it could carry on instead.
-- An undo or a redo of a relink while the relinked file's copy is being made lets that copy finish and show as the
-  video's; a failure of it stays shown for the file put back.
 - After a mix that couldn't be checked (the file stopped answering) and a second failure, the sound test tries only
   the first track; an earlier copy without sound is likewise kept by a test of the first track only.
 - The cap or the floor going back after a failed save has no test that can fail: the unit tests draw the page once
@@ -282,6 +281,22 @@ Lows deferred (noted, not planned yet):
 
 ## Next steps, in order
 
+0. **2.3c** (PR #79, merged Nov 7; checkpoint r5 all green): silent tracks left out of the mix; a relink's undo never leaves the other file's
+   copy. Review round 1: two mediums fixed (five 4-second windows could miss a mic live for minutes of a long take,
+   and a take of unknown length was read whole: now forty 1-second windows, never more than 40 s read, its own 90 s
+   allowance), and lows (a track ffmpeg says nothing of is kept; the Trash no longer stops a copy; two tests made able
+   to fail). Left as lows: a Cancel during the listening waits for it to end (up to 90 s on a share that stopped
+   answering), as the sound checks do; a relink undone before its old copy finishes makes that copy again from the
+   start. Review round 2: lows only, fixed (a restore from the Trash makes the inspector look again at once; the
+   40 s cap on a take of unknown length tested); the hook-level test of that restore waits for a DOM test library
+   (a new dependency, Kevin's call).
+   Checkpoint r1: Windows green; the Mac's Rust tests failed four copies that stalled together, ffmpeg stuck in
+   VideoToolbox's service, as at D2: the runner's virtual GPU hangs when several encode sessions run at once, and 2.3c
+   added copies. The app makes one at a time; the Mac tests now do too (a test-only turn in `encode`). That alone
+   didn't do it (r4: the same four failed, the first hang at a different copy than r1's): VideoToolbox on the runner's
+   virtual GPU wedges once a run opens many sessions in a row, whichever copy it lands on. The sound tests, which test
+   the sound, now encode their picture with FFmpeg's own MPEG-4 (as on Linux), sparing about ten sessions; every
+   other test still uses VideoToolbox. The app is unchanged.
 1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
@@ -331,6 +346,11 @@ Lows deferred (noted, not planned yet):
 ## Decisions
 
 - **Pending for Kevin:** none.
+- **Decided by Kevin (Nov 7):** the defaults stand, with one change to the mix: silent tracks are left out (measured
+  first; each live track at 1/N of the live ones; all silent, the copy has no sound and says so), done in 2.3c. Fix the
+  relink-undo bug before 2.4 (done in 2.3c); the other two leftover 2.3b lows wait. Then 2.4, review stop A as a
+  checkpoint with a checklist without waiting, the rest of Phase 2 to its gate, then Phase 3 under the rules below,
+  stopping at its gate. A report after every milestone; this file kept current.
 - **Decided by Kevin (Nov 6):** a copy of a file whose sound is several mono tracks (Sony and Canon MXF) mixes them all
   into one stereo track, its gain kept low enough that it never clips; a file with a single stereo track stays as it
   is (2.3b).

@@ -131,6 +131,8 @@ describe('the Frame inspector’s Video section (2.2b)', () => {
       expect(withCopy({ state: 'made', silent: false })).toContain('Playback copy ready.');
       expect(withCopy({ state: 'made', silent: true })).toContain('Playback copy ready, without sound: the video’s sound couldn’t be read.');
       expect(withCopy({ state: 'made', silent: false })).not.toContain('data-make-copy');
+      // Every sound track silent (2.3c): said so, not taken for sound that couldn't be read.
+      expect(withCopy({ state: 'made', silent: true, quiet: true })).toContain('Playback copy ready, without sound: every one of the video’s sound tracks is silent.');
     });
 
     afterEach(() => {

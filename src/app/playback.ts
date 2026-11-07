@@ -13,10 +13,14 @@ export interface CopySource {
   path: string;
 }
 
-/** A copy made: where it is, and whether it was made without the sound because the original's couldn't be read. */
+/**
+ * A copy made: where it is, and whether it was made without the sound: `silent` because the original's couldn't be
+ * read, and `quiet` too when every one of its sound tracks is silent (2.3c).
+ */
 export interface MadeCopy {
   path: string;
   silent: boolean;
+  quiet?: boolean;
 }
 
 /** The copies as Rust keeps them (`CacheInfo`). Sizes in bytes; the cap and the floor in whole GB (10⁹ bytes). */

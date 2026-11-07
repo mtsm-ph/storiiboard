@@ -19,8 +19,11 @@ export type CopyState =
   | { kind: 'queued' }
   /** How far along, 0 to 1; null until it says (a video whose length isn't known says only at the end). */
   | { kind: 'making'; done: number | null }
-  /** `silent`: made without the sound, as the original's couldn't be read. */
-  | { kind: 'made'; silent: boolean }
+  /**
+   * `silent`: made without the sound, as the original's couldn't be read; `quiet` too, because every sound track was
+   * silent (nothing to try again).
+   */
+  | { kind: 'made'; silent: boolean; quiet?: boolean }
   /** Rust's message, in English: the view shows it in the app's language. */
   | { kind: 'failed'; message: string };
 
@@ -62,6 +65,37 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The file each video's known state is about. A video whose file changes (a relink, its undo or redo) has its state
+ * dropped and looked for again, and any copy being made of the other file stopped: that copy never plays it.
+ */
+const fileOf = new Map<string, string>();
+
+/** A copy found or made, as a state. */
+function madeState(made: { silent: boolean; quiet?: boolean }): CopyState {
+  return { kind: 'made', silent: made.silent, ...(made.quiet ? { quiet: true } : {}) };
+}
+
+/** Whether the video still points at `path`: a result about another file is never kept as its own. */
+function stillAt(videoId: string, path: string): boolean {
+  return sourceOf(videoId)?.source.path === path;
+}
+
+/**
+ * A result about a file the video doesn't point at now (it's in the Trash, say): not kept, and the video's copy is
+ * looked for again when it's next shown.
+ */
+function forget(videoId: string): void {
+  fileOf.delete(videoId);
+  if (stateOf(videoId).kind === 'making') setState(videoId, UNKNOWN);
+}
+
+/** Sets the video's state, as being about `path`. */
+function setAbout(videoId: string, path: string, state: CopyState): void {
+  fileOf.set(videoId, path);
+  setState(videoId, state);
+}
+
 /** Requests whose Cancel came while they ran: whatever they end with, they ended cancelled. */
 const cancelled = new Set<string>();
 /** The video being made now, so a project switch can stop it. */
@@ -83,7 +117,7 @@ function next(): void {
   }
   const { source, handle, project } = found;
   current = { videoId, source };
-  setState(videoId, { kind: 'making', done: null });
+  setAbout(videoId, source.path, { kind: 'making', done: null });
   playbackDriver
     .make(source, handle, (done) => {
       if (copiesStore.getState().making === videoId && !cancelled.has(videoId)) setState(videoId, { kind: 'making', done });
@@ -92,13 +126,21 @@ function next(): void {
       (made) => {
         // Cancelled: Cancel said so already, and anything asked since (queued again, looked for) is newer.
         if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
-        setState(videoId, { kind: 'made', silent: made.silent });
+        if (!stillAt(videoId, source.path)) {
+          forget(videoId);
+          return;
+        }
+        setAbout(videoId, source.path, madeState(made));
         // Room for it may have come from older copies (the floor, the cap): those shown now are looked for again.
         for (const other of shown.keys()) if (other !== videoId) stillMade(other);
       },
       (error: unknown) => {
         if (cancelled.has(videoId) || projectStore.getState().project !== project) return;
-        setState(videoId, { kind: 'failed', message: message(error) });
+        if (!stillAt(videoId, source.path)) {
+          forget(videoId);
+          return;
+        }
+        setAbout(videoId, source.path, { kind: 'failed', message: message(error) });
       },
     )
     .finally(() => {
@@ -114,7 +156,8 @@ export function makeCopy(videoId: string): void {
   watch();
   const state = stateOf(videoId);
   if (state.kind === 'queued' || state.kind === 'making') return;
-  if (state.kind === 'made' && !state.silent) {
+  // Whole, or without sound because every track is silent (made again, it would be the same).
+  if (state.kind === 'made' && (!state.silent || state.quiet)) {
     remakeIfGone(videoId);
     return;
   }
@@ -146,7 +189,8 @@ function stillMade(videoId: string): void {
   playbackDriver
     .find(source, handle)
     .then((made) => {
-      if (!made && projectStore.getState().project === project && stateOf(videoId).kind === 'made') setState(videoId, { kind: 'none' });
+      if (!made && projectStore.getState().project === project && stillAt(videoId, source.path) && stateOf(videoId).kind === 'made')
+        setAbout(videoId, source.path, { kind: 'none' });
     })
     .catch(() => undefined);
 }
@@ -162,8 +206,8 @@ function remakeIfGone(videoId: string): void {
   playbackDriver
     .find(source, handle)
     .then((made) => {
-      if (made || projectStore.getState().project !== project || stateOf(videoId).kind !== 'made') return;
-      setState(videoId, { kind: 'none' });
+      if (made || projectStore.getState().project !== project || !stillAt(videoId, source.path) || stateOf(videoId).kind !== 'made') return;
+      setAbout(videoId, source.path, { kind: 'none' });
       makeCopy(videoId);
     })
     // The file can't be read now: the missing flag says so.
@@ -204,13 +248,16 @@ function lookUp(videoId: string): void {
       const now = stateOf(videoId).kind;
       // Asked for meanwhile, or another project open: what the queue knows is newer.
       if (projectStore.getState().project !== project || now === 'queued' || now === 'making') return;
+      // About a file the video no longer points at: the look for its new one is newer.
+      if (!stillAt(videoId, source.path)) return;
       // A failure stays until it's tried again: a copy not found only says there's none yet.
       if (!made && stateOf(videoId).kind === 'failed') return;
-      setState(videoId, made ? { kind: 'made', silent: made.silent } : { kind: 'none' });
+      setAbout(videoId, source.path, made ? madeState(made) : { kind: 'none' });
     })
     // A file that isn't there: the missing flag says so; there's no copy to speak of.
     .catch(() => {
-      if (projectStore.getState().project === project && stateOf(videoId).kind === 'unknown') setState(videoId, { kind: 'none' });
+      if (projectStore.getState().project === project && stillAt(videoId, source.path) && stateOf(videoId).kind === 'unknown')
+        setAbout(videoId, source.path, { kind: 'none' });
     });
 }
 
@@ -233,16 +280,46 @@ function watch(): void {
   if (watching) return;
   watching = true;
   let project = projectStore.getState().project;
+  let records = projectStore.getState().records;
   projectStore.subscribe((state) => {
-    if (state.project === project) return;
-    project = state.project;
-    const running = current;
-    if (running) {
-      cancelled.add(running.videoId);
-      void playbackDriver.cancel(running.source);
+    if (state.project !== project) {
+      project = state.project;
+      records = state.records;
+      const running = current;
+      if (running) {
+        cancelled.add(running.videoId);
+        void playbackDriver.cancel(running.source);
+      }
+      fileOf.clear();
+      copiesStore.setState({ byVideo: {}, waiting: [] });
+      return;
     }
-    copiesStore.setState({ byVideo: {}, waiting: [] });
+    if (state.records === records) return;
+    records = state.records;
+    for (const [videoId, path] of [...fileOf]) {
+      // In the Trash (or gone): not another file, so its copy carries on; a result is kept only once it's back.
+      const now = sourceOf(videoId);
+      if (!now || now.source.path === path) continue;
+      fileChanged(videoId);
+    }
   });
+}
+
+/**
+ * The video now points at another file (a relink, or an undo or redo of one). A copy being made of the old file is
+ * stopped and made again of the new one; anything else known is dropped, to be looked for again.
+ */
+function fileChanged(videoId: string): void {
+  fileOf.delete(videoId);
+  const running = current?.videoId === videoId ? current : null;
+  if (running) {
+    cancelled.add(videoId);
+    void playbackDriver.cancel(running.source);
+    setState(videoId, UNKNOWN);
+    makeCopy(videoId);
+    return;
+  }
+  if (stateOf(videoId).kind !== 'queued') setState(videoId, UNKNOWN);
 }
 
 /**
@@ -254,7 +331,8 @@ export function useCopy(videoId: string | null): CopyState {
   const state = useStore(copiesStore, (s) => (videoId ? (s.byVideo[videoId] ?? UNKNOWN) : UNKNOWN));
   const path = useStore(projectStore, (s) => {
     const record = videoId ? s.records[videoId] : undefined;
-    return record?.type === 'media' ? (videoFields(record.props)?.sourcePath ?? null) : null;
+    // Null in the Trash, so a restore counts as a change and the copy is looked for again.
+    return record?.type === 'media' && record.trashedAt === null ? (videoFields(record.props)?.sourcePath ?? null) : null;
   });
   useEffect(() => {
     if (videoId) lookUp(videoId);

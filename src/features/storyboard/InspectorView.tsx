@@ -79,7 +79,7 @@ export type InspectorCopy =
   | { state: 'none' }
   | { state: 'queued' }
   | { state: 'making'; done: number | null }
-  | { state: 'made'; silent: boolean }
+  | { state: 'made'; silent: boolean; quiet?: boolean }
   | { state: 'failed'; message: string };
 
 /** A set and an unset, as one update op takes them. */
@@ -247,7 +247,9 @@ function CopyLine({ copy, lineRef }: { copy: InspectorCopy | undefined; lineRef?
         {copy?.state === 'none' && <p className="text-[12px] text-text-muted">{t('inspector.copyNone')}</p>}
         {copy?.state === 'queued' && <p className="text-[12px]">{t('inspector.copyQueued')}</p>}
         {copy?.state === 'making' && <p className="text-[12px]">{t('inspector.copyMaking')}</p>}
-        {copy?.state === 'made' && <p className="text-[12px]">{copy.silent ? t('inspector.copySilent') : t('inspector.copyMade')}</p>}
+        {copy?.state === 'made' && (
+          <p className="text-[12px]">{copy.quiet ? t('inspector.copyQuiet') : copy.silent ? t('inspector.copySilent') : t('inspector.copyMade')}</p>
+        )}
         {copy?.state === 'failed' && (
           <p className="inline-block self-start bg-warning px-[7px] py-1 text-[12px] text-paper-fixed">{localizeError(copy.message)}</p>
         )}
