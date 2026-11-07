@@ -3,7 +3,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { readClip, videoFields } from '../../core/media/video';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
-import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, inVideo, setClip, stepFrame, timeOfFrame } from './player';
+import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
@@ -32,7 +32,9 @@ export function PlayerTile() {
   const fpsNum = linked?.fps.num ?? 24;
   const fpsDen = linked?.fps.den ?? 1;
   const fps = useMemo(() => ({ num: fpsNum, den: fpsDen }), [fpsNum, fpsDen]);
-  const duration = linked?.durationFrames ?? 0;
+  // The video's length in frames; for one whose record has none (ffprobe couldn't tell), its copy's once loaded.
+  const [copyFrames, setCopyFrames] = useState<{ url: string; frames: number } | null>(null);
+  const recorded = linked?.durationFrames ?? 0;
 
   // Another frame or video (or none): from its in point, paused. Set as the selection changes, not each time the in
   // point moves; two frames of one take each start at their own in point.
@@ -81,6 +83,9 @@ export function PlayerTile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `broken` is read, not watched: a Try again (tries) opens anew.
   }, [usable, videoId, copy.kind, tries]);
 
+  const ready = usable && copy.kind === 'made' && opened?.videoId === videoId ? opened : null;
+  const duration = recorded > 0 ? recorded : ready && copyFrames?.url === ready.url ? copyFrames.frames : 0;
+
   // While it plays, the frame from each frame shown, where the browser says; otherwise from the time updates.
   useEffect(() => {
     const element = videoRef.current;
@@ -99,7 +104,6 @@ export function PlayerTile() {
     };
   }, [playing, fps, duration]);
 
-  const ready = usable && copy.kind === 'made' && opened?.videoId === videoId ? opened : null;
   const status: PlayerStatus = !project
     ? { kind: 'noProject' }
     : !shot || shot.type !== 'shot' || shot.trashedAt !== null
@@ -189,6 +193,7 @@ export function PlayerTile() {
         if (event.type === 'loadeddata') {
           element.currentTime = timeOfFrame(frame, fps);
           setRemadeFor(null);
+          if (opened) setCopyFrames({ url: opened.url, frames: framesOfLength(element.duration, fps) });
         }
         else if (!element.paused) setFrame(frameAt(element.currentTime));
       }}

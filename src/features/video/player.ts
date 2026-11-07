@@ -37,6 +37,14 @@ export function frameInVideo(seconds: number, fps: Rational, durationFrames: num
   return durationFrames > 0 ? Math.min(at, durationFrames - 1) : at;
 }
 
+/**
+ * The frames in a copy `seconds` long (a `<video>`'s duration): the bound for a video whose record has no length. 0 when
+ * the `<video>` doesn't know it either (NaN, or Infinity for a stream).
+ */
+export function framesOfLength(seconds: number, fps: Rational): number {
+  return Number.isFinite(seconds) && seconds > 0 ? Math.max(0, Math.ceil((seconds * fps.num) / fps.den - 1e-3)) : 0;
+}
+
 /** Whether `frame` is a frame of the video: any frame of one whose length isn't known. */
 export function inVideo(frame: number, durationFrames: number): boolean {
   return frame >= 0 && (durationFrames <= 0 || frame < durationFrames);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CROP } from '../../core/media/crop';
-import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, frameOfTime, inVideo, setClip, stepFrame, timeOfFrame } from './player';
+import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, frameOfTime, inVideo, setClip, stepFrame, timeOfFrame } from './player';
 
 // The Player's arithmetic (2.4): a copy's frame 0 is the video's first frame, at the video's exact rate.
 
@@ -20,6 +20,11 @@ describe('the Player', () => {
     expect(inVideo(48, 48)).toBe(false);
     expect(inVideo(71, 0)).toBe(true);
     expect(inVideo(-1, 0)).toBe(false);
+    // Its copy's length bounds it once the <video> knows it: 48 frames in 2.002 s, none when it's not known.
+    expect(framesOfLength((48 * 1001) / 24000, fps)).toBe(48);
+    expect(framesOfLength(2.002001, fps)).toBe(48);
+    expect(framesOfLength(Number.NaN, fps)).toBe(0);
+    expect(framesOfLength(Number.POSITIVE_INFINITY, fps)).toBe(0);
   });
 
 

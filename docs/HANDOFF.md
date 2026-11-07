@@ -355,9 +355,13 @@ own use of `copyMayBeGone` (a component test needs a DOM library, a new dependen
 
 Round 5: no high; one medium fixed, round 4's other half: a step (comma, period) on a video of unknown length still went
 to frame 0; `stepFrame` now holds back only a known length, tested. Lows left: no test renders the Player with an unknown
-length (the e2e fixture has one; a component test needs a DOM library); the scrubber of such a video can't move (it has
-no end to scale to); a relink to a shorter file can leave an in point past the end, so Space can't replay (the relink
+length (the e2e fixture has one; a component test needs a DOM library); a relink to a shorter file can leave an in point past the end, so Space can't replay (the relink
 warns about clips past the end); a copy a frame or two shorter than its record lets O set a point past the copy.
+
+Round 6: no high; one borderline medium fixed: with round 5's fix, a video of unknown length could be stepped far past
+its copy's end and O would save that point. Such a video now takes its length from its copy once the <video> knows it
+(`framesOfLength`), which also gives its scrubber an end; before that it's unbounded above, as before. Only the lows
+listed in round 5 remain.
 
 Checkpoint stop-a (78ffa97): the Mac Rust tests failed in three tests of the queue, the stall watch and the Move,
 with VideoToolbox wedged (its encoder service and three ffmpegs still hung at the end), the 2.3c story again; stop-a-r2
