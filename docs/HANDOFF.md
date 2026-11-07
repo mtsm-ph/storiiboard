@@ -311,7 +311,9 @@ Lows deferred (noted, not planned yet):
    the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
    checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
    see "2.7 as built"; from the original, LUT and crop
-   applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
+   applied, `from_video` recorded); **2.8** clip capture, in two: **2.8a** the frame's clip plays in the inspector (in progress,
+   branch `phase2/2.8-clips`; see "2.8a as built"), then **2.8b** Save clip as file (rendered from the original,
+   graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
    gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3

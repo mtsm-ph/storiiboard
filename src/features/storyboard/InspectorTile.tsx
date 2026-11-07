@@ -16,12 +16,12 @@ import { setCustomField, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
 import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
-import { readClip, readFromVideo, videoFields } from '../../core/media/video';
+import { displayAspect, readClip, readFromVideo, videoFields } from '../../core/media/video';
 import { videoDriver } from '../../app/video';
 import { addVideos } from '../video/addVideos';
 import { fpsLabel, relinkVideo } from '../video/relink';
 import { useVideoMissing } from '../video/videoStatus';
-import { cancelCopy, makeCopy, useCopy, type CopyState } from '../video/playbackCopies';
+import { cancelCopy, makeCopy, useCopy, useCopyUrl, type CopyState } from '../video/playbackCopies';
 import { loadLut, setLut, useProjectLuts } from '../video/lutEdits';
 import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
@@ -69,6 +69,7 @@ export function InspectorTile() {
   const clipVideoId = shotId ? (readClip(records[shotId]?.props ?? {})?.videoId ?? null) : null;
   const videoMissing = useVideoMissing(clipVideoId);
   const copy = useCopy(clipVideoId);
+  const copyUrl = useCopyUrl(clipVideoId, copy);
   const projectLuts = useProjectLuts();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
@@ -133,6 +134,19 @@ export function InspectorTile() {
           missing: videoMissing,
           gone: false,
           ...(copy.kind === 'unknown' ? {} : { copy: inspectorCopy(copy) }),
+          ...(copyUrl
+            ? {
+                preview: {
+                  url: copyUrl,
+                  inFrame: clip.inFrame,
+                  outFrame: clip.outFrame,
+                  fps: linked.fps,
+                  crop: clip.crop,
+                  imageAspect: displayAspect(linked),
+                  frameAspect: aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio),
+                },
+              }
+            : {}),
           lut: { id: linked.lutId, choices: projectLuts.rows.map((lut) => ({ id: lut.id, name: lut.name })), listed: projectLuts.listed && (linked.lutId === null || !projectLuts.pending.includes(linked.lutId)) },
         };
 

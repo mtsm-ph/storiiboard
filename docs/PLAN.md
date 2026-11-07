@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.7 merged; 2.8 next) |
+| Last updated | Nov 7, 2026 (2.7 merged; 2.8a in review) |
 
 | Phase | State |
 |---|---|
@@ -48,12 +48,22 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.5 LUTs per video | #81 | Done |
 | 2.6 Crop | #82 | Done |
 | 2.7 Still capture into a frame | #83 | Done |
-| 2.8 Clip capture into a frame | | Not started |
+| 2.8a The frame's clip plays in the inspector | | In review |
+| 2.8b Save clip as file | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.8a as built (Nov 7): the frame's clip plays in the inspector (`src/features/video/ClipPreview.tsx`).
+- The Video section shows the frame's clip, in to out, framed as the frame is (the clip's crop, 2.6), from the
+  playback copy, never the original, in a box of the frame's shape. It stays on its in point until Play clip, then
+  goes round and round, muted, until Pause clip: a reference to watch while the rest of the inspector is in use (the
+  Player tile is the player). It never plays by itself.
+- The loop turns on each frame the webview presents (requestVideoFrameCallback), so it turns at the out point, not a
+  quarter second past it as the time updates would; an older webview falls back on those.
+- Split from Save clip as file (2.8b) to keep each PR small.
 
 2.7 as built (Nov 7): still capture into a frame (`src/features/video/grabStill.ts`, video.rs `still_graded`).
 - Grab still in the Player (or G, from anywhere in it) takes the frame showing from the original, never the playback

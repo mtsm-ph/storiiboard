@@ -34,6 +34,7 @@ import { BarGauge, Select, TextField } from '../../ui/fields';
 import { CloseGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { CropEditor } from './CropEditor';
+import { ClipPreview, type ClipPreviewProps } from '../video/ClipPreview';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
@@ -76,6 +77,8 @@ export interface InspectorVideo {
    * it grades the playback copy, never the original.
    */
   lut?: { id: string | null; choices: readonly { id: string; name: string }[]; listed?: boolean };
+  /** The frame's clip, in to out, framed as the frame is, to play here (2.8); left out until there's a copy. */
+  preview?: ClipPreviewProps;
 }
 
 /** A video's playback copy (2.3b): none yet, waiting its turn, being made (how far, 0 to 1, when known), made (without
@@ -691,6 +694,7 @@ export function InspectorView({
                 )}
                 {!video.gone && <CopyLine copy={video.missing ? undefined : video.copy} lineRef={copyLine} />}
               </div>
+              {!video.gone && !video.missing && video.preview && <ClipPreview {...video.preview} />}
               {!video.gone && video.lut && <LutPicker lut={video.lut} onLoad={onLoadLut} onSet={onSetLut} />}
               <div className="flex flex-wrap items-center gap-2">
                 {!video.gone && (

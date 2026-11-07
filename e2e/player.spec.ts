@@ -297,3 +297,45 @@ test('grabs the frame showing into its frame: the picture changes, says its time
   const settled = await timecode(page).innerText();
   await expect(inspector(page)).toContainText(`Still at ${settled}`, { timeout: 10_000 });
 });
+
+test('the frame’s clip plays in the inspector, in to out, round and round, only when asked (2.8)', async ({ page }) => {
+  await linkAndOpen(page);
+  // A clip of frames 10 to 20.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('i');
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('o');
+  await expect(player(page)).toContainText('In 00:00:00:10 · Out 00:00:00:20 · 11 frames');
+  const preview = inspector(page).locator('[data-clip-preview]');
+  const clip = preview.locator('video');
+  await expect(clip).toHaveCount(1);
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  // Still on its in point, muted, until asked.
+  expect(await clip.evaluate((video: HTMLVideoElement) => [video.paused, video.muted])).toEqual([true, true]);
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001))).toBe(10);
+  expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
+
+  await preview.getByRole('button', { name: 'Play clip' }).click();
+  await expect(preview.getByRole('button', { name: 'Pause clip' })).toHaveAttribute('aria-pressed', 'true');
+  // Over two seconds (four times round an 11-frame clip): never outside it, and back at its start more than once.
+  const frames = await clip.evaluate(async (video: HTMLVideoElement) => {
+    const seen: number[] = [];
+    const until = performance.now() + 2000;
+    await new Promise<void>((resolve) => {
+      const step = () => {
+        seen.push(Math.floor((video.currentTime * 24000) / 1001 + 1e-3));
+        if (performance.now() < until) requestAnimationFrame(step);
+        else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+    return seen;
+  });
+  expect(Math.min(...frames)).toBeGreaterThanOrEqual(10);
+  expect(Math.max(...frames)).toBeLessThanOrEqual(21);
+  const loops = frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length;
+  expect(loops).toBeGreaterThanOrEqual(2);
+  await preview.getByRole('button', { name: 'Pause clip' }).click();
+  await expect(preview.getByRole('button', { name: 'Play clip' })).toHaveAttribute('aria-pressed', 'false');
+});
