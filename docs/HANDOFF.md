@@ -382,6 +382,12 @@ again until Rust has it; the busy notice names the clip as its file is named (an
 project). Lows left: the Cancel is on the saving frame's inspector only, so a frame trashed mid-save has none (the save
 still ends by itself); the stops before each encoder and before the rename have no test of their own.
 
+Checkpoint 2.8b-r4: everything green but the Mac's Rust tests, where the clip test's VideoToolbox session hung until
+the clip's timeout (its encoder service and an ffmpeg still stuck at the end), the runner's virtual GPU again. The
+clip tests now save with FFmpeg's own MPEG-4, as the copies' tests do (`save_clip_with`); what they test doesn't depend
+on the encoder, and the app still uses the computer's. On a Mac, VideoToolbox is the only H.264 encoder in the LGPL
+build, so a hung session there has no software one to fall back to (the low above).
+
 ### 2.8a: review
 
 Round 1: no high; three mediums fixed. The preview seeked back to the in point while playing, so the frame after the
