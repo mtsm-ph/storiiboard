@@ -58,7 +58,14 @@ test('plays the selected frame’s video: steps a frame at a time, and I and O s
   expect(shown).toBe(3);
   await page.keyboard.press('i');
   await expect(range(page)).toContainText('00:00:00:03 – 00:00:01:23 · 45 frames');
-  await page.keyboard.press('Shift+.');
+  // Again on the same frame: no edit, so one undo takes the in point back to where it was.
+  await page.keyboard.press('i');
+  await page.keyboard.press(`${await command(page)}+z`);
+  await expect(range(page)).toContainText('00:00:00:00 – 00:00:01:23 · 48 frames');
+  await page.keyboard.press(`${await command(page)}+Shift+z`);
+  await expect(range(page)).toContainText('00:00:00:03 – 00:00:01:23 · 45 frames');
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
   await page.keyboard.press(',');
   await expect(timecode(page)).toHaveText('00:00:00:12');
   await page.keyboard.press('o');
@@ -76,6 +83,16 @@ test('plays the selected frame’s video: steps a frame at a time, and I and O s
   await expect(timecode(page)).not.toHaveText('00:00:00:12', { timeout: 5_000 });
   await page.keyboard.press(' ');
   await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+  // Paused after playing: the timecode is the frame the <video> shows, not its neighbour.
+  await expect
+    .poll(async () => {
+      const shown = await player(page)
+        .locator('video')
+        .evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001 + 1e-3));
+      const [h = 0, m = 0, s = 0, f = 0] = (await timecode(page).innerText()).split(':').map(Number);
+      return ((h * 60 + m) * 60 + s) * 24 + f - shown;
+    })
+    .toBe(0);
 
   expect(await new AxeBuilder({ page }).include('[data-player]').analyze().then((r) => r.violations)).toEqual([]);
 });

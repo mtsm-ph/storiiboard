@@ -36,6 +36,10 @@ describe('the Player tile (2.4)', () => {
     expect(says({ kind: 'none' })).toMatch(/<button[^>]*>Make playback copy</);
     expect(says({ kind: 'failed', message: 'That video couldn’t be made into a playback copy.' })).toMatch(/<button[^>]*>Try again</);
     expect(says({ kind: 'ready', url: 'x', silent: true, quiet: true })).toContain('every one of the video’s sound tracks is silent');
+    // A copy the webview can't play: said, with Try again.
+    expect(says({ kind: 'failed', message: 'This playback copy can’t be played here.' })).toMatch(/can’t be played here[\s\S]*<button[^>]*>Try again</);
+    // The timecode isn't read out every frame: the playhead's value says it.
+    expect(render()).toMatch(/<span data-player-timecode="" aria-hidden="true"/);
     for (const status of [{ kind: 'noFrame' }, { kind: 'none' }, ready] as PlayerStatus[]) {
       expect(says(status)).toContain('role="status" data-player-state=""');
     }

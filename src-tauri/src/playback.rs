@@ -1041,10 +1041,11 @@ impl PlaybackCache {
         }
         let _settled = self.settled()?;
         let (now, _) = self.folder().ok()?;
+        // A file of its own, never a link: one planted under a copy's name (a shared drive) would lead elsewhere.
         std::iter::once(now)
             .chain(self.all_folders())
             .map(|folder| folder.join(name))
-            .find(|copy| copy.is_file())
+            .find(|copy| fs::symlink_metadata(copy).is_ok_and(|meta| meta.file_type().is_file()))
     }
 
     /// Puts a request for the copy of the video the page names `name` on the list, where Cancel finds it, before
@@ -1941,8 +1942,9 @@ fn tracks_that_play(path: &Path, tracks: &[usize], asked: &Asked) -> Vec<usize> 
 /// `http://sbdcopy.localhost/…`). It serves finished copies only, found by name in the copies' folders, so no other file
 /// is ever reached; and in slices, as a `<video>` asks for them, so a copy is never read into memory whole.
 pub const COPY_SCHEME: &str = "sbdcopy";
-/// The most one answer carries; a `<video>` asks again for the rest.
-const SLICE: u64 = 8 * 1024 * 1024;
+/// The most one answer carries; a `<video>` asks again for the rest. Small enough that a seek answers soon on a slow
+/// drive (a webview asks for "the rest" from where it seeks, and only needs the start of it).
+const SLICE: u64 = 2 * 1024 * 1024;
 
 /// One answer of the copies' scheme.
 #[derive(Debug, PartialEq)]
@@ -2546,6 +2548,13 @@ mod tests {
         fs::write(folder.join(format!("{name}.partial")), b"half").unwrap();
         fs::write(folder.join("notes.txt"), b"private").unwrap();
         fs::write(dir.join("secret.mp4"), b"private").unwrap();
+        // A link under a copy's name, to a file outside: not followed.
+        #[cfg(unix)]
+        {
+            let linked = format!("{}.mp4", "b".repeat(32));
+            std::os::unix::fs::symlink(dir.join("secret.mp4"), folder.join(&linked)).unwrap();
+            assert_eq!(serve_copy(&cache, &format!("/{linked}"), None).status, 404);
+        }
         for path in [
             format!("/{name}.partial"),
             "/notes.txt".to_owned(),

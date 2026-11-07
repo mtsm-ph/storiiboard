@@ -51,19 +51,28 @@ export interface PlayerViewProps {
   onVideoError?: () => void;
 }
 
-/** The keys, on the whole tile, unless a field or a button takes them itself. */
+/**
+ * The keys, on the whole tile, unless a button takes them itself. The comma and period characters step a frame, wherever
+ * a layout puts them (an AZERTY's period wants Shift); Shift on the comma or period key steps ten, whatever it types
+ * then (">" in English, ":" in German). I and O also by their key, for a layout that types other letters there. A key
+ * held down repeats a step, never an in or out point or a play.
+ */
 function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
-  if (event.metaKey || event.ctrlKey || event.altKey || props.status.kind !== 'ready') return;
+  if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || props.status.kind !== 'ready') return;
   const target = event.target as HTMLElement;
   const key = event.key.toLowerCase();
   const act = (run: (() => void) | undefined) => {
     event.preventDefault();
     run?.();
   };
-  if (key === ',') act(() => props.onStep?.(event.shiftKey ? -10 : -1));
-  else if (key === '.') act(() => props.onStep?.(event.shiftKey ? 10 : 1));
-  else if (key === 'i' && !event.shiftKey) act(props.onSetIn);
-  else if (key === 'o' && !event.shiftKey) act(props.onSetOut);
+  const step = key === ',' ? -1 : key === '.' ? 1 : event.shiftKey && event.code === 'Comma' ? -10 : event.shiftKey && event.code === 'Period' ? 10 : 0;
+  if (step !== 0) {
+    act(() => props.onStep?.(step));
+    return;
+  }
+  if (event.repeat || event.shiftKey) return;
+  if (key === 'i' || event.code === 'KeyI') act(props.onSetIn);
+  else if (key === 'o' || event.code === 'KeyO') act(props.onSetOut);
   // Space on a button presses the button; anywhere else in the Player, it plays or pauses.
   else if (key === ' ' && target.tagName !== 'BUTTON') act(props.onPlayPause);
 }
@@ -137,9 +146,10 @@ export function PlayerView(props: PlayerViewProps) {
             </Button>
             <Button onClick={props.onSetIn}>{t('player.setIn')}</Button>
             <Button onClick={props.onSetOut}>{t('player.setOut')}</Button>
-            <output data-player-timecode="" aria-label={t('player.timecode')} className="ml-auto font-mono text-[13px] font-bold">
+            {/* Not a live region: it changes every frame while playing. The playhead's own value says it to a screen reader. */}
+            <span data-player-timecode="" aria-hidden="true" className="ml-auto font-mono text-[13px] font-bold">
               {tc(frame)}
-            </output>
+            </span>
           </div>
           <p className="font-mono text-[11px] text-text-muted">
             {t('player.inOut', { in: tc(video.inFrame), out: tc(video.outFrame), frames: tn('count.frames', video.outFrame - video.inFrame + 1) })}

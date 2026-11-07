@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { projectStore, useProject } from '../../app/projectStore';
 import { readClip, videoFields } from '../../core/media/video';
 import { useSelection } from '../storyboard/selection';
-import { clipWithIn, clipWithOut, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
+import { t } from '../../core/i18n';
+import { clipWithIn, clipWithOut, frameOfPresentation, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
 import { copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
@@ -33,13 +34,22 @@ export function PlayerTile() {
   const fps = useMemo(() => ({ num: fpsNum, den: fpsDen }), [fpsNum, fpsDen]);
   const duration = linked?.durationFrames ?? 0;
 
-  // Another video (or none): from its in point, paused. Set as the video changes, not each time the in point moves.
-  const [shownVideo, setShownVideo] = useState(videoId);
-  if (shownVideo !== videoId) {
-    setShownVideo(videoId);
+  // Another frame or video (or none): from its in point, paused. Set as the selection changes, not each time the in
+  // point moves; two frames of one take each start at their own in point.
+  const shown = `${shotId ?? ''}|${videoId ?? ''}`;
+  const [shownFor, setShownFor] = useState(shown);
+  if (shownFor !== shown) {
+    setShownFor(shown);
     setFrame(clip?.inFrame ?? 0);
     setPlaying(false);
   }
+
+  // A copy the <video> can't play: its URL, so it isn't opened again until a remake (it passes through being made) or
+  // Try again; and the video it was remade for, once, so a copy that never plays can't be remade over and over.
+  const [broken, setBroken] = useState<string | null>(null);
+  const [remadeFor, setRemadeFor] = useState<string | null>(null);
+  const [tries, setTries] = useState(0);
+  if (broken !== null && copy.kind !== 'made') setBroken(null);
 
   // A copy is asked for when the Player shows a video that has had none since it came into view (PLAN 2.3b: "and (2.4)
   // by the Player"). Once one was waiting, made or failed while shown, a copy gone after is the person's doing (Cancel,
@@ -59,7 +69,8 @@ export function PlayerTile() {
     copyToPlay(videoId)
       .then((found) => {
         if (!live) return;
-        if (found) setOpened({ videoId, ...found });
+        if (found && found.url === broken) setOpened(null);
+        else if (found) setOpened({ videoId, ...found });
         // Gone since it was made: made again.
         else makeCopy(videoId);
       })
@@ -67,7 +78,8 @@ export function PlayerTile() {
     return () => {
       live = false;
     };
-  }, [usable, videoId, copy.kind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `broken` is read, not watched: a Try again (tries) opens anew.
+  }, [usable, videoId, copy.kind, tries]);
 
   // While it plays, the frame from each frame shown, where the browser says; otherwise from the time updates.
   useEffect(() => {
@@ -76,7 +88,7 @@ export function PlayerTile() {
     if (!playing || !element || !('requestVideoFrameCallback' in element)) return;
     let handle = 0;
     const next: VideoFrameRequestCallback = (_now, metadata) => {
-      setFrame(frameOfTime(metadata.mediaTime, fps));
+      setFrame(frameOfPresentation(metadata.mediaTime, fps));
       handle = element.requestVideoFrameCallback(next);
     };
     handle = element.requestVideoFrameCallback(next);
@@ -96,11 +108,15 @@ export function PlayerTile() {
           ? { kind: 'missing' }
           : ready
             ? { kind: 'ready', url: ready.url, silent: ready.silent, quiet: ready.quiet }
-            : copy.kind === 'made'
-              ? { kind: 'opening' }
+            : copy.kind === 'made' && broken !== null
+              ? { kind: 'failed', message: t('player.cantPlay') }
+              : copy.kind === 'made'
+                ? { kind: 'opening' }
               : copy.kind === 'queued' || copy.kind === 'making' || copy.kind === 'failed'
                 ? copy
-                : { kind: 'none' };
+                  : { kind: 'none' };
+  // The picture gone (a Clear, a Move, a relink) can't say it stopped: it isn't playing.
+  if (status.kind !== 'ready' && playing) setPlaying(false);
   const video: PlayerVideo | null =
     clip && linked
       ? { name: linked.sourceName, fps, startTimecode: linked.startTimecode, durationFrames: duration, inFrame: clip.inFrame, outFrame: clip.outFrame }
@@ -120,7 +136,10 @@ export function PlayerTile() {
       const current = now[shotId];
       const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
       if (!currentClip || currentClip.videoId !== videoId) return { changes: [] };
-      return { changes: [setClip(shotId, which === 'in' ? clipWithIn(currentClip, at) : clipWithOut(currentClip, at))] };
+      const next = which === 'in' ? clipWithIn(currentClip, at) : clipWithOut(currentClip, at);
+      // Where it is already: no edit, so no undo step for nothing.
+      if (next.inFrame === currentClip.inFrame && next.outFrame === currentClip.outFrame) return { changes: [] };
+      return { changes: [setClip(shotId, next)] };
     });
   };
 
@@ -149,7 +168,11 @@ export function PlayerTile() {
         setPoint('out');
       }}
       onMakeCopy={() => {
-        if (videoId) makeCopy(videoId);
+        if (broken !== null) {
+          // Try again on a copy that couldn't be played: opened anew.
+          setBroken(null);
+          setTries((n) => n + 1);
+        } else if (videoId) makeCopy(videoId);
       }}
       onTime={(event) => {
         // Paused, the frame is where it was put; a play moves it. Loaded, the <video> is put on the frame showing.
@@ -159,10 +182,15 @@ export function PlayerTile() {
       }}
       onPlaying={setPlaying}
       onVideoError={() => {
-        // The copy went (the cap, a Clear, a Move) or can't be read: made again, and opened once it is.
+        // The copy went (the cap, a Move) or can't be read: made again once, and opened once it is; if it's still
+        // there, the Player says it can't play it, with Try again.
+        setBroken(opened?.url ?? null);
         setOpened(null);
         setPlaying(false);
-        if (videoId) makeCopy(videoId);
+        if (videoId && remadeFor !== videoId) {
+          setRemadeFor(videoId);
+          makeCopy(videoId);
+        }
       }}
     />
   );

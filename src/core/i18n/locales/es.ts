@@ -1252,7 +1252,7 @@ export const es: Messages = {
   'player.silent': 'Sin sonido: no se pudo leer el sonido del video.',
   'player.picture': 'El video del cuadro',
   'player.playhead': 'Cabezal',
-  'player.timecode': 'Código de tiempo',
+  'player.cantPlay': 'Esta copia de reproducción no se puede reproducir aquí. Vuelve a intentarlo, o borra las copias de reproducción en Ajustes → Almacenamiento para que se haga de nuevo.',
   'player.play': 'Reproducir',
   'player.pause': 'Pausar',
   'player.previousFrame': 'Cuadro anterior',

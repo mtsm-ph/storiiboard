@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CROP } from '../../core/media/crop';
-import { clipWithIn, clipWithOut, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
+import { clipWithIn, clipWithOut, frameOfPresentation, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
 
 // The Player's arithmetic (2.4): a copy's frame 0 is the video's first frame, at the video's exact rate.
 
@@ -12,8 +12,16 @@ describe('the Player', () => {
     for (const frame of [0, 1, 47, 86_313]) {
       expect(frameOfTime(timeOfFrame(frame, ntsc), ntsc)).toBe(frame);
     }
-    // The start of a frame reads as that frame, never its neighbour.
+    // The start of a frame reads as that frame, never its neighbour, even held to whole microseconds as Chromium does
+    // (frame 1 starts at 41708.333 µs, kept as 41708).
     expect(frameOfTime((48 * 1001) / 24000, ntsc)).toBe(48);
+    expect(frameOfTime(0.041708, ntsc)).toBe(1);
+    expect(frameOfPresentation(0.041708, ntsc)).toBe(1);
+    for (const frame of [1, 2, 47, 1439, 86_313]) {
+      const start = Math.round(((frame * 1001) / 24000) * 1e6) / 1e6;
+      expect(frameOfTime(start, ntsc)).toBe(frame);
+      expect(frameOfPresentation(start, ntsc)).toBe(frame);
+    }
   });
 
   it('steps inside the video', () => {

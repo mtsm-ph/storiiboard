@@ -317,6 +317,20 @@ Lows deferred (noted, not planned yet):
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
 
+### 2.4: review
+
+Round 1 (Nov 7): four mediums, fixed with tests. The timecode read one frame early while playing in Chromium (media
+time is kept in whole microseconds: a frame's start now rounds, the current time floors with a thousandth of a frame's
+margin); Shift with comma or period didn't step ten on real keyboards (">" in English) and an AZERTY's period stepped
+ten (now the characters step one and Shift on those keys ten; I and O also by their key); a copy the webview can't
+play left the Player on "Opening…" for good, and a copy without sound could be remade over and over (now it says it
+can't be played, with Try again, and is remade once at most); the timecode was a live region read out every frame.
+Lows fixed: 2 MB slices (a seek answers sooner); the playhead resets per frame, not per video; a picture gone isn't
+"playing"; holding I, O or Space makes no steps or toggles; an in or out point where it already is makes no edit;
+copies are never served through a link. Left as lows: a request for a large copy without a range gets its first slice
+as a 206 (no webview asks that way), HEAD gets a body, and the browser build's kept files aren't let go when a project
+closes.
+
 ## Review stop A (after 2.4): Kevin's checklist, in this order
 
 On Kevin's own computers, with the 2.4 installers (or a dev build):

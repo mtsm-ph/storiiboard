@@ -1,14 +1,23 @@
 import { clipProp, type Clip } from '../../core/media/video';
-import { frameAt, frameSeconds, type Rational } from '../../core/media/timecode';
+import { frameSeconds, type Rational } from '../../core/media/timecode';
 import type { Change } from '../../core/ops/ops';
 
 // The Player's arithmetic (2.4), apart from the page so it can be tested: frames and the times a <video> seeks to, a
 // step, and the in and out points I and O set on the frame's clip. A playback copy's frame 0 is the video's first
 // frame and it runs at the video's exact rate (playback.rs), so a frame of the copy is the same frame of the video.
 
-/** The frame showing at `seconds` of the copy. */
+/**
+ * The frame showing at `seconds` of the copy (a `<video>`'s current time, anywhere in a frame). Webviews keep media
+ * time in whole microseconds (Chromium rounds to the nearest), so a frame's own start can read a hair before it: a
+ * thousandth of a frame's margin keeps it that frame.
+ */
 export function frameOfTime(seconds: number, fps: Rational): number {
-  return frameAt(seconds, fps);
+  return Math.max(0, Math.floor((seconds * fps.num) / fps.den + 1e-3));
+}
+
+/** The frame a `<video>` presents at `mediaTime`, which is that frame's start (requestVideoFrameCallback): rounded. */
+export function frameOfPresentation(mediaTime: number, fps: Rational): number {
+  return Math.max(0, Math.round((mediaTime * fps.num) / fps.den));
 }
 
 /**

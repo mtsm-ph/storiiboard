@@ -1251,7 +1251,7 @@ export const en = {
   'player.silent': 'Without sound: the video’s sound couldn’t be read.',
   'player.picture': 'The frame’s video',
   'player.playhead': 'Playhead',
-  'player.timecode': 'Timecode',
+  'player.cantPlay': 'This playback copy can’t be played here. Try again, or clear the playback copies in Settings → Storage to have it made again.',
   'player.play': 'Play',
   'player.pause': 'Pause',
   'player.previousFrame': 'Previous frame',
