@@ -297,7 +297,7 @@ Lows deferred (noted, not planned yet):
    virtual GPU wedges once a run opens many sessions in a row, whichever copy it lands on. The sound tests, which test
    the sound, now encode their picture with FFmpeg's own MPEG-4 (as on Linux), sparing about ten sessions; every
    other test still uses VideoToolbox. The app is unchanged.
-1. **2.4**: the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
+1. **2.4** (in progress; see "2.4 as built" in `docs/PLAN.md` and Review stop A below): the Player tile plays real footage (frame stepping, timecode, in and out, scrubbing), through Tauri's asset
    protocol scoped to the copies' folder. Copies have their index at the end (no `+faststart`); if the Mac's webview
    stumbles on that over the asset protocol, add the index pass back with a time allowance for it and bump `RECIPE`.
    Handle a copy going missing under the Player (the cap, Clear, a Move). **Review stop A** after it: run a checkpoint,
@@ -316,6 +316,23 @@ Lows deferred (noted, not planned yet):
    shoot days with totals and the Calendar tile (month and week); gear per day linked to shots; a client contact and
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
+
+## Review stop A (after 2.4): Kevin's checklist, in this order
+
+On Kevin's own computers, with the 2.4 installers (or a dev build):
+1. Windows with a GPU: a copy of a real FX3 clip made by the hardware Media Foundation encoder. Task Manager's GPU
+   "Video Encode" graph should rise while it's made.
+2. A Mac: a long take on an external drive; unplug the drive halfway through its copy. The copy should fail, say so,
+   and leave nothing in the copies' folder.
+3. The Player on a Mac (WKWebView) and on Windows (WebView2), with real footage:
+   - the copy plays, scrubs and steps without stalling (copies keep their index at the end, no `+faststart`; if the
+     Mac stumbles on that, say so, and it comes back with a time allowance);
+   - comma and period land on the frame the timecode says (compare with Resolve on the same clip);
+   - I and O set the frame's in and out, and ⌘Z or Ctrl+Z takes each back.
+4. A Sony FX6/FX9 or Canon MXF: separate mono tracks mixed, the empty inputs left out (the live pair at its own
+   level); a clip with every input empty says it has no sound.
+5. Settings → Storage: Clear while a copy plays (the Player offers Make playback copy); Move to another drive and back.
+6. Relink a frame's video while its copy is being made, then undo: the copy shown is of the file the frame points at.
 
 ## The rules for this run (Kevin's queued instructions)
 
