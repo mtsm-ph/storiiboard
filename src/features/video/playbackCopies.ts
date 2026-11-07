@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { createStore } from 'zustand/vanilla';
@@ -439,6 +439,32 @@ export function useCopy(videoId: string | null): CopyState {
     if (videoId && state.kind === 'unknown') lookUp(videoId);
   }, [videoId, state.kind]);
   return state;
+}
+
+/**
+ * Where the video's copy plays from, for a `<video>` that isn't the Player (the inspector's clip, 2.8): looked for
+ * once it's made, and again whenever it's made anew (another LUT, a remake). Null while there's none.
+ */
+export function useCopyUrl(videoId: string | null, copy: CopyState, missing = false): string | null {
+  const [found, setFound] = useState<{ videoId: string; url: string } | null>(null);
+  const made = copy.kind === 'made';
+  useEffect(() => {
+    if (!videoId || !made) return;
+    let live = true;
+    copyToPlay(videoId)
+      .then((ready) => {
+        if (!live) return;
+        setFound(ready ? { videoId, url: ready.url } : null);
+        // Made, but gone since (the cap, a Clear elsewhere): made again, as the Player does, unless the original is
+        // missing too, when the missing flag says so and there's nothing to make it from.
+        if (!ready && !missing) makeCopy(videoId);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [videoId, made, copy, missing]);
+  return made && found?.videoId === videoId ? found.url : null;
 }
 
 /** What the queue is doing, for Settings → Storage: the video being made, how far along, and how many wait. */

@@ -297,3 +297,68 @@ test('grabs the frame showing into its frame: the picture changes, says its time
   const settled = await timecode(page).innerText();
   await expect(inspector(page)).toContainText(`Still at ${settled}`, { timeout: 10_000 });
 });
+
+test('the frame’s clip plays in the inspector, in to out, round and round, only when asked (2.8)', async ({ page }) => {
+  await linkAndOpen(page);
+  // A clip of frames 10 to 20.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('i');
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('o');
+  await expect(player(page)).toContainText('In 00:00:00:10 · Out 00:00:00:20 · 11 frames');
+  const preview = inspector(page).locator('[data-clip-preview]');
+  const clip = preview.locator('video');
+  await expect(clip).toHaveCount(1);
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  // Still on its in point, muted, until asked.
+  expect(await clip.evaluate((video: HTMLVideoElement) => [video.paused, video.muted])).toEqual([true, true]);
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001))).toBe(10);
+  expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
+
+  /** The frames the preview presents over two seconds of play, as the webview reports them. */
+  const presented = () =>
+    clip.evaluate(
+      (video: HTMLVideoElement) =>
+        new Promise<number[]>((resolve) => {
+          const seen: number[] = [];
+          const until = performance.now() + 2000;
+          const next: VideoFrameRequestCallback = (_now, metadata) => {
+            seen.push(Math.round((metadata.mediaTime * 24000) / 1001));
+            if (performance.now() < until) video.requestVideoFrameCallback(next);
+            else resolve(seen);
+          };
+          video.requestVideoFrameCallback(next);
+        }),
+    );
+  await preview.getByRole('button', { name: 'Play clip' }).click();
+  await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
+  // Four times round an 11-frame clip: never a frame outside it, and back at its start more than once.
+  const frames = await presented();
+  expect(Math.min(...frames)).toBeGreaterThanOrEqual(10);
+  expect(Math.max(...frames)).toBeLessThanOrEqual(20);
+  expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
+  await preview.getByRole('button', { name: 'Pause clip' }).click();
+  await expect(preview.getByRole('button', { name: 'Play clip' })).toBeVisible();
+
+  // Out on the take's last frame: still round and round, never from the take's start.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('o');
+  await page.keyboard.press('Shift+Comma');
+  await page.keyboard.press('i');
+  await expect(player(page)).toContainText('In 00:00:01:13 · Out 00:00:01:23 · 11 frames');
+  await preview.getByRole('button', { name: 'Play clip' }).click();
+  const last = await presented();
+  expect(Math.min(...last)).toBeGreaterThanOrEqual(37);
+  expect(Math.max(...last)).toBeLessThanOrEqual(47);
+  // Still playing (or turning at the in point), not stopped at the take's end.
+  await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
+  await preview.getByRole('button', { name: 'Pause clip' }).click();
+
+  // A clip of one frame has nothing to play.
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('o');
+  await expect(player(page)).toContainText('· 1 frame');
+  await expect(preview.getByRole('button', { name: 'Play clip' })).toBeDisabled();
+});
