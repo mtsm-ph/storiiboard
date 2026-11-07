@@ -1,0 +1,28 @@
+# Phase 3 decisions (Nov 7, 2026)
+
+One page for Kevin. Each decision gives the question, the options, the recommendation and why, and how hard it is to
+change later. The plan is in `docs/PLAN.md`, "Phase 3 milestones".
+
+Under the queued rules in `docs/HANDOFF.md`, an easy-to-undo decision takes the recommendation and is marked
+**decided by default, review**. Anything that alters existing data, or adds a dependency, **waits for Kevin**; the
+milestones that depend on it are skipped until he answers.
+
+| # | Question | Options | Recommendation and why | Change later | Status |
+|---|---|---|---|---|---|
+| 1 | Is there a map without a Google key? | (a) OpenStreetMap's public tiles, with credit; needs a map library (Leaflet, BSD-2) and is online only. (b) No map until a key is set. (c) An "Open in Maps" button for the address and coordinates, with no map inside the app. | (c) now, (a) later if wanted. (c) needs no dependency and no tile server, works offline, and covers the call sheet's need (map plus directions). | Easy | (c) decided by default, review. (a) waits: a new dependency |
+| 2 | Where does a shot's location come from? | (a) Always the scene's. (b) The scene's, and a shot can override it. (c) Only the shot keeps one. | (b): one place per scene in most scripts, but inserts and pickups go elsewhere. A shot with no `location_id` reads its scene's. | Easy (props only) | Decided by default, review |
+| 3 | How do people relate to departments and roles? | (a) One department and role each. (b) Several departments, one main role, plus free-text titles. | (b): a DP is camera and electric; a producer can be on several. The roles come from the existing list of 14; a free-text title goes on the call sheet. | Easy | Decided by default, review |
+| 4 | Does "Your role on this project" (kept on this computer) give way to people records? | (a) Yes: pick yourself in Cast & crew. (b) Keep both. | (a), with the local setting as a fallback until you've picked yourself. | Easy | Decided by default, review |
+| 5 | Departments: the fixed 11, or custom ones too? | (a) Fixed. (b) Custom departments as records. | (a) for Phase 3. Department status and Seen are keyed by the 11 ids, and custom ones would change how those read. | Hard once custom ones exist | Decided by default, review |
+| 6 | Characters and cast | (a) Link each character to a cast member (`cast_id`; doubles as a list). (b) Also turn `scene.characters` text into character ids. | (a) now; it's additive. (b) changes existing data, so it waits. | (a) easy, (b) hard | (a) decided by default, review. (b) waits for Kevin |
+| 7 | Gear: a catalogue or per-day items? | (a) A project gear catalogue (items with quantity, owner or rental house, and an optional day rate) plus a list per day picked from it. (b) Items made fresh each day. | (a): packages repeat across days, and the check "a shot needs gear not on that day's list" needs one item per thing. Currency is a project setting (default USD). | Medium | Decided by default, review |
+| 8 | What does a shoot day total? | Shot count, setups, page eighths, estimated hours. | Shots, setups and estimated hours. Hours come from a per-setup estimate (default 30 min, editable). Page eighths come in when scenes carry them (script import doesn't yet). | Easy (computed, never stored) | Decided by default, review |
+| 9 | Which frames go into shoot days? | (a) Only "Need to shoot". (b) Any frame. | (a), as in Kevin's Notion: "Have" and "Source" frames aren't shot. A frame sits in at most one day; moving it between days is one undo step. | Easy | Decided by default, review |
+| 10 | Crew confirmed and location status, before the web companion | (a) Set on the desktop now (per person per day: pending or confirmed; per location: TBD, confirmed or cancelled). (b) Wait for web availability (Phase 9). | (a): the Calendar needs it now. Phase 9's availability arrives as suggestions over the same props. | Easy | Decided by default, review |
+| 11 | Attachments (PDFs, links) | (a) PDFs stored inside the .sbd, capped at 50 MB each. (b) Linked from disk like videos. | (a) for PDFs (a location contract, a release) so they travel with the project; links stay links. It's a new table, so additive. | Medium | Decided by default, review |
+| 12 | One schema bump for the phase, or one per milestone? | (a) One schema 9 for everything. (b) A bump per milestone that needs one. | (b): each PR stays reviewable, and each bump comes with its migration, a backup first and tests (the queued rule). | Easy | Decided by default, review |
+| 13 | A company profile attached to a project: live or a copy? | (a) A copy, frozen. (b) It follows changes to the profile. | (a) with an "Update from profile" button. A project file must read the same on another computer that doesn't have the profile. | Easy | Decided by default, review |
+| 14 | What does the address search's User-Agent say? | Nominatim's policy asks for an app name and a way to reach its maker. | `Storiiboard/<version> (+https://github.com/mtsm-ph/storiiboard)`: the project page, never anyone's email. It's sent from Rust, since a page can't set the header. | Easy | Decided by default, review |
+| 15 | Project stage (Notion's pipeline) and project state (draft, active, archived) | (a) Two props. (b) One. | (a): stage is the job's progress (Discovery, Contract, Pre-production, Production, Editing, Revising, Pending invoice, Complete); state is whether the project is archived. They're never mixed (CLAUDE.md). | Easy | Decided by default, review |
+
+Waiting for Kevin: a map library (1a) and characters as ids in scenes (6b). Nothing else in Phase 3 depends on them.
