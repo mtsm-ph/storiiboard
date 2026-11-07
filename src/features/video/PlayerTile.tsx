@@ -4,7 +4,7 @@ import { readClip, videoFields } from '../../core/media/video';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
 import { clipWithIn, clipWithOut, frameOfPresentation, frameOfTime, setClip, stepFrame, timeOfFrame } from './player';
-import { copyToPlay, makeCopy, useCopy } from './playbackCopies';
+import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
 
@@ -122,6 +122,8 @@ export function PlayerTile() {
       ? { name: linked.sourceName, fps, startTimecode: linked.startTimecode, durationFrames: duration, inFrame: clip.inFrame, outFrame: clip.outFrame }
       : null;
 
+  /** The frame at a time of the copy, never past the video's last. */
+  const frameAt = (seconds: number) => stepFrame(frameOfTime(seconds, fps), 0, duration);
   const seek = (to: number) => {
     const target = stepFrame(to, 0, duration);
     setFrame(target);
@@ -135,7 +137,7 @@ export function PlayerTile() {
     void projectStore.getState().applyWith((now) => {
       const current = now[shotId];
       const currentClip = current?.type === 'shot' ? readClip(current.props) : null;
-      if (!currentClip || currentClip.videoId !== videoId) return { changes: [] };
+      if (!currentClip || currentClip.videoId !== videoId || at >= duration) return { changes: [] };
       const next = which === 'in' ? clipWithIn(currentClip, at) : clipWithOut(currentClip, at);
       // Where it is already: no edit, so no undo step for nothing.
       if (next.inFrame === currentClip.inFrame && next.outFrame === currentClip.outFrame) return { changes: [] };
@@ -182,14 +184,15 @@ export function PlayerTile() {
           element.currentTime = timeOfFrame(frame, fps);
           setRemadeFor(null);
         }
-        else if (!element.paused) setFrame(frameOfTime(element.currentTime, fps));
+        else if (!element.paused) setFrame(frameAt(element.currentTime));
       }}
       onPlaying={(now) => {
         setPlaying(now);
         // Paused: the readout, the picture and the <video>'s time all settle on the frame it stopped in.
         const element = videoRef.current;
         if (!now && element) {
-          const at = frameOfTime(element.currentTime, fps);
+          // At the end the time is the video's whole length, a frame past its last: the last frame.
+          const at = frameAt(element.currentTime);
           setFrame(at);
           element.currentTime = timeOfFrame(at, fps);
         }
@@ -202,7 +205,7 @@ export function PlayerTile() {
         setPlaying(false);
         if (videoId && remadeFor !== videoId) {
           setRemadeFor(videoId);
-          makeCopy(videoId);
+          copyMayBeGone(videoId);
         }
       }}
     />

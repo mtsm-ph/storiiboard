@@ -2396,6 +2396,23 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A link where a copy was, to a file outside the folder: not a copy, so not found (serving refuses it too).
+    #[cfg(unix)]
+    #[test]
+    fn a_link_under_a_copys_name_is_not_found() {
+        let dir = temp_dir("find-link");
+        let cache = sound_test_cache(&dir.join("cache"));
+        let silence = "anullsrc=r=48000:cl=mono:d=1";
+        let clip = tracks_clip(&dir, "C0089.mov", &[silence], "pcm_s24le");
+        let made = cache.make(&clip, |_| {}).unwrap();
+        assert_eq!(cache.find(&clip).unwrap(), Some(made.clone()));
+        fs::write(dir.join("outside.mp4"), b"private").unwrap();
+        fs::remove_file(&made.path).unwrap();
+        std::os::unix::fs::symlink(dir.join("outside.mp4"), &made.path).unwrap();
+        assert_eq!(cache.find(&clip).unwrap(), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn keeps_a_single_stereo_track_as_it_is() {
         let dir = temp_dir("stereo-track");

@@ -339,6 +339,14 @@ the video's own; I and O by their key only on layouts that type no Latin letter 
 `find` refuses links, as serving does. Left as a low: on a French AZERTY, Shift steps ten forward (Shift+":") but not
 back (its comma is on KeyM, where Shift types "?").
 
+Round 3: no high; two mediums fixed. Played to the end, a pause read the video's whole length as a frame past its last,
+and O then saved an out point past the video: the frame is now kept inside the video, and I and O never set a point past
+it. A copy without sound that loaded and then failed was made again without end (its retry for sound passed the
+one-remake cap): after a <video> error the copy is now made again only if it's gone (`copyMayBeGone`). Tests: the end of
+the video in e2e, the error path's remake rule in unit tests, `find` ignoring a link in Rust. Left as lows: the e2e
+can't-play test can't see the remake cap (the stand-in's copies never go missing); a copy removed by the cap says "can't
+be played" for a moment before it's queued again.
+
 ## Review stop A (after 2.4): Kevin's checklist, in this order
 
 On Kevin's own computers, with the 2.4 installers (or a dev build):

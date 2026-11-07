@@ -129,6 +129,23 @@ test('asks for a copy of a video shown without one, but leaves a cancelled one c
   await expect(inspector(page).locator('[data-copy-state]')).toHaveText('No playback copy yet.');
 });
 
+test('played to the end, it stops on the last frame, and O sets the out point there, not past it', async ({ page }) => {
+  await linkAndOpen(page);
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('i');
+  await expect(range(page)).toContainText('00:00:00:10 – 00:00:01:23 · 38 frames');
+  await page.keyboard.press(' ');
+  await expect(player(page).getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  // Stopped by itself at the end (and then set back inside the last frame, so it no longer reads as ended).
+  await expect(player(page).getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false', { timeout: 10_000 });
+  await expect(timecode(page)).toHaveText('00:00:01:23');
+  await page.keyboard.press('o');
+  // Out already on the last frame: no edit, and the clip never runs past the video.
+  await expect(range(page)).toContainText('00:00:00:10 – 00:00:01:23 · 38 frames');
+  await expect(player(page)).toContainText('Out 00:00:01:23');
+});
+
 test('a copy the <video> can’t play says so, with Try again, and is remade once at most', async ({ page }) => {
   await linkAndOpen(page);
   const fail = () => player(page).locator('video').dispatchEvent('error');

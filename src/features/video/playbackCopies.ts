@@ -225,6 +225,15 @@ function remakeIfGone(videoId: string): void {
     .catch(() => undefined);
 }
 
+/**
+ * The Player's <video> couldn't read the copy (2.4): made again only if it's gone. A copy there but without sound is
+ * not made again for sound here, which could loop on a copy that loads and then fails.
+ */
+export function copyMayBeGone(videoId: string): void {
+  watch();
+  if (stateOf(videoId).kind === 'made') remakeIfGone(videoId);
+}
+
 /** Takes the video's copy off the queue, or stops it being made; no copy is left half made. */
 export function cancelCopy(videoId: string): void {
   const { waiting, making } = copiesStore.getState();
