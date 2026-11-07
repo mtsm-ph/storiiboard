@@ -6,7 +6,7 @@ import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
-import { restoreChanges, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { oldCompanyLogos, restoreChanges, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
@@ -130,13 +130,15 @@ export function TrashTile() {
           ))}
         </Select>
         <p className="sb-label ml-auto font-mono">{t('trash.count', { count: all.length })}</p>
-        <Button variant="warning" disabled={all.length === 0} onClick={() => void emptyAll(all.length - shown.length)}>
+        <Button variant="warning" disabled={all.length === 0 && oldCompanyLogos(records, project.projectId) === 0} onClick={() => void emptyAll(all.length - shown.length)}>
           {t('trashTile.emptyTrash')}
         </Button>
       </div>
       {all.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">
           {t('trashTile.theTrashIsEmptyFrames')}
+          {/* Not listed, but Empty Trash is on for them: said why. */}
+          {oldCompanyLogos(records, project.projectId) > 0 && ` ${tn('trash.oldLogosWaiting', oldCompanyLogos(records, project.projectId))}`}
         </p>
       ) : shown.length === 0 ? (
         <p ref={empty} tabIndex={-1} className="p-3 text-[13px] text-text-muted">

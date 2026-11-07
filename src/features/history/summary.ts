@@ -81,6 +81,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   runtime: 'history.field.runtime',
   client: 'history.field.client',
   deliverables: 'history.field.deliverables',
+  company: 'history.field.company',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -194,6 +195,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
   if (prop === 'lut') return t('history.aLut');
+  // The production company (3.2) by its name as copied, never its ids or contact details.
+  if (prop === 'company' && isObject(value)) return typeof value.name === 'string' && value.name !== '' ? value.name : t('history.aCompany');
   if (prop === 'lens_mm' && typeof value === 'number') return t('history.lens', { mm: value });
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
@@ -403,6 +406,17 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
   // A change of look: the theme, with or without a new logo.
   if (ops.some((op) => op.after?.type === 'project' && op.before && JSON.stringify(op.before.props.theme) !== JSON.stringify(op.after.props.theme))) {
     return [t('history.changedTheme', { tag })];
+  }
+  // The production company (3.2), with or without its logo: by its name, never its details.
+  const company = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.company) !== JSON.stringify(op.after.props.company));
+  if (company) {
+    const name = (value: JsonValue | undefined) => (isObject(value) && typeof value.name === 'string' && value.name !== '' ? value.name : t('history.aCompany'));
+    const before = company.before?.props.company;
+    const after = company.after?.props.company;
+    if (before === undefined) return [...line('history.companyAttached', { name: name(after) }), tag];
+    if (after === undefined) return [...line('history.companyDetached', { name: name(before) }), tag];
+    const same = isObject(before) && isObject(after) && before.profile_id === after.profile_id;
+    return [...line(same ? 'history.companyUpdated' : 'history.companyAttached', { name: name(after) }), tag];
   }
   const watermark = ops.find((op) => record(op)?.type === 'project' && op.before && op.after && JSON.stringify(op.before.props.watermark) !== JSON.stringify(op.after.props.watermark));
   if (watermark) return [`${describeWatermark(watermark.before?.props.watermark, watermark.after?.props.watermark)}${tag}`];

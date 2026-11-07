@@ -427,6 +427,7 @@ and MCP read them.
 | logline, format, runtime | text | 3.1. Free text: `TVC · 60s`, `12 min` |
 | client | `name`, `company`, `email`, `phone` (text) | 3.1. The client contact. Private: shown in the app, never logged. Fields this version doesn't know are kept |
 | deliverables | array of `id` (UUID), `text`, `done` (true or false) | 3.1. The deliverables checklist, in order. Fields this version doesn't know are kept |
+| company | `profile_id`, `name`, `address`, `phone`, `email`, `website` (text), `logo_id` (a media record under the project, or null), `logo_source` (a mark of the logo copied, to tell whether the profile's changed) | 3.2. The production company, copied from a profile saved in the app's settings on some computer; it stays as copied until Update from profile. Its logo is a picture (schema 3) whose media record has `role` = `company_logo`; replaced or detached, it goes to the Trash, which doesn't list it on its own (undo brings it back with the company) but counts and clears it with Empty Trash. `logo_source` is null when the project holds no logo. Fields this version doesn't know are kept |
 | theme | object (below) | Phase 1 |
 | watermark | `text`, `position` (`top-left`, `top-right`, `center`, `bottom-left`, `bottom-right`), `opacity` (0.05 to 1), `applies_to` (any of `pdf`, `png`, `review`) | 1.24, Watermark Settings. Missing, or empty text, means no watermark |
 | aspect_ratio | `2.39:1`, `2:1`, `1.85:1`, `16:9`, `4:3`, `1:1`, `4:5`, `9:16` | 1.6. The storyboard's frame shape; missing reads as `16:9` |

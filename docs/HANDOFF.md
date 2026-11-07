@@ -343,6 +343,41 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.2: review
+
+Round 1: one high and five mediums, fixed. History read an attach or detach with a logo as "Set the picture of an
+item": it now says "Attached (Updated, Detached) the production company Zima Blue Pictures". Picking in the menu
+attached at once, so the arrow keys attached a profile per press (and lost focus): the menu only picks; Attach (or
+Replace company) copies, and controls are never disabled under focus. Logos could fill the browser store the app's
+settings share, silently stopping the backups' numbers and the rest from saving: logos are smaller (320 px, at most
+150k characters, stepped down to fit), and all logos together are capped (600k), refused in words past it. A replaced
+logo in the Trash could be restored as a picture nothing shows: it's marked as the company's (`role: company_logo`),
+left out of the Trash's list (undo brings it back with the company; Empty Trash clears it), and Update from profile
+keeps the same logo rather than make another. A `logo_id` naming a frame, a scene or the project itself was trashed
+on Detach: only a picture under the project is ever taken as the logo. The project's own logo now shows. Lows fixed:
+Remove profile asks first (it can't be undone); text cut by characters, so a long name with an emoji reads back the
+same; a too-heavy logo is made smaller rather than refused; a double click can't attach twice; no English word
+stored as the logo's file name; the Settings store has a module of its own (no import circle); Open App settings
+puts focus on the App tab; a copy whose profile id is empty can't read as None. Tests: the budget, the round trip of a
+long name, logo kept when unchanged, a bad `logo_id`, History's three lines, the Trash's list; end to end, the arrow
+keys attach nothing, the project's logo shown.
+
+Round 2: no high; one medium fixed. Leaving old company logos out of the Trash's list left Empty Trash off while they
+were all there was, so they could pile up with no way to clear them: Empty Trash now counts them (to be offered, in
+the Trash tile and Settings → Storage) and its confirm names them ("1 item and 2 old company logos"). Lows fixed: only a
+picture marked as the company's is ever taken as its logo (never the theme's image a `logo_id` names); focus goes back
+to the menu once its button's work is done; an undo or redo of what's attached resets the menu; a copy with no logo in
+the project keeps no logo mark, so it reads as differing from its profile and Update puts the logo back; History's
+company lines keep the "picture removed" tag; the format doc names the `role` mark; tidier imports. Low left: a logo
+saved before the new 150k cap (dev builds only, before 3.2 shipped) is dropped on load.
+
+Round 3: no high, no medium; review done. Lows fixed: focus goes back to the menu after an action only if the person
+hasn't moved on; with only old logos waiting, the Trash tile and Settings → Storage say so beside the Empty Trash they
+turn on; a copy whose logo isn't in the project any more offers Update. Low left: after an Empty Trash of only old
+logos, the notice counts "0 items" (the space freed is still said). The screenshot baselines for Settings (its App
+tab now shows Company profiles) were regenerated on Linux and the Mac (`checkpoint/baselines-3.2-r1`) and committed;
+the Windows ones are Kevin's to regenerate (checklist item 7).
+
 ### 3.1: review
 
 Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last

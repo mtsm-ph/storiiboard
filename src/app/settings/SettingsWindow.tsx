@@ -1,6 +1,5 @@
 import { useId, type ComponentType } from 'react';
 import { useStore } from 'zustand';
-import { createStore } from 'zustand/vanilla';
 import { labels, t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { InAppWindow } from '../../ui/InAppWindow';
@@ -11,14 +10,15 @@ import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
 import { ProfileTab } from './profile';
+import { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
 import { NoticeBar } from '../NoticeBar';
 
 // Settings in a window of the app's own (polish B), not a workspace of tiles: the project's settings and the person's
 // in one place, a tab each, opened from the sidebar's gear or with ⌘, (Ctrl+,), and from the profile button at its
-// Profile tab. It remembers the tab last open this session.
+// Profile tab. It remembers the tab last open this session. Which tab is open lives in settingsStore.ts, so a tab's
+// content can open Settings at another tab without importing this window; it's re-exported here as before.
 
-export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'profile'] as const;
-export type SettingsTab = (typeof SETTINGS_TABS)[number];
+export { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
 
 const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   project: 'settings.tab.project',
@@ -37,22 +37,6 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   storage: StorageTile,
   profile: ProfileTab,
 };
-
-interface SettingsState {
-  open: boolean;
-  tab: SettingsTab;
-}
-
-export const settingsStore = createStore<SettingsState>()(() => ({ open: false, tab: 'project' }));
-
-/** Opens Settings, at a given tab or the one last open. */
-export function openSettings(tab?: SettingsTab): void {
-  settingsStore.setState((s) => ({ open: true, tab: tab ?? s.tab }));
-}
-
-export function closeSettings(): void {
-  settingsStore.setState({ open: false });
-}
 
 /** ⌘, on a Mac, Ctrl+, elsewhere: where every app keeps its settings. */
 export function isSettingsShortcut(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'repeat'>, mac: boolean): boolean {
@@ -81,6 +65,7 @@ export function SettingsHost() {
                 id={tabId(id)}
                 type="button"
                 role="tab"
+                data-settings-tab={id}
                 aria-selected={selected}
                 aria-controls={`${baseId}-panel`}
                 tabIndex={selected ? 0 : -1}
