@@ -182,3 +182,43 @@ test('a project’s production details: stage, client and deliverables, each an 
   await expect(panel.getByRole('textbox', { name: 'Company' })).toHaveValue('Bey Foods');
   await expect(panel.getByRole('list', { name: 'Deliverables' }).getByRole('listitem')).toHaveCount(2);
 });
+
+test('production details keep keyboard focus from field to field, and a rename and a remove each undo', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  let panel = await openSettings(page, 'Project');
+  // Leaving a field writes it; the next field keeps focus, and what's typed in it straight away.
+  const name = panel.getByRole('textbox', { name: 'Name', exact: true });
+  await name.click();
+  await page.keyboard.type('Ana Ruiz');
+  await page.keyboard.press('Tab');
+  await expect(panel.getByRole('textbox', { name: 'Company' })).toBeFocused();
+  await page.keyboard.type('Bey Foods');
+  await page.keyboard.press('Tab');
+  await expect(panel.getByRole('textbox', { name: 'Email' })).toBeFocused();
+  await expect(panel.getByRole('textbox', { name: 'Company' })).toHaveValue('Bey Foods');
+  // Enter adds a deliverable and stays in the field for the next one.
+  const adding = panel.getByRole('textbox', { name: 'New deliverable' });
+  await adding.click();
+  await page.keyboard.type('Master');
+  await page.keyboard.press('Enter');
+  await expect(adding).toBeFocused();
+  await page.keyboard.type('Cutdowns');
+  await page.keyboard.press('Enter');
+  const items = panel.getByRole('list', { name: 'Deliverables' }).getByRole('listitem');
+  await expect(items).toHaveCount(2);
+  // A rename, then a remove, each one edit: Remove leaves focus on the next box.
+  await panel.getByRole('textbox', { name: 'Deliverable 1' }).fill('60s master');
+  await panel.getByRole('textbox', { name: 'Deliverable 1' }).press('Enter');
+  await expect(panel.getByRole('checkbox', { name: 'Delivered: 60s master' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Remove deliverable: 60s master' }).click();
+  await expect(items).toHaveCount(1);
+  await expect(panel.getByRole('checkbox', { name: 'Delivered: Cutdowns' })).toBeFocused();
+  await closeSettings(page);
+  await page.keyboard.press(await undoKey(page));
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('textbox', { name: 'Deliverable 1' })).toHaveValue('60s master');
+  await closeSettings(page);
+  await page.keyboard.press(await undoKey(page));
+  panel = await openSettings(page, 'Project');
+  await expect(panel.getByRole('textbox', { name: 'Deliverable 1' })).toHaveValue('Master');
+});

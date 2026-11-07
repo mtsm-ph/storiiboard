@@ -1,6 +1,7 @@
 import { mediaFields } from '../../core/media/store';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
+import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -134,6 +135,14 @@ function paletteText(value: JsonObject): string {
   return typeof value.size === 'number' ? t('history.paletteWithCount', { colours: list, count: value.size }) : list;
 }
 
+/** A deliverables checklist as a line: each item's text, a delivered one marked. */
+function deliverablesText(items: readonly JsonValue[]): string {
+  const named = items.flatMap((item) =>
+    isObject(item) && typeof item.text === 'string' ? [item.done === true ? t('history.deliverableDone', { text: item.text }) : item.text] : [],
+  );
+  return named.length === 0 ? '—' : named.join(', ');
+}
+
 /** Whether a field's values are technical ones, shown in mono. */
 export const isMono = (prop: string): boolean => MONO.has(prop);
 
@@ -145,6 +154,7 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   support: SUPPORT_LABEL,
   height: HEIGHT_LABEL,
   move: MOVE_LABEL,
+  stage: PROJECT_STAGE_LABEL,
 };
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
@@ -157,7 +167,8 @@ const choiceLabel = (prop: string, value: string): string => {
 /** A value as a step's line shows it: in the board's words, `—` for nothing, and a long text cut to one short line. */
 export function valueLabel(prop: string, value: JsonValue | undefined): string {
   const text = valueText(prop, value);
-  if (typeof value !== 'string' && typeof value !== 'number') return text;
+  // A checklist is cut short as a text is: a step's line stays one line.
+  if (typeof value !== 'string' && typeof value !== 'number' && prop !== 'deliverables') return text;
   const line = text.replace(/\s+/g, ' ');
   return line.length > 40 ? `${line.slice(0, 39)}…` : line;
 }
@@ -183,6 +194,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 't_stop' && typeof value === 'number') return t('history.tStop', { stop: value });
   // A scene's length, as a breakdown sheet reads it ("1 3/8 pg"), never its stored count of eighths.
   if (prop === 'page_eighths' && typeof value === 'number') return pageLabel(value);
+  // A project's deliverables (3.1): each by its text, a delivered one marked, never its id.
+  if (prop === 'deliverables' && Array.isArray(value)) return deliverablesText(value);
   if (Array.isArray(value)) return value.length === 0 ? '—' : value.map((v) => (typeof v === 'string' ? choiceLabel(prop, v) : JSON.stringify(v))).join(', ');
   // A scene's palette (polish PP): its colours in order, a locked one marked, so steps can be told apart.
   if (prop === 'palette' && isObject(value)) return paletteText(value);
@@ -226,8 +239,21 @@ const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValu
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 };
 
-/** Props kept as one object whose entries History lists one by one. */
-const BY_ENTRY = new Set(['custom', 'department_status']);
+/** Props kept as one object whose entries History lists one by one: the project's client contact (3.1) too. */
+const BY_ENTRY = new Set(['custom', 'department_status', 'client']);
+
+/** A client contact's fields by name; its email and phone are named in History, never shown there (3.1). */
+const CLIENT_FIELD: Readonly<Record<string, string>> = labels({
+  name: 'history.client.name',
+  company: 'history.client.company',
+  email: 'history.client.email',
+  phone: 'history.client.phone',
+});
+const PRIVATE_CLIENT_FIELDS = new Set(['email', 'phone']);
+const isClient = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'client' && change.key !== undefined;
+/** A client field's value: its email and phone said only as set or not, since History feeds notifications. */
+const clientValue = (change: FieldChange & { key: string }, value: JsonValue | undefined, full: boolean): string =>
+  PRIVATE_CLIENT_FIELDS.has(change.key) ? (isBlank(value) ? '—' : t('history.notShown')) : full ? valueText('', value) : valueLabel('', value);
 
 /** Every field an op changed, each custom field and each department's status on its own. */
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
@@ -245,16 +271,20 @@ const isStatus = (change: FieldChange): change is FieldChange & { key: string } 
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange): string =>
-  isStatus(change) ? departmentName(change.key) : (change.key ?? fieldLabel(change.prop));
+  isStatus(change)
+    ? departmentName(change.key)
+    : isClient(change)
+      ? (CLIENT_FIELD[change.key] ?? t('history.client.unknownField', { field: change.key }))
+      : (change.key ?? fieldLabel(change.prop));
 /**
  * A change's value. A custom field that isn't on the frame at all reads "no field", apart from an empty one (`—`):
  * putting back one takes the field off, the other keeps it.
  */
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change) ? statusText(value) : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
+  isStatus(change) ? statusText(value) : isClient(change) ? clientValue(change, value, false) : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  isStatus(change) ? statusText(value) : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
+  isStatus(change) ? statusText(value) : isClient(change) ? clientValue(change, value, true) : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined ? valuePart(change.prop, value) : changeValue(change, value);
 

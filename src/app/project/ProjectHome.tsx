@@ -40,8 +40,12 @@ export function ProjectHome() {
       />
       <ProjectDetailsFields
         record={record}
-        onChange={(set) => {
-          void apply([{ kind: 'update', id: record.id, set }]);
+        onChange={(change) => {
+          // From the project record as it is at the edit's turn, so two edits a moment apart both land.
+          void applyWith((now) => {
+            const current = now[record.id];
+            return { changes: current ? [{ kind: 'update', id: record.id, set: change(current.props) }] : [] };
+          });
         }}
       />
     </>
@@ -142,9 +146,11 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
         <p className="-mt-2 text-[12px] text-text-muted">
           {t('projectHome.framesTakeTheSceneNumber')}
         </p>
-        {/* Keyed by the record's last change, so an undo or redo shows in the fields at once. */}
-        <div key={record.updatedAt} className="flex flex-col gap-4">
+        {/* Each field keyed by its own value, so an undo or redo shows in it at once, and leaving one for the next
+            (a commit, so a change to the record) never takes focus from the other or what's typed in it. */}
+        <div className="flex flex-col gap-4">
           <TextField
+            key={`title:${title}`}
             label={t('projectHome.title')}
             defaultValue={title}
             onBlur={(event) => {
@@ -159,6 +165,7 @@ export function ProjectFields({ record, error, onChange, onLettersChange }: Proj
               {t('projectHome.notes')}
             </label>
             <textarea
+              key={`notes:${notes}`}
               id={notesId}
               rows={10}
               defaultValue={notes}

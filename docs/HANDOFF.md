@@ -343,6 +343,20 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.1: review
+
+Round 1: one high and three mediums, fixed. Every commit remounted the whole details block (keyed by the record's last
+change), so Tab from one field to the next lost focus and text typed straight after was thrown away: each field is
+now keyed by its own stored value, so an undo shows in the field it changed and focus stays where it is (the same fix
+for the older title and notes fields). Edits were built from the props as last drawn, so a rename then a tick (or two
+client fields) a moment apart could undo each other: each is now worked out from the project as it is at its turn
+(`applyWith`). History showed the checklist as raw JSON with ids, and every client change as "changed": the checklist
+reads by its items, a delivered one marked, and the client by field ("client company: — → Bey Foods"), its email and
+phone said only as set ("not shown"), since History feeds notifications. Lows fixed: stages in History in words; the
+box 24 px; each deliverable's field named by its place; a deliverable emptied keeps its text (Remove takes it off);
+Remove leaves focus on the next box. Tests: two edits fired together both land; History's lines (no email or phone in
+them); end to end, focus kept from field to field and after Enter and Remove, a rename and a remove each undone.
+
 ### 2.9: decisions
 
 - Decided by default, review: the JSON export carries the Trash and the History, though CLAUDE.md says exports skip
