@@ -4,8 +4,10 @@ import { displayAspect, readClip, videoFields } from '../../core/media/video';
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
+import { frameTimecode } from '../../core/media/timecode';
 import { cropProp, DEFAULT_CROP } from '../../core/media/crop';
 import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLength, inVideo, setClip, stepFrame, timeOfFrame } from './player';
+import { grabStill } from './grabStill';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
 import { useVideoMissing } from './videoStatus';
@@ -30,6 +32,11 @@ export function PlayerTile() {
   const [opened, setOpened] = useState<{ videoId: string; url: string; silent: boolean; quiet: boolean } | null>(null);
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // The frame a still is being grabbed for (2.7), so a second press waits rather than grab twice; another frame
+  // selected meanwhile can be grabbed at once. And what the last grab came to, for a screen reader.
+  const [grabbingFor, setGrabbingFor] = useState<string | null>(null);
+  const grabbing = grabbingFor !== null && grabbingFor === shotId;
+  const [grabSaid, setGrabSaid] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   // The take's shape, upright with square pixels, for the frame's window over it (2.6); read before anything is
   // memoised from the record.
@@ -48,6 +55,8 @@ export function PlayerTile() {
   const [shownFor, setShownFor] = useState(shown);
   if (shownFor !== shown) {
     setShownFor(shown);
+    // What the last frame's grab came to isn't this frame's.
+    setGrabSaid('');
     setFrame(clip?.inFrame ?? 0);
     setPlaying(false);
   }
@@ -184,6 +193,25 @@ export function PlayerTile() {
       }}
       onSetOut={() => {
         setPoint('out');
+      }}
+      grabbing={grabbing}
+      grabSaid={grabSaid}
+      onGrabStill={() => {
+        if (!shotId || grabbing) return;
+        // Playing: paused first, and the frame it settles on is the one grabbed, as the readout and the picture
+        // settle there too (the pause's own handler sets them from the same time).
+        const element = videoRef.current;
+        let at = frame;
+        if (element && !element.paused) {
+          element.pause();
+          at = frameAt(element.currentTime);
+        }
+        setGrabbingFor(shotId);
+        setGrabSaid('');
+        void grabStill(shotId, at).then((done) => {
+          setGrabbingFor((now) => (now === shotId ? null : now));
+          if (done && linked) setGrabSaid(t('player.grabbed', { timecode: frameTimecode(at, linked.fps, linked.startTimecode) }));
+        });
       }}
       onMakeCopy={() => {
         if (broken !== null) {

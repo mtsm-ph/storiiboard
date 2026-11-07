@@ -764,15 +764,42 @@ const STILL_PREROLL: f64 = 3.0;
 /// keyframe after the time asked for, never before it by much), counted from the file's start; then decoding up to
 /// the frame's own timestamp, which `-copyts` keeps as the file has it. The time asked for is a quarter frame early, so
 /// rounding can't skip the frame.
+#[cfg(test)]
 pub fn still(path: &Path, frame: u64, fps_num: u32, fps_den: u32) -> Result<Vec<u8>, String> {
+    still_graded(path, frame, fps_num, fps_den, None)
+}
+
+/// `still`, graded with the video's LUT when it has one (2.7, as its playback copy is, 2.5): the LUT after the scale,
+/// in place of the tone-mapping for HDR footage. The original is only read.
+pub fn still_graded(
+    path: &Path,
+    frame: u64,
+    fps_num: u32,
+    fps_den: u32,
+    lut: Option<&crate::playback::Lut>,
+) -> Result<Vec<u8>, String> {
     if fps_num == 0 || fps_den == 0 {
         return Err("That video's frame rate can't be read.".into());
     }
+    if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
+        return Err(CANT_READ.into());
+    }
     let facts = facts(path)?;
     let (early, at) = still_times(&facts, frame, fps_num, fps_den);
+    // Its own folder for the one grab, gone after; ffmpeg runs there and names the file alone (playback.rs LutFile).
+    let grade = match lut {
+        Some(lut) => Some(crate::playback::LutFile::write(lut)?),
+        None => None,
+    };
     // The frame's own time, on the file's clock: the second seek and the trim before the tone map take the same one.
-    let filter = still_filter(&facts.colour, at);
+    let filter = match &grade {
+        Some(_) => graded_still_filter(&facts.colour, at),
+        None => still_filter(&facts.colour, at),
+    };
     let mut command = command("ffmpeg");
+    if let Some(grade) = &grade {
+        command.current_dir(&grade.folder);
+    }
     command
         .args(["-hide_banner", "-loglevel", "error", "-copyts"])
         .args(["-protocol_whitelist", "file", "-ss"])
@@ -815,6 +842,22 @@ fn still_filter(colour: &Colour, at: f64) -> String {
         )),
         None => format!("bwdif=mode=send_frame:deint=interlaced,{scale}"),
     }
+}
+
+/// A graded still's filters: as `still_filter`'s, with the LUT after the scale for the frame asked for alone (those
+/// decoded on the way are dropped first), and no tone-mapping: a camera's LUT is made for the signal it recorded. HDR
+/// footage tagged with a matrix FFmpeg's own filters refuse is re-tagged for them first, as for the copy. The result
+/// is said to be BT.709, as the LUT made it: the PNG's colour chunks would otherwise still say PQ or HLG, and the
+/// picture would be converted a second time when it's stored.
+fn graded_still_filter(colour: &Colour, at: f64) -> String {
+    let fit = format!("min(1,{STILL_LONG_EDGE}/max(iw*sar,ih))");
+    let scale = format!("scale=w='trunc(iw*sar*{fit}/2)*2':h='trunc(ih*{fit}/2)*2',setsar=1");
+    let retag = tone_map(colour).map_or("", |hdr| hdr.before);
+    format!(
+        "{retag}bwdif=mode=send_frame:deint=interlaced,trim=start={at:.6},{scale},lut3d=file={}:interp=tetrahedral,\
+         setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        crate::playback::LUT_FILE
+    )
 }
 
 /// File types a video may be (src/core/media/video.ts, VIDEO_EXTENSIONS). RAW formats need a maker's SDK.
@@ -1023,11 +1066,12 @@ pub async fn video_still(
     frame: u64,
     fps_num: u32,
     fps_den: u32,
+    lut: Option<crate::playback::Lut>,
 ) -> Result<Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&path);
         Access::of(&app, handle).readable(path)?;
-        still(path, frame, fps_num, fps_den).map(Response::new)
+        still_graded(path, frame, fps_num, fps_den, lut.as_ref()).map(Response::new)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -2014,6 +2058,118 @@ mod tests {
         }
         let grey = mean_grey(&dir, &still(&sdr, 0, 25, 1).unwrap());
         assert!((135.0..=160.0).contains(&grey), "SDR as it is: {grey}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn grades_a_still_with_the_videos_lut_and_hdr_with_the_lut_alone() {
+        let dir = temp_dir("lut-still");
+        // An inverting 2-point cube, written here: no camera maker's LUT is ever shipped.
+        let invert = crate::playback::Lut {
+            sha256: "ab".repeat(32),
+            cube: "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n"
+                .to_owned(),
+        };
+        let dark = flat_10_bit(
+            &dir,
+            "dark.mov",
+            200,
+            "color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        );
+        let plain = mean_grey(&dir, &still(&dark, 0, 25, 1).unwrap());
+        let graded = mean_grey(&dir, &still_graded(&dark, 0, 25, 1, Some(&invert)).unwrap());
+        assert!(plain < 80.0, "dark as shot: {plain}");
+        assert!(graded > 175.0, "light through the inverting LUT: {graded}");
+        // HDR under a LUT: the LUT alone (an identity one leaves PQ's own level, about 146), never the tone-map (236).
+        let identity = crate::playback::Lut {
+            sha256: "cd".repeat(32),
+            cube: "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n"
+                .to_owned(),
+        };
+        let pq = flat_10_bit(&dir, "pq.mov", PQ_WHITE, PQ);
+        let grey = mean_grey(&dir, &still_graded(&pq, 0, 25, 1, Some(&identity)).unwrap());
+        assert!((125.0..=170.0).contains(&grey), "PQ under its LUT: {grey}");
+        // Its colour tags: what the LUT made (BT.709), never the PQ it was read as.
+        let png = still_graded(&pq, 0, 25, 1, Some(&identity)).unwrap();
+        let file = dir.join("pq-graded.png");
+        fs::write(&file, &png).unwrap();
+        let tags = command("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "frame=color_transfer,color_primaries",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&file)
+            .output()
+            .unwrap();
+        let tags = String::from_utf8_lossy(&tags.stdout).trim().to_owned();
+        assert_eq!(
+            tags, "bt709,bt709",
+            "what the LUT made, never the PQ it was read as"
+        );
+        // One named by anything but a SHA-256 is refused before anything is written.
+        let odd = crate::playback::Lut {
+            sha256: "../x".to_owned(),
+            cube: invert.cube.clone(),
+        };
+        assert!(still_graded(&dark, 0, 25, 1, Some(&odd)).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_graded_still_is_the_frame_asked_for_through_its_lut() {
+        let dir = temp_dir("lut-frame");
+        let identity = crate::playback::Lut {
+            sha256: "ef".repeat(32),
+            cube: "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n"
+                .to_owned(),
+        };
+        // As the plain still's test: frame n is grey 8 (n mod 32), in an AVCHD file whose sound starts a tenth of a
+        // second before its picture, so the graded path's seeks and trim are held to the same frame.
+        let clip = make(
+            &dir,
+            "00002.MTS",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:size=64x36:rate=24000/1001:duration=6",
+                "-itsoffset",
+                "-0.1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=6",
+            ],
+            &[
+                "-vf",
+                "format=gray,geq=lum='mod(N,32)*8',format=yuv420p",
+                "-c:v",
+                "mpeg2video",
+                "-q:v",
+                "1",
+                "-g",
+                "12",
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-c:a",
+                "mp2",
+            ],
+        );
+        for frame in [0_u64, 1, 13, 100, 137] {
+            let png = still_graded(&clip, frame, 24000, 1001, Some(&identity)).unwrap();
+            let level = i32::from(grey(&dir, &png));
+            let expected = (frame % 32 * 8) as i32;
+            assert!(
+                (level - expected).abs() <= 3,
+                "frame {frame}: grey {level}, expected {expected}"
+            );
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -355,17 +355,17 @@ pub fn job_name(path: &str, lut: Option<&str>) -> String {
 
 /// The `.cube` a copy is made with, in a folder of its own for the one encode, gone when it is: ffmpeg runs in that
 /// folder and names the file alone, so no path needs escaping in its filter.
-struct LutFile {
-    folder: PathBuf,
+pub(crate) struct LutFile {
+    pub(crate) folder: PathBuf,
 }
 
 /// The file's name inside its folder.
-const LUT_FILE: &str = "grade.cube";
+pub(crate) const LUT_FILE: &str = "grade.cube";
 
 impl LutFile {
     /// A folder no one can have made ahead of it: a random name, made new (never one already there, which on a
     /// computer several people share could be someone else's, or lead elsewhere), and the file made new in it.
-    fn write(lut: &Lut) -> Result<Self, String> {
+    pub(crate) fn write(lut: &Lut) -> Result<Self, String> {
         let folder =
             std::env::temp_dir().join(format!("storiiboard-lut-{}", crate::lock::random_id()));
         fs::create_dir(&folder).map_err(|_| FAILED.to_string())?;

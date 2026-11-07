@@ -30,8 +30,11 @@ export interface FileStatus {
 export interface VideoDriver {
   /** What ffprobe reads. `handle` is the open project's (ProjectFile.nativeHandle), so a video it links may be read. */
   probe(video: VideoFile, handle?: number): Promise<VideoProbe>;
-  /** Frame `frame` of the video, from the original, as a PNG. */
-  still(video: VideoFile, frame: number, fps: Rational, handle?: number): Promise<Blob>;
+  /**
+   * Frame `frame` of the video, from the original, as a PNG; graded with `lut` (2.7) when given. The browser build
+   * can't grade: its stand-in grabs the frame as it is.
+   */
+  still(video: VideoFile, frame: number, fps: Rational, handle?: number, lut?: { sha256: string; cube: string } | null): Promise<Blob>;
   /** Each path's status, in order; null for one this build can't tell about. */
   status(paths: readonly string[], handle?: number): Promise<(FileStatus | null)[]>;
   /** The Open dialog for videos; empty when cancelled. */
@@ -45,13 +48,14 @@ export function videoFromPath(path: string): VideoFile {
 
 const desktop: VideoDriver = {
   probe: (video, handle) => invoke<VideoProbe>('video_probe', { path: video.path ?? '', handle: handle ?? null }),
-  still: async (video, frame, fps, handle) => {
+  still: async (video, frame, fps, handle, lut) => {
     const bytes = await invoke<ArrayBuffer>('video_still', {
       path: video.path ?? '',
       handle: handle ?? null,
       frame,
       fpsNum: fps.num,
       fpsDen: fps.den,
+      lut: lut ?? null,
     });
     return new Blob([bytes], { type: 'image/png' });
   },

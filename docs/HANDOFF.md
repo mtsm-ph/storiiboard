@@ -50,6 +50,7 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #80 | 2.4: the Player plays real footage (stepping, timecode, in and out, scrubbing) from playback copies; review stop A reached; see "2.4 as built" |
 | #81 | 2.5: LUTs per video (a .cube grades the playback copy, never the original; one edit each, undoable); see "2.5 as built" |
 | #82 | 2.6: framing a frame's clip over the Player (the window moves and zooms over the take, one undo step each); see "2.6 as built" |
+| #83 | 2.7: still capture into a frame (from the original, graded, framed, one undo step); see "2.7 as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
@@ -308,7 +309,8 @@ Lows deferred (noted, not planned yet):
 2. **2.5** LUTs (PR #81, merged Nov 7; three review rounds, checkpoint 2.5-r2 all green; see "2.5 as built" in
    `docs/PLAN.md` and "2.5: decisions" below): a `.cube` per video, applied to playback copies (stills in 2.7), never
    the original; the LUT joins the copy's key. Then **2.6** crop over the Player (PR #82, merged Nov 7; three review rounds,
-   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (from the original, LUT and crop
+   checkpoints all green; see "2.6 as built"); **2.7** still capture into a frame (PR #83, merged Nov 7; two review rounds;
+   see "2.7 as built"; from the original, LUT and crop
    applied, `from_video` recorded); **2.8** clip capture (in and out, plays in the inspector; Save clip as file);
    **2.9** JSON export and import, lossless.
 3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
@@ -332,6 +334,27 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### 2.7: review
+
+Round 1: no high; two mediums fixed. G while playing grabbed the frame from the last render and then paused, so the
+still could be a frame off the one the Player settled on (and up to a few frames on a webview without frame callbacks,
+which updates its readout about four times a second): it pauses first and grabs the frame it settles on. The end-to-end
+test checks the still's timecode matches the readout after G while playing; in Chromium the two rarely differ, so it
+can't force the old fault. A graded still of HDR footage kept its PQ or HLG tags in the PNG (probed: "bt2020,
+smpte2084"), so it would be converted a second time when stored: tagged BT.709 now, as the copy is, tested by its
+tags. Lows fixed: a relink during a grab no longer lands the old file's still under the new file's name and timecode;
+Grab still stays focusable while it works (the Player's keys carry on) and says when it has landed; the grabbing
+state is the frame's own; the browser build's still names no LUT (it grabs ungraded); a still without a timecode says
+"Still from its video"; a long LUT name can be read whole; the clip prop is kept as stored. New Rust test: a graded
+still is the frame asked for, in a file whose sound starts before its picture. Lows left: on Windows a grab that times
+out can leave its LUT folder in the temp folder while ffmpeg is still being stopped; a tile remounted mid-grab (a
+workspace switch) could start a second grab of the same frame.
+
+Round 2: no high, no medium; review done. Lows fixed: "Still grabbed" is said only when the still became the frame's
+picture (not when the frame changed under it), and is cleared on another frame; the relink check compares the file's
+name and size too (the browser build's videos have no path); the tags test asks for BT.709, not only the absence of
+PQ. Left as a low: the graded still's RGB frames are tagged with the BT.709 matrix as well (harmless: the PNG is RGB).
 
 ### 2.6: notes
 
@@ -494,7 +517,11 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 2. Framing (2.6): in the Player, zoom the frame's window and move it over a take, by hand and with the keys; it
    should feel like a frame-line overlay on a monitor. Each move is one ⌘Z. Try a 2.39 project over 16:9 footage and
    a 9:16 one over the same.
-3. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
+3. Still capture (2.7), the gate itself: on your own footage, frame a shot in the Player, step to the moment, press G
+   (or Grab still). The frame's picture should be that frame, framed as the window was, graded with the take's LUT,
+   within a second or two; the inspector says "Still at <timecode>" matching Resolve's for that frame. ⌘Z takes it
+   back. Try a 6K or 8K original too.
+4. HDR (HLG or PQ) footage under its own camera LUT: the grade looks right (the LUT replaces the tone-mapping; say if
    your LUTs expect Rec.709 in, and it changes).
 
 ## The rules for this run (Kevin's queued instructions)

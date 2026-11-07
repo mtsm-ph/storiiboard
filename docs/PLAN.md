@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.6 merged; 2.7 next) |
+| Last updated | Nov 7, 2026 (2.7 merged; 2.8 next) |
 
 | Phase | State |
 |---|---|
@@ -47,13 +47,24 @@ plays real footage) and at the gate; at each, a checkpoint and a checklist, and 
 | 2.4 The Player plays real footage (Stop A) | #80 | Done |
 | 2.5 LUTs per video | #81 | Done |
 | 2.6 Crop | #82 | Done |
-| 2.7 Still capture into a frame | | Not started |
+| 2.7 Still capture into a frame | #83 | Done |
 | 2.8 Clip capture into a frame | | Not started |
 | 2.9 JSON export and import carry all of it | | Not started |
 
 HDR tone-mapping (decided Nov 5, Kevin): FFmpeg's own scaler doesn't map PQ or HLG to SDR, and its `tonemap` filter
 needs linear light, which means zimg (`zscale`). zimg (WTFPL, approved as an exception to the licence list) and dav1d
 (BSD-2-Clause, for AV1) come in D1; windows-sys (MIT or Apache 2.0) in D2. See "Dependencies and licences".
+
+2.7 as built (Nov 7): still capture into a frame (`src/features/video/grabStill.ts`, video.rs `still_graded`).
+- Grab still in the Player (or G, from anywhere in it) takes the frame showing from the original, never the playback
+  copy, at up to 2560 px on its long edge, upright with square pixels, graded with the video's LUT as its copy is (the
+  LUT after the scale, in place of the tone-mapping for HDR footage). It becomes the frame's picture in one edit: the
+  old picture goes to the Trash, the frame keeps its clip, and the picture is framed by the clip's crop, so it shows
+  what the frame's window showed (2.6). The whole frame is kept, so it can be framed again with nothing lost.
+- The picture's `from_video` records the video, the frame, its rate, its timecode as on the slate, the take's name and
+  the LUT's id and name, enough to grab the same frame again after a relink or a LUT change (schema 8; no format
+  change). The inspector says it: "Still at 01:00:02:00 · SLog3 to 709".
+- The browser build's stand-in grabs from the file handed over, ungraded (it has no ffmpeg).
 
 2.6 as built (Nov 7): framing a frame's clip over the Player (`src/features/video/FrameWindow.tsx`, `crop.ts`
 `cropWindow` and `moveWindow`).
