@@ -53,6 +53,8 @@ It replaces nothing in either; it says where the work stands and what comes next
 | #83 | 2.7: still capture into a frame (from the original, graded, framed, one undo step); see "2.7 as built" |
 | #84 | 2.8a: the frame's clip plays in the inspector (in to out, framed, from the copy, only when asked); see "2.8a as built" |
 | #78 | 2.3b: the copies as the person sees them (queue, inspector, Settings → Storage, licences); mono tracks mixed; see "2.3b as built" |
+| #85 | 2.8b: Save clip as file (from the original, framed, graded, frame-exact, with sound, `SC004_4A.mp4`); see "2.8b as built" |
+| #86 | 2.9: project data as JSON, out and back (the whole project, History and Trash included); see "2.9 as built" |
 
 Phase 0 and Phase 1 (with its polish) are merged too; `docs/PLAN.md` has every milestone and its PR. Phase 1's gate
 (a real scene boarded in one sitting) is Kevin's to run.
@@ -316,11 +318,13 @@ Lows deferred (noted, not planned yet):
    Nov 7; two review rounds; see "2.8a as built"), then **2.8b** Save clip as file (PR #85, merged Nov 7; four review rounds; see "2.8b as built"; rendered
    from the original,
    graded and framed, frame-accurate, with sound, named like the frame exports: `SC004_4A.mp4`);
-   **2.9** JSON export and import, lossless (in review, branch `phase2/2.9-json`; see "2.9 as built" and "2.9: decisions").
-3. **Phase 2 gate**: a checkpoint (smoke and screenshots on Linux and the Mac, both installers) and a checklist. The
-   gate: a still from a reference clip lands in a frame in a few clicks, on Kevin's own footage. Don't wait; Phase 3
-   follows.
-4. **Phase 3** (production data), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
+   **2.9** JSON export and import, lossless (PR #86, merged Nov 7; three review rounds; see "2.9 as built" and "2.9: decisions").
+3. **Phase 2 gate** (reached Nov 7): every Phase 2 milestone is merged. The gate checkpoint, `checkpoint/phase2-gate`
+   on `v2` at d42f6ed (2.9's merge), runs smoke and screenshots on Linux and the Mac and both installers; the
+   checklist is "Phase 2 gate: Kevin's checklist" below. The gate itself: a still from a reference clip lands in a
+   frame in a few clicks, on Kevin's own footage (item 3). Don't wait; Phase 3 follows.
+4. **Phase 3** (production data; plan and decision sheet written Nov 7: "Phase 3 milestones" in `docs/PLAN.md`,
+   `docs/PHASE3_DECISIONS.md`; build from 3.1), after the gate checkpoint passes: first write a Phase 3 plan and a one-page decision
    sheet (each decision: the question in plain words, the options, the recommendation and why, how hard it is to
    change later), then build in milestone order. Scope: project details and company profiles; locations (address
    search, map, photos, contacts, parking and power notes); cast and crew; department workspaces from a shot's row;
@@ -638,7 +642,7 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
    streamed file) steps and pauses where it is, and stops at its copy's end.
 
-## Phase 2 gate: Kevin's checklist so far (added to as milestones land)
+## Phase 2 gate: Kevin's checklist (complete Nov 7; in this order, after review stop A's)
 
 1. LUTs (2.5), on a Mac and on Windows with real log footage: load the camera maker's LUT (an S-Log3 or LogC to
    Rec.709 `.cube`) for a take; the Player shows the graded copy within a minute or so; compare a frame with Resolve
