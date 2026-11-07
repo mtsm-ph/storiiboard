@@ -55,6 +55,8 @@ export function PlayerTile() {
   const [shownFor, setShownFor] = useState(shown);
   if (shownFor !== shown) {
     setShownFor(shown);
+    // What the last frame's grab came to isn't this frame's.
+    setGrabSaid('');
     setFrame(clip?.inFrame ?? 0);
     setPlaying(false);
   }

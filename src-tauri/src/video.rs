@@ -2106,9 +2106,9 @@ mod tests {
             .output()
             .unwrap();
         let tags = String::from_utf8_lossy(&tags.stdout).trim().to_owned();
-        assert!(
-            !tags.contains("smpte2084") && !tags.contains("bt2020"),
-            "{tags}"
+        assert_eq!(
+            tags, "bt709,bt709",
+            "what the LUT made, never the PQ it was read as"
         );
         // One named by anything but a SHA-256 is refused before anything is written.
         let odd = crate::playback::Lut {

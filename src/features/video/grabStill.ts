@@ -33,7 +33,15 @@ function liveClip(records: Records, shotId: string, videoId: string) {
 
 /** Whether a video still names the same file at the same rate: a relink since would make the still another file's. */
 function sameFile(a: VideoFields, b: VideoFields): boolean {
-  return a.sourcePath === b.sourcePath && a.fps.num === b.fps.num && a.fps.den === b.fps.den && a.startTimecode === b.startTimecode;
+  // The name and size too: the browser build's videos have no path to tell two files apart by.
+  return (
+    a.sourcePath === b.sourcePath &&
+    a.sourceName === b.sourceName &&
+    a.sourceSize === b.sourceSize &&
+    a.fps.num === b.fps.num &&
+    a.fps.den === b.fps.den &&
+    a.startTimecode === b.startTimecode
+  );
 }
 
 /**
@@ -101,7 +109,14 @@ export async function grabStill(shotId: string, frame: number): Promise<boolean>
     if (projectStore.getState().project !== project) return false;
     // The browser build grabs ungraded, so its still names no LUT.
     const graded = isTauriApp && video.lutId && name ? { id: video.lutId, name } : null;
-    return await projectStore.getState().applyWith((now) => stillEdit(now, shotId, videoId, frame, image, graded, project.file.path, video));
+    // Set inside the edit, read after it lands: true only if the still became the frame's picture.
+    const outcome = { landed: false };
+    const saved = await projectStore.getState().applyWith((now) => {
+      const edit = stillEdit(now, shotId, videoId, frame, image, graded, project.file.path, video);
+      outcome.landed = edit.changes.length > 0;
+      return edit;
+    });
+    return saved && outcome.landed;
   } catch (error) {
     showNotice(error);
     return false;
