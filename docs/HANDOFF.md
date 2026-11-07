@@ -387,6 +387,12 @@ words name the History as well as the pictures. Lows left: an import holds the p
 (the gate's memory check); in the browser build a file input that never says Cancel holds the import guard until a
 reload; Compact during an export isn't seen by the change count (both open from different tiles; unlikely).
 
+Round 3: no high, no medium; review done. Lows fixed: tests that the bytes refuse an export the import wouldn't take
+(nothing written), that SQLite refusing a row (CHECK, NOT NULL, UNIQUE, a foreign key) is said as data that doesn't
+fit and a full disk as it is; a failed ROLLBACK no longer hides the error that caused it (Node and sql.js drivers).
+Low left: a sync replacing the new file mid-import says "the project file changed on disk", which could be read as
+the open project's (nothing else happens).
+
 
 ### 2.8b: review
 

@@ -15,6 +15,8 @@ import {
   projectJsonText,
   projectJsonTitle,
   readProjectJson,
+  type JsonTable,
+  type JsonValue,
   type ProjectJson,
 } from './projectJson';
 import { markSeenStatement } from './seen';
@@ -221,6 +223,46 @@ describe('project data as JSON (2.9)', () => {
     // A thumbnail of a picture that isn't there: SQLite refuses it at commit, and it's said as data that doesn't fit.
     const orphan: ProjectJson = { ...data, tables: { ...data.tables, media_files: { ...pictures, rows: [] } } };
     await expect(importProjectJson(nodeDriver, folder.path('Orphan.sbd'), orphan, at())).rejects.toMatchObject({ problem: 'tables' });
+  });
+
+  it('says SQLite refusing a row as data that doesn’t fit, and anything else as it is', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    const found = data.tables.records;
+    if (!found) throw new Error('records');
+    const records: JsonTable = found;
+    const props = records.columns.indexOf('props');
+    const type = records.columns.indexOf('type');
+    const broken = (change: (row: JsonValue[]) => JsonValue[]): ProjectJson => ({
+      ...data,
+      tables: { ...data.tables, records: { ...records, rows: records.rows.map((row) => (row[0] === 's1' ? change(row) : row)) } },
+    });
+    // Props that aren't JSON (a CHECK), a record with no type (NOT NULL), the same id twice (UNIQUE).
+    const cases: ProjectJson[] = [
+      broken((row) => row.map((cell, i) => (i === props ? 'not json' : cell))),
+      broken((row) => row.map((cell, i) => (i === type ? null : cell))),
+      { ...data, tables: { ...data.tables, records: { ...records, rows: [...records.rows, records.rows[records.rows.length - 1] ?? []] } } },
+    ];
+    for (const [n, json] of cases.entries()) {
+      await expect(importProjectJson(nodeDriver, folder.path(`Broken ${String(n)}.sbd`), json, at())).rejects.toMatchObject({ problem: 'tables' });
+    }
+    // The disk, not the data: said as it is.
+    const full: typeof nodeDriver = {
+      ...nodeDriver,
+      create: async (path) => {
+        const file = await nodeDriver.create(path);
+        return {
+          ...file,
+          path: file.path,
+          tx: (statements) =>
+            statements.some((s) => s.sql.startsWith('PRAGMA defer_foreign_keys'))
+              ? Promise.reject(new Error('database or disk is full'))
+              : file.tx(statements),
+          query: (sql, params) => file.query(sql, params),
+          close: () => file.close(),
+        };
+      },
+    };
+    await expect(importProjectJson(full, folder.path('Full.sbd'), data, at())).rejects.toThrow('database or disk is full');
   });
 
   it('reads one consistent project: an edit landing mid-read starts it again, and one that never stops is refused', async () => {

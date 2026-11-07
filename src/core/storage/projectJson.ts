@@ -351,7 +351,7 @@ function fillStatements(data: ProjectJson, schema: Map<string, Column[]>): State
 /** Whether a failed transaction was SQLite refusing the rows themselves, not the disk or the app failing. */
 function refusesData(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /constraint failed|cannot store|datatype mismatch|malformed JSON/i.test(message);
+  return /constraint failed|cannot store|data ?type mismatch/i.test(message);
 }
 
 /**
