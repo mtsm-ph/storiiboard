@@ -137,7 +137,22 @@ export function PeopleTile() {
             return { id: character.id, name: characterName(character), playedBy: cast ? cast.id : null, castName: cast && typeof cast.props.name === 'string' ? cast.props.name : '' };
           })}
           onCast={(characterId, on) => {
-            void edit((now) => castCharacter(now, characterId, on ? selected.record.id : null));
+            const me = selected.record.id;
+            // Who had the part as the edit finds it, so a move says whom it was taken from.
+            let movedFrom: { character: string; name: string } | null = null;
+            void projectStore
+              .getState()
+              .applyWith((now) => {
+                const character = now[characterId];
+                const had = character ? castOf(now, character) : null;
+                movedFrom =
+                  on && character && had && had.id !== me ? { character: characterName(character), name: (typeof had.props.name === 'string' && had.props.name.trim()) || t('people.unnamed') } : null;
+                return { changes: castCharacter(now, characterId, on ? me : null, on ? undefined : me) };
+              })
+              .then((done) => {
+                // A part taken from someone else is said, since nothing on screen shows them losing it; an undo clears it.
+                if (done && movedFrom) showInfo(t('person.castMoved', movedFrom), { step: true });
+              });
           }}
           fields={selected.fields}
           nameField={nameField}
@@ -289,22 +304,29 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
               const mine = character.playedBy === id;
               const other = character.playedBy !== null && !mine;
               return (
-                <button
-                  key={character.id}
-                  type="button"
-                  aria-pressed={mine}
-                  onClick={() => {
-                    onCast(character.id, !mine);
-                  }}
-                  className={cx(
-                    'border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
-                    // On the ink fill, the focus ring is paper and inside (DESIGN.md: never ink on ink).
-                    mine ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                <span key={character.id} className="flex items-baseline gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={mine}
+                    // Named by the character alone, whatever its state; who plays it now is beside it, as its description.
+                    aria-describedby={other ? `${playsId}-${character.id}` : undefined}
+                    onClick={() => {
+                      onCast(character.id, !mine);
+                    }}
+                    className={cx(
+                      'border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                      // On the ink fill, the focus ring is paper and inside (DESIGN.md: never ink on ink).
+                      mine ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
+                  >
+                    {character.name}
+                  </button>
+                  {other && (
+                    <span id={`${playsId}-${character.id}`} className="text-[12px] text-text-muted">
+                      {t('person.playedBy', { name: character.castName || t('people.unnamed') })}
+                    </span>
                   )}
-                >
-                  {character.name}
-                  {other && <span className="font-normal"> · {t('person.playedBy', { name: character.castName || t('people.unnamed') })}</span>}
-                </button>
+                </span>
               );
             })}
           </div>

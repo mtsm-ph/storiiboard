@@ -508,11 +508,11 @@ export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
 }
 
-/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, the theme's image. */
+/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, a character's cast member, the theme's image. */
 function namedBy(record: SbdRecord): string[] {
   const { props } = record;
   const theme = props.theme && typeof props.theme === 'object' && !Array.isArray(props.theme) ? (props.theme as Record<string, unknown>) : null;
-  return [props.media_id, props.location_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
+  return [props.media_id, props.location_id, props.cast_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
 }
 
 /**

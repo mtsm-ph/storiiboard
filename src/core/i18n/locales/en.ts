@@ -679,6 +679,7 @@ export const en = {
   'person.role': 'Role',
   'person.noRole': 'No role',
   'person.departments': 'Departments',
+  'person.castMoved': '{character} moved here from {name}.',
   'person.plays': 'Plays',
   'person.playedBy': 'played by {name}',
   'person.title': 'Title on the call sheet',

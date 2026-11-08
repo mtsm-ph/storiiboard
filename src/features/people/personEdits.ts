@@ -64,11 +64,14 @@ export function trashPerson(records: Records, id: string): Change[] {
  * A character cast (3.5b): played by this person, or by no one. One cast member per character, so casting someone
  * else moves it. Nothing when it's already so, or either isn't live.
  */
-export function castCharacter(records: Records, characterId: string, personId: string | null): Change[] {
+export function castCharacter(records: Records, characterId: string, personId: string | null, from?: string): Change[] {
   const character = records[characterId];
   if (character?.type !== 'character' || character.trashedAt !== null) return [];
   if (personId !== null && !live(records, personId)) return [];
   const current = typeof character.props.cast_id === 'string' ? character.props.cast_id : null;
   if (current === personId) return [];
+  // Uncasting `from`: only while they still play it, so a press made before another edit landed never takes the part
+  // from whoever has it now.
+  if (personId === null && from !== undefined && current !== from) return [];
   return personId === null ? [{ kind: 'update', id: characterId, unset: ['cast_id'] }] : [{ kind: 'update', id: characterId, set: { cast_id: personId } }];
 }

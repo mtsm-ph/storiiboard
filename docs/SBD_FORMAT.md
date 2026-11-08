@@ -406,7 +406,8 @@ department ids, kept in the call sheet's order; unknown ids are ignored); `title
 the app, never logged, never shown in History. No table change.
 
 `cast_id` on a `character` (3.5b): the person who plays them, by id; missing means no one yet. A person in the Trash
-reads as none; their characters keep the id, so a restore gives them back. No table change.
+reads as none; their characters keep the id, so a restore gives them back. After Empty Trash the id names nothing and
+reads as no one, as a scene's `location_id` does. No table change.
 
 ## Trash
 
@@ -481,6 +482,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | scene | palette | `{ size, colors: [{ hex, locked? }] }` | Polish PP (approved Nov 5; a prop, no table change). The scene's colours from its frames' pictures: `hex` is sRGB `#RRGGBB` as shown on screen (a Display P3 picture is converted colour-managed), `locked` keeps a colour in place when the rest are generated again, `size` (1 to 16, default 8) is how many Generate makes. Missing for a scene without one, as in every older file. With no colours it keeps only its `size`. Fields this version doesn't know are kept |
 | location | name | text | 1.12. As typed in the "/" menu, or as the script writes the place (`DINER - BACK ROOM`) |
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
+| character | cast_id | id | 3.5b. The person who plays them; missing, trashed or gone reads as no one |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
 | shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
 | shot | title | text | Nov 5 (a prop, no table change): an optional title, "Mary wipes the counter", edited in place. Missing for none, as in every older file; an emptied title is taken off |

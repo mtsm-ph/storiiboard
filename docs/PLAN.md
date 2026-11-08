@@ -44,7 +44,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | | In review |
-| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4) | | Not started |
+| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | | Not started |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |

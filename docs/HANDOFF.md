@@ -343,6 +343,25 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.5b: review
+
+Round 1: no high, four mediums, fixed.
+- The Team section showed the parts someone plays only under Cast: a cast member without the Cast department, or a
+  DP with a cameo, lost them. Now shown under Cast, else where the person is listed first.
+- No axe check covered the Plays toggles or a filled Team section: team.spec now runs axe on both, light and dark.
+- Spanish "lo interpreta" was masculine: now "papel de {name}".
+- Pressing a part someone else plays moved it silently, and the toggle's name changed with its state: the toggle is
+  named by the character alone, "played by …" sits beside it as its description, and a move says whom it was taken
+  from (a step notice an undo clears).
+- Lows fixed: uncasting only while that person still plays the part; `cast_id` kept by Restore to here like a scene's
+  location; docs (what Empty Trash leaves, the props table row, a wrong comment); the parts joined in each language's
+  words; "intérprete" in History; the Team tile's sections labelled by their headings.
+- Decided by default, review: "you in Cast and crew" (decision 4) moved out of 3.5b into its own milestone, 3.5c, to
+  keep each PR small. Easy to fold back.
+- Lows left: no test reads `cast_id` names through a real file's History (`namedRecords`), nor a script re-import
+  keeping a casting (the import never writes to a character it links, so it can't drop one); the tile titles are
+  spans, so the h3s have no h2 above them (as in every tile).
+
 ### 3.5a: review
 
 Round 1: no high, four mediums, fixed.

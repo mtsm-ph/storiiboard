@@ -1,5 +1,5 @@
 import { useProject } from '../../app/projectStore';
-import { t, tn } from '../../core/i18n';
+import { list, t, tn } from '../../core/i18n';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { characterName, charactersPlayedBy, peopleByDepartment, projectPeople } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -19,18 +19,23 @@ export function TeamTile() {
       <p className="sb-label font-mono">{tn('people.count', people.length)}</p>
       {peopleByDepartment(people).map(({ department, people: inIt }) => {
         const heading = department ? DEPARTMENT_LABELS[department] : t('team.noDepartment');
+        const headingId = `team-${department ?? 'none'}`;
         return (
-          <section key={department ?? 'none'} aria-label={heading} className="flex flex-col gap-1">
-            <h3 className="sb-label border-b-[1.5px] border-border pb-1">{heading}</h3>
+          <section key={department ?? 'none'} aria-labelledby={headingId} className="flex flex-col gap-1">
+            <h3 id={headingId} className="sb-label border-b-[1.5px] border-border pb-1">
+              {heading}
+            </h3>
             <ul className="flex flex-col">
               {inIt.map(({ record, fields }) => {
                 const what = fields.title.trim() || (fields.role ? ROLE_LABELS[fields.role] : '');
-                const plays = department === 'cast' ? charactersPlayedBy(records, project.projectId, record.id).map(characterName) : [];
+                // The parts they play, under Cast, or where they're listed first when they aren't in Cast (a cameo).
+                const listedFirst = department === 'cast' || (!fields.departments.includes('cast') && (fields.departments[0] ?? null) === department);
+                const plays = listedFirst ? charactersPlayedBy(records, project.projectId, record.id).map(characterName) : [];
                 return (
                   <li key={record.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-[13px]">
                     <span className="font-semibold">{fields.name || t('people.unnamed')}</span>
                     {what && <span className="text-text-muted">{what}</span>}
-                    {plays.length > 0 && <span className="text-text-muted">{t('team.as', { characters: plays.join(', ') })}</span>}
+                    {plays.length > 0 && <span className="text-text-muted">{t('team.as', { characters: list(plays) })}</span>}
                   </li>
                 );
               })}

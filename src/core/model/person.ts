@@ -60,7 +60,7 @@ type Records = Readonly<Record<string, SbdRecord>>;
 /** A character's name, as the script spells it; '' for none. */
 export const characterName = (character: SbdRecord): string => (typeof character.props.name === 'string' ? character.props.name.trim() : '');
 
-/** The project's live, named characters by name (3.5b): from the script import, or typed on a scene. */
+/** The project's live, named characters by name (3.5b): the speaking characters a script import made. */
 export function projectCharacters(records: Records, projectId: string): SbdRecord[] {
   return Object.values(records)
     .filter((r) => r.type === 'character' && r.parentId === projectId && r.trashedAt === null && characterName(r) !== '')

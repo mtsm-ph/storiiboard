@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 
 // Characters cast and the Team section (3.5b) in the memory build: a script brings in its speaking characters; one is
@@ -42,11 +43,42 @@ test('a character from the script is cast, and the Team section lists people by 
   await page.keyboard.type('Kevin Matos');
   await page.keyboard.press('Enter');
   await editor.getByRole('button', { name: 'Camera', exact: true }).click();
-  await expect(editor.getByRole('group', { name: 'Plays' }).getByRole('button', { name: /^MARY · played by Ana Ruiz/ })).toHaveAttribute('aria-pressed', 'false');
+  // Named by the character whatever its state; who plays it is its description.
+  const mary = editor.getByRole('group', { name: 'Plays' }).getByRole('button', { name: 'MARY', exact: true });
+  await expect(mary).toHaveAttribute('aria-pressed', 'false');
+  await expect(mary).toHaveAccessibleDescription('played by Ana Ruiz');
+  // A cameo: Kevin, in Camera, plays JOE.
+  await editor.getByRole('group', { name: 'Plays' }).getByRole('button', { name: 'JOE', exact: true }).click();
+  // Pressing MARY moves the part, and says whom from; one ⌘Z gives it back.
+  await mary.click();
+  await expect(page.getByText('MARY moved here from Ana Ruiz.')).toBeVisible();
+  await expect(mary).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press(await undoKey(page));
+  await expect(mary).toHaveAttribute('aria-pressed', 'false');
+  await expect(mary).toHaveAccessibleDescription('played by Ana Ruiz');
+  await mary.focus();
+  await axe(page, '[aria-label="Cast and crew"]');
 
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Team/ }).click();
   const team = page.getByRole('region', { name: 'Team', exact: true });
   await expect(team.getByRole('heading', { level: 3 })).toHaveText(['Camera', 'Cast']);
   await expect(team.getByRole('region', { name: 'Cast' }).getByRole('listitem')).toHaveText([/Ana Ruiz.*Cast.*as MARY/]);
-  await expect(team.getByRole('region', { name: 'Camera' }).getByRole('listitem')).toHaveText([/Kevin Matos/]);
+  await expect(team.getByRole('region', { name: 'Camera' }).getByRole('listitem')).toHaveText([/Kevin Matos.*as JOE/]);
+  await axe(page, '[aria-label="Team"]');
 });
+
+const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
+
+/** WCAG 2.2 AA, as the app's other checks run it, light and dark. */
+async function axe(page: Page, selector: string) {
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  for (const theme of ['light', 'dark']) {
+    await page.locator('html').evaluate((html, value) => {
+      html.setAttribute('data-theme', value);
+    }, theme);
+    expect((await new AxeBuilder({ page }).include(selector).withTags(tags).analyze()).violations).toEqual([]);
+  }
+  await page.locator('html').evaluate((html) => {
+    html.setAttribute('data-theme', 'light');
+  });
+}

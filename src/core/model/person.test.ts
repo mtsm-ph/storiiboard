@@ -135,6 +135,17 @@ describe('characters cast, and the team by department (3.5b)', () => {
     expect(castCharacter(all, 'ned', 'd')).toEqual([]);
     expect(castCharacter(all, 'gone', 'a')).toEqual([]);
     expect(castCharacter(all, 'a', 'b')).toEqual([]);
+    // Uncasting someone who no longer plays it (another edit landed first) leaves whoever plays it now.
+    expect(castCharacter(all, 'joe', null, 'b')).toEqual([]);
+    expect(castCharacter(all, 'joe', null, 'a')).toEqual([{ kind: 'update', id: 'joe', unset: ['cast_id'] }]);
+  });
+
+  it('a cast member gone for good (Empty Trash) reads as no one, and the part can be cast again in one edit', async () => {
+    const { castOf } = await import('./person');
+    const { castCharacter } = await import('../../features/people/personEdits');
+    const rest = Object.fromEntries(Object.entries(cast()).filter(([id]) => id !== 'a')) as Partial<ReturnType<typeof cast>> & Pick<ReturnType<typeof cast>, 'joe'>;
+    expect(castOf(rest, rest.joe)).toBeNull();
+    expect(castCharacter(rest, 'joe', 'b')).toEqual([{ kind: 'update', id: 'joe', set: { cast_id: 'b' } }]);
   });
 
   it('groups the team by department in the call sheet’s order, someone in two in both, none last', async () => {
