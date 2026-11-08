@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 7, 2026 (2.9 merged; Phase 2 built, gate checkpoint and checklist) |
+| Last updated | Nov 8, 2026 (3.5c in review) |
 
 | Phase | State |
 |---|---|
@@ -44,7 +44,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
-| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | | Not started |
+| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | | In review |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
@@ -55,6 +55,22 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.5c as built (Nov 8): you in Cast and crew (docs/PHASE3_DECISIONS.md 4).
+- A person's editor in Cast and crew has This is me: pressed, that person is you on this project, and their row says
+  You. Which person is you is kept on this computer (app settings, by project id), never in the file, so it isn't an
+  edit and isn't in History; picking another moves it, pressing it again stops it.
+- Your approvals follow that person's role and are signed with their name (their initials when your profile asks
+  for initials; no name when they're unnamed); opening a frame marks it Seen by the departments their role stands for together with the ones ticked, so a DP
+  on Grip & electric still marks Camera (decided by default, review). A Director in Camera, or a DP in Direction,
+  approves as the Director and DP and marks both, as the local setting's "Director and DP" does (approved by Kevin,
+  Nov 8). A person picked with no role approves nothing, and Settings → Project says so.
+- "Your role on this project" (Settings → Project) stays the fallback: until you've picked yourself, and while the
+  person you picked is in the Trash (a restore brings your pick back). Once you have, it says who you are there.
+- Tests: what a person stands for (roles, departments, Director and DP), the fallback (none picked, in the Trash, gone,
+  another project's, not a person), the picks kept on this computer and capped; end to end, yourself picked as a DP in
+  Direction approving as Director and DP and marking Seen by Camera and Direction, kept after a reload, and the
+  setting back once that person is in the Trash.
 
 3.5b as built (Nov 8): characters cast, and the Team section.
 - A person's editor in Cast and crew has Plays: the project's characters (from the script import), each cast by one

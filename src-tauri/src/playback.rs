@@ -4272,9 +4272,10 @@ ssize_t read(int fd, void *buf, size_t count) {
                 String::from_utf8_lossy(&tags.stdout).trim(),
                 "bt709,bt709,bt709"
             );
-            // Near SDR white in the copy's own (limited) range: 218 measured; untouched PQ would be about 140.
+            // Near SDR white in the copy's own (limited) range: 218 measured with MPEG-4 and Microsoft's software H.264,
+            // 236 with a Windows GPU's (a step past limited white); untouched PQ would be about 140.
             let level = grey_at(&made.path, 0);
-            assert!((205..=235).contains(&level), "{}: {level}", clip.display());
+            assert!((205..=240).contains(&level), "{}: {level}", clip.display());
         }
     }
 

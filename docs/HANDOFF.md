@@ -343,6 +343,34 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.5c: review
+
+The `reviewer` agent type didn't load in this Windows session (it started before `v2` was checked out), so the
+reviews ran on the only read-only agent available (Read, Grep and Glob), with `reviewer.md`'s instructions word for
+word.
+
+Round 1: no high, two mediums, fixed.
+- An approval was signed with the profile's name, not the person picked (the end-to-end test used one name for both,
+  so it couldn't tell): now the person's name, initials when the profile asks for them (decided by default, review);
+  the test uses two names.
+- Seen took the departments ticked in place of the role's, so a Director ticked only in Camera (the Director and DP)
+  never marked Direction: Seen is now the role's departments together with the ones ticked (decided by default,
+  review).
+- Lows fixed: a person picked with no role says so in Settings → Project; setProjectSelf and the signature have unit
+  tests (the write cap too); the end-to-end test restores the person and approves again; "You" is heard as its own word
+  after the name; Spanish "los cuadros".
+- Kevin approved Nov 8: Director and DP for a Director in Camera or a DP in Direction; the HDR copy test's limit at
+  240 (a Windows GPU encoder measured 236); the Windows screenshot baselines (regenerated here, checked by him).
+- Round 2: no high; one medium, fixed: with the profile set to initials only, an approval still took the profile's
+  initials (my round-1 test expected that): it now takes the picked person's initials; an unnamed picked person signs
+  with no name (the role alone), never the profile's. Low left: the Inspector itself doesn't say why a picked person
+  with no role can't approve (its usual "Only the director or the DP can tick Approved." shows; Settings → Project says
+  more).
+- Lows left: a pick naming a person Empty Trash removed stays in the settings (it reads as no pick); a version copy or
+  backup (same project id) shows the same "You", by design for now; no unit test of `useMarkSeen`'s timer (the end to
+  end covers it); the one-off failure of `projects.spec`'s empty-project JSON export in a full Windows run (39 of 39 on
+  its own, three times over).
+
 ### 3.5b: review
 
 Round 1: no high, four mediums, fixed.
@@ -362,6 +390,9 @@ Round 1: no high, four mediums, fixed.
 - Lows left: no test reads `cast_id` names through a real file's History (`namedRecords`), nor a script re-import
   keeping a casting (the import never writes to a character it links, so it can't drop one); the tile titles are
   spans, so the h3s have no h2 above them (as in every tile).
+- Checkpoint: `checkpoint/3.5b` failed 16 of the Mac's playback-copy tests from the known runner hang in VideoToolbox
+  (`VTEncoderXPCServ` and ffmpeg stuck; the PR touched no Rust). The same commit re-run as `checkpoint/3.5b-r2` was
+  all green.
 
 ### 3.5a: review
 

@@ -4,7 +4,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
 import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
-import { approvalNow, useProjectRole } from '../../app/settings/projectRole';
+import { approvalNow, useMyPart } from '../../app/settings/projectRole';
 import { approverRoles, departmentStatusChange, departmentStatuses } from '../../core/model/departmentStatus';
 import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
@@ -62,8 +62,11 @@ export function InspectorTile() {
   const applyWith = useProject((s) => s.applyWith);
   const sceneId = useSelection((s) => s.sceneId);
   const shotId = useSelection((s) => s.shotId);
-  // What this person can approve here (polish 6): their role on this project, else their usual one.
-  const role = useProjectRole(project?.projectId);
+  // What this person can approve here: the person they picked in Cast and crew (3.5c), else their role on this
+  // project (polish 6), else their usual one.
+  const { role, person: me } = useMyPart(project?.projectId);
+  // The name you sign with once you've picked yourself (3.5c): that person's, '' when they're unnamed; null otherwise.
+  const myName = me ? (typeof me.props.name === 'string' ? me.props.name.trim() : '') : null;
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
   const picking = useEyedropperScene();
   // Before the early return, as every hook: whether the selected frame's video is missing here.
@@ -232,7 +235,7 @@ export function InspectorTile() {
             />
           ) : undefined
         }
-        approval={() => approvalNow(role)}
+        approval={() => approvalNow(role, new Date(), myName)}
         myRoles={approverRoles(role)}
         {...(seen ? { seen } : {})}
         picture={picture}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newPerson, personChange, personDepartment, personRole, trashPerson } from '../../features/people/personEdits';
-import { personFields, projectPeople } from './person';
+import { myPart, personFields, personPart, projectPeople } from './person';
 import type { SbdRecord } from './record';
 
 // Cast and crew (3.5): people read from their records, listed by name, and changed one field at a time; their phone
@@ -170,5 +170,41 @@ describe('characters cast, and the team by department (3.5b)', () => {
     );
     expect(lineText(step)).toMatch(/NED.*cast.*Kevin Matos/);
     expect(lineText(step)).not.toContain('a →');
+  });
+});
+
+describe('you in Cast and crew (3.5c)', () => {
+  const part = (props: SbdRecord['props']) => personPart(personFields(props));
+
+  it('gives a person’s role for approvals, and the role’s departments with the ones picked for Seen', () => {
+    expect(part({ role: 'dp', departments: ['camera', 'grip-electric'] })).toEqual({ role: 'dp', departments: ['camera', 'grip-electric'] });
+    // No department picked: the ones the role stands for.
+    expect(part({ role: 'gaffer' })).toEqual({ role: 'gaffer', departments: ['grip-electric'] });
+    // Picked ones add to the role's, never replace them: a DP on Grip & electric alone still marks Camera.
+    expect(part({ role: 'dp', departments: ['grip-electric'] })).toEqual({ role: 'dp', departments: ['camera', 'grip-electric'] });
+    expect(part({ role: 'other' })).toEqual({ role: 'other', departments: [] });
+    expect(part({})).toEqual({ role: null, departments: [] });
+    // A department without a role still marks Seen; it approves nothing.
+    expect(part({ departments: ['sound'] })).toEqual({ role: null, departments: ['sound'] });
+  });
+
+  it('makes a director in Camera, or a DP in Direction, the Director and DP, who marks both Seen', () => {
+    expect(part({ role: 'director', departments: ['direction', 'camera'] }).role).toBe('director-dp');
+    expect(part({ role: 'dp', departments: ['camera', 'direction'] }).role).toBe('director-dp');
+    // Whatever was ticked, the Director and DP sees for Direction and Camera, as the local setting's does.
+    expect(part({ role: 'director', departments: ['camera'] })).toEqual({ role: 'director-dp', departments: ['direction', 'camera'] });
+    expect(part({ role: 'dp', departments: ['direction'] })).toEqual({ role: 'director-dp', departments: ['direction', 'camera'] });
+    expect(part({ role: 'director', departments: ['direction'] }).role).toBe('director');
+    expect(part({ role: 'producer', departments: ['direction', 'camera'] }).role).toBe('producer');
+  });
+
+  it('is the person picked while they’re live and in the project, else the setting kept on this computer', () => {
+    const all = { ...records(), q: record('q', 'person', 'other-project', { role: 'dp' }), s: record('s', 'scene', 'p', {}) };
+    expect(myPart(all, 'p', 'a', 'gaffer')).toMatchObject({ role: 'dp', departments: ['camera', 'grip-electric'], person: { id: 'a' } });
+    // None picked, one in the Trash, one gone for good, one in another project, not a person at all: the setting.
+    for (const selfId of [null, 'd', 'missing', 'q', 's']) {
+      expect(myPart(all, 'p', selfId, 'gaffer')).toEqual({ role: 'gaffer', departments: ['grip-electric'], person: null });
+    }
+    expect(myPart(all, 'p', null, null)).toEqual({ role: null, departments: [], person: null });
   });
 });

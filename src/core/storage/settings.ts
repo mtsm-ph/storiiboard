@@ -78,6 +78,11 @@ export interface Settings {
    * usual role there, until people and roles come with Phase 3. The person's, so it stays on this computer.
    */
   projectRoles: Readonly<Record<string, ProjectRole>>;
+  /**
+   * Who you are in each project's Cast and crew (3.5c), by project id: a person record's id. Their role and departments
+   * then take the place of `projectRoles` for approvals and Seen. Yours, so it stays on this computer, never in the file.
+   */
+  projectSelves: Readonly<Record<string, string>>;
   /** The PDF storyboard prints each scene's palette in its heading (polish PP), as last chosen in Export. */
   pdfScenePalettes: boolean;
   /** Production companies saved once, to attach to any project (3.2); attaching copies one into the project. */
@@ -93,6 +98,15 @@ export const MAX_PROJECT_ROLES = 500;
 function projectRolesOf(value: unknown): Record<string, ProjectRole> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
   const kept = Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, ProjectRole] => isProjectRole(entry[1]));
+  return Object.fromEntries(kept.slice(-MAX_PROJECT_ROLES));
+}
+
+/** Each project's pick of who you are in its Cast and crew: ids as text, the newest kept. */
+function projectSelvesOf(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const kept = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '',
+  );
   return Object.fromEntries(kept.slice(-MAX_PROJECT_ROLES));
 }
 
@@ -119,6 +133,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
   projectRoles: {},
+  projectSelves: {},
   pdfScenePalettes: false,
   companies: [],
 };
@@ -162,6 +177,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),
+      projectSelves: projectSelvesOf(saved.projectSelves),
       pdfScenePalettes: saved.pdfScenePalettes === true,
       companies: companyProfilesOf(saved.companies),
     };
