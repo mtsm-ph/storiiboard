@@ -41,8 +41,15 @@ describe('an approval’s signature', () => {
     expect(approvalNow('gaffer', at, 'Kevin Matos')).toBeNull();
   });
 
-  it('stays initials when the profile asks for initials only', () => {
-    profileStore.setState({ ...EMPTY_PROFILE, name: 'Sam Ortiz', historyInitials: true }, true);
-    expect(approvalNow('dp', at, 'Kevin Matos')?.name).toBe('SO');
+  it('is the picked person’s initials when the profile asks for initials only, never the profile’s', () => {
+    profileStore.setState({ ...EMPTY_PROFILE, name: 'Sam Ortiz', initials: 'SAM', historyInitials: true }, true);
+    expect(approvalNow('dp', at, 'Kevin Matos')?.name).toBe('KM');
+    // Without a pick, the profile's own initials, as edits are signed.
+    expect(approvalNow('dp', at)?.name).toBe('SAM');
+  });
+
+  it('signs with no name for an unnamed picked person, never the profile’s', () => {
+    profileStore.setState({ ...EMPTY_PROFILE, name: 'Sam Ortiz' }, true);
+    expect(approvalNow('dp', at, '')?.name).toBe('');
   });
 });

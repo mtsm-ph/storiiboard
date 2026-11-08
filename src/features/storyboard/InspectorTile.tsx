@@ -65,7 +65,8 @@ export function InspectorTile() {
   // What this person can approve here: the person they picked in Cast and crew (3.5c), else their role on this
   // project (polish 6), else their usual one.
   const { role, person: me } = useMyPart(project?.projectId);
-  const myName = me && typeof me.props.name === 'string' && me.props.name.trim() !== '' ? me.props.name.trim() : null;
+  // The name you sign with once you've picked yourself (3.5c): that person's, '' when they're unnamed; null otherwise.
+  const myName = me ? (typeof me.props.name === 'string' ? me.props.name.trim() : '') : null;
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
   const picking = useEyedropperScene();
   // Before the early return, as every hook: whether the selected frame's video is missing here.

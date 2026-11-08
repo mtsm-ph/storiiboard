@@ -1,6 +1,7 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { approverRoles, type Approval, type ProjectRole } from '../../core/model/departmentStatus';
+import { initialsOf } from '../../core/model/role';
 import { myPart, type MyPart } from '../../core/model/person';
 import { useProject } from '../projectStore';
 import { loadSettings, MAX_PROJECT_ROLES, saveSettings } from '../../core/storage/settings';
@@ -74,10 +75,13 @@ export function useMyPart(projectId: string | undefined): MyPart {
 /** A new approval by this person, or null when their role on the project doesn't approve. */
 export function approvalNow(role: ProjectRole | null, now = new Date(), as: string | null = null): Approval | null {
   const roles = approverRoles(role);
-  // Signed as edits are (initials only when the person chose that), since an approval goes into the file's History too.
-  // Once you've picked yourself in Cast and crew (3.5c), by that person's name, so the frame and the crew agree on who
-  // approved; the profile still decides when it asks for initials only.
+  if (roles.length === 0) return null;
   const profile = profileStore.getState();
-  const signed = !profile.historyInitials && as ? as : editAuthor(profile);
-  return roles.length === 0 ? null : { name: signed === NO_AUTHOR ? '' : signed, roles, at: now.toISOString() };
+  // Signed as edits are (initials only when the person chose that), since an approval goes into the file's History too.
+  // Once you've picked yourself in Cast and crew (3.5c), `as` is that person's name, so the frame and the crew agree on
+  // who approved: their name, or their initials when the profile asks for initials; an unnamed one signs with no name
+  // (the role alone), never the profile's.
+  if (as !== null) return { name: profile.historyInitials ? initialsOf(as) : as, roles, at: now.toISOString() };
+  const signed = editAuthor(profile);
+  return { name: signed === NO_AUTHOR ? '' : signed, roles, at: now.toISOString() };
 }

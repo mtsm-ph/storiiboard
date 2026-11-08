@@ -60,8 +60,8 @@ as ids (it alters existing data), and the address search (3.4: an HTTP client in
 - A person's editor in Cast and crew has This is me: pressed, that person is you on this project, and their row says
   You. Which person is you is kept on this computer (app settings, by project id), never in the file, so it isn't an
   edit and isn't in History; picking another moves it, pressing it again stops it.
-- Your approvals follow that person's role and are signed with their name (initials when your profile asks for
-  them); opening a frame marks it Seen by the departments their role stands for together with the ones ticked, so a DP
+- Your approvals follow that person's role and are signed with their name (their initials when your profile asks
+  for initials; no name when they're unnamed); opening a frame marks it Seen by the departments their role stands for together with the ones ticked, so a DP
   on Grip & electric still marks Camera (decided by default, review). A Director in Camera, or a DP in Direction,
   approves as the Director and DP and marks both, as the local setting's "Director and DP" does (approved by Kevin,
   Nov 8). A person picked with no role approves nothing, and Settings → Project says so.

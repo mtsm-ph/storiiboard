@@ -361,6 +361,11 @@ Round 1: no high, two mediums, fixed.
   after the name; Spanish "los cuadros".
 - Kevin approved Nov 8: Director and DP for a Director in Camera or a DP in Direction; the HDR copy test's limit at
   240 (a Windows GPU encoder measured 236); the Windows screenshot baselines (regenerated here, checked by him).
+- Round 2: no high; one medium, fixed: with the profile set to initials only, an approval still took the profile's
+  initials (my round-1 test expected that): it now takes the picked person's initials; an unnamed picked person signs
+  with no name (the role alone), never the profile's. Low left: the Inspector itself doesn't say why a picked person
+  with no role can't approve (its usual "Only the director or the DP can tick Approved." shows; Settings → Project says
+  more).
 - Lows left: a pick naming a person Empty Trash removed stays in the settings (it reads as no pick); a version copy or
   backup (same project id) shows the same "You", by design for now; no unit test of `useMarkSeen`'s timer (the end to
   end covers it); the one-off failure of `projects.spec`'s empty-project JSON export in a full Windows run (39 of 39 on
