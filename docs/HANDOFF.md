@@ -362,6 +362,9 @@ Round 1: no high, four mediums, fixed.
 - Lows left: no test reads `cast_id` names through a real file's History (`namedRecords`), nor a script re-import
   keeping a casting (the import never writes to a character it links, so it can't drop one); the tile titles are
   spans, so the h3s have no h2 above them (as in every tile).
+- Checkpoint: `checkpoint/3.5b` failed 16 of the Mac's playback-copy tests from the known runner hang in VideoToolbox
+  (`VTEncoderXPCServ` and ffmpeg stuck; the PR touched no Rust). The same commit re-run as `checkpoint/3.5b-r2` was
+  all green.
 
 ### 3.5a: review
 

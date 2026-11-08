@@ -1,4 +1,5 @@
 import { DEPARTMENTS, type Department } from './department';
+import { ROLE_DEPARTMENTS, type ProjectRole } from './departmentStatus';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { isRole, type Role } from './role';
 
@@ -93,4 +94,38 @@ export function peopleByDepartment<T extends { fields: PersonFields }>(people: r
   }));
   groups.push({ department: null, people: people.filter((p) => p.fields.departments.length === 0) });
   return groups.filter((g) => g.people.length > 0);
+}
+
+/**
+ * What a person in Cast and crew stands for when they're you (3.5c, docs/PHASE3_DECISIONS.md 4): the roles you sign
+ * off as, and the departments opening a frame marks Seen. One main role and several departments, so a Director in
+ * Camera, or a DP in Direction, is the Director and DP the local setting offers. Seen goes by the departments picked,
+ * else by the ones the role stands for.
+ */
+export function personPart(fields: PersonFields): { role: ProjectRole | null; departments: readonly Department[] } {
+  const both = (fields.role === 'director' && fields.departments.includes('camera')) || (fields.role === 'dp' && fields.departments.includes('direction'));
+  const role: ProjectRole | null = both ? 'director-dp' : fields.role;
+  const departments = fields.departments.length > 0 ? fields.departments : role ? ROLE_DEPARTMENTS[role] : [];
+  return { role, departments };
+}
+
+/** Who you are on a project, and what that gives you: from Cast and crew once you've picked yourself, else the setting. */
+export interface MyPart {
+  role: ProjectRole | null;
+  departments: readonly Department[];
+  /** The live person you picked; null while the setting applies (none picked, or they're in the Trash). */
+  person: SbdRecord | null;
+}
+
+/**
+ * Your part on a project: the person you picked in its Cast and crew, while they're live and in this project; else
+ * `fallback`, the role kept on this computer (or the profile's usual one). A person in the Trash gives way to the
+ * fallback, and a restore brings them back, since the pick itself stays.
+ */
+export function myPart(records: Records, projectId: string, selfId: string | null, fallback: ProjectRole | null): MyPart {
+  const person = selfId ? records[selfId] : undefined;
+  if (person?.type === 'person' && person.trashedAt === null && person.parentId === projectId) {
+    return { ...personPart(personFields(person.props)), person };
+  }
+  return { role: fallback, departments: fallback ? ROLE_DEPARTMENTS[fallback] : [], person: null };
 }

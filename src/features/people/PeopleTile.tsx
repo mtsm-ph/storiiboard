@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
+import { setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
 import { t, tn } from '../../core/i18n';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
@@ -42,6 +43,8 @@ export function PeopleTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
+  // Who you are here (3.5c): on this computer only, never in the file.
+  const self = useProjectSelf(project?.projectId);
   const listId = useId();
   const nameField = useRef<HTMLInputElement>(null);
   const newButton = useRef<HTMLButtonElement>(null);
@@ -117,7 +120,11 @@ export function PeopleTile() {
                       current ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
                     )}
                   >
-                    <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('people.unnamed')}</span>
+                    <span className="flex max-w-full items-baseline gap-1.5">
+                      <span className="truncate text-[13px] font-semibold">{fields.name || t('people.unnamed')}</span>
+                      {/* Words, not a mark alone: a screen reader hears it with the name. */}
+                      {record.id === self && <span className="sb-label shrink-0 font-mono">{t('people.you')}</span>}
+                    </span>
                     <span className="sb-label max-w-full truncate">{summary(fields)}</span>
                   </button>
                 </li>
@@ -155,6 +162,10 @@ export function PeopleTile() {
               });
           }}
           fields={selected.fields}
+          isMe={selected.record.id === self}
+          onMe={(me) => {
+            setProjectSelf(projectId, me ? selected.record.id : null);
+          }}
           nameField={nameField}
           onChange={(prop, value) => {
             // A name is kept trimmed, so a call sheet and a search find it.
@@ -203,6 +214,9 @@ interface PersonEditorProps {
   /** Every custom field name the project's people use, for a new field's suggestions. */
   knownFields: readonly string[];
   fields: PersonFields;
+  /** Whether this person is you on this project (3.5c). */
+  isMe: boolean;
+  onMe: (me: boolean) => void;
   nameField: React.RefObject<HTMLInputElement | null>;
   onChange: (prop: string, value: string) => void;
   onRole: (role: string | null) => void;
@@ -213,8 +227,9 @@ interface PersonEditorProps {
   onDelete: () => void;
 }
 
-function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onRole, onDepartment, characters, onCast, onDelete }: PersonEditorProps) {
+function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, characters, onCast, onDelete }: PersonEditorProps) {
   const playsId = useId();
+  const meNoteId = useId();
   const headingId = useId();
   const departmentsId = useId();
   const text = (prop: 'name' | PersonTextField, label: string, long = false, type?: string) => {
@@ -250,6 +265,27 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
         {fields.name || t('people.unnamed')}
       </h3>
       {text('name', t('person.name'))}
+      {/* Who you are here (3.5c): your approvals and Seen follow this person. A setting on this computer, not an edit. */}
+      <div className="flex flex-col gap-1">
+        <button
+          type="button"
+          aria-pressed={isMe}
+          aria-describedby={meNoteId}
+          data-this-is-me=""
+          onClick={() => {
+            onMe(!isMe);
+          }}
+          className={cx(
+            'self-start border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+            isMe ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+          )}
+        >
+          {t('person.thisIsMe')}
+        </button>
+        <p id={meNoteId} className="text-[12px] text-text-muted">
+          {isMe ? t('person.thisIsMeOn') : t('person.thisIsMeNote')}
+        </p>
+      </div>
       <Select
         label={t('person.role')}
         value={fields.role ?? ''}

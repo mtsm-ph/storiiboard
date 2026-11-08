@@ -2,7 +2,8 @@ import { useId } from 'react';
 import { isProjectRole, type ProjectRole } from '../../core/model/departmentStatus';
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { useProfile } from '../settings/profileStore';
-import { setProjectRole, useProjectRoleSet } from '../settings/projectRole';
+import { setProjectRole, useMyPart, useProjectRoleSet } from '../settings/projectRole';
+import { personFields } from '../../core/model/person';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { PROJECT_STATE_LABEL, PROJECT_STATES, projectStateOf } from '../../core/model/project';
 import { ASPECT_RATIOS, projectStoryboard } from '../../core/model/storyboard';
@@ -64,14 +65,31 @@ export function detailsEdit(records: Readonly<Record<string, SbdRecord>>, id: st
   return changed ? [{ kind: 'update', id, set }] : [];
 }
 
+/** A project role in words; director and DP together have their own. */
+const roleLabel = (role: ProjectRole | null): string =>
+  role === null ? t('person.noRole') : role === 'director-dp' ? t('projectHome.directorAndDp') : ROLE_LABELS[role];
+
 /**
  * Your role on this project (polish 6): the person's, kept on this computer, so not an op and not in the file. It
- * takes the place of the profile's usual role here: the director or the DP approves departments on a shot.
+ * takes the place of the profile's usual role here: the director or the DP approves departments on a shot. Once you've
+ * picked yourself in Cast and crew (3.5c), that person decides, and this says who you are there; the role set here is
+ * kept as the fallback.
  */
 function YourRole({ projectId }: { projectId: string }) {
   const set = useProjectRoleSet(projectId);
   const usual = useProfile().role;
+  const part = useMyPart(projectId);
   const noteId = useId();
+  if (part.person) {
+    const name = personFields(part.person.props).name || t('people.unnamed');
+    return (
+      <div className="flex max-w-[640px] flex-col gap-1.5 border-b border-text p-4" data-you-are="">
+        <p className="sb-label">{t('projectHome.yourRole')}</p>
+        <p className="text-[13px]">{t('projectHome.youAre', { name, role: roleLabel(part.role) })}</p>
+        <p className="text-[12px] text-text-muted">{t('projectHome.youAreNote')}</p>
+      </div>
+    );
+  }
   return (
     <div className="flex max-w-[640px] flex-col gap-1.5 border-b border-text p-4">
       <Select
@@ -91,7 +109,7 @@ function YourRole({ projectId }: { projectId: string }) {
         ))}
       </Select>
       <p id={noteId} className="text-[12px] text-text-muted">
-        {t('projectHome.yourRoleNote')}
+        {t('projectHome.yourRoleNote')} {t('projectHome.orPickYourself')}
       </p>
     </div>
   );

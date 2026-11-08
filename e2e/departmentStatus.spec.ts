@@ -156,3 +156,59 @@ test('the department status grid passes the axe checks', async ({ page }) => {
   const results = await new AxeBuilder({ page }).include('[data-inspector]').analyze();
   expect(results.violations).toEqual([]);
 });
+
+test('you in Cast and crew: your person’s role approves and their departments mark Seen, the setting the fallback (3.5c)', async ({ page }) => {
+  const sections = page.getByRole('navigation', { name: 'Sections' });
+  // A usual role that approves nothing, so whatever approves below is the person picked.
+  const profile = await openSettings(page, 'Profile');
+  await profile.getByLabel('Your name').fill('Kevin Matos');
+  await profile.getByLabel('Your name').press('Enter');
+  await profile.getByLabel('Usual role').selectOption('gaffer');
+  await closeSettings(page);
+
+  await sections.getByRole('button', { name: /^Production/ }).click();
+  const people = page.getByRole('region', { name: 'Cast and crew', exact: true });
+  const editor = people.locator('[data-person-editor]');
+  await people.getByRole('button', { name: '+ New person' }).click();
+  await page.keyboard.type('Kevin Matos');
+  await page.keyboard.press('Enter');
+  await editor.getByRole('combobox', { name: 'Role' }).selectOption({ label: 'Director of photography' });
+  await editor.getByRole('button', { name: 'Camera', exact: true }).click();
+  await editor.getByRole('button', { name: 'Direction', exact: true }).click();
+  const me = editor.getByRole('button', { name: 'This is me' });
+  await expect(me).toHaveAttribute('aria-pressed', 'false');
+  await me.click();
+  await expect(me).toHaveAttribute('aria-pressed', 'true');
+  await expect(people.getByRole('list', { name: 'Cast and crew' }).getByRole('button')).toHaveText([/Kevin MatosYou/]);
+
+  // Settings → Project says who you are, in place of the role picker.
+  const project = await openSettings(page, 'Project');
+  await expect(project.locator('[data-you-are]')).toContainText('You’re Kevin Matos in Cast and crew: Director and DP.');
+  await expect(project.getByLabel('Your role on this project')).toHaveCount(0);
+  await closeSettings(page);
+
+  // A DP in Direction approves as the Director and DP, and opening a frame marks it Seen by Camera and Direction.
+  await sections.getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-checked', 'true');
+  await expect(box(page, 'Direction: Seen')).toHaveAttribute('aria-checked', 'true');
+  await expect(box(page, 'Sound: Seen')).toHaveAttribute('aria-checked', 'false');
+  await box(page, 'Camera: Approved').click();
+  await expect(inspector(page).getByRole('list', { name: 'Approvals' })).toHaveText('Camera approved by Kevin Matos (Director and DP)');
+
+  // Kept on this computer: still you after a reload.
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await sections.getByRole('button', { name: /^Production/ }).click();
+  await expect(people.getByRole('list', { name: 'Cast and crew' }).getByRole('button')).toHaveText([/Kevin MatosYou/]);
+
+  // Your person in the Trash: the setting applies again (a gaffer approves nothing), and Settings shows the picker.
+  await editor.getByRole('button', { name: 'Delete person' }).click();
+  await sections.getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  await expect(box(page, 'Camera: Approved')).toHaveAttribute('aria-disabled', 'true');
+  const after = await openSettings(page, 'Project');
+  await expect(after.getByLabel('Your role on this project')).toBeVisible();
+  await expect(after.locator('[data-you-are]')).toHaveCount(0);
+  await closeSettings(page);
+});

@@ -29,6 +29,7 @@ describe('backup settings', () => {
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null, historyInitials: false },
       projectRoles: {},
+      projectSelves: {},
       pdfScenePalettes: false,
       companies: [],
     });
@@ -46,6 +47,17 @@ describe('backup settings', () => {
     expect(kept.p519).toBe('dp');
   });
 
+  it('keeps who you are in each project’s Cast and crew on this computer, by person id (3.5c)', () => {
+    const storage = memoryStorage('{"projectSelves":{"p1":"person-1","p2":"","p3":7,"p4":null}}');
+    expect(loadSettings(storage).projectSelves).toEqual({ p1: 'person-1' });
+    expect(loadSettings(memoryStorage('{"projectSelves":["p1"]}')).projectSelves).toEqual({});
+    const many = Object.fromEntries(Array.from({ length: 520 }, (_, i) => [`p${String(i)}`, `person-${String(i)}`]));
+    const kept = loadSettings(memoryStorage(JSON.stringify({ projectSelves: many }))).projectSelves;
+    expect(Object.keys(kept)).toHaveLength(500);
+    expect(kept.p0).toBeUndefined();
+    expect(kept.p519).toBe('person-519');
+  });
+
   it('saves the keep numbers alongside the theme', () => {
     const storage = memoryStorage('{"theme":"light"}');
     saveSettings({ backups: { recent: 5, days: 30 } }, storage);
@@ -59,6 +71,7 @@ describe('backup settings', () => {
       sidebarHidden: false,
       profile: { name: '', initials: '', role: null, historyInitials: false },
       projectRoles: {},
+      projectSelves: {},
       pdfScenePalettes: false,
       companies: [],
     });
