@@ -66,6 +66,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   int_ext: 'history.field.intExt',
   day_night: 'history.field.dayNight',
   location_id: 'history.field.locationId',
+  cast_id: 'history.field.castId',
   page_eighths: 'history.field.pageEighths',
   numbers_locked: 'history.field.numbersLocked',
   characters: 'history.field.characters',
@@ -206,6 +207,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   // Kept by id, which means nothing to a person: a step names the location as it was then (describeEdit), and a
   // picture change reads as set, removed or replaced (pictureChange).
   if (prop === 'location_id') return t('history.aLocation');
+  if (prop === 'cast_id') return t('history.aPerson');
   if (prop === 'media_id') return t('history.aPicture');
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
@@ -546,9 +548,10 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       if (changes.length === 1 && only?.prop === 'media_id') return line('history.whoDid', { who }, { what: pictureChange(only), tag });
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
-          if (only.prop !== 'location_id' || typeof v !== 'string' || v === '') return changeValuePart(only, v);
-          const place = around.get(v);
-          return place ? nameOf(place) : t('history.aLocation');
+          // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
+          if ((only.prop !== 'location_id' && only.prop !== 'cast_id') || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          const named = around.get(v);
+          return named ? nameOf(named) : t(only.prop === 'cast_id' ? 'history.aPerson' : 'history.aLocation');
         };
         return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only) }), tag];
       }

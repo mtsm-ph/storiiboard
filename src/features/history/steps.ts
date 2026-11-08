@@ -73,7 +73,7 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     // As the step left it: a location picked by a new name is made in the same step.
     // Not Math.max(...seqs), which throws past about 125k arguments: a Restore to here can be a step that big.
     const end = ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1;
-    const places = new Set(ops.flatMap((op) => [op.before?.props.location_id, op.after?.props.location_id]));
+    const places = new Set(ops.flatMap((op) => [op.before?.props.location_id, op.after?.props.location_id, op.before?.props.cast_id, op.after?.props.cast_id]));
     for (const id of places) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
   }
   const found = await recordsBefore(file, asks);

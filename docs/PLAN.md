@@ -43,7 +43,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | #91 | Done |
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
-| 3.5b Characters and Team | Characters linked to cast; the Team section; you in Cast and crew in place of the local project role | | Not started |
+| 3.5b Characters and Team | Characters linked to cast; the Team section | | In review |
+| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4) | | Not started |
 | 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
@@ -54,6 +55,18 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.5b as built (Nov 8): characters cast, and the Team section.
+- A person's editor in Cast and crew has Plays: the project's characters (from the script import), each cast by one
+  person (`character.cast_id`); picking one another plays moves it, picking it again uncasts it; one edit each. A
+  character played by someone else says who. A cast member in the Trash reads as none, and a restore gives them their
+  characters back.
+- The Team section is built: the project's people by department in the call sheet's order (someone in two is in
+  both; those in none last), each with their title or role, and the characters a cast member plays. Read only; no
+  contacts. Edited in Cast and crew.
+- History names the person cast, as the step left them, never their id.
+- Tests: who plays what (a trashed cast member as none), casting (one edit, moving, nothing when nothing changes), the
+  team's groups, History's wording; end to end, a script's characters cast, the Team section's groups.
 
 3.5a as built (Nov 7): the Cast and crew tile (`src/features/people/`, `src/core/model/person.ts`).
 - Production's Cast and crew tile lists the project's people by name, each with their role and departments, with

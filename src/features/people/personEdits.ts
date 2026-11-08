@@ -59,3 +59,16 @@ export function personDepartment(records: Records, id: string, department: Depar
 export function trashPerson(records: Records, id: string): Change[] {
   return live(records, id) ? [{ kind: 'trash', id }] : [];
 }
+
+/**
+ * A character cast (3.5b): played by this person, or by no one. One cast member per character, so casting someone
+ * else moves it. Nothing when it's already so, or either isn't live.
+ */
+export function castCharacter(records: Records, characterId: string, personId: string | null): Change[] {
+  const character = records[characterId];
+  if (character?.type !== 'character' || character.trashedAt !== null) return [];
+  if (personId !== null && !live(records, personId)) return [];
+  const current = typeof character.props.cast_id === 'string' ? character.props.cast_id : null;
+  if (current === personId) return [];
+  return personId === null ? [{ kind: 'update', id: characterId, unset: ['cast_id'] }] : [{ kind: 'update', id: characterId, set: { cast_id: personId } }];
+}

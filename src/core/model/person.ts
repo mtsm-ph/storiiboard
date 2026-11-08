@@ -54,3 +54,43 @@ export function projectPeople(records: Readonly<Record<string, SbdRecord>>, proj
 export function personFieldRecords(records: Readonly<Record<string, SbdRecord>>): SbdRecord[] {
   return Object.values(records).filter((r) => r.type === 'person' && r.trashedAt === null);
 }
+
+type Records = Readonly<Record<string, SbdRecord>>;
+
+/** A character's name, as the script spells it; '' for none. */
+export const characterName = (character: SbdRecord): string => (typeof character.props.name === 'string' ? character.props.name.trim() : '');
+
+/** The project's live, named characters by name (3.5b): from the script import, or typed on a scene. */
+export function projectCharacters(records: Records, projectId: string): SbdRecord[] {
+  return Object.values(records)
+    .filter((r) => r.type === 'character' && r.parentId === projectId && r.trashedAt === null && characterName(r) !== '')
+    .sort((a, b) => characterName(a).localeCompare(characterName(b)));
+}
+
+/**
+ * Who plays a character (3.5b, docs/PHASE3_DECISIONS.md 6a): the live person its `cast_id` names, or null. A cast
+ * member in the Trash reads as none, and their character comes back to them with a restore.
+ */
+export function castOf(records: Records, character: SbdRecord): SbdRecord | null {
+  const id = character.props.cast_id;
+  const person = typeof id === 'string' ? records[id] : undefined;
+  return person?.type === 'person' && person.trashedAt === null ? person : null;
+}
+
+/** The live characters a person plays, by name. */
+export function charactersPlayedBy(records: Records, projectId: string, personId: string): SbdRecord[] {
+  return projectCharacters(records, projectId).filter((c) => castOf(records, c)?.id === personId);
+}
+
+/**
+ * The people of each department, in the call sheet's order; someone in several is in each. Those in none come last,
+ * under null. The Team section's roster (3.5b), and from Phase 4 the call sheet's crew list.
+ */
+export function peopleByDepartment<T extends { fields: PersonFields }>(people: readonly T[]): { department: Department | null; people: T[] }[] {
+  const groups: { department: Department | null; people: T[] }[] = DEPARTMENTS.map((department) => ({
+    department,
+    people: people.filter((p) => p.fields.departments.includes(department)),
+  }));
+  groups.push({ department: null, people: people.filter((p) => p.fields.departments.length === 0) });
+  return groups.filter((g) => g.people.length > 0);
+}

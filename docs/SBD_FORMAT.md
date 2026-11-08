@@ -405,6 +405,9 @@ department ids, kept in the call sheet's order; unknown ids are ignored); `title
 `phone`, `email`, `notes` (text); `custom` (their own fields, as a shot's). The phone and email are private: shown in
 the app, never logged, never shown in History. No table change.
 
+`cast_id` on a `character` (3.5b): the person who plays them, by id; missing means no one yet. A person in the Trash
+reads as none; their characters keep the id, so a restore gives them back. No table change.
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project
