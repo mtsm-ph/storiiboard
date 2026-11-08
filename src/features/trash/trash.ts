@@ -15,7 +15,7 @@ import { labels, t, tn } from '../../core/i18n';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -23,6 +23,7 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   note: 'trash.kind.note',
   picture: 'trash.kind.picture',
   location: 'trash.kind.location',
+  person: 'trash.kind.person',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -32,6 +33,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   note: 'trash.kinds.note',
   picture: 'trash.kinds.picture',
   location: 'trash.kinds.location',
+  person: 'trash.kinds.person',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -41,6 +43,7 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   note: 'trash.kindLower.note',
   picture: 'trash.kindLower.picture',
   location: 'trash.kindLower.location',
+  person: 'trash.kindLower.person',
 });
 
 export interface NamePart {
@@ -78,6 +81,7 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'note') return 'note';
   if (record.type === 'media') return 'picture';
   if (record.type === 'location') return 'location';
+  if (record.type === 'person') return 'person';
   return null;
 }
 
@@ -97,6 +101,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'note': {
       const text = typeof record.props.text === 'string' ? record.props.text.trim().replace(/\s+/g, ' ') : '';
       return [plain(text === '' ? t('trash.emptyNote') : text.length > 60 ? `${text.slice(0, 59)}…` : text)];
+    }
+    case 'person': {
+      const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedPerson');
+      return [plain(name)];
     }
     case 'location': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedLocation');

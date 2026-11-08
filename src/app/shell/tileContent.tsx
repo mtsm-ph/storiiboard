@@ -7,6 +7,7 @@ import { TrashTile } from '../../features/trash/TrashTile';
 import { ColorScriptTile } from '../../features/storyboard/palette/ColorScriptTile';
 import { PlayerTile } from '../../features/video/PlayerTile';
 import { LocationsTile } from '../../features/locations/LocationsTile';
+import { PeopleTile } from '../../features/people/PeopleTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -19,4 +20,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   colorScript: ColorScriptTile,
   player: PlayerTile,
   locations: LocationsTile,
+  people: PeopleTile,
 };

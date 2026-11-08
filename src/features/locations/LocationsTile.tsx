@@ -220,6 +220,8 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         label={label}
         data-field={prop}
         {...(type ? { type } : {})}
+        // Never offered from, or saved to, the browser's own autofill: a contact's phone stays in the project.
+        autoComplete="off"
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();
         }}

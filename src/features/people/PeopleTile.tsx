@@ -1,0 +1,291 @@
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { showInfo } from '../../app/notice';
+import { projectStore, useProject } from '../../app/projectStore';
+import { t, tn } from '../../core/i18n';
+import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
+import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
+import { PERSON_TEXT_FIELDS, personFieldRecords, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
+import type { SbdRecord } from '../../core/model/record';
+import { ROLE_LABELS, ROLES } from '../../core/model/role';
+import { Button } from '../../ui/Button';
+import { cx } from '../../ui/cx';
+import { Select, TextArea, TextField } from '../../ui/fields';
+import { setCustomField } from '../storyboard/board';
+import { CustomFields } from '../storyboard/InspectorView';
+import { newPerson, personChange, personDepartment, personRole, trashPerson } from './personEdits';
+
+// The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
+// (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
+// Contacts are private: shown here, never logged or named in History. Each field is one edit when it's left, so one ⌘Z;
+// Delete sends a person to the Trash. Narrow (Production gives it a column), the list sits above the editor.
+
+const FIELD_LABEL: Readonly<Record<PersonTextField, () => string>> = {
+  title: () => t('person.title'),
+  phone: () => t('person.phone'),
+  email: () => t('person.email'),
+  notes: () => t('person.notes'),
+};
+const FIELD_TYPE: Partial<Record<PersonTextField, string>> = { phone: 'tel', email: 'email' };
+/** Narrower than this, the list goes above the editor rather than beside it. */
+const SIDE_BY_SIDE = 520;
+
+type Records = Readonly<Record<string, SbdRecord>>;
+
+/** "DP · Camera, Grip & electric": what a row says under the name. */
+function summary(fields: PersonFields): string {
+  const role = fields.role ? ROLE_LABELS[fields.role] : null;
+  const departments = fields.departments.map((d) => DEPARTMENT_LABELS[d]).join(', ');
+  return [role, departments].filter((part) => part).join(' · ') || t('people.noRole');
+}
+
+export function PeopleTile() {
+  const project = useProject((s) => s.project);
+  const records = useProject((s) => s.records);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const listId = useId();
+  const nameField = useRef<HTMLInputElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
+  const making = useRef(false);
+  // The tile's own width, for the layout: a container, not the window, decides.
+  const [width, setWidth] = useState(0);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const measure = useCallback((element: HTMLDivElement | null) => {
+    setBox(element);
+    if (element) setWidth(element.getBoundingClientRect().width);
+  }, []);
+  useEffect(() => {
+    if (!box) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(entry?.contentRect.width ?? 0);
+    });
+    observer.observe(box);
+    return () => {
+      observer.disconnect();
+    };
+  }, [box]);
+  if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
+  const projectId = project.projectId;
+  const all = projectPeople(records, projectId);
+  const selected = all.find((p) => p.record.id === chosen) ?? all[0] ?? null;
+  const wide = width >= SIDE_BY_SIDE;
+
+  const edit = (build: (now: Records) => ReturnType<typeof personChange>) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
+
+  return (
+    <div ref={measure} className={cx('flex min-h-0 flex-1', wide ? 'flex-row' : 'flex-col')}>
+      <div className={cx('flex shrink-0 flex-col border-border', wide ? 'w-[220px] border-r' : 'max-h-[40%] border-b')}>
+        <div className="flex items-center gap-2 border-b border-border p-2">
+          <p className="sb-label flex-1 font-mono">{tn('people.count', all.length)}</p>
+          <Button
+            ref={newButton}
+            onClick={() => {
+              if (making.current) return;
+              making.current = true;
+              const id = crypto.randomUUID();
+              void edit((now) => [newPerson(now, projectId, id)])
+                .then((made) => {
+                  if (!made) return;
+                  setChosen(id);
+                  requestAnimationFrame(() => nameField.current?.focus());
+                })
+                .finally(() => {
+                  making.current = false;
+                });
+            }}
+          >
+            {t('people.new')}
+          </Button>
+        </div>
+        {all.length === 0 ? (
+          <p className="p-3 text-[13px] text-text-muted">{t('people.none')}</p>
+        ) : (
+          <ul id={listId} aria-label={t('people.list')} className="min-h-0 flex-1 overflow-y-auto">
+            {all.map(({ record, fields }) => {
+              const current = record.id === selected?.record.id;
+              return (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    aria-current={current || undefined}
+                    data-person-id={record.id}
+                    onClick={() => {
+                      setChosen(record.id);
+                    }}
+                    // On the ink fill, the focus ring is paper (DESIGN.md: never ink on ink).
+                    className={cx(
+                      'flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left focus-visible:-outline-offset-2',
+                      current ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
+                  >
+                    <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('people.unnamed')}</span>
+                    <span className="sb-label max-w-full truncate">{summary(fields)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      {selected && (
+        <PersonEditor
+          key={selected.record.id}
+          id={selected.record.id}
+          props={selected.record.props}
+          knownFields={fieldNamesOf(personFieldRecords(records))}
+          fields={selected.fields}
+          nameField={nameField}
+          onChange={(prop, value) => {
+            // A name is kept trimmed, so a call sheet and a search find it.
+            void edit((now) => personChange(now, selected.record.id, prop, prop === 'name' ? value.trim() : value));
+          }}
+          onRole={(role) => {
+            void edit((now) => personRole(now, selected.record.id, role));
+          }}
+          onDepartment={(department, on) => {
+            void edit((now) => personDepartment(now, selected.record.id, department, on));
+          }}
+          onDelete={() => {
+            const id = selected.record.id;
+            const at = all.findIndex((p) => p.record.id === id);
+            // Named as the edit finds them, so a name typed and not yet left is the one the notice says.
+            let name = '';
+            void projectStore
+              .getState()
+              .applyWith((now) => {
+                const person = now[id];
+                name = (person && typeof person.props.name === 'string' && person.props.name.trim()) || t('people.unnamed');
+                return { changes: trashPerson(now, id) };
+              })
+              .then((done) => {
+                if (!done) return;
+                // A note about this step: an undo clears it.
+                showInfo(t('people.trashed', { name }), { step: true });
+                // The one after takes its place, else the one before; New person when it was the last.
+                const next = all[at + 1] ?? all[at - 1] ?? null;
+                setChosen(next?.record.id ?? null);
+                requestAnimationFrame(() => {
+                  const row = next ? document.getElementById(listId)?.querySelector<HTMLElement>(`[data-person-id="${next.record.id}"]`) : null;
+                  (row ?? newButton.current)?.focus();
+                });
+              });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface PersonEditorProps {
+  id: string;
+  props: SbdRecord['props'];
+  /** Every custom field name the project's people use, for a new field's suggestions. */
+  knownFields: readonly string[];
+  fields: PersonFields;
+  nameField: React.RefObject<HTMLInputElement | null>;
+  onChange: (prop: string, value: string) => void;
+  onRole: (role: string | null) => void;
+  onDepartment: (department: (typeof DEPARTMENTS)[number], on: boolean) => void;
+  onDelete: () => void;
+}
+
+function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onRole, onDepartment, onDelete }: PersonEditorProps) {
+  const headingId = useId();
+  const departmentsId = useId();
+  const text = (prop: 'name' | PersonTextField, label: string, long = false, type?: string) => {
+    const value = fields[prop];
+    // Keyed by the value, so an undo shows in the field it changed and the others keep focus.
+    const key = `${prop}:${value}`;
+    const onBlur = (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const next = event.currentTarget.value;
+      if (next !== value) onChange(prop, next);
+    };
+    return long ? (
+      <TextArea key={key} defaultValue={value} onBlur={onBlur} label={label} data-field={prop} />
+    ) : (
+      <TextField
+        key={key}
+        defaultValue={value}
+        onBlur={onBlur}
+        {...(prop === 'name' ? { ref: nameField } : {})}
+        label={label}
+        data-field={prop}
+        {...(type ? { type } : {})}
+        // Never offered from, or saved to, the browser's own autofill: a cast member's phone stays in the project.
+        autoComplete="off"
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+        }}
+      />
+    );
+  };
+  return (
+    <section aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-person-editor="">
+      <h3 id={headingId} className="sb-label">
+        {fields.name || t('people.unnamed')}
+      </h3>
+      {text('name', t('person.name'))}
+      <Select
+        label={t('person.role')}
+        value={fields.role ?? ''}
+        onChange={(event) => {
+          const role = event.currentTarget.value;
+          onRole(role === '' ? null : role);
+        }}
+      >
+        <option value="">{t('person.noRole')}</option>
+        {ROLES.map((role) => (
+          <option key={role} value={role}>
+            {ROLE_LABELS[role]}
+          </option>
+        ))}
+      </Select>
+      <div role="group" aria-labelledby={departmentsId} className="flex flex-col gap-1">
+        <span id={departmentsId} className="sb-label">
+          {t('person.departments')}
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {DEPARTMENTS.map((department) => {
+            const on = fields.departments.includes(department);
+            return (
+              // Picked shows an ink fill, as every selection does; the pressed state says so to a screen reader.
+              <button
+                key={department}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  onDepartment(department, !on);
+                }}
+                className={cx(
+                  'border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                  // On the ink fill, the focus ring is paper and inside (DESIGN.md: never ink on ink).
+                  on ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                )}
+              >
+                {DEPARTMENT_LABELS[department]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {PERSON_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), prop === 'notes', FIELD_TYPE[prop]))}
+      <div className="flex flex-col gap-3">
+        <h4 className="sb-label">{t('person.customFields')}</h4>
+        <CustomFields
+          of="person"
+          fields={customFieldsOf(props)}
+          known={knownFields}
+          hidden={hiddenFieldNames(props)}
+          onChange={async (name, value) => {
+            // Only while they're live: a field left as Delete lands isn't written to the trashed person.
+            await projectStore.getState().applyWith((now) => ({ changes: now[id]?.type === 'person' && now[id].trashedAt === null ? setCustomField(now, id, name, value) : [] }));
+          }}
+        />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button className="ml-auto" onClick={onDelete}>
+          {t('people.delete')}
+        </Button>
+      </div>
+    </section>
+  );
+}

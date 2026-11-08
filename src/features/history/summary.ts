@@ -3,6 +3,7 @@ import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
+import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -88,6 +89,9 @@ const FIELD: Readonly<Record<string, string>> = labels({
   contact_phone: 'history.field.contactPhone',
   contact_email: 'history.field.contactEmail',
   parking: 'history.field.parking',
+  phone: 'history.field.phone',
+  email: 'history.field.email',
+  role: 'history.field.role',
   power: 'history.field.power',
 });
 
@@ -168,6 +172,7 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   height: HEIGHT_LABEL,
   move: MOVE_LABEL,
   stage: PROJECT_STAGE_LABEL,
+  role: ROLE_LABELS,
 };
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
@@ -247,6 +252,9 @@ export interface FieldChange {
   key?: string;
   before: JsonValue | undefined;
   after: JsonValue | undefined;
+  /** Said only as set, changed or removed, never as itself: a person's notes and own fields (3.5), which may hold
+   * anything from an agent's phone to an allergy. */
+  private?: true;
 }
 
 const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
@@ -278,7 +286,7 @@ function clientValue(change: FieldChange & { key: string }, value: JsonValue | u
 
 /** Every field an op changed, each custom field and each department's status on its own. */
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
-  return changedProps(before, after).flatMap((prop): FieldChange[] => {
+  const changes = changedProps(before, after).flatMap((prop): FieldChange[] => {
     const byId = prop === 'deliverables';
     if (!BY_ENTRY.has(prop) && !byId) return [{ prop, before: before.props[prop], after: after.props[prop] }];
     const was = byId ? deliverablesById(before.props) : entriesOf(before.props, prop);
@@ -289,7 +297,11 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     // A checklist that changed with no item changed (reordered, or an entry without an id): the list as a whole.
     return byId && entries.length === 0 ? [{ prop, before: before.props[prop], after: after.props[prop] }] : entries;
   });
+  return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
+
+/** A person's props said only as set, changed or removed (3.5): their notes and own fields, besides PRIVATE_PROPS. */
+const PERSON_PRIVATE: ReadonlySet<string> = new Set(['notes', 'custom']);
 
 const isStatus = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'department_status' && change.key !== undefined;
 
@@ -310,12 +322,13 @@ export const changeLabel = (change: FieldChange): string =>
  * Contact details and addresses (a location's, 3.3; call sheets treat them as private): History names the field and
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
-const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email']);
+const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email', 'phone', 'email']);
+const isPrivate = (change: FieldChange): boolean => change.private === true || (change.key === undefined && PRIVATE_PROPS.has(change.prop));
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+  isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -326,7 +339,7 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
         : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  change.key === undefined && PRIVATE_PROPS.has(change.prop)
+  isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -336,7 +349,7 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
         ? deliverableText(value, true)
         : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
-  change.key === undefined && !PRIVATE_PROPS.has(change.prop) ? valuePart(change.prop, value) : changeValue(change, value);
+  change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null): Part {
@@ -354,6 +367,8 @@ function nameOf(record: SbdRecord | null): Part {
       return typeof record.props.name === 'string' ? record.props.name : t('history.aLocation');
     case 'character':
       return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
+    case 'person':
+      return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
     case 'project':
       return t('history.theProject');
     case 'media':
@@ -374,6 +389,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   note: 'count.notes',
   location: 'count.locations',
   character: 'count.characters',
+  person: 'count.people',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -383,10 +399,10 @@ const count = (type: SbdRecord['type'], n: number): string => {
 };
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
-const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character', MessageKey>>>> = {
-  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character' },
-  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character' },
-  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character' },
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person' },
 };
 const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
   create: 'history.addedCount',
@@ -472,7 +488,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character'] as const) {
+    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {

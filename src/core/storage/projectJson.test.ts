@@ -64,6 +64,17 @@ beforeEach(async () => {
       },
       { kind: 'create', record: { id: 'p1', type: 'media', parentId: 's1', sortKey: 'a', props: { kind: 'image', sha256: sha, width: 4, height: 4 } } },
       { kind: 'create', record: { id: 's2', type: 'shot', parentId: 'sc4', sortKey: 'b', props: { number: '4B' } } },
+      // A person (3.5), contacts and all: the export is the whole project, private fields included.
+      {
+        kind: 'create',
+        record: {
+          id: 'pe1',
+          type: 'person',
+          parentId: root,
+          sortKey: 'a',
+          props: { name: 'Ana Ruiz', role: 'hmu', departments: ['hmu', 'vfx'], phone: '+1 212 555 0100', email: 'ana@example.com', custom: { Agent: 'Lou' } },
+        },
+      },
     ],
     { author: 'Kevin', now: at, alsoWrite: lutStatements('lut-1', lut.lut, at()) },
   );
@@ -121,6 +132,7 @@ describe('project data as JSON (2.9)', () => {
       expect(after.records?.find((r) => r.id === 's2')?.trashed_at).not.toBeNull();
       expect(after.ops?.length).toBe(before.ops?.length);
       expect(after.versions?.[0]?.name).toBe('Lock');
+      expect(JSON.parse(String(after.records?.find((r) => r.id === 'pe1')?.props))).toMatchObject({ departments: ['hmu', 'vfx'], phone: '+1 212 555 0100', custom: { Agent: 'Lou' } });
       // Its own file id: a new file, whose backups are its own.
       const id = (rows: Row[] | undefined) => rows?.find((r) => r.key === 'file_id')?.value;
       expect(id(after.meta)).not.toBe(id(before.meta));

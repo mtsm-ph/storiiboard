@@ -56,12 +56,26 @@ export const LOCATION_BUILT_IN_FIELDS = [
   'field.newField',
 ] as const satisfies readonly MessageKey[];
 
-/** What the fields are on: a frame's names and words, or a location's (3.3). */
-export type FieldsOf = 'frame' | 'location';
+/** A person's own fields (3.5): their editor's labels. */
+export const PERSON_BUILT_IN_FIELDS = [
+  'person.name',
+  'person.role',
+  'person.departments',
+  'person.title',
+  'field.title',
+  'person.phone',
+  'person.email',
+  'person.notes',
+  'field.newField',
+] as const satisfies readonly MessageKey[];
+
+/** What the fields are on: a frame's names and words, a location's (3.3) or a person's (3.5). */
+export type FieldsOf = 'frame' | 'location' | 'person';
 
 const RESERVED: Readonly<Record<FieldsOf, { keys: readonly MessageKey[]; problem: MessageKey }>> = {
   frame: { keys: BUILT_IN_FIELDS, problem: 'field.builtIn' },
   location: { keys: LOCATION_BUILT_IN_FIELDS, problem: 'field.locationBuiltIn' },
+  person: { keys: PERSON_BUILT_IN_FIELDS, problem: 'field.personBuiltIn' },
 };
 
 /**
