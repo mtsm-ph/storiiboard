@@ -122,8 +122,13 @@ export function PeopleTile() {
                   >
                     <span className="flex max-w-full items-baseline gap-1.5">
                       <span className="truncate text-[13px] font-semibold">{fields.name || t('people.unnamed')}</span>
-                      {/* Words, not a mark alone: a screen reader hears it with the name. */}
-                      {record.id === self && <span className="sb-label shrink-0 font-mono">{t('people.you')}</span>}
+                      {/* Words, not a mark alone, heard after the name as a word of its own. */}
+                      {record.id === self && (
+                        <span className="sb-label shrink-0 font-mono">
+                          <span className="sr-only">, </span>
+                          {t('people.you')}
+                        </span>
+                      )}
                     </span>
                     <span className="sb-label max-w-full truncate">{summary(fields)}</span>
                   </button>

@@ -72,9 +72,12 @@ export function useMyPart(projectId: string | undefined): MyPart {
 }
 
 /** A new approval by this person, or null when their role on the project doesn't approve. */
-export function approvalNow(role: ProjectRole | null, now = new Date()): Approval | null {
+export function approvalNow(role: ProjectRole | null, now = new Date(), as: string | null = null): Approval | null {
   const roles = approverRoles(role);
   // Signed as edits are (initials only when the person chose that), since an approval goes into the file's History too.
-  const signed = editAuthor(profileStore.getState());
+  // Once you've picked yourself in Cast and crew (3.5c), by that person's name, so the frame and the crew agree on who
+  // approved; the profile still decides when it asks for initials only.
+  const profile = profileStore.getState();
+  const signed = !profile.historyInitials && as ? as : editAuthor(profile);
   return roles.length === 0 ? null : { name: signed === NO_AUTHOR ? '' : signed, roles, at: now.toISOString() };
 }

@@ -99,14 +99,15 @@ export function peopleByDepartment<T extends { fields: PersonFields }>(people: r
 /**
  * What a person in Cast and crew stands for when they're you (3.5c, docs/PHASE3_DECISIONS.md 4): the roles you sign
  * off as, and the departments opening a frame marks Seen. One main role and several departments, so a Director in
- * Camera, or a DP in Direction, is the Director and DP the local setting offers. Seen goes by the departments picked,
- * else by the ones the role stands for.
+ * Camera, or a DP in Direction, is the Director and DP the local setting offers (approved by Kevin, Nov 8). Seen goes by
+ * the departments the role stands for and the ones picked, together, so the departments you approve for are always
+ * among those you've seen for: a DP who ticks only Grip & electric still marks Camera.
  */
 export function personPart(fields: PersonFields): { role: ProjectRole | null; departments: readonly Department[] } {
   const both = (fields.role === 'director' && fields.departments.includes('camera')) || (fields.role === 'dp' && fields.departments.includes('direction'));
   const role: ProjectRole | null = both ? 'director-dp' : fields.role;
-  const departments = fields.departments.length > 0 ? fields.departments : role ? ROLE_DEPARTMENTS[role] : [];
-  return { role, departments };
+  const seen = new Set<Department>([...(role ? ROLE_DEPARTMENTS[role] : []), ...fields.departments]);
+  return { role, departments: DEPARTMENTS.filter((d) => seen.has(d)) };
 }
 
 /** Who you are on a project, and what that gives you: from Cast and crew once you've picked yourself, else the setting. */

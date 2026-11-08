@@ -86,6 +86,8 @@ function YourRole({ projectId }: { projectId: string }) {
       <div className="flex max-w-[640px] flex-col gap-1.5 border-b border-text p-4" data-you-are="">
         <p className="sb-label">{t('projectHome.yourRole')}</p>
         <p className="text-[13px]">{t('projectHome.youAre', { name, role: roleLabel(part.role) })}</p>
+        {/* Without a role you approve nothing here, which would otherwise just stop working in the Inspector. */}
+        {part.role === null && <p className="text-[12px]">{t('projectHome.youHaveNoRole')}</p>}
         <p className="text-[12px] text-text-muted">{t('projectHome.youAreNote')}</p>
       </div>
     );

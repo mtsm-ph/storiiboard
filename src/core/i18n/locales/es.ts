@@ -685,7 +685,7 @@ export const es: Messages = {
   'person.plays': 'Interpreta a',
   'people.you': 'Tú',
   'person.thisIsMe': 'Soy yo',
-  'person.thisIsMeNote': 'Elígete y aprobarás departamentos y marcarás cuadros como vistos como esta persona: según su rol y sus departamentos. Se guarda en esta computadora, no en el archivo del proyecto.',
+  'person.thisIsMeNote': 'Elígete y aprobarás departamentos y marcarás los cuadros como vistos como esta persona: según su rol y sus departamentos. Se guarda en esta computadora, no en el archivo del proyecto.',
   'person.thisIsMeOn': 'Tú en este proyecto: tus aprobaciones y lo visto siguen el rol y los departamentos de esta persona. Se guarda en esta computadora, no en el archivo del proyecto. Púlsalo de nuevo para dejarlo.',
   'person.playedBy': 'papel de {name}',
   'person.title': 'Cargo en la hoja de llamado',
@@ -1341,6 +1341,7 @@ export const es: Messages = {
   'projectHome.yourRoleNote': 'Se guarda en esta computadora, no en el archivo del proyecto. Dirección y dirección de fotografía aprueban los departamentos de un cuadro.',
   'projectHome.orPickYourself': 'O elígete en Elenco y equipo, y se usarán el rol y los departamentos de esa persona.',
   'projectHome.youAre': 'En Elenco y equipo eres {name}: {role}.',
+  'projectHome.youHaveNoRole': 'Esa persona aún no tiene rol, así que no apruebas nada en este proyecto. Dale uno en Elenco y equipo.',
   'projectHome.youAreNote': 'Tus aprobaciones y lo visto siguen el rol y los departamentos de esa persona. Cámbialo en Elenco y equipo. Se guarda en esta computadora, no en el archivo del proyecto.',
   // src/core/model/departmentStatus.ts
   'approver.director': 'Dirección',

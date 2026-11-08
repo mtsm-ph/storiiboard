@@ -1339,6 +1339,7 @@ export const en = {
   'projectHome.yourRoleNote': 'Kept on this computer, not in the project file. The director and the DP approve departments on a frame.',
   'projectHome.orPickYourself': 'Or pick yourself in Cast and crew, and that person’s role and departments are used instead.',
   'projectHome.youAre': 'You’re {name} in Cast and crew: {role}.',
+  'projectHome.youHaveNoRole': 'That person has no role yet, so you approve nothing on this project. Give them one in Cast and crew.',
   'projectHome.youAreNote': 'Your approvals and Seen follow that person’s role and departments. Change it in Cast and crew. Kept on this computer, not in the project file.',
   // src/core/model/departmentStatus.ts
   'approver.director': 'Director',
