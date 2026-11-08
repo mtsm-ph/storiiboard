@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useProject } from '../../app/projectStore';
 import { list, t, tn } from '../../core/i18n';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
@@ -11,6 +12,8 @@ import { ROLE_LABELS } from '../../core/model/role';
 export function TeamTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
+  // Its own ids, so two Team tiles open at once never share one.
+  const base = useId();
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
   const people = projectPeople(records, project.projectId);
   if (people.length === 0) return <p className="p-3 text-[13px] text-text-muted">{t('team.none')}</p>;
@@ -19,7 +22,7 @@ export function TeamTile() {
       <p className="sb-label font-mono">{tn('people.count', people.length)}</p>
       {peopleByDepartment(people).map(({ department, people: inIt }) => {
         const heading = department ? DEPARTMENT_LABELS[department] : t('team.noDepartment');
-        const headingId = `team-${department ?? 'none'}`;
+        const headingId = `${base}-${department ?? 'none'}`;
         return (
           <section key={department ?? 'none'} aria-labelledby={headingId} className="flex flex-col gap-1">
             <h3 id={headingId} className="sb-label border-b-[1.5px] border-border pb-1">

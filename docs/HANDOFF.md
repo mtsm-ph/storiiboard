@@ -358,6 +358,7 @@ Round 1: no high, four mediums, fixed.
   words; "intérprete" in History; the Team tile's sections labelled by their headings.
 - Decided by default, review: "you in Cast and crew" (decision 4) moved out of 3.5b into its own milestone, 3.5c, to
   keep each PR small. Easy to fold back.
+- Round 2: none at high or medium; the Team tile's heading ids are now its own (two open at once never share one).
 - Lows left: no test reads `cast_id` names through a real file's History (`namedRecords`), nor a script re-import
   keeping a casting (the import never writes to a character it links, so it can't drop one); the tile titles are
   spans, so the h3s have no h2 above them (as in every tile).
