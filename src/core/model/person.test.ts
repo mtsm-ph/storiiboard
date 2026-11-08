@@ -106,3 +106,69 @@ describe('cast and crew (3.5)', () => {
     expect(fieldName('Agent', [], [], 'person')).toEqual({ ok: true, name: 'Agent' });
   });
 });
+
+describe('characters cast, and the team by department (3.5b)', () => {
+  const cast = () => ({
+    ...records(),
+    joe: record('joe', 'character', 'p', { name: 'JOE', cast_id: 'a' }),
+    mae: record('mae', 'character', 'p', { name: 'MAE', cast_id: 'd' }),
+    ned: record('ned', 'character', 'p', { name: 'NED' }),
+    gone: record('gone', 'character', 'p', { name: 'GONE' }, '2026-11-07T12:00:00.000Z'),
+  });
+
+  it('reads who plays each character; a cast member in the Trash reads as none', async () => {
+    const { castOf, charactersPlayedBy, projectCharacters } = await import('./person');
+    const all = cast();
+    expect(projectCharacters(all, 'p').map((c) => c.id)).toEqual(['joe', 'mae', 'ned']);
+    expect(castOf(all, all.joe)?.id).toBe('a');
+    expect(castOf(all, all.mae)).toBeNull();
+    expect(charactersPlayedBy(all, 'p', 'a').map((c) => c.id)).toEqual(['joe']);
+  });
+
+  it('casts a character, one edit; casting another moves it; nothing when it’s already so or isn’t live', async () => {
+    const { castCharacter } = await import('../../features/people/personEdits');
+    const all = cast();
+    expect(castCharacter(all, 'ned', 'b')).toEqual([{ kind: 'update', id: 'ned', set: { cast_id: 'b' } }]);
+    expect(castCharacter(all, 'joe', 'b')).toEqual([{ kind: 'update', id: 'joe', set: { cast_id: 'b' } }]);
+    expect(castCharacter(all, 'joe', null)).toEqual([{ kind: 'update', id: 'joe', unset: ['cast_id'] }]);
+    expect(castCharacter(all, 'joe', 'a')).toEqual([]);
+    expect(castCharacter(all, 'ned', 'd')).toEqual([]);
+    expect(castCharacter(all, 'gone', 'a')).toEqual([]);
+    expect(castCharacter(all, 'a', 'b')).toEqual([]);
+    // Uncasting someone who no longer plays it (another edit landed first) leaves whoever plays it now.
+    expect(castCharacter(all, 'joe', null, 'b')).toEqual([]);
+    expect(castCharacter(all, 'joe', null, 'a')).toEqual([{ kind: 'update', id: 'joe', unset: ['cast_id'] }]);
+  });
+
+  it('a cast member gone for good (Empty Trash) reads as no one, and the part can be cast again in one edit', async () => {
+    const { castOf } = await import('./person');
+    const { castCharacter } = await import('../../features/people/personEdits');
+    const rest = Object.fromEntries(Object.entries(cast()).filter(([id]) => id !== 'a')) as Partial<ReturnType<typeof cast>> & Pick<ReturnType<typeof cast>, 'joe'>;
+    expect(castOf(rest, rest.joe)).toBeNull();
+    expect(castCharacter(rest, 'joe', 'b')).toEqual([{ kind: 'update', id: 'joe', set: { cast_id: 'b' } }]);
+  });
+
+  it('groups the team by department in the call sheet’s order, someone in two in both, none last', async () => {
+    const { peopleByDepartment } = await import('./person');
+    const groups = peopleByDepartment(projectPeople(records(), 'p'));
+    expect(groups.map((g) => [g.department, g.people.map((p) => p.record.id)])).toEqual([
+      ['camera', ['a']],
+      ['grip-electric', ['a']],
+      ['hmu', ['b']],
+      [null, ['c']],
+    ]);
+  });
+
+  it('History names the person cast, as the step left them, never their id', async () => {
+    const { describeEdit, lineText } = await import('../../features/history/summary');
+    const before = record('ned', 'character', 'p', { name: 'NED' });
+    const after = record('ned', 'character', 'p', { name: 'NED', cast_id: 'a' });
+    const step = describeEdit(
+      [{ id: 'o', seq: 1, groupId: 'g', groupKind: 'edit', recordId: 'ned', kind: 'update', before, after, author: 'Kevin', timestamp: '2026-11-07T12:00:00.000Z' }],
+      new Set(),
+      new Map([['a', records().a]]),
+    );
+    expect(lineText(step)).toMatch(/NED.*cast.*Kevin Matos/);
+    expect(lineText(step)).not.toContain('a →');
+  });
+});

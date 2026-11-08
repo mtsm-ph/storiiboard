@@ -4,7 +4,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
-import { PERSON_TEXT_FIELDS, personFieldRecords, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
+import { castOf, characterName, PERSON_TEXT_FIELDS, personFieldRecords, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
 import type { SbdRecord } from '../../core/model/record';
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { Button } from '../../ui/Button';
@@ -12,7 +12,7 @@ import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
-import { newPerson, personChange, personDepartment, personRole, trashPerson } from './personEdits';
+import { castCharacter, newPerson, personChange, personDepartment, personRole, trashPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
 // (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
@@ -132,6 +132,28 @@ export function PeopleTile() {
           id={selected.record.id}
           props={selected.record.props}
           knownFields={fieldNamesOf(personFieldRecords(records))}
+          characters={projectCharacters(records, projectId).map((character) => {
+            const cast = castOf(records, character);
+            return { id: character.id, name: characterName(character), playedBy: cast ? cast.id : null, castName: cast && typeof cast.props.name === 'string' ? cast.props.name : '' };
+          })}
+          onCast={(characterId, on) => {
+            const me = selected.record.id;
+            // Who had the part as the edit finds it, so a move says whom it was taken from.
+            let movedFrom: { character: string; name: string } | null = null;
+            void projectStore
+              .getState()
+              .applyWith((now) => {
+                const character = now[characterId];
+                const had = character ? castOf(now, character) : null;
+                movedFrom =
+                  on && character && had && had.id !== me ? { character: characterName(character), name: (typeof had.props.name === 'string' && had.props.name.trim()) || t('people.unnamed') } : null;
+                return { changes: castCharacter(now, characterId, on ? me : null, on ? undefined : me) };
+              })
+              .then((done) => {
+                // A part taken from someone else is said, since nothing on screen shows them losing it; an undo clears it.
+                if (done && movedFrom) showInfo(t('person.castMoved', movedFrom), { step: true });
+              });
+          }}
           fields={selected.fields}
           nameField={nameField}
           onChange={(prop, value) => {
@@ -185,10 +207,14 @@ interface PersonEditorProps {
   onChange: (prop: string, value: string) => void;
   onRole: (role: string | null) => void;
   onDepartment: (department: (typeof DEPARTMENTS)[number], on: boolean) => void;
+  /** The project's characters, and who plays each: picking one casts this person, again uncasts them. */
+  characters: readonly { id: string; name: string; playedBy: string | null; castName: string }[];
+  onCast: (characterId: string, on: boolean) => void;
   onDelete: () => void;
 }
 
-function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onRole, onDepartment, onDelete }: PersonEditorProps) {
+function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onRole, onDepartment, characters, onCast, onDelete }: PersonEditorProps) {
+  const playsId = useId();
   const headingId = useId();
   const departmentsId = useId();
   const text = (prop: 'name' | PersonTextField, label: string, long = false, type?: string) => {
@@ -267,6 +293,45 @@ function PersonEditor({ id, props, knownFields, fields, nameField, onChange, onR
           })}
         </div>
       </div>
+      {characters.length > 0 && (
+        // The characters they play (3.5b): one cast member each, so picking one another plays moves it here.
+        <div role="group" aria-labelledby={playsId} className="flex flex-col gap-1">
+          <span id={playsId} className="sb-label">
+            {t('person.plays')}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {characters.map((character) => {
+              const mine = character.playedBy === id;
+              const other = character.playedBy !== null && !mine;
+              return (
+                <span key={character.id} className="flex items-baseline gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={mine}
+                    // Named by the character alone, whatever its state; who plays it now is beside it, as its description.
+                    aria-describedby={other ? `${playsId}-${character.id}` : undefined}
+                    onClick={() => {
+                      onCast(character.id, !mine);
+                    }}
+                    className={cx(
+                      'border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                      // On the ink fill, the focus ring is paper and inside (DESIGN.md: never ink on ink).
+                      mine ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
+                  >
+                    {character.name}
+                  </button>
+                  {other && (
+                    <span id={`${playsId}-${character.id}`} className="text-[12px] text-text-muted">
+                      {t('person.playedBy', { name: character.castName || t('people.unnamed') })}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {PERSON_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), prop === 'notes', FIELD_TYPE[prop]))}
       <div className="flex flex-col gap-3">
         <h4 className="sb-label">{t('person.customFields')}</h4>
