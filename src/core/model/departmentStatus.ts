@@ -8,17 +8,23 @@ import { isRole, type Role } from './role';
 // - Priority: the departments this shot depends on most, listed first. Ticked by hand.
 // - Seen: automatic, when someone from that department opens the shot (polish 6b; kept outside the edit log).
 // - Working on it, Done: ticked by the department.
-// - Approved: only the director or the DP can tick it, and it keeps who did. A person who is both counts once.
+// - Approved: per scene since 3.6b (src/core/model/sceneApprovals.ts). Only the director or the DP gives it, and it
+//   keeps who did. A person who is both counts once.
 //
 // Stored in the shot's `department_status` prop, by department id, with only what's set:
-//   { "camera": { "priority": true, "done": true, "approvals": [{ "name": "Kevin Matos", "roles": ["dp"], "at": "…" }] } }
+//   { "camera": { "priority": true, "done": true } }
+// Before schema 9 an entry kept `approvals` too, the frame's own sign-offs; migration 9 moved them to the scene. A shot
+// read from an older point in History still has them: they're read for History's words, kept as stored, and shown
+// nowhere else.
 // Before polish 6 a shot kept `departments`, a list of the departments that were on. Migration 6 turns each into
 // Priority; a shot read from an older point in History (Restore to here, Open version) still has the list, so it
 // reads the same way here.
 
-/** The states a department can be in on a shot, in the order the inspector's columns show them. */
-export const DEPARTMENT_STATES = ['priority', 'seen', 'working', 'done', 'approved'] as const;
-export type DepartmentState = (typeof DEPARTMENT_STATES)[number];
+/** The states a department can be in on a frame, in the order the inspector's columns show them. */
+export const DEPARTMENT_STATES = ['priority', 'seen', 'working', 'done'] as const;
+export type FrameState = (typeof DEPARTMENT_STATES)[number];
+/** A frame's states, and Approved, which a department is in on a whole scene (3.6b). */
+export type DepartmentState = FrameState | 'approved';
 
 /** The states a person ticks by hand (Seen is automatic, Approved keeps who). */
 export type TickedState = 'priority' | 'working' | 'done';
@@ -31,7 +37,7 @@ export const DEPARTMENT_STATE_LABELS: Readonly<Record<DepartmentState, string>> 
   approved: 'departmentState.approved',
 });
 
-/** Who signs a shot's departments off. */
+/** Who signs a scene's departments off. */
 export const APPROVERS = ['director', 'dp'] as const;
 export type Approver = (typeof APPROVERS)[number];
 
@@ -61,6 +67,7 @@ export interface DepartmentStatus {
   priority: boolean;
   working: boolean;
   done: boolean;
+  /** A frame's own sign-offs from before schema 9, read only for History's words (approvals are per scene now). */
   approvals: Approval[];
   /** The entry as stored, so what a newer version keeps beside these (a field, an approver) is never dropped. */
   raw: Readonly<JsonObject>;
@@ -71,11 +78,11 @@ export type DepartmentStatuses = Readonly<Record<string, DepartmentStatus>>;
 
 const EMPTY: DepartmentStatus = { priority: false, working: false, done: false, approvals: [], raw: {} };
 
-type JsonObject = { [key: string]: JsonValue };
-const isObject = (value: JsonValue | undefined): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
+export type JsonObject = { [key: string]: JsonValue };
+export const isObject = (value: JsonValue | undefined): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isApprover = (value: JsonValue): value is Approver => value === 'director' || value === 'dp';
 
-function approvalOf(value: JsonValue): Approval | null {
+export function approvalOf(value: JsonValue): Approval | null {
   if (!isObject(value)) return null;
   const roles = Array.isArray(value.roles) ? [...new Set(value.roles.filter(isApprover))] : [];
   if (roles.length === 0) return null;
@@ -138,8 +145,8 @@ export function statusText(value: JsonValue | undefined): string {
 export const statusIn = (statuses: DepartmentStatuses, department: string): DepartmentStatus => statuses[department] ?? EMPTY;
 
 /** Whether a department is in a state. Seen isn't kept here, but in its own table (inState, polish 6b). */
-export function hasState(status: DepartmentStatus, state: Exclude<DepartmentState, 'seen'>): boolean {
-  return state === 'approved' ? status.approvals.length > 0 : status[state];
+export function hasState(status: DepartmentStatus, state: Exclude<FrameState, 'seen'>): boolean {
+  return status[state];
 }
 
 /** The prop as stored: only departments with something set, and in each only what's set. */
@@ -171,22 +178,6 @@ export function withState(statuses: DepartmentStatuses, department: string, stat
   return { ...statuses, [department]: { ...statusIn(statuses, department), [state]: on } };
 }
 
-/**
- * `statuses` after this person's Approved tick on a department. Each sign-off is its approver's: one made in a role
- * this person holds is theirs to take back; with none, theirs is added beside any other (the director's beside the
- * DP's). One person who is both makes one approval with both roles.
- */
-export function withMyApproval(statuses: DepartmentStatuses, department: string, mine: Approval): DepartmentStatuses {
-  const status = statusIn(statuses, department);
-  const ours = (a: Approval) => a.roles.some((role) => mine.roles.includes(role));
-  const approvals = status.approvals.some(ours) ? status.approvals.filter((a) => !ours(a)) : [...status.approvals, mine];
-  return { ...statuses, [department]: { ...status, approvals } };
-}
-
-/** Whether this person's roles have approved a department already. */
-export const approvedByMe = (status: DepartmentStatus, roles: readonly Approver[]): boolean =>
-  status.approvals.some((a) => a.roles.some((role) => roles.includes(role)));
-
 /** The departments in the inspector's order: Priority first, then the rest, each group in call-sheet order. */
 export function orderedDepartments(statuses: DepartmentStatuses): Department[] {
   const priority = DEPARTMENTS.filter((d) => statusIn(statuses, d).priority);
@@ -194,7 +185,7 @@ export function orderedDepartments(statuses: DepartmentStatuses): Department[] {
 }
 
 /** Whether a department is in a state, Seen included (`seen`: the departments that have opened the frame). */
-export function inState(statuses: DepartmentStatuses, seen: readonly string[], department: string, state: DepartmentState): boolean {
+export function inState(statuses: DepartmentStatuses, seen: readonly string[], department: string, state: FrameState): boolean {
   return state === 'seen' ? seen.includes(department) : hasState(statusIn(statuses, department), state);
 }
 
@@ -206,14 +197,14 @@ function allDepartments(statuses: DepartmentStatuses, seen: readonly string[]): 
 }
 
 /** The departments with anything set or seen, Priority first (ids a newer version added come last), each with its states in column order. */
-export function departmentStates(statuses: DepartmentStatuses, seen: readonly string[]): { department: string; states: DepartmentState[] }[] {
+export function departmentStates(statuses: DepartmentStatuses, seen: readonly string[]): { department: string; states: FrameState[] }[] {
   return allDepartments(statuses, seen)
     .map((department) => ({ department, states: DEPARTMENT_STATES.filter((state) => inState(statuses, seen, department, state)) }))
     .filter((row) => row.states.length > 0);
 }
 
 /** How many departments are in each state, for a frame card's summary; states nobody is in left out. */
-export function stateCounts(statuses: DepartmentStatuses, seen: readonly string[]): { state: DepartmentState; count: number }[] {
+export function stateCounts(statuses: DepartmentStatuses, seen: readonly string[]): { state: FrameState; count: number }[] {
   const all = allDepartments(statuses, seen);
   return DEPARTMENT_STATES.map((state) => ({ state, count: all.filter((d) => inState(statuses, seen, d, state)).length })).filter(
     (row) => row.count > 0,
@@ -225,13 +216,11 @@ export function departmentName(id: string): string {
   return Object.hasOwn(DEPARTMENT_LABELS, id) ? DEPARTMENT_LABELS[id as Department] : id;
 }
 
-/** One department's states for the CSV: "Priority, Seen, Done, approved by Kevin Matos (DP)". */
+/** One department's states on a frame for the CSV: "Priority, Seen, Done". Approvals are the scene's (3.6b). */
 export function departmentStatesText(statuses: DepartmentStatuses, seen: readonly string[], department: string): string {
-  const status = statusIn(statuses, department);
-  const states = (['priority', 'seen', 'working', 'done'] as const)
-    .filter((state) => inState(statuses, seen, department, state))
-    .map((state) => DEPARTMENT_STATE_LABELS[state]);
-  return [...states, ...status.approvals.map((a) => t('departmentStatus.approvedByWho', { who: approvalWho(a) }))].join(', ');
+  return DEPARTMENT_STATES.filter((state) => inState(statuses, seen, department, state))
+    .map((state) => DEPARTMENT_STATE_LABELS[state])
+    .join(', ');
 }
 
 /**

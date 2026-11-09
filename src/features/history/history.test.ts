@@ -297,6 +297,15 @@ describe('Put back', () => {
     expect(putBackChange(records()[a], await lastChange(a, 'departments'))).toBeNull();
   });
 
+  it('lists a scene’s approvals by department, without the fingerprint, and never offers one to put back (3.6b)', async () => {
+    const approval = { name: 'Sam Reyes', roles: ['dp'], at: '2026-11-09T10:00:00.000Z', basis: '0123456789abcd' };
+    await store.getState().apply([{ kind: 'update', id: 'sc4', set: { department_approvals: { camera: [approval] } } }]);
+    const given = await lastChange('sc4', 'department_approvals', 'camera');
+    expect([changeLabel(given), changeValue(given, given.before), changeValue(given, given.after)]).toEqual(['Camera', '—', 'approved by Sam Reyes (DP)']);
+    expect((await lines()).at(-1)).not.toContain('0123456789abcd');
+    expect(putBackChange(records().sc4, given)).toBeNull();
+  });
+
   it('takes a custom field off again when it wasn’t on the frame, even emptied', async () => {
     const a = await frame();
     await store.getState().apply(setCustomField(records(), a, 'VFX', ''));

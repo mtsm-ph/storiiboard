@@ -4,7 +4,7 @@ import {
   departmentName,
   departmentStates,
   stateCounts,
-  type DepartmentState,
+  type FrameState,
   type DepartmentStatuses,
 } from '../../core/model/departmentStatus';
 import { DepartmentStateGlyph } from '../../ui/glyphs';
@@ -13,21 +13,19 @@ import { DepartmentStateGlyph } from '../../ui/glyphs';
 // list, each department with its shapes. The shapes are hidden from screen readers, which hear the same in words.
 
 /** A state as a sentence names it: "2 working on it". */
-const IN_SENTENCE: Readonly<Record<DepartmentState, string>> = labels({
+const IN_SENTENCE: Readonly<Record<FrameState, string>> = labels({
   priority: 'departmentState.inSentence.priority',
   seen: 'departmentState.inSentence.seen',
   working: 'departmentState.inSentence.working',
   done: 'departmentState.inSentence.done',
-  approved: 'departmentState.inSentence.approved',
 });
 
 /** "2 priority", "1 seen": counted, so a language can agree the word with the number. */
-const COUNTED: Readonly<Record<DepartmentState, PluralBase>> = {
+const COUNTED: Readonly<Record<FrameState, PluralBase>> = {
   priority: 'departmentSummary.priority',
   seen: 'departmentSummary.seen',
   working: 'departmentSummary.working',
   done: 'departmentSummary.done',
-  approved: 'departmentSummary.approved',
 };
 
 /** "Departments: 2 priority, 1 seen and 1 done", or null with nothing set. */

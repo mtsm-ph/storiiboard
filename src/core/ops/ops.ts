@@ -613,6 +613,40 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 }
 
 /**
+ * A migration that changes records (schema 9) writes them through here: the records, and one `edit` group with an
+ * `update` op for each, so History shows what changed and Restore to here reads the records as they are now, never a
+ * snapshot from before. Its undo and redo stacks end there, as Empty Trash's do: ⌘Z after an upgrade never writes a
+ * record back in the shape the older schema had. Read before the migration's transaction; run inside it.
+ */
+export async function loggedRewrite(
+  file: ProjectFile,
+  changes: readonly { before: SbdRecord; props: Props }[],
+  at: string,
+  author = 'local',
+): Promise<Statement[]> {
+  if (changes.length === 0) return [];
+  const [top] = await file.query(
+    'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
+  );
+  const firstSeq = Number(top?.op ?? 0) + 1;
+  const groupId = crypto.randomUUID();
+  const ops = changes.map(({ before, props }) => ({ before, after: { ...before, props, updatedAt: at } }));
+  return [
+    ...ops.map(({ after }) => write(after.id, after)),
+    {
+      sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
+        timestamp, created_at, updated_at) VALUES (?, ?, 'edit', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+      params: [groupId, Number(top?.grp ?? 0) + 1, author, at, at, at],
+    },
+    ...ops.map((op, i) => ({
+      sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at,
+        updated_at) VALUES (?, ?, ?, ?, 'update', ?, ?, ?, ?, ?, ?)`,
+      params: [crypto.randomUUID(), firstSeq + i, groupId, op.after.id, snapshot(op.before), snapshot(op.after), author, at, at, at],
+    })),
+  ];
+}
+
+/**
  * Empty Trash (1.21, docs/SBD_FORMAT.md): deletes every trashed record and everything under it for good, in one
  * transaction. Their data goes from older ops too, so neither undo nor a History restore can bring back half of one;
  * the purge is recorded as an `empty_trash` group of `purge` ops, and the undo and redo stacks end there. Stored

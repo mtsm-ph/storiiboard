@@ -4,6 +4,8 @@ import { setLocale } from '../../core/i18n';
 import { sceneFields, shotFields } from '../../core/model/storyboard';
 import { departmentStatuses } from '../../core/model/departmentStatus';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
+import { sceneApprovals } from '../../core/model/sceneApprovals';
+import { SceneApprovalTable } from './SceneApprovalTable';
 import { InspectorView, type InspectorCopy } from './InspectorView';
 
 const noop = () => undefined;
@@ -35,9 +37,8 @@ describe('the Frame inspector', () => {
     expect(html).toMatch(/role="checkbox" aria-checked="true" aria-label="Camera: Priority"/);
     expect(html).toMatch(/role="checkbox" aria-checked="false" aria-label="Art: Priority"/);
     expect(html.indexOf('Sound: Priority')).toBeLessThan(html.indexOf('Direction: Priority'));
-    // No role that approves: Approved says so, rather than hiding.
-    expect(html).toMatch(/aria-disabled="true" title="Only the director or the DP approves\."/);
-    expect(html).toContain('Set your role on this project in Settings → Project.');
+    // Approved is the scene's (3.6b): a frame's columns end at Done.
+    expect(html).not.toContain('Camera: Approved');
     expect(html).toContain('value="1 3/8"');
   });
 
@@ -49,23 +50,41 @@ describe('the Frame inspector', () => {
     expect(html).toMatch(/<option value="technocrane" selected="">Technocrane<\/option>/);
   });
 
-  it('shows a director or DP their own sign-off on Approved: ticked when given, mixed when only someone else has', () => {
-    const statuses = departmentStatuses({ department_status: { camera: { approvals: [{ name: 'Kevin Matos', roles: ['director'], at: 'x' }] } } });
-    const approved = (roles: readonly ('director' | 'dp')[]) =>
+  it('shows a director or DP their own sign-off on a scene: ticked when current, mixed when only someone else’s is (3.6b)', () => {
+    const approvals = sceneApprovals({ department_approvals: { camera: [{ name: 'Kevin Matos', roles: ['director'], at: 'x', basis: 'now' }] } });
+    const approved = (roles: readonly ('director' | 'dp')[], basis = 'now') =>
       /aria-checked="([a-z]+)" aria-label="Camera: Approved"/.exec(
-        renderToString(<DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={roles} onEdit={noop} />),
+        renderToString(<SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => basis} departments={['camera']} myRoles={roles} onApprove={noop} />),
       )?.[1];
     expect(approved(['director'])).toBe('true');
     expect(approved(['dp'])).toBe('mixed');
     expect(approved(['director', 'dp'])).toBe('true');
     // Someone who doesn't approve sees whether it's approved.
     expect(approved([])).toBe('true');
+    // Once the scene has changed, nobody's box is ticked: the director's gives it again.
+    expect(approved(['director'], 'later')).toBe('false');
+    expect(approved([], 'later')).toBe('false');
+  });
+
+  it('says a changed approval in words, and why someone who doesn’t approve can’t tick it (3.6b)', () => {
+    const approvals = sceneApprovals({ department_approvals: { camera: [{ name: 'Kevin Matos', roles: ['dp'], at: 'x', basis: 'then' }] } });
+    const html = renderToString(
+      <SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => 'now'} departments={['direction', 'camera']} myRoles={[]} onApprove={noop} />,
+    );
+    expect(html).toContain('aria-label="Department approvals for SC 04"');
+    expect(html).toContain('Changed since approval');
+    expect(html).toContain('approved by Kevin Matos (DP) before the change');
+    expect(html).toMatch(/aria-disabled="true" title="Only the director or the DP approves\."/);
+    expect(html).toContain('Set your role on this project in Settings → Project.');
+    // One Tab stop, on the first row.
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toMatch(/data-approval-row="0" data-approval-department="direction" tabindex="0"/);
   });
 
   it('opens a department’s workspace from its name, a cell left of Priority, the Tab stop still on Priority (3.6a)', () => {
     const statuses = departmentStatuses({});
     const html = renderToString(
-      <DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={[]} onEdit={noop} onOpen={noop} />,
+      <DepartmentStatusTable statuses={statuses} seen={[]} onEdit={noop} onOpen={noop} />,
     );
     expect(html).toContain('aria-label="Camera: open its workspace"');
     expect(html).toMatch(/data-cell="0-0" data-open-department="direction" tabindex="-1"/);
@@ -73,7 +92,7 @@ describe('the Frame inspector', () => {
     expect(html).toMatch(/aria-label="Direction: Priority" title="Direction: Priority" data-cell="0-1" tabindex="0"/);
     expect(html.match(/tabindex="0"/g)).toHaveLength(1);
     // Without it, the names are plain text, and one department's row alone when asked.
-    const plain = renderToString(<DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={[]} onEdit={noop} only="sound" />);
+    const plain = renderToString(<DepartmentStatusTable statuses={statuses} seen={[]} onEdit={noop} only="sound" />);
     expect(plain).not.toContain('data-open-department');
     expect(plain.match(/role="row"/g)).toHaveLength(2);
     expect(plain).toContain('Sound: Priority');

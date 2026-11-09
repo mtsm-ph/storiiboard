@@ -6,7 +6,11 @@ import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/m
 import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { approvalNow, signatureOf, useMyPart } from '../../app/settings/projectRole';
 import { approverRoles } from '../../core/model/departmentStatus';
+import { DEPARTMENTS } from '../../core/model/department';
+import { approvalBasis, sceneApprovals } from '../../core/model/sceneApprovals';
 import { editDepartmentStatus } from './departmentEdit';
+import { approveSceneDepartment } from './sceneApprovalEdit';
+import { SceneApprovalTable } from './SceneApprovalTable';
 import { openDepartment } from '../department/openDepartment';
 import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
@@ -232,8 +236,22 @@ export function InspectorTile() {
             />
           ) : undefined
         }
-        approval={() => approvalNow(role, new Date(), myName)}
-        myRoles={approverRoles(role)}
+        approvals={
+          scene ? (
+            // Keyed by scene: the Tab stop starts on the first row for each.
+            <SceneApprovalTable
+              key={scene.id}
+              scene={sceneLabel(sceneFields(scene.props).number)}
+              approvals={sceneApprovals(scene.props)}
+              basisOf={(department) => approvalBasis(records, scene.id, department)}
+              departments={DEPARTMENTS}
+              myRoles={approverRoles(role)}
+              onApprove={(department) => {
+                approveSceneDepartment(scene.id, department, () => approvalNow(role, new Date(), myName));
+              }}
+            />
+          ) : undefined
+        }
         {...(seen ? { seen } : {})}
         picture={picture}
         locationName={locationName}

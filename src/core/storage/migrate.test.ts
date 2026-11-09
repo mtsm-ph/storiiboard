@@ -116,10 +116,11 @@ describe('migrations', () => {
   it('refuses a file saved by a newer Storiiboard, and leaves it untouched', async () => {
     const path = await v1Project();
     const file = await nodeDriver.open(path);
-    await file.tx([{ sql: "UPDATE meta SET value = '9' WHERE key = 'schema_version'" }]);
+    const newer = String(SCHEMA_VERSION + 1);
+    await file.tx([{ sql: "UPDATE meta SET value = ? WHERE key = 'schema_version'", params: [newer] }]);
     await expect(migrate(file, { isNew: false, now })).rejects.toThrow(NewerProjectError);
     await expect(migrate(file, { isNew: false, now })).rejects.toThrow(/newer version of Storiiboard/);
-    expect(await schemaVersion(file)).toBe('9');
+    expect(await schemaVersion(file)).toBe(newer);
     await file.close();
   });
 

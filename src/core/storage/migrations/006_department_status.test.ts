@@ -1,6 +1,6 @@
 import { readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { approvalWho, departmentStatuses, storedStatuses, withMyApproval, withState, type Approval } from '../../model/departmentStatus';
+import { approvalWho, departmentStatuses, storedStatuses, withState, type Approval } from '../../model/departmentStatus';
 import { getRecord } from '../../ops/ops';
 import { migrate } from '../migrate';
 import { nodeDriver } from '../nodeDriver';
@@ -64,20 +64,7 @@ describe('schema 6: department status', () => {
 });
 
 describe('editing department status', () => {
-  const dp: Approval = { name: 'Sam Reyes', roles: ['dp'], at };
   const director: Approval = { name: 'Kevin Matos', roles: ['director'], at };
-
-  it('keeps each approver’s sign-off: the DP’s beside the director’s, and each takes back only their own', () => {
-    let statuses = withMyApproval({}, 'camera', director);
-    statuses = withMyApproval(statuses, 'camera', dp);
-    expect(statuses.camera?.approvals).toEqual([director, dp]);
-    statuses = withMyApproval(statuses, 'camera', { ...dp, at: 'later' });
-    expect(statuses.camera?.approvals).toEqual([director]);
-    // One person who is both: one approval, and it takes back either role's.
-    const both: Approval = { name: 'Kevin Matos', roles: ['director', 'dp'], at };
-    expect(withMyApproval(statuses, 'camera', both).camera?.approvals).toEqual([]);
-    expect(withMyApproval({}, 'camera', both).camera?.approvals).toEqual([both]);
-  });
 
   it('names an approver without a profile name by role, in the sentence’s case', () => {
     expect(approvalWho({ name: '', roles: ['director', 'dp'], at })).toBe('the director and DP');

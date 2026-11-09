@@ -71,7 +71,7 @@ const roleLabel = (role: ProjectRole | null): string =>
 
 /**
  * Your role on this project (polish 6): the person's, kept on this computer, so not an op and not in the file. It
- * takes the place of the profile's usual role here: the director or the DP approves departments on a shot. Once you've
+ * takes the place of the profile's usual role here: the director or the DP approves departments on a scene. Once you've
  * picked yourself in Cast and crew (3.5c), that person decides, and this says who you are there; the role set here is
  * kept as the fallback.
  */

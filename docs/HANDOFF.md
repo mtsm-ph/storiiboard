@@ -343,6 +343,33 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.6b: review
+
+Kevin's Nov 9 answers came with this milestone: approvals move from frames to scenes, with a migration he approved
+(it alters existing data); the 3.6a defaults approved; CLAUDE.md kept in step with what's built without asking (a
+rule change still asks); installers kept out by `.gitignore`. The reviews ran on the read-only agent, as before, with
+`reviewer.md`'s instructions word for word.
+
+- Decided by default, review: every department counts as touching every frame's fields (polish 6: every department
+  is involved in every frame); the fingerprint leaves out Priority, Seen, other departments' ticks and the approvals;
+  no approvals marker on the board's scene headings yet; the old Approved column left the frame's table, with a line
+  pointing to the scene's approvals.
+- Round 1: one high, fixed. ⌘Z after the upgrade could reach an edit from before it and write that step's whole record
+  back: a scene without its carried approvals, or a frame with its own again (Restore to here had the same gap for a
+  record untouched since). Migration 9 now writes its changes as one logged step (`loggedRewrite`), whose undo and
+  redo stacks end there, as Empty Trash's do; History shows what moved and what came off. Tested: undo stops at the
+  upgrade, an edit after it undoes and redoes, nothing from before redoes, Restore to before it is undone.
+- Round 1 mediums: the fingerprint read a picture's `sha256`, which pictures don't have (it's `file`): fixed and tested
+  with a real picture's props. Frame approvals this version can't read were dropped: they stay now. A suspected type
+  error wasn't one (tsc passes).
+- Lows fixed: the glyph hollow exactly when the box isn't ticked; the frame summaries' dead Approved entries and their
+  keys gone; `updated_at` set on the upgraded records; approvals going by role pinned by a test.
+- Round 2: no high, no medium; the two test gaps it named (an edit after the upgrade, redo from before it) are tests.
+- Lows left: a value under a department id that isn't a list (no version writes one) is replaced when that
+  department is approved; one person's two roles approved at different times on the frames carry as two approvals
+  with one name. For Kevin's checklist: after the upgrade, ⌘Z doesn't reach edits made before it (History and Restore
+  to here still do).
+
 ### 3.6a: review
 
 As in 3.5c, the reviews ran on the read-only agent available here (Read, Grep and Glob), with `reviewer.md`'s

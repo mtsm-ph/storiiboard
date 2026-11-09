@@ -4,7 +4,8 @@ import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings, settingsWindow } from './settings';
 
 // Department status per frame (polish 6) in the memory build: Priority, Working on it and Done ticked in the
-// inspector, Approved only by the director or the DP, with who. Every tick is an edit undo takes back.
+// inspector. Approved is per scene (3.6b), only by the director or the DP, with who, and says when the scene has
+// changed since. Every tick is an edit undo takes back.
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -27,6 +28,10 @@ const board = (page: Page) => page.getByRole('region', { name: 'Storyboard', exa
 const inspector = (page: Page) => page.getByRole('region', { name: 'Frame inspector', exact: true });
 const statusGrid = (page: Page) => inspector(page).getByRole('grid', { name: 'Departments on this frame' });
 const box = (page: Page, name: string) => statusGrid(page).getByRole('checkbox', { name, exact: true });
+const approvalGrid = (page: Page) => inspector(page).getByRole('grid', { name: 'Department approvals for SC 01' });
+const approveBox = (page: Page, name: string) => approvalGrid(page).getByRole('checkbox', { name, exact: true });
+const approvalRow = (page: Page, department: string) =>
+  approvalGrid(page).getByRole('row').filter({ has: page.getByRole('checkbox', { name: `${department}: Approved`, exact: true }) });
 const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
 
 test('ticks a department’s status by click and by keyboard, undoes it, and keeps Priority first on the next visit', async ({ page }) => {
@@ -37,8 +42,8 @@ test('ticks a department’s status by click and by keyboard, undoes it, and kee
   await box(page, 'Camera: Priority').focus();
   await page.keyboard.press('ArrowRight');
   await expect(box(page, 'Camera: Seen')).toBeFocused();
+  // Done is the last column: Approved is the scene's (3.6b).
   await page.keyboard.press('End');
-  await page.keyboard.press('ArrowLeft');
   await expect(box(page, 'Camera: Done')).toBeFocused();
   await page.keyboard.press('Space');
   await expect(box(page, 'Camera: Done')).toHaveAttribute('aria-checked', 'true');
@@ -62,8 +67,11 @@ test('ticks a department’s status by click and by keyboard, undoes it, and kee
   await expect(board(page).getByRole('table', { name: 'Shot list' }).locator('tr:has([data-shot-id])').first()).toContainText('Camera(priority)Sound(priority)');
 });
 
-test('only the director or the DP approves, and the approval shows who', async ({ page }) => {
-  const approved = box(page, 'Camera: Approved');
+test('only the director or the DP approves a scene, with who, and a change shows until it’s approved again (3.6b)', async ({ page }) => {
+  // A frame's own columns end at Done: approvals are the scene's.
+  await expect(box(page, 'Camera: Priority')).toBeVisible();
+  await expect(statusGrid(page).getByRole('checkbox', { name: 'Camera: Approved' })).toHaveCount(0);
+  const approved = approveBox(page, 'Camera: Approved');
   await expect(approved).toHaveAttribute('aria-disabled', 'true');
   // Still in reach, so it can say why: Space does nothing.
   await approved.focus();
@@ -86,18 +94,39 @@ test('only the director or the DP approves, and the approval shows who', async (
 
   await approved.click();
   await expect(approved).toHaveAttribute('aria-checked', 'true');
-  await expect(inspector(page).getByRole('list', { name: 'Approvals' })).toHaveText('Camera approved by Kevin Matos (Director and DP)');
+  await expect(approvalRow(page, 'Camera')).toContainText('approved by Kevin Matos (Director and DP)');
+  await expect(approvalRow(page, 'Camera')).not.toContainText('Changed since approval');
+
+  // Camera's own Done on a frame is something Camera touches: the approval says the scene changed, and the box is
+  // no longer ticked. Another department's tick isn't. Undo brings the approval back to current.
+  await box(page, 'Art: Done').click();
+  await expect(approved).toHaveAttribute('aria-checked', 'true');
+  await box(page, 'Camera: Done').click();
+  await expect(approvalRow(page, 'Camera')).toContainText('Changed since approval');
+  await expect(approvalRow(page, 'Camera')).toContainText('approved by Kevin Matos (Director and DP) before the change');
+  await expect(approved).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press(await undoKey(page));
+  await expect(approved).toHaveAttribute('aria-checked', 'true');
+  await expect(approvalRow(page, 'Camera')).not.toContainText('Changed since approval');
+  // A change to another frame of the scene counts too; ticking it gives the approval again, now.
+  await board(page).locator('[data-shot-id]').nth(1).click();
+  await inspector(page).getByLabel('Action').fill('Mary wipes the counter.');
+  await inspector(page).getByLabel('Action').blur();
+  await expect(approvalRow(page, 'Camera')).toContainText('Changed since approval');
+  await approved.click();
+  await expect(approved).toHaveAttribute('aria-checked', 'true');
+  await expect(approvalRow(page, 'Camera')).not.toContainText('Changed since approval');
 
   // The role is this person's, on this computer: it's still there after a reload, and the approval is in the file.
   await page.reload();
   await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
   await board(page).locator('[data-shot-id]').first().click();
-  await expect(box(page, 'Camera: Approved')).toHaveAttribute('aria-checked', 'true');
-  await expect(box(page, 'Camera: Approved')).not.toHaveAttribute('aria-disabled');
+  await expect(approveBox(page, 'Camera: Approved')).toHaveAttribute('aria-checked', 'true');
+  await expect(approveBox(page, 'Camera: Approved')).not.toHaveAttribute('aria-disabled');
   // Taking it back is the director's or the DP's too.
-  await box(page, 'Camera: Approved').click();
-  await expect(box(page, 'Camera: Approved')).toHaveAttribute('aria-checked', 'false');
-  await expect(inspector(page).getByRole('list', { name: 'Approvals' })).toHaveCount(0);
+  await approveBox(page, 'Camera: Approved').click();
+  await expect(approveBox(page, 'Camera: Approved')).toHaveAttribute('aria-checked', 'false');
+  await expect(approvalRow(page, 'Camera')).not.toContainText('approved by');
 });
 
 test('two quick ticks both stay, each worked out from the frame as it is when it lands', async ({ page }) => {
@@ -150,9 +179,16 @@ test('opening a frame marks it Seen by your department, shown on its card and in
   await expect(board(page).getByRole('table', { name: 'Shot list' }).locator('tr:has([data-shot-id])').nth(1)).toContainText('Camera(seen)');
 });
 
-test('the department status grid passes the axe checks', async ({ page }) => {
+test('the department status and approval grids pass the axe checks', async ({ page }) => {
   await box(page, 'Camera: Priority').click();
   await box(page, 'Camera: Done').click();
+  // An approval that's changed since, in the warning colour (3.6b).
+  const project = await openSettings(page, 'Project');
+  await project.getByLabel('Your role on this project').selectOption({ label: 'Director of photography' });
+  await closeSettings(page);
+  await approveBox(page, 'Camera: Approved').click();
+  await box(page, 'Camera: Working on it').click();
+  await expect(approvalRow(page, 'Camera')).toContainText('Changed since approval');
   const results = await new AxeBuilder({ page }).include('[data-inspector]').analyze();
   expect(results.violations).toEqual([]);
 });
@@ -195,8 +231,8 @@ test('you in Cast and crew: your person’s role approves and their departments 
   await expect(box(page, 'Camera: Seen')).toHaveAttribute('aria-checked', 'true');
   await expect(box(page, 'Direction: Seen')).toHaveAttribute('aria-checked', 'true');
   await expect(box(page, 'Sound: Seen')).toHaveAttribute('aria-checked', 'false');
-  await box(page, 'Camera: Approved').click();
-  await expect(inspector(page).getByRole('list', { name: 'Approvals' })).toHaveText('Camera approved by Kevin Matos (Director and DP)');
+  await approveBox(page, 'Camera: Approved').click();
+  await expect(approvalRow(page, 'Camera')).toContainText('approved by Kevin Matos (Director and DP)');
 
   // Kept on this computer: still you after a reload.
   await page.reload();
@@ -208,7 +244,7 @@ test('you in Cast and crew: your person’s role approves and their departments 
   await editor.getByRole('button', { name: 'Delete person' }).click();
   await sections.getByRole('button', { name: /^Storyboard/ }).click();
   await board(page).locator('[data-shot-id]').nth(1).click();
-  await expect(box(page, 'Camera: Approved')).toHaveAttribute('aria-disabled', 'true');
+  await expect(approveBox(page, 'Camera: Approved')).toHaveAttribute('aria-disabled', 'true');
   const after = await openSettings(page, 'Project');
   await expect(after.getByLabel('Your role on this project')).toBeVisible();
   await expect(after.locator('[data-you-are]')).toHaveCount(0);
@@ -219,5 +255,5 @@ test('you in Cast and crew: your person’s role approves and their departments 
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await page.getByRole('region', { name: 'Trash', exact: true }).getByRole('button', { name: 'Restore person Kevin Matos' }).click();
   await board(page).locator('[data-shot-id]').nth(1).click();
-  await expect(box(page, 'Camera: Approved')).not.toHaveAttribute('aria-disabled');
+  await expect(approveBox(page, 'Camera: Approved')).not.toHaveAttribute('aria-disabled');
 });

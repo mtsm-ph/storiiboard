@@ -1,6 +1,7 @@
 import { mediaFields } from '../../core/media/store';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
+import { sceneApprovalText } from '../../core/model/sceneApprovals';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -57,6 +58,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   dialogue: 'history.field.dialogue',
   departments: 'history.field.departments',
   department_status: 'history.field.departments',
+  department_approvals: 'history.field.approvals',
   media_id: 'history.field.mediaId',
   crop: 'history.field.crop',
   clip: 'history.field.clip',
@@ -265,7 +267,7 @@ const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValu
 };
 
 /** Props kept as one object whose entries History lists one by one: the project's client contact (3.1) too. */
-const BY_ENTRY = new Set(['custom', 'department_status', 'client']);
+const BY_ENTRY = new Set(['custom', 'department_status', 'department_approvals', 'client']);
 
 /** A client contact's fields by name; only its name and company are shown in History (3.1). */
 const CLIENT_FIELD: Readonly<Record<string, string>> = labels({
@@ -306,10 +308,13 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
 const PERSON_PRIVATE: ReadonlySet<string> = new Set(['notes', 'custom']);
 
 const isStatus = (change: FieldChange): change is FieldChange & { key: string } => change.prop === 'department_status' && change.key !== undefined;
+/** A department's approvals of a scene (3.6b), one entry of `department_approvals`, named by the department too. */
+const isSceneApproval = (change: FieldChange): change is FieldChange & { key: string } =>
+  change.prop === 'department_approvals' && change.key !== undefined;
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange): string =>
-  isStatus(change)
+  isStatus(change) || isSceneApproval(change)
     ? departmentName(change.key)
     : isClient(change)
       ? (CLIENT_FIELD[change.key] ?? t('history.client.unknownField', { field: change.key }))
@@ -334,6 +339,8 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
+    : isSceneApproval(change)
+    ? sceneApprovalText(value)
     : isClient(change)
       ? clientValue(change, value, false)
       : isDeliverable(change)
@@ -345,6 +352,8 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
+    : isSceneApproval(change)
+    ? sceneApprovalText(value)
     : isClient(change)
       ? clientValue(change, value, true)
       : isDeliverable(change)
