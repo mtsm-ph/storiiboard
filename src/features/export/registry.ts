@@ -5,7 +5,7 @@ import { pdfStoryboard } from './pdfStoryboardFormat';
 import { pngFrames } from './pngFrames';
 import type { ExportScope } from './scope';
 import type { WatermarkUse } from './watermark';
-import { projectJsonFormat } from './projectJsonFormat';
+import { fullArchiveFormat, projectJsonFormat } from './projectJsonFormat';
 import { shotListCsvFormat } from './shotListCsv';
 
 // The export registry (1.24, docs/PLAN.md D): a format is one file plus one line below. Each says what it makes, for
@@ -48,6 +48,8 @@ export interface ExportFormat {
    * included, so Export offers no choice of scenes.
    */
   wholeProject?: true;
+  /** What a whole-project file holds, said under the choice (3.14: Project data and Full archive hold different things). */
+  readonly wholeNote?: string;
   /** The file's name, or the new folder's, for this scope. */
   name: (title: string, sceneNumber: string | null) => string;
   /** Resolves to what it wrote. */
@@ -61,4 +63,4 @@ export interface ExportResult {
   warning?: string;
 }
 
-export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, projectJsonFormat];
+export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, projectJsonFormat, fullArchiveFormat];

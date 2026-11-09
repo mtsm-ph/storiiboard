@@ -138,7 +138,8 @@ test('an empty project still exports its data as JSON, and a JSON that isn’t p
   await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
   const exporting = page.getByRole('dialog', { name: 'Export' });
   await exporting.getByRole('radio', { name: 'Project data (JSON)' }).check();
-  await expect(exporting.getByText(/^All of it:/)).toBeVisible();
+  // Project data (3.14) says it leaves out the Trash and History.
+  await expect(exporting.getByText(/^Every scene and frame, pictures and LUTs/)).toBeVisible();
   // No frames, yet there's a project to export.
   const downloaded = page.waitForEvent('download');
   await exporting.getByRole('button', { name: 'Save…' }).click();

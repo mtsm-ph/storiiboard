@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.13 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.14 in review; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -58,7 +58,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Reached Nov 9: checkpoint passed (`checkpoint/phase3-gate`, every job); the checklist is Kevin's |
 | 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | #107 | Done |
 | 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | #108 | Done |
-| 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | | Not started |
+| 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | | In review |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | Not started |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | | Not started |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
@@ -68,6 +68,23 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.14 as built (Nov 9): Project data or Full archive (`src/core/storage/projectJson.ts`,
+`src/features/export/projectJsonFormat.ts`).
+- Export has two JSON choices. Project data (JSON), the default, is the project without its Trash or History: no
+  record in the Trash or under one (an erased sketch stroke too), no picture only those show, no steps, named versions, read state or
+  cached lookups. Full archive (JSON) is everything, as 2.9's export was. Both import back with Import project data…
+  as exactly what they hold (docs/SBD_FORMAT.md, "Project data as JSON").
+- The JSON's header says which (`contents`); a file from before is a full archive.
+- Decided by default, review: slate numbers stay in Project data (a number once on a slate is never given again);
+  cached lookups are left out of it (a deleted location's address can be among them); the people in Cast and crew
+  stay, contacts included, as they're the project's own records (the names left out are History's authors and
+  who trashed what); the names on scene approvals stay, as they're what the scene shows now; Project data keeps 2.9's id (`project-json`), Full archive is new (`full-archive-json`).
+- Tests: Project data leaves out a trashed frame, what's under it, its Seen and a picture only it shows; History,
+  versions, read state and lookups come with no rows, and no one's name from History; slate numbers stay; imported,
+  it exports again as the same file, with nothing to undo; a file from before reads as a full archive; the size
+  estimate; end to end, both exported, Project data without the trashed frame or History, the Full archive imported
+  with its Trash.
 
 3.13 as built (Nov 9): scene characters as ids (schema 12, `src/core/storage/migrations/012_character_ids.ts`).
 - Kevin approved the change to existing data. Each scene's character names (`characters`, from a script import)

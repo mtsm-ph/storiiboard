@@ -842,7 +842,7 @@ Importing:
 
 ## Project data as JSON (2.9)
 
-Export → Project data (JSON) writes the whole .sbd as one UTF-8 JSON file, and Import project data… (the Projects
+Export → Full archive (JSON) writes the whole .sbd as one UTF-8 JSON file, and Import project data… (the Projects
 screen) makes a new project from one (src/core/storage/projectJson.ts). It's the project, not a view of it, so unlike
 the other exports it carries everything: every record, live and in the Trash; the History (every op and op group);
 named versions; pictures and thumbnails; LUTs; slate numbers; Seen. Imported, the new file holds exactly what the old
@@ -852,8 +852,22 @@ backups) and `meta.app_version`, which every open writes. SQLite's own row numbe
 them: a later change file or review copy keyed by project id (Phases 7 and 9) must tell the two files apart by
 `file_id`.
 
+Export → Project data (JSON), the default of the two (3.14, Kevin Nov 9), leaves out the Trash and History, since they
+can hold deleted material and everyone's names. It writes every table, with these rows left out:
+- `records`: every record in the Trash and everything under it (what Empty Trash deletes, and the kinds it doesn't,
+  such as an erased sketch stroke with who erased it); `shot_seen` rows of those frames;
+- `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props);
+- `op_groups`, `ops`, `versions` (points in History), `notification_cursors` and `notification_reads` (they read
+  History) and `lookups` (a cache, which can hold a deleted location's address): no rows.
+
+Everything else is as in the full archive, `slate_numbers` included (a number once on a slate is never given again).
+A record left may name one left out (a frame's location in the Trash): it reads as none, as after Empty Trash.
+Imported, the new project holds exactly what the file did, with no History; exported again it's the same file but for
+`file_id` and `app_version`. The header says which it is: `"contents": "project_data"` or `"full_archive"` (a file from
+before 3.14 has no `contents`, and is a full archive).
+
 ```json
-{"format":"storiiboard-project","format_version":1,"schema_version":8,"app_version":"0.1.0","exported_at":"2026-11-07T12:00:00.000Z","tables":{
+{"format":"storiiboard-project","format_version":1,"schema_version":8,"app_version":"0.1.0","exported_at":"2026-11-07T12:00:00.000Z","contents":"full_archive","tables":{
 "meta":{"columns":["id","key","value","created_at","updated_at"],"rows":[
 ["…","schema_version","8","…","…"],
 …
