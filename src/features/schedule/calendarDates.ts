@@ -1,5 +1,5 @@
 // Calendar arithmetic on YYYY-MM-DD dates (3.8), done at noon UTC so no time zone or daylight saving change ever moves
-// a date by a day. A week starts on the language's first day (calendar.firstDay: 0 Sunday, 1 Monday).
+// a date by a day. A week starts on the day the region says, or Settings sets (src/app/weekStart.ts: 0 Sunday … 6 Saturday).
 
 const at = (date: string): Date => new Date(`${date}T12:00:00Z`);
 const iso = (d: Date): string => d.toISOString().slice(0, 10);

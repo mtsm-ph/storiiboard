@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useProject } from '../../app/projectStore';
+import { useFirstDay } from '../../app/weekStart';
 import { formatDate, t, tn } from '../../core/i18n';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
@@ -59,7 +60,8 @@ function Calendar({ projectId }: { projectId: string }) {
   const grid = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const scheduleId = useId();
-  const firstDay = Number(t('calendar.firstDay')) === 1 ? 1 : 0;
+  // As this computer's region says, or as Settings → App sets it (3.17).
+  const firstDay = useFirstDay();
   const days = projectShootDays(records, projectId);
   const byDate = new Map<string, ShootDay[]>();
   for (const day of days) {

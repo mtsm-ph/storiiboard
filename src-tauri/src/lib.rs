@@ -14,6 +14,7 @@ mod opened;
 mod os;
 mod pictures;
 mod playback;
+mod region;
 mod sbd;
 mod synced;
 mod video;
@@ -98,6 +99,7 @@ pub fn run() {
             geocode::address_search,
             open::open_link,
             open::open_pdf,
+            region::region_week,
         ])
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.

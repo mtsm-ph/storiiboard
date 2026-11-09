@@ -1055,7 +1055,6 @@ export const en = {
   'statusBar.unreadOpen.other': '{count} unread: open Notifications',
   // src/features/schedule/CalendarTile.tsx (3.8: the Calendar)
   'calendar.noProject': 'Open a project to see its shoot days by month and week.',
-  'calendar.firstDay': '0',
   'calendar.view': 'View',
   'calendar.month': 'Month',
   'calendar.week': 'Week',
@@ -1486,6 +1485,10 @@ export const en = {
   'error.pathTooLong': 'This project’s folder path is too long to put a copy beside it. Move the project to a folder with a shorter path, then open the version again.',
   // src/app/preferences/AppTile.tsx
   'app.language': 'App language',
+  'app.weekStart': 'Week starts on',
+  'app.weekStart.region': 'As this computer’s region says',
+  'app.weekStart.sunday': 'Sunday',
+  'app.weekStart.monday': 'Monday',
   'app.languageNote': 'Every screen, notice and export, for you on this computer. A project you share opens in each person’s own language.',
   // src/core/i18n (lists)
   'list.and': '{items} and {last}',

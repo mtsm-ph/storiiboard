@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.16 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.17 in review; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -61,13 +61,31 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | #109 | Done |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
-| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
+| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | In review |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
 plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.17 as built (Nov 9): the week's first day (`src/app/weekStart.ts`, `src-tauri/src/region.rs`).
+- The Calendar's week starts on the day this computer's regional settings say, in every language (it went by the
+  language before: Sunday in English, Monday in Spanish). Settings → App has "Week starts on": as the region says
+  (the default), Sunday or Monday.
+- A webview knows the app's language, not the region's formats, so on the desktop Rust reads them: Windows' regional
+  "first day of week" (GetLocaleInfoEx; `windows-sys`'s Globalization feature, a part of a crate already used, no new
+  one), a Mac's first day from Language & Region (`defaults read -g AppleFirstWeekday`, else the region in
+  `AppleLocale`). The page turns a region into a first day with Intl's week info, or CLDR's table where the engine
+  has none, so a region that starts on Saturday does too. In a browser, the browser's language stands in.
+- A Mac's region picked apart from its language (`en_GB@rg=uszzzz`, British English set to the US) counts as the
+  region. Linux's `C` and `POSIX` name none.
+- Decided by default, review: the setting is this computer's, as the language is; a region whose week starts on
+  Saturday starts it there (the grid takes any day), though the override offers only Sunday and Monday, as asked.
+- Tests: Rust (Windows' and a Mac's counting; a locale read as a page reads one; this computer read without failing);
+  the region's first day (US, Mexico, Spain, Britain, Egypt), Settings over the region, the computer's own over its
+  region, the setting kept and an unknown one read as the region's; end to end, the region's Sunday, Monday from
+  Settings, and the region again in Spanish.
 
 3.16 as built (Nov 9): approvals on the board (`ApprovalsMarker` in `src/features/storyboard/StoryboardView.tsx`,
 `sceneApprovalSummary` in `src/core/model/sceneApprovals.ts`).

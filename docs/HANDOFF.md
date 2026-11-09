@@ -347,6 +347,21 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.17: review
+
+- Decided by default, review: see PLAN.md, "3.17 as built" (the setting is this computer's; a region that starts on
+  Saturday or Friday starts there, though the override offers only Sunday and Monday, as asked).
+- Round 1: no high; one medium, fixed: on a Mac the region picked apart from the language (`AppleLocale`'s `rg=`,
+  Spanish (Spain) set to Mexico) was dropped, so the week started where the language's region does; it's read as the
+  region now. Lows fixed: Linux's `C` and `POSIX` name no region; China starts on Monday (out of the Sunday list), the
+  Maldives on Friday; the region is read as the app starts, not when the Calendar first draws (no redraw from Sunday
+  to Monday); the end-to-end test waits for the Spanish-named Settings to close.
+- **Waits for Kevin: the Settings screenshots.** The new "Week starts on" field is on Settings → App, which the four
+  `settings-*` screenshot tests capture, so they fail until their baselines are regenerated, and Kevin sees new
+  baselines first. The new images (only the field added, everything under it moved down) were saved for him. Every
+  other end-to-end test passes (304). PR #112 is ready but not merged until he says the images are right; then
+  regenerate the Windows baselines and push `checkpoint/baselines-3.17` for the Linux and Mac ones.
+
 ### 3.16: review
 
 - Decided by default, review: see PLAN.md, "3.16 as built" (the word "changed" beside the dot; in a focus view, your
