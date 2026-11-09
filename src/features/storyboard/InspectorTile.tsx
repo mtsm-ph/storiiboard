@@ -11,6 +11,8 @@ import { approvalBasis, sceneApprovals } from '../../core/model/sceneApprovals';
 import { editDepartmentStatus } from './departmentEdit';
 import { approveSceneDepartment } from './sceneApprovalEdit';
 import { SceneApprovalTable } from './SceneApprovalTable';
+import { RestOfCrew } from '../department/RestOfCrew';
+import { usePerspective } from '../department/perspective';
 import { openDepartment } from '../department/openDepartment';
 import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
@@ -71,6 +73,8 @@ export function InspectorTile() {
   // What this person can approve here: the person they picked in Cast and crew (3.5c), else their role on this
   // project (polish 6), else their usual one.
   const { role, person: me } = useMyPart(project?.projectId);
+  // Your departments first (3.6c), unless you see everything.
+  const focus = usePerspective(project?.projectId);
   // The name you sign with once you've picked yourself (3.5c): that person's, '' when they're unnamed; null otherwise.
   const myName = signatureOf(me);
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
@@ -236,19 +240,36 @@ export function InspectorTile() {
             />
           ) : undefined
         }
+        focus={focus}
         approvals={
           scene ? (
-            // Keyed by scene: the Tab stop starts on the first row for each.
-            <SceneApprovalTable
-              key={scene.id}
-              scene={sceneLabel(sceneFields(scene.props).number)}
-              approvals={sceneApprovals(scene.props)}
-              basisOf={(department) => approvalBasis(records, scene.id, department)}
+            // Keyed by scene: the Tab stop starts on the first row for each. In the focus view, your departments' rows,
+            // then the rest under Rest of crew.
+            <RestOfCrew
+              fold="scene"
               departments={DEPARTMENTS}
-              myRoles={approverRoles(role)}
-              onApprove={(department) => {
-                approveSceneDepartment(scene.id, department, () => approvalNow(role, new Date(), myName));
-              }}
+              focus={focus}
+              render={(rows, part, last) => (
+                <SceneApprovalTable
+                  key={`${scene.id}-${part}-${rows.join(',')}`}
+                  scene={sceneLabel(sceneFields(scene.props).number)}
+                  approvals={sceneApprovals(scene.props)}
+                  basisOf={(department) => approvalBasis(records, scene.id, department)}
+                  departments={rows}
+                  myRoles={approverRoles(role)}
+                  onApprove={(department) => {
+                    approveSceneDepartment(scene.id, department, () => approvalNow(role, new Date(), myName));
+                  }}
+                  {...(part === 'all'
+                    ? {}
+                    : {
+                        label: t(part === 'mine' ? 'restOfCrew.yoursForScene' : 'restOfCrew.restForScene', {
+                          scene: sceneLabel(sceneFields(scene.props).number),
+                        }),
+                      })}
+                  note={last}
+                />
+              )}
             />
           ) : undefined
         }

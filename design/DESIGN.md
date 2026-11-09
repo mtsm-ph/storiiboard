@@ -87,6 +87,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
     automatic, never ticked by hand. Below the grid, a key naming each shape in words. The scene's approvals are a
     grid of their own in the Inspector, Approvals · SC 04: a row per department in call-sheet order, the name with who
     approved under it, and one 22px box; dashed, with why, when the person's role isn't the director or the DP.
+  - Perspective views (3.6c): in a focus view, your departments' rows come first, then a "Rest of crew" button
+    (1.5px ink outline, 12px semibold, a mono − or +, the count in mono) that unfolds the rest as a grid of its own,
+    with aria-expanded. Frame cards count your departments alone, and the shot list says how many of the rest have
+    anything, in muted text. Full view on a person in Cast and crew is a switch, an ink fill when on.
   - On a frame card, a line under the strip with a 10px shape and a mono count per state ("▲2 👁1 ✓1"). The line
     keeps its height when empty, so no card grows when Seen lands; its words are the card's description. In the shot list's Departments column, each such department
     with its shapes, Priority first.

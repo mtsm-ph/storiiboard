@@ -1,5 +1,5 @@
 import { DEPARTMENTS, type Department } from './department';
-import { ROLE_DEPARTMENTS, type ProjectRole } from './departmentStatus';
+import { approverRoles, ROLE_DEPARTMENTS, type ProjectRole } from './departmentStatus';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { isRole, type Role } from './role';
 
@@ -22,6 +22,8 @@ export interface PersonFields {
   phone: string;
   email: string;
   notes: string;
+  /** Full view (3.6c) as set on the person; null when it never was, and it follows their role (personFullView). */
+  fullView: boolean | null;
 }
 
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -40,6 +42,7 @@ export function personFields(props: Props): PersonFields {
     phone: text(props.phone),
     email: text(props.email),
     notes: text(props.notes),
+    fullView: typeof props.full_view === 'boolean' ? props.full_view : null,
   };
 }
 
@@ -110,10 +113,21 @@ export function personPart(fields: PersonFields): { role: ProjectRole | null; de
   return { role, departments: DEPARTMENTS.filter((d) => seen.has(d)) };
 }
 
+/**
+ * Whether someone sees every department first (3.6c): as set on them in Cast and crew, else on for the director and
+ * the DP (those who approve) and off for everyone else, who sees their own departments first. A focus view, never
+ * access: anyone with the .sbd can open everything (docs/PLAN.md, 3.6c).
+ */
+export function personFullView(fields: PersonFields): boolean {
+  return fields.fullView ?? approverRoles(personPart(fields).role).length > 0;
+}
+
 /** Who you are on a project, and what that gives you: from Cast and crew once you've picked yourself, else the setting. */
 export interface MyPart {
   role: ProjectRole | null;
   departments: readonly Department[];
+  /** Every department first (3.6c), or your own first with the rest folded under Rest of crew. */
+  fullView: boolean;
   /** The live person you picked; null while the setting applies (none picked, or they're in the Trash). */
   person: SbdRecord | null;
 }
@@ -126,7 +140,11 @@ export interface MyPart {
 export function myPart(records: Records, projectId: string, selfId: string | null, fallback: ProjectRole | null): MyPart {
   const person = selfId ? records[selfId] : undefined;
   if (person?.type === 'person' && person.trashedAt === null && person.parentId === projectId) {
-    return { ...personPart(personFields(person.props)), person };
+    const fields = personFields(person.props);
+    return { ...personPart(fields), fullView: personFullView(fields), person };
   }
-  return { role: fallback, departments: fallback ? ROLE_DEPARTMENTS[fallback] : [], person: null };
+  // Without a person picked, the role on this computer decides as a person's would: the director and the DP see
+  // everything, and so does anyone whose role stands for no department (nothing to put first).
+  const departments = fallback ? ROLE_DEPARTMENTS[fallback] : [];
+  return { role: fallback, departments, fullView: approverRoles(fallback).length > 0 || departments.length === 0, person: null };
 }

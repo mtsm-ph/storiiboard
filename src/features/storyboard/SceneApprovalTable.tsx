@@ -24,9 +24,13 @@ interface SceneApprovalTableProps {
   myRoles: readonly Approver[];
   /** Their Approved tick on a department: given, taken back, or given again once the scene has changed. */
   onApprove: (department: Department) => void;
+  /** The grid's name, when it's one part of a focus view (3.6c). */
+  label?: string;
+  /** Whether to say who approves, under the grid; once, under the last part shown. */
+  note?: boolean;
 }
 
-export function SceneApprovalTable({ scene, approvals, basisOf, departments, myRoles, onApprove }: SceneApprovalTableProps) {
+export function SceneApprovalTable({ scene, approvals, basisOf, departments, myRoles, onApprove, label, note = true }: SceneApprovalTableProps) {
   const canApprove = myRoles.length > 0;
   const [at, setAt] = useState(0);
   const table = useRef<HTMLDivElement>(null);
@@ -47,7 +51,7 @@ export function SceneApprovalTable({ scene, approvals, basisOf, departments, myR
 
   return (
     <div className="flex flex-col gap-2">
-      <div ref={table} role="grid" aria-label={t('sceneApproval.table', { scene })} className="flex flex-col gap-y-1">
+      <div ref={table} role="grid" aria-label={label ?? t('sceneApproval.table', { scene })} className="flex flex-col gap-y-1">
         {departments.map((department, row) => {
           const given = approvalsIn(approvals, department);
           const basis = basisOf(department);
@@ -105,7 +109,7 @@ export function SceneApprovalTable({ scene, approvals, basisOf, departments, myR
           );
         })}
       </div>
-      {!canApprove && <p className="text-[12px] text-text-muted">{t('departmentStatus.approveHow')}</p>}
+      {!canApprove && note && <p className="text-[12px] text-text-muted">{t('departmentStatus.approveHow')}</p>}
     </div>
   );
 }

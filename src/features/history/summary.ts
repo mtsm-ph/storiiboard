@@ -71,6 +71,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   cast_id: 'history.field.castId',
   page_eighths: 'history.field.pageEighths',
   numbers_locked: 'history.field.numbersLocked',
+  full_view: 'history.field.fullView',
   characters: 'history.field.characters',
   text: 'history.field.text',
   theme: 'history.field.theme',

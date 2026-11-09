@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useContext, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { FocusContext } from '../department/perspective';
 import { customValue } from '../../core/model/customFields';
 import { departmentStates } from '../../core/model/departmentStatus';
 import { DepartmentCounts, DepartmentStates, summaryText } from './DepartmentSummary';
@@ -270,6 +271,8 @@ export function StoryboardView({
   onRetitleShot,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
+  // Your departments alone on the cards, in a focus view (3.6c); the tile gives it.
+  const focus = useContext(FocusContext);
   const sceneHovered = (sceneId: string) => dropHover !== null && 'sceneId' in dropHover && dropHover.sceneId === sceneId;
   // One Tab stop: the selected frame, or the first item when nothing is selected.
   const firstEntry = scenes.flatMap((s) => entriesOf(s))[0];
@@ -454,7 +457,7 @@ export function StoryboardView({
       <span data-drop-shot={frame.id} className={cx('group/title relative block', className)}>
       <button
         {...itemProps(frame, sceneId)}
-        {...(summaryText(frame.fields.departmentStatus, frame.seen ?? NOTHING_SEEN) !== null ? { 'aria-describedby': `departments-${frame.id}` } : {})}
+        {...(summaryText(frame.fields.departmentStatus, frame.seen ?? NOTHING_SEEN, focus) !== null ? { 'aria-describedby': `departments-${frame.id}` } : {})}
         className="relative flex w-full flex-col border border-border bg-surface text-left"
       >
         <span className="relative flex w-full items-center justify-center border-b border-border" style={{ aspectRatio: String(aspectRatio) }}>
@@ -847,7 +850,7 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
                   <td className={cx(cell, 'max-w-[28ch]', f.action === '' && quiet)}>{dash(f.action)}</td>
                   {/* Each department with anything set or seen, Priority first, with its shapes (polish 6b). */}
                   <td className={cx(cell, departmentStates(f.departmentStatus, frame.seen ?? NOTHING_SEEN).length === 0 && quiet)}>
-                    <DepartmentStates statuses={f.departmentStatus} seen={frame.seen ?? NOTHING_SEEN} />
+                    <DepartmentStates statuses={f.departmentStatus} seen={frame.seen ?? NOTHING_SEEN} selected={selected} />
                   </td>
                   {customNames.map((name) => {
                     // The frame may spell the name in another case; it's the same field.

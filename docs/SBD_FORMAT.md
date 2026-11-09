@@ -427,6 +427,12 @@ department ids, kept in the call sheet's order; unknown ids are ignored); `title
 `phone`, `email`, `notes` (text); `custom` (their own fields, as a shot's). The phone and email are private: shown in
 the app, never logged, never shown in History. No table change.
 
+`full_view` (3.6c, approved by Kevin Nov 9 as an additive change; no schema number, since an older version keeps the
+prop as it is and only shows every department, as before): true or false, set from the person's Full view switch.
+Missing or odd means never set: then it's on for a director or a DP (a role that approves) and off for everyone else.
+Off, the app shows that person's own departments first, the rest under Rest of crew, once they've picked themselves
+with This is me. A focus view, not access: the file holds everything for whoever opens it.
+
 `cast_id` on a `character` (3.5b): the person who plays them, by id; missing means no one yet. A person in the Trash
 reads as none; their characters keep the id, so a restore gives them back. After Empty Trash the id names nothing and
 reads as no one, as a scene's `location_id` does. No table change.

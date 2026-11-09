@@ -244,7 +244,9 @@ test('you in Cast and crew: your person’s role approves and their departments 
   await editor.getByRole('button', { name: 'Delete person' }).click();
   await sections.getByRole('button', { name: /^Storyboard/ }).click();
   await board(page).locator('[data-shot-id]').nth(1).click();
-  await expect(approveBox(page, 'Camera: Approved')).toHaveAttribute('aria-disabled', 'true');
+  // A gaffer sees Grip & electric first, the rest under Rest of crew (3.6c), and approves nothing.
+  const yours = inspector(page).getByRole('grid', { name: 'Your departments’ approvals for SC 01' });
+  await expect(yours.getByRole('checkbox', { name: 'Grip & electric: Approved', exact: true })).toHaveAttribute('aria-disabled', 'true');
   const after = await openSettings(page, 'Project');
   await expect(after.getByLabel('Your role on this project')).toBeVisible();
   await expect(after.locator('[data-you-are]')).toHaveCount(0);

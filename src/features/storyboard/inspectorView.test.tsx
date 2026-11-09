@@ -2,10 +2,14 @@ import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../../core/i18n';
 import { sceneFields, shotFields } from '../../core/model/storyboard';
-import { departmentStatuses } from '../../core/model/departmentStatus';
+import { departmentStates, departmentStatuses } from '../../core/model/departmentStatus';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
 import { sceneApprovals } from '../../core/model/sceneApprovals';
 import { SceneApprovalTable } from './SceneApprovalTable';
+import { summaryText } from './DepartmentSummary';
+import { RestOfCrew } from '../department/RestOfCrew';
+import { focusOf, splitByFocus } from '../department/perspective';
+import { DEPARTMENTS } from '../../core/model/department';
 import { InspectorView, type InspectorCopy } from './InspectorView';
 
 const noop = () => undefined;
@@ -97,6 +101,54 @@ describe('the Frame inspector', () => {
     expect(plain.match(/role="row"/g)).toHaveLength(2);
     expect(plain).toContain('Sound: Priority');
     expect(plain).not.toContain('Camera: Priority');
+  });
+});
+
+describe('a focus view (3.6c)', () => {
+  const statuses = departmentStatuses({ department_status: { camera: { done: true }, sound: { priority: true }, art: { working: true } } });
+
+  it('splits the departments into yours and the rest, only when there are both', () => {
+    expect(splitByFocus(['direction', 'camera', 'sound'], ['camera'])).toEqual({ mine: ['camera'], rest: ['direction', 'sound'] });
+    expect(splitByFocus(['direction', 'camera'], null)).toBeNull();
+    expect(splitByFocus(['camera'], ['camera'])).toBeNull();
+  });
+
+  it('shows the folded list with yours first, the rest closed under Rest of crew, and the key once', () => {
+    const html = renderToString(
+      <RestOfCrew
+        fold="frame"
+        departments={['direction', 'camera', 'sound']}
+        focus={['camera']}
+        render={(rows, part, last) => (
+          <DepartmentStatusTable statuses={statuses} seen={[]} onEdit={noop} rows={rows} label={part} legend={last} />
+        )}
+      />,
+    );
+    expect(html).toContain('aria-label="mine"');
+    expect(html).toContain('Camera: Done');
+    expect(html).not.toContain('Sound: Priority');
+    expect(html).toMatch(/aria-expanded="false"[^>]*data-rest-of-crew="frame"/);
+    expect(html).toContain('Rest of crew');
+    expect(html).toContain('2 departments');
+    expect(html.match(/aria-label="Key"/g)).toHaveLength(1);
+  });
+
+  it('puts your departments first only when there is something to fold', () => {
+    expect(focusOf({ fullView: false, departments: ['camera'] })).toEqual(['camera']);
+    expect(focusOf({ fullView: true, departments: ['camera'] })).toBeNull();
+    expect(focusOf({ fullView: false, departments: [] })).toBeNull();
+    expect(focusOf({ fullView: false, departments: DEPARTMENTS })).toBeNull();
+  });
+
+  it('lists your departments alone in the shot list’s words', () => {
+    expect(departmentStates(statuses, [], ['camera', 'hmu']).map((r) => r.department)).toEqual(['camera']);
+    expect(departmentStates(statuses, []).map((r) => r.department)).toEqual(['sound', 'camera', 'art']);
+  });
+
+  it('counts your departments alone on a frame card, and says so', () => {
+    expect(summaryText(statuses, ['art'])).toBe('Departments: 1 priority, 1 seen, 1 working on it and 1 done');
+    expect(summaryText(statuses, ['art'], ['camera'])).toBe('Your departments: 1 done');
+    expect(summaryText(statuses, [], ['hmu'])).toBeNull();
   });
 });
 

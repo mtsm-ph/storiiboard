@@ -297,6 +297,13 @@ describe('Put back', () => {
     expect(putBackChange(records()[a], await lastChange(a, 'departments'))).toBeNull();
   });
 
+  it('says a person’s Full view as on or off (3.6c)', async () => {
+    await store.getState().apply([{ kind: 'create', record: { id: 'sam', type: 'person', parentId: project.projectId, sortKey: 'V', props: { name: 'Sam Ortiz' } } }]);
+    await store.getState().apply([{ kind: 'update', id: 'sam', set: { full_view: true } }]);
+    const set = await lastChange('sam', 'full_view');
+    expect([changeLabel(set), changeValue(set, set.before), changeValue(set, set.after)]).toEqual(['full view', '—', 'on']);
+  });
+
   it('lists a scene’s approvals by department, without the fingerprint, and never offers one to put back (3.6b)', async () => {
     const approval = { name: 'Sam Reyes', roles: ['dp'], at: '2026-11-09T10:00:00.000Z', basis: '0123456789abcd' };
     await store.getState().apply([{ kind: 'update', id: 'sc4', set: { department_approvals: { camera: [approval] } } }]);
