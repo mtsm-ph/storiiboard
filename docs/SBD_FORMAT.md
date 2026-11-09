@@ -418,6 +418,21 @@ private: shown in the app, never logged. No table change.
 - `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
   A location in the Trash reads as none, for the shot as for the scene.
 
+## Shoot day props (3.7)
+
+A `shoot_day` record (under the project) is one day of the shoot. Props: `date` (`YYYY-MM-DD`, a real calendar date;
+missing or odd reads as none), `call_time` and `wrap_time` (`HH:MM` on a 24-hour clock), `notes` (text). Its number
+("Day 3") is worked out from the live days' dates (undated last, then sort order), never stored, so changing a date
+renumbers the days. Additive (approved Nov 7 and 9): props on a record type every version has, so no schema number; an
+older version keeps them as they are.
+
+- `shoot_day_id` on a `shot`: the day it's shot. A frame is in at most one day. A day in the Trash, or gone for good,
+  reads as none: its frames are unscheduled until it's restored. Only "Need to shoot" frames are offered for a day.
+- `setup_minutes` on the `project`: the minutes per setup a day's estimate counts (1 to 600; missing means 30).
+- A day's totals are worked out, never stored: its live "Need to shoot" frames in live scenes; their setups (frames
+  sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
+  Two days may share a date.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the
@@ -525,6 +540,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | departments | array of department ids | Before schema 6 only: read as Priority, taken off by the migration |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
+| shot | shoot_day_id | record id | 3.7. The `shoot_day` it's shot on. Missing, in the Trash or gone reads as unscheduled |
 | shot | custom | object of text by field name | 1.19. The frame's own fields (`{ "Drone": "Mavic 3" }`), in the order added. Missing when it has none. The project's list of field names isn't stored: it's every name its live shots use |
 
 **Sketches** (1.13, src/features/storyboard/sketch/strokes.ts). Each stroke of a frame's sketch is a `stroke` record

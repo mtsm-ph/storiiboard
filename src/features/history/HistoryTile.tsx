@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
 import { useOpeningVersion } from '../../app/openingVersion';
@@ -236,6 +237,8 @@ export function HistoryTile() {
   );
   const places = (id: string): string | null => {
     const place = records[id];
+    // A shoot day (3.7) by its date, as History names one.
+    if (place?.type === 'shoot_day') return dayDateLabel(shootDayFields(place.props).date) || t('history.undatedDay');
     return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
   };
   const versionNamed = versionName(naming);

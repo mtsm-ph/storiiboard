@@ -72,6 +72,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   "Pick from a frame" makes the pointer a crosshair everywhere until a picture is clicked or Escape is pressed; a hex
   field adds a colour from the keyboard. The Color script tile: a row per scene, its label in mono and its palette as
   a strip of cells ruled in ink. The PDF storyboard prints 9pt swatches ruled in ink before a heading's page length.
+- **Shoot days (3.7)**: a list of days beside (or, narrow, above) the day picked, as Locations is laid out; the day
+  picked takes the ink fill. A day's date, call and wrap, its totals and frame numbers are mono. Its frames and the
+  unscheduled ones sit under 10px labels ruled in 1.5px ink; each frame row has its status shape, scene and frame
+  number, and a Move to or Add.
 - **Manage workspaces… (3.6d)** is an in-app window, 640px: a primary button to save the layout on screen as a new
   workspace, then Your workspaces (a Name field and Open, Duplicate, Delete… on each row; Delete in the warning style)
   and Built in (the sections and the listed department workspaces, Open and Duplicate), each under a 10px label ruled

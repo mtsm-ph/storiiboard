@@ -8,6 +8,7 @@ import type { Change } from '../../core/ops/ops';
 import { restoredScene } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
+import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
 // (1.21), each restorable with one click. Never mixed with an archived project, which is the project's `state`.
@@ -15,7 +16,7 @@ import { labels, t, tn } from '../../core/i18n';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -24,6 +25,7 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   picture: 'trash.kind.picture',
   location: 'trash.kind.location',
   person: 'trash.kind.person',
+  day: 'trash.kind.day',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -34,6 +36,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   picture: 'trash.kinds.picture',
   location: 'trash.kinds.location',
   person: 'trash.kinds.person',
+  day: 'trash.kinds.day',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -44,6 +47,7 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   picture: 'trash.kindLower.picture',
   location: 'trash.kindLower.location',
   person: 'trash.kindLower.person',
+  day: 'trash.kindLower.day',
 });
 
 export interface NamePart {
@@ -82,6 +86,7 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'media') return 'picture';
   if (record.type === 'location') return 'location';
   if (record.type === 'person') return 'person';
+  if (record.type === 'shoot_day') return 'day';
   return null;
 }
 
@@ -109,6 +114,11 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'location': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedLocation');
       return [plain(name)];
+    }
+    case 'day': {
+      // By its date (3.7): its number belongs to the live days' order, which it has left.
+      const date = dayDateLabel(shootDayFields(record.props).date);
+      return [plain(date ? t('trash.dayOn', { date }) : t('trash.undatedDay'))];
     }
     case 'picture': {
       // A linked video (2.2b), by its file's name.
