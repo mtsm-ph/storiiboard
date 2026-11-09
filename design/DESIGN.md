@@ -76,6 +76,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   picked takes the ink fill. A day's date, call and wrap, its totals and frame numbers are mono. Its frames and the
   unscheduled ones sit under 10px labels ruled in 1.5px ink; each frame row has its status shape, scene and frame
   number, and a Move to or Add.
+- **Assets (3.11)**: grouped by what they're on, each group under a 10px label ruled in 1.5px ink; a row has its kind
+  as a 10px label (PDF, Link), its name to edit, its size or address in mono, and Save a copy… or Copy link, and Delete
+  in the warning style.
 - **Notifications (3.10)**: a row per step, its line as History writes it, who and when in 11px mono; an unread row
   leads with an ink ● and is bold (and says "Unread:" first), a read one keeps the dot's room. The status bar's count
   is a 10px mono label, underlined on hover.

@@ -84,6 +84,36 @@ export async function choosePictures(multiple: boolean): Promise<PictureFile[]> 
   });
 }
 
+/**
+ * PDFs to attach (3.11), from the Open dialog in the desktop app (read through Rust, as pictures are), or a file input
+ * in the browser build. Empty when cancelled.
+ */
+export async function choosePdfs(): Promise<PictureFile[]> {
+  if (isTauriApp) {
+    const paths = await invoke<string[]>('pdf_choose', { title: t('dialogs.choosePdfs'), kind: t('dialogs.pdfFilter') });
+    return paths.map(fromPath);
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf,.pdf';
+    input.multiple = true;
+    input.hidden = true;
+    const done = (files: PictureFile[]) => {
+      input.remove();
+      resolve(files);
+    };
+    input.addEventListener('change', () => {
+      done([...(input.files ?? [])].map(fromFile));
+    });
+    input.addEventListener('cancel', () => {
+      done([]);
+    });
+    document.body.append(input);
+    input.click();
+  });
+}
+
 /** A point in the page, in CSS pixels. */
 export interface PagePoint {
   x: number;

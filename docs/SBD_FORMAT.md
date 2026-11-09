@@ -471,6 +471,17 @@ older version keeps them as they are.
   sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
   Two days may share a date.
 
+## Attachments (3.11)
+
+A PDF or a link on the project, a scene, a shot, a location or a person is a `media` record under it, as a frame's
+picture is. Additive (approved Nov 7 and 9): no schema number.
+
+- `kind: "pdf"`: `file` (the bytes' SHA-256, in `media_files` with `mime` `application/pdf`, `width` and `height` 0,
+  `color_space` ''), `source_name` (its file name), `byte_size`. At most 50 MB. Empty Trash and Clean up delete its
+  bytes when nothing refers to them any more, as a picture's.
+- `kind: "link"`: `url` (http or https), `title` ('' for none).
+- A location's photos are its other `media` records; attachments aren't among them.
+
 ## Gear props (3.9a)
 
 A `gear_item` record (under the project) is one item in the project's gear catalogue: a package, a lens set, a

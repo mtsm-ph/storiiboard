@@ -9,6 +9,7 @@ import { restoredScene } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
+import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
 // (1.21), each restorable with one click. Never mixed with an archived project, which is the project's `state`.
@@ -16,7 +17,7 @@ import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -27,6 +28,7 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   person: 'trash.kind.person',
   day: 'trash.kind.day',
   gear: 'trash.kind.gear',
+  attachment: 'trash.kind.attachment',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -39,6 +41,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   person: 'trash.kinds.person',
   day: 'trash.kinds.day',
   gear: 'trash.kinds.gear',
+  attachment: 'trash.kinds.attachment',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -51,6 +54,7 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   person: 'trash.kindLower.person',
   day: 'trash.kindLower.day',
   gear: 'trash.kindLower.gear',
+  attachment: 'trash.kindLower.attachment',
 });
 
 export interface NamePart {
@@ -86,7 +90,8 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'scene') return 'scene';
   if (record.type === 'shot') return 'frame';
   if (record.type === 'note') return 'note';
-  if (record.type === 'media') return 'picture';
+  // A PDF or a link (3.11) is an attachment, not a picture.
+  if (record.type === 'media') return attachmentFields(record.props) ? 'attachment' : 'picture';
   if (record.type === 'location') return 'location';
   if (record.type === 'person') return 'person';
   if (record.type === 'shoot_day') return 'day';
@@ -118,6 +123,11 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'location': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedLocation');
       return [plain(name)];
+    }
+    case 'attachment': {
+      const fields = attachmentFields(record.props);
+      const name = fields ? fields.name || (fields.kind === 'link' ? fields.url : t('assets.unnamedPdf')) : '';
+      return [plain(name), plain(fields ? t('trash.attachmentKind', { kind: ATTACHMENT_KIND_LABEL[fields.kind] }) : '')];
     }
     case 'gear': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('gear.unnamed');
@@ -235,7 +245,8 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
     case 'media': {
       // A location's photo comes back with its location if that's in the Trash too, so it's seen again (3.3).
       if (parent?.type === 'location') return [...(parent.trashedAt !== null ? [{ kind: 'restore' as const, id: parent.id }] : []), { kind: 'restore', id }];
-      if (parent?.type !== 'shot') return [{ kind: 'restore', id }];
+      // A PDF or a link (3.11) comes back as itself: never as a frame's picture, which stays as it is.
+      if (parent?.type !== 'shot' || attachmentFields(record.props)) return [{ kind: 'restore', id }];
       const current = shotFields(parent.props).mediaId;
       const showing = current ? records[current] : undefined;
       return [

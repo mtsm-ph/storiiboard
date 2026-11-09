@@ -343,6 +343,36 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.11: review
+
+- Decided by default, review (PLAN.md, "3.11 as built"): PDFs share `media_files` with pictures (no schema bump);
+  the Assets tile only for now; Save a copy and Copy link stand in for opening (the opener plugin waits for Kevin);
+  http and https links only; the Storage tab counts PDFs with pictures.
+- Before review, the end-to-end test caught two of its own: the link form's browser check refused a bare address the
+  app accepts (the app checks it now), and a rename read the field after React had let go of it (a crash: it reads
+  the value first now).
+- Round 1: one high, fixed before merge: restoring a PDF or link that was on a frame made it the frame's picture and
+  sent the real picture to the Trash (the picture restore read every media record under a frame as a picture). An
+  attachment comes back as itself now; tested with a frame that has a picture.
+- Round 1 mediums, fixed: attaching a file to a frame marked the scene's approvals changed (the fingerprint reads a
+  frame's picture and sketch, not its attachments; tested); a Trash row ran a name and its kind together ("Release.pdf
+  (PDF)" now); a PDF renamed without ".pdf", or with a folder in it, couldn't be saved, silently (names are kept to
+  ones Save a copy can use, and a failed save says why); focus fell to the page after adding a link, while choosing a
+  PDF and after a delete (kept in the tile; tested). The over-50 MB refusal on the desktop comes from Rust in its own
+  words (error.fileTooLarge, translated), not the tile's longer one.
+- Lows fixed: "localhost:3000" and other bare addresses with a port read as addresses; Spanish "Eliminar"; frames in
+  the picker named with their scene.
+- Round 2: one medium, fixed: a PDF name starting with a dot passed the rename check but Save a copy refuses it (the
+  check now matches Rust's, and also refuses Windows device names such as CON.pdf). Lows fixed: a refused rename puts
+  the old name back and says why; "https//x.com" (a missed colon) is refused instead of becoming another address.
+- Round 3: nothing high or medium. Lows fixed: a rename that comes to the same name ("Contract" for Contract.pdf, or
+  trailing spaces) just shows the name again, with no notice; the notice names every reason; COM0, LPT0 and control
+  characters refused; "htps//x.com" and "https:/x.com" refused. A PDF name is held to what Windows accepts even on a
+  Mac (no * ? " < > |), so a project's PDFs save on either.
+- Lows left: a 50 MB PDF is held in memory a few times while it's stored; attachments under a frame or a person in the
+  Trash are hidden from Assets and not counted in Empty Trash's confirm (Empty Trash deletes them with their parent);
+  an older build shows a location's PDF as an empty photo; the Storage tab counts PDFs with pictures.
+
 ### 3.10: review
 
 - Decided by default, review: your own steps count as read, by the name signed (limits in PLAN.md); the reader is This

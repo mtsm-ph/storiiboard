@@ -143,6 +143,9 @@
 - Gear (3.9a): the Gear tile in Production is the project's catalogue (`gear_item`: name, department, quantity, owned
   or rented and from whom, day rate in the project's `currency`). A shoot day's gear list and a frame's gear pick from
   it (`gear_ids`, 3.9b); the first check in src/core/checks finds a frame needing gear its day's list lacks.
+- Assets (3.11): the Assets tile keeps PDFs (inside the .sbd, at most 50 MB, bytes in `media_files`) and links on
+  the project, a scene, a frame, a location or a person, as `media` records of kind `pdf` or `link`. Save a copy and
+  Copy link until the opener plugin is decided.
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.

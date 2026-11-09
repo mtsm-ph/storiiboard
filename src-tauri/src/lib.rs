@@ -79,6 +79,7 @@ pub fn run() {
             pictures::script_choose,
             pictures::lut_choose,
             pictures::project_json_choose,
+            pictures::pdf_choose,
             video::clip_save,
             video::clip_cancel,
             export::export_choose_file,
