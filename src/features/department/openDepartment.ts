@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import { WORKSPACE_PANEL_ID } from '../../app/shell/workspaces';
 import { openDepartmentWorkspace } from '../../app/shell/workspaceStore';
 import type { Department } from '../../core/model/department';
 
@@ -9,8 +10,10 @@ import type { Department } from '../../core/model/department';
  */
 export function openDepartment(department: Department): void {
   openDepartmentWorkspace(department);
+  // On the workspace itself when its layout has no Department tile (closed, or another tile maximized), as Alt+number
+  // does with the sidebar hidden: focus never drops to the page.
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>('[data-department-view]')?.focus();
+    (document.querySelector<HTMLElement>('[data-department-view]') ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus();
   });
 }
 

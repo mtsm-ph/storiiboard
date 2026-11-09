@@ -1,6 +1,6 @@
 import { useEffect, type MouseEvent } from 'react';
 import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
-import { departmentOf, inModalDialog, sectionId, TILES, type Workspace } from '../workspaces';
+import { departmentOf, inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
 import { closeDepartmentWorkspace } from '../workspaceStore';
 import { TILE_CONTENT } from '../tileContent';
 import { openTile, tilesIn, toggleMaximize, type Layout } from './layout';
@@ -79,12 +79,12 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
               {department !== null && (
                 // A department's workspace (3.6a) leaves the sidebar; its layout stays for the next time it's opened.
                 <MenuItem
-                  onClick={() => {
-                    close();
+                  onClick={run(() => {
                     closeDepartmentWorkspace(department);
-                    // The Storyboard takes its place: focus goes to its section, not back to a menu that's gone.
-                    requestAnimationFrame(() => document.getElementById(sectionId('storyboard'))?.focus());
-                  }}
+                    // The Storyboard takes its place: focus goes to its section (the workspace itself with the sidebar
+                    // hidden, as Alt+number does), not back to the menu's button in a workspace that's gone.
+                    requestAnimationFrame(() => (document.getElementById(sectionId('storyboard')) ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus());
+                  })}
                 >
                   {t('layoutMenu.removeFromSidebar')}
                 </MenuItem>

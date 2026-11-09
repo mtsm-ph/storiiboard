@@ -65,19 +65,20 @@ as ids (it alters existing data), and the address search (3.4: an HTTP client in
   a workspace like the sections, with a layout of its own (saved, reset, undone per workspace). The Department tile
   shows the frame picked (its picture, number, title, spec and action) with that department's row alone to tick; the
   scene's frames, each with that department's states (the picked one with the accent marker and bold), counted; and
-  the department's people from Cast and crew (names and titles, never contacts). Picking a frame there picks it on
+  the department's people from Cast and crew (names, and titles or else roles; never contacts). Picking a frame there picks it on
   the board. Opened into another workspace from the Layout menu, it has a department picker, starting on yours.
 - Opened department workspaces are listed under the sections, under Departments, in the call sheet's order, once each.
   The list is the person's, kept in this computer's settings as layouts are (`departmentWorkspaces`), never in the
   file. Delete on an entry, or the Layout menu's Remove from sidebar, takes one off; its layout stays for next time.
-  Alt+1 to 6 stay the sections'.
+  Alt+1 to 6 stay the sections'. Taking off the one on screen brings the Storyboard back, with focus on it.
 - Decided by default, review: 3.6 split in two, so Manage workspaces and custom workspaces are 3.6b; the Department
   tile's contents (above); the list in the call sheet's order rather than the order opened.
 - Tests: the workspaces (one per department, its layout, ids), their layouts (kept, undone, reset; a store saved
   before them), the sidebar list (once each, in order, taken off), the settings read, the department's view (states
   with Seen, counts, a trashed scene, its people), the table's names; end to end, a department's name opened from the
   keyboard, a tick there seen in the Inspector and undone, a frame picked in the list, its people, axe light and dark,
-  kept after a reload, taken off by Delete and by the menu, its layout kept.
+  kept after a reload, taken off by Delete and by the menu, its layout kept (focus on the workspace when it has no
+  Department tile); the tile's picker in another workspace.
 
 3.5c as built (Nov 8): you in Cast and crew (docs/PHASE3_DECISIONS.md 4).
 - A person's editor in Cast and crew has This is me: pressed, that person is you on this project, and their row says

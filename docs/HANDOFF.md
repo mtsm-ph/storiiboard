@@ -367,7 +367,8 @@ Round 1: no high, two mediums, fixed.
   with no role can't approve (its usual "Only the director or the DP can tick Approved." shows; Settings → Project says
   more).
 - Round 3: nothing high or medium. Its two nits went into 3.6a: a picked person named exactly "local" (the edit log's
-  word for no name) signs with no name; a PLAN.md line rewrapped.
+  word for no name) signs with no name, as an edit does (with initials on, "L", as an edit is signed too); a PLAN.md
+  line rewrapped.
 - Kevin, Nov 8: both defaults approved (signed with the picked person's name; Seen is the role's departments with the
   ticked ones). The lows below can wait. If `projects.spec`'s JSON export test fails again, fix its cause rather than
   rerun it.

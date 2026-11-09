@@ -39,7 +39,7 @@ test('a department’s row on a frame opens its workspace: the frame, the scene 
   await sections(page).getByRole('button', { name: /^Storyboard/ }).click();
   await expect(departments(page)).toHaveCount(0);
 
-  // From the keyboard: Left from the first row's Priority reaches its name; Enter opens the workspace.
+  // From the keyboard: down from Direction's Priority to Camera's, Left to its name; Enter opens the workspace.
   await board(page).locator('[data-shot-id]').first().click();
   const grid = inspector(page).getByRole('grid', { name: 'Departments on this frame' });
   await grid.getByRole('checkbox', { name: 'Direction: Priority', exact: true }).focus();
@@ -62,7 +62,7 @@ test('a department’s row on a frame opens its workspace: the frame, the scene 
   const frames = view(page).getByRole('list', { name: 'The scene’s frames for Camera' }).getByRole('button');
   await expect(frames).toHaveCount(2);
   await expect(frames.first()).toHaveAttribute('aria-current', 'true');
-  await expect(frames.first()).toHaveAccessibleName(/Priority$/);
+  await expect(frames.first()).toHaveAccessibleName(/, Priority/);
   await expect(view(page)).toContainText('Priority: 1');
   await page.keyboard.press(await undoKey(page));
   await expect(row.getByRole('checkbox', { name: 'Camera: Priority', exact: true })).toHaveAttribute('aria-checked', 'false');
@@ -95,13 +95,13 @@ test('a department workspace leaves the sidebar by Delete or the Layout menu, it
   await view(page).getByRole('button', { name: /^Close/ }).click();
   await expect(view(page)).toHaveCount(0);
 
-  // Delete on its entry takes it off; the Storyboard takes its place, focus on the one that took its place.
+  // Delete on the one on screen takes it off: the Storyboard takes its place, and focus goes with it.
   const camera = departments(page).getByRole('button', { name: 'Camera' });
   await camera.focus();
   await page.keyboard.press('Delete');
   await expect(departments(page).getByRole('button')).toHaveText(['Sound']);
   await expect(sections(page).getByRole('button', { name: /^Storyboard/ })).toHaveAttribute('aria-current', 'page');
-  await expect(departments(page).getByRole('button', { name: 'Sound' })).toBeFocused();
+  await expect(sections(page).getByRole('button', { name: /^Storyboard/ })).toBeFocused();
 
   // The Layout menu's Remove from sidebar, on Sound's own workspace.
   await departments(page).getByRole('button', { name: 'Sound' }).click();
@@ -114,9 +114,26 @@ test('a department workspace leaves the sidebar by Delete or the Layout menu, it
   await board(page).locator('[data-shot-id]').first().click();
   await grid.getByRole('button', { name: 'Camera: open its workspace' }).click();
   await expect(view(page)).toHaveCount(0);
+  // With no view to land on, focus goes to the workspace itself, never back to the page.
+  await expect(page.getByRole('region', { name: 'Camera workspace' })).toBeFocused();
   await page.getByRole('button', { name: /^Layout/ }).click();
   await page.getByRole('button', { name: 'Reset to default layout' }).click();
   await expect(view(page)).toBeVisible();
+});
+
+test('the Department tile opened into another workspace has a department picker, starting on your own', async ({ page }) => {
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Department', exact: true }).click();
+  // No role here yet: the first department, Direction.
+  const picker = view(page).getByRole('combobox', { name: 'Department' });
+  await expect(picker).toHaveValue('direction');
+  await expect(view(page).getByRole('heading', { level: 2 })).toHaveText('Direction');
+  await picker.selectOption({ label: 'Sound' });
+  await expect(view(page).getByRole('heading', { level: 2 })).toHaveText('Sound');
+  await expect(view(page).getByRole('grid', { name: 'Departments on this frame' }).getByRole('rowheader')).toHaveText(['Sound']);
+  // Opening the tile here adds nothing to the sidebar: that list is for a department's own workspace.
+  await expect(departments(page)).toHaveCount(0);
 });
 
 /** WCAG 2.2 AA, as the app's other checks run it, light and dark. */

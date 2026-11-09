@@ -64,10 +64,14 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     void recentStore.getState().refresh();
   }, [openPath]);
 
-  /** Off the sidebar, focus staying in it: on the department that took its place, else on the Storyboard. */
+  /**
+   * Off the sidebar, focus staying in it. The one on screen gives way to the Storyboard, and focus goes with it, so the
+   * entry focused is the workspace shown (and a second Delete can't take off one the person isn't looking at). Another
+   * one leaves focus on the department that took its place, else on the Storyboard.
+   */
   const closeDepartment = (department: Department) => {
     const at = departments.indexOf(department);
-    const next = departments[at + 1] ?? departments[at - 1];
+    const next = activeId === departmentWorkspaceId(department) ? undefined : (departments[at + 1] ?? departments[at - 1]);
     closeDepartmentWorkspace(department);
     requestAnimationFrame(() => {
       document.getElementById(sectionId(next ? departmentWorkspaceId(next) : 'storyboard'))?.focus();
@@ -241,7 +245,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                         onSelect(workspace.id);
                       }}
                       className={cx(
-                        'sb-label flex h-8 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
+                        'sb-label flex h-9 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
                         active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text hover:bg-surface-raised',
                       )}
                     >

@@ -124,7 +124,8 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
     in the call sheet's order, styled as the sections are. Delete on one, or Layout → Remove from sidebar, takes it off.
 - **States:** the active section is an accent fill with bold ink text. The active scene has an accent marker and a
   bold name. Sections not built yet are muted and show their phase.
-- **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section.
+- **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section. Delete (or
+  Backspace) on a department workspace's entry takes it off the sidebar.
 - **Foot:** first the web version, muted and marked with its phase until it exists (focusable, so its phase is
   heard); then a row with Hide sidebar at the left, and at the right the Settings gear (⌘, or Ctrl+,) and the profile.
 - **Profile:** the person's initials in a 22px ink ring, round as avatars are (the accent dots are too); a dashed ring
