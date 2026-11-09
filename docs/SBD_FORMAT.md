@@ -307,6 +307,28 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v9: approvals per scene (3.6b)
+
+Approved by Kevin Nov 9; it alters existing data. The director or the DP approves each department once per scene,
+in the scene's `department_approvals` prop (Storyboard props, below; src/core/model/sceneApprovals.ts); a shot's
+`department_status` keeps Priority, Working on it and Done. No table changes.
+
+- A scene is approved for a department, by an approver (the director, the DP), only if every frame in it was
+  approved for that department by that approver. The scene's approval takes the name and time of the latest of those,
+  merged into one approval with both roles when one person was both, and a `basis` worked out from the scene as it is,
+  so it starts current. Otherwise the scene isn't approved for it. A scene's frames are its live ones; for a scene in
+  the Trash, also those that went to the Trash with it. A scene without frames gets nothing.
+- Then every shot's `department_status` loses its `approvals`, in the Trash or not; an entry left with nothing comes
+  off, and anything else in it stays. Department ids this version doesn't know are carried the same way; an approval
+  with neither a director nor a DP among its roles was never one of these, and stays on its shot.
+- migrate() backs the file up first, as before every migration. The changes are logged: one `edit` group by `local`,
+  with an `update` op per record changed (whole records before and after, `updated_at` set to the upgrade's time), so
+  History lists what moved and what came off. Its `stack_below`, `undo_top` and `redo_top` are null, as an
+  `empty_trash` group's are, so the undo and redo stacks end there: ⌘Z after the upgrade never writes back an older
+  step's record, a scene without its approvals or a frame with its own. Restore to here can still go to a point before
+  it, as a choice that undo takes back; that point has the frames' approvals, kept as stored and shown only in
+  History's words, and none on its scenes.
+
 ## Schema v8: video (Phase 2)
 
 Approved by Kevin Nov 5. Videos stay outside the .sbd (CLAUDE.md): a `media` record of kind `video` points at the
@@ -484,6 +506,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
 | character | cast_id | id | 3.5b. The person who plays them; missing, trashed or gone reads as no one |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
+| scene | department_approvals | object by department id | 3.6b (schema 9). `{ "camera": [{ "name": "Kevin Matos", "roles": ["dp"], "at": "<ISO time>", "basis": "<14 hex digits>" }] }`: the director's or the DP's sign-offs on the whole scene, named as shot approvals were (the approver's name as it was then, or initials, or empty; one person who is both is one approval with both roles). `basis` fingerprints what the department touched in the scene when it was given: the scene's props but this one; its live frames and note cards in sibling order, each frame's props but `department_status`, its picture's stored file (the media record's `file`, a sha256) and its strokes' ids; and that department's own `working` and `done` on each frame (cyrb53 over canonical JSON, src/core/model/sceneApprovals.ts). When it no longer matches, the app shows "Changed since approval". Missing or empty for a scene without approvals. Departments, approvals and fields this version doesn't know are kept as they are |
 | shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
 | shot | title | text | Nov 5 (a prop, no table change): an optional title, "Mary wipes the counter", edited in place. Missing for none, as in every older file; an emptied title is taken off |
 | shot | size | `EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT` | |
@@ -492,7 +515,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | shot | support, height, move | text | From lists in the inspector (1.8); free text is kept |
 | shot | status | `have`, `need`, `source` | A new frame is `need` |
 | shot | action, dialogue | text | |
-| shot | department_status | object by department id | Polish 6 (schema 6). `{ "camera": { "priority": true, "working": true, "done": true, "approvals": [{ "name": "Kevin Matos", "roles": ["director", "dp"], "at": "<ISO time>" }] } }`: only what's set. `approvals` are the director's or the DP's sign-offs, with the approver's name as it was then: their profile name, or their initials if they chose that or gave no name (the same rule as `ops.author`; empty with neither) and their roles; one person who is both is one approval with both roles. Ids, fields and approvals this version doesn't know are kept as they are; an approval is written back exactly as read (the app only adds or removes one). Department ids: src/core/model/department.ts |
+| shot | department_status | object by department id | Polish 6 (schema 6). `{ "camera": { "priority": true, "working": true, "done": true } }`: only what's set. Until schema 9 an entry also kept `approvals`, the frame's own sign-offs by the director or the DP (`{ name, roles, at }`); migration 9 moved them to the scene (`department_approvals`) and took them off. One read from an older point in History is written back as stored. Ids and fields this version doesn't know are kept as they are. Department ids: src/core/model/department.ts |
 | shot | departments | array of department ids | Before schema 6 only: read as Priority, taken off by the migration |
 | shot | media_id | record id | 1.11. The `media` record the frame shows, a child of the shot. Missing for an empty frame |
 | shot | crop | `{ x, y, zoom }` | 1.11. How the picture sits in the frame (below). Missing means centred at zoom 1 |
@@ -838,6 +861,7 @@ is each person's read state, in two tables.
 | 6 | Polish 6 | Department status: each shot's `departments` list becomes `department_status`, the departments that were on as Priority. No table change |
 | 7 | Polish 6b | Seen: `shot_seen` |
 | 8 | 2.2 | Video: `media` records of kind `video`, the shot prop `clip`, the picture prop `from_video`; `luts` |
+| 9 | 3.6b | Approvals per scene: the scene prop `department_approvals`, carried from the frames' where every frame had one; `approvals` off every shot's `department_status`. No table change |
 | later | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema

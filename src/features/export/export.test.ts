@@ -253,13 +253,13 @@ describe('the shot list CSV', () => {
     ]);
     const header = (scope: Parameters<typeof shotListCsv>[2]) =>
       shotListCsv(store.getState().records, project.projectId, scope).replace(/^\uFEFF/, '').split('\r\n')[0] ?? '';
-    expect(header({ kind: 'project' }).endsWith(',Departments,Drone,Nudity rider')).toBe(true);
+    expect(header({ kind: 'project' }).endsWith(',Departments,Scene approvals,Drone,Nudity rider')).toBe(true);
     // One scene alone: its own fields, not a column of blanks for another scene's.
-    expect(header({ kind: 'scene', sceneId: 'sc4' }).endsWith(',Departments,Drone')).toBe(true);
+    expect(header({ kind: 'scene', sceneId: 'sc4' }).endsWith(',Departments,Scene approvals,Drone')).toBe(true);
     // The scene goes to the Trash; its frame stays live under it, but neither it nor its field's name goes out.
     await store.getState().apply([{ kind: 'trash', id: 'sc5' }]);
     expect(store.getState().records[b]?.trashedAt).toBeNull();
-    expect(header({ kind: 'project' }).endsWith(',Departments,Drone')).toBe(true);
+    expect(header({ kind: 'project' }).endsWith(',Departments,Scene approvals,Drone')).toBe(true);
     expect(shotListCsv(store.getState().records, project.projectId, { kind: 'project' })).not.toContain('Nudity rider');
   });
 
@@ -289,15 +289,19 @@ describe('the shot list CSV', () => {
       { kind: 'update', id: a, ...withField(store.getState().records[a]?.props ?? {}, 'Drone', 'no') },
     ]);
     await store.getState().apply([{ kind: 'update', id: c, set: { size: 'WS', dialogue: 'We’re closed.' } }]);
+    // The scene's approvals (3.6b) on each of its rows: one given before a change says so.
+    await store.getState().apply([
+      { kind: 'update', id: 'sc4', set: { department_approvals: { sound: [{ name: 'Kevin Matos', roles: ['dp'], at: 'x', basis: 'before' }] } } },
+    ]);
     // A frame in the Trash never goes out.
     await store.getState().applyWith((now) => ({ changes: trashShot(now, project.projectId, b) }));
 
     expect(shotListCsv(store.getState().records, project.projectId, { kind: 'project' })).toBe(
       '﻿' +
         [
-          'Scene,Heading,Length,Location,Shot,Size,Lens (mm),T-stop,Support,Height,Move,Status,Action,Dialogue,Departments,Drone',
-          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4A,MCU,35,T2.8,,,,Have,"Mary wipes the counter, ""slowly"".",,Camera: Priority; Art: Priority; Sound: Done,no',
-          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4B,WS,,,,,,Need to shoot,,We’re closed.,,',
+          'Scene,Heading,Length,Location,Shot,Size,Lens (mm),T-stop,Support,Height,Move,Status,Action,Dialogue,Departments,Scene approvals,Drone',
+          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4A,MCU,35,T2.8,,,,Have,"Mary wipes the counter, ""slowly"".",,Camera: Priority; Art: Priority; Sound: Done,Sound: approved by Kevin Matos (DP) before the change,no',
+          '4,INT. DINER — NIGHT,1 3/8 pg,Bey County Diner,4B,WS,,,,,,Need to shoot,,We’re closed.,,Sound: approved by Kevin Matos (DP) before the change,',
         ].join('\r\n') +
         '\r\n',
     );

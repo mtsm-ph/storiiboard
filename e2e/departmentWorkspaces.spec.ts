@@ -67,6 +67,11 @@ test('a department’s row on a frame opens its workspace: the frame, the scene 
   await page.keyboard.press(await undoKey(page));
   await expect(row.getByRole('checkbox', { name: 'Camera: Priority', exact: true })).toHaveAttribute('aria-checked', 'false');
 
+  // The scene's approval (3.6b), Camera's row alone; nobody here approves yet.
+  const approval = view(page).getByRole('grid', { name: 'Department approvals for SC 01' });
+  await expect(approval.getByRole('checkbox')).toHaveCount(1);
+  await expect(approval.getByRole('checkbox', { name: 'Camera: Approved', exact: true })).toHaveAttribute('aria-disabled', 'true');
+
   // Picking another frame in the list picks it for the inspector too; the people are Camera's.
   await frames.nth(1).click();
   await expect(frames.nth(1)).toHaveAttribute('aria-current', 'true');

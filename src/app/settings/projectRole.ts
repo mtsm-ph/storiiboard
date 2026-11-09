@@ -9,8 +9,8 @@ import { loadSettings, MAX_PROJECT_ROLES, saveSettings } from '../../core/storag
 import { editAuthor, NO_AUTHOR, profileStore, useProfile } from './profileStore';
 
 // "Your role on this project" (polish 6, Settings → Project): the person's role on one project, in place of their
-// profile's usual role there. It says what they can approve on a shot, and (polish 6b) which department opening a
-// shot marks Seen. Kept on this computer by project id, like the profile.
+// profile's usual role there. It says what they can approve (per scene since 3.6b), and (polish 6b) which department
+// opening a shot marks Seen. Kept on this computer by project id, like the profile.
 //
 // From 3.5c, picking yourself in the project's Cast and crew takes its place: that person's role and departments
 // decide (docs/PHASE3_DECISIONS.md 4). Which person is you is kept on this computer too, never in the file, so a

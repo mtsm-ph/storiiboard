@@ -2,7 +2,9 @@ import { frameLocationId } from '../../core/model/location';
 import { customFieldsOf, customValue, fieldNamesOf } from '../../core/model/customFields';
 import { departmentName, departmentStates, departmentStatesText } from '../../core/model/departmentStatus';
 import { loadSeen, NO_SEEN, type Seen } from '../../core/storage/seen';
-import type { SbdRecord } from '../../core/model/record';
+import type { Props, SbdRecord } from '../../core/model/record';
+import { DEPARTMENTS } from '../../core/model/department';
+import { approvalBasis, approvalsIn, sceneApprovalLine, sceneApprovals } from '../../core/model/sceneApprovals';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, SHOT_SIZE_LABEL, SUPPORT_LABEL, tStopLabel } from '../../core/model/storyboard';
 import { headingOf } from '../storyboard/ScenesView';
@@ -34,6 +36,7 @@ const COLUMNS = [
   'field.action',
   'field.dialogue',
   'field.departments',
+  'field.sceneApprovals',
 ] as const;
 
 /**
@@ -43,6 +46,21 @@ const COLUMNS = [
 export function csvCell(value: string): string {
   const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
   return /[",\r\n]|^\s|\s$/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** Each department the scene's approved for, in call-sheet order (ids a newer version added last), said as the inspector says it. */
+function sceneApprovalCell(records: Records, sceneId: string, props: Props): string {
+  const approvals = sceneApprovals(props);
+  const known: readonly string[] = DEPARTMENTS;
+  const ids = [...DEPARTMENTS.filter((d) => d in approvals), ...Object.keys(approvals).filter((d) => !known.includes(d))];
+  return ids
+    .map((department) =>
+      t('export.csv.department', {
+        department: departmentName(department),
+        states: sceneApprovalLine(approvalsIn(approvals, department), approvalBasis(records, sceneId, department)),
+      }),
+    )
+    .join('; ');
 }
 
 export function shotListCsv(records: Records, projectId: string, scope: ExportScope, seen: Seen = NO_SEEN): string {
@@ -78,6 +96,8 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
         departmentStates(f.departmentStatus, seen[shot.record.id] ?? [])
           .map(({ department }) => t('export.csv.department', { department: departmentName(department), states: departmentStatesText(f.departmentStatus, seen[shot.record.id] ?? [], department) }))
           .join('; '),
+        // The scene's approvals (3.6b), on each of its frames' rows: "Camera: approved by Kevin Matos (DP)".
+        sceneApprovalCell(records, scene.record.id, scene.record.props),
         // The column has the spelling most frames use; a frame that spells it `drone` still fills `Drone`.
         ...custom.map((name) => customValue(own, name)),
       ]);

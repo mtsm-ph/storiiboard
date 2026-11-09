@@ -37,7 +37,8 @@ describe('a department’s view of a scene', () => {
     const frames = departmentFrames(records, 's1', 'camera', { c: ['camera', 'sound'], a: ['sound'] });
     expect(frames.map((f) => [f.shot.fields.number, f.states])).toEqual([
       ['4A', ['priority', 'done']],
-      ['4B', ['approved']],
+      // A frame's own approvals from before schema 9 count for nothing here: approvals are the scene's (3.6b).
+      ['4B', []],
       ['4C', ['seen']],
     ]);
     // Another department reads its own row of the same frames.
@@ -57,7 +58,6 @@ describe('a department’s view of a scene', () => {
       { state: 'priority', count: 1 },
       { state: 'seen', count: 1 },
       { state: 'done', count: 1 },
-      { state: 'approved', count: 1 },
     ]);
     expect(departmentCounts([])).toEqual([]);
   });

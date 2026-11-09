@@ -7,8 +7,9 @@ import { slateNumbers } from './005_slate_numbers';
 import { departmentStatus } from './006_department_status';
 import { shotSeen } from './007_shot_seen';
 import { video } from './008_video';
+import { sceneApprovals } from './009_scene_approvals';
 
 /** Every migration, oldest first. A file's schema version is the number of migrations it has run. */
-export const MIGRATIONS: readonly Migration[] = [initial, historyLog, media, versions, slateNumbers, departmentStatus, shotSeen, video];
+export const MIGRATIONS: readonly Migration[] = [initial, historyLog, media, versions, slateNumbers, departmentStatus, shotSeen, video, sceneApprovals];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

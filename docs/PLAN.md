@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.5c merged, 3.6a in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6a merged, 3.6b in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 8, 2026 (3.6a in review) |
+| Last updated | Nov 9, 2026 (3.6b in review) |
 
 | Phase | State |
 |---|---|
@@ -41,12 +41,14 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
 | 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
 | 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | #91 | Done |
-| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
+| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, a schema bump) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
-| 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | In review |
-| 3.6b Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1; split from 3.6, decided by default, review) | | Not started |
+| 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | Done |
+| 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | | In review |
+| 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | | Not started |
+| 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
 | 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
@@ -56,6 +58,38 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.6b as built (Nov 9): approvals per scene (`src/core/model/sceneApprovals.ts`, schema 9).
+- The director or the DP approves each department once per scene, in the Inspector's new Approvals · SC 04 section (a
+  row per department in call-sheet order, one Approved box each, who gave it) and in a department's workspace (its
+  row alone). Seen, Working on it and Done stay per frame; a frame's table now ends at Done, with a line pointing to
+  the scene's approvals.
+- Each approval keeps a fingerprint of what that department touches in the scene when it was given: the scene's own
+  fields; its frames and note cards in board order, each frame's fields, picture (by content) and sketch; and that
+  department's own Working on it and Done on each frame. Priority, Seen, the approvals and other departments' ticks
+  are left out. When the scene no longer matches, the row says "Changed since approval" (in the warning colour and in
+  words) and who approved "before the change"; the approver's box unticks, and ticking it gives the approval again,
+  now. Undoing the change makes it current again, as a fingerprint rather than a time allows.
+- Migration 9 (backup first, as every migration; approved by Kevin Nov 9 since it alters data): a scene is approved
+  for a department, by an approver, only if every frame in it was, with the latest of those approvals' name and
+  time, and starts current. Every frame's approvals then come off (one this version can't read stays). A scene in
+  the Trash counts the frames that went with it. The upgrade is one step in History, listing what moved and what
+  came off, and the undo stack ends there, as at Empty Trash, so ⌘Z never writes a record back in the older shape.
+  Restore to a point before it is a choice undo takes back; that point has no approvals on its scenes.
+- History lists a scene's approvals by department ("Camera: — → approved by Sam Reyes (DP)"), never the fingerprint,
+  and never offers one to put back. The shot list CSV has a Scene approvals column.
+- Decided by default, review: every department counts as touching every frame's fields (as polish 6 has it, every
+  department is involved in every frame), so a finer map per department waits for department-specific fields; no
+  approvals marker on the board's scene headings yet (the Inspector and the department workspace show them).
+- Folded in: `.gitignore` keeps installers out (`*.msi`, `*.exe`, `msi/`, `nsis/`); CLAUDE.md's Navigation names the
+  sidebar's Departments list and its Tool rules department status; Phase 7's image-prompt and coverage notes below.
+- Tests: the model (sign-offs per approver, given again after a change, taken back, what's written back untouched,
+  History's words, a DP's tick taking back the DP's sign-off), the fingerprint (what changes it and what doesn't, a
+  picture by its stored file, undo, the Trash), migration 9 (carried only where every frame had it, one person who
+  was both, unknown departments, the Trash, approvals off every frame, unreadable ones kept, starting current, one
+  logged step that ⌘Z can't pass, Restore to before it undone), History, the CSV; end to end, approving from Director and DP, a change of Camera's own tick and
+  of another frame shown and undone, approved again, kept after a reload, taken back, the department workspace's row,
+  axe with a changed approval.
 
 3.6a as built (Nov 8): department workspaces (`src/features/department/`, `src/app/shell/workspaceStore.ts`).
 - In the Inspector's department table, each department's name opens its workspace: a cell of the table's grid left
@@ -1410,6 +1444,17 @@ Nov 3):
   anamorphic lens records its squeeze factor, such as 1.33x or 2x, which widens the horizontal field of view by that
   factor at the same focal length. The shot's `lens_mm` stays the focal length used; the range and squeeze are new
   props, proposed for approval in Phase 6's plan.
+
+### Phase 7 notes (shot prompts and coverage; Kevin, Nov 9)
+
+Not built now. Storiiboard never generates images itself.
+- From an imported script, propose scene and shot templates, suggested coverage per scene (master, mediums, singles,
+  inserts), as suggestions Kevin approves in the review screen.
+- For each shot, write an image-generation prompt from its data (size, lens, movement, INT/EXT, time of day,
+  location, characters, action, the scene's palette, aspect ratio) to copy into the AI image tool of the person's
+  choice.
+- A frame can be marked "AI-generated image", shown as a small badge on the board and in exports.
+- A "Copy image prompt" button builds the same prompt from shot data without AI, so it works without the MCP.
 
 ### Phase 8 release checklist
 

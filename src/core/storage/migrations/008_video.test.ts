@@ -39,10 +39,9 @@ async function v7File(): Promise<string> {
 
 describe('schema 8: video', () => {
   it('backs the file up, adds the luts table, and leaves every record as it was', async () => {
-    expect(SCHEMA_VERSION).toBe(8);
     const path = await v7File();
     project = await openProject(path, { driver: nodeDriver, backups: false });
-    expect(project.migration).toMatchObject({ from: 7, to: 8 });
+    expect(project.migration).toMatchObject({ from: 7, to: SCHEMA_VERSION });
     expect(readdirSync(folder.dir).some((name) => name.startsWith('Bey County.sbd.bak-v7-'))).toBe(true);
     expect((await getRecord(project.file, 'a'))?.props).toEqual({ number: '4A', media_id: 'm' });
     expect((await getRecord(project.file, 'm'))?.props).toEqual({ kind: 'image', file: 'f'.repeat(64), width: 1920, height: 1080 });

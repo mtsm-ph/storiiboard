@@ -13,6 +13,9 @@ import { Select } from '../../ui/fields';
 import { DepartmentStateGlyph } from '../../ui/glyphs';
 import { StatusGlyph } from '../../ui/tags';
 import { DepartmentStatusTable } from '../storyboard/DepartmentStatusTable';
+import { SceneApprovalTable } from '../storyboard/SceneApprovalTable';
+import { approveSceneDepartment } from '../storyboard/sceneApprovalEdit';
+import { approvalBasis, sceneApprovals } from '../../core/model/sceneApprovals';
 import { editDepartmentStatus } from '../storyboard/departmentEdit';
 import { FrameImage } from '../storyboard/FrameImage';
 import { pictureView } from '../storyboard/framePictures';
@@ -123,8 +126,6 @@ export function DepartmentTile() {
                 only={department}
                 statuses={frame.shot.fields.departmentStatus}
                 seen={seen[frame.shot.record.id] ?? []}
-                approval={() => approvalNow(role, new Date(), signatureOf(me))}
-                myRoles={approverRoles(role)}
                 onEdit={(edit) => {
                   editDepartmentStatus(frame.shot.record.id, edit);
                 }}
@@ -141,6 +142,20 @@ export function DepartmentTile() {
             <h3 id={`${base}-scene`} className="sb-label border-b-[1.5px] border-border pb-1">
               {t('departmentView.thisScene')}
             </h3>
+            {/* The department's approval of the whole scene (3.6b), as the inspector gives it, this department's row alone. */}
+            <div className="max-w-[360px]">
+              <SceneApprovalTable
+                key={`${live.id}-${department}`}
+                scene={sceneLabel(sceneFields(live.props).number)}
+                approvals={sceneApprovals(live.props)}
+                basisOf={(d) => approvalBasis(records, live.id, d)}
+                departments={[department]}
+                myRoles={approverRoles(role)}
+                onApprove={(d) => {
+                  approveSceneDepartment(live.id, d, () => approvalNow(role, new Date(), signatureOf(me)));
+                }}
+              />
+            </div>
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
               <span className="font-mono">{tn('departmentView.frames', frames.length)}</span>
               {counts.map(({ state, count }) => (

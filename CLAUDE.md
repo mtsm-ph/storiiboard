@@ -131,6 +131,9 @@
   - Camera field of view = 2 * atan(sensor_width / (2 * focal_length)).
   - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking.
   - One plan per scene setup, linked to its shots.
+- Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
+  scene (3.6b), only by the director or the DP, showing "Changed since approval" once what that department touches
+  in the scene changes. A department's name in the Inspector opens its workspace (3.6a).
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
@@ -159,8 +162,10 @@
   layout; Notifications and Trash are in none.
 - Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
   and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Production (schedule, calendar, call sheets,
-  locations, gear, cast and crew), Moodboard. Each section is a workspace. At its foot: the web version (Phase 9),
-  Hide sidebar, a Settings gear (Settings is an in-app window, not a section) and the person's local profile.
+  locations, gear, cast and crew), Moodboard. Each section is a workspace. Below the sections, Departments: the
+  department workspaces the person has opened (3.6a), in call-sheet order; Delete takes one off. At its foot: the web
+  version (Phase 9), Hide sidebar, a Settings gear (Settings is an in-app window, not a section) and the person's
+  local profile.
   - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
   - Switching projects opens the other .sbd in place, without reloading the window.
 - Project themes (Phase 1): colours come from the project's logo or key image, worked out on the device.

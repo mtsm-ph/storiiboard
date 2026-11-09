@@ -1,7 +1,7 @@
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
-import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
+import type { DepartmentStatuses } from '../../core/model/departmentStatus';
 import type { Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
 import {
@@ -158,15 +158,12 @@ export interface InspectorViewProps {
   palette?: ReactNode;
   /** A department status edit (polish 6), worked out from the frame as it is when the edit lands. */
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
-  /** The approval this person would give a department now (polish 6); null when their role doesn't approve. */
-  approval?: () => Approval | null;
-  /** The roles their role on the project approves in: director, DP, both, or none. */
-  myRoles?: readonly Approver[];
+  /** The scene's department approvals (3.6b), in a section of their own after the scene's. */
+  approvals?: ReactNode;
   /** Opens a department's workspace from its name in the department table (3.6a). */
   onOpenDepartment?: (department: Department) => void;
 }
 
-const NO_ROLES: readonly Approver[] = [];
 const NOTHING_SEEN: readonly string[] = [];
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = labels({ have: 'shotStatus.have', need: 'inspector.need', source: 'shotStatus.source' });
@@ -520,8 +517,7 @@ export function InspectorView({
   customNames = [],
   customHidden = [],
   onCustomChange,
-  approval,
-  myRoles = NO_ROLES,
+  approvals,
   onOpenDepartment,
   onDepartmentStatus,
   seen = NOTHING_SEEN,
@@ -875,13 +871,13 @@ export function InspectorView({
               key={shot.id}
               statuses={shot.fields.departmentStatus}
               seen={seen}
-              approval={approval ?? (() => null)}
-              myRoles={myRoles}
               onEdit={(edit) => {
                 onDepartmentStatus?.(edit);
               }}
               {...(onOpenDepartment ? { onOpen: onOpenDepartment } : {})}
             />
+            {/* Approved left the frame for the scene (3.6b): said here, where people looked for it. */}
+            {approvals && <p className="text-[12px] text-text-muted">{t('departmentStatus.approvedPerScene', { scene: sceneLabel(s.number) })}</p>}
           </Section>
 
           {onCustomChange && (
@@ -952,6 +948,8 @@ export function InspectorView({
           />
         </div>
       </Section>
+
+      {approvals && <Section title={t('sceneApproval.title', { scene: sceneLabel(s.number) })}>{approvals}</Section>}
 
       {palette && <Section title={t('palette.title')}>{palette}</Section>}
 

@@ -23,3 +23,8 @@ Storiiboard Design Kit/
 REPORT.local.md
 # ffmpeg and ffprobe sidecars, built by scripts/ffmpeg/build.sh (CI caches them); never committed.
 src-tauri/binaries/
+# Installers (Nov 9): downloaded from a checkpoint run into the repo folder, never committed.
+*.msi
+*.exe
+msi/
+nsis/

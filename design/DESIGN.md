@@ -78,12 +78,15 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Seen: an eye with a navy pupil (lifted to a light blue in dark mode, where navy would vanish).
   - Working on it: a circle half-filled with mustard.
   - Done: a sage circle with a check and a soft sage glow: the one glow in the app, on this glyph only.
-  - Approved: a filled diamond, in ink; who approved is written next to it. A director or DP sees it hollow when
-    only someone else has approved (the box reads "mixed").
+  - Approved (per scene, 3.6b): a filled diamond, in ink; who approved is written next to it. A director or DP sees
+    it hollow when only someone else has approved (the box reads "mixed"). Hollow too once the scene has changed
+    since, with "Changed since approval" as a 10px label on the warning fill (paper text) and "approved by … before
+    the change" in words, so colour is never the only cue.
   - In the inspector, a grid: a row per department, Priority first (fixed while the frame stays open), a 22px box per
-    state with the glyph inside when ticked. One Tab stop; the arrows move, Space ticks. Approved has a dashed box and
-    says why when the person's role on the project isn't the director or the DP. Seen has a dotted box: automatic,
-    never ticked by hand. Below the grid, who approved, and a key naming each shape in words.
+    state with the glyph inside when ticked. One Tab stop; the arrows move, Space ticks. Seen has a dotted box:
+    automatic, never ticked by hand. Below the grid, a key naming each shape in words. The scene's approvals are a
+    grid of their own in the Inspector, Approvals · SC 04: a row per department in call-sheet order, the name with who
+    approved under it, and one 22px box; dashed, with why, when the person's role isn't the director or the DP.
   - On a frame card, a line under the strip with a 10px shape and a mono count per state ("▲2 👁1 ✓1"). The line
     keeps its height when empty, so no card grows when Seen lands; its words are the card's description. In the shot list's Departments column, each such department
     with its shapes, Priority first.

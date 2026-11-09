@@ -1,41 +1,25 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { t } from '../../core/i18n';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
-import {
-  approvalWho,
-  approvedByMe,
-  DEPARTMENT_STATE_LABELS,
-  inState,
-  orderedDepartments,
-  statusIn,
-  withMyApproval,
-  withState,
-  type Approval,
-  type Approver,
-  type DepartmentStatuses,
-} from '../../core/model/departmentStatus';
+import { DEPARTMENT_STATE_LABELS, DEPARTMENT_STATES, inState, orderedDepartments, statusIn, withState, type DepartmentStatuses } from '../../core/model/departmentStatus';
 import { DepartmentStateGlyph } from '../../ui/glyphs';
 
 // Department status in the inspector (polish 6): a row per department, Priority first, and a box per state. One Tab
-// stop for the whole table; the arrows move between boxes and Space ticks, as in a spreadsheet. Approved is the
-// director's or the DP's: for anyone else it says why it can't be ticked, rather than hiding. In the inspector, each
+// stop for the whole table; the arrows move between boxes and Space ticks, as in a spreadsheet. In the inspector, each
 // department's name opens its workspace (3.6a): a cell of its own, left of Priority, in the same arrow-key grid.
+// Approved is the scene's since 3.6b (SceneApprovalTable), so a frame's columns end at Done.
 
 /** The columns, in order. Seen is automatic (polish 6b): shown, never ticked by hand. */
-const COLUMNS = ['priority', 'seen', 'working', 'done', 'approved'] as const;
+const COLUMNS = DEPARTMENT_STATES;
 type Column = (typeof COLUMNS)[number];
 
 /** The department's name, then a 28px column per state. */
-const ROW = 'grid grid-cols-[minmax(0,1fr)_repeat(5,28px)] items-center';
+const ROW = 'grid grid-cols-[minmax(0,1fr)_repeat(4,28px)] items-center';
 
 interface DepartmentStatusTableProps {
   statuses: DepartmentStatuses;
   /** The departments that have opened this frame (polish 6b). */
   seen: readonly string[];
-  /** The approval this person would give, or null when their role on the project doesn't approve. */
-  approval: () => Approval | null;
-  /** The roles this person approves in on this project: director, DP, both, or none. */
-  myRoles: readonly Approver[];
   /**
    * An edit, worked out from the frame's statuses as they are when it lands, not as this render saw them: two quick
    * ticks both stay. Null leaves the frame as it is.
@@ -47,8 +31,7 @@ interface DepartmentStatusTableProps {
   only?: Department;
 }
 
-export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdit, onOpen, only }: DepartmentStatusTableProps) {
-  const canApprove = myRoles.length > 0;
+export function DepartmentStatusTable({ statuses, seen, onEdit, onOpen, only }: DepartmentStatusTableProps) {
   // The order is fixed while the inspector shows this frame: ticking Priority mustn't move the row away from focus.
   const [order] = useState(() => (only ? [only] : orderedDepartments(statuses)));
   // With names that open a workspace, they're the grid's first column; the states' columns count on after them.
@@ -60,16 +43,7 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
 
   const toggle = (department: Department, column: Column) => {
     if (column === 'seen') return;
-    if (column !== 'approved') {
-      onEdit((now) => withState(now, department, column, !statusIn(now, department)[column]));
-      return;
-    }
-    if (!canApprove) return;
-    // Their own sign-off, with their name and role, or taken back if they gave it; anyone else's stays.
-    onEdit((now) => {
-      const mine = approval();
-      return mine ? withMyApproval(now, department, mine) : null;
-    });
+    onEdit((now) => withState(now, department, column, !statusIn(now, department)[column]));
   };
 
   const move = (row: number, col: number) => {
@@ -91,8 +65,6 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
     event.preventDefault();
     move(...to);
   };
-
-  const approved = order.flatMap((department) => statusIn(statuses, department).approvals.map((a) => ({ department, a })));
 
   return (
     <div className="flex flex-col gap-2">
@@ -146,22 +118,17 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
               {COLUMNS.map((column, index) => {
                 const col = index + offset;
                 const on = inState(statuses, seen, department, column);
-                const off = column === 'approved' && !canApprove;
                 const automatic = column === 'seen';
-                // For a director or DP, Approved is their own sign-off: ticked when they've given it, mixed when only
-                // someone else has, so a click always changes what the box says. For anyone else, whether it's approved.
-                const checked = column === 'approved' && canApprove ? (approvedByMe(status, myRoles) ? true : on ? 'mixed' : false) : on;
                 const label = t('departmentStatus.cell', { department: DEPARTMENT_LABELS[department], state: DEPARTMENT_STATE_LABELS[column] });
                 return (
                   <span key={column} role="gridcell" className="flex justify-center">
                     <button
                       type="button"
                       role="checkbox"
-                      aria-checked={checked}
+                      aria-checked={on}
                       aria-label={label}
-                      aria-disabled={off || undefined}
                       aria-readonly={automatic || undefined}
-                      title={off ? t('departmentStatus.approveWho') : automatic ? t('departmentStatus.seenHow') : label}
+                      title={automatic ? t('departmentStatus.seenHow') : label}
                       data-cell={`${String(row)}-${String(col)}`}
                       tabIndex={at.row === row && at.col === col ? 0 : -1}
                       onFocus={() => {
@@ -173,9 +140,9 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
                       onClick={() => {
                         toggle(department, column);
                       }}
-                      className={`inline-flex size-[22px] items-center justify-center border-text focus-visible:outline-offset-1 ${off ? 'border border-dashed' : automatic ? 'border border-dotted' : 'border'}`}
+                      className={`inline-flex size-[22px] items-center justify-center border-text focus-visible:outline-offset-1 ${automatic ? 'border border-dotted' : 'border'}`}
                     >
-                      {on && <DepartmentStateGlyph state={column} hollow={checked === 'mixed'} />}
+                      {on && <DepartmentStateGlyph state={column} />}
                     </button>
                   </span>
                 );
@@ -184,16 +151,6 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
           );
         })}
       </div>
-      {approved.length > 0 && (
-        <ul aria-label={t('departmentStatus.approvals')} className="flex flex-col gap-0.5 text-[12px]">
-          {approved.map(({ department, a }, i) => (
-            <li key={`${department}-${String(i)}`} className="flex items-center gap-1.5">
-              <DepartmentStateGlyph state="approved" size={10} />
-              {t('departmentStatus.approvedBy', { department: DEPARTMENT_LABELS[department], who: approvalWho(a) })}
-            </li>
-          ))}
-        </ul>
-      )}
       {/* The columns in words, for anyone who doesn't know the shapes yet. */}
       <ul aria-label={t('departmentStatus.legend')} className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
         {COLUMNS.map((column) => (
@@ -203,7 +160,6 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
           </li>
         ))}
       </ul>
-      {!canApprove && <p className="text-[12px] text-text-muted">{t('departmentStatus.approveHow')}</p>}
     </div>
   );
 }
