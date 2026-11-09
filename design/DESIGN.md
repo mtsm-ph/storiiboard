@@ -120,6 +120,8 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   - Storyboard expands to its scenes, "SC 04  Scene Name" with the number in JetBrains Mono, ending with "+ Add Scene".
     Setup expands to its setups by scene.
   - Production holds the schedule, calendar, call sheets, locations, gear, and cast and crew.
+  - Under the sections, Departments: the department workspaces the person has opened from a frame's department row,
+    in the call sheet's order, styled as the sections are. Delete on one, or Layout → Remove from sidebar, takes it off.
 - **States:** the active section is an accent fill with bold ink text. The active scene has an accent marker and a
   bold name. Sections not built yet are muted and show their phase.
 - **Keyboard:** arrow keys move through the sidebar, Enter opens, Alt+1 to 6 jump to a section.

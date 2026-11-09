@@ -1,10 +1,14 @@
 import { t } from '../../core/i18n';
+import { DEPARTMENT_LABELS, DEPARTMENTS, type Department } from '../../core/model/department';
 import { split, stack, type Layout, type TileId } from './docking/layout';
 
 // One workspace per sidebar section (D3), in the sidebar's order, with default layouts sized for the design boards'
 // 1440px. People rearrange them by docking (D2); the tiles stay empty until each tool's phase fills them.
 
-export type WorkspaceId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard';
+export type SectionId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard';
+/** A department's own workspace (3.6a), opened from its row on a frame. */
+export type DepartmentWorkspaceId = `department-${Department}`;
+export type WorkspaceId = SectionId | DepartmentWorkspaceId;
 
 export interface TileInfo {
   title: string;
@@ -37,6 +41,7 @@ const BUILT_IN_TILES = [
   'history',
   'trash',
   'colorScript',
+  'department',
 ] as const;
 type BuiltInTile = (typeof BUILT_IN_TILES)[number];
 
@@ -74,7 +79,7 @@ export interface Workspace {
 const layout = (root: Layout['root']): Layout => ({ root, maximized: null });
 
 // Sizes are in px at the boards' 1440 x 900; the layout keeps them as shares, so they scale with the window.
-export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
+export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace & { id: SectionId })[]] = [
   {
     id: 'storyboard',
     get label() {
@@ -172,6 +177,42 @@ export const WORKSPACES: readonly [Workspace, ...Workspace[]] = [
     defaultLayout: () => layout(stack(['moodboard'])),
   },
 ];
+
+export function departmentWorkspaceId(department: Department): DepartmentWorkspaceId {
+  return `department-${department}`;
+}
+
+/** The department a workspace belongs to, or null for a section. */
+export function departmentOf(id: WorkspaceId): Department | null {
+  return id.startsWith('department-') ? (id.slice('department-'.length) as Department) : null;
+}
+
+/**
+ * A department's workspace (3.6a): its view of the frame and the scene (the Department tile) between the scenes and
+ * the inspector, laid out as the Storyboard is, so the frame picked there is the one the department looks at.
+ */
+function departmentWorkspace(department: Department): Workspace & { id: DepartmentWorkspaceId } {
+  return {
+    id: departmentWorkspaceId(department),
+    get label() {
+      return DEPARTMENT_LABELS[department];
+    },
+    phase: null,
+    order: ['scenes', 'department', 'inspector'],
+    defaultLayout: () => layout(split('row', [stack(['scenes']), stack(['department']), stack(['inspector'])], [248, 824, 336])),
+  };
+}
+
+/** One workspace per department, in the call sheet's order. The sidebar lists those the person has opened. */
+export const DEPARTMENT_WORKSPACES: readonly (Workspace & { id: DepartmentWorkspaceId })[] = DEPARTMENTS.map(departmentWorkspace);
+
+/** Every workspace: the sections, then the departments'. Each keeps a layout of its own. */
+export const ALL_WORKSPACES: readonly [Workspace, ...Workspace[]] = [...WORKSPACES, ...DEPARTMENT_WORKSPACES];
+
+/** A workspace by its id; the Storyboard for one this version doesn't have. */
+export function workspaceById(id: WorkspaceId): Workspace {
+  return ALL_WORKSPACES.find((w) => w.id === id) ?? WORKSPACES[0];
+}
 
 export const WORKSPACE_PANEL_ID = 'workspace-panel';
 

@@ -4,8 +4,10 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { mediaFields } from '../../core/media/store';
 import { customFieldNames, customFieldsOf, hiddenFieldNames } from '../../core/model/customFields';
 import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
-import { approvalNow, useMyPart } from '../../app/settings/projectRole';
-import { approverRoles, departmentStatusChange, departmentStatuses } from '../../core/model/departmentStatus';
+import { approvalNow, signatureOf, useMyPart } from '../../app/settings/projectRole';
+import { approverRoles } from '../../core/model/departmentStatus';
+import { editDepartmentStatus } from './departmentEdit';
+import { openDepartment } from '../department/openDepartment';
 import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
 import { copyHex, editPalette, generatePalette } from './palette/actions';
@@ -66,7 +68,7 @@ export function InspectorTile() {
   // project (polish 6), else their usual one.
   const { role, person: me } = useMyPart(project?.projectId);
   // The name you sign with once you've picked yourself (3.5c): that person's, '' when they're unnamed; null otherwise.
-  const myName = me ? (typeof me.props.name === 'string' ? me.props.name.trim() : '') : null;
+  const myName = signatureOf(me);
   const seen = useProject((s) => (shotId ? s.seen[shotId] : undefined));
   const picking = useEyedropperScene();
   // Before the early return, as every hook: whether the selected frame's video is missing here.
@@ -208,14 +210,9 @@ export function InspectorTile() {
           focusBoard(shot?.id ?? null, scene?.id ?? null);
         }}
         onDepartmentStatus={(edit) => {
-          if (!shot) return;
-          // From the frame as it is when this lands, as custom fields are: two quick ticks both stay.
-          void projectStore.getState().applyWith((now) => {
-            const current = now[shot.id];
-            const next = current ? edit(departmentStatuses(current.props)) : null;
-            return { changes: current && next ? [{ kind: 'update', id: shot.id, ...departmentStatusChange(next) }] : [] };
-          });
+          if (shot) editDepartmentStatus(shot.id, edit);
         }}
+        onOpenDepartment={openDepartment}
         palette={
           scene ? (
             <PaletteEditor

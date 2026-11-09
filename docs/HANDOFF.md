@@ -366,6 +366,11 @@ Round 1: no high, two mediums, fixed.
   with no name (the role alone), never the profile's. Low left: the Inspector itself doesn't say why a picked person
   with no role can't approve (its usual "Only the director or the DP can tick Approved." shows; Settings → Project says
   more).
+- Round 3: nothing high or medium. Its two nits went into 3.6a: a picked person named exactly "local" (the edit log's
+  word for no name) signs with no name; a PLAN.md line rewrapped.
+- Kevin, Nov 8: both defaults approved (signed with the picked person's name; Seen is the role's departments with the
+  ticked ones). The lows below can wait. If `projects.spec`'s JSON export test fails again, fix its cause rather than
+  rerun it.
 - Lows left: a pick naming a person Empty Trash removed stays in the settings (it reads as no pick); a version copy or
   backup (same project id) shows the same "You", by design for now; no unit test of `useMarkSeen`'s timer (the end to
   end covers it); the one-off failure of `projects.spec`'s empty-project JSON export in a full Windows run (39 of 39 on

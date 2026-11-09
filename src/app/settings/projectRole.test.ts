@@ -51,5 +51,7 @@ describe('an approval’s signature', () => {
   it('signs with no name for an unnamed picked person, never the profile’s', () => {
     profileStore.setState({ ...EMPTY_PROFILE, name: 'Sam Ortiz' }, true);
     expect(approvalNow('dp', at, '')?.name).toBe('');
+    // "local" is the edit log's word for no name (docs/SBD_FORMAT.md): a person named that signs as an unnamed one.
+    expect(approvalNow('dp', at, 'local')?.name).toBe('');
   });
 });

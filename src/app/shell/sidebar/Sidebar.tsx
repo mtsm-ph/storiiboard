@@ -1,12 +1,14 @@
 import { cx } from '../../../ui/cx';
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { ComingItem, Menu, menuItemClass } from '../../../ui/Menu';
 import { canOpenFiles } from '../../fileAccess';
 import { newProject, openRecent, recentStore } from '../../projects/actions';
 import { useRecent } from '../../projects/recentStore';
 import { useProject } from '../../projectStore';
 import { isUnsaved, useLayouts } from '../docking/layoutStore';
-import { sectionId, type Workspace, type WorkspaceId } from '../workspaces';
+import { departmentWorkspaceId, sectionId, workspaceById, type Workspace, type WorkspaceId } from '../workspaces';
+import { closeDepartmentWorkspace, useWorkspaceState } from '../workspaceStore';
+import type { Department } from '../../../core/model/department';
 import { onNavKeyDown } from './navKeys';
 import { SceneList } from './SceneList';
 import { addSceneChange, sceneEntries } from './scenes';
@@ -20,7 +22,8 @@ import { t } from '../../../core/i18n';
 
 // The left sidebar (DESIGN.md, Navigation): the project switcher, then one section per workspace. Storyboard lists
 // its scenes inline. Arrow keys move through every entry (the foot's Web version too) and Enter opens one; Tab enters
-// at the active section, then goes to the foot's Hide sidebar, the gear and the profile, and on to the tiles.
+// at the active section, then goes to the foot's Hide sidebar, the gear and the profile, and on to the tiles. Under the
+// sections, the department workspaces the person has opened from a frame (3.6a); Delete takes one off the list.
 
 interface SidebarProps {
   workspaces: readonly Workspace[];
@@ -53,11 +56,23 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     .filter((entry) => entry.state !== 'archived')
     .slice(0, SWITCHER_RECENT);
   const openPath = project?.file.path ?? null;
+  const departments = useWorkspaceState((s) => s.departments);
+  const departmentsHeading = useId();
 
   // Re-read Recent whenever the open project changes, however it was opened.
   useEffect(() => {
     void recentStore.getState().refresh();
   }, [openPath]);
+
+  /** Off the sidebar, focus staying in it: on the department that took its place, else on the Storyboard. */
+  const closeDepartment = (department: Department) => {
+    const at = departments.indexOf(department);
+    const next = departments[at + 1] ?? departments[at - 1];
+    closeDepartmentWorkspace(department);
+    requestAnimationFrame(() => {
+      document.getElementById(sectionId(next ? departmentWorkspaceId(next) : 'storyboard'))?.focus();
+    });
+  };
 
   const addScene = () => {
     if (!project) return;
@@ -194,6 +209,57 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
             </li>
           );
         })}
+        {departments.length > 0 && (
+          <li className="border-b border-border-top pb-1">
+            <h2 id={departmentsHeading} className="sb-label px-4 pt-3 pb-1 text-text-muted">
+              {t('sidebar.departments')}
+            </h2>
+            <ul aria-labelledby={departmentsHeading}>
+              {departments.map((department) => {
+                const workspace = workspaceById(departmentWorkspaceId(department));
+                const active = workspace.id === activeId;
+                return (
+                  <li key={department}>
+                    <button
+                      id={sectionId(workspace.id)}
+                      type="button"
+                      data-nav-item=""
+                      data-department-workspace={department}
+                      aria-current={active ? 'page' : undefined}
+                      aria-keyshortcuts="Delete Backspace"
+                      aria-describedby={`${departmentsHeading}-close`}
+                      tabIndex={active ? 0 : -1}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Delete' || event.key === 'Backspace') {
+                          event.preventDefault();
+                          if (!event.repeat) closeDepartment(department);
+                          return;
+                        }
+                        onNavKeyDown(event);
+                      }}
+                      onClick={() => {
+                        onSelect(workspace.id);
+                      }}
+                      className={cx(
+                        'sb-label flex h-8 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
+                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text hover:bg-surface-raised',
+                      )}
+                    >
+                      {workspace.label}
+                      {isUnsaved(layouts[workspace.id]) && (
+                        <span aria-label={t('sidebar.unsavedLayout')} role="img" className="inline-block size-1.5 rounded-full bg-current" />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {/* How to take one off, said once for the whole list rather than in every name. */}
+            <p id={`${departmentsHeading}-close`} hidden>
+              {t('sidebar.departmentClose')}
+            </p>
+          </li>
+        )}
       </ul>
       {/* The foot (polish C): the web version, still to come, then Hide sidebar at the bottom left, where the strip's
           Show sidebar sits once it's hidden, and the Settings gear and the profile at the right. */}

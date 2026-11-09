@@ -20,7 +20,8 @@ import { toggleSidebar, useSidebarHidden } from './sidebar/sidebarStore';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
-import { inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { ALL_WORKSPACES, inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceById, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { showWorkspace, useWorkspaceState } from './workspaceStore';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
 import { ExportHost } from '../../features/export/ExportDialog';
@@ -33,7 +34,8 @@ import { NoticeBar } from '../NoticeBar';
 import { t } from '../../core/i18n';
 
 export function AppShell() {
-  const [workspaceId, setWorkspaceId] = useState<WorkspaceId>('storyboard');
+  // A section, or a department's workspace (3.6a), which a frame's department row can open from inside a tile.
+  const workspaceId = useWorkspaceState((s) => s.active);
   // The scene the storyboard is on, shared with the Scenes tile and the board (src/features/storyboard/selection.ts).
   const activeSceneId = useSelection((s) => s.sceneId);
   const setActiveSceneId = useSelection((s) => s.selectScene);
@@ -42,7 +44,7 @@ export function AppShell() {
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
   const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
-  const workspace = WORKSPACES.find((w) => w.id === workspaceId) ?? WORKSPACES[0];
+  const workspace = workspaceById(workspaceId);
   const projectTitle = useProject((s) => {
     const title = s.project ? s.records[s.project.projectId]?.props.title : undefined;
     return typeof title === 'string' ? title : (s.project?.name ?? null);
@@ -76,7 +78,7 @@ export function AppShell() {
     setProjectsAsked(false);
   }
   const selectWorkspace = (id: WorkspaceId) => {
-    setWorkspaceId(id);
+    showWorkspace(id);
     setProjectsAsked(false);
   };
 
@@ -137,8 +139,8 @@ export function AppShell() {
       const follow =
         focused !== null &&
         (document.getElementById(WORKSPACE_PANEL_ID)?.contains(focused) === true ||
-          WORKSPACES.some((w) => sectionId(w.id) === focused.id));
-      setWorkspaceId(target.id);
+          ALL_WORKSPACES.some((w) => sectionId(w.id) === focused.id));
+      showWorkspace(target.id);
       setProjectsAsked(false);
       // With the sidebar hidden there's no section to land on: the new workspace itself takes focus.
       if (follow) requestAnimationFrame(() => (document.getElementById(sectionId(target.id)) ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus());

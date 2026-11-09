@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { tilesIn } from './docking/layout';
-import { TILES, WORKSPACES, workspaceForShortcut } from './workspaces';
+import { DEPARTMENTS } from '../../core/model/department';
+import { ALL_WORKSPACES, DEPARTMENT_WORKSPACES, departmentOf, departmentWorkspaceId, TILES, WORKSPACES, workspaceById, workspaceForShortcut } from './workspaces';
 
 const key = (
   code: string,
@@ -25,7 +26,7 @@ describe('workspaces', () => {
   });
 
   it('lay out known tiles, each once, and hand out a fresh copy every time', () => {
-    for (const workspace of WORKSPACES) {
+    for (const workspace of ALL_WORKSPACES) {
       const tiles = tilesIn(workspace.defaultLayout());
       expect(tiles.every((tile) => tile in TILES)).toBe(true);
       expect(new Set(tiles).size).toBe(tiles.length);
@@ -58,5 +59,22 @@ describe('workspaces', () => {
       ({ tagName: 'BUTTON', isContentEditable: false, closest: () => ({ hasAttribute: () => projectUndo }) }) as unknown as EventTarget;
     expect(workspaceForShortcut(key('Digit3', { altKey: true }, inDialog(false)))).toBeUndefined();
     expect(workspaceForShortcut(key('Digit3', { altKey: true }, inDialog(true)))).toBeUndefined();
+  });
+
+  it('have one per department too (3.6a), named as the department, with its view between the scenes and the inspector', () => {
+    expect(DEPARTMENT_WORKSPACES.map((w) => departmentOf(w.id))).toEqual([...DEPARTMENTS]);
+    const camera = workspaceById(departmentWorkspaceId('camera'));
+    expect(camera.label).toBe('Camera');
+    expect(camera.phase).toBeNull();
+    expect(tilesIn(camera.defaultLayout())).toEqual(['scenes', 'department', 'inspector']);
+    // Ids never collide, sections and departments together, and a section belongs to no department.
+    expect(new Set(ALL_WORKSPACES.map((w) => w.id)).size).toBe(ALL_WORKSPACES.length);
+    expect(WORKSPACES.every((w) => departmentOf(w.id) === null)).toBe(true);
+    expect(departmentOf('department-grip-electric')).toBe('grip-electric');
+  });
+
+  it('keep Alt+1 to Alt+6 for the sections alone', () => {
+    const reached = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => workspaceForShortcut(key(`Digit${String(n)}`, { altKey: true }))?.id);
+    expect(reached.filter((id) => id !== undefined)).toEqual(WORKSPACES.map((w) => w.id));
   });
 });

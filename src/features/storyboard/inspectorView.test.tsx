@@ -61,6 +61,24 @@ describe('the Frame inspector', () => {
     // Someone who doesn't approve sees whether it's approved.
     expect(approved([])).toBe('true');
   });
+
+  it('opens a department’s workspace from its name, a cell left of Priority, the Tab stop still on Priority (3.6a)', () => {
+    const statuses = departmentStatuses({});
+    const html = renderToString(
+      <DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={[]} onEdit={noop} onOpen={noop} />,
+    );
+    expect(html).toContain('aria-label="Camera: open its workspace"');
+    expect(html).toMatch(/data-cell="0-0" data-open-department="direction" tabindex="-1"/);
+    // The one Tab stop is the first row's Priority, as it was before the names opened anything.
+    expect(html).toMatch(/aria-label="Direction: Priority" title="Direction: Priority" data-cell="0-1" tabindex="0"/);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    // Without it, the names are plain text, and one department's row alone when asked.
+    const plain = renderToString(<DepartmentStatusTable statuses={statuses} seen={[]} approval={() => null} myRoles={[]} onEdit={noop} only="sound" />);
+    expect(plain).not.toContain('data-open-department');
+    expect(plain.match(/role="row"/g)).toHaveLength(2);
+    expect(plain).toContain('Sound: Priority');
+    expect(plain).not.toContain('Camera: Priority');
+  });
 });
 
 describe('the Frame inspector’s Video section (2.2b)', () => {

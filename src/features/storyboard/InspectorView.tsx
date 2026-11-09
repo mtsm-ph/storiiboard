@@ -2,6 +2,7 @@ import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { Approval, Approver, DepartmentStatuses } from '../../core/model/departmentStatus';
+import type { Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
 import {
   choiceLabel,
@@ -161,6 +162,8 @@ export interface InspectorViewProps {
   approval?: () => Approval | null;
   /** The roles their role on the project approves in: director, DP, both, or none. */
   myRoles?: readonly Approver[];
+  /** Opens a department's workspace from its name in the department table (3.6a). */
+  onOpenDepartment?: (department: Department) => void;
 }
 
 const NO_ROLES: readonly Approver[] = [];
@@ -519,6 +522,7 @@ export function InspectorView({
   onCustomChange,
   approval,
   myRoles = NO_ROLES,
+  onOpenDepartment,
   onDepartmentStatus,
   seen = NOTHING_SEEN,
   palette,
@@ -876,6 +880,7 @@ export function InspectorView({
               onEdit={(edit) => {
                 onDepartmentStatus?.(edit);
               }}
+              {...(onOpenDepartment ? { onOpen: onOpenDepartment } : {})}
             />
           </Section>
 
