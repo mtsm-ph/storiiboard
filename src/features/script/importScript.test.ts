@@ -65,7 +65,8 @@ describe('a script import', () => {
       ['3', 'INT', 'DINER — MOMENTS LATER', null],
       ['4', null, 'FLASHBACK - THE BRIDGE', null],
     ]);
-    expect(scenes()[0]?.characters).toEqual(['MARY', 'TOM']);
+    // By id (3.13): the characters the import made, in the script's order.
+    expect(scenes()[0]?.characterIds.map((id) => store.getState().records[id]?.props.name)).toEqual(['MARY', 'TOM']);
     expect(scenes().every((s) => (s.pageEighths ?? 0) >= 1)).toBe(true);
   });
 
@@ -190,6 +191,12 @@ describe('a script import', () => {
       .filter((r) => r.type === 'scene' && r.id !== 'z')
       .map((r) => r.sortKey);
     expect(keys.every((k) => k > 'zz')).toBe(true);
+    // The scene lists the project's own Mary by id (3.13), and the Tom it made.
+    const first = scenes()[0];
+    expect(first?.characterIds[0]).toBe('ch');
+    expect(first?.characterIds.map((id) => records()[id]?.props.name)).toEqual(['Mary', 'TOM']);
+    // A scene without speakers has no list at all, as the upgrade leaves one.
+    expect(Object.values(records()).filter((r) => r.type === 'scene' && r.id !== 'z' && sceneFields(r.props).characterIds.length === 0).every((r) => !('character_ids' in r.props))).toBe(true);
   });
 
   it('is worked out again when it lands, so an edit made after the preview isn’t undone by it', async () => {

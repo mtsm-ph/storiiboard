@@ -307,6 +307,26 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v12: scene characters as ids (3.13)
+
+Changes existing data (approved by Kevin Nov 9); no table change. A scene's speaking characters were names
+(`characters`, as a script import spelled them); now they're `character_ids`, the ids of the project's `character`
+records, in the script's order, so a rename in Cast and crew is a rename everywhere and a call sheet can read who's in
+a scene and who plays them.
+
+- Each name is matched to a live `character` of the scene's project, trimmed and in any case ("MARY " is Mary); the
+  first by sort key when two share a name. A name with no match gets a new `character` (its name trimmed, after every
+  other character, in the Trash too). One in the Trash isn't matched: a new one is made beside it.
+- A name listed twice is one id; an empty one is dropped. A value in `characters` that isn't text stays in
+  `characters`; otherwise `characters` comes off. A scene with no names left has no `character_ids`.
+- Scenes in the Trash are changed too, so a restore brings their characters back.
+- The changes, new characters included, are one logged `edit` step in History (`create` ops for the characters,
+  `update` ops for the scenes), and the undo and redo stacks end there, as schema 9's do. The file is backed up first.
+- From here a script import writes `character_ids` too. A character in the Trash, or gone for good, reads as none.
+- Restore to here, or Open version, from before the upgrade puts scenes back with `characters` names (the characters
+  it made go with it), and nothing converts them again. A scene without `character_ids` reads its `characters` as the
+  upgrade matched them: the project's live characters by name, trimmed and in any case, the first by sort key.
+
 ## Schema v11: cached lookups (3.4)
 
 Additive (approved Nov 9). Every lookup the app makes on the network is kept in the project with when it was fetched
@@ -611,7 +631,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | scene | day_night | `DAY`, `NIGHT`, `DAWN`, `DUSK`, `MAGIC HOUR` | |
 | scene | location_id | record id | A `location` record (1.12, script import). Set from the board's "/" menu, by name |
 | scene | page_eighths | integer | Script length in eighths of a page (1.17); shown as "1 3/8 pg" |
-| scene | characters | array of text | Speaking characters, from script import (1.17) |
+| scene | character_ids | array of text | Speaking characters, as the ids of the project's `character` records, in the script's order (schema 12; `characters`, an array of names, before it) |
 | scene | palette | `{ size, colors: [{ hex, locked? }] }` | Polish PP (approved Nov 5; a prop, no table change). The scene's colours from its frames' pictures: `hex` is sRGB `#RRGGBB` as shown on screen (a Display P3 picture is converted colour-managed), `locked` keeps a colour in place when the rest are generated again, `size` (1 to 16, default 8) is how many Generate makes. Missing for a scene without one, as in every older file. With no colours it keeps only its `size`. Fields this version doesn't know are kept |
 | location | name | text | 1.12. As typed in the "/" menu, or as the script writes the place (`DINER - BACK ROOM`) |
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
@@ -948,6 +968,7 @@ merge a database, so two guards sit around every open project:
 | 9 | 3.6b | Approvals per scene: the scene prop `department_approvals`, carried from the frames' where every frame had one; `approvals` off every shot's `department_status`. No table change |
 | 10 | 3.10 | Notification read state: `notification_cursors`, `notification_reads` |
 | 11 | 3.4 | Cached network lookups: `lookups` |
+| 12 | 3.13 | Scene characters as ids: `characters` (names) becomes `character_ids`, characters made for names with none. No table change |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

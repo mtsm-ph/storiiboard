@@ -508,11 +508,16 @@ export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
 }
 
-/** The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location, a character's cast member, the theme's image. */
+/**
+ * The records a record names in its props, which a restore keeps with it: a frame's picture, a scene's location and
+ * its characters (3.13), a character's cast member, the theme's image. (A frame's shoot day and gear aren't among them
+ * yet: kept as now, a frame can point at a day the restore leaves in the Trash, and reads as unscheduled.)
+ */
 function namedBy(record: SbdRecord): string[] {
   const { props } = record;
   const theme = props.theme && typeof props.theme === 'object' && !Array.isArray(props.theme) ? (props.theme as Record<string, unknown>) : null;
-  return [props.media_id, props.location_id, props.cast_id, theme?.image_id].filter((id): id is string => typeof id === 'string' && id !== '');
+  const characters = Array.isArray(props.character_ids) ? props.character_ids : [];
+  return [props.media_id, props.location_id, props.cast_id, theme?.image_id, ...characters].filter((id): id is string => typeof id === 'string' && id !== '');
 }
 
 /**
@@ -613,9 +618,9 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 }
 
 /**
- * A migration that changes records (schema 9) writes them through here: the records, and one `edit` group with an
- * `update` op for each, so History shows what changed and Restore to here reads the records as they are now, never a
- * snapshot from before. Its undo and redo stacks end there, as Empty Trash's do: ⌘Z after an upgrade never writes a
+ * A migration that changes records (schemas 9 and 12) writes them through here: the records, and one `edit` group
+ * with an `update` op for each (and a `create` op for each record it makes, schema 12's characters), so History shows
+ * what changed and Restore to here reads the records as they are now, never a snapshot from before. Its undo and redo stacks end there, as Empty Trash's do: ⌘Z after an upgrade never writes a
  * record back in the shape the older schema had. Read before the migration's transaction; run inside it.
  */
 export async function loggedRewrite(
@@ -623,14 +628,18 @@ export async function loggedRewrite(
   changes: readonly { before: SbdRecord; props: Props }[],
   at: string,
   author = 'local',
+  created: readonly SbdRecord[] = [],
 ): Promise<Statement[]> {
-  if (changes.length === 0) return [];
+  if (changes.length === 0 && created.length === 0) return [];
   const [top] = await file.query(
     'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
   );
   const firstSeq = Number(top?.op ?? 0) + 1;
   const groupId = crypto.randomUUID();
-  const ops = changes.map(({ before, props }) => ({ before, after: { ...before, props, updatedAt: at } }));
+  const ops: { kind: 'create' | 'update'; before: SbdRecord | null; after: SbdRecord }[] = [
+    ...created.map((record) => ({ kind: 'create' as const, before: null, after: record })),
+    ...changes.map(({ before, props }) => ({ kind: 'update' as const, before, after: { ...before, props, updatedAt: at } })),
+  ];
   return [
     ...ops.map(({ after }) => write(after.id, after)),
     {
@@ -640,8 +649,8 @@ export async function loggedRewrite(
     },
     ...ops.map((op, i) => ({
       sql: `INSERT INTO ops (id, seq, group_id, record_id, kind, before, after, author, timestamp, created_at,
-        updated_at) VALUES (?, ?, ?, ?, 'update', ?, ?, ?, ?, ?, ?)`,
-      params: [crypto.randomUUID(), firstSeq + i, groupId, op.after.id, snapshot(op.before), snapshot(op.after), author, at, at, at],
+        updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [crypto.randomUUID(), firstSeq + i, groupId, op.after.id, op.kind, snapshot(op.before), snapshot(op.after), author, at, at, at],
     })),
   ];
 }
