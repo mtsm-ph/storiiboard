@@ -872,7 +872,7 @@ impl OpenFiles {
         self.add(file).unwrap()
     }
 
-    fn with<T>(
+    pub(crate) fn with<T>(
         &self,
         handle: u32,
         run: impl FnOnce(&mut SbdFile) -> Result<T, String>,

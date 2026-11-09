@@ -52,6 +52,24 @@ test('a link on the project and a PDF on a frame: saved out, renamed, deleted an
   await onFrame.getByRole('button', { name: 'Save a copy…, Contract.pdf' }).click();
   expect((await download).suggestedFilename()).toBe('Contract.pdf');
 
+  // Opened (3.12): the link in a new tab, the PDF as the browser shows one (the desktop opens a read-only copy in the
+  // PDF reader). Nothing leaves the test: the link's page is answered here.
+  await page.context().route('https://vimeo.com/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: 'ok' }));
+  const linkTab = page.waitForEvent('popup');
+  await onProject.getByRole('button', { name: 'Open, Look' }).click();
+  await (await linkTab).waitForURL('https://vimeo.com/123');
+  // Headless Chromium has no PDF viewer to open the tab with, so what the tab is given is checked instead.
+  await page.evaluate(() => {
+    const opened: string[] = [];
+    (window as unknown as { opened: string[] }).opened = opened;
+    window.open = (url) => {
+      opened.push(String(url));
+      return null;
+    };
+  });
+  await onFrame.getByRole('button', { name: 'Open, Contract.pdf' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { opened: string[] }).opened)).toEqual([expect.stringMatching(/^blob:/)]);
+
   // A name Save a copy couldn't use is refused, and the field goes back.
   const named = onFrame.getByRole('textbox', { name: 'File name, Contract.pdf' });
   await named.fill('a/b.pdf');

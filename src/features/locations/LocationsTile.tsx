@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
+import { openLink } from '../../app/opener';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import {
@@ -31,7 +32,7 @@ import { setCustomField } from '../storyboard/board';
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
 // and linked from its scenes, so a change here is a change for all of them. Each field is one edit when it's left, so
 // one ⌘Z; Delete sends it to the Trash. Search address (3.4) looks the address up when pressed and puts a place picked
-// on the map; Copy map link puts that place, or an OpenStreetMap search for the address, on the clipboard. Narrow
+// on the map; Open map (3.12) and Copy map link show that place, or an OpenStreetMap search for the address. Narrow
 // (Production gives it a column), the list sits above the editor.
 
 const FIELD_LABEL: Readonly<Record<LocationTextField, () => string>> = {
@@ -273,6 +274,19 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         />
       </div>
       <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => {
+            const link = currentLink();
+            if (!link) {
+              showInfo(t('location.nothingToMap'));
+              return;
+            }
+            // OpenStreetMap in the browser (3.12): the pin, else a search for the address.
+            void openLink(link).catch(showNotice);
+          }}
+        >
+          {t('location.openMap')}
+        </Button>
         <Button
           onClick={() => {
             const link = currentLink();

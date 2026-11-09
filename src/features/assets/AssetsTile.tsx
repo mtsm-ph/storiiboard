@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
+import { openLink, openPdf } from '../../app/opener';
 import { choosePdfs } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
@@ -239,6 +240,15 @@ function AttachmentRow({ item }: { item: Attachment }) {
           {fields.url}
         </span>
       )}
+      <Button
+        aria-label={named(t('assets.open'))}
+        onClick={() => {
+          // A PDF as a read-only copy in the PDF reader; a link in the browser (3.12).
+          void (fields.kind === 'pdf' ? openPdf(fields.file, fields.name || 'attachment.pdf') : openLink(fields.url)).catch(showNotice);
+        }}
+      >
+        {t('assets.open')}
+      </Button>
       {fields.kind === 'pdf' ? (
         <Button
           aria-label={named(t('assets.saveCopy'))}

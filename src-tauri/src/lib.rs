@@ -9,6 +9,7 @@ mod geocode;
 mod licences;
 mod lock;
 mod net;
+mod open;
 mod opened;
 mod os;
 mod pictures;
@@ -30,6 +31,13 @@ pub fn run() {
     }));
     builder
         .plugin(tauri_plugin_dialog::init())
+        // Used only from src/open.rs: the page is given none of its permissions (capabilities/default.json), and its
+        // script that sends link clicks to it is left out, since those calls could only be refused.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(sbd::OpenFiles::default())
         .manage(opened::OpenedFiles::default())
         .manage(pictures::Offered::default())
@@ -88,6 +96,8 @@ pub fn run() {
             export::export_choose_folder,
             export::export_write,
             geocode::address_search,
+            open::open_link,
+            open::open_pdf,
         ])
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.
@@ -145,6 +155,9 @@ pub fn run() {
             // doesn't answer) never holds up the window, and it waits its turn behind a copy started meanwhile.
             let handle = app.handle().clone();
             thread::spawn(move || handle.state::<playback::PlaybackCache>().clean_up());
+            // PDF copies opened more than a day ago (open.rs), on a thread of its own too.
+            let handle = app.handle().clone();
+            thread::spawn(move || open::tidy_at_start(&handle));
             // A double-click on Windows launches the app with the file as an argument.
             let cwd = std::env::current_dir().unwrap_or_default();
             opened::queue(

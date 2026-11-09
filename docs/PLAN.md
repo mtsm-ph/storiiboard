@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.4 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.12 in review; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -56,7 +56,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | Done |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | Done |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Reached Nov 9: checkpoint passed (`checkpoint/phase3-gate`, every job); the checklist is Kevin's |
-| 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | | Not started |
+| 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | | In review |
 | 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | | Not started |
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | | Not started |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | Not started |
@@ -68,6 +68,29 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.12 as built (Nov 9): opening links and PDFs (`src-tauri/src/open.rs`, `src/app/opener.ts`).
+- Open, on each attachment in the Assets tile: a link in the browser, a PDF in the computer's PDF reader. Open map,
+  in the Locations tile beside Copy map link: the pin (or a search for the address) on OpenStreetMap.
+- Kevin's rule (Nov 9): only http and https links, and only files the app wrote itself. Tauri's opener plugin
+  (`tauri-plugin-opener` 2.7.2, pinned exactly; MIT or Apache; it adds `open`, `is-wsl` and `is-docker`, all MIT) is
+  used only from Rust: the page has none of its permissions, so two commands of our own are the only way to it.
+  `open_link` takes an http or https address with a host and no name or password. `open_pdf` takes a PDF by its
+  SHA-256 and the open project's handle: Rust reads the bytes from the .sbd itself, checks they start `%PDF-`, writes
+  a read-only copy named `<name>.pdf` (the name made plain: no folder, drive, reserved character, leading dot or
+  device name) into a folder of its own under the app's cache folder ("Opened PDFs"), and opens only that path. The
+  page never names a path. On Windows the copy is marked as from the internet (Zone.Identifier), so the reader opens it
+  in its protected view. Copies older than a day are tidied away as the app starts and when a PDF is opened, only
+  folders this made.
+- A browser build opens a link in a new tab and a PDF as the browser shows one (noopener).
+- Decided by default, review: the copy is read-only (a change in the reader can't reach the project, and would be
+  lost); every copy is marked as from the internet, the ones you attached yourself too, so Acrobat opens them in
+  Protected View with its "Enable all features" bar; a day's keep for copies; Open sits first, before Save a copy and
+  Copy link; a link with a name and password, or past 2048 characters, is refused when added, as Open refuses it.
+- Tests: Rust (only web links, a list of what's refused: files, executables, javascript:, mailto:, smb:, ms-settings:,
+  credentials; the copy's name always a plain `.pdf`; the copy read-only in a folder of its own; tidying only old
+  folders of its own; the hash checked); a web link refused before anything is opened; end to end, Open on a link
+  (a new tab, answered in the test) and a PDF, Open map at the pin.
 
 3.4 as built (Nov 9): the address search (`src-tauri/src/net.rs`, `src-tauri/src/geocode.rs`, `src/core/net/`,
 `src/features/locations/AddressSearch.tsx`).
