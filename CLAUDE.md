@@ -140,6 +140,8 @@
   at most one day (`shoot_day_id`), a scene at a time or one by one; totals (frames, setups, hours at the project's
   minutes per setup) are worked out, and a day's number comes from its date. Each day has a Confirmed toggle per
   person (3.8), shown in the Calendar's schedule as "1 of 3 confirmed".
+- Gear (3.9a): the Gear tile in Production is the project's catalogue (`gear_item`: name, department, quantity, owned
+  or rented and from whom, day rate in the project's `currency`); shoot days and frames pick from it (3.9b).
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.

@@ -125,6 +125,15 @@ export function list(items: readonly string[]): string {
   return t('list.and', { items: items.slice(0, -1).join(t('list.separator')), last });
 }
 
+/** An amount the way the current language writes the currency ("$350.00", "US$350.00"); a code Intl doesn't know reads as the number and the code. */
+export function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(current.dateTag, { style: 'currency', currency }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
 /** A date or time the way the current language writes it. */
 export function formatDate(at: Date, options: Intl.DateTimeFormatOptions): string {
   return at.toLocaleString(current.dateTag, options);

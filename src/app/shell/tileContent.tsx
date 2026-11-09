@@ -12,6 +12,7 @@ import { TeamTile } from '../../features/people/TeamTile';
 import { DepartmentTile } from '../../features/department/DepartmentTile';
 import { DaysTile } from '../../features/schedule/DaysTile';
 import { CalendarTile } from '../../features/schedule/CalendarTile';
+import { GearTile } from '../../features/gear/GearTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -29,4 +30,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   department: DepartmentTile,
   days: DaysTile,
   calendar: CalendarTile,
+  gear: GearTile,
 };

@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.7 merged, 3.8 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.8 merged, 3.9a in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.8 in review) |
+| Last updated | Nov 9, 2026 (3.9a in review) |
 
 | Phase | State |
 |---|---|
@@ -50,14 +50,34 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | #97 | Done |
 | 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | Done |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | Done |
-| 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | In review |
-| 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
+| 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | Done |
+| 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | In review |
+| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.9a as built (Nov 9): the gear catalogue (`src/core/model/gear.ts`, `src/features/gear/`).
+- The Gear tile in Production (its placeholder until now): the project's gear, listed by department in the call
+  sheet's order, then by name, each with its quantity (mono), Owned or Rental, and its department. An item has a name,
+  a department, a quantity (1 to 999), Owned or Rental and the owner or rental house, a day rate in the project's
+  currency (kept to the cent; "$350.00 a day × 2 = $700.00"), and notes. + New item focuses the new one's name.
+- The project's currency for every price, at the foot of the list (USD unless set; a short list of currencies, one
+  set elsewhere still offered). Prices are written as the app's language writes the currency (in English, as the
+  computer's region does, as dates are); a rate is kept to the currency's smallest unit (whole yen, cents of a
+  dollar). A field holding what this version can't read is shown read-only, never written over; a field left
+  untouched writes nothing.
+- Delete item sends it to the Trash (a Gear kind there); History names an item by its name, and its department and
+  whose it is in words.
+- Format (additive, no schema number, docs/SBD_FORMAT.md "Gear props"): `gear_item` records, `currency` on the project.
+- Decided by default, review (docs/PHASE3_DECISIONS.md 7 already was): 3.9 split in two, the catalogue first; an
+  item's category is its department; a short list of currencies.
+- Tests: an item read safely, the list's order, money in the project's currency; the edits (each field only to a
+  valid value, a rate to the cent, the Trash, the currency); end to end, an item made and rented, its rate and total,
+  the currency changed and undone, axe, deleted and restored.
 
 3.8 as built (Nov 9): the Calendar (`src/features/schedule/CalendarTile.tsx`, `src/core/model/schedule.ts`).
 - The Calendar tile in Production's default layout (its placeholder until now): Month or Week, previous and next,

@@ -1,8 +1,9 @@
 import { mediaFields } from '../../core/media/store';
-import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
 import { sceneApprovalText } from '../../core/model/sceneApprovals';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
+import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
+import { GEAR_SOURCE_LABEL } from '../../core/model/gear';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -78,6 +79,12 @@ const FIELD: Readonly<Record<string, string>> = labels({
   wrap_time: 'history.field.wrapTime',
   setup_minutes: 'history.field.setupMinutes',
   crew: 'history.field.crew',
+  quantity: 'history.field.quantity',
+  source: 'history.field.source',
+  owner: 'history.field.owner',
+  day_rate: 'history.field.dayRate',
+  department: 'history.field.department',
+  currency: 'history.field.currency',
   full_view: 'history.field.fullView',
   characters: 'history.field.characters',
   text: 'history.field.text',
@@ -221,6 +228,9 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
+  // A gear item's department and whose it is (3.9a), in words rather than their stored ids.
+  if (prop === 'department' && isDepartment(value)) return DEPARTMENT_LABELS[value];
+  if (prop === 'source' && (value === 'owned' || value === 'rental')) return GEAR_SOURCE_LABEL[value];
   // A shoot day's date (3.7), as the Days tile writes it.
   if (prop === 'date' && typeof value === 'string') return dayDateLabel(value) || value;
   if (prop === 'media_id') return t('history.aPicture');
@@ -393,6 +403,8 @@ function nameOf(record: SbdRecord | null): Part {
       return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
     case 'person':
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
+    case 'gear_item':
+      return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aGearItem');
     case 'shoot_day': {
       // By its date (3.7); its number belongs to the order the days are in now.
       const date = dayDateLabel(shootDayFields(record.props).date);
@@ -420,6 +432,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   character: 'count.characters',
   person: 'count.people',
   shoot_day: 'count.shootDays',
+  gear_item: 'count.gearItems',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -429,10 +442,10 @@ const count = (type: SbdRecord['type'], n: number): string => {
 };
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
-const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day', MessageKey>>>> = {
-  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person', shoot_day: 'history.added.shootDay' },
-  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person', shoot_day: 'history.deleted.shootDay' },
-  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person', shoot_day: 'history.restored.shootDay' },
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day' | 'gear_item', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person', shoot_day: 'history.added.shootDay', gear_item: 'history.added.gearItem' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person', shoot_day: 'history.deleted.shootDay', gear_item: 'history.deleted.gearItem' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person', shoot_day: 'history.restored.shootDay', gear_item: 'history.restored.gearItem' },
 };
 const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
   create: 'history.addedCount',
@@ -518,7 +531,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day'] as const) {
+    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {

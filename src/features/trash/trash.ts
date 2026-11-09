@@ -16,7 +16,7 @@ import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -26,6 +26,7 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   location: 'trash.kind.location',
   person: 'trash.kind.person',
   day: 'trash.kind.day',
+  gear: 'trash.kind.gear',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -37,6 +38,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   location: 'trash.kinds.location',
   person: 'trash.kinds.person',
   day: 'trash.kinds.day',
+  gear: 'trash.kinds.gear',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -48,6 +50,7 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   location: 'trash.kindLower.location',
   person: 'trash.kindLower.person',
   day: 'trash.kindLower.day',
+  gear: 'trash.kindLower.gear',
 });
 
 export interface NamePart {
@@ -87,6 +90,7 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'location') return 'location';
   if (record.type === 'person') return 'person';
   if (record.type === 'shoot_day') return 'day';
+  if (record.type === 'gear_item') return 'gear';
   return null;
 }
 
@@ -113,6 +117,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     }
     case 'location': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('trash.unnamedLocation');
+      return [plain(name)];
+    }
+    case 'gear': {
+      const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('gear.unnamed');
       return [plain(name)];
     }
     case 'day': {

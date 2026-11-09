@@ -322,6 +322,16 @@ describe('Put back', () => {
     expect((await lines()).at(-1)).not.toContain('person-1');
   });
 
+  it('names a gear item, and says its department and whose it is in words (3.9a)', async () => {
+    await store.getState().apply([{ kind: 'create', record: { id: 'fx3', type: 'gear_item', parentId: project.projectId, sortKey: 'V', props: { name: 'FX3 package', source: 'owned' } } }]);
+    expect((await lines()).at(-1)).toBe('Added gear FX3 package');
+    await store.getState().apply([{ kind: 'update', id: 'fx3', set: { department: 'grip-electric', source: 'rental' } }]);
+    const department = await lastChange('fx3', 'department');
+    const source = await lastChange('fx3', 'source');
+    expect([changeLabel(department), changeValue(department, department.after)]).toEqual(['department', 'Grip & electric']);
+    expect([changeValue(source, source.before), changeValue(source, source.after)]).toEqual(['Owned', 'Rental']);
+  });
+
   it('says a person’s Full view as on or off (3.6c)', async () => {
     await store.getState().apply([{ kind: 'create', record: { id: 'sam', type: 'person', parentId: project.projectId, sortKey: 'V', props: { name: 'Sam Ortiz' } } }]);
     await store.getState().apply([{ kind: 'update', id: 'sam', set: { full_view: true } }]);

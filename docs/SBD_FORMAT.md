@@ -436,6 +436,15 @@ older version keeps them as they are.
   sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
   Two days may share a date.
 
+## Gear props (3.9a)
+
+A `gear_item` record (under the project) is one item in the project's gear catalogue: a package, a lens set, a
+light. Props: `name`; `department` (a department id; missing or odd reads as none); `quantity` (a whole number, 1 to
+999; missing or odd reads as 1); `source` (`owned` or `rental`; anything else reads as owned); `owner` (who owns it,
+or the rental house); `day_rate` (a number to the cent, in the project's currency; missing means no rate); `notes`.
+`currency` on the `project`: a three-letter ISO 4217 code (missing or odd reads as `USD`). Additive (approved Nov 7
+and 9): props on record types every version has, so no schema number.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the
