@@ -46,7 +46,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
 | 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | Done |
-| 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | | In review |
+| 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | In review |
 | 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | | Not started |
 | 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
