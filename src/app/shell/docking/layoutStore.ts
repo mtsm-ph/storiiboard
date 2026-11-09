@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
-import { TILES, WORKSPACES, type WorkspaceId } from '../workspaces';
+import { ALL_WORKSPACES, TILES, workspaceById, type WorkspaceId } from '../workspaces';
 import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
@@ -9,7 +9,8 @@ import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout
 // survive restarts.
 
 // Versioned by the set of workspaces: D3's seven replaced D2's four, so layouts saved under the old key start over.
-// PB's six (Settings became a window) keep the key: the five left read as they were saved.
+// PB's six (Settings became a window) keep the key: the five left read as they were saved. The department workspaces
+// (3.6a) keep it too: one saved before they existed starts them on their defaults.
 export const LAYOUTS_KEY = 'storiiboard.layouts.2';
 
 interface WorkspaceLayouts {
@@ -66,7 +67,7 @@ function load(storage: Storage | undefined): Record<WorkspaceId, WorkspaceLayout
   } catch {
     // A corrupt entry only costs the custom layouts, never the session.
   }
-  const entries = WORKSPACES.map((workspace) => {
+  const entries = ALL_WORKSPACES.map((workspace) => {
     const entry = saved[workspace.id] as Partial<Record<'current' | 'saved', unknown>> | undefined;
     const savedLayout = usable(entry?.saved) ?? workspace.defaultLayout();
     const current = usable(entry?.current) ?? savedLayout;
@@ -118,8 +119,7 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
         get().change(workspace, get().layouts[workspace].saved);
       },
       resetToDefault: (workspace) => {
-        const fresh = WORKSPACES.find((w) => w.id === workspace)?.defaultLayout();
-        if (fresh) get().change(workspace, fresh);
+        get().change(workspace, workspaceById(workspace).defaultLayout());
       },
     };
   });
@@ -131,12 +131,12 @@ export function useLayouts<T>(select: (state: LayoutState) => T): T {
   return useStore(layoutStore, select);
 }
 
-/** True when the workspace's layout has changes that haven't been saved: the tab's dot. */
 /** True when the workspace has a layout change this session that "Undo layout change" can take back. */
 export function canUndoLayout(past: LayoutState['past'], workspace: WorkspaceId): boolean {
   return past.some((c) => c.workspace === workspace);
 }
 
+/** True when the workspace's layout has changes that haven't been saved: the section's dot. */
 export function isUnsaved(layouts: WorkspaceLayouts): boolean {
   return !sameLayout(layouts.current, layouts.saved);
 }

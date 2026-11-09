@@ -29,3 +29,5 @@ export const DEPARTMENT_LABELS: Readonly<Record<Department, string>> = labels({
   cast: 'department.cast',
   client: 'department.client',
 });
+
+export const isDepartment = (value: unknown): value is Department => typeof value === 'string' && (DEPARTMENTS as readonly string[]).includes(value);

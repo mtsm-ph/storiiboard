@@ -1,6 +1,7 @@
 import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
 import { isProjectRole, type ProjectRole } from '../model/departmentStatus';
 import { companyProfilesOf, type CompanyProfile } from '../model/company';
+import { DEPARTMENTS, type Department } from '../model/department';
 import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
@@ -87,6 +88,11 @@ export interface Settings {
   pdfScenePalettes: boolean;
   /** Production companies saved once, to attach to any project (3.2); attaching copies one into the project. */
   companies: CompanyProfile[];
+  /**
+   * The department workspaces the sidebar lists (3.6a), opened from a department's row on a frame. The person's, as
+   * their layouts are, so every project shows the same ones.
+   */
+  departmentWorkspaces: Department[];
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -108,6 +114,12 @@ function projectSelvesOf(value: unknown): Record<string, string> {
     (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '',
   );
   return Object.fromEntries(kept.slice(-MAX_PROJECT_ROLES));
+}
+
+/** The departments this version knows, each once, in the call sheet's order; anything else is left out. */
+function departmentWorkspacesOf(value: unknown): Department[] {
+  if (!Array.isArray(value)) return [];
+  return DEPARTMENTS.filter((d) => value.includes(d));
 }
 
 /** The ranges the Backups tile accepts. Keeping no recent copies would leave nothing to open. */
@@ -136,6 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
   projectSelves: {},
   pdfScenePalettes: false,
   companies: [],
+  departmentWorkspaces: [],
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -180,6 +193,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       projectSelves: projectSelvesOf(saved.projectSelves),
       pdfScenePalettes: saved.pdfScenePalettes === true,
       companies: companyProfilesOf(saved.companies),
+      departmentWorkspaces: departmentWorkspacesOf(saved.departmentWorkspaces),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

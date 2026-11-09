@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: plan and decision sheet next (Kevin's queued rules, docs/HANDOFF.md). Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.5c merged, 3.6a in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 8, 2026 (3.5c in review) |
+| Last updated | Nov 8, 2026 (3.6a in review) |
 
 | Phase | State |
 |---|---|
@@ -44,8 +44,9 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, schema 9) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
-| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | | In review |
-| 3.6 Department workspaces | Open a department's workspace from its row on a frame; Manage workspaces (deferred from Phase 1) | | Not started |
+| 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
+| 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | In review |
+| 3.6b Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1; split from 3.6, decided by default, review) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
 | 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
@@ -56,13 +57,36 @@ is left. The gate: a real shoot's people, places and gear are entered.
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
 
+3.6a as built (Nov 8): department workspaces (`src/features/department/`, `src/app/shell/workspaceStore.ts`).
+- In the Inspector's department table, each department's name opens its workspace: a cell of the table's grid left
+  of Priority (the Tab stop still starts on Priority; Left reaches the name, Enter opens). Focus lands on the
+  workspace's view, and the frame stays picked.
+- A department's workspace is Scenes, the new Department tile and the Inspector, laid out as the Storyboard is; it's
+  a workspace like the sections, with a layout of its own (saved, reset, undone per workspace). The Department tile
+  shows the frame picked (its picture, number, title, spec and action) with that department's row alone to tick; the
+  scene's frames, each with that department's states (the picked one with the accent marker and bold), counted; and
+  the department's people from Cast and crew (names, and titles or else roles; never contacts). Picking a frame there picks it on
+  the board. Opened into another workspace from the Layout menu, it has a department picker, starting on yours.
+- Opened department workspaces are listed under the sections, under Departments, in the call sheet's order, once each.
+  The list is the person's, kept in this computer's settings as layouts are (`departmentWorkspaces`), never in the
+  file. Delete on an entry, or the Layout menu's Remove from sidebar, takes one off; its layout stays for next time.
+  Alt+1 to 6 stay the sections'. Taking off the one on screen brings the Storyboard back, with focus on it.
+- Decided by default, review: 3.6 split in two, so Manage workspaces and custom workspaces are 3.6b; the Department
+  tile's contents (above); the list in the call sheet's order rather than the order opened.
+- Tests: the workspaces (one per department, its layout, ids), their layouts (kept, undone, reset; a store saved
+  before them), the sidebar list (once each, in order, taken off), the settings read, the department's view (states
+  with Seen, counts, a trashed scene, its people), the table's names; end to end, a department's name opened from the
+  keyboard, a tick there seen in the Inspector and undone, a frame picked in the list, its people, axe light and dark,
+  kept after a reload, taken off by Delete and by the menu, its layout kept (focus on the workspace when it has no
+  Department tile); the tile's picker in another workspace.
+
 3.5c as built (Nov 8): you in Cast and crew (docs/PHASE3_DECISIONS.md 4).
 - A person's editor in Cast and crew has This is me: pressed, that person is you on this project, and their row says
   You. Which person is you is kept on this computer (app settings, by project id), never in the file, so it isn't an
   edit and isn't in History; picking another moves it, pressing it again stops it.
 - Your approvals follow that person's role and are signed with their name (their initials when your profile asks
-  for initials; no name when they're unnamed); opening a frame marks it Seen by the departments their role stands for together with the ones ticked, so a DP
-  on Grip & electric still marks Camera (decided by default, review). A Director in Camera, or a DP in Direction,
+  for initials; no name when they're unnamed); opening a frame marks it Seen by the departments their role stands for
+  together with the ones ticked, so a DP on Grip & electric still marks Camera (both approved by Kevin, Nov 8). A Director in Camera, or a DP in Direction,
   approves as the Director and DP and marks both, as the local setting's "Director and DP" does (approved by Kevin,
   Nov 8). A person picked with no role approves nothing, and Settings → Project says so.
 - "Your role on this project" (Settings → Project) stays the fallback: until you've picked yourself, and while the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORKSPACES } from '../workspaces';
+import { departmentWorkspaceId, WORKSPACES, workspaceById } from '../workspaces';
 import { removeTile, sameLayout, split, stack, tilesIn } from './layout';
 import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY, usable } from './layoutStore';
 
@@ -77,5 +77,27 @@ describe('a saved layout holding tiles this version no longer has', () => {
   it('falls back to the default when none of its tiles is left', () => {
     expect(usable({ root: stack(['backups', 'storage']), maximized: null })).toBeNull();
     expect(usable('not a layout')).toBeNull();
+  });
+
+});
+
+describe('department workspaces (3.6a)', () => {
+  it('each keep a layout of their own, their default for one saved before they existed', () => {
+    // Saved by a version with the sections alone.
+    const storage = memory(JSON.stringify({ storyboard: { current: WORKSPACES[0].defaultLayout(), saved: WORKSPACES[0].defaultLayout() } }));
+    const store = createLayoutStore(storage);
+    const camera = departmentWorkspaceId('camera');
+    expect(sameLayout(store.getState().layouts[camera].current, workspaceById(camera).defaultLayout())).toBe(true);
+
+    // Changed, it's remembered across a restart, undone on its own, and reset to its own default.
+    store.getState().change(camera, removeTile(store.getState().layouts[camera].current, 'scenes'));
+    store.getState().change('storyboard', removeTile(store.getState().layouts.storyboard.current, 'player'));
+    expect(tilesIn(createLayoutStore(storage).getState().layouts[camera].current)).toEqual(['department', 'inspector']);
+    expect(store.getState().undo(camera)).toBe(true);
+    expect(tilesIn(store.getState().layouts[camera].current)).toEqual(['scenes', 'department', 'inspector']);
+    expect(tilesIn(store.getState().layouts.storyboard.current)).not.toContain('player');
+    store.getState().change(camera, removeTile(store.getState().layouts[camera].current, 'inspector'));
+    store.getState().resetToDefault(camera);
+    expect(tilesIn(store.getState().layouts[camera].current)).toEqual(['scenes', 'department', 'inspector']);
   });
 });

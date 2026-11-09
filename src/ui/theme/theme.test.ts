@@ -32,6 +32,7 @@ describe('backup settings', () => {
       projectSelves: {},
       pdfScenePalettes: false,
       companies: [],
+      departmentWorkspaces: [],
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
@@ -58,6 +59,12 @@ describe('backup settings', () => {
     expect(kept.p519).toBe('person-519');
   });
 
+  it('lists the department workspaces in the sidebar once each, in the call sheet’s order, dropping unknown ones (3.6a)', () => {
+    const storage = memoryStorage('{"departmentWorkspaces":["sound","camera","boom","camera",7]}');
+    expect(loadSettings(storage).departmentWorkspaces).toEqual(['camera', 'sound']);
+    expect(loadSettings(memoryStorage('{"departmentWorkspaces":"camera"}')).departmentWorkspaces).toEqual([]);
+  });
+
   it('saves the keep numbers alongside the theme', () => {
     const storage = memoryStorage('{"theme":"light"}');
     saveSettings({ backups: { recent: 5, days: 30 } }, storage);
@@ -74,6 +81,7 @@ describe('backup settings', () => {
       projectSelves: {},
       pdfScenePalettes: false,
       companies: [],
+      departmentWorkspaces: [],
     });
   });
 });

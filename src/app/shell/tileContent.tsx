@@ -9,6 +9,7 @@ import { PlayerTile } from '../../features/video/PlayerTile';
 import { LocationsTile } from '../../features/locations/LocationsTile';
 import { PeopleTile } from '../../features/people/PeopleTile';
 import { TeamTile } from '../../features/people/TeamTile';
+import { DepartmentTile } from '../../features/department/DepartmentTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -23,4 +24,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   locations: LocationsTile,
   people: PeopleTile,
   team: TeamTile,
+  department: DepartmentTile,
 };

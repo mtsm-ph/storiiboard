@@ -1,6 +1,7 @@
 import { useEffect, type MouseEvent } from 'react';
 import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
-import { inModalDialog, TILES, type Workspace } from '../workspaces';
+import { departmentOf, inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
+import { closeDepartmentWorkspace } from '../workspaceStore';
 import { TILE_CONTENT } from '../tileContent';
 import { openTile, tilesIn, toggleMaximize, type Layout } from './layout';
 import { lastUsedStack } from './Dock';
@@ -18,6 +19,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   const layouts = useLayouts((s) => s.layouts[workspace.id]);
   const undoable = useLayouts((s) => canUndoLayout(s.past, workspace.id));
   const unsaved = isUnsaved(layouts);
+  const department = departmentOf(workspace.id);
   const sidebarHidden = useSidebarHidden();
   const mac = isMac();
   // Only tiles whose tools are built (Kevin's menu rules, Nov 5: what isn't built is hidden, not greyed out). A phase's
@@ -74,6 +76,19 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
                 {t('layoutMenu.resetToSavedLayout')}
               </MenuItem>
               <MenuItem onClick={run(() => { change(workspace.defaultLayout()); })}>{t('layoutMenu.resetToDefaultLayout')}</MenuItem>
+              {department !== null && (
+                // A department's workspace (3.6a) leaves the sidebar; its layout stays for the next time it's opened.
+                <MenuItem
+                  onClick={run(() => {
+                    closeDepartmentWorkspace(department);
+                    // The Storyboard takes its place: focus goes to its section (the workspace itself with the sidebar
+                    // hidden, as Alt+number does), not back to the menu's button in a workspace that's gone.
+                    requestAnimationFrame(() => (document.getElementById(sectionId('storyboard')) ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus());
+                  })}
+                >
+                  {t('layoutMenu.removeFromSidebar')}
+                </MenuItem>
+              )}
             </MenuGroup>
             <MenuGroup label={t('layoutMenu.groupView')}>
               <MenuItem

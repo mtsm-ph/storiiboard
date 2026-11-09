@@ -445,6 +445,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   return (
     // Scroll positions kept while this workspace's layout redraws its tiles (P4's low); a new workspace starts clean.
     <ScrollMemoryScope>
+    <WorkspaceContext value={workspace.id}>
     <div
       id={WORKSPACE_PANEL_ID}
       // Focus can land on the workspace itself, after Alt+number with the sidebar hidden (polish 2).
@@ -514,9 +515,11 @@ export function Dock({ workspace }: { workspace: Workspace }) {
         {announcement}
       </p>
     </div>
+    </WorkspaceContext>
     </ScrollMemoryScope>
   );
 }
 
 import { Splitter } from './Splitter';
+import { WorkspaceContext } from '../workspaceContext';
 import { t } from '../../../core/i18n';
