@@ -133,8 +133,9 @@ export function DepartmentStatusTable({ statuses, seen, approval, myRoles, onEdi
                     onClick={() => {
                       onOpen(department);
                     }}
-                    // Reads as the name it was; the underline on hover and focus says it goes somewhere.
-                    className="text-left break-words hover:underline focus-visible:underline focus-visible:outline-offset-1"
+                    // Reads as the name it was; the underline on hover and focus says it goes somewhere. The cell's full
+                    // width, so a long name wraps inside it ("Posproducción" in a narrow inspector) as the plain text did.
+                    className="block w-full text-left break-words hover:underline focus-visible:underline focus-visible:outline-offset-1"
                   >
                     {DEPARTMENT_LABELS[department]}
                   </button>
