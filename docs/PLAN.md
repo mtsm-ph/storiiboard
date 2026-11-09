@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6a merged, 3.6b in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6b merged, 3.6c in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.6b in review) |
+| Last updated | Nov 9, 2026 (3.6c in review) |
 
 | Phase | State |
 |---|---|
@@ -46,8 +46,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
 | 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | Done |
-| 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | In review |
-| 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | | Not started |
+| 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | Done |
+| 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | | In review |
 | 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | | Not started |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
@@ -58,6 +58,29 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.6c as built (Nov 9): perspective views (`src/features/department/perspective.ts`, `RestOfCrew.tsx`).
+- **A focus view, not security.** Anyone with the .sbd can open everything: the file holds every department's status
+  and approvals for whoever opens it, and the app only chooses what comes first. Real access limits come with the web
+  companion in Phase 9, where the server sends each person only what they may see.
+- Full view, a switch on each person in Cast and crew (the `full_view` prop): on, every department first, as before;
+  off, that person's own departments first. Never set, it follows the role: on for the director and the DP, off for
+  everyone else. Whose view it is: the person picked with This is me; without one, the role set on this computer (the
+  director, the DP, both, or a role standing for no department see everything).
+- In the focus view, a frame's department table shows your departments' rows ("Your departments on this frame"), then
+  Rest of crew, folded, with how many departments are in it; one click (or Enter) opens it as a grid of its own, and
+  focus stays on the button (the next Tab goes into the grid). The scene's approvals fold the same way. Nothing to
+  fold (no department of your own, or all of them yours) is the full view. The fold stays open for the session, so the next frame keeps it. The key and
+  the note on who approves are said once, under the last part shown.
+- Frame cards count your departments alone ("Your departments: 1 seen and 1 done"); the shot list's Departments cell
+  names yours, then how many of the rest have anything ("Rest of crew: 1 more").
+- Decided by default, review: the focus comes from This is me, else the role on this computer; frame cards and the
+  shot list narrow too, not only the Inspector; the fold kept for the session rather than saved.
+- Tests: the full view by role and as set, the setting's fallback, the edit, History's words; the focus rule, the
+  split, the folded table with its key once, the card's and the shot list's words; end to end, a gaffer picked as themselves seeing Grip & electric first on a frame and the
+  scene, the fold opened (its key once) and kept on the next frame, the card and the shot list (ink on the selected
+  row), the frame table's fallback for a gaffer, axe on the folded Inspector, Full
+  view switched on bringing every department back, a DP's on by default.
 
 3.6b as built (Nov 9): approvals per scene (`src/core/model/sceneApprovals.ts`, schema 9).
 - The director or the DP approves each department once per scene, in the Inspector's new Approvals · SC 04 section (a

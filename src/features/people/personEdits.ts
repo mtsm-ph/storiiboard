@@ -55,6 +55,13 @@ export function personDepartment(records: Records, id: string, department: Depar
   return [{ kind: 'update', id, set: { departments: [...known, ...unknown] } }];
 }
 
+/** Full view on or off (3.6c), set on the person from then on, whatever their role; nothing when it's already so. */
+export function personFullViewChange(records: Records, id: string, on: boolean): Change[] {
+  const person = live(records, id);
+  if (!person || person.props.full_view === on) return [];
+  return [{ kind: 'update', id, set: { full_view: on } }];
+}
+
 /** A person to the Trash. */
 export function trashPerson(records: Records, id: string): Change[] {
   return live(records, id) ? [{ kind: 'trash', id }] : [];

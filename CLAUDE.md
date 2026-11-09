@@ -133,7 +133,9 @@
   - One plan per scene setup, linked to its shots.
 - Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
   scene (3.6b), only by the director or the DP, showing "Changed since approval" once what that department touches
-  in the scene changes. A department's name in the Inspector opens its workspace (3.6a).
+  in the scene changes. A department's name in the Inspector opens its workspace (3.6a). Perspective views (3.6c):
+  the director, the DP and anyone with Full view (a switch per person in Cast and crew) see every department first;
+  everyone else sees their own, the rest folded under Rest of crew. A focus view, not access control.
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.

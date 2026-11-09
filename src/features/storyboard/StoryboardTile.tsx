@@ -24,6 +24,7 @@ import {
 import { pictureView } from './framePictures';
 import { openSketch } from './sketch/sketchStore';
 import { stableStrokesByShot } from './sketch/strokes';
+import { FocusContext, usePerspective } from '../department/perspective';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
@@ -104,6 +105,8 @@ export function StoryboardTile() {
   const selectedShotId = useSelection((s) => s.shotId);
   const selectedNoteId = useSelection((s) => s.noteId);
   const activeSceneId = useSelection((s) => s.sceneId);
+  // Your departments alone on the cards and in the shot list, in a focus view (3.6c).
+  const focus = usePerspective(project?.projectId);
   const projectId = project?.projectId ?? '';
   const scenes = project ? board(records, projectId) : [];
   const { aspectRatio } = projectStoryboard(records[projectId]?.props);
@@ -208,155 +211,157 @@ export function StoryboardTile() {
 
   return (
     <ProjectPictures>
-      {/* Keyed by project, so a menu or a drag open when the project switches never acts on the new one. */}
-      <StoryboardView
-        key={projectId}
-        scenes={groups}
-        customNames={customFieldNames(records)}
-        view={view}
-        onViewChange={(next) => {
-          setView(next);
-          try {
-            globalThis.localStorage.setItem(BOARD_VIEW_KEY, next);
-          } catch {
-            // A blocked store only loses the preference.
-          }
-          // The selected frame stays selected and in view in the new layout.
-          focusFrame(selectionStore.getState().shotId, false);
-        }}
-        aspectRatio={aspectRatioValue(aspectRatio)}
-        selectedShotId={selectedShotId}
-        canEdit={project !== null}
-        onSelect={(shotId, sceneId) => {
-          selectionStore.getState().selectShot(shotId, sceneId);
-        }}
-        // Each is one edit, so one undo takes it back; an emptied title is taken off rather than kept empty.
-        onRenameScene={(sceneId, name) => {
-          void apply([{ kind: 'update', id: sceneId, set: { name } }]);
-        }}
-        onRetitleShot={(shotId, title) => {
-          void apply([title === '' ? { kind: 'update', id: shotId, unset: ['title'] } : { kind: 'update', id: shotId, set: { title } }]);
-        }}
-        onAddFrame={(sceneId) => {
-          let shotId = '';
-          void applyWith((now, slate) => {
-            // After the selected frame when it's in this scene, so a frame goes where the person is working.
-            const { shotId: selected } = selectionStore.getState();
-            const after = selected && now[selected]?.parentId === sceneId ? selected : null;
-            const added = addShot(now, projectId, sceneId, after, {}, slate);
-            shotId = added.shotId;
-            return added;
-          }).then(() => {
-            // Only once written: a failed edit has said why, and leaves nothing to go to.
-            if (!projectStore.getState().records[shotId]) return;
+      <FocusContext value={focus}>
+        {/* Keyed by project, so a menu or a drag open when the project switches never acts on the new one. */}
+        <StoryboardView
+          key={projectId}
+          scenes={groups}
+          customNames={customFieldNames(records)}
+          view={view}
+          onViewChange={(next) => {
+            setView(next);
+            try {
+              globalThis.localStorage.setItem(BOARD_VIEW_KEY, next);
+            } catch {
+              // A blocked store only loses the preference.
+            }
+            // The selected frame stays selected and in view in the new layout.
+            focusFrame(selectionStore.getState().shotId, false);
+          }}
+          aspectRatio={aspectRatioValue(aspectRatio)}
+          selectedShotId={selectedShotId}
+          canEdit={project !== null}
+          onSelect={(shotId, sceneId) => {
             selectionStore.getState().selectShot(shotId, sceneId);
-            focusFrame(shotId);
-          });
-        }}
-        onAddScene={() => {
-          let sceneId = '';
-          void applyWith((now) => {
-            const change = addScene(now, projectId);
-            sceneId = change.record.id;
-            return { changes: [change] };
-          }).then(() => {
-            if (projectStore.getState().records[sceneId]) selectionStore.getState().selectScene(sceneId);
-          });
-        }}
-        onTrash={(id) => {
-          // Focus moves to the next item (or the one before at the end), where the keys can carry on.
-          const flat = scenes.flatMap((s) => s.items.map((item) => ({ item, sceneId: s.record.id })));
-          const at = flat.findIndex((f) => (f.item.kind === 'shot' ? f.item.shot.record.id : f.item.note.record.id) === id);
-          const next = flat[at + 1] ?? flat[at - 1] ?? null;
-          const nextId = next ? (next.item.kind === 'shot' ? next.item.shot.record.id : next.item.note.record.id) : null;
-          void applyWith((now, slate) => {
-            const item = now[id];
-            // A key held down can ask twice; the second finds it in the Trash already.
-            if (!item || item.trashedAt !== null) return { changes: [] };
-            return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id, slate) };
-          }).then((written) => {
-            // Refused or dropped (a project switched in between): nothing moved, so neither does the selection.
-            if (!written) return;
-            if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
-            else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
-            // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it, and focus goes
-            // to the scene's + Frame rather than off the board.
-            else selectionStore.getState().selectShot(null, null);
-            if (nextId) focusFrame(nextId);
-            else {
-              const sceneId = flat[at]?.sceneId;
-              requestAnimationFrame(() => {
-                if (sceneId) document.querySelector<HTMLElement>(`[data-scene-group="${CSS.escape(sceneId)}"] [data-board-item]`)?.focus();
-              });
-            }
-          });
-        }}
-        onOpen={() => {
-          // The inspector already shows the selected frame; Enter takes focus to its camera, the first thing set for a
-          // shot, when the tile is open. The picture's framing sits above it, a Shift+Tab away.
-          document
-            .querySelector<HTMLElement>('[data-inspector-start] [role="radio"][tabindex="0"], [data-inspector-start] input')
-            ?.focus();
-        }}
-        onMove={(id, direction) => {
-          // From the board as earlier moves left it, so holding ⌘ and an arrow steps one place each time.
-          void moveTo(id, (now) => {
-            const target = moveTarget(board(now, projectId), id, direction);
-            return target ? { sceneId: target.sceneId, beforeId: target.beforeShotId } : null;
-          }).then(() => {
-            focusFrame(id);
-          });
-        }}
-        onMoveTo={(id, place) => moveTo(id, () => place)}
-        onSelectScene={(sceneId, noteId) => {
-          selectionStore.getState().selectNote(noteId, sceneId);
-        }}
-        selectedNoteId={selectedNoteId}
-        locationNames={locations(records, projectId).map((l) => l.name)}
-        onSketch={openSketch}
-        onSetLocation={(sceneId, name) => {
-          void applyWith((now) => ({ changes: setSceneLocation(now, projectId, sceneId, name) }));
-        }}
-        onNoteText={(noteId, text) => {
-          void apply([{ kind: 'update', id: noteId, set: { text } }]);
-        }}
-        onInsert={async (choice, place) => {
-          let id = '';
-          await applyWith((now, slate) => {
-            if (choice.kind === 'scene') {
-              const change = addScene(now, projectId, place.sceneId);
-              id = change.record.id;
+          }}
+          // Each is one edit, so one undo takes it back; an emptied title is taken off rather than kept empty.
+          onRenameScene={(sceneId, name) => {
+            void apply([{ kind: 'update', id: sceneId, set: { name } }]);
+          }}
+          onRetitleShot={(shotId, title) => {
+            void apply([title === '' ? { kind: 'update', id: shotId, unset: ['title'] } : { kind: 'update', id: shotId, set: { title } }]);
+          }}
+          onAddFrame={(sceneId) => {
+            let shotId = '';
+            void applyWith((now, slate) => {
+              // After the selected frame when it's in this scene, so a frame goes where the person is working.
+              const { shotId: selected } = selectionStore.getState();
+              const after = selected && now[selected]?.parentId === sceneId ? selected : null;
+              const added = addShot(now, projectId, sceneId, after, {}, slate);
+              shotId = added.shotId;
+              return added;
+            }).then(() => {
+              // Only once written: a failed edit has said why, and leaves nothing to go to.
+              if (!projectStore.getState().records[shotId]) return;
+              selectionStore.getState().selectShot(shotId, sceneId);
+              focusFrame(shotId);
+            });
+          }}
+          onAddScene={() => {
+            let sceneId = '';
+            void applyWith((now) => {
+              const change = addScene(now, projectId);
+              sceneId = change.record.id;
               return { changes: [change] };
-            }
-            if (choice.kind === 'note') {
-              const change = addNote(now, place.sceneId, place.afterId);
-              id = change.record.id;
-              return { changes: [change] };
-            }
-            const added = addShot(now, projectId, place.sceneId, place.afterId, {}, slate);
-            id = added.shotId;
-            return added;
-          });
-          // Only once written: a failed edit has said why, and leaves nothing to go to.
-          if (!projectStore.getState().records[id]) return null;
-          if (choice.kind === 'scene') selectionStore.getState().selectScene(id);
-          else if (choice.kind === 'note') selectionStore.getState().selectNote(id, place.sceneId);
-          else selectionStore.getState().selectShot(id, place.sceneId);
-          return id;
-        }}
-        busy={busy}
-        dropHover={dropHover}
-        onAddPictures={() => {
-          // Into the selected scene, after the selected frame when there is one; else the last scene.
-          const { shotId, sceneId } = selectionStore.getState();
-          const scene = scenes.find((s) => s.record.id === sceneId) ?? scenes.at(-1);
-          if (!scene) return;
-          const after = shotId && records[shotId]?.parentId === scene.record.id ? shotId : null;
-          choosePictures(true)
-            .then((files) => addPictures(files, { kind: 'scene', sceneId: scene.record.id, afterShotId: after }))
-            .catch(showNotice);
-        }}
-      />
+            }).then(() => {
+              if (projectStore.getState().records[sceneId]) selectionStore.getState().selectScene(sceneId);
+            });
+          }}
+          onTrash={(id) => {
+            // Focus moves to the next item (or the one before at the end), where the keys can carry on.
+            const flat = scenes.flatMap((s) => s.items.map((item) => ({ item, sceneId: s.record.id })));
+            const at = flat.findIndex((f) => (f.item.kind === 'shot' ? f.item.shot.record.id : f.item.note.record.id) === id);
+            const next = flat[at + 1] ?? flat[at - 1] ?? null;
+            const nextId = next ? (next.item.kind === 'shot' ? next.item.shot.record.id : next.item.note.record.id) : null;
+            void applyWith((now, slate) => {
+              const item = now[id];
+              // A key held down can ask twice; the second finds it in the Trash already.
+              if (!item || item.trashedAt !== null) return { changes: [] };
+              return { changes: item.type === 'note' ? [{ kind: 'trash' as const, id }] : trashShot(now, projectId, id, slate) };
+            }).then((written) => {
+              // Refused or dropped (a project switched in between): nothing moved, so neither does the selection.
+              if (!written) return;
+              if (next?.item.kind === 'shot') selectionStore.getState().selectShot(nextId, next.sceneId);
+              else if (next) selectionStore.getState().selectNote(nextId, next.sceneId);
+              // The last item gone: nothing selected, so the board's Tab stop falls to what's left on it, and focus goes
+              // to the scene's + Frame rather than off the board.
+              else selectionStore.getState().selectShot(null, null);
+              if (nextId) focusFrame(nextId);
+              else {
+                const sceneId = flat[at]?.sceneId;
+                requestAnimationFrame(() => {
+                  if (sceneId) document.querySelector<HTMLElement>(`[data-scene-group="${CSS.escape(sceneId)}"] [data-board-item]`)?.focus();
+                });
+              }
+            });
+          }}
+          onOpen={() => {
+            // The inspector already shows the selected frame; Enter takes focus to its camera, the first thing set for a
+            // shot, when the tile is open. The picture's framing sits above it, a Shift+Tab away.
+            document
+              .querySelector<HTMLElement>('[data-inspector-start] [role="radio"][tabindex="0"], [data-inspector-start] input')
+              ?.focus();
+          }}
+          onMove={(id, direction) => {
+            // From the board as earlier moves left it, so holding ⌘ and an arrow steps one place each time.
+            void moveTo(id, (now) => {
+              const target = moveTarget(board(now, projectId), id, direction);
+              return target ? { sceneId: target.sceneId, beforeId: target.beforeShotId } : null;
+            }).then(() => {
+              focusFrame(id);
+            });
+          }}
+          onMoveTo={(id, place) => moveTo(id, () => place)}
+          onSelectScene={(sceneId, noteId) => {
+            selectionStore.getState().selectNote(noteId, sceneId);
+          }}
+          selectedNoteId={selectedNoteId}
+          locationNames={locations(records, projectId).map((l) => l.name)}
+          onSketch={openSketch}
+          onSetLocation={(sceneId, name) => {
+            void applyWith((now) => ({ changes: setSceneLocation(now, projectId, sceneId, name) }));
+          }}
+          onNoteText={(noteId, text) => {
+            void apply([{ kind: 'update', id: noteId, set: { text } }]);
+          }}
+          onInsert={async (choice, place) => {
+            let id = '';
+            await applyWith((now, slate) => {
+              if (choice.kind === 'scene') {
+                const change = addScene(now, projectId, place.sceneId);
+                id = change.record.id;
+                return { changes: [change] };
+              }
+              if (choice.kind === 'note') {
+                const change = addNote(now, place.sceneId, place.afterId);
+                id = change.record.id;
+                return { changes: [change] };
+              }
+              const added = addShot(now, projectId, place.sceneId, place.afterId, {}, slate);
+              id = added.shotId;
+              return added;
+            });
+            // Only once written: a failed edit has said why, and leaves nothing to go to.
+            if (!projectStore.getState().records[id]) return null;
+            if (choice.kind === 'scene') selectionStore.getState().selectScene(id);
+            else if (choice.kind === 'note') selectionStore.getState().selectNote(id, place.sceneId);
+            else selectionStore.getState().selectShot(id, place.sceneId);
+            return id;
+          }}
+          busy={busy}
+          dropHover={dropHover}
+          onAddPictures={() => {
+            // Into the selected scene, after the selected frame when there is one; else the last scene.
+            const { shotId, sceneId } = selectionStore.getState();
+            const scene = scenes.find((s) => s.record.id === sceneId) ?? scenes.at(-1);
+            if (!scene) return;
+            const after = shotId && records[shotId]?.parentId === scene.record.id ? shotId : null;
+            choosePictures(true)
+              .then((files) => addPictures(files, { kind: 'scene', sceneId: scene.record.id, afterShotId: after }))
+              .catch(showNotice);
+          }}
+        />
+      </FocusContext>
     </ProjectPictures>
   );
 }

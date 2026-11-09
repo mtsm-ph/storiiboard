@@ -5,7 +5,7 @@ import { setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
 import { t, tn } from '../../core/i18n';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
-import { castOf, characterName, PERSON_TEXT_FIELDS, personFieldRecords, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
+import { castOf, characterName, PERSON_TEXT_FIELDS, personFieldRecords, personFullView, personPart, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
 import type { SbdRecord } from '../../core/model/record';
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { Button } from '../../ui/Button';
@@ -13,7 +13,8 @@ import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
-import { castCharacter, newPerson, personChange, personDepartment, personRole, trashPerson } from './personEdits';
+import { focusOf } from '../department/perspective';
+import { castCharacter, newPerson, personChange, personDepartment, personFullViewChange, personRole, trashPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
 // (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
@@ -182,6 +183,9 @@ export function PeopleTile() {
           onDepartment={(department, on) => {
             void edit((now) => personDepartment(now, selected.record.id, department, on));
           }}
+          onFullView={(on) => {
+            void edit((now) => personFullViewChange(now, selected.record.id, on));
+          }}
           onDelete={() => {
             const id = selected.record.id;
             const at = all.findIndex((p) => p.record.id === id);
@@ -226,14 +230,20 @@ interface PersonEditorProps {
   onChange: (prop: string, value: string) => void;
   onRole: (role: string | null) => void;
   onDepartment: (department: (typeof DEPARTMENTS)[number], on: boolean) => void;
+  /** Full view on or off (3.6c): set on the person, in the file. */
+  onFullView: (on: boolean) => void;
   /** The project's characters, and who plays each: picking one casts this person, again uncasts them. */
   characters: readonly { id: string; name: string; playedBy: string | null; castName: string }[];
   onCast: (characterId: string, on: boolean) => void;
   onDelete: () => void;
 }
 
-function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, characters, onCast, onDelete }: PersonEditorProps) {
+function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, characters, onCast, onDelete }: PersonEditorProps) {
   const playsId = useId();
+  const fullViewNoteId = useId();
+  const fullView = personFullView(fields);
+  // Off, but nothing to fold (no department of their own, or every one): they see everything, and the note says so.
+  const folded = focusOf({ fullView, departments: personPart(fields).departments }) !== null;
   const meNoteId = useId();
   const headingId = useId();
   const departmentsId = useId();
@@ -333,6 +343,30 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
             );
           })}
         </div>
+      </div>
+      {/* Full view (3.6c): every department first, as the director and the DP see it, or their own first with the
+          rest folded under Rest of crew. On by default for the director and the DP. A focus view, not access. */}
+      <div className="flex flex-col gap-1">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={fullView}
+          aria-describedby={fullViewNoteId}
+          data-full-view=""
+          onClick={() => {
+            onFullView(!fullView);
+          }}
+          className={cx(
+            'self-start border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+            fullView ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+          )}
+        >
+          {t('person.fullView')}
+        </button>
+        <p id={fullViewNoteId} className="text-[12px] text-text-muted">
+          {fullView ? t('person.fullViewOn') : folded ? t('person.fullViewOff') : t('person.fullViewNothingToFold')}{' '}
+          {t('person.fullViewNotAccess')}
+        </p>
       </div>
       {characters.length > 0 && (
         // The characters they play (3.5b): one cast member each, so picking one another plays moves it here.

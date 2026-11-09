@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { newPerson, personChange, personDepartment, personRole, trashPerson } from '../../features/people/personEdits';
+import { newPerson, personChange, personDepartment, personFullViewChange, personRole, trashPerson } from '../../features/people/personEdits';
 import { myPart, personFields, personPart, projectPeople } from './person';
-import type { SbdRecord } from './record';
+import type { JsonValue, SbdRecord } from './record';
 
 // Cast and crew (3.5): people read from their records, listed by name, and changed one field at a time; their phone
 // and email never shown in History.
@@ -51,6 +51,9 @@ describe('cast and crew (3.5)', () => {
     expect(personDepartment(records(), 'a', 'direction', true)).toEqual([{ kind: 'update', id: 'a', set: { departments: ['direction', 'camera', 'grip-electric'] } }]);
     expect(personDepartment(records(), 'a', 'camera', false)).toEqual([{ kind: 'update', id: 'a', set: { departments: ['grip-electric'] } }]);
     expect(personDepartment(records(), 'a', 'camera', true)).toEqual([]);
+    // Full view (3.6c): set on the person whatever their role's default, and nothing when it's already so.
+    expect(personFullViewChange(records(), 'a', false)).toEqual([{ kind: 'update', id: 'a', set: { full_view: false } }]);
+    expect(personFullViewChange({ ...records(), z: record('z', 'person', 'p', { full_view: true }) }, 'z', true)).toEqual([]);
     expect(trashPerson(records(), 'a')).toEqual([{ kind: 'trash', id: 'a' }]);
     expect(trashPerson(records(), 'd')).toEqual([]);
   });
@@ -203,8 +206,24 @@ describe('you in Cast and crew (3.5c)', () => {
     expect(myPart(all, 'p', 'a', 'gaffer')).toMatchObject({ role: 'dp', departments: ['camera', 'grip-electric'], person: { id: 'a' } });
     // None picked, one in the Trash, one gone for good, one in another project, not a person at all: the setting.
     for (const selfId of [null, 'd', 'missing', 'q', 's']) {
-      expect(myPart(all, 'p', selfId, 'gaffer')).toEqual({ role: 'gaffer', departments: ['grip-electric'], person: null });
+      expect(myPart(all, 'p', selfId, 'gaffer')).toEqual({ role: 'gaffer', departments: ['grip-electric'], fullView: false, person: null });
     }
-    expect(myPart(all, 'p', null, null)).toEqual({ role: null, departments: [], person: null });
+    expect(myPart(all, 'p', null, null)).toEqual({ role: null, departments: [], fullView: true, person: null });
+  });
+
+  it('gives the director and the DP the full view, and everyone else their own departments first, unless set (3.6c)', () => {
+    const person = (props: Record<string, JsonValue>) => myPart({ x: record('x', 'person', 'p', props) }, 'p', 'x', null).fullView;
+    expect(person({ role: 'dp' })).toBe(true);
+    expect(person({ role: 'director' })).toBe(true);
+    expect(person({ role: 'gaffer', departments: ['grip-electric'] })).toBe(false);
+    expect(person({ role: 'gaffer', full_view: true })).toBe(true);
+    expect(person({ role: 'dp', full_view: false })).toBe(false);
+    // An odd value reads as never set.
+    expect(person({ role: 'hmu', full_view: 'yes' })).toBe(false);
+    // The setting on this computer, when nobody's picked: the director and DP see everything, and so does a role
+    // with no department to put first.
+    expect(myPart({}, 'p', null, 'director-dp').fullView).toBe(true);
+    expect(myPart({}, 'p', null, 'sound').fullView).toBe(false);
+    expect(myPart({}, 'p', null, 'other').fullView).toBe(true);
   });
 });

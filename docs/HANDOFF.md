@@ -343,6 +343,25 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.6c: review
+
+- Decided by default, review: whose view it is (This is me, else the role set on this computer); frame cards and the
+  shot list narrow too, not only the Inspector; the Rest of crew fold kept open for the session, not saved; nothing to
+  fold (no department of your own, or all of them) is the full view; focus stays on the fold's button.
+- The full end-to-end run caught one of its own: 3.5c's test checked Camera's approval for the gaffer fallback, now
+  folded under Rest of crew; it checks the gaffer's own row.
+- Round 1: no high, two mediums, fixed. A focus changed while a frame stayed open (Settings → Project) kept the old
+  rows in the grid: the grids' keys now carry their rows. "Rest of crew: N more" was muted on the selected shot-list
+  row's oatmeal: ink there, tested.
+- Lows fixed: one focus rule for the card, the Inspector and the shot list (`focusOf`), with the Full view note saying
+  when there's nothing to fold; aria-controls only while open; the focus memoized by its ids; tests for the rule, the
+  shot list's filter and History's words; imports; the Spanish.
+- Round 2: no high; its medium (a hooks lint rule on the memo) doesn't apply, since the rule isn't loaded here and
+  lint passes, but the memo now reads only its key. Lows fixed: the note for someone in every department, a stale
+  comment, the Spanish again.
+- Lows left: the stale-rows case is covered by the key, without a test of its own (server rendering can't change the
+  focus under a mounted grid).
+
 ### 3.6b: review
 
 Kevin's Nov 9 answers came with this milestone: approvals move from frames to scenes, with a migration he approved
@@ -909,6 +928,16 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
    say whether the JSON should carry the Trash and History (it does; "2.9: decisions").
 
 ## The rules for this run (Kevin's queued instructions)
+
+**Overnight run (Kevin, Nov 9):** build 3.6b, 3.6c and 3.6d, then the rest of Phase 3 in PLAN.md order up to the
+gate, without waiting for him. One milestone at a time; the reviewer until nothing high or medium is left; a merge
+commit once the quick checks (the PR's CI) pass, with no checkpoint per milestone; a report after each; this file kept
+current. Never rewrite commits while a test run is going. Take the recommendation on anything easy to undo ("Decided by
+default, for your review"); additive format changes are approved (migration, backup first, tests). Anything that
+changes or removes existing data beyond what he approved, adds a dependency, or uses the network beyond the approved
+rules waits: write it down, move on to the next milestone that doesn't depend on it. At the gate, or when nothing is
+left to do without him: one checkpoint for fresh installers, then one combined checklist for everything built that
+night, riskiest first (format changes and migrations, then anything touching approvals, then the rest).
 
 - One milestone at a time, each its own PR into `v2`. Every PR adds or updates tests for the flow it touches and
   updates the status in `docs/PLAN.md`.

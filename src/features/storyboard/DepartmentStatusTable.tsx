@@ -29,11 +29,18 @@ interface DepartmentStatusTableProps {
   onOpen?: (department: Department) => void;
   /** One department's row alone, as its own workspace shows the frame (3.6a). */
   only?: Department;
+  /** These departments' rows alone, Priority first among them: one part of a focus view (3.6c). */
+  rows?: readonly Department[];
+  /** The grid's name, when it isn't the whole frame's ("Your departments on this frame"). */
+  label?: string;
+  /** The key naming each shape; left out of a part shown above another (3.6c), so it's said once. */
+  legend?: boolean;
 }
 
-export function DepartmentStatusTable({ statuses, seen, onEdit, onOpen, only }: DepartmentStatusTableProps) {
-  // The order is fixed while the inspector shows this frame: ticking Priority mustn't move the row away from focus.
-  const [order] = useState(() => (only ? [only] : orderedDepartments(statuses)));
+export function DepartmentStatusTable({ statuses, seen, onEdit, onOpen, only, rows, label, legend = true }: DepartmentStatusTableProps) {
+  // The order is fixed for as long as the table is drawn, and the inspector draws it anew for each frame and each change
+  // of rows (a focus view, 3.6c): ticking Priority mustn't move the row away from focus.
+  const [order] = useState(() => (only ? [only] : orderedDepartments(statuses).filter((d) => !rows || rows.includes(d))));
   // With names that open a workspace, they're the grid's first column; the states' columns count on after them.
   const offset = onOpen ? 1 : 0;
   const width = COLUMNS.length + offset;
@@ -70,7 +77,7 @@ export function DepartmentStatusTable({ statuses, seen, onEdit, onOpen, only }: 
     <div className="flex flex-col gap-2">
       {/* An ARIA grid, not a table: one Tab stop, the arrows between boxes. Each row its own CSS grid, so every row
           stays in the accessibility tree (older WebKit drops display: contents). */}
-      <div ref={table} role="grid" aria-label={t('departmentStatus.table')} className="flex flex-col gap-y-0.5">
+      <div ref={table} role="grid" aria-label={label ?? t('departmentStatus.table')} className="flex flex-col gap-y-0.5">
         <div role="row" className={ROW}>
           <span role="columnheader" className="sb-label pb-1 text-text-muted">
             {t('departmentStatus.department')}
@@ -152,14 +159,16 @@ export function DepartmentStatusTable({ statuses, seen, onEdit, onOpen, only }: 
         })}
       </div>
       {/* The columns in words, for anyone who doesn't know the shapes yet. */}
-      <ul aria-label={t('departmentStatus.legend')} className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
-        {COLUMNS.map((column) => (
-          <li key={column} className="flex items-center gap-1">
-            <DepartmentStateGlyph state={column} size={10} />
-            {DEPARTMENT_STATE_LABELS[column]}
-          </li>
-        ))}
-      </ul>
+      {legend && (
+        <ul aria-label={t('departmentStatus.legend')} className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
+          {COLUMNS.map((column) => (
+            <li key={column} className="flex items-center gap-1">
+              <DepartmentStateGlyph state={column} size={10} />
+              {DEPARTMENT_STATE_LABELS[column]}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

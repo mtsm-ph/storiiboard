@@ -2,7 +2,7 @@ import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
 import type { DepartmentStatuses } from '../../core/model/departmentStatus';
-import type { Department } from '../../core/model/department';
+import { DEPARTMENTS, type Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
 import {
   choiceLabel,
@@ -37,6 +37,8 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { CropEditor } from './CropEditor';
 import { ClipPreview, type ClipPreviewProps } from '../video/ClipPreview';
 import { DepartmentStatusTable } from './DepartmentStatusTable';
+import { RestOfCrew } from '../department/RestOfCrew';
+import type { Focus } from '../department/perspective';
 import type { FramePictureView } from './FrameImage';
 import { headingOf } from './ScenesView';
 import { labels, localizeError, t, type MessageKey } from '../../core/i18n';
@@ -160,6 +162,8 @@ export interface InspectorViewProps {
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
   /** The scene's department approvals (3.6b), in a section of their own after the scene's. */
   approvals?: ReactNode;
+  /** Your departments first, the rest under Rest of crew (3.6c); null or left out for the full view. */
+  focus?: Focus;
   /** Opens a department's workspace from its name in the department table (3.6a). */
   onOpenDepartment?: (department: Department) => void;
 }
@@ -518,6 +522,7 @@ export function InspectorView({
   customHidden = [],
   onCustomChange,
   approvals,
+  focus = null,
   onOpenDepartment,
   onDepartmentStatus,
   seen = NOTHING_SEEN,
@@ -866,15 +871,26 @@ export function InspectorView({
           </Section>
 
           <Section title={t('inspectorView.departments')}>
-            {/* Keyed by frame: the rows keep their order while this frame is open, and start over for the next. */}
-            <DepartmentStatusTable
-              key={shot.id}
-              statuses={shot.fields.departmentStatus}
-              seen={seen}
-              onEdit={(edit) => {
-                onDepartmentStatus?.(edit);
-              }}
-              {...(onOpenDepartment ? { onOpen: onOpenDepartment } : {})}
+            {/* Keyed by frame: the rows keep their order while this frame is open, and start over for the next. In the
+                focus view (3.6c), your departments, then the rest under Rest of crew, each a grid of its own. */}
+            <RestOfCrew
+              fold="frame"
+              departments={DEPARTMENTS}
+              focus={focus}
+              render={(rows, part, last) => (
+                <DepartmentStatusTable
+                  // The rows in the key too: a focus changed while this frame is open (Settings → Project) draws them anew.
+                  key={`${shot.id}-${part}-${rows.join(',')}`}
+                  statuses={shot.fields.departmentStatus}
+                  seen={seen}
+                  onEdit={(edit) => {
+                    onDepartmentStatus?.(edit);
+                  }}
+                  {...(onOpenDepartment ? { onOpen: onOpenDepartment } : {})}
+                  {...(part === 'all' ? {} : { rows, label: t(part === 'mine' ? 'restOfCrew.yoursOnFrame' : 'restOfCrew.restOnFrame') })}
+                  legend={last}
+                />
+              )}
             />
             {/* Approved left the frame for the scene (3.6b): said here, where people looked for it. */}
             {approvals && <p className="text-[12px] text-text-muted">{t('departmentStatus.approvedPerScene', { scene: sceneLabel(s.number) })}</p>}

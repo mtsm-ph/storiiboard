@@ -196,16 +196,20 @@ function allDepartments(statuses: DepartmentStatuses, seen: readonly string[]): 
   return [...orderedDepartments(statuses), ...unknown];
 }
 
-/** The departments with anything set or seen, Priority first (ids a newer version added come last), each with its states in column order. */
-export function departmentStates(statuses: DepartmentStatuses, seen: readonly string[]): { department: string; states: FrameState[] }[] {
+/**
+ * The departments with anything set or seen, Priority first (ids a newer version added come last), each with its
+ * states in column order; only those in `only` when it's given (a focus view, 3.6c).
+ */
+export function departmentStates(statuses: DepartmentStatuses, seen: readonly string[], only?: readonly string[]): { department: string; states: FrameState[] }[] {
   return allDepartments(statuses, seen)
+    .filter((department) => !only || only.includes(department))
     .map((department) => ({ department, states: DEPARTMENT_STATES.filter((state) => inState(statuses, seen, department, state)) }))
     .filter((row) => row.states.length > 0);
 }
 
-/** How many departments are in each state, for a frame card's summary; states nobody is in left out. */
-export function stateCounts(statuses: DepartmentStatuses, seen: readonly string[]): { state: FrameState; count: number }[] {
-  const all = allDepartments(statuses, seen);
+/** How many departments (of `only`, when given) are in each state, for a frame card's summary; states nobody is in left out. */
+export function stateCounts(statuses: DepartmentStatuses, seen: readonly string[], only?: readonly string[]): { state: FrameState; count: number }[] {
+  const all = allDepartments(statuses, seen).filter((department) => !only || only.includes(department));
   return DEPARTMENT_STATES.map((state) => ({ state, count: all.filter((d) => inState(statuses, seen, d, state)).length })).filter(
     (row) => row.count > 0,
   );
