@@ -1,5 +1,6 @@
 import type { JsonValue, Props, SbdRecord } from './record';
 import { labels } from '../i18n';
+import { placeFrom, type Place } from '../net/places';
 
 // A location (3.3): one place a scene is shot, named once and linked from every scene there (`scene.location_id`), so an
 // address or a parking note changed here is changed for every scene and, from Phase 4, every call sheet. Its contact's
@@ -102,10 +103,38 @@ export function locationPhotos(records: Readonly<Record<string, SbdRecord>>, loc
 }
 
 /**
- * A map search for the location, by its address (or its name with none): OpenStreetMap's, which needs no key and
- * opens in any browser. Null when there's nothing to search for. Nothing is fetched: the person opens the link.
+ * Where a location is on the map (3.4): the place picked from the address search (`latitude`, `longitude`, and its
+ * name as the map service wrote it, `map_name`), or null before one is picked (or for values this version can't read).
  */
-export function mapLink(fields: Pick<LocationFields, 'address' | 'name'>): string | null {
+export function mapPlace(props: Props): Place | null {
+  return placeFrom({ name: props.map_name, latitude: props.latitude, longitude: props.longitude });
+}
+
+/** The props that hold a location's place on the map. */
+export const MAP_PLACE_PROPS = ['latitude', 'longitude', 'map_name'] as const;
+
+/**
+ * The props a new address takes off (3.4), for every writer (the Locations tile; suggestions, MCP and imports later):
+ * a place picked for the old address would send a call sheet's map, and the crew, to the wrong place. An address only
+ * re-spaced keeps its place.
+ */
+export function unpinnedBy(props: Props, address: string): string[] {
+  const words = (value: string) => value.trim().replace(/\s+/g, ' ');
+  if (words(text(props.address)) === words(address)) return [];
+  return MAP_PLACE_PROPS.filter((prop) => prop in props);
+}
+
+/**
+ * The location on OpenStreetMap, which needs no key and opens in any browser: its pin, once a place is picked from the
+ * address search; else a search for its address (or its name with none). Null when there's nothing to show. Nothing is
+ * fetched: the person opens the link.
+ */
+export function mapLink(fields: Pick<LocationFields, 'address' | 'name'>, place: Place | null = null): string | null {
+  if (place) {
+    const lat = place.latitude.toFixed(6);
+    const lon = place.longitude.toFixed(6);
+    return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}`;
+  }
   const query = (fields.address.trim() || fields.name.trim()).replace(/\s+/g, ' ');
   return query === '' ? null : `https://www.openstreetmap.org/search?query=${encodeURIComponent(query)}`;
 }

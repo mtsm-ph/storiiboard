@@ -1,6 +1,8 @@
 import { imageStatements, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
 import type { Statement } from '../../core/storage/driver';
+import { MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
+import type { Place } from '../../core/net/places';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
@@ -17,12 +19,46 @@ export function newLocation(records: Records, projectId: string, id: string = cr
   return { kind: 'create', record: { id, type: 'location', parentId: projectId, sortKey: keyBetween(last, null), props: { name: '', status: 'tbd' } } };
 }
 
-/** One field of a location, from the location as it is at the edit's turn; nothing when it's already that, or gone. */
+/**
+ * One field of a location, from the location as it is at the edit's turn; nothing when it's already that, or gone. A
+ * new address takes the place on the map (3.4) off in the same edit (unpinnedBy); one ⌘Z puts both back.
+ */
 export function locationChange(records: Records, id: string, prop: string, value: string): Change[] {
   const location = records[id];
   if (location?.type !== 'location' || location.trashedAt !== null) return [];
   const current = typeof location.props[prop] === 'string' ? location.props[prop] : '';
-  return current === value ? [] : [{ kind: 'update', id, set: { [prop]: value } }];
+  if (current === value) return [];
+  const pin = prop === 'address' ? unpinnedBy(location.props, value) : [];
+  return [{ kind: 'update', id, set: { [prop]: value }, ...(pin.length > 0 ? { unset: pin } : {}) }];
+}
+
+
+/**
+ * A place picked from the address search (3.4) put on the location, in one edit: where it is and its name on the map.
+ * The address as typed stays (it's what the crew reads); an empty one takes the place's name. Nothing when the
+ * location isn't live or is already there.
+ */
+export function placeLocation(records: Records, id: string, place: Place): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const now = mapPlace(location.props);
+  if (now && now.name === place.name && now.latitude === place.latitude && now.longitude === place.longitude) return [];
+  const address = typeof location.props.address === 'string' ? location.props.address : '';
+  return [
+    {
+      kind: 'update',
+      id,
+      set: { latitude: place.latitude, longitude: place.longitude, map_name: place.name, ...(address.trim() === '' ? { address: place.name } : {}) },
+    },
+  ];
+}
+
+/** The location's place on the map taken off (its address stays); nothing when it has none. */
+export function unplaceLocation(records: Records, id: string): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const props = MAP_PLACE_PROPS.filter((prop) => prop in location.props);
+  return props.length === 0 ? [] : [{ kind: 'update', id, unset: props }];
 }
 
 /** A location to the Trash; its scenes keep their link, so a restore brings them back with it. */

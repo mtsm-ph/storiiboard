@@ -1,0 +1,107 @@
+[
+ {
+  "place_id": 3886402,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "node",
+  "osm_id": 6266294785,
+  "lat": "-13.5167674",
+  "lon": "-71.9787787",
+  "category": "tourism",
+  "type": "attraction",
+  "place_rank": 30,
+  "importance": 0.33861775862348764,
+  "addresstype": "tourism",
+  "name": "Plaza de Armas",
+  "display_name": "Plaza de Armas, Hauqaypata, San Cristóbal, Mollococha, Cuzco, Distrito de Cusco, Province of Cusco, Cusco, 08001, Peru",
+  "boundingbox": [
+   "-13.5168174",
+   "-13.5167174",
+   "-71.9788287",
+   "-71.9787287"
+  ]
+ },
+ {
+  "place_id": 3918307,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 166464316,
+  "lat": "-14.7930505",
+  "lon": "-71.4128145",
+  "category": "leisure",
+  "type": "park",
+  "place_rank": 24,
+  "importance": 0.08004176165407795,
+  "addresstype": "park",
+  "name": "Plaza de Armas",
+  "display_name": "Plaza de Armas, Obrero, Yauri, Espinar, Province of Espinar, Cusco, Peru",
+  "boundingbox": [
+   "-14.7934172",
+   "-14.7926838",
+   "-71.4131891",
+   "-71.4124399"
+  ]
+ },
+ {
+  "place_id": 3935299,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 138612188,
+  "lat": "-13.4209905",
+  "lon": "-71.8504805",
+  "category": "leisure",
+  "type": "park",
+  "place_rank": 24,
+  "importance": 0.08004161669336993,
+  "addresstype": "park",
+  "name": "Plaza de Armas",
+  "display_name": "Plaza de Armas, Rinconada, Pisac, Province of Calca, Cusco, Peru",
+  "boundingbox": [
+   "-13.4212408",
+   "-13.4207403",
+   "-71.8508048",
+   "-71.8501562"
+  ]
+ },
+ {
+  "place_id": 3499496,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 228131645,
+  "lat": "-13.5086321",
+  "lon": "-72.5276405",
+  "category": "leisure",
+  "type": "park",
+  "place_rank": 24,
+  "importance": 0.08004147020675971,
+  "addresstype": "park",
+  "name": "Plaza de Armas",
+  "display_name": "Plaza de Armas, Mollepata, Province of Anta, Cusco, Peru",
+  "boundingbox": [
+   "-13.5088772",
+   "-13.5083870",
+   "-72.5278938",
+   "-72.5273872"
+  ]
+ },
+ {
+  "place_id": 3892031,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 293213309,
+  "lat": "-14.3125581",
+  "lon": "-71.6893275",
+  "category": "leisure",
+  "type": "park",
+  "place_rank": 24,
+  "importance": 0.08004079880979627,
+  "addresstype": "park",
+  "name": "plaza de armas",
+  "display_name": "plaza de armas, Livitaca, Province of Chumbivilcas, Cusco, Peru",
+  "boundingbox": [
+   "-14.3128602",
+   "-14.3122676",
+   "-71.6897209",
+   "-71.6889444"
+  ]
+ }
+]

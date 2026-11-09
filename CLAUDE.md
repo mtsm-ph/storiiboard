@@ -31,6 +31,8 @@
 - State: Zustand. Every canvas: react-konva.
 - Project file: SQLite through Rust commands (rusqlite) in src-tauri; SQL and schema live in src/core/storage.
 - Video: ffmpeg sidecar, LGPL build, for proxies, stills and trims.
+- Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
+  in src-tauri/src/net.rs.
 - PDFs: pdf-lib. Sun times: SunCalc. 3D (Phase 10): three.js through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
@@ -195,9 +197,13 @@
   one. An approved deletion is a trash op, never a hard delete.
 
 ## Network rules
+- Every request goes through src-tauri/src/net.rs (Kevin, Nov 9), only to hosts on its fixed list in the code, over
+  HTTPS, with a generic app name in the User-Agent, never a person's name or email. A new host is added there with
+  the rule it follows. Dependencies are pinned to a release at least two weeks old.
 - Weather: Open-Meteo, no key, non-commercial use only; credit it on call sheets (CC BY 4.0).
 - Geocoding: Nominatim only when the user presses Search; at most 1 request per second;
-  app name in the User-Agent; cache results in the .sbd; never autocomplete.
+  app name in the User-Agent; cache results in the .sbd; never autocomplete. Built in 3.4: Search address in the
+  Locations tile (src-tauri/src/geocode.rs), cached in `lookups`; tests read a recorded answer, never the service.
 - Google Maps only with the user's own key from Settings.
 - Dropbox: a public folder link with dl=1 downloads as one zip.
 - Google Drive: "anyone with the link" folders through the Drive API with a project API key.

@@ -78,6 +78,10 @@ const FIELD: Readonly<Record<string, string>> = labels({
   date: 'history.field.date',
   call_time: 'history.field.callTime',
   wrap_time: 'history.field.wrapTime',
+  // A location's place on the map (3.4): three props, one thing to a person.
+  latitude: 'history.field.mapPlace',
+  longitude: 'history.field.mapPlace',
+  map_name: 'history.field.mapPlace',
   setup_minutes: 'history.field.setupMinutes',
   crew: 'history.field.crew',
   quantity: 'history.field.quantity',
@@ -356,7 +360,8 @@ export const changeLabel = (change: FieldChange): string =>
  * Contact details and addresses (a location's, 3.3; call sheets treat them as private): History names the field and
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
-const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'contact_phone', 'contact_email', 'phone', 'email']);
+// A location's place on the map (3.4) says where its address is, so it's kept as the address is.
+const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'latitude', 'longitude', 'map_name', 'contact_phone', 'contact_email', 'phone', 'email']);
 const isPrivate = (change: FieldChange): boolean => change.private === true || (change.key === undefined && PRIVATE_PROPS.has(change.prop));
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
@@ -785,8 +790,12 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
     const line = stepLine(op);
     if (line !== null) rows.push({ key: op.id, op, change: line, field: null });
     if (op.before && op.after) {
+      // Props one thing is kept in (a place on the map's three) read as one row, as the step's summary reads them.
+      const named = new Set<string>();
       for (const field of fieldChanges(op.before, op.after)) {
         const name = field.prop === 'media_id' ? pictureChange(field) : changeLabel(field);
+        if (field.key === undefined && named.has(name)) continue;
+        named.add(name);
         rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: t(FIELD_HOW[op.groupKind], { field: name }), field });
       }
     }

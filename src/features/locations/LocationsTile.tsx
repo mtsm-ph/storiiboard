@@ -7,6 +7,7 @@ import {
   LOCATION_STATUSES,
   LOCATION_TEXT_FIELDS,
   mapLink,
+  mapPlace,
   projectLocations,
   type LocationFields,
   type LocationTextField,
@@ -20,6 +21,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, trashLocation } from './locationEdits';
 import { LocationPhotos } from './LocationPhotos';
+import { AddressSearch } from './AddressSearch';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { locationFieldRecords } from '../../core/model/location';
 import { CustomFields } from '../storyboard/InspectorView';
@@ -28,8 +30,9 @@ import { setCustomField } from '../storyboard/board';
 // The Locations tile (3.3), in the Production workspace: every place the project shoots, each with its address, its
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
 // and linked from its scenes, so a change here is a change for all of them. Each field is one edit when it's left, so
-// one ⌘Z; Delete sends it to the Trash. Copy map link puts an OpenStreetMap search for its address on the clipboard:
-// nothing is looked up from here. Narrow (Production gives it a column), the list sits above the editor.
+// one ⌘Z; Delete sends it to the Trash. Search address (3.4) looks the address up when pressed and puts a place picked
+// on the map; Copy map link puts that place, or an OpenStreetMap search for the address, on the clipboard. Narrow
+// (Production gives it a column), the list sits above the editor.
 
 const FIELD_LABEL: Readonly<Record<LocationTextField, () => string>> = {
   address: () => t('location.address'),
@@ -228,11 +231,11 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
       />
     );
   };
-  /** The link from what's in the fields now, typed and not yet written included. */
-  const currentLink = () => {
-    const read = (prop: string) => editor.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field="${prop}"]`)?.value ?? '';
-    return mapLink({ address: read('address'), name: read('name') });
-  };
+  /** What's in a field now, typed and not yet written included. */
+  const typed = (prop: string) => editor.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field="${prop}"]`)?.value ?? '';
+  const place = mapPlace(props);
+  /** The link from what's in the fields now: the place on the map once one is picked. */
+  const currentLink = () => mapLink({ address: typed('address'), name: typed('name') }, place);
   const sorted = [...scenes].sort((a, b) => compareSceneNumbers(sceneFields(a.props).number, sceneFields(b.props).number));
   return (
     <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-location-editor="">
@@ -248,7 +251,11 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
           onChange('status', status);
         }}
       />
-      {LOCATION_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]))}
+      {LOCATION_TEXT_FIELDS.map((prop) => [
+        text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]),
+        // The search sits under the address it looks up.
+        prop === 'address' && <AddressSearch key="address-search" locationId={id} place={place} query={() => typed('address').trim() || typed('name')} />,
+      ])}
       <LocationPhotos locationId={id} name={fields.name || t('locations.unnamed')} />
       <div className="flex flex-col gap-3">
         <h4 className="sb-label">{t('location.customFields')}</h4>

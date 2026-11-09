@@ -307,6 +307,28 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v11: cached lookups (3.4)
+
+Additive (approved Nov 9). Every lookup the app makes on the network is kept in the project with when it was fetched
+(CLAUDE.md, Network rules), so a search pressed twice asks once and its answer is there offline
+(src/core/storage/lookups.ts).
+
+`lookups`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| kind | text | `address_search` now; weather and the nearest hospital come with Phase 4 |
+| query_key | text | What was asked, as the lookup keys it. For `address_search`: the language and the words, in one case and spacing (`en\|plaza de armas, cusco`), since Nominatim names places in the language asked |
+| query | text | The words as asked |
+| result | text | The answer as JSON. For `address_search`: a list of `{ "name", "latitude", "longitude" }`, at most five, in the service's order |
+| fetched_at | text | When the answer came from the network (ISO 8601) |
+
+- Unique on (`kind`, `query_key`): asking again (Search again) replaces the row.
+- Not an op: a cache isn't a step in History and isn't undone. Writing one counts as a change for the 5-minute backups.
+- Read back, every answer is checked again; one that can't be read counts as none, and the app asks the network.
+- A JSON export carries the table, and an import brings it back.
+
 ## Schema v10: notification read state (3.10)
 
 Additive (approved Nov 7 and 9). The notification feed isn't stored: like every rollup, it's worked out from History's
@@ -452,6 +474,11 @@ private: shown in the app, never logged. No table change.
 - `custom` on a location: its own fields, an object of name to text, as a shot's `custom`.
 - `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
   A location in the Trash reads as none, for the shot as for the scene.
+
+3.4, also no table change: a place picked from the address search puts `latitude` and `longitude` (numbers, degrees,
+WGS 84) and `map_name` (the place's name as the map service wrote it) on the location, together, in one op. All three or
+none count: a latitude outside ±90, a longitude outside ±180, or a missing name reads as no place. `address` stays as
+typed (an empty one takes `map_name`). Like the address, they're private in History: named, never shown.
 
 ## Shoot day props (3.7)
 
@@ -920,6 +947,7 @@ merge a database, so two guards sit around every open project:
 | 8 | 2.2 | Video: `media` records of kind `video`, the shot prop `clip`, the picture prop `from_video`; `luts` |
 | 9 | 3.6b | Approvals per scene: the scene prop `department_approvals`, carried from the frames' where every frame had one; `approvals` off every shot's `department_status`. No table change |
 | 10 | 3.10 | Notification read state: `notification_cursors`, `notification_reads` |
+| 11 | 3.4 | Cached network lookups: `lookups` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

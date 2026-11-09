@@ -5,8 +5,10 @@ use tauri::{webview::PageLoadEvent, Manager};
 mod app_data;
 mod backup;
 mod export;
+mod geocode;
 mod licences;
 mod lock;
+mod net;
 mod opened;
 mod os;
 mod pictures;
@@ -85,6 +87,7 @@ pub fn run() {
             export::export_choose_file,
             export::export_choose_folder,
             export::export_write,
+            geocode::address_search,
         ])
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.

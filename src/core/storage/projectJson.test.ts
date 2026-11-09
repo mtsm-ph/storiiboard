@@ -158,6 +158,8 @@ describe('project data as JSON (2.9)', () => {
     // Nor schema 10's notification read state.
     delete older.tables.notification_cursors;
     delete older.tables.notification_reads;
+    // Nor schema 11's cached lookups.
+    delete older.tables.lookups;
     const meta = older.tables.meta;
     if (!meta) throw new Error('meta');
     const value = meta.columns.indexOf('value');
