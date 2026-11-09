@@ -95,7 +95,8 @@ async function backfill(file: ProjectFile, now: () => Date): Promise<Statement[]
     const approvals: JsonObject = isObject(scene.props.department_approvals) ? { ...scene.props.department_approvals } : {};
     for (const [department, given] of carried) {
       // The fingerprint reads frames and ticks, never approvals, so it's the same before the frames' come off.
-      const basis = approvalBasis(records, scene.id, department);
+      // By the rule in force when it runs (3.15's), so each starts current.
+      const basis = approvalBasis(records, scene.id, department).current;
       approvals[department] = given.map((a): JsonValue => ({ name: a.name, roles: [...a.roles], at: a.at, basis }));
     }
     changes.push({ before: scene, props: { ...scene.props, department_approvals: approvals } });

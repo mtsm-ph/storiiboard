@@ -347,6 +347,24 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.15: review
+
+- Decided by default, review: see PLAN.md, "3.15 as built" (the scene's heading, which frames it has and a frame's
+  own location count as shared; crop and the video clip are the picture; note cards and a LUT count for no one).
+- Round 1: no high; two mediums, fixed. A frame's video clip (its in, out and framing, or unlinking it) no longer
+  counted, though the board plays it as the frame's picture: it counts for every department again. Nothing pinned
+  3.6b's fingerprint, so a later tidy could have turned every older approval "Changed": both rules' fingerprints are
+  pinned as literals now. Lows fixed: a frame's own location counts; the shared part is hashed once a scene and the
+  old fingerprint worked out only when an older approval is read; the CSV works a scene's approvals out once, not on
+  each frame's row; a tick written `false` is the same as none; tests for every heading field, for what doesn't count,
+  and that migration 9 carries by the new rule.
+- Round 2: no high, no medium. Lows fixed: the old fingerprint was still worked out on every check (now only for an
+  older approval, tested); a comment; long lines.
+- The full end-to-end run caught a Calendar flake from 3.8: keys pressed while an arrow crossed into another month
+  could be lost (about one run in eight). Fixed here (focus moves as the grid is drawn); 40 runs in a row passed.
+- For Kevin: a file that went through schema 12 (3.13) with a script's scenes already shows its older approvals as
+  changed (that upgrade rewrote the scenes' character lists, which 3.6b's rule counted); approving again clears it.
+
 ### 3.14: review
 
 - Decided by default, review: see PLAN.md, "3.14 as built" (slate numbers stay, lookups go, Cast and crew and the

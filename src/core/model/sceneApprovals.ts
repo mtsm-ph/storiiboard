@@ -11,6 +11,11 @@ import type { JsonValue, Props, SbdRecord } from './record';
 // `basis` is a fingerprint of what the department touched in the scene when it was approved (approvalBasis). When the
 // scene no longer matches it, the approval shows "Changed since approval" until it's given again. A fingerprint, not a
 // time, so undoing the change brings the approval back to current, as undo should.
+//
+// What a department touches (3.15, Kevin Nov 9): the shared fields count for every department, the department's own
+// notes and ticks only for it. A fingerprint from then on starts `2:`. One from before (3.6b's, which counted every
+// frame field for every department) is still read by the rule it was made with, so no approval given before 3.15
+// turns "Changed" just because the rule did; given again, it takes the new one.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -46,9 +51,27 @@ export const approvalsIn = (approvals: SceneApprovals, department: string): read
 /** None given; all still match the scene; or at least one was given before the scene changed. */
 export type SceneApprovalState = 'none' | 'approved' | 'changed';
 
-export const isCurrent = (approval: SceneApproval, basis: string): boolean => approval.basis !== '' && approval.basis === basis;
+/** What a department touches now, by the rule of 3.15 (`current`, what a new approval keeps) and 3.6b's (`legacy`). */
+export interface ApprovalBasis {
+  readonly current: string;
+  readonly legacy: string;
+}
 
-export function approvalState(approvals: readonly SceneApproval[], basis: string): SceneApprovalState {
+/** A fingerprint made by 3.15's rule. */
+const CURRENT = '2:';
+
+/** A plain fingerprint reads as both: for tests and callers that hold one already. */
+const asBasis = (basis: ApprovalBasis | string): ApprovalBasis => (typeof basis === 'string' ? { current: basis, legacy: basis } : basis);
+
+/** Whether an approval still matches the scene: by the rule it was given under. */
+export function isCurrent(approval: SceneApproval, basis: ApprovalBasis | string): boolean {
+  if (approval.basis === '') return false;
+  const now = asBasis(basis);
+  // 3.6b's fingerprint is read only for an approval made by it: it reads the whole scene again.
+  return approval.basis.startsWith(CURRENT) ? approval.basis === now.current : approval.basis === now.legacy;
+}
+
+export function approvalState(approvals: readonly SceneApproval[], basis: ApprovalBasis | string): SceneApprovalState {
   if (approvals.length === 0) return 'none';
   return approvals.every((a) => isCurrent(a, basis)) ? 'approved' : 'changed';
 }
@@ -65,7 +88,8 @@ export const myApproval = (approvals: readonly SceneApproval[], roles: readonly 
  * is given again, now; with none, theirs is added beside any other (the director's beside the DP's). Everything else
  * in the prop (other departments, sign-offs this version can't read) is written back as it was.
  */
-export function withMySceneApproval(props: Props, department: string, mine: Approval, basis: string): JsonObject | null {
+export function withMySceneApproval(props: Props, department: string, mine: Approval, given: ApprovalBasis | string): JsonObject | null {
+  const basis = asBasis(given);
   const all = stored(props);
   const list = Array.isArray(all[department]) ? all[department] : [];
   const isMine = (value: JsonValue) => {
@@ -74,7 +98,7 @@ export function withMySceneApproval(props: Props, department: string, mine: Appr
   };
   const current = list.map(sceneApprovalOf).find((a) => a !== null && ours(a, mine.roles) && isCurrent(a, basis));
   const kept = list.filter((value) => !isMine(value));
-  const next: JsonValue[] = current ? kept : [...kept, { name: mine.name, roles: [...mine.roles], at: mine.at, basis }];
+  const next: JsonValue[] = current ? kept : [...kept, { name: mine.name, roles: [...mine.roles], at: mine.at, basis: basis.current }];
   const out: JsonObject = Object.fromEntries(Object.entries(all).filter(([id]) => id !== department));
   if (next.length > 0) out[department] = next;
   return Object.keys(out).length > 0 ? out : null;
@@ -88,17 +112,28 @@ export function sceneApprovalText(value: JsonValue | undefined): string {
 }
 
 /** "approved by Kevin Matos (DP)", or "approved by Kevin Matos (DP) before a change", for the CSV. */
-export function sceneApprovalLine(approvals: readonly SceneApproval[], basis: string): string {
+export function sceneApprovalLine(approvals: readonly SceneApproval[], basis: ApprovalBasis | string): string {
   return approvals
     .map((a) => t(isCurrent(a, basis) ? 'departmentStatus.approvedByWho' : 'sceneApproval.approvedBefore', { who: approvalWho(a) }))
     .join(', ');
 }
 
-// What a department touches in a scene, for the fingerprint: the scene's own fields (heading, location, characters,
-// length, palette); its frames and note cards in board order, each frame with its fields, its picture and its
-// sketch; and that department's own Working on it and Done on each frame. Every department is involved in every frame
-// (polish 6), so a frame's fields count for all of them. Left out: the approvals themselves, Priority (how much a
-// frame depends on a department, not its content), Seen (automatic) and every other department's ticks.
+// 3.6b's rule, kept to read the approvals given under it (`legacy`): the scene's own fields (heading, location,
+// characters, length, palette); its frames and note cards in board order, each frame with its fields, its picture and
+// its sketch; and that department's own Working on it and Done on each frame. Left out: the approvals themselves,
+// Priority, Seen and every other department's ticks.
+//
+// 3.15's rule (`current`, Kevin Nov 9): not every field touches every department. Shared, for every department: each
+// frame's picture (the stored file, how it sits in the frame, and the video clip it plays: in, out and framing) and
+// sketch, its action, dialogue, shot size, lens and movement, and where it's shot (its own location); which frames
+// the scene has, in order; and the scene's heading (its name, INT/EXT, DAY/NIGHT, location), as the frames' shared
+// ground. The department's own, for it alone: its entry on each frame, its notes and ticks (Working on it, Done, and
+// anything a newer version keeps there), never Priority. Nothing else (T-stop, support, height, a title, custom
+// fields, gear, the shoot day, note cards) changes an approval. (When Phase 6 gives a frame its lens from a setup or
+// the bird's-eye plan, that source belongs here too.)
+//
+// A fingerprint starting with anything else (a newer version's rule, `3:` say) is compared with 3.6b's and reads as
+// changed: approving again writes this version's.
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 
@@ -131,7 +166,7 @@ function hash(text: string): string {
 const without = (props: Props, key: string): Props => Object.fromEntries(Object.entries(props).filter(([k]) => k !== key));
 
 interface SceneContent {
-  /** Everything but the departments' ticks, as canonical JSON. */
+  /** Everything but the departments' own parts: canonical JSON for 3.6b's rule, its hash for 3.15's. */
   shared: string;
   /** The scene's frames, in board order, for each department's ticks. */
   shots: readonly SbdRecord[];
@@ -195,8 +230,8 @@ function sceneContent(records: Records, sceneId: string): SceneContent | null {
   return content;
 }
 
-/** The fingerprint of what `department` touches in the scene now; '' for a scene that isn't there. */
-export function approvalBasis(records: Records, sceneId: string, department: string): string {
+/** 3.6b's fingerprint of what `department` touches in the scene now; '' for a scene that isn't there. */
+function legacyBasis(records: Records, sceneId: string, department: string): string {
   const content = sceneContent(records, sceneId);
   if (!content) return '';
   const ticks = content.shots.map((shot) => {
@@ -204,4 +239,74 @@ export function approvalBasis(records: Records, sceneId: string, department: str
     return [status?.working === true, status?.done === true];
   });
   return hash(`${content.shared}|${department}|${canonical(ticks)}`);
+}
+
+/** A frame's fields every department works from (3.15). */
+const SHARED_FRAME_FIELDS = ['action', 'dialogue', 'size', 'lens_mm', 'move', 'crop', 'clip', 'location_id'] as const;
+/** The scene's heading: where and when its frames are. */
+const SHARED_SCENE_FIELDS = ['name', 'heading', 'int_ext', 'day_night', 'location_id'] as const;
+/** In a department's own entry on a frame: what isn't its notes or ticks. */
+const NOT_OWN = new Set(['priority', 'approvals']);
+
+const pick = (props: Props, keys: readonly string[]): JsonObject =>
+  Object.fromEntries(keys.flatMap((key) => (props[key] === undefined ? [] : [[key, props[key]]])));
+
+const sharedCache = new WeakMap<Records, Map<string, SceneContent>>();
+/** 3.15's shared part of a scene: the same for every department. */
+function sharedContent(records: Records, sceneId: string): SceneContent | null {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene') return null;
+  let byScene = sharedCache.get(records);
+  if (!byScene) {
+    byScene = new Map<string, SceneContent>();
+    sharedCache.set(records, byScene);
+  }
+  const cached = byScene.get(sceneId);
+  if (cached) return cached;
+  // As 3.6b reads them: live children, and for one in the Trash those that went with it.
+  const byParent = childrenByParent(records);
+  const inside = (parent: SbdRecord) =>
+    (byParent.get(parent.id) ?? []).filter((child) => child.trashedAt === null || child.trashedAt === parent.trashedAt);
+  const own = (shot: SbdRecord): JsonValue[] =>
+    inside(shot).flatMap((child): JsonValue[] =>
+      child.type === 'media' && child.props.kind !== 'pdf' && child.props.kind !== 'link'
+        ? [{ media: child.id, file: child.props.file ?? null }]
+        : child.type === 'stroke'
+          ? [{ stroke: child.id }]
+          : [],
+    );
+  const shots = inside(scene).filter((r) => r.type === 'shot');
+  const shared = canonical({
+    scene: pick(scene.props, SHARED_SCENE_FIELDS),
+    frames: shots.map((shot): JsonValue => ({ shot: shot.id, props: pick(shot.props, SHARED_FRAME_FIELDS), own: own(shot) })),
+  });
+  // Hashed once for the scene: each department's fingerprint folds in its own part, so a board of many departments
+  // never hashes the whole scene again for each.
+  const content = { shared: hash(shared), shots };
+  byScene.set(sceneId, content);
+  return content;
+}
+
+/** The fingerprints of what `department` touches in the scene now; '' each for a scene that isn't there. */
+export function approvalBasis(records: Records, sceneId: string, department: string): ApprovalBasis {
+  const content = sharedContent(records, sceneId);
+  if (!content) return { current: '', legacy: '' };
+  const entries = content.shots.map((shot): JsonValue => {
+    const status = isObject(shot.props.department_status) ? shot.props.department_status[department] : undefined;
+    // Its notes and ticks: a tick that's off (`false`) or empty is the same as none.
+    const own = isObject(status)
+      ? Object.entries(status).filter(([key, value]) => !NOT_OWN.has(key) && value !== false && value !== null && value !== '')
+      : [];
+    // An entry with nothing of its own (only Priority, or emptied) is none, as a frame without one.
+    return own.length > 0 ? Object.fromEntries(own) : null;
+  });
+  let legacy: string | undefined;
+  return {
+    current: `${CURRENT}${hash(`${content.shared}|${department}|${canonical(entries)}`)}`,
+    // Worked out only when an approval from before 3.15 is read: it reads the whole scene again.
+    get legacy() {
+      legacy ??= legacyBasis(records, sceneId, department);
+      return legacy;
+    },
+  };
 }
