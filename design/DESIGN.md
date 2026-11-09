@@ -76,6 +76,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   picked takes the ink fill. A day's date, call and wrap, its totals and frame numbers are mono. Its frames and the
   unscheduled ones sit under 10px labels ruled in 1.5px ink; each frame row has its status shape, scene and frame
   number, and a Move to or Add.
+- **Calendar (3.8)**: a 7-column grid of boxed dates (1px rules), the date's number in mono, today's bold and
+  underlined, days outside the month muted, a shoot day as a small mono "Day 1" chip outlined in the text colour; the
+  picked date takes the ink fill. The schedule under it, under a 10px label ruled in 1.5px ink: a row per day with
+  its scenes, locations (with their status in words) and crew confirmed.
 - **Manage workspaces… (3.6d)** is an in-app window, 640px: a primary button to save the layout on screen as a new
   workspace, then Your workspaces (a Name field and Open, Duplicate, Delete… on each row; Delete in the warning style)
   and Built in (the sections and the listed department workspaces, Open and Duplicate), each under a 10px label ruled
