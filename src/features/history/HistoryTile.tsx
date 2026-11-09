@@ -29,8 +29,8 @@ import { useLocale } from '../../ui/useLocale';
 // Filtered to the selected item (a frame, else a note, else the active scene), every change to it, field by field,
 // with its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
 
-/** A step's line, its technical values in mono. */
-function LineText({ line }: { line: Line }) {
+/** A step's line, its technical values in mono. Notifications (3.10) shows the same lines. */
+export function LineText({ line }: { line: Line }) {
   return (
     <>
       {line.map((part, i) =>

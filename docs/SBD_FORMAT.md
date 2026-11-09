@@ -307,6 +307,41 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v10: notification read state (3.10)
+
+Additive (approved Nov 7 and 9). The notification feed isn't stored: like every rollup, it's worked out from History's
+steps (later, suggestions and comments too). What's stored is each person's read state, in two tables
+(src/core/storage/notifications.ts).
+
+`notification_cursors`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| user_id | text, unique | The person picked with This is me in Cast and crew, else `local` (until sign-in, Phase 9) |
+| read_through_seq | integer | Every step at or before this place in the log (`op_groups.seq`) counts as read: Mark all read. A place, never a time, so another computer's clock can't hide a step or read one early; it only moves forward |
+
+`notification_reads`
+
+| Column | Type | Notes |
+|---|---|---|
+| id, created_at, updated_at | | As every table |
+| user_id | text | As above |
+| item_kind | text | `op_group` now; `suggestion` and `comment` with Phases 7 and 9 |
+| item_id | text | The op group's id, or the suggestion's or comment's record id |
+| read_at | text | When it was opened |
+
+- `notification_reads` is unique on (`user_id`, `item_kind`, `item_id`); a second opening keeps the first time. When a
+  person's cursor moves, their rows for steps at or before it are deleted.
+- Writing read state counts as a change for the 5-minute backups, as Seen does; a step already read, or yours, writes
+  nothing when opened.
+- Read state isn't an op: marking an item read can't be undone and isn't a step in History.
+- A step by the person reading (its `author` is who they sign as) counts as read: they made it. By name, until sign-in
+  brings a stable id: steps signed before a rename read as another's, and two people with no name (both `local`), or
+  with the same initials, read as one.
+- A JSON export carries the read state, and an import brings it with it.
+- Web users' read state will live in Supabase (Phase 9), because the web never edits the .sbd.
+
 ## Schema v9: approvals per scene (3.6b)
 
 Approved by Kevin Nov 9; it alters existing data. The director or the DP approves each department once per scene,
@@ -860,34 +895,6 @@ merge a database, so two guards sit around every open project:
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
 
-## Planned changes
-
-### Schema 7 or later: notification read state (Phase 3)
-
-The notification feed isn't stored: like every rollup, it's computed from ops, suggestions and comments. What is stored
-is each person's read state, in two tables.
-
-`notification_cursors`
-
-| Column | Type | Notes |
-|---|---|---|
-| user_id | text, unique | `local` on the desktop until people sign in |
-| read_through | text | Everything up to this time counts as read, which is how "Mark all as read" works |
-
-`notification_reads`
-
-| Column | Type | Notes |
-|---|---|---|
-| user_id | text | |
-| item_kind | text | `op_group`, `suggestion` or `comment` |
-| item_id | text | The op group id, or the suggestion or comment record id |
-| read_at | text | |
-
-- `notification_reads` is unique on (`user_id`, `item_kind`, `item_id`). Rows older than a user's `read_through` are
-  deleted when it moves.
-- Read state isn't an op: marking an item read can't be undone and doesn't appear in the feed.
-- Web users' read state lives in Supabase (Phase 9), because the web never edits the .sbd.
-
 ## Change log
 
 | Schema | Milestone | Change |
@@ -901,7 +908,7 @@ is each person's read state, in two tables.
 | 7 | Polish 6b | Seen: `shot_seen` |
 | 8 | 2.2 | Video: `media` records of kind `video`, the shot prop `clip`, the picture prop `from_video`; `luts` |
 | 9 | 3.6b | Approvals per scene: the scene prop `department_approvals`, carried from the frames' where every frame had one; `approvals` off every shot's `department_status`. No table change |
-| later | Phase 3 (planned) | Notification read state: `notification_cursors`, `notification_reads` |
+| 10 | 3.10 | Notification read state: `notification_cursors`, `notification_reads` |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

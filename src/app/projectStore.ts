@@ -4,7 +4,7 @@ import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
-import { CHANGED_ON_DISK } from '../core/storage/driver';
+import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
 import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage/seen';
@@ -89,6 +89,11 @@ export interface ProjectState {
    * once per frame and department, in the queue with the edits so it never lands in a project switched to since.
    */
   markSeen: (shotId: string, departments: readonly string[]) => Promise<void>;
+  /**
+   * Writes statements that aren't an edit (3.10: notifications read), in the queue with the edits, so they never land
+   * in a project switched to since. Never undone and never a step. Resolves to whether they were written.
+   */
+  writeAside: (statements: readonly Statement[]) => Promise<boolean>;
 }
 
 /**
@@ -268,6 +273,21 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
             // Seen is best-effort: a write that fails is tried again on the next opening, and never shown as an
             // edit that failed. A file a sync replaced is still reopened, as for any write.
             if (error instanceof Error && error.message === CHANGED_ON_DISK) set({ changedOnDisk: true });
+          }
+        });
+      },
+      writeAside: (statements) => {
+        const madeIn = get().project;
+        return enqueue(async () => {
+          const { project } = get();
+          if (!project || project !== madeIn || statements.length === 0) return false;
+          try {
+            await project.file.tx(statements);
+            return true;
+          } catch (error) {
+            // A file a sync replaced is reopened, as for any write; the rest is best-effort, like Seen.
+            if (error instanceof Error && error.message === CHANGED_ON_DISK) set({ changedOnDisk: true });
+            return false;
           }
         });
       },
