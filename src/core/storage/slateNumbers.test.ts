@@ -543,6 +543,7 @@ describe('the schema 5 migration', () => {
       { sql: 'DROP TABLE luts' },
       { sql: 'DROP TABLE notification_cursors' },
       { sql: 'DROP TABLE notification_reads' },
+      { sql: 'DROP TABLE lookups' },
       { sql: "UPDATE meta SET value = '4' WHERE key = 'schema_version'" },
     ]);
     const path = project.file.path;

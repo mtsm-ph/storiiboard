@@ -22,6 +22,13 @@ serde_json = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 # Native Save and Open dialogs for New project, Open and Open backup (0.7, approved Nov 2).
 tauri-plugin-dialog = "2.8.3"
+# The one HTTP client for every network need (3.4, approved Nov 9: the address search now; weather, map tiles,
+# cloud downloads and the updater later), through src/net.rs only. reqwest is already in the build through Tauri;
+# this adds TLS the way Tauri's updater plugin does (rustls with ring as its crypto, the OS's own certificate store
+# through rustls-platform-verifier), so the app has one network stack and no OpenSSL. Both pinned exactly, each released
+# at least two weeks before it was added (reqwest Sep 8, rustls Oct 14, 2026; MIT, Apache or ISC).
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
 
 # Desktop only: a second launch (a double-click on a .sbd while the app runs, on Windows) hands its arguments to the
 # running app and exits, so one window owns the open project (src/opened.rs).

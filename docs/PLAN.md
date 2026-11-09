@@ -7,18 +7,18 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: built to the gate (3.1 to 3.11 merged by Nov 9; 3.4 waits for Kevin). The gate checkpoint, `checkpoint/phase3-gate`, passed every job Nov 9 (smoke on Linux and in WebKit on the Mac, both installers; run 42596717084); the checklist is Kevin's (docs/HANDOFF.md, "Phase 3 gate: Kevin's checklist"). Phase 4 waits for Kevin's go. Phase 2's gate checklist is Kevin's too |
+| **Current phase** | **Phase 3 · Production data**: built to the gate (3.1 to 3.11 merged by Nov 9); Kevin's Nov 9 answers add 3.4 and 3.12 to 3.17, built in that order, then the Phase 4 plan (not its build). The gate checkpoint, `checkpoint/phase3-gate`, passed every job Nov 9 (smoke on Linux and in WebKit on the Mac, both installers; run 42596717084); the checklist is Kevin's (docs/HANDOFF.md, "Phase 3 gate: Kevin's checklist"). Phase 4 waits for Kevin's go. Phase 2's gate checklist is Kevin's too |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (Phase 3 gate reached) |
+| Last updated | Nov 9, 2026 (3.4 done; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
-| 3 · Production data | **Current**: built (Nov 9) but 3.4; the gate is Kevin's |
+| 3 · Production data | **Current**: built (Nov 9); Kevin's Nov 9 follow-ups in progress; the gate is Kevin's |
 | 4 · Call sheets | Not started |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
@@ -41,7 +41,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
 | 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
 | 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | #91 | Done |
-| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, a schema bump) | | Waiting for Kevin: an HTTP client in Rust is a new dependency (docs/PHASE3_DECISIONS.md 16) |
+| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, a schema bump) | #106 | Done |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
@@ -56,9 +56,50 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | Done |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | Done |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Reached Nov 9: checkpoint passed (`checkpoint/phase3-gate`, every job); the checklist is Kevin's |
+| 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | | Not started |
+| 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | | Not started |
+| 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | | Not started |
+| 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | Not started |
+| 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | | Not started |
+| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
 
-Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
-as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
+plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the
+provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
+characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
+Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.4 as built (Nov 9): the address search (`src-tauri/src/net.rs`, `src-tauri/src/geocode.rs`, `src/core/net/`,
+`src/features/locations/AddressSearch.tsx`).
+- Search address, under a location's address in the Locations tile, looks up what's typed (the address, else the
+  name) on Nominatim, only when pressed, never as it's typed. Up to five places come back with their coordinates;
+  picking one puts it on the location (one ⌘Z): `latitude`, `longitude` and `map_name`, shown as "On the map", with
+  Clear map place. The address stays as typed (an empty one takes the place's name); a new address takes the place
+  off in the same edit (re-spacing doesn't), and results found for words since changed are refused. Copy map link
+  points at the pin once there is one. OpenStreetMap's credit shows with the results. Empty Trash of a location clears
+  the cached address searches (addresses are private).
+- Every search is cached in the project (`lookups`, schema 11, outside the edit log) by its words and language;
+  pressed again it reads the cache, saying when it was fetched, with Search again to ask afresh.
+- The network (Kevin, Nov 9): one HTTP client for the app, `reqwest` 0.13.5 pinned exactly (MIT or Apache, released
+  Sep 8), with rustls and `ring` as Tauri's updater plugin uses them and the OS's own certificate store
+  (rustls-platform-verifier), so weather, map tiles, cloud downloads and the updater will share one stack, with no
+  OpenSSL. `net.rs` sends only to the hosts on its fixed list (`nominatim.openstreetmap.org` now), only over HTTPS,
+  following redirects only to the list, with `Storiiboard/<version> (+https://github.com/mtsm-ph/storiiboard)` as
+  the User-Agent. `geocode.rs` keeps one request a second for the whole app (two pressed together go a second
+  apart). New crates in the build: rustls, ring, rustls-platform-verifier and their parts, each at least two weeks old
+  (openssl-probe, a path finder, not OpenSSL, held one release back for that); licences MIT, Apache, ISC, BSD-3
+  (`subtle`) and CDLA-Permissive (`webpki-root-certs`, Mozilla's root list).
+- A browser development build has no Rust side: its search answers from a recorded Nominatim answer
+  (`src/core/net/recorded/`, fetched once, Nov 9), loaded only in development; a release in a browser has no search.
+  No test asks the real service.
+- Privacy: the pin says where the address is, so History names it and never shows it, as the address. Nothing about
+  the search is logged.
+- Tests: Rust (only listed hosts over HTTPS, refused before sending; the User-Agent; a busy service; the recorded
+  answer read; entries that aren't places left out; the query as sent; a second between requests); schema 11 (backup,
+  the table, a lookup kept, read, replaced, one that can't be read); places read and checked; the pin's edits, map
+  link and History; end to end, a search pressed, picked, undone, read from the cache, asked again, cleared, nothing
+  found and no connection said in words, axe. Checked once by hand on Windows: a real search through the client
+  (rustls, the OS's certificates), names in Spanish when asked.
 
 3.11 as built (Nov 9): assets and attachments (`src/core/model/attachment.ts`, `src/features/assets/`).
 - The Assets tile in the Assets workspace (its placeholder until now): the project's PDFs and links, grouped by what

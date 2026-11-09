@@ -347,6 +347,46 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.4: review
+
+Kevin's Nov 9 answers came with this milestone: the address search approved (one HTTP client for every network need,
+MIT or Apache, rustls, pinned at least two weeks old, Tauri's own; fixed hosts; a generic User-Agent); the opener,
+a map, characters as ids, the JSON export's two choices and three changes to defaults approved as 3.12 to 3.17; the
+Phase 4 plan after them, not its build.
+
+- Decided by default, review: the address as typed stays (an empty one takes the place's name); a new address takes
+  the place off the map in the same edit (re-spacing doesn't); results picked after the words changed are refused; the
+  cache is keyed by language too; Empty Trash of any location clears every cached address search (the cache can't say
+  whose each was); a browser release build has no search.
+- Before review: a live search through the client, once, by hand on Windows (rustls with the OS's certificates; names
+  in Spanish when asked); the probe was a test written for it and taken out again.
+- Round 1: no high; one medium, fixed: a pin outlived a changed address, so Copy map link (and Phase 4's call
+  sheets) would point at the old place; results found for old words could be picked too. Lows fixed: the search
+  cache outlived Empty Trash (addresses are private); the status line wasn't announced when it appeared; Search again
+  dropped focus; an unreadable fetch time showed "Invalid Date"; the stand-in read an empty coordinate as 0; an item's
+  History showed a pick three times; results waited behind queued edits for the cache write; a backlog of waiting
+  searches had no limit; rustls wasn't pinned exactly. A release build checked: no recorded answer in `dist/`.
+- Round 2: no high, no medium. Lows fixed: the unpin rule lives in the model (`unpinnedBy`) for every later writer;
+  re-spacing an address keeps its place; the refusal says "address or name".
+- Low left: pressed twice quickly while a long edit is queued (a picture import), the second press can miss the cache
+  and ask Nominatim again (still a second apart).
+
+### Map: before building (a question for Kevin)
+
+Kevin chose Leaflet with raster tiles, asking to hear first of a better small MIT or BSD option. Three things:
+- No new dependency at all: a raster tile view drawn with react-konva, which is already in the build and which
+  CLAUDE.md asks for on every canvas ("Every canvas: react-konva"): tiles, pan and zoom, a pin, the credit; about the
+  size of the crop view. pigeon-maps (MIT, no dependencies, about 230 kB unpacked, last release Dec 2024) is the small
+  library option; Leaflet (BSD-2, 1.9.4 from May 2023, 3.7 MB unpacked) the well-known one. react-leaflet's licence is
+  Hippocratic 2.1, not OSI, so Leaflet would be used on its own.
+- Where tiles come from: a map in the page loads tiles straight from the tile server, outside net.rs and its host
+  list, and caches them only as the browser does. Through Rust instead (a scheme of its own, as the Player's copies
+  are), every tile goes to a listed host with the app's User-Agent and is cached on disk, as the tile policy asks.
+- The provider switch: a provider of the person's own means a host the code doesn't list. Either Settings adds that
+  one host to the list (said so where it's set), or only providers listed in code can be picked.
+- Recommendation: react-konva, tiles through Rust with a disk cache, and a provider of one's own added to the list
+  from Settings. The map waits for Kevin's answer; nothing else depends on it.
+
 ### 3.11: review
 
 - Decided by default, review (PLAN.md, "3.11 as built"): PDFs share `media_files` with pictures (no schema bump);

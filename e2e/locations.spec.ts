@@ -148,3 +148,62 @@ test('a location’s photos and own fields, and a frame shot somewhere other tha
   const csv = readFileSync(await (await downloaded).path(), 'utf8');
   expect(csv.replace(/^\uFEFF/, '').split('\r\n')[1]?.split(',')[3]).toBe('Barn');
 });
+
+test('Search address looks up only when pressed, puts a place on the map in one edit, and keeps the search', async ({ page }) => {
+  // The memory build answers from a recorded Nominatim answer (src/core/net/recordedSearch.ts): nothing goes online.
+  const editor = tile(page).locator('[data-location-editor]');
+  const search = editor.getByRole('button', { name: 'Search address' });
+  const status = editor.locator('[data-address-search] [role="status"]');
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  // Typing looks nothing up.
+  await expect(editor.getByRole('list', { name: 'Places found' })).toHaveCount(0);
+  await search.click();
+  await expect(status).toHaveText('5 places found.');
+  const found = editor.getByRole('list', { name: 'Places found' }).getByRole('button');
+  await expect(found).toHaveCount(5);
+  await expect(found.first()).toContainText('-13.51677, -71.97878');
+  await expect(editor.getByText('Search by Nominatim. Map data © OpenStreetMap contributors, ODbL.')).toBeVisible();
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Locations"]').withTags(tags).analyze()).violations).toEqual([]);
+
+  // Picked: on the map, the address as typed, focus back on Search.
+  await found.first().click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await expect(editor.getByText('-13.51677, -71.97878')).toBeVisible();
+  await expect(found).toHaveCount(0);
+  await expect(search).toBeFocused();
+  await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('Plaza de Armas, Cusco');
+  // One ⌘Z takes it off the map.
+  await page.keyboard.press(await undoKey(page));
+  await expect(editor.getByText('On the map')).toHaveCount(0);
+
+  // Pressed again: the search saved in the project, with Search again to ask afresh.
+  await search.click();
+  await expect(status).toContainText('5 places found. From the search saved');
+  await editor.getByRole('button', { name: 'Search again' }).click();
+  await expect(status).toHaveText('5 places found.');
+  await found.nth(1).click();
+  await expect(editor.getByText(/Yauri/)).toBeVisible();
+  await editor.getByRole('button', { name: 'Clear map place' }).click();
+  await expect(editor.getByText('On the map')).toHaveCount(0);
+
+  // Places found for words since changed are never put on the location; a new address takes the old pin off.
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  await search.click();
+  await found.first().click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await search.click();
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Lima');
+  await found.first().click();
+  await expect(status).toHaveText('The address or name changed since that search. Search again for it.');
+  await expect(search).toBeFocused();
+  await expect(editor.getByText('On the map')).toHaveCount(0);
+
+  // Nothing found, and no connection, each said in words.
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Nowhere at all');
+  await search.click();
+  await expect(status).toHaveText('Nothing found for “Nowhere at all”. Try the street and town, or fewer words.');
+  await editor.getByRole('textbox', { name: 'Address' }).fill('offline');
+  await search.click();
+  await expect(status).toHaveText('Storiiboard couldn\'t reach the service. Check the connection and try again.');
+});

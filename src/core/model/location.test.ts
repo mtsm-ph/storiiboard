@@ -233,3 +233,43 @@ describe('3.3b review', () => {
     expect(rows.slice(1).map((row) => row.split(',')[column])).toEqual(['Diner', 'Barn', 'Diner']);
   });
 });
+
+describe('a location on the map (3.4)', () => {
+  const place = { name: 'Plaza de Armas, Cusco, Peru', latitude: -13.5167674, longitude: -71.9787787 };
+
+  it('takes a place picked from the search in one edit, keeping a typed address; nothing twice', async () => {
+    const { placeLocation, unplaceLocation } = await import('../../features/locations/locationEdits');
+    expect(placeLocation(records(), 'l1', place)).toEqual([{ kind: 'update', id: 'l1', set: { latitude: -13.5167674, longitude: -71.9787787, map_name: place.name } }]);
+    // An empty address takes the place's name.
+    expect(placeLocation(records(), 'l2', place)).toEqual([{ kind: 'update', id: 'l2', set: { latitude: -13.5167674, longitude: -71.9787787, map_name: place.name, address: place.name } }]);
+    const placed = { ...records(), l1: record('l1', 'location', 'p', { name: 'Diner', latitude: place.latitude, longitude: place.longitude, map_name: place.name }) };
+    expect(placeLocation(placed, 'l1', place)).toEqual([]);
+    expect(placeLocation(records(), 'l3', place)).toEqual([]);
+    expect(unplaceLocation(placed, 'l1')).toEqual([{ kind: 'update', id: 'l1', unset: ['latitude', 'longitude', 'map_name'] }]);
+    expect(unplaceLocation(records(), 'l1')).toEqual([]);
+    // A new address takes the old pin off in the same edit; another field leaves it.
+    const { locationChange } = await import('../../features/locations/locationEdits');
+    expect(locationChange(placed, 'l1', 'address', 'Av. El Sol 100')).toEqual([{ kind: 'update', id: 'l1', set: { address: 'Av. El Sol 100' }, unset: ['latitude', 'longitude', 'map_name'] }]);
+    expect(locationChange(placed, 'l1', 'parking', 'Street')).toEqual([{ kind: 'update', id: 'l1', set: { parking: 'Street' } }]);
+    // Only re-spaced, it's the same address: the place stays.
+    const spaced = { ...placed, l1: record('l1', 'location', 'p', { ...placed.l1.props, address: 'Plaza de Armas' }) };
+    expect(locationChange(spaced, 'l1', 'address', ' Plaza  de Armas ')).toEqual([{ kind: 'update', id: 'l1', set: { address: ' Plaza  de Armas ' } }]);
+  });
+
+  it('reads its place, never one off the Earth, and links the pin over the address', async () => {
+    const { mapPlace } = await import('./location');
+    expect(mapPlace({ latitude: place.latitude, longitude: place.longitude, map_name: place.name })).toEqual(place);
+    expect(mapPlace({ latitude: 200, longitude: 0, map_name: 'x' })).toBeNull();
+    expect(mapPlace({})).toBeNull();
+    expect(mapLink({ address: '12 Route 9', name: 'Diner' }, place)).toBe('https://www.openstreetmap.org/?mlat=-13.516767&mlon=-71.978779#map=17/-13.516767/-71.978779');
+  });
+
+  it('is kept out of History as the address is', async () => {
+    const { changeLabel, changeValue, fieldChanges } = await import('../../features/history/summary');
+    const before = record('l1', 'location', 'p', { name: 'Diner' });
+    const after = record('l1', 'location', 'p', { name: 'Diner', latitude: place.latitude, longitude: place.longitude, map_name: place.name });
+    const lines = fieldChanges(before, after).map((c) => `${changeLabel(c)}: ${changeValue(c, c.before)} → ${changeValue(c, c.after)}`);
+    expect(lines.join(' | ')).not.toMatch(/13\.5|71\.9|Cusco/);
+    expect(lines).toContain('place on the map: — → not shown');
+  });
+});
