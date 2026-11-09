@@ -52,7 +52,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | Done |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | Done |
 | 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
-| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | | In review |
+| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | In review |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
