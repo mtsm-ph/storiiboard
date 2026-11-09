@@ -136,9 +136,9 @@
 - Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
   scene (3.6b), only by the director or the DP, showing "Changed since approval" once what that department touches
   (3.15: picture, sketch, action, dialogue, shot size, lens and movement for every department; its own notes and
-  ticks for it alone)
-  in the scene changes. A department's name in the Inspector opens its workspace (3.6a). Perspective views (3.6c):
-  the director, the DP and anyone with Full view (a switch per person in Cast and crew) see every department first;
+  ticks for it alone) in the scene changes. Each scene heading on the board shows how many departments are approved
+  and a dot with "changed" when any changed since (3.16). A department's name in the Inspector opens its workspace
+  (3.6a). Perspective views (3.6c): the director, the DP and anyone with Full view (a switch per person in Cast and crew) see every department first;
   everyone else sees their own, the rest folded under Rest of crew. A focus view, not access control.
 - Shoot days (3.7): the Shoot days tile in Production. A day has a date, call and wrap; "Need to shoot" frames go into
   at most one day (`shoot_day_id`), a scene at a time or one by one; totals (frames, setups, hours at the project's

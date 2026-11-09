@@ -1,5 +1,6 @@
 import { t } from '../i18n';
 import { approvalOf, approvalWho, departmentStatuses, isObject, type Approval, type Approver, type JsonObject } from './departmentStatus';
+import { isDepartment } from './department';
 import type { JsonValue, Props, SbdRecord } from './record';
 
 // Approvals per scene (3.6b, Kevin Nov 9). The director or the DP approves each department once for a whole scene;
@@ -309,4 +310,41 @@ export function approvalBasis(records: Records, sceneId: string, department: str
       return legacy;
     },
   };
+}
+
+/** How a scene's approvals stand, for the marker on its heading (3.16): departments approved, and changed since. */
+export interface SceneApprovalSummary {
+  /** Departments whose every sign-off still matches the scene. */
+  approved: number;
+  /** Departments with a sign-off given before the scene changed. */
+  changed: number;
+}
+
+const summaryCache = new WeakMap<Records, Map<string, SceneApprovalSummary>>();
+
+/**
+ * A scene's approvals counted by department, the departments this version shows (one a newer version added isn't in
+ * the Inspector's table, so it isn't counted here); `only` narrows it to a focus view's departments, as the cards are.
+ * Worked out once per set of records.
+ */
+export function sceneApprovalSummary(records: Records, sceneId: string, only: readonly string[] | null = null): SceneApprovalSummary {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene') return { approved: 0, changed: 0 };
+  let byScene = summaryCache.get(records);
+  if (!byScene) {
+    byScene = new Map();
+    summaryCache.set(records, byScene);
+  }
+  const key = `${scene.id}|${only?.join(',') ?? ''}`;
+  const cached = byScene.get(key);
+  if (cached) return cached;
+  const summary = { approved: 0, changed: 0 };
+  for (const [department, given] of Object.entries(sceneApprovals(scene.props))) {
+    if (!isDepartment(department) || (only && !only.includes(department))) continue;
+    const state = approvalState(given, approvalBasis(records, scene.id, department));
+    if (state === 'approved') summary.approved += 1;
+    else if (state === 'changed') summary.changed += 1;
+  }
+  byScene.set(key, summary);
+  return summary;
 }

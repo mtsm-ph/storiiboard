@@ -5,6 +5,7 @@ import { choosePictures } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import type { SbdRecord } from '../../core/model/record';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
+import { sceneApprovalSummary } from '../../core/model/sceneApprovals';
 import { addPictures, usePicturesBusy } from './addPictures';
 import { readClip } from '../../core/media/video';
 import { useMissingVideos } from '../video/videoStatus';
@@ -203,6 +204,8 @@ export function StoryboardTile() {
     pageEighths: scene.fields.pageEighths,
     locked: scene.fields.numbersLocked,
     counts: scene.counts,
+    // Worked out only for a scene with approvals (most have none); in a focus view, your departments', as the cards.
+    ...('department_approvals' in scene.record.props ? { approvals: sceneApprovalSummary(records, scene.record.id, focus) } : {}),
     frames: scene.shots.map((shot) => frameCard(shot)),
     items: scene.items.map((item): BoardEntry =>
       item.kind === 'shot' ? { kind: 'frame', frame: frameCard(item.shot) } : { kind: 'note', id: item.note.record.id, text: item.note.text },

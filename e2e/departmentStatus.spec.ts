@@ -96,6 +96,9 @@ test('only the director or the DP approves a scene, with who, and a change shows
   await expect(approved).toHaveAttribute('aria-checked', 'true');
   await expect(approvalRow(page, 'Camera')).toContainText('approved by Kevin Matos (Director and DP)');
   await expect(approvalRow(page, 'Camera')).not.toContainText('Changed since approval');
+  // The scene's heading on the board says it too (3.16): one approved, no dot.
+  const marker = board(page).locator('[data-scene-approvals]').first();
+  await expect(marker).toHaveAttribute('title', '1 department approved');
 
   // Camera's own Done on a frame is something Camera touches: the approval says the scene changed, and the box is
   // no longer ticked. Another department's tick isn't. Undo brings the approval back to current.
@@ -103,11 +106,15 @@ test('only the director or the DP approves a scene, with who, and a change shows
   await expect(approved).toHaveAttribute('aria-checked', 'true');
   await box(page, 'Camera: Done').click();
   await expect(approvalRow(page, 'Camera')).toContainText('Changed since approval');
+  // On the heading: the dot, and nothing approved.
+  await expect(marker).toHaveAttribute('title', '1 department changed since approval');
+  await expect(marker).toContainText('●');
   await expect(approvalRow(page, 'Camera')).toContainText('approved by Kevin Matos (Director and DP) before the change');
   await expect(approved).toHaveAttribute('aria-checked', 'false');
   await page.keyboard.press(await undoKey(page));
   await expect(approved).toHaveAttribute('aria-checked', 'true');
   await expect(approvalRow(page, 'Camera')).not.toContainText('Changed since approval');
+  await expect(marker).toHaveAttribute('title', '1 department approved');
   // A change to another frame of the scene counts too; ticking it gives the approval again, now.
   await board(page).locator('[data-shot-id]').nth(1).click();
   await inspector(page).getByLabel('Action').fill('Mary wipes the counter.');

@@ -347,6 +347,21 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.16: review
+
+- Decided by default, review: see PLAN.md, "3.16 as built" (the word "changed" beside the dot; in a focus view, your
+  departments alone, as the cards; the marker inside the heading, as the counts are).
+- Round 1: no high; two mediums, fixed. The approved mark was a check, which beside "4 have · 1 need" read as Done
+  and gave Approved two symbols: it's the Approved diamond the Inspector uses, and a count. In a focus view the cards
+  count your departments alone, but the heading counted every one: it counts yours too now. Lows fixed: the dot paper
+  on the dark theme, as warnings are (the warning colour is under 3:1 there); departments this version doesn't show
+  aren't counted; the counts worked out once per edit, not on every selection move; the words name their subject
+  ("1 department changed since approval"), and the Spanish mark is "con cambios" for any count; tests for a mixed
+  sign-off, an unknown department, a focus view, every board view, and the marker after undo; a CLAUDE.md sentence.
+- Round 2: no high, no medium. Lows fixed: wording ("paper", not "ink"); the summary takes the scene's id.
+- A full end-to-end run failed once in player.spec (2.7's grab a still); alone it passed 8 times and its file 3
+  times in a row (33 tests), and the next full run passed (307). Seen once; watch for it.
+
 ### 3.15: review
 
 - Decided by default, review: see PLAN.md, "3.15 as built" (the scene's heading, which frames it has and a frame's

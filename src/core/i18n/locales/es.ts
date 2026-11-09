@@ -1378,6 +1378,11 @@ export const es: Messages = {
   'inspector.shootDay': 'Día de rodaje',
   'inspector.birdsEye': 'Planta de emplazamiento',
   // src/features/storyboard/StoryboardView.tsx
+  'storyboardView.approved.one': '{count} departamento aprobado',
+  'storyboardView.approved.other': '{count} departamentos aprobados',
+  'storyboardView.changedMark': 'con cambios',
+  'storyboardView.changedSince.one': '{count} departamento con cambios desde la aprobación',
+  'storyboardView.changedSince.other': '{count} departamentos con cambios desde la aprobación',
   'storyboardView.numbersLocked': 'Números bloqueados',
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'El cuadro o la escena para los que eran esas imágenes ya no está en el storyboard.',

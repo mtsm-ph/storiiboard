@@ -9,7 +9,7 @@ import { isMac } from '../../app/shell/undoShortcuts';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { PencilButton, TitleField } from '../../ui/EditableTitle';
-import { LockGlyph } from '../../ui/glyphs';
+import { DepartmentStateGlyph, LockGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { StatusGlyph } from '../../ui/tags';
 import { FrameImage, type FramePictureView } from './FrameImage';
@@ -88,6 +88,8 @@ export interface SceneGroup {
   pageEighths: number | null;
   locked: boolean;
   counts: Record<ShotStatus, number>;
+  /** How its approvals stand (3.16), for the marker on its heading; left out for a scene without any. */
+  approvals?: { approved: number; changed: number };
   frames: readonly FrameCard[];
   /** Frames and notes in board order; just the frames when left out. */
   items?: readonly BoardEntry[];
@@ -176,6 +178,38 @@ function SceneHeading({ scene, className }: { scene: SceneGroup; className?: str
           <LockGlyph /> {t('storyboardView.numbersLocked')}
         </span>
       )}
+      {scene.approvals && <ApprovalsMarker {...scene.approvals} />}
+    </span>
+  );
+}
+
+/**
+ * A scene's approvals at a glance (3.16, Kevin Nov 9): how many departments are approved, by the Approved diamond the
+ * Inspector uses, and a dot when any shows "Changed since approval". The dot is the warning colour (paper on the dark
+ * theme, as warnings are), never the only cue: a word beside it says it, a screen reader hears it in full, and the
+ * title says it on hover. In a focus view it counts your departments, as the cards do. The Inspector's approvals
+ * table has the who and the when.
+ */
+function ApprovalsMarker({ approved, changed }: { approved: number; changed: number }) {
+  if (approved === 0 && changed === 0) return null;
+  const words = [approved > 0 ? tn('storyboardView.approved', approved) : null, changed > 0 ? tn('storyboardView.changedSince', changed) : null]
+    .filter((w): w is string => w !== null)
+    .join(t('list.separator'));
+  return (
+    <span data-scene-approvals="" title={words} className="sb-label inline-flex items-center gap-1 text-text-muted">
+      {approved > 0 && (
+        <span aria-hidden="true" className="inline-flex items-center gap-0.5">
+          <DepartmentStateGlyph state="approved" size={10} />
+          <span className="font-mono">{String(approved)}</span>
+        </span>
+      )}
+      {changed > 0 && (
+        <span aria-hidden="true" className="inline-flex items-center gap-0.5">
+          <span className="text-warning dark:text-text">●</span>
+          {t('storyboardView.changedMark')}
+        </span>
+      )}
+      <span className="sr-only">{words}</span>
     </span>
   );
 }
