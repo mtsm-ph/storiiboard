@@ -3,7 +3,7 @@ import { departmentName, statusText } from '../../core/model/departmentStatus';
 import { sceneApprovalText } from '../../core/model/sceneApprovals';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
-import { GEAR_SOURCE_LABEL } from '../../core/model/gear';
+import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -85,6 +85,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   day_rate: 'history.field.dayRate',
   department: 'history.field.department',
   currency: 'history.field.currency',
+  gear_ids: 'history.field.gearIds',
   full_view: 'history.field.fullView',
   characters: 'history.field.characters',
   text: 'history.field.text',
@@ -228,6 +229,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
+  // A frame's gear or a day's list (3.9b), kept by item id: said as how many.
+  if (prop === 'gear_ids' && Array.isArray(value)) return tn('count.gearItems', gearIdsOf({ gear_ids: value }).length);
   // A gear item's department and whose it is (3.9a), in words rather than their stored ids.
   if (prop === 'department' && isDepartment(value)) return DEPARTMENT_LABELS[value];
   if (prop === 'source' && (value === 'owned' || value === 'rental')) return GEAR_SOURCE_LABEL[value];

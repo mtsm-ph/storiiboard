@@ -76,6 +76,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   picked takes the ink fill. A day's date, call and wrap, its totals and frame numbers are mono. Its frames and the
   unscheduled ones sit under 10px labels ruled in 1.5px ink; each frame row has its status shape, scene and frame
   number, and a Move to or Add.
+- **Gear picked (3.9b)**: pressed buttons as a person's departments are (1.5px ink outline, ink fill when picked),
+  the quantity in mono after a name; an item a frame needs that its day lacks carries ⚠ (its name says so to a screen
+  reader), and the warning line under the picker says it in words, on the warning fill with paper text.
 - **Gear (3.9a)** is laid out as Locations is: the list (name, then ×quantity, Owned or Rental and the department as a
   10px label) beside the item picked; quantities and prices in mono.
 - **Calendar (3.8)**: a 7-column grid of boxed dates (1px rules), the date's number in mono, today's bold and

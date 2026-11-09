@@ -78,3 +78,22 @@ export function currencyChange(records: Records, projectId: string, currency: st
   if (!project || !/^[A-Z]{3}$/.test(currency) || project.props.currency === currency) return [];
   return [{ kind: 'update', id: projectId, set: { currency } }];
 }
+
+/**
+ * An item on or off a shot's gear or a shoot day's list (3.9b), as one edit; several at once with `gearIds`. What
+ * else the list holds (another version's entries, items since deleted) is written back as it was. Nothing when it's
+ * already so, the record isn't a live shot or day, or an item to add isn't live gear.
+ */
+export function gearListChange(records: Records, recordId: string, gearIds: readonly string[], on: boolean): Change[] {
+  const record = records[recordId];
+  if ((record?.type !== 'shot' && record?.type !== 'shoot_day') || record.trashedAt !== null) return [];
+  const stored = record.props.gear_ids;
+  // Something other than a list there (a newer version's) is never written over from here.
+  if (stored !== undefined && !Array.isArray(stored)) return [];
+  const list = Array.isArray(stored) ? stored : [];
+  if (on && gearIds.some((id) => !liveItem(records, id))) return [];
+  const asked = [...new Set(gearIds)];
+  const next = on ? [...list, ...asked.filter((id) => !list.includes(id))] : list.filter((v) => typeof v !== 'string' || !gearIds.includes(v));
+  if (next.length === list.length) return [];
+  return next.length === 0 ? [{ kind: 'update', id: recordId, unset: ['gear_ids'] }] : [{ kind: 'update', id: recordId, set: { gear_ids: next } }];
+}

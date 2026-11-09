@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
-import { t, tn } from '../../core/i18n';
+import { list, t, tn } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import {
   dayFrames,
@@ -23,6 +23,10 @@ import { StatusGlyph } from '../../ui/tags';
 import { headingOf } from '../storyboard/ScenesView';
 import { dayChange, newDay, scheduleFrames, setupMinutesChange, trashDay, type DayField } from './dayEdits';
 import { confirmedCrew, crewChange } from '../../core/model/schedule';
+import { gearFields, gearIdsOf, moneyLabel, projectCurrency, projectGear } from '../../core/model/gear';
+import { gearNotOnDay } from '../../core/checks';
+import { GearPicker } from '../gear/GearPicker';
+import { gearListChange } from '../gear/gearEdits';
 import { projectPeople } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
 
@@ -170,6 +174,9 @@ export function DaysTile() {
           onCrew={(personId, confirmed) => {
             void edit((now) => crewChange(now, selected.record.id, personId, confirmed));
           }}
+          onGear={(recordId, gearIds, on) => {
+            void edit((now) => gearListChange(now, recordId, gearIds, on));
+          }}
           onDelete={() => {
             const label = dayLabel(selected);
             const ids = days.map((d) => d.record.id);
@@ -262,12 +269,28 @@ interface DayEditorProps {
   onSchedule: (shotIds: readonly string[], dayId: string | null) => Promise<boolean>;
   /** Someone confirmed for the day (3.8), or back to pending. */
   onCrew: (personId: string, confirmed: boolean) => void;
+  /** Items on or off a list (3.9b): the day's, or (from a finding) added to it. */
+  onGear: (recordId: string, gearIds: readonly string[], on: boolean) => void;
   onDelete: () => void;
 }
 
-function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule, onCrew, onDelete }: DayEditorProps) {
+function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule, onCrew, onGear, onDelete }: DayEditorProps) {
   const headingId = useId();
   const crewId = useId();
+  const gearId = useId();
+  const catalogue = projectGear(records, projectId);
+  const dayGear = gearIdsOf(day.record.props);
+  const currency = projectCurrency(records[projectId]?.props);
+  // What the day's rentals cost: each rented item on its list, its rate times how many.
+  const rentals = catalogue
+    .filter(({ record, fields }) => dayGear.includes(record.id) && fields.source === 'rental' && fields.dayRate !== null)
+    .reduce((sum, { fields }) => sum + (fields.dayRate ?? 0) * fields.quantity, 0);
+  // The first check (3.9b): this day's frames that need gear its list doesn't have.
+  const lacking = gearNotOnDay(records, projectId).filter((f) => f.dayId === day.record.id);
+  const gearName = (id: string) => {
+    const item = records[id];
+    return (item && gearFields(item.props).name) || t('gear.unnamed');
+  };
   const people = projectPeople(records, projectId);
   const confirmed = confirmedCrew(day.record.props);
   const framesId = useId();
@@ -373,6 +396,51 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
                     </span>
                     {t('days.confirmed')}
                   </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* The day's gear (3.9b), picked from the project's catalogue, what its rentals cost, and the frames that need
+          gear its list doesn't have, each with a way to add it. */}
+      <section aria-labelledby={gearId} className="flex flex-col gap-2">
+        <h3 id={gearId} className="sb-label border-b-[1.5px] border-text pb-1">
+          {t('days.gear')}
+        </h3>
+        <GearPicker
+          label={t('days.gearOnDay')}
+          items={catalogue}
+          picked={dayGear}
+          onToggle={(item, on) => {
+            onGear(day.record.id, [item], on);
+          }}
+        />
+        {rentals > 0 && <p className="font-mono text-[12px]">{t('days.rentals', { amount: moneyLabel(rentals, currency) })}</p>}
+        {lacking.length > 0 && (
+          <p id={`${gearId}-missing`} className="text-[12px] font-semibold">
+            {t('days.gearMissing')}
+          </p>
+        )}
+        {lacking.length > 0 && (
+          <ul aria-labelledby={`${gearId}-missing`} className="flex flex-col gap-1">
+            {lacking.map((finding) => {
+              const shot = records[finding.shotId];
+              const frame = shot ? shotFields(shot.props).number : '';
+              const names = finding.gearIds.map(gearName);
+              return (
+                <li key={finding.shotId} className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <span className="sb-label bg-warning px-[5px] text-paper-fixed">{t('days.notOnList')}</span>
+                  <span>{t('days.frameNeeds', { frame, items: list(names) })}</span>
+                  <Button
+                    aria-label={t('days.addGearFor', { frame, day: label })}
+                    onClick={() => {
+                      onGear(day.record.id, finding.gearIds, true);
+                    }}
+                  >
+                    {t('days.addGear')}
+                  </Button>
                 </li>
               );
             })}
