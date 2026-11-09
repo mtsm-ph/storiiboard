@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.9b merged, 3.10 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.10 merged, 3.11 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.10 in review) |
+| Last updated | Nov 9, 2026 (3.11 in review) |
 
 | Phase | State |
 |---|---|
@@ -53,12 +53,34 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | Done |
 | 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
 | 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | Done |
-| 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | In review |
-| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
+| 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | Done |
+| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | In review |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.11 as built (Nov 9): assets and attachments (`src/core/model/attachment.ts`, `src/features/assets/`).
+- The Assets tile in the Assets workspace (its placeholder until now): the project's PDFs and links, grouped by what
+  they're on: the project, a scene, a frame, a location or a person. Attach to picks which; Add PDF… (one or several)
+  and Add link (an address, https:// put in front of a bare one, and a title).
+- A PDF is kept inside the project (decision 11): checked to be a PDF by its first bytes, at most 50 MB (one that isn't
+  is said and skipped), stored by content in `media_files` as a picture is, so Empty Trash and Clean up treat it as
+  they treat a picture. Save a copy… writes it where the person chooses: that's how it's opened outside Storiiboard. A
+  link is copied with Copy link. Opening either from the app waits for the opener plugin (a dependency Kevin decides
+  on).
+- Each has its name (a PDF's file name, a link's title) to change in place; Delete sends it to the Trash (an
+  Attachments kind there); History names it ("Attached Contract.pdf").
+- Format (additive, no schema number, docs/SBD_FORMAT.md "Attachments"): `media` records of kind `pdf` (`file`,
+  `source_name`, `byte_size`) or `link` (`url`, `title`) under what they're on; a PDF's bytes in `media_files`.
+- Decided by default, review: PDFs share `media_files` with pictures (no new table, no schema bump, Empty Trash and
+  Clean up for free) rather than a table of their own; attachments listed in the Assets tile only for now (a section
+  in the Inspector, Locations and Cast and crew can follow); Save a copy and Copy link stand in for opening; only
+  http and https links; the Storage tab counts PDFs with pictures.
+- Tests: an attachment read, listed with what it's on (none under something in the Trash), kept out of a location's
+  photos, links kept to the web, sizes; the edits (on what, rename, the Trash, never a picture), a PDF known by its
+  bytes and stored by content; end to end, a link on the project, a PDF on a frame (one that isn't refused), saved
+  out, renamed, axe, deleted and restored.
 
 3.10 as built (Nov 9): notifications (`src/features/notifications/`, `src/core/storage/notifications.ts`, schema 10).
 - The Notifications tile (in no default layout; opened from the Layout menu or the status bar): History's steps,

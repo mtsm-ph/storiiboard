@@ -175,7 +175,12 @@ function sceneContent(records: Records, sceneId: string): SceneContent | null {
   // picture), its sketch by stroke.
   const own = (shot: SbdRecord): JsonValue[] =>
     inside(shot).flatMap((child): JsonValue[] =>
-      child.type === 'media' ? [{ media: child.id, file: child.props.file ?? null }] : child.type === 'stroke' ? [{ stroke: child.id }] : [],
+      // Its picture, not a PDF or a link attached to it (3.11): attaching a release changes nothing a department did.
+      child.type === 'media' && child.props.kind !== 'pdf' && child.props.kind !== 'link'
+        ? [{ media: child.id, file: child.props.file ?? null }]
+        : child.type === 'stroke'
+          ? [{ stroke: child.id }]
+          : [],
     );
   // Frames and note cards, as the board shows them.
   const items = inside(scene).filter((r) => r.type === 'shot' || r.type === 'note');

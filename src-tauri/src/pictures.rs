@@ -28,6 +28,8 @@ const MAX_SCRIPT_PDF_BYTES: u64 = 50 * 1024 * 1024;
 
 /// What the Open dialog offers for a LUT (2.5): Resolve's `.cube`, which cameras and colourists ship.
 const LUT_EXTENSIONS: &[&str] = &["cube"];
+/// PDFs attached to a project (3.11: a location contract, a release), stored inside the .sbd.
+const PDF_EXTENSIONS: &[&str] = &["pdf"];
 /// The largest LUT read: a 65-point cube, the largest in common use, is about 8 MB of text.
 const MAX_LUT_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -170,6 +172,16 @@ pub async fn lut_choose(
     kind: String,
 ) -> Result<Vec<String>, String> {
     choose(app, title, (kind, LUT_EXTENSIONS), false).await
+}
+
+/// The Open dialog for PDFs to attach (3.11); the files picked become readable through `pictures_read`.
+#[tauri::command]
+pub async fn pdf_choose(
+    app: AppHandle,
+    title: String,
+    kind: String,
+) -> Result<Vec<String>, String> {
+    choose(app, title, (kind, PDF_EXTENSIONS), true).await
 }
 
 /// The Open dialog for project data to import (2.9); the file picked becomes readable through `pictures_read`.

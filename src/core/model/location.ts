@@ -96,7 +96,8 @@ export function locationFieldRecords(records: Readonly<Record<string, SbdRecord>
 /** A location's photos (3.3): its live pictures, in order. */
 export function locationPhotos(records: Readonly<Record<string, SbdRecord>>, locationId: string): SbdRecord[] {
   return Object.values(records)
-    .filter((r) => r.type === 'media' && r.parentId === locationId && r.trashedAt === null)
+    // Its photos, not the PDFs and links attached to it (3.11), which are media records under it too.
+    .filter((r) => r.type === 'media' && r.parentId === locationId && r.trashedAt === null && r.props.kind !== 'pdf' && r.props.kind !== 'link')
     .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
 }
 

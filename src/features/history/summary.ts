@@ -4,6 +4,7 @@ import { sceneApprovalText } from '../../core/model/sceneApprovals';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
 import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
+import { attachmentFields } from '../../core/model/attachment';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -415,8 +416,12 @@ function nameOf(record: SbdRecord | null): Part {
     }
     case 'project':
       return t('history.theProject');
-    case 'media':
+    case 'media': {
+      // A PDF or a link (3.11), by its name.
+      const attachment = attachmentFields(record.props);
+      if (attachment) return attachment.name || (attachment.kind === 'link' ? attachment.url : t('assets.unnamedPdf'));
       return t('history.aPicture');
+    }
     default:
       // Never the record type itself: it's an English word in the file ("gear_item"), wrong in any language. The
       // types a step can show today are named above; later phases add their own words (P7's low).
@@ -538,6 +543,14 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {
+        // A PDF or a link attached (3.11): named by its own name, wherever it's attached.
+        const first = found[0];
+        const attached = first ? record(first) : null;
+        if (attached && attachmentFields(attached.props)) {
+          if (found.length > 1) return [t(MANY[kind], { things: tn('count.attachments', found.length) })];
+          const what = kind === 'create' ? 'history.added.attachment' : kind === 'trash' ? 'history.deleted.attachment' : 'history.restored.attachment';
+          return line(what, { name: nameOf(attached) });
+        }
         // A location's photos (3.3): named by their location, as the step left it or as it was then (`around`).
         const parentId = found[0]?.after?.parentId ?? found[0]?.before?.parentId ?? null;
         const written = ops.find((op) => op.recordId === parentId);
