@@ -173,6 +173,12 @@ test('Search address looks up only when pressed, puts a place on the map in one 
   await expect(found).toHaveCount(0);
   await expect(search).toBeFocused();
   await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('Plaza de Armas, Cusco');
+  // Open map (3.12) shows the pin on OpenStreetMap, in a new tab here (the browser, on the desktop); answered here.
+  await page.context().route('https://www.openstreetmap.org/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: 'ok' }));
+  const mapTab = page.waitForEvent('popup');
+  await editor.getByRole('button', { name: 'Open map' }).click();
+  await (await mapTab).waitForURL(/openstreetmap\.org\/\?mlat=-13\.516767&mlon=-71\.978779/);
+  await search.focus();
   // One ⌘Z takes it off the map.
   await page.keyboard.press(await undoKey(page));
   await expect(editor.getByText('On the map')).toHaveCount(0);

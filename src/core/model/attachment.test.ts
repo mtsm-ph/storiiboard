@@ -69,6 +69,9 @@ describe('attachments', () => {
     expect(linkUrl('https//x.com')).toBeNull();
     expect(linkUrl('htps//x.com')).toBeNull();
     expect(linkUrl('https:/x.com')).toBeNull();
+    // As Open refuses them: a name and password, or a link past 2048 characters.
+    expect(linkUrl('https://u:p@x.com/')).toBeNull();
+    expect(linkUrl(`https://x.com/${'a'.repeat(2048)}`)).toBeNull();
   });
 
   it('say a PDF’s size as a file list does', () => {

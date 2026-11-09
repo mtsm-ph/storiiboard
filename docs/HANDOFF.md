@@ -347,6 +347,24 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.12: review
+
+- Decided by default, review: see PLAN.md, "3.12 as built" (read-only copies, every copy marked as from the internet
+  so Acrobat opens it in Protected View, a day's keep, links with a name and password refused when added).
+- Round 1: no high, no medium. Lows fixed: the plugin's script that sends link clicks to it is off (those calls could
+  only be refused, and would have swallowed a link's click); a test fails if the page is ever given a permission
+  beyond today's five, or a capability or permission set appears anywhere else; the not-a-PDF and missing-PDF
+  refusals tested; copies marked as from the internet on Windows; copies tidied at start too; a copy's name keeps no
+  bidi override, zero-width character or byte-order mark (a name with U+202E can't pass for a PDF's), no dot after a
+  space at the start, none of the other device names (CONIN$, COM¹…), and is capped in UTF-16 units; links with a
+  name and password, or too long to open, refused when added; read-only cleared only on Windows.
+- Round 2: no high, no medium. Lows fixed: the permissions test is a fixed list; a comment; `.pdf.pdf` after a cut.
+- Left: links saved before this with a name and password are refused by Open with the general words; on a Mac the
+  copy isn't quarantined; the devtools probe (the page calling the plugin itself) wasn't run by hand, the
+  capabilities test stands in for it. One unit run failed once with one test and passed the next five; its name wasn't
+  caught (the summary line only); watch for it. For Kevin's checklist: Open a PDF and a link on each computer; on
+  Windows, Acrobat shows Protected View.
+
 ### 3.4: review
 
 Kevin's Nov 9 answers came with this milestone: the address search approved (one HTTP client for every network need,

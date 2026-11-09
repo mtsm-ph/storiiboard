@@ -29,6 +29,9 @@ tauri-plugin-dialog = "2.8.3"
 # at least two weeks before it was added (reqwest Sep 8, rustls Oct 14, 2026; MIT, Apache or ISC).
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
+# Opening a web link in the browser and a PDF attachment's copy in the PDF reader (3.12, approved Nov 9), from Rust only
+# (src/open.rs): the page has no opener permission. Pinned exactly (MIT or Apache; released Oct 14, 2026).
+tauri-plugin-opener = "=2.7.2"
 
 # Desktop only: a second launch (a double-click on a .sbd while the app runs, on Windows) hands its arguments to the
 # running app and exits, so one window owns the open project (src/opened.rs).

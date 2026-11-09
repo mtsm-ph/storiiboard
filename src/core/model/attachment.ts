@@ -64,6 +64,9 @@ export function linkUrl(typed: string): string | null {
   if (withScheme === null) return null;
   try {
     const url = new URL(withScheme);
+    // A name and password in a link are refused, as Open refuses them (src-tauri/src/open.rs), and so is a link longer
+    // than Open takes.
+    if (url.username !== '' || url.password !== '' || url.href.length > 2048) return null;
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
   } catch {
     return null;
