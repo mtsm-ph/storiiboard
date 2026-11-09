@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.4 in review; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.4 done; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -41,7 +41,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.2 Company profiles | Saved once in app settings; attaching one copies its details and logo into the .sbd, with Update from profile | #89 | Done |
 | 3.3a Locations | The Locations tile: list and editor (address as text, contact, parking and power notes, status), its scenes, Copy map link, the Trash | #90 | Done |
 | 3.3b Locations, the rest | Photos, custom fields, a frame's location over its scene's | #91 | Done |
-| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, a schema bump) | | In review |
+| 3.4 Address search | Search (never autocomplete) through Rust to Nominatim, 1 request a second, the app in the User-Agent; every result cached in the .sbd (`lookups`, a schema bump) | #106 | Done |
 | 3.5a Cast and crew | The Cast and crew tile: people with departments, a role, a title and contacts (private: never logged or shown in History), their own fields, the Trash | #92 | Done |
 | 3.5b Characters and Team | Characters linked to cast; the Team section | #93 | Done |
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
