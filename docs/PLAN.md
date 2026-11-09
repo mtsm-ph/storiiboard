@@ -7,18 +7,18 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.10 merged, 3.11 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: built to the gate (3.1 to 3.11 merged by Nov 9; 3.4 waits for Kevin). The gate checkpoint, `checkpoint/phase3-gate`, passed every job Nov 9 (smoke on Linux and in WebKit on the Mac, both installers; run 42596717084); the checklist is Kevin's (docs/HANDOFF.md, "Phase 3 gate: Kevin's checklist"). Phase 4 waits for Kevin's go. Phase 2's gate checklist is Kevin's too |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.11 in review) |
+| Last updated | Nov 9, 2026 (Phase 3 gate reached) |
 
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
-| 3 · Production data | **Current**: plan next |
+| 3 · Production data | **Current**: built (Nov 9) but 3.4; the gate is Kevin's |
 | 4 · Call sheets | Not started |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
@@ -54,8 +54,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
 | 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | Done |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | Done |
-| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | In review |
-| Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
+| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | Done |
+| Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Reached Nov 9: checkpoint passed (`checkpoint/phase3-gate`, every job); the checklist is Kevin's |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).

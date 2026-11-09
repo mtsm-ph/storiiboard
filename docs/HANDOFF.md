@@ -1,7 +1,7 @@
 # Handoff
 
-Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 6 after
-2.3a, D1, D2 and 2.3b (all merged). Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
+Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that has only GitHub; updated Nov 9 at the Phase 3 gate (first updated Nov 6 after
+2.3a, D1, D2 and 2.3b, all merged). Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
 ## What a cloud session can and can't do
@@ -331,6 +331,10 @@ Lows deferred (noted, not planned yet):
    shoot days with totals and the Calendar tile (month and week); gear per day linked to shots; a client contact and
    deliverables checklist; notification history; Assets and attachments. **Stop at the Phase 3 gate** (Kevin's real
    shoot's people, places and gear are entered) with a checkpoint and a checklist.
+5. **Phase 3 gate** (reached Nov 9): 3.1 to 3.11 are merged (#88 to #104); 3.4 waits for Kevin. The gate checkpoint,
+   `checkpoint/phase3-gate` on `v2` at 5cf9875 (3.11's merge), passed every job Nov 9 (smoke on Linux and in WebKit on the Mac, both installers; run 42596717084). The checklist is "Phase 3 gate:
+   Kevin's checklist" below, riskiest first. **Stop here:** Phase 4 (call sheets) starts in plan mode once Kevin says
+   go (CLAUDE.md: build only the current phase).
 
 ### 2.5: decisions taken (Kevin can overrule any; none changes the file format)
 
@@ -1050,6 +1054,148 @@ On Kevin's own computers, with the 2.4 installers (or a dev build):
 8. The Player's edges: play a take to the end (it stops on its last frame; O there sets the out point on it, never
    past); Space again replays from the in point. A take whose length the app couldn't read (rare: a damaged or
    streamed file) steps and pauses where it is, and stops at its copy's end.
+
+## Phase 3 gate: Kevin's checklist (Nov 9; riskiest first)
+
+Everything built overnight, Nov 9 (3.6b to 3.11, PRs #96 to #104), on the gate checkpoint's installers
+(`checkpoint/phase3-gate`). Use a copy of a real project for items 1 and 2; the upgrade writes a backup first anyway.
+
+**Format changes and migrations**
+
+1. **The upgrade (migration 9: approvals move to scenes, which changes existing data; you approved it).** Open a
+   Phase 2 project that has frame approvals in the new build.
+   - A backup is written before the upgrade: Settings → Backups → Show backups.
+   - A scene where every frame was approved for a department shows that department approved, by the same person.
+     Where only some frames were, nothing is approved.
+   - History shows the upgrade as one step, listing what moved and what came off the frames.
+   - ⌘Z right after stops at the upgrade: it never reaches the edits from before it.
+   - History's Restore to here still reaches before the upgrade, and ⌘Z undoes that restore.
+2. **Schema 10: read state for Notifications.**
+   - Mark all read, then quit and reopen: everything stays read.
+   - Switch This is me to someone else: their read state is their own.
+   - Steps you made yourself never count as unread.
+3. **Additive props, with no migration:**
+   - a person's Full view;
+   - shoot days, with each frame's day, call and wrap, crew confirmed and a gear list;
+   - the project's minutes per setup and currency;
+   - gear items, and a frame's gear;
+   - PDFs and links.
+
+   Fill a project with all of these. Then Export → Project data (JSON), and on the Projects screen use Import project
+   data…: everything should come back, PDFs included.
+4. **Your workspaces (settings on this computer, never in a project).**
+   - Save one from the Layout menu, then open another project: it's still there.
+   - On the other computer, it isn't.
+
+**Approvals**
+
+5. **Approved per scene (3.6b).**
+   - Only the director or the DP can approve a department for a scene: set This is me to someone else and try.
+   - Change something on a frame that the department touches (lens, sketch, picture, notes): the scene shows
+     "Changed since approval" for that department, and approving again clears it.
+   - Attaching a PDF or link to a frame changes nothing.
+   - Priority, Seen, Working on it and Done stay per frame.
+6. **Approvals in the perspective views.** As a crew member without Full view, other departments' approvals sit under
+   Rest of crew. As the director or DP, every department shows.
+
+**The rest**
+
+7. **Perspective views (3.6c).**
+   - In Cast and crew, Full view is on for the director and the DP, and off for everyone else.
+   - As a gaffer, say: grip and electric comes first on frame cards, the Inspector and the shot list, and the rest
+     fold under Rest of crew.
+   - This is a focus view, not access control.
+8. **Manage workspaces (3.6d).**
+   - Layout → Save as new workspace.
+   - In Manage workspaces…, rename, duplicate and delete.
+   - Names needn't be unique. The limit is 50 workspaces, and 60 characters a name.
+9. **Shoot days (3.7).**
+   - Make the days for a real shoot.
+   - Move "Need to shoot" frames in a scene at a time, and one by one (pick, then Move). Each move is one ⌘Z.
+   - Check the totals (frames, setups, hours) against your own estimate. Minutes per setup is in the Shoot days tile.
+   - On the Mac: half-clear a day's date in WebKit; the day keeps its date.
+10. **Calendar (3.8).**
+    - Month and week; picking a day narrows the schedule list.
+    - Each day shows its scenes, its location's status and "1 of 3 confirmed". Toggle Confirmed per person.
+    - The week starts Sunday in English and Monday in Spanish. Say if Latin American crews want Sunday.
+    - On the Mac: the date cells read correctly with VoiceOver.
+11. **Gear catalogue (3.9a).** Enter your real kit:
+    - quantities;
+    - owned, or rented and from whom;
+    - day rates, in the project's currency, written as your region writes money;
+    - a currency without cents, such as yen.
+12. **Gear per day (3.9b).**
+    - Build each day's gear list from the catalogue, and give frames their gear.
+    - A frame that needs gear its day lacks shows a warning in the Inspector, and the day lists it.
+    - Frames already shot (Have, Source) are never flagged.
+13. **Notifications (3.10).**
+    - Make edits as someone else (switch This is me), then switch back: the status bar shows the unread count, and it
+      opens the tile.
+    - Try the filters (All, Unread, This scene), Mark all read and Show older steps.
+14. **Assets (3.11).** Attach PDFs (a location contract, a release) and links to the project, a scene, a frame, a
+    location and a person.
+    - A non-PDF is refused, and so is one over 50 MB.
+    - Save a copy… and Copy link work.
+    - Rename one. A name with a folder, or one starting with a dot, is refused, and the old name comes back.
+    - Delete a PDF on a frame that has a picture, then restore it: it comes back as itself, and the picture is
+      untouched.
+    - Empty Trash.
+15. **The gate itself:** a real shoot's people, places and gear, entered. Addresses are typed by hand, since the
+    address search (3.4) waits for you.
+
+**Decided by default, for your review** (each milestone's "review" section above has the reasons)
+
+- **3.6b:**
+  - every department counts as touching every frame field;
+  - the fingerprint leaves out Priority, Seen, other departments' ticks and attachments;
+  - no approvals marker on the board's scene headings yet.
+- **3.6c:**
+  - whose view it is: This is me, else this computer's role;
+  - cards and the shot list narrow too;
+  - Rest of crew stays open for the session, never saved.
+- **3.6d:**
+  - names needn't be unique;
+  - a duplicate copies the layout as it is now;
+  - at most 50 workspaces, names capped at 60 characters;
+  - no Delete key in the sidebar.
+- **3.7:**
+  - a day's number comes from its date;
+  - a frame without a setup counts as a setup of its own until Phase 6;
+  - a new day is dated the day after the latest;
+  - two days may share a date;
+  - page eighths wait for Phase 4.
+- **3.8:**
+  - a day's crew is everyone in Cast and crew until Phase 4;
+  - the week's first day goes by language;
+  - a day's locations are its frames';
+  - availability waits for Phase 9;
+  - the Layout menu's Open tile list is in two columns.
+- **3.9a/b:**
+  - 3.9 was split in two;
+  - an item's category is its department;
+  - a short list of currencies;
+  - gear is picked from the catalogue only;
+  - the check finds gear missing from a day, not a day short on quantity (that comes with call sheets).
+- **3.10:**
+  - your own steps count as read;
+  - the reader is This is me, else `local`;
+  - the count shows only while something is unread (this keeps your approved screenshots).
+- **3.11:**
+  - PDFs share `media_files` with pictures (no schema bump);
+  - the Assets tile only, for now;
+  - Save a copy and Copy link stand in for opening;
+  - links are http and https only;
+  - PDF names are held to what Windows accepts, even on a Mac.
+
+**Waiting for you**
+
+- **3.4, address search:** an HTTP client in Rust, a new dependency (docs/PHASE3_DECISIONS.md 16). Its `lookups`
+  table will be schema 11, now that 9 and 10 are taken.
+- **The opener plugin:** opening a PDF, a link or a map in the browser.
+- **A map library**, for a map inside the app.
+- **Scene character lists as ids:** this changes existing data.
+- **The JSON export:** whether it carries the Trash and History.
+- **VideoToolbox:** the Mac's copy tests (from Phase 2).
 
 ## Phase 2 gate: Kevin's checklist (complete Nov 7; in this order, after review stop A's)
 
