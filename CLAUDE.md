@@ -136,6 +136,9 @@
   in the scene changes. A department's name in the Inspector opens its workspace (3.6a). Perspective views (3.6c):
   the director, the DP and anyone with Full view (a switch per person in Cast and crew) see every department first;
   everyone else sees their own, the rest folded under Rest of crew. A focus view, not access control.
+- Shoot days (3.7): the Shoot days tile in Production. A day has a date, call and wrap; "Need to shoot" frames go into
+  at most one day (`shoot_day_id`), a scene at a time or one by one; totals (frames, setups, hours at the project's
+  minutes per setup) are worked out, and a day's number comes from its date.
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.

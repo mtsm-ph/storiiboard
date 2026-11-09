@@ -343,6 +343,24 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.7: review
+
+- Decided by default, review: a day's number from its date, never stored; a frame without a setup counts as a setup
+  of its own until Phase 6; a day's frames in board order; a new day dated the day after the latest; two days may
+  share a date; page eighths wait for Phase 4's scene list; a day keeps a date once it has one.
+- The full end-to-end run caught one of its own: the docking test's "every built tile open" didn't count Shoot days.
+- Round 1: no high, six mediums, fixed. Move to committed on every arrow key (the wrong frame moved): now pick, then
+  Move. Two names didn't start with their visible text (WCAG 2.5.3). Frames marked Have since still counted in a
+  day's totals. Several frames moved together read "Changed 3 items" in History; a frame's own history said "a shoot
+  day → a shoot day". A half-typed date blanked the day's date. Each tested.
+- Lows fixed: the minutes field's step; a date in History as a date; plural keys; focus after Add all.
+- Round 2: no high. Its possible medium (WebKit may not report an unfinished date as bad input) is covered: an empty
+  date is never taken as an edit. Lows fixed: Move started on Not scheduled (one click took a frame out); the select
+  now starts on the frame's own day, Move off until another is picked. Frames taken out together are tested in History.
+- Lows left: a mixed move (some in, some out) reads as items changed; Empty Trash leaves a purged day's id on its
+  frames (read as unscheduled, as designed); a few long lines. For Kevin's checklist on the Mac: a half-cleared date
+  in WebKit stays as it was.
+
 ### 3.6d: review
 
 - Decided by default, review: names needn't be unique; a duplicate copies the layout as it is now, with the source's

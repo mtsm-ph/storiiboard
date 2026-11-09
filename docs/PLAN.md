@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6c merged, 3.6d in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6d merged, 3.7 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.6d in review) |
+| Last updated | Nov 9, 2026 (3.7 in review) |
 
 | Phase | State |
 |---|---|
@@ -48,8 +48,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | Done |
 | 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | Done |
 | 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | #97 | Done |
-| 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | In review |
-| 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
+| 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | Done |
+| 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | In review |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
 | 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
@@ -58,6 +58,32 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.7 as built (Nov 9): shoot days (`src/core/model/shootDay.ts`, `src/features/schedule/`).
+- The Shoot days tile in the Production workspace (its placeholder until now): the days, numbered by date (Day 1 ·
+  Mon, Nov 16; undated last), each with its call time and frame count; + New day dates a new one the day after the
+  latest (today for the first). The day picked shows its date, call and wrap (mono), notes, and its totals: frames,
+  setups and about how long, at the project's minutes per setup (30 unless changed at the foot of the list).
+- Frames this day, in board order, each with Move to (another day, or Not scheduled) and a Move button, so arrowing
+  through the choices moves nothing. Need to shoot, not scheduled: the "Need to shoot" frames in no day, by scene,
+  each with Add and each scene with Add all. Every move is one edit, so one ⌘Z; focus goes to the row that took a
+  moved one's place. The choice starts on the frame's own day, and Move is off until another is picked. The totals
+  count what's still to shoot: a frame marked Have since stays listed, uncounted. A half-typed date or time is no
+  edit, and a day keeps a date once it has one (a time can be cleared).
+- Delete day sends it to the Trash (a new Shoot days kind there); its frames read as unscheduled until it's restored,
+  and come back with it. History names a day by its date, a frame's move by the days' dates (in its own history
+  too), and frames moved together by the day ("Moved 3 frames to shoot day Mon, Nov 16").
+- Format (additive, no schema number, docs/SBD_FORMAT.md "Shoot day props"): `shoot_day` records, `shoot_day_id` on a
+  shot, `setup_minutes` on the project.
+- Decided by default, review (docs/PHASE3_DECISIONS.md 8 and 9 already were): a day's number is its place by date,
+  never stored; until Phase 6 brings setups, a frame without one counts as a setup of its own; a day's frames in board
+  order (a stripboard order of its own can come with call sheets); a new day dated the day after the latest; two days
+  may share a date (a split day); page eighths aren't in a day's totals yet, since a scene can be split across days
+  (they come with the call sheet's scene list, Phase 4).
+- Tests: days by date, valid dates and times (February 30 refused), frames in board order, a day in the Trash, only
+  "Need to shoot" waiting, totals and durations; the edits (a new day's date, fields, moves in one edit, the Trash,
+  minutes per setup); end to end, days made and dated, a scene added at once and undone, a frame added, taken out,
+  moved to the other day, the estimate at 45 minutes, axe, a day deleted and restored with its frame.
 
 3.6d as built (Nov 9): your own workspaces (`src/app/shell/ManageWorkspaces.tsx`, `workspaceStore.ts`).
 - The Layout menu's Workspace group has Save as new workspace (this layout as it is now, named "<workspace> copy",

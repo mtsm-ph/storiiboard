@@ -44,9 +44,11 @@ export function ItemHistory({
       });
     });
   };
-  // A scene keeps its location by id, which means nothing to a person.
+  // A scene keeps its location by id, and a frame its shoot day (3.7), which mean nothing to a person.
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
-    field.prop === 'location_id' && typeof v === 'string' && v !== '' ? (places(v) ?? t('history.aLocation')) : changeText(field, v);
+    (field.prop === 'location_id' || field.prop === 'shoot_day_id') && typeof v === 'string' && v !== ''
+      ? (places(v) ?? t(field.prop === 'shoot_day_id' ? 'history.aShootDay' : 'history.aLocation'))
+      : changeText(field, v);
   return (
     <table ref={table} tabIndex={-1} aria-busy={busy} className="w-full border-collapse text-[12px]">
       <caption className="sr-only">{t('history.changesTo', { title })}</caption>

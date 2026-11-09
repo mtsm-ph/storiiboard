@@ -297,6 +297,26 @@ describe('Put back', () => {
     expect(putBackChange(records()[a], await lastChange(a, 'departments'))).toBeNull();
   });
 
+  it('names a shoot day by its date, and frames moved into one together by the day (3.7)', async () => {
+    const a = await frame();
+    const b = await frame();
+    await store.getState().apply([{ kind: 'create', record: { id: 'day', type: 'shoot_day', parentId: project.projectId, sortKey: 'V', props: { date: '2026-11-16' } } }]);
+    expect((await lines()).at(-1)).toBe('Added shoot day Mon, Nov 16');
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { shoot_day_id: 'day' } },
+      { kind: 'update', id: b, set: { shoot_day_id: 'day' } },
+    ]);
+    expect((await lines()).at(-1)).toBe('Moved 2 frames to shoot day Mon, Nov 16');
+    await store.getState().apply([
+      { kind: 'update', id: a, unset: ['shoot_day_id'] },
+      { kind: 'update', id: b, unset: ['shoot_day_id'] },
+    ]);
+    expect((await lines()).at(-1)).toBe('Took 2 frames out of their shoot day');
+    await store.getState().apply([{ kind: 'update', id: 'day', set: { date: '2026-11-18' } }]);
+    const moved = await lastChange('day', 'date');
+    expect(changeValue(moved, moved.after)).toBe('Wed, Nov 18');
+  });
+
   it('says a person’s Full view as on or off (3.6c)', async () => {
     await store.getState().apply([{ kind: 'create', record: { id: 'sam', type: 'person', parentId: project.projectId, sortKey: 'V', props: { name: 'Sam Ortiz' } } }]);
     await store.getState().apply([{ kind: 'update', id: 'sam', set: { full_view: true } }]);

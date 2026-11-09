@@ -2,6 +2,7 @@ import { mediaFields } from '../../core/media/store';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { departmentName, statusText } from '../../core/model/departmentStatus';
 import { sceneApprovalText } from '../../core/model/sceneApprovals';
+import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -71,6 +72,11 @@ const FIELD: Readonly<Record<string, string>> = labels({
   cast_id: 'history.field.castId',
   page_eighths: 'history.field.pageEighths',
   numbers_locked: 'history.field.numbersLocked',
+  shoot_day_id: 'history.field.shootDay',
+  date: 'history.field.date',
+  call_time: 'history.field.callTime',
+  wrap_time: 'history.field.wrapTime',
+  setup_minutes: 'history.field.setupMinutes',
   full_view: 'history.field.fullView',
   characters: 'history.field.characters',
   text: 'history.field.text',
@@ -211,6 +217,9 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   // picture change reads as set, removed or replaced (pictureChange).
   if (prop === 'location_id') return t('history.aLocation');
   if (prop === 'cast_id') return t('history.aPerson');
+  if (prop === 'shoot_day_id') return t('history.aShootDay');
+  // A shoot day's date (3.7), as the Days tile writes it.
+  if (prop === 'date' && typeof value === 'string') return dayDateLabel(value) || value;
   if (prop === 'media_id') return t('history.aPicture');
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
@@ -381,6 +390,11 @@ function nameOf(record: SbdRecord | null): Part {
       return typeof record.props.name === 'string' ? record.props.name : t('history.aCharacter');
     case 'person':
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
+    case 'shoot_day': {
+      // By its date (3.7); its number belongs to the order the days are in now.
+      const date = dayDateLabel(shootDayFields(record.props).date);
+      return date || t('history.undatedDay');
+    }
     case 'project':
       return t('history.theProject');
     case 'media':
@@ -402,6 +416,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   location: 'count.locations',
   character: 'count.characters',
   person: 'count.people',
+  shoot_day: 'count.shootDays',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -411,10 +426,10 @@ const count = (type: SbdRecord['type'], n: number): string => {
 };
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
-const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person', MessageKey>>>> = {
-  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person' },
-  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person' },
-  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person' },
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person', shoot_day: 'history.added.shootDay' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person', shoot_day: 'history.deleted.shootDay' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person', shoot_day: 'history.restored.shootDay' },
 };
 const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
   create: 'history.addedCount',
@@ -500,7 +515,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person'] as const) {
+    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {
@@ -559,14 +574,25 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
-          if ((only.prop !== 'location_id' && only.prop !== 'cast_id') || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          if ((only.prop !== 'location_id' && only.prop !== 'cast_id' && only.prop !== 'shoot_day_id') || typeof v !== 'string' || v === '') return changeValuePart(only, v);
           const named = around.get(v);
-          return named ? nameOf(named) : t(only.prop === 'cast_id' ? 'history.aPerson' : 'history.aLocation');
+          return named ? nameOf(named) : t(only.prop === 'cast_id' ? 'history.aPerson' : only.prop === 'shoot_day_id' ? 'history.aShootDay' : 'history.aLocation');
         };
         return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only) }), tag];
       }
       return line('history.whoDid', { who }, { what: [...new Set(changes.map(changeLabel))].join(', '), tag });
     }
+  }
+  // Frames moved into one shoot day, or out of every day, together (3.7: a scene's frames added at once).
+  const scheduled = updates.every(
+    (op) => op.before?.type === 'shot' && op.after && changedProps(op.before, op.after).every((prop) => prop === 'shoot_day_id'),
+  );
+  const to = updates[0]?.after?.props.shoot_day_id;
+  if (updates.length > 1 && scheduled && updates.every((op) => op.after?.props.shoot_day_id === to)) {
+    const frames = tn('count.frames', updates.length);
+    if (typeof to !== 'string') return [t('history.framesUnscheduled', { frames, tag })];
+    const day = around.get(to);
+    return [...line('history.framesScheduled', { day: day ? nameOf(day) : t('history.aShootDay') }, { frames, tag })];
   }
   if (updates.length > 0) {
     // A renumber or a lock touches many frames: named by the scene they share when they share one.
