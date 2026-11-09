@@ -126,14 +126,14 @@ test('keeps the layout after a reload, marks it unsaved, and resets', async ({ p
 
 test('opens any built tile in any workspace from the Layout menu, and only built ones', async ({ page }) => {
   await page.getByRole('button', { name: /^Layout/ }).click();
-  // A phase's placeholder (Gear, 3.9) isn't offered: what isn't built is hidden (Kevin, Nov 5).
-  await expect(page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Gear' })).toHaveCount(0);
+  // A later phase's placeholder (Moodboard) isn't offered: what isn't built is hidden (Kevin, Nov 5).
+  await expect(page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Moodboard' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await expect(tile(page, 'Trash')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Layout/ })).toBeFocused();
 
-  // With every built tile open, the group offers nothing, though Gear and the rest aren't open.
-  for (const name of ['History', 'Color script', 'Locations', 'Cast and crew', 'Team', 'Department', 'Shoot days', 'Calendar']) {
+  // With every built tile open, the group offers nothing, though Moodboard and the rest aren't open.
+  for (const name of ['History', 'Color script', 'Locations', 'Cast and crew', 'Team', 'Department', 'Shoot days', 'Calendar', 'Gear']) {
     await page.getByRole('button', { name: /^Layout/ }).click();
     await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name, exact: true }).click();
   }

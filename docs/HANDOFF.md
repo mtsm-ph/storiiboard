@@ -343,6 +343,27 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.9a: review
+
+- Decided by default, review: 3.9 split in two (the catalogue first, then a list per day, frames and the first
+  check); an item's category is its department; a short list of currencies; English money as the computer's region
+  writes it, as dates already were.
+- Round 1: no high, five mediums, fixed. Leaving the quantity or rate field untouched wrote over a value this version
+  reads differently (a quantity stored out of range, a negative rate): an untouched field now writes nothing, and one
+  holding what this version can't read is read-only. Typing into a text field holding something else (a newer
+  version's) was dropped silently: it's read-only, saying why. A source this version doesn't know showed as Owned:
+  it shows neither. A money test assumed a US locale: it asks Intl the same way. A currency without cents (yen) could
+  show a total that didn't add up: rates are kept to the currency's own unit.
+- Lows fixed: 1.005 rounds to 1.01; two unnamed items sort steadily; a refused quantity or rate says why; the
+  Spanish Delete reads "Borrar"; tests for the Trash's Empty Trash and History's words.
+- Round 2: no high; one medium, fixed: text the rate field can't read as a number (it reads as empty) passed for an
+  untouched field and was silently not saved; it's refused with a notice now, tested end to end. Lows fixed: rates
+  round as written beyond 1.005 too (349.995, 0.285, tested); a name differing only by a trailing space isn't
+  rewritten on a mere visit; a read-only field's reason is read after its name, not only in its title.
+- Lows left: History's day rate is a bare number, without the currency; the prop names History reads for gear
+  (quantity, source, owner…) are read for every record type (no other type has them today). A rate or quantity another
+  version stored as something other than a number can't be changed here.
+
 ### 3.8: review
 
 - Decided by default, review: a day's crew is everyone in Cast and crew until Phase 4; the week's first day by
