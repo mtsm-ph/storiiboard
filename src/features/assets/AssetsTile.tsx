@@ -10,7 +10,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { Select, TextField } from '../../ui/fields';
-import { addPdfs, newLink, renameAttachment, savePdfCopy, trashAttachment } from './attachmentEdits';
+import { addPdfs, attachmentName, newLink, renameAttachment, savePdfCopy, trashAttachment } from './attachmentEdits';
 
 // The Assets tile (3.11), in the Assets workspace: the project's PDFs and links, on the project itself or on a scene,
 // a frame, a location or a person, grouped by what they're on. A PDF is kept inside the project (at most 50 MB) and
@@ -215,8 +215,17 @@ function AttachmentRow({ item }: { item: Attachment }) {
           autoComplete="off"
           onBlur={(event) => {
             // Read now: the edit is worked out later, when the event's target is long gone.
-            const next = event.currentTarget.value;
-            if (next !== fields.name) void edit((now) => renameAttachment(now, record.id, next));
+            const field = event.currentTarget;
+            const typed = field.value;
+            const next = attachmentName(fields, typed);
+            // A name it can't take (a PDF named with a folder in it, say) goes back to the one it has, and says why; one
+            // that comes to the same name ("Contract" for Contract.pdf, trailing spaces) just shows that name again.
+            if (next === null || next === fields.name) {
+              field.value = fields.name;
+              if (next === null) showInfo(t('assets.badPdfName'));
+              return;
+            }
+            void edit((now) => renameAttachment(now, record.id, typed));
           }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur();

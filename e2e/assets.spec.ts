@@ -52,6 +52,13 @@ test('a link on the project and a PDF on a frame: saved out, renamed, deleted an
   await onFrame.getByRole('button', { name: 'Save a copy…, Contract.pdf' }).click();
   expect((await download).suggestedFilename()).toBe('Contract.pdf');
 
+  // A name Save a copy couldn't use is refused, and the field goes back.
+  const named = onFrame.getByRole('textbox', { name: 'File name, Contract.pdf' });
+  await named.fill('a/b.pdf');
+  await named.press('Enter');
+  await expect(named).toHaveValue('Contract.pdf');
+  await expect(page.getByText('That name can’t be used for a PDF', { exact: false })).toBeVisible();
+
   // Renamed in place.
   const name = onFrame.getByRole('textbox', { name: 'File name, Contract.pdf' });
   await name.fill('Release.pdf');

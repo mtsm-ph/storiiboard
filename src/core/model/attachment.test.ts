@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPdf, newLink, newPdf, pdfFileStatement, renameAttachment, trashAttachment } from '../../features/assets/attachmentEdits';
+import { attachmentName, isPdf, isPdfName, newLink, newPdf, pdfFileStatement, renameAttachment, trashAttachment } from '../../features/assets/attachmentEdits';
 import { restoreChanges, trashItems } from '../../features/trash/trash';
 import { approvalBasis } from './sceneApprovals';
 import { attachmentFields, linkUrl, projectAttachments, sizeLabel } from './attachment';
@@ -66,6 +66,9 @@ describe('attachments', () => {
     // A host with a port is an address, not a scheme.
     expect(linkUrl('localhost:3000/a')).toBe('https://localhost:3000/a');
     expect(linkUrl('ftp://x.com/a')).toBeNull();
+    expect(linkUrl('https//x.com')).toBeNull();
+    expect(linkUrl('htps//x.com')).toBeNull();
+    expect(linkUrl('https:/x.com')).toBeNull();
   });
 
   it('say a PDF’s size as a file list does', () => {
@@ -94,6 +97,19 @@ describe('the Assets tile’s edits', () => {
     expect(renameAttachment(records, 'contract', 'Lease')).toEqual([{ kind: 'update', id: 'contract', set: { source_name: 'Lease.pdf' } }]);
     expect(renameAttachment(records, 'contract', 'a/b.pdf')).toEqual([]);
     expect(renameAttachment(records, 'contract', 'C:x.pdf')).toEqual([]);
+    expect(renameAttachment(records, 'contract', '.hidden')).toEqual([]);
+    expect(renameAttachment(records, 'contract', 'CON')).toEqual([]);
+    expect(isPdfName('..pdf')).toBe(false);
+    expect(isPdfName('Contract.PDF')).toBe(true);
+    expect(isPdfName('COM0.pdf')).toBe(false);
+    expect(isPdfName('NULL.pdf')).toBe(true);
+    expect(isPdfName('a\u0000b.pdf')).toBe(false);
+    expect(isPdfName('Budget?.pdf')).toBe(false);
+    // The tile's check: a refused name is null; one that comes to the same name is that name.
+    const pdf = attachmentFields({ kind: 'pdf', source_name: 'Contract.pdf' });
+    expect(pdf && attachmentName(pdf, 'Contract')).toBe('Contract.pdf');
+    expect(pdf && attachmentName(pdf, 'Contract.pdf  ')).toBe('Contract.pdf');
+    expect(pdf && attachmentName(pdf, 'CON')).toBeNull();
     expect(renameAttachment(records, 'ref', '')).toEqual([{ kind: 'update', id: 'ref', set: { title: '' } }]);
     expect(trashAttachment(records, 'ref')).toEqual([{ kind: 'trash', id: 'ref' }]);
     expect(trashAttachment(records, 'photo')).toEqual([]);

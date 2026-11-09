@@ -996,6 +996,7 @@ export const es: Messages = {
   'assets.unnamedPdf': 'PDF sin título',
   'assets.fileName': 'Nombre del archivo',
   'assets.forItem': '{shown}, {name}',
+  'assets.badPdfName': 'Ese nombre no sirve para un PDF (sin carpeta, unidad, punto al principio, nombre de dispositivo como CON, ni * ? " < > |), así que se mantiene el que tenía.',
   'assets.saveCopy': 'Guardar una copia…',
   'assets.copyLink': 'Copiar enlace',
   'assets.linkCopied': 'Enlace copiado.',

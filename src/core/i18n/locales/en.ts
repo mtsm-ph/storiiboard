@@ -994,6 +994,7 @@ export const en = {
   'assets.unnamedPdf': 'Untitled PDF',
   'assets.fileName': 'File name',
   'assets.forItem': '{shown}, {name}',
+  'assets.badPdfName': 'That name can’t be used for a PDF (no folder, drive, dot at the start, device name such as CON, or * ? " < > |), so the name it had stays.',
   'assets.saveCopy': 'Save a copy…',
   'assets.copyLink': 'Copy link',
   'assets.linkCopied': 'Link copied.',

@@ -55,7 +55,12 @@ export function linkUrl(typed: string): string | null {
   if (trimmed === '') return null;
   // A web address as typed, or https:// in front of a bare one ("vimeo.com/1", "localhost:3000"); any other scheme,
   // written out, is refused.
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) || /^(javascript|data|file|mailto|vbscript):/i.test(trimmed) ? null : `https://${trimmed}`;
+  const scheme = /^https?:\/\//i.test(trimmed);
+  // "https//x.com", "htps//x.com" or "https:/x.com" (a scheme mistyped) is a typo of an address, not an address:
+  // refused rather than made into another ("https://https//x.com").
+  const refused =
+    /^[a-z][a-z0-9+.-]*:?\/\//i.test(trimmed) || /^(javascript|data|file|mailto|vbscript):/i.test(trimmed) || /^https?:(?!\/\/)/i.test(trimmed);
+  const withScheme = scheme ? trimmed : refused ? null : `https://${trimmed}`;
   if (withScheme === null) return null;
   try {
     const url = new URL(withScheme);

@@ -362,6 +362,13 @@ Lows deferred (noted, not planned yet):
   words (error.fileTooLarge, translated), not the tile's longer one.
 - Lows fixed: "localhost:3000" and other bare addresses with a port read as addresses; Spanish "Eliminar"; frames in
   the picker named with their scene.
+- Round 2: one medium, fixed: a PDF name starting with a dot passed the rename check but Save a copy refuses it (the
+  check now matches Rust's, and also refuses Windows device names such as CON.pdf). Lows fixed: a refused rename puts
+  the old name back and says why; "https//x.com" (a missed colon) is refused instead of becoming another address.
+- Round 3: nothing high or medium. Lows fixed: a rename that comes to the same name ("Contract" for Contract.pdf, or
+  trailing spaces) just shows the name again, with no notice; the notice names every reason; COM0, LPT0 and control
+  characters refused; "htps//x.com" and "https:/x.com" refused. A PDF name is held to what Windows accepts even on a
+  Mac (no * ? " < > |), so a project's PDFs save on either.
 - Lows left: a 50 MB PDF is held in memory a few times while it's stored; attachments under a frame or a person in the
   Trash are hidden from Assets and not counted in Empty Trash's confirm (Empty Trash deletes them with their parent);
   an older build shows a location's PDF as an empty photo; the Storage tab counts PDFs with pictures.

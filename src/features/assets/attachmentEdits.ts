@@ -3,7 +3,7 @@ import { projectStore } from '../../app/projectStore';
 import { isTauriApp } from '../../app/fileAccess';
 import type { PictureFile } from '../../app/pictures';
 import { t } from '../../core/i18n';
-import { attachmentFields, MAX_PDF_BYTES, sizeLabel } from '../../core/model/attachment';
+import { attachmentFields, MAX_PDF_BYTES, sizeLabel, type AttachmentFields } from '../../core/model/attachment';
 import type { SbdRecord } from '../../core/model/record';
 import { readOriginal } from '../../core/media/store';
 import { keyBetween } from '../../core/ops/order';
@@ -56,19 +56,37 @@ export function newLink(records: Records, parentId: string, url: string, title: 
   ];
 }
 
-/** A file name a PDF can be saved as: ending .pdf, without a folder or a drive in it. */
-export const isPdfName = (name: string): boolean => /\.pdf$/i.test(name) && !/[/\\:]/.test(name) && name.length > 4;
+/**
+ * A file name a PDF can be saved as on any computer it may travel to: ending .pdf, without a folder or a drive in it,
+ * not starting with a dot (what Save a copy's Rust side refuses, src-tauri/src/export.rs), and also without the
+ * characters and device names Windows can't name a file with (* ? " < > |, CON, NUL, COM1…), so a project made on a
+ * Mac still saves its PDFs on Windows.
+ */
+export const isPdfName = (name: string): boolean =>
+  /\.pdf$/i.test(name) &&
+  name.length > 4 &&
+  !name.startsWith('.') &&
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what's refused here
+  !/[/\\:*?"<>|\u0000-\u001f]/.test(name) &&
+  !/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i.test(name);
 
 /**
- * A new name: a PDF's file name (".pdf" put on when it's missing; refused with a folder or a drive in it, which Save a
- * copy couldn't use), or a link's title. Nothing when it's already that, or it can't be the name.
+ * The name an attachment takes from what was typed: a PDF's file name (".pdf" put on when it's missing), or a link's
+ * title. Null when a PDF can't be called that (see isPdfName), so the Assets tile can put the old name back and say why.
  */
+export function attachmentName(fields: AttachmentFields, typed: string): string | null {
+  const trimmed = typed.trim();
+  if (fields.kind !== 'pdf') return trimmed;
+  const next = trimmed !== '' && !/\.pdf$/i.test(trimmed) ? `${trimmed}.pdf` : trimmed;
+  return isPdfName(next) ? next : null;
+}
+
+/** A new name for an attachment (see attachmentName). Nothing when it's already that, or it can't be the name. */
 export function renameAttachment(records: Records, id: string, name: string): Change[] {
   const record = records[id];
   const fields = record && record.trashedAt === null ? attachmentFields(record.props) : null;
-  const typed = name.trim();
-  const next = fields?.kind === 'pdf' && typed !== '' && !/\.pdf$/i.test(typed) ? `${typed}.pdf` : typed;
-  if (!fields || next === fields.name || (fields.kind === 'pdf' && !isPdfName(next))) return [];
+  const next = fields ? attachmentName(fields, name) : null;
+  if (!fields || next === null || next === fields.name) return [];
   return [{ kind: 'update', id, set: { [fields.kind === 'pdf' ? 'source_name' : 'title']: next } }];
 }
 
