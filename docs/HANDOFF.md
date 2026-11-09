@@ -343,6 +343,30 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.6a: review
+
+As in 3.5c, the reviews ran on the read-only agent available here (Read, Grep and Glob), with `reviewer.md`'s
+instructions word for word.
+
+- Decided by default, review: 3.6 split into 3.6a (department workspaces) and 3.6b (custom workspaces and Manage
+  workspaces…), to keep each PR small; the Department tile's contents; the sidebar's Departments list in the call
+  sheet's order, kept in this computer's settings as the layouts are.
+- The full end-to-end run caught two of its own: "Posproducción" spilled from the Inspector's narrow name cell once the
+  name was a button (it now fills the cell and wraps as the text did), and the docking test's "every built tile open"
+  didn't count the new Department tile.
+- Round 1: no high, two mediums, fixed. Opening a department's workspace whose layout had no Department tile dropped
+  focus to the page: it now lands on the workspace, tested. The tile's department picker (opened into another
+  workspace from the Layout menu) had no test: it has one end to end.
+- Lows fixed: taking off the workspace on screen moves focus to the Storyboard that replaces it (not to another
+  department); Remove from sidebar uses the menu's own pattern and lands on the workspace with the sidebar hidden;
+  department entries are the sections' height; two loose test assertions; the sidebar list's saving is tested; docs.
+- Round 2: one high, fixed before anything was pushed: the Windows installers downloaded from the checkpoint run into
+  the repo folder (`msi/`, `nsis/`) had been staged with everything else. They're out of the branch and in this
+  computer's `.git/info/exclude`; the files themselves are Kevin's to keep or delete. Nothing new at medium.
+- Lows left: the name button's spoken label and tooltip say the same; a ", " read before a frame's states and before
+  "You" is written in the code, as in 3.5c's Cast and crew; CLAUDE.md's Navigation doesn't mention the Departments
+  list (Kevin's file, raised with him).
+
 ### 3.5c: review
 
 The `reviewer` agent type didn't load in this Windows session (it started before `v2` was checked out), so the
