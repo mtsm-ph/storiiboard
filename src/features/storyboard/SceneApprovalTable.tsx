@@ -2,7 +2,7 @@ import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import { t } from '../../core/i18n';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import { approvalWho, type Approver } from '../../core/model/departmentStatus';
-import { approvalState, approvalsIn, isCurrent, myApproval, type SceneApprovals } from '../../core/model/sceneApprovals';
+import { approvalState, approvalsIn, isCurrent, myApproval, type ApprovalBasis, type SceneApprovals } from '../../core/model/sceneApprovals';
 import { DepartmentStateGlyph } from '../../ui/glyphs';
 
 // A scene's approvals (3.6b): a row per department, each with one Approved box and who gave it. The director or the
@@ -17,7 +17,7 @@ interface SceneApprovalTableProps {
   scene: string;
   approvals: SceneApprovals;
   /** What each department touches in the scene now (approvalBasis), to tell a current approval from a changed one. */
-  basisOf: (department: Department) => string;
+  basisOf: (department: Department) => ApprovalBasis;
   /** The rows, in order: every department in call-sheet order, or a department's alone in its workspace. */
   departments: readonly Department[];
   /** The roles this person approves in on this project: director, DP, both, or none. */

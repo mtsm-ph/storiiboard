@@ -150,7 +150,7 @@ describe('attachments on a frame, beside its picture', () => {
     const records = withPicture();
     const before = approvalBasis(records, 's1', 'camera');
     const attached = { ...records, extra: record('extra', 'media', 'a', { kind: 'link', url: 'https://x.com' }) };
-    expect(approvalBasis(attached, 's1', 'camera')).toBe(before);
+    expect(approvalBasis(attached, 's1', 'camera')).toEqual(before);
   });
 });
 

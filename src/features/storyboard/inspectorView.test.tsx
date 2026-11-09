@@ -58,7 +58,7 @@ describe('the Frame inspector', () => {
     const approvals = sceneApprovals({ department_approvals: { camera: [{ name: 'Kevin Matos', roles: ['director'], at: 'x', basis: 'now' }] } });
     const approved = (roles: readonly ('director' | 'dp')[], basis = 'now') =>
       /aria-checked="([a-z]+)" aria-label="Camera: Approved"/.exec(
-        renderToString(<SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => basis} departments={['camera']} myRoles={roles} onApprove={noop} />),
+        renderToString(<SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => ({ current: basis, legacy: basis })} departments={['camera']} myRoles={roles} onApprove={noop} />),
       )?.[1];
     expect(approved(['director'])).toBe('true');
     expect(approved(['dp'])).toBe('mixed');
@@ -73,7 +73,7 @@ describe('the Frame inspector', () => {
   it('says a changed approval in words, and why someone who doesn’t approve can’t tick it (3.6b)', () => {
     const approvals = sceneApprovals({ department_approvals: { camera: [{ name: 'Kevin Matos', roles: ['dp'], at: 'x', basis: 'then' }] } });
     const html = renderToString(
-      <SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => 'now'} departments={['direction', 'camera']} myRoles={[]} onApprove={noop} />,
+      <SceneApprovalTable scene="SC 04" approvals={approvals} basisOf={() => ({ current: 'now', legacy: 'now' })} departments={['direction', 'camera']} myRoles={[]} onApprove={noop} />,
     );
     expect(html).toContain('aria-label="Department approvals for SC 04"');
     expect(html).toContain('Changed since approval');

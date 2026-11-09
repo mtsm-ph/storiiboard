@@ -148,6 +148,8 @@ describe('schema 9: approvals per scene', () => {
     project = await openProject(await v8File(), { driver: nodeDriver, backups: false });
     const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
     const s1 = sceneApprovals(records.s1?.props ?? {});
+    // Carried by the rule in force (3.15's), never 3.6b's.
+    expect(s1.camera?.[0]?.basis.startsWith('2:')).toBe(true);
     for (const department of ['camera', 'sound', 'drone']) {
       expect(approvalState(s1[department] ?? [], approvalBasis(records, 's1', department))).toBe('approved');
     }

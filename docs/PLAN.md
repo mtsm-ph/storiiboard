@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.14 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.15 in review; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -59,7 +59,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | #107 | Done |
 | 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | #108 | Done |
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | #109 | Done |
-| 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | Not started |
+| 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | In review |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | | Not started |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
 
@@ -68,6 +68,32 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.15 as built (Nov 9): approvals by what a department touches (`src/core/model/sceneApprovals.ts`).
+- Kevin's rule: the shared fields change every department's approval: each frame's picture (its stored file, how it
+  sits in the frame, and the video clip it plays) and sketch, action, dialogue, shot size, lens and movement. A
+  department's own notes and ticks (Working on it, Done) change only its own. Nothing else (T-stop, support, height,
+  a title, custom fields, gear, the shoot day, note cards) changes an approval.
+- Approvals given before keep the fingerprint 3.6b made, and are read by 3.6b's rule, so none turns "Changed since
+  approval" because the rule changed; given again, an approval takes the new rule (its fingerprint starts `2:`). No
+  stored data changes. But a file upgraded through schema 12 (3.13) with a script's scenes already shows its older
+  approvals as changed: that upgrade rewrote the scenes' character lists, which 3.6b's rule counted. Approving again
+  clears it, and from here character lists change no approval.
+- Decided by default, review: the scene's heading (name, INT/EXT, DAY/NIGHT, location) and which frames it has, in
+  order, count as shared (they're where and when every department works), and so does a frame's own location; a
+  frame's crop and its video clip count as its picture; Priority still never counts; note cards no longer count;
+  per-department notes don't exist yet (whatever a department keeps in its entry counts, for it alone); a LUT on a
+  frame's video counts for no one. Say if a field should count for one department (T-stop and
+  support for camera, say).
+- Tests: each shared field changes every department's; a department's own notes and ticks change only its own;
+  T-stop, support, height, a title, custom fields, gear, the shoot day and a note card change none; an approval from
+  before reads by its rule, a new one by the new, and one given again takes the new (and never works out the old
+  one); both rules' fingerprints pinned as literals; a clip and a frame's own location count; migration 9's carried
+  approvals start current, by the new rule.
+- Also fixed here: the Calendar dropped a key pressed while an arrow crossed into another month (the day pressed on
+  wasn't in the new month's grid until the next frame, so a held arrow, or three quick ones, could lose focus to the
+  page; the end-to-end test failed about one run in eight). Focus now moves as soon as the grid is drawn; the test
+  passed 40 runs in a row.
 
 3.14 as built (Nov 9): Project data or Full archive (`src/core/storage/projectJson.ts`,
 `src/features/export/projectJsonFormat.ts`).

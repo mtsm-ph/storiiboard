@@ -64,6 +64,16 @@ function sceneApprovalCell(records: Records, sceneId: string, props: Props): str
 }
 
 export function shotListCsv(records: Records, projectId: string, scope: ExportScope, seen: Seen = NO_SEEN): string {
+  // A scene's approvals are the same on each of its frames' rows: worked out once a scene.
+  const cells = new Map<string, string>();
+  const approvalCell = (sceneId: string, props: Props): string => {
+    let cell = cells.get(sceneId);
+    if (cell === undefined) {
+      cell = sceneApprovalCell(records, sceneId, props);
+      cells.set(sceneId, cell);
+    }
+    return cell;
+  };
   const scenes = scenesIn(records, projectId, scope);
   // Columns from the frames that go out: trashing a scene leaves its frames live, and a field only they use (or only
   // another scene's frames use) would be a column of blanks, or the Trash going out by its name.
@@ -97,7 +107,7 @@ export function shotListCsv(records: Records, projectId: string, scope: ExportSc
           .map(({ department }) => t('export.csv.department', { department: departmentName(department), states: departmentStatesText(f.departmentStatus, seen[shot.record.id] ?? [], department) }))
           .join('; '),
         // The scene's approvals (3.6b), on each of its frames' rows: "Camera: approved by Kevin Matos (DP)".
-        sceneApprovalCell(records, scene.record.id, scene.record.props),
+        approvalCell(scene.record.id, scene.record.props),
         // The column has the spelling most frames use; a frame that spells it `drone` still fills `Drone`.
         ...custom.map((name) => customValue(own, name)),
       ]);

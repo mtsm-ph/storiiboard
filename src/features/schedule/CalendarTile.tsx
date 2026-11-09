@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useProject } from '../../app/projectStore';
 import { formatDate, t, tn } from '../../core/i18n';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
@@ -72,9 +72,23 @@ function Calendar({ projectId }: { projectId: string }) {
       ? format(`${monthOf(focus)}-01`, { month: 'long', year: 'numeric' })
       : weekTitle(weeks[0]?.[0] ?? focus, weeks[0]?.[6] ?? focus);
 
+  // The day the keys move focus to. It's focused as soon as the grid is drawn, before the browser takes the next key:
+  // an arrow into another month draws another grid without the day pressed on, and a key pressed in a frame between
+  // (a held arrow, three quick ones) would otherwise land on the page and be lost.
+  const moving = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const date = moving.current;
+    if (date === null) return;
+    moving.current = null;
+    grid.current?.querySelector<HTMLElement>(`[data-date="${date}"]`)?.focus();
+  }, [focus]);
   const moveTo = (date: string) => {
+    if (date === focus) {
+      grid.current?.querySelector<HTMLElement>(`[data-date="${date}"]`)?.focus();
+      return;
+    }
+    moving.current = date;
     setFocus(date);
-    requestAnimationFrame(() => grid.current?.querySelector<HTMLElement>(`[data-date="${date}"]`)?.focus());
   };
   const onKeyDown = (event: KeyboardEvent, date: string) => {
     // As a date grid moves: a day, a week, the week's ends, a month.
