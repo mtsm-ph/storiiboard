@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.8 merged, 3.9a in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.9a merged, 3.9b in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.9a in review) |
+| Last updated | Nov 9, 2026 (3.9b in review) |
 
 | Phase | State |
 |---|---|
@@ -51,14 +51,33 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | Done |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | Done |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | Done |
-| 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | In review |
-| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
+| 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
+| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | | In review |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.9b as built (Nov 9): gear per day and the first check (`src/core/checks/`, `src/features/gear/GearPicker.tsx`,
+`FrameGear.tsx`).
+- A shoot day's gear: the Shoot days tile's day has a Gear section, the catalogue as pressed buttons (Gear on this
+  day), and what its rentals cost that day (rented items on its list, rate times quantity, in the project's currency).
+- A frame's gear: the Inspector has a Gear section after Departments, the same buttons (Gear this frame needs).
+- The first consistency check (src/core/checks, shared with the MCP check tool in Phase 7): a frame in a shoot day,
+  still to shoot ("Need to shoot", as the day's totals count), needs live gear its day's list doesn't have. The Inspector marks each such item (⚠, and "(not on its day's list)"
+  in its name) and says what's missing with Add to Day N; the day's Gear section lists its frames that need gear it
+  lacks, each with Add to this day. Gear, frames or days in the Trash are no mistake.
+- Every change one edit, so one ⌘Z; History says a list as how many items. Format (additive): `gear_ids` on a shot
+  and on a shoot day (item ids in the order picked; what else the list holds is kept).
+- Decided by default, review: a frame's gear and a day's list are picked from the catalogue only (nothing typed in
+  place); the check finds gear missing from a day, not a day's quantity short of what its frames need together (that
+  comes with call sheets); `runChecks` returns findings and changes nothing.
+- Tests: the check (frames in a day, gear in the Trash, a day in the Trash, the list read), the list edit (on, off,
+  several at once, what else the list holds, gear in the Trash, a list it can't read); end to end, two items, a frame
+  in a day needing both, the Inspector's warning and Add to Day, the day's list and rentals, one taken off and the
+  day's check offering it back, axe, undo.
 
 3.9a as built (Nov 9): the gear catalogue (`src/core/model/gear.ts`, `src/features/gear/`).
 - The Gear tile in Production (its placeholder until now): the project's gear, listed by department in the call

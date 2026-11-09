@@ -445,6 +445,11 @@ or the rental house); `day_rate` (a number to the cent, in the project's currenc
 `currency` on the `project`: a three-letter ISO 4217 code (missing or odd reads as `USD`). Additive (approved Nov 7
 and 9): props on record types every version has, so no schema number.
 
+`gear_ids` (3.9b) on a `shot` (the gear it needs) and on a `shoot_day` (the day's gear list): `gear_item` ids in the
+order picked, each once. Anything in the list that isn't an id is kept as stored and ignored; an item in the Trash or
+gone is ignored too. The first consistency check (src/core/checks) reads them: a frame in a day needing a live item
+the day's list doesn't have.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the

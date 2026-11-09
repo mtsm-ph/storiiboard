@@ -343,6 +343,19 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.9b: review
+
+- Decided by default, review: gear picked from the catalogue only; the check finds gear missing from a day, not a
+  day short of how many its frames need together (with call sheets); `runChecks` reads and never changes anything;
+  the edits for gear stay in src/features/gear for now (as 3.9a's do), to move to core before Phase 7's MCP needs them.
+- Round 1: no high, two mediums, fixed. A frame already shot (Have, Source) was still flagged for missing gear: the
+  check reads frames still to shoot, as the day's totals do, tested. The Inspector's warning was a live region present
+  from the start (never announced): it's a plain line, read with the section, and its words sit beside the ⚠.
+- Lows fixed: an item asked twice goes on once; History counts a list as the picker does; "Not on the list for Day 1 ·
+  Mon, Nov 16"; the day's list of findings has a visible caption; the check is worked out once per set of records;
+  tests for a scene in the Trash, a day in the Trash, axe on the Inspector's Gear.
+- Lows left: no unit test for the day's rentals sum (end to end covers it); Spanish list() not tested on its own.
+
 ### 3.9a: review
 
 - Decided by default, review: 3.9 split in two (the catalogue first, then a list per day, frames and the first

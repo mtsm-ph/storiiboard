@@ -11,6 +11,8 @@ import { approvalBasis, sceneApprovals } from '../../core/model/sceneApprovals';
 import { editDepartmentStatus } from './departmentEdit';
 import { approveSceneDepartment } from './sceneApprovalEdit';
 import { SceneApprovalTable } from './SceneApprovalTable';
+import { FrameGear } from '../gear/FrameGear';
+import { gearListChange } from '../gear/gearEdits';
 import { RestOfCrew } from '../department/RestOfCrew';
 import { usePerspective } from '../department/perspective';
 import { openDepartment } from '../department/openDepartment';
@@ -241,6 +243,21 @@ export function InspectorTile() {
           ) : undefined
         }
         focus={focus}
+        gear={
+          shot ? (
+            <FrameGear
+              records={records}
+              projectId={project.projectId}
+              shotId={shot.id}
+              onToggle={(gearIds, on) => {
+                void projectStore.getState().applyWith((now) => ({ changes: gearListChange(now, shot.id, gearIds, on) }));
+              }}
+              onAddToDay={(dayId, gearIds) => {
+                void projectStore.getState().applyWith((now) => ({ changes: gearListChange(now, dayId, gearIds, true) }));
+              }}
+            />
+          ) : undefined
+        }
         approvals={
           scene ? (
             // Keyed by scene: the Tab stop starts on the first row for each. In the focus view, your departments' rows,

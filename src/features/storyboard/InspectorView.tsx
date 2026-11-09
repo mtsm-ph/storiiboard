@@ -162,6 +162,8 @@ export interface InspectorViewProps {
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
   /** The scene's department approvals (3.6b), in a section of their own after the scene's. */
   approvals?: ReactNode;
+  /** The gear the frame needs (3.9b), after its departments. */
+  gear?: ReactNode;
   /** Your departments first, the rest under Rest of crew (3.6c); null or left out for the full view. */
   focus?: Focus;
   /** Opens a department's workspace from its name in the department table (3.6a). */
@@ -522,6 +524,7 @@ export function InspectorView({
   customHidden = [],
   onCustomChange,
   approvals,
+  gear,
   focus = null,
   onOpenDepartment,
   onDepartmentStatus,
@@ -895,6 +898,8 @@ export function InspectorView({
             {/* Approved left the frame for the scene (3.6b): said here, where people looked for it. */}
             {approvals && <p className="text-[12px] text-text-muted">{t('departmentStatus.approvedPerScene', { scene: sceneLabel(s.number) })}</p>}
           </Section>
+
+          {gear && <Section title={t('inspectorView.gear')}>{gear}</Section>}
 
           {onCustomChange && (
             <Section title={t('inspectorView.customFields')}>

@@ -48,6 +48,15 @@ export function gearFields(props: Props): GearFields {
   };
 }
 
+/**
+ * The gear a shot needs, or a shoot day's list (3.9b): the `gear_ids` prop, item ids in the order picked, each once.
+ * Anything that isn't an id is left out here, and kept as stored by the edits.
+ */
+export function gearIdsOf(props: Props): string[] {
+  const value = props.gear_ids;
+  return Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === 'string' && v !== ''))] : [];
+}
+
 /** By name, an unnamed one last. */
 const byName = (a: string, b: string): number => (a === b ? 0 : a === '' ? 1 : b === '' ? -1 : a.localeCompare(b));
 
