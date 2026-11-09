@@ -93,6 +93,40 @@ export interface Settings {
    * their layouts are, so every project shows the same ones.
    */
   departmentWorkspaces: Department[];
+  /**
+   * The person's own workspaces (3.6d), in the sidebar's order: an id (`custom-` and a UUID), a name, and the layout
+   * it was made from, as JSON the shell checks before using (src/app/shell/workspaceStore.ts). Theirs, as their
+   * layouts are.
+   */
+  customWorkspaces: SavedCustomWorkspace[];
+}
+
+export interface SavedCustomWorkspace {
+  id: string;
+  name: string;
+  layout: unknown;
+  /** The tiles' numbering, as tile ids; checked by the shell. */
+  order?: unknown;
+}
+
+/** At most this many workspaces of the person's own; the newest are kept. */
+export const MAX_CUSTOM_WORKSPACES = 50;
+
+/** Named entries with a `custom-` id, each once, the newest kept; the layout is checked by the shell. */
+function customWorkspacesOf(value: unknown): SavedCustomWorkspace[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const kept: SavedCustomWorkspace[] = [];
+  for (const entry of value as unknown[]) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { id, name, layout, order } = entry as Record<string, unknown>;
+    // Cleaned as a profile's name is: no direction overrides to flip the sidebar, at most MAX_PROFILE_NAME long.
+    const clean = typeof name === 'string' ? cleanProfileText(name, MAX_PROFILE_NAME) : '';
+    if (typeof id !== 'string' || !id.startsWith('custom-') || seen.has(id) || clean === '') continue;
+    seen.add(id);
+    kept.push({ id, name: clean, layout, ...(order === undefined ? {} : { order }) });
+  }
+  return kept.slice(-MAX_CUSTOM_WORKSPACES);
 }
 
 /** The newest this many noted projects are remembered; an older one would be noted again, which is harmless. */
@@ -149,6 +183,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pdfScenePalettes: false,
   companies: [],
   departmentWorkspaces: [],
+  customWorkspaces: [],
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -194,6 +229,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       pdfScenePalettes: saved.pdfScenePalettes === true,
       companies: companyProfilesOf(saved.companies),
       departmentWorkspaces: departmentWorkspacesOf(saved.departmentWorkspaces),
+      customWorkspaces: customWorkspacesOf(saved.customWorkspaces),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

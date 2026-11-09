@@ -5,7 +5,7 @@ import { canOpenFiles } from '../../fileAccess';
 import { newProject, openRecent, recentStore } from '../../projects/actions';
 import { useRecent } from '../../projects/recentStore';
 import { useProject } from '../../projectStore';
-import { isUnsaved, useLayouts } from '../docking/layoutStore';
+import { isUnsaved, layoutsOf, useLayouts } from '../docking/layoutStore';
 import { departmentWorkspaceId, sectionId, workspaceById, type Workspace, type WorkspaceId } from '../workspaces';
 import { closeDepartmentWorkspace, useWorkspaceState } from '../workspaceStore';
 import type { Department } from '../../../core/model/department';
@@ -58,6 +58,8 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
   const openPath = project?.file.path ?? null;
   const departments = useWorkspaceState((s) => s.departments);
   const departmentsHeading = useId();
+  const customs = useWorkspaceState((s) => s.customs);
+  const customsHeading = useId();
 
   // Re-read Recent whenever the open project changes, however it was opened.
   useEffect(() => {
@@ -186,7 +188,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                 )}
               >
                 {workspace.label}
-                {isUnsaved(layouts[workspace.id]) && (
+                {isUnsaved(layoutsOf(layouts, workspace.id)) && (
                   // The dot marks a layout changed since it was last saved (DESIGN.md, Workspaces).
                   <span aria-label={t('sidebar.unsavedLayout')} role="img" className="inline-block size-1.5 rounded-full bg-current" />
                 )}
@@ -250,7 +252,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       )}
                     >
                       {workspace.label}
-                      {isUnsaved(layouts[workspace.id]) && (
+                      {isUnsaved(layoutsOf(layouts, workspace.id)) && (
                         <span aria-label={t('sidebar.unsavedLayout')} role="img" className="inline-block size-1.5 rounded-full bg-current" />
                       )}
                     </button>
@@ -262,6 +264,44 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
             <p id={`${departmentsHeading}-close`} hidden>
               {t('sidebar.departmentClose')}
             </p>
+          </li>
+        )}
+        {customs.length > 0 && (
+          // The person's own workspaces (3.6d), in the order made. Renamed and deleted in Manage workspaces….
+          <li className="border-b border-border-top pb-1">
+            <h2 id={customsHeading} className="sb-label px-4 pt-3 pb-1 text-text-muted">
+              {t('sidebar.customWorkspaces')}
+            </h2>
+            <ul aria-labelledby={customsHeading}>
+              {customs.map((custom) => {
+                const active = custom.id === activeId;
+                return (
+                  <li key={custom.id}>
+                    <button
+                      id={sectionId(custom.id)}
+                      type="button"
+                      data-nav-item=""
+                      data-custom-workspace={custom.id}
+                      aria-current={active ? 'page' : undefined}
+                      tabIndex={active ? 0 : -1}
+                      onKeyDown={onNavKeyDown}
+                      onClick={() => {
+                        onSelect(custom.id);
+                      }}
+                      className={cx(
+                        'sb-label flex h-9 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
+                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text hover:bg-surface-raised',
+                      )}
+                    >
+                      <span className="truncate">{custom.name}</span>
+                      {isUnsaved(layoutsOf(layouts, custom.id)) && (
+                        <span aria-label={t('sidebar.unsavedLayout')} role="img" className="inline-block size-1.5 shrink-0 rounded-full bg-current" />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </li>
         )}
       </ul>

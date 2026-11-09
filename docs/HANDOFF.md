@@ -343,6 +343,24 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.6d: review
+
+- Decided by default, review: names needn't be unique; a duplicate copies the layout as it is now, with the source's
+  tile numbering; no Delete key on a sidebar entry (deleting asks, in the Layout menu or the window); at most 50,
+  names cleaned and capped at 60 characters as a profile's name is.
+- Round 1: no high, three mediums, fixed. Renaming the workspace on screen left its old name in the shell (region,
+  status bar, the Layout menu's Delete question): the shell now reads the workspace through the store. Alt+number from
+  one of your own in the sidebar left focus on it: focus now follows from any sidebar entry. Enter in a name field
+  dropped focus to the page: it renames and stays. Each tested end to end.
+- Lows fixed: each name field named by its workspace; a copy numbers its tiles as the original; names cleaned and
+  capped; the window's section rules in ink; Open's focus falls back to the workspace.
+- Round 2: no high, no medium. Lows fixed: a saved tile named like an object's own key ("constructor") passed the
+  tile check and would have crashed the dock (own keys only now, tested); a long name's copy lost " copy" at the cap.
+- Lows left: a layout store made in a test reads the custom workspaces from the real settings; module caches keep a
+  deleted workspace's id (UUIDs, never reused); an entry the shell can't use, or past 50, is dropped on the next
+  change; the Layout menu doesn't say why Save as new workspace is off at 50; a name typed and closed with a second
+  Escape (the native close) is not checked.
+
 ### 3.6c: review
 
 - Decided by default, review: whose view it is (This is me, else the role set on this computer); frame cards and the

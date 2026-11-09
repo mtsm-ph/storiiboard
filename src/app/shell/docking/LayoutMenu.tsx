@@ -1,14 +1,16 @@
 import { useEffect, type MouseEvent } from 'react';
 import { commandShortcut, Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
-import { departmentOf, inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
-import { closeDepartmentWorkspace } from '../workspaceStore';
+import { departmentOf, inModalDialog, isCustomWorkspaceId, sectionId, TILES, WORKSPACE_PANEL_ID, type Workspace } from '../workspaces';
+import { canAddCustomWorkspace, closeDepartmentWorkspace, copyNameOf, createCustomWorkspace, deleteCustomWorkspace, showWorkspace } from '../workspaceStore';
+import { afterWindowCloses, openManageWorkspaces } from '../ManageWorkspaces';
+import { confirmForGood } from '../../ask';
 import { TILE_CONTENT } from '../tileContent';
 import { openTile, tilesIn, toggleMaximize, type Layout } from './layout';
 import { lastUsedStack } from './Dock';
 import { isMac } from '../undoShortcuts';
 import { sidebarShortcut } from '../sidebar/sidebarToggle';
 import { toggleSidebar, useSidebarHidden } from '../sidebar/sidebarStore';
-import { canUndoLayout, isUnsaved, layoutStore, useLayouts } from './layoutStore';
+import { canUndoLayout, isUnsaved, layoutsOf, layoutStore, useLayouts } from './layoutStore';
 import { t } from '../../../core/i18n';
 
 // The workspace's layout commands (DESIGN.md, State 05), in labelled groups (polish A): this workspace's layout, the
@@ -16,7 +18,7 @@ import { t } from '../../../core/i18n';
 // bottom. Undo lives here rather than on ⌘Z, which belongs to the project's edits alone.
 
 export function LayoutMenu({ workspace }: { workspace: Workspace }) {
-  const layouts = useLayouts((s) => s.layouts[workspace.id]);
+  const layouts = useLayouts((s) => layoutsOf(s.layouts, workspace.id));
   const undoable = useLayouts((s) => canUndoLayout(s.past, workspace.id));
   const unsaved = isUnsaved(layouts);
   const department = departmentOf(workspace.id);
@@ -60,7 +62,7 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
         };
         const onOpenTile = (event: MouseEvent<HTMLButtonElement>) => {
           const tile = event.currentTarget.dataset.tile;
-          if (tile) run(() => { change(openTile(layoutStore.getState().layouts[workspace.id].current, tile)); })();
+          if (tile) run(() => { change(openTile(layoutsOf(layoutStore.getState().layouts, workspace.id).current, tile)); })();
         };
         const maximizedNow = layouts.current.maximized;
         const lastStack = lastUsedStack(workspace.id, layouts.current);
@@ -89,6 +91,20 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
                   {t('layoutMenu.removeFromSidebar')}
                 </MenuItem>
               )}
+              {/* A workspace of the person's own (3.6d) from this layout as it is now, shown at once, its sidebar entry
+                  focused; Manage workspaces… renames it. */}
+              <MenuItem
+                disabled={!canAddCustomWorkspace()}
+                onClick={run(() => {
+                  const id = createCustomWorkspace(copyNameOf(workspace.label), layouts.current, workspace.order);
+                  if (!id) return;
+                  showWorkspace(id);
+                  requestAnimationFrame(() => document.getElementById(sectionId(id))?.focus());
+                })}
+              >
+                {t('layoutMenu.saveAsWorkspace')}
+              </MenuItem>
+              <MenuItem onClick={run(openManageWorkspaces)}>{t('layoutMenu.manageWorkspaces')}</MenuItem>
             </MenuGroup>
             <MenuGroup label={t('layoutMenu.groupView')}>
               <MenuItem
@@ -132,6 +148,26 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
               >
                 {t('layoutMenu.undoLayoutChange')}
               </MenuItem>
+              {isCustomWorkspaceId(workspace.id) && (
+                // Deleting goes with undoing, at the bottom (Kevin's menu rules, Nov 5); it asks first.
+                <MenuItem
+                  onClick={run(() => {
+                    const id = workspace.id;
+                    if (!isCustomWorkspaceId(id)) return;
+                    void confirmForGood(
+                      t('manageWorkspaces.deleteTitle', { name: workspace.label }),
+                      t('manageWorkspaces.deleteText'),
+                      t('manageWorkspaces.delete'),
+                    ).then((yes) => {
+                      if (!yes) return;
+                      deleteCustomWorkspace(id);
+                      afterWindowCloses(() => (document.getElementById(sectionId('storyboard')) ?? document.getElementById(WORKSPACE_PANEL_ID))?.focus());
+                    });
+                  })}
+                >
+                  {t('layoutMenu.deleteWorkspace')}
+                </MenuItem>
+              )}
             </MenuGroup>
           </>
         );

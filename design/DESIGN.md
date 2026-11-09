@@ -72,6 +72,10 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   "Pick from a frame" makes the pointer a crosshair everywhere until a picture is clicked or Escape is pressed; a hex
   field adds a colour from the keyboard. The Color script tile: a row per scene, its label in mono and its palette as
   a strip of cells ruled in ink. The PDF storyboard prints 9pt swatches ruled in ink before a heading's page length.
+- **Manage workspaces… (3.6d)** is an in-app window, 640px: a primary button to save the layout on screen as a new
+  workspace, then Your workspaces (a Name field and Open, Duplicate, Delete… on each row; Delete in the warning style)
+  and Built in (the sections and the listed department workspaces, Open and Duplicate), each under a 10px label ruled
+  in 1.5px ink. The sidebar lists the person's own under Your workspaces, styled as the department workspaces are.
 - **Department status (polish 6)** is state, so it has colours of its own (`state-*` tokens, fixed), from the kit, and
   a shape each, outlined in the text colour so the shape reads in both themes whatever the fill:
   - Priority: a filled triangle, in ink (paper in dark).

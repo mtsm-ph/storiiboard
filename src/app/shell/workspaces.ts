@@ -8,7 +8,9 @@ import { split, stack, type Layout, type TileId } from './docking/layout';
 export type SectionId = 'storyboard' | 'assets' | 'team' | 'setup' | 'production' | 'moodboard';
 /** A department's own workspace (3.6a), opened from its row on a frame. */
 export type DepartmentWorkspaceId = `department-${Department}`;
-export type WorkspaceId = SectionId | DepartmentWorkspaceId;
+/** A workspace of the person's own (3.6d): a layout saved under a name, from Manage workspaces or the Layout menu. */
+export type CustomWorkspaceId = `custom-${string}`;
+export type WorkspaceId = SectionId | DepartmentWorkspaceId | CustomWorkspaceId;
 
 export interface TileInfo {
   title: string;
@@ -206,12 +208,45 @@ function departmentWorkspace(department: Department): Workspace & { id: Departme
 /** One workspace per department, in the call sheet's order. The sidebar lists those the person has opened. */
 export const DEPARTMENT_WORKSPACES: readonly (Workspace & { id: DepartmentWorkspaceId })[] = DEPARTMENTS.map(departmentWorkspace);
 
-/** Every workspace: the sections, then the departments'. Each keeps a layout of its own. */
+/** Every built-in workspace: the sections, then the departments'. Each keeps a layout of its own. */
 export const ALL_WORKSPACES: readonly [Workspace, ...Workspace[]] = [...WORKSPACES, ...DEPARTMENT_WORKSPACES];
 
-/** A workspace by its id; the Storyboard for one this version doesn't have. */
+export const isCustomWorkspaceId = (id: string): id is CustomWorkspaceId => /^custom-[0-9a-f-]{8,}$/.test(id);
+
+export const newCustomWorkspaceId = (): CustomWorkspaceId => `custom-${crypto.randomUUID()}`;
+
+/** A workspace of the person's own (3.6d), as kept in this computer's settings: its name and its default layout. */
+export interface CustomWorkspace {
+  id: CustomWorkspaceId;
+  name: string;
+  /** What Reset to default layout brings back: the layout it was made from. */
+  layout: Layout;
+  /** How its tiles are numbered (01 / Scenes…): the workspace it was made from's, so a copy reads as the original. */
+  order: readonly TileId[];
+}
+
+/** A custom workspace as the shell uses one: named by the person, its tiles numbered as its default layout has them. */
+export function customWorkspace(entry: CustomWorkspace): Workspace {
+  return {
+    id: entry.id,
+    label: entry.name,
+    phase: null,
+    order: entry.order,
+    defaultLayout: () => structuredClone(entry.layout),
+  };
+}
+
+// The person's own workspaces, registered by the workspace store (src/app/shell/workspaceStore.ts) as it loads and
+// changes them, so a workspace is found by its id wherever the shell asks, without this file reading settings.
+let customs: readonly Workspace[] = [];
+
+export function registerCustomWorkspaces(list: readonly CustomWorkspace[]): void {
+  customs = list.map(customWorkspace);
+}
+
+/** A workspace by its id; the Storyboard for one this version doesn't have (a custom one deleted, say). */
 export function workspaceById(id: WorkspaceId): Workspace {
-  return ALL_WORKSPACES.find((w) => w.id === id) ?? WORKSPACES[0];
+  return ALL_WORKSPACES.find((w) => w.id === id) ?? customs.find((w) => w.id === id) ?? WORKSPACES[0];
 }
 
 export const WORKSPACE_PANEL_ID = 'workspace-panel';

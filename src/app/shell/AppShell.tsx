@@ -10,7 +10,7 @@ import { OnboardingHost } from '../theme/OnboardingDialog';
 import { StatusBar } from './StatusBar';
 import { Dock } from './docking/Dock';
 import { openTile } from './docking/layout';
-import { layoutStore } from './docking/layoutStore';
+import { layoutsOf, layoutStore } from './docking/layoutStore';
 import { isDragging } from './docking/textSelection';
 import { useSelection } from '../../features/storyboard/selection';
 import { Sidebar } from './sidebar/Sidebar';
@@ -20,7 +20,7 @@ import { toggleSidebar, useSidebarHidden } from './sidebar/sidebarStore';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
-import { ALL_WORKSPACES, inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceById, workspaceForShortcut, type WorkspaceId } from './workspaces';
+import { inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceById, workspaceForShortcut, type WorkspaceId } from './workspaces';
 import { showWorkspace, useWorkspaceState } from './workspaceStore';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
 import { ImportScriptHost } from '../../features/script/ImportScriptDialog';
@@ -30,6 +30,7 @@ import { MarkSeen } from '../../features/storyboard/useMarkSeen';
 import { EyedropperHost } from '../../features/storyboard/palette/Eyedropper';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
+import { ManageWorkspacesHost } from './ManageWorkspaces';
 import { NoticeBar } from '../NoticeBar';
 import { t } from '../../core/i18n';
 
@@ -44,7 +45,8 @@ export function AppShell() {
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
   const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
-  const workspace = workspaceById(workspaceId);
+  // Read through the store, so a rename of one of the person's own workspaces (3.6d) names it anew everywhere.
+  const workspace = useWorkspaceState((s) => workspaceById(s.active));
   const projectTitle = useProject((s) => {
     const title = s.project ? s.records[s.project.projectId]?.props.title : undefined;
     return typeof title === 'string' ? title : (s.project?.name ?? null);
@@ -138,8 +140,7 @@ export function AppShell() {
       const focused = document.activeElement;
       const follow =
         focused !== null &&
-        (document.getElementById(WORKSPACE_PANEL_ID)?.contains(focused) === true ||
-          ALL_WORKSPACES.some((w) => sectionId(w.id) === focused.id));
+        (document.getElementById(WORKSPACE_PANEL_ID)?.contains(focused) === true || focused.closest('[data-sidebar] [data-nav-item]') !== null);
       showWorkspace(target.id);
       setProjectsAsked(false);
       // With the sidebar hidden there's no section to land on: the new workspace itself takes focus.
@@ -155,7 +156,7 @@ export function AppShell() {
   const openHistoryHere = () => {
     // From the Projects screen too: back to the workspace, with History in front.
     const { layouts, change } = layoutStore.getState();
-    change(workspace.id, openTile(layouts[workspace.id].current, 'history'));
+    change(workspace.id, openTile(layoutsOf(layouts, workspace.id).current, 'history'));
     setProjectsAsked(false);
     // Focus goes into the tile, on its first control, so the keyboard needn't cross the workspace to reach it.
     requestAnimationFrame(() => {
@@ -247,6 +248,7 @@ export function AppShell() {
       <ImportScriptHost />
       <ExportHost />
       <SettingsHost />
+      <ManageWorkspacesHost />
       <AskHost />
     </div>
   );

@@ -1,6 +1,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
-import { ALL_WORKSPACES, TILES, workspaceById, type WorkspaceId } from '../workspaces';
+import { ALL_WORKSPACES, isCustomWorkspaceId, TILES, workspaceById, type WorkspaceId } from '../workspaces';
+import { loadSettings } from '../../../core/storage/settings';
 import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
@@ -10,10 +11,11 @@ import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout
 
 // Versioned by the set of workspaces: D3's seven replaced D2's four, so layouts saved under the old key start over.
 // PB's six (Settings became a window) keep the key: the five left read as they were saved. The department workspaces
-// (3.6a) keep it too: one saved before they existed starts them on their defaults.
+// (3.6a) keep it too: one saved before they existed starts them on their defaults. So do the person's own (3.6d),
+// whose entries come and go with them.
 export const LAYOUTS_KEY = 'storiiboard.layouts.2';
 
-interface WorkspaceLayouts {
+export interface WorkspaceLayouts {
   current: Layout;
   saved: Layout;
 }
@@ -25,7 +27,8 @@ interface LayoutChange {
 }
 
 export interface LayoutState {
-  layouts: Record<WorkspaceId, WorkspaceLayouts>;
+  /** By workspace; one with no entry (a custom workspace just deleted, a moment before the shell moves on) reads as its default. */
+  layouts: Partial<Record<WorkspaceId, WorkspaceLayouts>>;
   past: LayoutChange[];
   /** Replaces a workspace's layout as one undoable step. */
   change: (workspace: WorkspaceId, next: Layout) => void;
@@ -35,6 +38,26 @@ export interface LayoutState {
   save: (workspace: WorkspaceId) => void;
   resetToSaved: (workspace: WorkspaceId) => void;
   resetToDefault: (workspace: WorkspaceId) => void;
+  /** A new workspace of the person's own (3.6d), current and saved both `layout`. */
+  add: (workspace: WorkspaceId, layout: Layout) => void;
+  /** A deleted one's layouts and its layout undo steps go with it. */
+  remove: (workspace: WorkspaceId) => void;
+}
+
+/** The default each workspace falls back on when it has no entry: one object per workspace, so a selector stays still. */
+const fallbacks = new Map<WorkspaceId, WorkspaceLayouts>();
+
+/** A workspace's layouts, or its default's when it has none. */
+export function layoutsOf(layouts: LayoutState['layouts'], workspace: WorkspaceId): WorkspaceLayouts {
+  const entry = layouts[workspace];
+  if (entry) return entry;
+  let fallback = fallbacks.get(workspace);
+  if (!fallback) {
+    const layout = workspaceById(workspace).defaultLayout();
+    fallback = { current: layout, saved: layout };
+    fallbacks.set(workspace, fallback);
+  }
+  return fallback;
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem'>;
@@ -53,13 +76,13 @@ function browserStorage(): Storage | undefined {
  */
 export function usable(value: unknown): Layout | null {
   if (!isLayout(value)) return null;
-  const gone = tilesIn(value).filter((tile) => !(tile in TILES));
+  const gone = tilesIn(value).filter((tile) => !Object.hasOwn(TILES, tile));
   if (gone.length === tilesIn(value).length) return null;
   // removeTile keeps a workspace's last tile, which can't be one of these: at least one known tile is left.
   return gone.reduce((layout, tile) => removeTile(layout, tile), value);
 }
 
-function load(storage: Storage | undefined): Record<WorkspaceId, WorkspaceLayouts> {
+function load(storage: Storage | undefined): Partial<Record<WorkspaceId, WorkspaceLayouts>> {
   let saved: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(storage?.getItem(LAYOUTS_KEY) ?? '{}');
@@ -73,7 +96,15 @@ function load(storage: Storage | undefined): Record<WorkspaceId, WorkspaceLayout
     const current = usable(entry?.current) ?? savedLayout;
     return [workspace.id, { current, saved: savedLayout }] as const;
   });
-  return Object.fromEntries(entries) as Record<WorkspaceId, WorkspaceLayouts>;
+  // The person's own workspaces: their layouts as saved, else the layout each was made from.
+  const own = loadSettings().customWorkspaces.flatMap((custom) => {
+    const made = usable(custom.layout);
+    if (!isCustomWorkspaceId(custom.id) || !made) return [];
+    const entry = saved[custom.id] as Partial<Record<'current' | 'saved', unknown>> | undefined;
+    const savedLayout = usable(entry?.saved) ?? made;
+    return [[custom.id, { current: usable(entry?.current) ?? savedLayout, saved: savedLayout }] as const];
+  });
+  return Object.fromEntries([...entries, ...own]);
 }
 
 export function createLayoutStore(storage: Storage | undefined = browserStorage()): StoreApi<LayoutState> {
@@ -87,7 +118,7 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
     };
     const setCurrent = (workspace: WorkspaceId, current: Layout) => {
       const layouts = get().layouts;
-      set({ layouts: { ...layouts, [workspace]: { ...layouts[workspace], current } } });
+      set({ layouts: { ...layouts, [workspace]: { ...layoutsOf(layouts, workspace), current } } });
       persist();
     };
 
@@ -95,7 +126,7 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
       layouts: load(storage),
       past: [],
       change: (workspace, next) => {
-        const before = get().layouts[workspace].current;
+        const before = layoutsOf(get().layouts, workspace).current;
         if (before === next) return;
         set({ past: [...get().past, { workspace, before, after: next }] });
         setCurrent(workspace, next);
@@ -112,14 +143,25 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
       },
       save: (workspace) => {
         const layouts = get().layouts;
-        set({ layouts: { ...layouts, [workspace]: { ...layouts[workspace], saved: layouts[workspace].current } } });
+        const entry = layoutsOf(layouts, workspace);
+        set({ layouts: { ...layouts, [workspace]: { ...entry, saved: entry.current } } });
         persist();
       },
       resetToSaved: (workspace) => {
-        get().change(workspace, get().layouts[workspace].saved);
+        get().change(workspace, layoutsOf(get().layouts, workspace).saved);
       },
       resetToDefault: (workspace) => {
         get().change(workspace, workspaceById(workspace).defaultLayout());
+      },
+      add: (workspace, layout) => {
+        set({ layouts: { ...get().layouts, [workspace]: { current: layout, saved: layout } } });
+        persist();
+      },
+      remove: (workspace) => {
+        const layouts = Object.fromEntries(Object.entries(get().layouts).filter(([id]) => id !== workspace));
+        set({ layouts, past: get().past.filter((c) => c.workspace !== workspace) });
+        fallbacks.delete(workspace);
+        persist();
       },
     };
   });

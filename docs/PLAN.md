@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6b merged, 3.6c in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6c merged, 3.6d in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.6c in review) |
+| Last updated | Nov 9, 2026 (3.6d in review) |
 
 | Phase | State |
 |---|---|
@@ -47,8 +47,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.5c You in Cast and crew | Pick yourself in Cast and crew in place of the local project role (decision 4; split from 3.5b, decided by default, review) | #94 | Done |
 | 3.6a Department workspaces | Open a department's workspace from its row on a frame: its view of the frame and the scene, listed in the sidebar until taken off | #95 | Done |
 | 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | Done |
-| 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | #97 | In review |
-| 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | | Not started |
+| 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | #97 | Done |
+| 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | In review |
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | | Not started |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
 | 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
@@ -58,6 +58,28 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.6d as built (Nov 9): your own workspaces (`src/app/shell/ManageWorkspaces.tsx`, `workspaceStore.ts`).
+- The Layout menu's Workspace group has Save as new workspace (this layout as it is now, named "<workspace> copy",
+  shown at once with its sidebar entry focused) and Manage workspaces… (an in-app window). For a workspace of your
+  own, Delete workspace… sits at the bottom with Undo layout change, and asks first.
+- Manage workspaces…: Save <workspace on screen> as a new workspace; Your workspaces, each with its name to edit
+  (Enter or leaving the field renames it; an empty name is refused), Open, Duplicate and Delete… (asked first); Built
+  in, the six sections and the department workspaces in the sidebar, each to Open or Duplicate as a start for one of
+  your own, and a department's Remove from sidebar. Focus lands on a duplicate's name, on the sidebar entry of one
+  opened, and on what took a deleted row's place.
+- The sidebar lists them under Your workspaces, below Departments, in the order made, with the unsaved-layout dot.
+  Alt+1 to 6 stay the sections'.
+- Yours, kept in this computer's settings (`customWorkspaces`: id, name and the layout it was made from, which Reset
+  to default layout brings back), with their layouts beside the others' (`storiiboard.layouts.2`). At most 50. Nothing
+  in a project changes, so ⌘Z never touches them. A deleted one's layout and its layout undo steps go with it.
+- Decided by default, review: names needn't be unique; a duplicate copies the layout as it is now (not as saved);
+  no Delete key on a sidebar entry (deleting asks, in the menu or the window); the cap of 50.
+- Tests: made, named, found by id, its own copy of the layout, renamed (never to nothing), deleted with the Storyboard
+  taking its place, layouts kept across a restart, undo steps dropped, the cap, names cleaned, a copy's name and tile
+  numbering, a corrupt tile left out, the settings read; end to end, saved from the menu, renamed (focus kept, the
+  shell renamed) and duplicated in the window, opened, kept after a reload, Alt+2 from one, deleted from the menu and
+  from the window (cancelled once), focus after each, axe on the window.
 
 3.6c as built (Nov 9): perspective views (`src/features/department/perspective.ts`, `RestOfCrew.tsx`).
 - **A focus view, not security.** Anyone with the .sbd can open everything: the file holds every department's status

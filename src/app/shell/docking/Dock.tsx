@@ -23,7 +23,7 @@ import {
   type Stack,
   type WindowEdge,
 } from './layout';
-import { layoutStore, useLayouts } from './layoutStore';
+import { layoutsOf, layoutStore, useLayouts } from './layoutStore';
 import { holdTextSelection, releaseTextSelection } from './textSelection';
 
 // Docking on pointer events, with no library and no HTML5 drag and drop: on Windows, Tauri's own file drop has to
@@ -122,7 +122,7 @@ function targetAt(x: number, y: number, edges: boolean, tile: string, layout: La
 }
 
 export function Dock({ workspace }: { workspace: Workspace }) {
-  const stored = useLayouts((s) => s.layouts[workspace.id].current);
+  const stored = useLayouts((s) => layoutsOf(s.layouts, workspace.id).current);
   // A splitter drag previews here and lands in the store (and the undo history) once, when it ends.
   const [draft, setDraft] = useState<Layout | null>(null);
   const layout = draft ?? stored;
@@ -322,7 +322,7 @@ export function Dock({ workspace }: { workspace: Workspace }) {
   const renderStack = (stack: Stack, style?: CSSProperties) => {
     const active = stack.active;
     const info = TILES[active];
-    const Content = TILE_CONTENT[active];
+    const Content = Object.hasOwn(TILE_CONTENT, active) ? TILE_CONTENT[active] : undefined;
     return (
       <Tile
         key={stack.id}
