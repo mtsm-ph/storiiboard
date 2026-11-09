@@ -54,7 +54,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
 | 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | Done |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | Done |
-| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | In review |
+| 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | In review |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
