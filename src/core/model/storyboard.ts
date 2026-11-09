@@ -147,11 +147,12 @@ export interface SceneFields {
   /** Script length in eighths of a page; null until a script is imported or it's typed in. */
   pageEighths: number | null;
   numbersLocked: boolean;
-  characters: string[];
+  /** The scene's characters (3.13, schema 12): ids of the project's character records, in the script's order. */
+  characterIds: string[];
 }
 
 export function sceneFields(props: Props): SceneFields {
-  const characters = Array.isArray(props.characters) ? props.characters.filter((c): c is string => typeof c === 'string') : [];
+  const characterIds = Array.isArray(props.character_ids) ? props.character_ids.filter((c): c is string => typeof c === 'string') : [];
   return {
     number: text(props.number),
     // Scenes made before 1.6 kept their heading in `heading`.
@@ -161,7 +162,7 @@ export function sceneFields(props: Props): SceneFields {
     locationId: typeof props.location_id === 'string' ? props.location_id : null,
     pageEighths: number(props.page_eighths),
     numbersLocked: props.numbers_locked === true,
-    characters,
+    characterIds,
   };
 }
 

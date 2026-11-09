@@ -64,6 +64,35 @@ type Records = Readonly<Record<string, SbdRecord>>;
 /** A character's name, as the script spells it; '' for none. */
 export const characterName = (character: SbdRecord): string => (typeof character.props.name === 'string' ? character.props.name.trim() : '');
 
+/**
+ * A scene's characters (3.13): its `character_ids`, read as the live character records they name, in its order. One
+ * in the Trash, or gone for good, reads as none. A scene still in the shape from before schema 12 (put back by Restore
+ * to here, or in a version opened from before the upgrade, which nothing converts again) reads its `characters` names
+ * as the upgrade matched them: the project's live characters by name, trimmed and in any case, the first by place.
+ */
+export function sceneCharacters(records: Records, scene: SbdRecord): SbdRecord[] {
+  const live = (record: SbdRecord | undefined): record is SbdRecord => record?.type === 'character' && record.trashedAt === null;
+  if (Array.isArray(scene.props.character_ids)) {
+    return scene.props.character_ids.flatMap((id) => {
+      const character = typeof id === 'string' ? records[id] : undefined;
+      return live(character) ? [character] : [];
+    });
+  }
+  if (!Array.isArray(scene.props.characters)) return [];
+  const key = (name: string) => name.trim().toLowerCase();
+  const byName = new Map<string, SbdRecord>();
+  const characters = Object.values(records).filter((r) => live(r) && r.parentId === scene.parentId && characterName(r) !== '');
+  for (const character of characters.sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))) {
+    if (!byName.has(key(characterName(character)))) byName.set(key(characterName(character)), character);
+  }
+  const found: SbdRecord[] = [];
+  for (const name of scene.props.characters) {
+    const character = typeof name === 'string' && key(name) !== '' ? byName.get(key(name)) : undefined;
+    if (character && !found.includes(character)) found.push(character);
+  }
+  return found;
+}
+
 /** The project's live, named characters by name (3.5b): the speaking characters a script import made. */
 export function projectCharacters(records: Records, projectId: string): SbdRecord[] {
   return Object.values(records)

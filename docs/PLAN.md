@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.12 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.13 done; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -57,7 +57,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | #104 | Done |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Reached Nov 9: checkpoint passed (`checkpoint/phase3-gate`, every job); the checklist is Kevin's |
 | 3.12 Opening links and files | Tauri's opener plugin, only for http and https links and files the app saved itself (a PDF to a temp copy first); never anything else, executables especially (Kevin, Nov 9) | #107 | Done |
-| 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | | Not started |
+| 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | #108 | Done |
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | | Not started |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | | Not started |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | | Not started |
@@ -68,6 +68,23 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.13 as built (Nov 9): scene characters as ids (schema 12, `src/core/storage/migrations/012_character_ids.ts`).
+- Kevin approved the change to existing data. Each scene's character names (`characters`, from a script import)
+  become `character_ids`: names matched to the project's live characters, trimmed and in any case; a character made
+  for any name with none, so nothing a scene listed is lost. Scenes in the Trash too. One logged step in History,
+  new characters among it; ⌘Z stops there, as after schema 9. The file is backed up first.
+- A script import now lists a scene's characters by id: the project's own by name (any case), or those it makes.
+  `sceneCharacters` reads a scene's live characters for the views and call sheets to come (Phase 4).
+- Nothing on screen showed a scene's character names, so nothing on screen changes; History says a scene's characters
+  as how many. A scene put back in the older shape (Restore to here, or a version opened from before the upgrade)
+  reads its names as the upgrade matched them; a restore that keeps a scene as it is now keeps its characters.
+- Decided by default, review: a character in the Trash isn't matched (a scene would read it as none), so a new one is
+  made beside it; two live characters of one name, the first is used; a value that isn't a name stays in `characters`.
+- Tests: the upgrade (backup; trimmed and any case; made for the missing; a trashed one not matched; twice is once; a
+  value that isn't a name kept; a scene in the Trash; a project's own character keeps who plays it; places after every
+  other), one step in History with its creates, ⌘Z stops, Restore to before it and back; matching within the scene's
+  own project; the import's ids, an existing character reused whatever its case.
 
 3.12 as built (Nov 9): opening links and PDFs (`src-tauri/src/open.rs`, `src/app/opener.ts`).
 - Open, on each attachment in the Assets tile: a link in the browser, a PDF in the computer's PDF reader. Open map,

@@ -347,6 +347,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.13: review
+
+- Decided by default, review: see PLAN.md, "3.13 as built" (a trashed character isn't matched; the first of two
+  of one name; a value that isn't a name stays).
+- Round 1: no high, no medium. Lows fixed: a scene put back in the older shape (Restore to here, or a version opened
+  from before the upgrade) read no characters; it reads its names as the upgrade matched them now. A restore that
+  keeps a scene as it is now keeps its characters too (tested, and the test fails without it). The import took the
+  last of two characters of one name, the upgrade the first: both take the first. The import wrote an empty list.
+  Tests: the characters the upgrade made go with a restore to before it and come back with its undo; a second run
+  changes nothing.
+- Round 2: no high, no medium. Lows fixed: the fallback never matches an empty name; it sorts only characters. The
+  restore change was first widened to a frame's shoot day and gear too, which changed how those restore (a frame
+  could point at a day left in the Trash); narrowed back to characters, the shoot day and gear gap noted where it is.
+- Left: the upgrade's History line, when it makes characters, reads "Added 2 characters" and doesn't say the scenes
+  changed too; a character with a sort key that isn't base-62 (hand-made) would stop the upgrade, and the file opens
+  as before with its backup; an odd `character_ids` (not a list of ids, never written) is replaced.
+
 ### 3.12: review
 
 - Decided by default, review: see PLAN.md, "3.12 as built" (read-only copies, every copy marked as from the internet

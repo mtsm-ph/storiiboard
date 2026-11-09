@@ -133,7 +133,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
                       locationId: null,
                       pageEighths: scene.eighths,
                       numbersLocked: false,
-                      characters: scene.characters,
+                      characterIds: [],
                     })}
                     {status !== 'new' && <span className="sb-label ml-2 border border-text px-1">{LEFT_OUT[status]}</span>}
                     {note && <span className="block text-[12px]">{t('script.noteNumbered', { note, number })}</span>}

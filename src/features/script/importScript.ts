@@ -47,9 +47,13 @@ function liveNames(records: Records, projectId: string, type: 'location' | 'char
       ? locations(records, projectId)
       : Object.values(records)
           .filter((r) => r.type === 'character' && r.parentId === projectId && r.trashedAt === null)
+          .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
           .map((r) => ({ id: r.id, name: typeof r.props.name === 'string' ? r.props.name : '' }))
           .filter((c) => c.name !== '');
-  return new Map(found.map((entry) => [key(entry.name), entry]));
+  // Two of one name: the first, by place, as the schema 12 upgrade matched them.
+  const byName = new Map<string, { id: string; name: string }>();
+  for (const entry of found) if (!byName.has(key(entry.name))) byName.set(key(entry.name), entry);
+  return byName;
 }
 
 /** The location a scene points at: only a heading with INT or EXT names a place (a forced `FLASHBACK` doesn't). */
@@ -162,6 +166,12 @@ function sceneName(scene: ScriptScene): string {
   return scene.otherTime ? `${place} — ${scene.otherTime}` : place;
 }
 
+/** A scene's `character_ids`, in the script's order, once each; none for a scene without speakers, as the upgrade. */
+function characterIdsOf(names: readonly string[], ids: ReadonlyMap<string, string>): Props {
+  const list = [...new Set(names.flatMap((name) => ids.get(key(name)) ?? []))];
+  return list.length > 0 ? { character_ids: list } : {};
+}
+
 /** The one op group an import writes: new locations and characters, then the scenes after the board's last. */
 export function importChanges(records: Records, projectId: string, plan: ImportPlan): Change[] {
   const changes: Change[] = [];
@@ -190,8 +200,14 @@ export function importChanges(records: Records, projectId: string, plan: ImportP
     placeKey = made.sortKey;
     placeIds.set(key(name), made.id);
   }
+  // A scene lists its characters by id (3.13): the project's own by name, trimmed and in any case, or those made here.
+  const characterIds = new Map([...liveNames(records, projectId, 'character')].map(([k, v]) => [k, v.id]));
   let personKey = lastKey('character');
-  for (const name of plan.characters.created) personKey = create('character', { name }, personKey).sortKey;
+  for (const name of plan.characters.created) {
+    const made = create('character', { name }, personKey);
+    personKey = made.sortKey;
+    characterIds.set(key(name), made.id);
+  }
 
   let sceneKey = lastKey('scene');
   for (const { scene, number, status } of plan.scenes) {
@@ -201,7 +217,7 @@ export function importChanges(records: Records, projectId: string, plan: ImportP
       number,
       name: sceneName(scene),
       page_eighths: scene.eighths,
-      characters: [...scene.characters],
+      ...characterIdsOf(scene.characters, characterIds),
       ...(scene.intExt ? { int_ext: scene.intExt } : {}),
       ...(scene.dayNight ? { day_night: scene.dayNight } : {}),
       ...(place ? { location_id: placeIds.get(key(place)) ?? null } : {}),

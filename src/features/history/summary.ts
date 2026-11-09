@@ -93,6 +93,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   gear_ids: 'history.field.gearIds',
   full_view: 'history.field.fullView',
   characters: 'history.field.characters',
+  character_ids: 'history.field.characters',
   text: 'history.field.text',
   theme: 'history.field.theme',
   title: 'history.field.title',
@@ -234,6 +235,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
+  // A scene's characters (3.13), kept by id: said as how many.
+  if (prop === 'character_ids' && Array.isArray(value)) return tn('count.characters', value.filter((id) => typeof id === 'string').length);
   // A frame's gear or a day's list (3.9b), kept by item id: said as how many.
   if (prop === 'gear_ids' && Array.isArray(value)) return tn('count.gearItems', gearIdsOf({ gear_ids: value }).length);
   // A gear item's department and whose it is (3.9a), in words rather than their stored ids.
