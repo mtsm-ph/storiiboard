@@ -745,23 +745,46 @@ test('Strength goes as low as a stored watermark can be, 5%, and keeps it', asyn
   await expect(dialog(page, 'Watermark Settings').getByRole('slider', { name: /^Strength/ })).toHaveAttribute('aria-valuetext', '5%');
 });
 
-test('exports the whole project as JSON, which imports back as a new project with its frames, Trash and History', async ({ page }) => {
-  // One frame to the Trash first: the JSON is the project, so it goes too.
+test('exports the project as JSON: Project data without the Trash and History, a Full archive with them, which imports back', async ({ page }) => {
+  // One frame to the Trash first.
   await board(page).locator('[data-shot-id]').nth(1).click();
   await page.keyboard.press('Delete');
   await expect(board(page).locator('[data-shot-id]')).toHaveCount(1);
+  type Exported = { format: string; contents: string; tables: Record<string, { columns: string[]; rows: unknown[][] }> };
+
+  // Project data (3.14), the default of the two: no Trash, no History.
   await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Project data (JSON)' }).check();
+  // Each choice says what it holds.
+  await expect(dialog(page, 'Export').getByText('without the Trash, the History or named versions', { exact: false })).toBeVisible();
+  await dialog(page, 'Export').getByRole('radio', { name: 'Full archive (JSON)' }).check();
+  await expect(dialog(page, 'Export').getByText('All of it: every scene and frame, the Trash, the History', { exact: false })).toBeVisible();
   await dialog(page, 'Export').getByRole('radio', { name: 'Project data (JSON)' }).check();
   // The whole project, always: no scene to pick.
   await expect(dialog(page, 'Export').getByRole('combobox', { name: /^Scenes/ })).toHaveCount(0);
+  const dataDownload = page.waitForEvent('download');
+  await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
+  const dataFile = await dataDownload;
+  expect(dataFile.suggestedFilename()).toBe('Bey County project data.json');
+  const projectData = JSON.parse(readFileSync(await dataFile.path(), 'utf8')) as Exported;
+  expect(projectData.contents).toBe('project_data');
+  expect(projectData.tables.ops?.rows).toEqual([]);
+  const trashedAt = projectData.tables.records?.columns.indexOf('trashed_at') ?? -1;
+  expect(projectData.tables.records?.rows.every((row) => row[trashedAt] === null)).toBe(true);
+  await expect(page.getByRole('status').getByText('Exported the project data to “Bey County project data.json”.')).toBeVisible();
+
+  // Full archive: everything.
+  await projectMenu(page, 'Export Project…');
+  await dialog(page, 'Export').getByRole('radio', { name: 'Full archive (JSON)' }).check();
   const downloaded = page.waitForEvent('download');
   await dialog(page, 'Export').getByRole('button', { name: 'Save…' }).click();
   const file = await downloaded;
-  expect(file.suggestedFilename()).toBe('Bey County project data.json');
+  expect(file.suggestedFilename()).toBe('Bey County full archive.json');
   const text = readFileSync(await file.path(), 'utf8');
-  const data = JSON.parse(text) as { format: string; tables: Record<string, { rows: unknown[][] }> };
+  const data = JSON.parse(text) as Exported;
   expect(data.format).toBe('storiiboard-project');
-  await expect(page.getByRole('status').getByText('Exported the whole project to “Bey County project data.json”.')).toBeVisible();
+  expect(data.contents).toBe('full_archive');
+  await expect(page.getByRole('status').getByText('Exported the full archive to “Bey County full archive.json”.')).toBeVisible();
 
   // Imported from the Projects screen, as a project of its own.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Project: Bey County' }).click();

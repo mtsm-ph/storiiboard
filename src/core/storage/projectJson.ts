@@ -1,13 +1,22 @@
 import { version as appVersion } from '../../../package.json';
-import type { ProjectFile, SqlDriver, SqlValue, Statement } from './driver';
+import { loadRecords, purgeIds } from '../ops/ops';
+import type { ProjectFile, Row, SqlDriver, SqlValue, Statement } from './driver';
 import { migrate, NewerProjectError } from './migrate';
 import { MIGRATIONS } from './migrations';
 
-// Project data as JSON (2.9, CLAUDE.md: JSON export must round-trip without data loss). The whole .sbd, table by
-// table and row by row, as one JSON file anyone can read: every record, live and in the Trash, the History (every op
-// and op group), named versions, pictures and their thumbnails, LUTs, slate numbers and what each department has
-// seen. It's the project, not a view of it, so unlike the other exports it leaves nothing out; importing it makes a new
-// project that holds exactly what the old one did. docs/SBD_FORMAT.md, "Project data as JSON", has the layout.
+// The project as JSON (2.9, CLAUDE.md: JSON export must round-trip without data loss): the .sbd, table by table and
+// row by row, as one JSON file anyone can read. It's the project, not a view of it, and importing it makes a new
+// project that holds exactly what the file did. docs/SBD_FORMAT.md, "Project data as JSON", has the layout.
+//
+// Two choices (3.14, Kevin Nov 9). Full archive carries everything: every record, live and in the Trash, the History
+// (every op and op group), named versions, pictures and their thumbnails, LUTs, slate numbers and what each
+// department has seen. Project data, the default, leaves out the Trash and History, since they can hold deleted
+// material and everyone's names: no record in the Trash (what Empty Trash deletes, purgeIds, and every other record
+// trashed too, an erased sketch stroke among them) nor anything under one; no History, no named versions (points in
+// History), no read state (it reads History) and no cached lookups (which can hold a deleted location's address); and
+// only the pictures what's left shows. Both write every table, the left-out ones empty, so both import with the same
+// checks; each imports back as exactly what it holds. Slate numbers stay in both: a number once on a slate is never
+// given again.
 //
 // Generic on purpose: it reads the tables the file has, so a table a later schema adds is carried without a change
 // here (an ordinary rowid table; a WITHOUT ROWID or full-text table would need one), and an import checks every table
@@ -28,6 +37,12 @@ export interface JsonTable {
   rows: JsonValue[][];
 }
 
+/** Project data leaves out the Trash and History; Full archive is everything. */
+export type ProjectJsonContents = 'project_data' | 'full_archive';
+
+/** The tables Project data writes with no rows: History, what only means something with it, and caches. */
+const LEFT_OUT_OF_PROJECT_DATA: ReadonlySet<string> = new Set(['op_groups', 'ops', 'versions', 'notification_cursors', 'notification_reads', 'lookups']);
+
 export interface ProjectJson {
   format: typeof PROJECT_JSON_FORMAT;
   format_version: number;
@@ -36,6 +51,8 @@ export interface ProjectJson {
   /** The app that wrote it, for anyone reading a file sent from another machine. */
   app_version: string;
   exported_at: string;
+  /** What it holds; a file from before 3.14 (no field) is a full archive. */
+  contents: ProjectJsonContents;
   tables: Record<string, JsonTable>;
 }
 
@@ -101,11 +118,26 @@ function fromBase64(text: string): Uint8Array {
  * About how many characters the project's JSON would be: its text as it is, its blobs as base64. Read before an
  * export, so a project too large to import back is said before anything is written.
  */
-export async function projectJsonSize(file: ProjectFile): Promise<number> {
+export async function projectJsonSize(file: ProjectFile, contents: ProjectJsonContents = 'full_archive'): Promise<number> {
   let size = 0;
+  // Project data counts only what it writes: the records left and the pictures they show, so a project whose Trash
+  // holds many replaced pictures isn't refused for them.
+  const data = contents === 'project_data' ? await projectData(file) : null;
+  const gone = JSON.stringify([...(data?.gone ?? [])]);
+  const named = JSON.stringify([...(data?.named ?? [])]);
   for (const [table, columns] of await schemaOf(file)) {
+    if (data && LEFT_OUT_OF_PROJECT_DATA.has(table)) continue;
+    const where = !data
+      ? { sql: '', params: [] }
+      : table === 'records'
+        ? { sql: ' WHERE id NOT IN (SELECT value FROM json_each(?))', params: [gone] }
+        : table === 'shot_seen'
+          ? { sql: ' WHERE shot_id NOT IN (SELECT value FROM json_each(?))', params: [gone] }
+          : table === 'media_files' || table === 'thumbnails'
+            ? { sql: ' WHERE sha256 IN (SELECT value FROM json_each(?))', params: [named] }
+            : { sql: '', params: [] };
     const sums = columns.map((c) => `coalesce(sum(length(${quote(c.name)})), 0) AS ${quote(c.name)}`).join(', ');
-    const [row] = await file.query(`SELECT count(*) AS "__rows", ${sums} FROM ${quote(table)}`);
+    const [row] = await file.query(`SELECT count(*) AS "__rows", ${sums} FROM ${quote(table)}${where.sql}`, where.params);
     if (!row) continue;
     size += Number(row.__rows) * (columns.length * 4 + 4);
     for (const column of columns) size += Number(row[column.name]) * (column.blob ? 4 / 3 : 1.1);
@@ -138,10 +170,11 @@ export async function projectJsonChunks(
   now = new Date(),
   progress?: (table: string) => void,
   signal?: AbortSignal,
+  contents: ProjectJsonContents = 'full_archive',
 ): Promise<string[]> {
   for (let attempt = 0; attempt < READ_TRIES; attempt += 1) {
     const before = await changes(file);
-    const chunks = await readChunks(file, now, progress, signal);
+    const chunks = await readChunks(file, now, progress, signal, contents);
     if ((await changes(file)) === before) return chunks;
   }
   throw new ProjectJsonChangedError();
@@ -153,15 +186,71 @@ async function changes(file: ProjectFile): Promise<number> {
   return Number(row?.changes);
 }
 
-async function readChunks(file: ProjectFile, now: Date, progress?: (table: string) => void, signal?: AbortSignal): Promise<string[]> {
+/**
+ * What Project data leaves out: every record in the Trash and everything under it (what Empty Trash deletes, and the
+ * kinds it doesn't, an erased sketch stroke with who erased it); and which pictures it keeps, those a record left names.
+ */
+async function projectData(file: ProjectFile): Promise<{ gone: ReadonlySet<string>; named: ReadonlySet<string> }> {
+  const records = await loadRecords(file);
+  const gone = new Set(purgeIds(records));
+  const children = new Map<string, string[]>();
+  for (const record of records) {
+    if (!record.parentId) continue;
+    const list = children.get(record.parentId);
+    if (list) list.push(record.id);
+    else children.set(record.parentId, [record.id]);
+  }
+  const leave = (id: string) => {
+    if (gone.has(id)) return;
+    gone.add(id);
+    for (const child of children.get(id) ?? []) leave(child);
+  };
+  for (const record of records) {
+    if (record.trashedAt !== null) {
+      gone.delete(record.id);
+      leave(record.id);
+    }
+  }
+  // A picture is named by its SHA-256 in its media record's props (`file`; a video's poster is an image media record of
+  // its own, named the same way): any one a record left names is kept, so none is ever left out from under something
+  // that shows it.
+  const named = new Set<string>();
+  for (const record of records) {
+    if (gone.has(record.id)) continue;
+    for (const match of JSON.stringify(record.props).matchAll(/[0-9a-f]{64}/g)) named.add(match[0]);
+  }
+  return { gone, named };
+}
+
+/** Which rows Project data keeps: none of History's tables; none in the Trash, nor a frame's Seen with it; only the pictures what's left shows. */
+async function projectDataRows(file: ProjectFile): Promise<(table: string, row: Row) => boolean> {
+  const { gone, named } = await projectData(file);
+  return (table, row) => {
+    if (LEFT_OUT_OF_PROJECT_DATA.has(table)) return false;
+    if (table === 'records') return !gone.has(String(row.id));
+    if (table === 'shot_seen') return !gone.has(String(row.shot_id));
+    if (table === 'media_files' || table === 'thumbnails') return named.has(String(row.sha256));
+    return true;
+  };
+}
+
+async function readChunks(
+  file: ProjectFile,
+  now: Date,
+  progress: ((table: string) => void) | undefined,
+  signal: AbortSignal | undefined,
+  contents: ProjectJsonContents,
+): Promise<string[]> {
   const schema = await schemaOf(file);
   const [version] = await file.query("SELECT value FROM meta WHERE key = 'schema_version'");
+  const keep = contents === 'project_data' ? await projectDataRows(file) : () => true;
   const header = {
     format: PROJECT_JSON_FORMAT,
     format_version: PROJECT_JSON_VERSION,
     schema_version: Number(version?.value),
     app_version: appVersion,
     exported_at: now.toISOString(),
+    contents,
   };
   const chunks = [`${JSON.stringify(header).slice(0, -1)},"tables":{`];
   let firstTable = true;
@@ -170,7 +259,7 @@ async function readChunks(file: ProjectFile, now: Date, progress?: (table: strin
     const plain = columns.filter((column) => !column.blob);
     const selected = ['rowid AS "__rowid"', ...plain.map((column) => quote(column.name))].join(', ');
     // Blob columns are read one value at a time: query rows can't carry bytes in the desktop app (driver.ts).
-    const rows = await file.query(`SELECT ${selected} FROM ${quote(table)} ORDER BY rowid`);
+    const rows = (await file.query(`SELECT ${selected} FROM ${quote(table)} ORDER BY rowid`)).filter((row) => keep(table, row));
     chunks.push(`${firstTable ? '' : ','}\n${JSON.stringify(table)}:{"columns":${JSON.stringify(columns.map((c) => c.name))},"rows":[`);
     firstTable = false;
     for (const [index, row] of rows.entries()) {
@@ -199,9 +288,10 @@ export async function projectJsonBytes(
   now = new Date(),
   progress?: (table: string) => void,
   signal?: AbortSignal,
+  contents: ProjectJsonContents = 'full_archive',
 ): Promise<Uint8Array> {
   const encoder = new TextEncoder();
-  const chunks = await projectJsonChunks(file, now, progress, signal);
+  const chunks = await projectJsonChunks(file, now, progress, signal, contents);
   // Each piece's text let go as it's encoded, so the text and its bytes aren't all held at once.
   const parts: Uint8Array[] = [];
   for (let i = 0; i < chunks.length; i += 1) {
@@ -284,6 +374,7 @@ export function readProjectJson(text: string, limit = MAX_IMPORT_CHARS): Project
     schema_version: schemaVersion,
     app_version: typeof parsed.app_version === 'string' ? parsed.app_version : '',
     exported_at: typeof parsed.exported_at === 'string' ? parsed.exported_at : '',
+    contents: parsed.contents === 'project_data' ? 'project_data' : 'full_archive',
     tables: read,
   };
 }

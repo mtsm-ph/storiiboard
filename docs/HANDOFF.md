@@ -347,6 +347,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.14: review
+
+- Decided by default, review: see PLAN.md, "3.14 as built" (slate numbers stay, lookups go, Cast and crew and the
+  names on scene approvals stay, the ids).
+- Round 1: no high; two mediums, fixed. The Export dialog's line under Project data still said it held the Trash, the
+  History and named versions: each choice says what it holds now (tested end to end). Erased sketch strokes, with who
+  erased them, stayed in Project data, since Empty Trash's own list doesn't take strokes: Project data now leaves out
+  every record in the Trash, of any kind, and what's under it. Lows fixed: the size estimate counts only what Project
+  data writes (a Trash full of replaced pictures no longer refuses it); tests for a picture a live and a trashed frame
+  share, the app's own `file` prop, an erased stroke; the format doc's sample header.
+- Round 2: no high, no medium. Lows fixed: building the list of what's under each record was quadratic; two comments.
+- The full end-to-end run caught one of its own: projects.spec's check of the old "All of it" line under Project
+  data. That run's output was cut to its last lines, which hid the failure behind tail's exit code; caught from the
+  count (306), fixed, and the full run passed (307).
+- Left: the import of Project data is tested in the unit tests, the import end to end only with the Full archive.
+
 ### 3.13: review
 
 - Decided by default, review: see PLAN.md, "3.13 as built" (a trashed character isn't matched; the first of two
@@ -1269,7 +1285,7 @@ Everything built overnight, Nov 9 (3.6b to 3.11, PRs #96 to #104), on the gate c
 - **The opener plugin:** opening a PDF, a link or a map in the browser.
 - **A map library**, for a map inside the app.
 - **Scene character lists as ids:** this changes existing data.
-- **The JSON export:** whether it carries the Trash and History.
+- **The JSON export:** answered Nov 9: two choices, built in 3.14.
 - **VideoToolbox:** the Mac's copy tests (from Phase 2).
 
 ## Phase 2 gate: Kevin's checklist (complete Nov 7; in this order, after review stop A's)

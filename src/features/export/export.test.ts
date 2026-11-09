@@ -80,6 +80,7 @@ describe('export names', () => {
       ['shot-list-csv', 'file'],
       ['png-frames', 'folder'],
       ['project-json', 'file'],
+      ['full-archive-json', 'file'],
     ]);
   });
 });

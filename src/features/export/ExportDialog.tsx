@@ -196,7 +196,7 @@ function ExportDialog() {
       </Select>
       )}
       {whole ? (
-        <p className="text-[13px]">{t('export.wholeProject')}</p>
+        <p className="text-[13px]">{format.wholeNote ?? t('export.wholeProject')}</p>
       ) : (
         <p className="text-[13px]">
           <Trans k={pluralKey('export.framesNoTrash', frames)} parts={{ count: <span className="font-mono">{String(frames)}</span> }} />{' '}

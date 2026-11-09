@@ -316,6 +316,107 @@ describe('project data as JSON (2.9)', () => {
     await Promise.all(always);
   });
 
+  it('as Project data (3.14), leaves out the Trash and History, and imports back as exactly that', async () => {
+    const file = project.file;
+    // A second picture only a frame in the Trash shows: deleted material, so it stays out too.
+    const other = 'b'.repeat(64);
+    await file.tx([
+      {
+        sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
+          VALUES ('m2', ?, 'image/png', 4, 4, 4, 'srgb', ?, ?, ?)`,
+        params: [other, at().toISOString(), at().toISOString(), bytes(7, 4)],
+      },
+    ]);
+    await apply(file, [
+      { kind: 'create', record: { id: 's3', type: 'shot', parentId: 'sc4', sortKey: 'c', props: { number: '4C', media_id: 'p3' } } },
+      { kind: 'create', record: { id: 'p3', type: 'media', parentId: 's3', sortKey: 'a', props: { kind: 'image', file: other } } },
+    ]);
+    await apply(file, [{ kind: 'trash', id: 's3' }], { author: 'Ana Ruiz' });
+    await file.tx([markSeenStatement('s3', ['camera'], at().toISOString())]);
+    // A stroke erased on a frame that stays (a kind Empty Trash doesn't take), and a third picture a live frame and a
+    // trashed one both show, in the app's own shape (`file`).
+    const shared = 'c'.repeat(64);
+    await file.tx([
+      {
+        sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
+          VALUES ('m3', ?, 'image/png', 4, 4, 4, 'srgb', ?, ?, ?)`,
+        params: [shared, at().toISOString(), at().toISOString(), bytes(11, 4)],
+      },
+    ]);
+    await apply(file, [
+      { kind: 'create', record: { id: 'k1', type: 'stroke', parentId: 's1', sortKey: 'k', props: { tool: 'pen', points: [0, 0, 1, 1], width: 2 } } },
+      { kind: 'create', record: { id: 's5', type: 'shot', parentId: 'sc4', sortKey: 'e', props: { number: '4E', media_id: 'p5' } } },
+      { kind: 'create', record: { id: 'p5', type: 'media', parentId: 's5', sortKey: 'a', props: { kind: 'image', file: shared } } },
+      { kind: 'create', record: { id: 's6', type: 'shot', parentId: 'sc4', sortKey: 'f', props: { number: '4F', media_id: 'p6' } } },
+      { kind: 'create', record: { id: 'p6', type: 'media', parentId: 's6', sortKey: 'a', props: { kind: 'image', file: shared } } },
+    ]);
+    await apply(file, [{ kind: 'trash', id: 'k1' }, { kind: 'trash', id: 's6' }], { author: 'Ana Ruiz' });
+
+    const text = new TextDecoder().decode(await projectJsonBytes(file, at(), undefined, undefined, 'project_data'));
+    const data = readProjectJson(text);
+    expect(data.contents).toBe('project_data');
+    const ids = (table: string, column: string) => {
+      const t = data.tables[table];
+      const at2 = t?.columns.indexOf(column) ?? -1;
+      return (t?.rows ?? []).map((row) => row[at2]);
+    };
+    // The Trash: neither trashed frame nor what's under it; Seen with them; only the pictures what's left shows.
+    expect(ids('records', 'id')).not.toContain('s2');
+    expect(ids('records', 'id')).not.toContain('s3');
+    expect(ids('records', 'id')).not.toContain('p3');
+    expect(ids('records', 'id')).not.toContain('k1');
+    expect(ids('records', 'id')).not.toContain('s6');
+    expect(ids('records', 'id')).toEqual(expect.arrayContaining(['sc4', 's1', 'p1', 'pe1', 's5', 'p5']));
+    expect(ids('records', 'trashed_at').every((value) => value === null)).toBe(true);
+    expect(ids('shot_seen', 'shot_id')).toEqual(['s1', 's1']);
+    // A picture a live frame shows stays, though a trashed one shows it too.
+    expect(ids('media_files', 'sha256')).toEqual(['a'.repeat(64), shared]);
+    expect(ids('thumbnails', 'sha256')).toEqual(['a'.repeat(64)]);
+    // The estimate counts only what's written: close to the file (the bytes are checked again once written), and less
+    // than the archive's.
+    const estimate = await projectJsonSize(file, 'project_data');
+    expect(estimate).toBeGreaterThan(text.length * 0.7);
+    expect(estimate).toBeLessThan(text.length * 1.3);
+    expect(estimate).toBeLessThan(await projectJsonSize(file));
+    // History, the version (a point in it) and read state: every table there, none of their rows; no one's name.
+    for (const table of ['op_groups', 'ops', 'versions', 'notification_cursors', 'notification_reads', 'lookups']) {
+      expect(data.tables[table]?.rows).toEqual([]);
+    }
+    expect(text).not.toContain('Kevin');
+    expect(text).not.toContain('"Ana Ruiz",');
+    // Slate numbers stay: a number on a slate is never given again.
+    expect(ids('slate_numbers', 'number')).toEqual(['4B']);
+
+    const copy = folder.path('Bey County (data).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      // Exactly what it held: out again, the same JSON but for the file's own id and the app that opened it.
+      const again = new TextDecoder().decode(await projectJsonBytes(imported.file, at(), undefined, undefined, 'project_data'));
+      const strip = (json: string) =>
+        json
+          .split('\n')
+          .filter((line) => !line.includes('"file_id"') && !line.includes('"app_version",'))
+          .join('\n');
+      expect(strip(again)).toBe(strip(text));
+      // Nothing to undo: a project with no History.
+      expect(await undo(imported.file)).toBeNull();
+      // As Full archive it's the same project, History and Trash still out (it never had them).
+      const archive = readProjectJson(new TextDecoder().decode(await projectJsonBytes(imported.file, at())));
+      expect(archive.contents).toBe('full_archive');
+      expect(archive.tables.ops?.rows).toEqual([]);
+    } finally {
+      await imported.close();
+    }
+  });
+
+  it('reads a file from before the choice as a full archive, and estimates Project data no larger', async () => {
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
+    const old = JSON.stringify({ ...data, contents: undefined });
+    expect(readProjectJson(old).contents).toBe('full_archive');
+    expect(await projectJsonSize(project.file, 'project_data')).toBeLessThan(await projectJsonSize(project.file));
+  });
+
   it('knows about how large the JSON will be before it reads it', async () => {
     const size = await projectJsonSize(project.file);
     const actual = (await projectJsonBytes(project.file, at())).length;
