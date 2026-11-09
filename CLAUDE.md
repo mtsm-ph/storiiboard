@@ -162,7 +162,8 @@
   and after, who, when). Restore the project from any point, or an old value; either is a new op group. Name a version
   from here.
 - Notifications (Phase 3): the History feed plus suggestions and comments: what changed, who, when, with a link to
-  the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op.
+  the item. Read and unread state per user, stored in the .sbd; marking an item read is not an op. Built in 3.10: the
+  reader is This is me, else `local`; steps you made count as read; the status bar's count opens the tile.
   - Unread count; filters for all, unread and the current scene; Mark all read. Filtered to one item, it is that
     item's history.
 - Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. Picking a day

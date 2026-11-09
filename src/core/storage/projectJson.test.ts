@@ -155,6 +155,9 @@ describe('project data as JSON (2.9)', () => {
     // Schema 7 had no video tables: the same project without them, said to be at 7.
     const older: ProjectJson = { ...data, schema_version: 7, tables: { ...data.tables } };
     delete older.tables.luts;
+    // Nor schema 10's notification read state.
+    delete older.tables.notification_cursors;
+    delete older.tables.notification_reads;
     const meta = older.tables.meta;
     if (!meta) throw new Error('meta');
     const value = meta.columns.indexOf('value');

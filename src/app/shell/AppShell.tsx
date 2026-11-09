@@ -31,6 +31,7 @@ import { EyedropperHost } from '../../features/storyboard/palette/Eyedropper';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { AskHost } from '../ask';
 import { ManageWorkspacesHost } from './ManageWorkspaces';
+import { useNotificationSync } from '../../features/notifications/notificationsStore';
 import { NoticeBar } from '../NoticeBar';
 import { t } from '../../core/i18n';
 
@@ -45,6 +46,8 @@ export function AppShell() {
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
   const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
+  // Notifications' read state kept in step with the project and whoever is reading (3.10), for the count and the tile.
+  useNotificationSync();
   // Read through the store, so a rename of one of the person's own workspaces (3.6d) names it anew everywhere.
   const workspace = useWorkspaceState((s) => workspaceById(s.active));
   const projectTitle = useProject((s) => {

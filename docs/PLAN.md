@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.9a merged, 3.9b in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.9b merged, 3.10 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.9b in review) |
+| Last updated | Nov 9, 2026 (3.10 in review) |
 
 | Phase | State |
 |---|---|
@@ -52,13 +52,35 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | Done |
 | 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | Done |
 | 3.9a Gear catalogue | The Gear tile: the project's gear (name, department, quantity, owned or rented and from whom, day rate), the project's currency, the Trash (split from 3.9, decided by default, review) | #101 | Done |
-| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | In review |
-| 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
+| 3.9b Gear per day | A gear list per shoot day and gear linked to frames, from the catalogue; the first consistency check (src/core/checks): a frame's gear not on its day's list | #102 | Done |
+| 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | #103 | In review |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
 | Phase 3 gate | A checkpoint and Kevin's checklist: a real shoot's people, places and gear entered | | Not started |
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.10 as built (Nov 9): notifications (`src/features/notifications/`, `src/core/storage/notifications.ts`, schema 10).
+- The Notifications tile (in no default layout; opened from the Layout menu or the status bar): History's steps,
+  newest first, each with what it did, who and when, as History words it. Unread ones lead with an ink dot, in bold,
+  and are said as "Unread:" first. Filters All, Unread and This scene (steps that wrote the scene or anything in it);
+  Mark all read. Opening a step marks it read and picks what it changed (a frame, else a scene), so the Inspector and
+  the board show it.
+- The status bar shows the unread count ("3 unread") while there's something unread; it opens Notifications in the
+  workspace on screen, focus inside it. The tile shows History's newest 100 steps, and older ones on asking.
+- Read state per person (schema 10, docs/SBD_FORMAT.md): the person picked with This is me, else `local`. Not an op,
+  never undone, never a step; kept in the file, so it's still read after a reload. Mark all read moves a cursor to a
+  place in the log, never a clock time. A step you made counts as read, by the name it's signed with: until sign-in, a
+  rename makes your older steps someone else's, and two unnamed people read as one. The log is read once a project,
+  then only its new steps.
+- Decided by default, review: your own steps count as read (so the count is what others changed in a shared file);
+  the reader is This is me, else `local`; opening a step picks its item rather than switching workspace; the status
+  bar's count shows only while something is unread; This scene reads where records are now (a frame moved since shows
+  under its new scene); a JSON export and import carry the read state.
+- Tests: migration 10 (backup, tables, records untouched), read state (one by one, Mark all read moving the cursor and
+  clearing reads, per person, one cursor row); end to end, steps by another name unread, the status bar opening the
+  tile with focus, a step opened and read, Unread and This scene, axe, Mark all read, your own step never unread, kept
+  after a reload.
 
 3.9b as built (Nov 9): gear per day and the first check (`src/core/checks/`, `src/features/gear/GearPicker.tsx`,
 `FrameGear.tsx`).

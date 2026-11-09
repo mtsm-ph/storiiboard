@@ -9,8 +9,8 @@ import { t } from '../../core/i18n';
 export const PAGE = 100;
 
 export interface Steps {
-  /** Newest first. */
-  steps: { group: OpGroup; line: Line }[];
+  /** Newest first, each with the records its ops wrote (3.10: Notifications filters by scene). */
+  steps: { group: OpGroup; line: Line; recordIds: string[] }[];
   /** More steps before the oldest shown. */
   more: boolean;
   /** The newest step: what a version named now includes. */
@@ -46,7 +46,11 @@ export async function loadSteps(file: ProjectFile, count: number): Promise<Steps
   const titles = new Map<string, Line>();
   for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id)));
   return {
-    steps: shown.reverse().map((group) => ({ group, line: titles.get(group.id) ?? ['a step'] })),
+    steps: shown.reverse().map((group) => ({
+      group,
+      line: titles.get(group.id) ?? ['a step'],
+      recordIds: [...new Set((byGroup.get(group.id) ?? []).map((op) => op.recordId))],
+    })),
     more: groups.length > count,
     newest: groups.at(-1)?.id ?? null,
     versions,

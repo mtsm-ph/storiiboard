@@ -76,6 +76,9 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
   picked takes the ink fill. A day's date, call and wrap, its totals and frame numbers are mono. Its frames and the
   unscheduled ones sit under 10px labels ruled in 1.5px ink; each frame row has its status shape, scene and frame
   number, and a Move to or Add.
+- **Notifications (3.10)**: a row per step, its line as History writes it, who and when in 11px mono; an unread row
+  leads with an ink ● and is bold (and says "Unread:" first), a read one keeps the dot's room. The status bar's count
+  is a 10px mono label, underlined on hover.
 - **Gear picked (3.9b)**: pressed buttons as a person's departments are (1.5px ink outline, ink fill when picked),
   the quantity in mono after a name; an item a frame needs that its day lacks carries ⚠ (its name says so to a screen
   reader), and the warning line under the picker says it in words, on the warning fill with paper text.

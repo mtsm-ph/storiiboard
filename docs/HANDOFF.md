@@ -343,6 +343,30 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.10: review
+
+- Decided by default, review: your own steps count as read, by the name signed (limits in PLAN.md); the reader is This
+  is me, else `local`; opening a step picks its item; the status bar's count shows only while something is unread
+  (which also keeps the screenshot baselines as Kevin approved them); This scene reads where records are now.
+- The full end-to-end run caught one of its own: the screenshot tests saw the status bar's new "0 unread". Rather than
+  regenerate the baselines unseen (Kevin asked to see them first), the count shows only when there's something unread.
+- Round 1: one high, fixed before merge: the Mark all read cursor was a clock time, so a step from a computer whose
+  clock ran behind could be hidden for good, and one stamped ahead could read every later step. It's a place in the
+  log now (`read_through_seq`, schema 10 not yet released), and only moves forward; tested.
+- Round 1 mediums, fixed: Mark all read through the wrong step (gone with the place-based cursor); state shown and
+  written across a project switch (the store starts again for another project or reader, writes check it's the
+  open project's, the tile is keyed by project); the count covering steps the list couldn't show (Show older steps);
+  the whole log read after every edit (read once a project, then only new steps); a late load taking back a read
+  (merged); opening your own or a read step writing anyway (nothing written). The own-steps rule's limits are written
+  down (PLAN.md, SBD_FORMAT.md). Tested: the cursor by place and never back, the own-steps rule, the merge; the
+  project-switch guard and Show older steps aren't tested on their own.
+- Round 2: no high; one low-medium, fixed: a reader switched while a write waited set the wrong person's state in
+  memory (the write lands for whoever it was made for, or the store isn't touched). Lows fixed: the tile keyed by the
+  open file (a copy keeps the project's id); the merge tested; wording.
+- Lows fixed: the status bar's button named "3 unread: open Notifications"; read state counting for backups noted.
+- Lows left: This scene and opening a step read where records are now; no JSON round-trip test with read state rows
+  (the export is generic over tables).
+
 ### 3.9b: review
 
 - Decided by default, review: gear picked from the catalogue only; the check finds gear missing from a day, not a
