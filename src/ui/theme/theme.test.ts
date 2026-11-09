@@ -33,6 +33,7 @@ describe('backup settings', () => {
       pdfScenePalettes: false,
       companies: [],
       departmentWorkspaces: [],
+      customWorkspaces: [],
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
@@ -63,6 +64,12 @@ describe('backup settings', () => {
     const storage = memoryStorage('{"departmentWorkspaces":["sound","camera","boom","camera",7]}');
     expect(loadSettings(storage).departmentWorkspaces).toEqual(['camera', 'sound']);
     expect(loadSettings(memoryStorage('{"departmentWorkspaces":"camera"}')).departmentWorkspaces).toEqual([]);
+    // Your own workspaces (3.6d): named, with a custom- id, each once; the layout is checked by the shell.
+    const custom = memoryStorage(
+      '{"customWorkspaces":[{"id":"custom-a1","name":" Prep ","layout":{}},{"id":"custom-a1","name":"Again"},{"id":"storyboard","name":"X"},{"id":"custom-b2","name":"  "},7]}',
+    );
+    expect(loadSettings(custom).customWorkspaces).toEqual([{ id: 'custom-a1', name: 'Prep', layout: {} }]);
+    expect(loadSettings(memoryStorage('{"customWorkspaces":"x"}')).customWorkspaces).toEqual([]);
   });
 
   it('saves the keep numbers alongside the theme', () => {
@@ -82,6 +89,7 @@ describe('backup settings', () => {
       pdfScenePalettes: false,
       companies: [],
       departmentWorkspaces: [],
+      customWorkspaces: [],
     });
   });
 });

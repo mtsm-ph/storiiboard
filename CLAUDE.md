@@ -165,7 +165,9 @@
 - Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
   and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Production (schedule, calendar, call sheets,
   locations, gear, cast and crew), Moodboard. Each section is a workspace. Below the sections, Departments: the
-  department workspaces the person has opened (3.6a), in call-sheet order; Delete takes one off. At its foot: the web
+  department workspaces the person has opened (3.6a), in call-sheet order; Delete takes one off. Then Your
+  workspaces: the person's own (3.6d), saved from the Layout menu and renamed, duplicated or deleted in Manage
+  workspaces…; kept in this computer's settings, never in a project. At its foot: the web
   version (Phase 9), Hide sidebar, a Settings gear (Settings is an in-app window, not a section) and the person's
   local profile.
   - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
