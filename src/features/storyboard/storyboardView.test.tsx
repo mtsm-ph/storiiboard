@@ -96,6 +96,43 @@ describe('the storyboard grid', () => {
   });
 });
 
+describe('a scene’s approvals on its heading (3.16)', () => {
+  const view = (approvals?: SceneGroup['approvals'], layout: 'grid' | 'strip' | 'list' = 'grid') =>
+    renderToString(
+      <StoryboardView
+        scenes={[{ id: 'sc4', number: '4', heading: 'INT. DINER — NIGHT', pageEighths: null, locked: false, counts: { have: 0, need: 1, source: 0 }, frames: [], ...(approvals ? { approvals } : {}) }]}
+        view={layout}
+        onViewChange={noop}
+        aspectRatio={1.78}
+        selectedShotId={null}
+        canEdit
+        onSelect={noop}
+        onAddFrame={noop}
+        onAddScene={noop}
+        onTrash={noop}
+        onMove={noop}
+      />,
+    );
+
+  it('shows how many departments are approved, and a dot, in words too, when any changed since', () => {
+    const html = view({ approved: 3, changed: 1 });
+    expect(html).toMatch(/<span class="font-mono">3<\/span>/);
+    expect(html).toMatch(/class="text-warning dark:text-text">●<\/span>changed/);
+    expect(html).toContain('<span class="sr-only">3 departments approved, 1 department changed since approval</span>');
+    expect(html).toContain('title="3 departments approved, 1 department changed since approval"');
+    // In every view the board has.
+    for (const layout of ['strip', 'list'] as const) expect(view({ approved: 3, changed: 1 }, layout)).toContain('3 departments approved');
+  });
+
+  it('shows the dot alone when only a change stands, and nothing for a scene without approvals', () => {
+    const changed = view({ approved: 0, changed: 2 });
+    expect(changed).not.toContain('departments approved');
+    expect(changed).toContain('2 departments changed since approval');
+    expect(view()).not.toContain('data-scene-approvals');
+    expect(view({ approved: 0, changed: 0 })).not.toContain('data-scene-approvals');
+  });
+});
+
 describe('moving a frame one place', () => {
   const records = {
     sc4: record('sc4', 'scene', 'p', 'a', { number: '4' }),

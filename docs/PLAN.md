@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.15 done; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (3.16 done; the map waits for one answer) |
 
 | Phase | State |
 |---|---|
@@ -60,7 +60,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.13 Characters as ids | A scene's character list becomes character ids: names matched to character records (trimmed, case-insensitive), missing ones made; a migration that alters data, backup first (Kevin, Nov 9) | #108 | Done |
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | #109 | Done |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
-| 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | | Not started |
+| 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
@@ -68,6 +68,22 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.16 as built (Nov 9): approvals on the board (`ApprovalsMarker` in `src/features/storyboard/StoryboardView.tsx`,
+`sceneApprovalSummary` in `src/core/model/sceneApprovals.ts`).
+- Each scene heading on the board, after its page count and frame counts, shows how many departments are approved
+  (the Approved diamond and a count, as the Inspector marks Approved) and, when any shows "Changed since approval", a
+  dot in the warning colour (paper on the dark theme) with the word "changed". The
+  title says it on hover ("3 departments approved, 1 changed since approval"); a screen reader hears it in full, as
+  part of the heading. A scene without approvals shows nothing, and isn't worked out.
+- Decided by default, review: the word beside the dot (the warning colour alone is under 3:1 on the dark theme, and a
+  dot alone is a colour-only cue); the count is departments approved by everyone who signed them (one current and one
+  stale sign-off is changed); in a focus view it counts your departments alone, as the cards do; a department this
+  version doesn't show isn't counted; the marker stays inside the heading, as the page and frame counts are.
+- Tests: the counts (approved, changed, none); the marker's words, title and dot, the dot alone, nothing without
+  approvals; one current and one stale sign-off read as changed; a department this version doesn't show isn't
+  counted; a focus view counts its departments; the marker in the grid, strip and list; end to end, approving a
+  department says one approved, a change shows the dot, undo brings it back. Looked at in light and dark.
 
 3.15 as built (Nov 9): approvals by what a department touches (`src/core/model/sceneApprovals.ts`).
 - Kevin's rule: the shared fields change every department's approval: each frame's picture (its stored file, how it

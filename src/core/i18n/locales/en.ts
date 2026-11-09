@@ -1376,6 +1376,11 @@ export const en = {
   'inspector.shootDay': 'Shoot day',
   'inspector.birdsEye': 'Bird\'s-eye setup',
   // src/features/storyboard/StoryboardView.tsx
+  'storyboardView.approved.one': '{count} department approved',
+  'storyboardView.approved.other': '{count} departments approved',
+  'storyboardView.changedMark': 'changed',
+  'storyboardView.changedSince.one': '{count} department changed since approval',
+  'storyboardView.changedSince.other': '{count} departments changed since approval',
   'storyboardView.numbersLocked': 'Numbers locked',
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'The frame or scene those pictures were for isn’t on the board any more.',

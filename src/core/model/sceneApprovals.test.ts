@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval } from './departmentStatus';
 import type { Props, SbdRecord } from './record';
-import { approvalBasis, approvalState, isCurrent, sceneApprovals, sceneApprovalText, withMySceneApproval, type ApprovalBasis } from './sceneApprovals';
+import { approvalBasis, approvalState, isCurrent, sceneApprovals, sceneApprovalSummary, sceneApprovalText, withMySceneApproval, type ApprovalBasis } from './sceneApprovals';
 
 // Approvals per scene (3.6b): who signed each department off, and whether the scene has changed since.
 
@@ -159,6 +159,20 @@ describe('what a department touches in a scene', () => {
     expect(now.legacy).toBe('0022f03f4eb4b7');
     // 3.15's, as stored from here on.
     expect(now.current).toBe('2:148ee4eebe8262');
+  });
+
+  it('counts a scene’s departments approved and changed since, for its heading (3.16)', () => {
+    const records = base();
+    const now = (department: string) => approvalBasis(records, 's', department).current;
+    const sign = (basis: string) => [{ name: 'Sam Reyes', roles: ['dp'], at, basis }];
+    const scene = { ...(records.s as SbdRecord), props: { ...(records.s as SbdRecord).props, department_approvals: { camera: sign(now('camera')), art: sign(now('art')), sound: sign('2:stale') } } };
+    expect(sceneApprovalSummary({ ...records, s: scene }, 's')).toEqual({ approved: 2, changed: 1 });
+    expect(sceneApprovalSummary(records, 's')).toEqual({ approved: 0, changed: 0 });
+    // One current and one stale sign-off on a department: changed. A department this version doesn't show: not counted.
+    // A focus view: your departments alone.
+    const mixed = { ...scene, props: { ...scene.props, department_approvals: { camera: [...sign(now('camera')), { name: 'Kevin Matos', roles: ['director'], at, basis: '2:stale' }], drone: sign('2:x') } } };
+    expect(sceneApprovalSummary({ ...records, s: mixed }, 's')).toEqual({ approved: 0, changed: 1 });
+    expect(sceneApprovalSummary({ ...records, s: scene }, 's', ['camera', 'sound'])).toEqual({ approved: 1, changed: 1 });
   });
 
   it('never works out 3.6b’s fingerprint for an approval made by 3.15’s rule', () => {
