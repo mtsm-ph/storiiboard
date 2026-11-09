@@ -347,6 +347,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Phase 4: plan written, waits for Kevin (Nov 9)
+
+- Kevin's Nov 9 order: 3.4, then his changes as small milestones (3.12 to 3.17), then the Phase 4 plan and a one-page
+  decision sheet, not the build. Done: 3.4 #106, 3.12 #107, 3.13 #108, 3.14 #109, 3.15 #110, 3.16 #111 merged; 3.17
+  #112 ready but held for the Settings screenshots (below); the plan in PLAN.md ("Phase 4 milestones") and
+  docs/PHASE4_DECISIONS.md.
+- Weather, from the sources' own pages (Nov 9): Open-Meteo's free API is non-commercial only, and its commercial plan
+  is a publisher's key, no price on its page; MET Norway's Locationforecast is free for any purpose, paid apps
+  included, worldwide, CC BY 4.0 ("Data from MET Norway"), with an identifying User-Agent, coordinates cut to 4
+  decimals and no repeat before `Expires` (6-hourly outside the Nordics); the US National Weather Service is free for
+  any purpose but US only and 7 days. Recommendation: MET Norway (a CLAUDE.md rule change, Kevin's).
+- Hospitals: Overpass's public server asks commercial apps not to rely on it; Nominatim (already on the host list)
+  searched in a box round the location, on a press, sorted by distance; Google Places with the person's own key when
+  set. OSM data printed needs its credit and copyright address.
+- Waiting for Kevin, besides Phase 4's answers: the map (Leaflet, pigeon-maps or our own on react-konva; tiles through
+  Rust), and 3.17's screenshots.
+
 ### 3.17: review
 
 - Decided by default, review: see PLAN.md, "3.17 as built" (the setting is this computer's; a region that starts on

@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: built to the gate (3.1 to 3.11 merged by Nov 9); Kevin's Nov 9 answers add 3.4 and 3.12 to 3.17, built in that order, then the Phase 4 plan (not its build). The gate checkpoint, `checkpoint/phase3-gate`, passed every job Nov 9 (smoke on Linux and in WebKit on the Mac, both installers; run 42596717084); the checklist is Kevin's (docs/HANDOFF.md, "Phase 3 gate: Kevin's checklist"). Phase 4 waits for Kevin's go. Phase 2's gate checklist is Kevin's too |
+| **Current phase** | **Phase 3 · Production data**, built to the gate, with Kevin's Nov 9 follow-ups merged (3.4, 3.12 to 3.16; 3.17 waits for him to see new Settings screenshots, PR #112). **Phase 4's plan and decision sheet are written** ("Phase 4 milestones", docs/PHASE4_DECISIONS.md): nothing in Phase 4 is built until Kevin answers. The map waits for one answer too (docs/HANDOFF.md). The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.17 in review; the map waits for one answer) |
+| Last updated | Nov 9, 2026 (Phase 4 plan written; 3.17 and the map wait for Kevin) |
 
 | Phase | State |
 |---|---|
@@ -19,13 +19,34 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
 | 3 · Production data | **Current**: built (Nov 9); Kevin's Nov 9 follow-ups in progress; the gate is Kevin's |
-| 4 · Call sheets | Not started |
+| 4 · Call sheets | Plan and decision sheet written (Nov 9); waits for Kevin's answers and go |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
+
+### Phase 4 milestones
+
+Plan written Nov 9, 2026 (Kevin: plan and decision sheet, not the build, until he answers). The decisions, one page:
+`docs/PHASE4_DECISIONS.md`. One PR per milestone into `v2`, each with its tests, reviewed until nothing high or medium
+is left, under the same rules as Phase 3. The gate: a call sheet used on a real shoot day.
+
+| Milestone | Scope | PR | State |
+|---|---|---|---|
+| 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | | Not started |
+| 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | | Not started |
+| 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | | Not started |
+| 4.4 Weather | The day's forecast at each location from the source Kevin picks (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched; said as not yet available beyond the forecast's range; credited | | Not started |
+| 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): up to five, by straight-line distance; one picked is kept on the location, editable by hand, and printed on every call sheet there | | Not started |
+| 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4) | | Not started |
+| 4.7 Issuing | Issue: the PDF kept as sent, the version and time, the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after; re-issue as version 2, 3… (decision 5) | | Not started |
+| 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | | Not started |
+| Phase 4 gate | A checkpoint and Kevin's checklist: a call sheet used on a real shoot day | | Not started |
+
+Not in Phase 4: cast availability (Phase 9, from the web), sending call sheets (publishing is Phase 9), driving times
+to the hospital (a routing service), a map image until the map is decided.
 
 ### Phase 3 milestones
 
