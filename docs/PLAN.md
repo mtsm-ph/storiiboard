@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.6d merged, 3.7 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**: building under Kevin's queued rules (docs/HANDOFF.md): 3.1 to 3.7 merged, 3.8 in review, 3.4 waits for Kevin. Phase 2 is built (2.1 to 2.9 merged Nov 7); its gate checkpoint passed Nov 7 and its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.7 in review) |
+| Last updated | Nov 9, 2026 (3.8 in review) |
 
 | Phase | State |
 |---|---|
@@ -49,8 +49,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.6b Approvals per scene | The director or DP approves each department per scene; Seen, Working on it and Done stay per frame; "Changed since approval"; migration 9 carries a frame approval to its scene only where every frame had it (Kevin, Nov 9) | #96 | Done |
 | 3.6c Perspective views | Full view per person in Cast and crew (on by default for the director and DP); everyone else sees their own department first, the rest folded under Rest of crew (Kevin, Nov 9) | #97 | Done |
 | 3.6d Manage workspaces | Custom workspaces (save a layout as one, rename, duplicate, delete) and the Manage workspaces… window (deferred from Phase 1) | #98 | Done |
-| 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | In review |
-| 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | | Not started |
+| 3.7 Shoot days | The Days tile: days with date, call and wrap, "Need to shoot" frames moved in and between days (one undo step each), totals computed (shots, setups, estimated hours) | #99 | Done |
+| 3.8 Calendar | The Calendar tile: month and week, the schedule list, a picked day narrowing it, each day's scenes, location status and crew confirmed; in Production's default layout | #100 | In review |
 | 3.9 Gear | A project gear catalogue and a list per day, linked to frames; the first consistency check (src/core/checks): a frame's gear not on its day's list | | Not started |
 | 3.10 Notifications | The History feed with read and unread per person (schema bump, not an op), the unread count in the status bar, filters All, Unread and this scene, Mark all read | | Not started |
 | 3.11 Assets and attachments | The Assets section: PDFs (stored, capped) and links on frames, scenes, locations and people (schema bump) | | Not started |
@@ -58,6 +58,29 @@ is left. The gate: a real shoot's people, places and gear are entered.
 
 Waiting for Kevin, and skipped until he answers: a map inside the app (a new dependency), scene character lists
 as ids (it alters existing data), and the address search (3.4: an HTTP client in Rust, a new dependency).
+
+3.8 as built (Nov 9): the Calendar (`src/features/schedule/CalendarTile.tsx`, `src/core/model/schedule.ts`).
+- The Calendar tile in Production's default layout (its placeholder until now): Month or Week, previous and next,
+  Today, and the month or week's name, said when it changes. The grid is one Tab stop; the arrows move a day or a
+  week, into the next month too, Home and End to the week's ends, Page Up and Down a month; a date is named by what
+  it shows and in full ("16 Monday, November 16, Day 1"), today's underlined and said. A shoot day shows its number on
+  its date (and its call time in the week). Weeks start on Sunday in English and Monday in Spanish
+  (`calendar.firstDay`).
+- Picking a date (the ink fill) narrows the shoot schedule under the grid to that date; Show all days widens it. Each
+  day in the schedule: its label, call and wrap, frames to shoot, its scenes, the locations it's at with their status
+  (TBD, Confirmed, Cancelled), and its crew confirmed ("1 of 3 confirmed").
+- Crew confirmed (docs/PHASE3_DECISIONS.md 10): the Shoot days tile's day lists everyone in Cast and crew (names and
+  titles, never contacts) with a Confirmed toggle each (● confirmed, ○ pending, as well as the fill); until call
+  sheets say who's called, a day's crew is everyone.
+  Stored in the day's `crew` prop, confirmed only (pending is the absence); History says it as a count.
+- Decided by default, review: a day's crew is everyone in Cast and crew until Phase 4's call sheets; the first day of
+  the week by language; a day's locations are its frames' (a frame's own over its scene's); availability waits for
+  Phase 9; the Layout menu's Open tile list in two columns, so it stays short as phases build tiles; a picked date
+  stays picked when its shoot day moves (the schedule then says there's no shoot that day).
+- Tests: a day's scenes, locations with status, crew counted and confirmed (what else the prop holds kept); dates by
+  day and month across years, weeks from either first day, months in whole weeks; end to end (the clock fixed),
+  someone confirmed for a day, the day on its date, picked to narrow the schedule with its scenes, crew and frames,
+  Show all days, the arrows into December, axe, the week after Today and Next week.
 
 3.7 as built (Nov 9): shoot days (`src/core/model/shootDay.ts`, `src/features/schedule/`).
 - The Shoot days tile in the Production workspace (its placeholder until now): the days, numbered by date (Day 1 ·

@@ -343,6 +343,29 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### 3.8: review
+
+- Decided by default, review: a day's crew is everyone in Cast and crew until Phase 4; the week's first day by
+  language (Sunday in English, Monday in Spanish: Kevin may prefer Sunday for Latin American crews); a day's
+  locations are its frames'; availability waits for Phase 9; the Layout menu's Open tile list in two columns.
+- The full end-to-end run caught one of its own: with the Calendar built, the Layout menu's Open tile list grew long
+  enough to cover the Player's Maximize button (axe target-size, in every language and theme). The list is in two
+  columns now, so it stays short as more tiles are built. Found with a probe (the git-excluded `e2e/zz-probe.spec.ts`,
+  emptied again after).
+- Round 1: no high, four mediums, fixed. Toggling crew rewrote a `crew` value it couldn't read (a newer version's):
+  left alone now, tested. Hovering a date outside the month put muted text on oatmeal: ink on hover. A date's name
+  lacked its week-view call time (WCAG 2.5.3): dates are named by what they show now, the full date read after. The
+  crew toggle read "Confirmed" whatever its state: a shape says it (■, □).
+- Lows fixed: a picked date kept across projects (the Calendar is keyed by project); Home, End, Page Up and Down;
+  Spanish plurals for "confirmed"; the schedule heading said when it narrows; separators from the translations; the
+  week's title across a year; month cells grow with their shoot days; six-row months tested.
+- Round 2: no high; its one medium-low (a picked date isn't followed when its day moves) is as designed, a date
+  picked, not a day, and noted in PLAN.md. Lows fixed: the Open tile list's divider in the border colour, no double
+  rule under its last row, long Spanish names wrapping; the crew toggle's shapes are ● and ○, since ■ and □ mean
+  Have and Need to shoot; the date names' tests allow either spacing, for WebKit.
+- Lows left: a click on a date outside the month turns the grid to that month (the click still picks it); a `crew`
+  value this version can't read makes the toggles do nothing, silently.
+
 ### 3.7: review
 
 - Decided by default, review: a day's number from its date, never stored; a frame without a setup counts as a setup

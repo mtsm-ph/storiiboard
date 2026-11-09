@@ -429,6 +429,9 @@ older version keeps them as they are.
 - `shoot_day_id` on a `shot`: the day it's shot. A frame is in at most one day. A day in the Trash, or gone for good,
   reads as none: its frames are unscheduled until it's restored. Only "Need to shoot" frames are offered for a day.
 - `setup_minutes` on the `project`: the minutes per setup a day's estimate counts (1 to 600; missing means 30).
+- `crew` on a `shoot_day` (3.8): who has confirmed the day, `{ "<person id>": "confirmed" }`; anyone not there is
+  pending. Other values and ids this version doesn't know are kept as they are. Until call sheets (Phase 4) say who's
+  called, a day's crew is everyone live in Cast and crew.
 - A day's totals are worked out, never stored: its live "Need to shoot" frames in live scenes; their setups (frames
   sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
   Two days may share a date.

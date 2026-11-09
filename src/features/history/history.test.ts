@@ -315,6 +315,11 @@ describe('Put back', () => {
     await store.getState().apply([{ kind: 'update', id: 'day', set: { date: '2026-11-18' } }]);
     const moved = await lastChange('day', 'date');
     expect(changeValue(moved, moved.after)).toBe('Wed, Nov 18');
+    // Who's confirmed (3.8), kept by person id, is said as how many: never the ids.
+    await store.getState().apply([{ kind: 'update', id: 'day', set: { crew: { 'person-1': 'confirmed', 'person-2': 'confirmed' } } }]);
+    const crew = await lastChange('day', 'crew');
+    expect([changeLabel(crew), changeValue(crew, crew.after)]).toEqual(['crew confirmed', '2 confirmed']);
+    expect((await lines()).at(-1)).not.toContain('person-1');
   });
 
   it('says a person’s Full view as on or off (3.6c)', async () => {

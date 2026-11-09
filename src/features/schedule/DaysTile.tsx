@@ -22,6 +22,9 @@ import { Select, TextArea, TextField } from '../../ui/fields';
 import { StatusGlyph } from '../../ui/tags';
 import { headingOf } from '../storyboard/ScenesView';
 import { dayChange, newDay, scheduleFrames, setupMinutesChange, trashDay, type DayField } from './dayEdits';
+import { confirmedCrew, crewChange } from '../../core/model/schedule';
+import { projectPeople } from '../../core/model/person';
+import { ROLE_LABELS } from '../../core/model/role';
 
 // The Days tile (3.7), in the Production workspace: the shoot's days, each with its date, call and wrap, the frames shot
 // that day and what that adds up to (frames, setups, hours at the project's minutes per setup); and the "Need to shoot"
@@ -164,6 +167,9 @@ export function DaysTile() {
             void edit((now) => dayChange(now, selected.record.id, prop, value));
           }}
           onSchedule={(shotIds, dayId) => edit((now) => scheduleFrames(now, shotIds, dayId))}
+          onCrew={(personId, confirmed) => {
+            void edit((now) => crewChange(now, selected.record.id, personId, confirmed));
+          }}
           onDelete={() => {
             const label = dayLabel(selected);
             const ids = days.map((d) => d.record.id);
@@ -254,11 +260,16 @@ interface DayEditorProps {
   onField: (prop: DayField, value: string) => void;
   /** Frames into a day, or out of every day with null; settles once the edit has landed. */
   onSchedule: (shotIds: readonly string[], dayId: string | null) => Promise<boolean>;
+  /** Someone confirmed for the day (3.8), or back to pending. */
+  onCrew: (personId: string, confirmed: boolean) => void;
   onDelete: () => void;
 }
 
-function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule, onDelete }: DayEditorProps) {
+function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule, onCrew, onDelete }: DayEditorProps) {
   const headingId = useId();
+  const crewId = useId();
+  const people = projectPeople(records, projectId);
+  const confirmed = confirmedCrew(day.record.props);
   const framesId = useId();
   const needId = useId();
   const id = day.record.id;
@@ -320,6 +331,54 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
           if (event.currentTarget.value !== day.fields.notes) onField('notes', event.currentTarget.value);
         }}
       />
+
+      {/* Who's confirmed for the day (3.8, docs/PHASE3_DECISIONS.md 10): everyone in Cast and crew until call sheets say
+          who's called; names and titles only, never contacts. */}
+      <section aria-labelledby={crewId} className="flex flex-col">
+        <h3 id={crewId} className="sb-label border-b-[1.5px] border-text pb-1">
+          {tn('days.crew', people.filter((p) => confirmed.has(p.record.id)).length, { people: people.length })}
+        </h3>
+        {people.length === 0 ? (
+          <p className="py-2 text-[13px] text-text-muted">{t('days.noCrew')}</p>
+        ) : (
+          <ul aria-labelledby={crewId}>
+            {people.map(({ record, fields }) => {
+              const on = confirmed.has(record.id);
+              const name = fields.name || t('people.unnamed');
+              const what = fields.title.trim() || (fields.role ? ROLE_LABELS[fields.role] : '');
+              return (
+                <li key={record.id} className="flex items-center gap-2 border-b border-border py-1 text-[13px]">
+                  <span data-user-text="" className="min-w-0 flex-1 truncate font-semibold">
+                    {name}
+                  </span>
+                  {what && <span className="truncate text-text-muted">{what}</span>}
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={t('days.confirmedFor', { name })}
+                    data-crew-person={record.id}
+                    onClick={() => {
+                      onCrew(record.id, !on);
+                    }}
+                    // Confirmed is an ink fill, as every selection is; pressed says so to a screen reader.
+                    className={cx(
+                      'shrink-0 border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                      on ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
+                  >
+                    {/* The state as a shape too (● confirmed, ○ pending), not the fill alone; ■ and □ are a frame's Have
+                        and Need to shoot. */}
+                    <span aria-hidden="true" className="mr-1 font-mono">
+                      {on ? '●' : '○'}
+                    </span>
+                    {t('days.confirmed')}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <section aria-labelledby={framesId} className="flex flex-col">
         <h3 id={framesId} className="sb-label border-b-[1.5px] border-text pb-1">

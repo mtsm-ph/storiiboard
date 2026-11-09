@@ -77,6 +77,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   call_time: 'history.field.callTime',
   wrap_time: 'history.field.wrapTime',
   setup_minutes: 'history.field.setupMinutes',
+  crew: 'history.field.crew',
   full_view: 'history.field.fullView',
   characters: 'history.field.characters',
   text: 'history.field.text',
@@ -218,6 +219,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'location_id') return t('history.aLocation');
   if (prop === 'cast_id') return t('history.aPerson');
   if (prop === 'shoot_day_id') return t('history.aShootDay');
+  // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
+  if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
   // A shoot day's date (3.7), as the Days tile writes it.
   if (prop === 'date' && typeof value === 'string') return dayDateLabel(value) || value;
   if (prop === 'media_id') return t('history.aPicture');

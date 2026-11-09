@@ -131,11 +131,17 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
               {missing.length === 0 ? (
                 <p className="sb-label px-3 pb-3 text-text-muted">{t('layoutMenu.everyTileIsOpen')}</p>
               ) : (
-                missing.map((tile) => (
-                  <MenuItem key={tile} data-tile={tile} onClick={onOpenTile}>
-                    {TILES[tile]?.title}
-                  </MenuItem>
-                ))
+                // Two columns, so the menu stays short as phases build more tiles: a long one would reach down over
+                // the tiles' own title bars.
+                // A long name wraps rather than being cut ("Elenco y equipo"); the last row leaves its rule to the
+                // next group's.
+                <div className="grid grid-cols-2 [&_span]:whitespace-normal [&>button:nth-child(odd)]:border-r [&>button:nth-child(odd)]:border-r-border [&>button:nth-last-child(-n+2)]:border-b-0">
+                  {missing.map((tile) => (
+                    <MenuItem key={tile} data-tile={tile} onClick={onOpenTile}>
+                      {TILES[tile]?.title}
+                    </MenuItem>
+                  ))}
+                </div>
               )}
             </MenuGroup>
             {/* What undoes goes last, in a group of its own (Kevin, Nov 5). */}
