@@ -347,6 +347,19 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 9, late)
+
+- Merged tonight: #114 (agents), #115 (Kevin's answers in the docs), #116 (3.18), #117 (3.19). #112 (3.17) has every
+  Settings baseline regenerated and a comment for Kevin; it waits for him to say merge.
+- Next: 4.0, the service switch. Its brief is complete: docs/briefs/4.0-service-switch.md. Start the builder with it
+  (no model passed; check the subagent's transcript records `claude-sonnet-5-5`, as Kevin asked to be told how each
+  agent's model was confirmed). Then 4.1 to 4.8, 4.9, 4.10 in order, each split into briefs, stopping at the gate.
+- Decided by default in 4.0's brief, for Kevin's review: the file at the repo root on `main`
+  (raw.githubusercontent.com), reasons as codes with translated words (never text from the file), and a new Settings
+  tab, Online services (it changes the Settings screenshots again).
+- Leftover: test-results/probe holds 3.19's probe files (build output; deleting them was refused by this session's
+  permissions). Nothing reads them.
+
 ### Kevin's answers and the new way of working (Nov 9, evening)
 
 - The builder couldn't run in this session: agent files are read when a session starts, and this one started
