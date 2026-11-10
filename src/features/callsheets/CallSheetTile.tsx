@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { sheetCompany, useCompanyLogoUrl } from './sheetCompany';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
 import { isPaperChoice } from '../../core/storage/settings';
@@ -52,6 +53,8 @@ export function CallSheetTile() {
   // The forecasts already held, for the rain check; it never asks for one (4.8).
   const held = useHeldForecasts(points);
   const chosen = useSheetDay((s) => s.dayId);
+  const company = project ? sheetCompany(records, project.projectId) : null;
+  const logoUrl = useCompanyLogoUrl(project?.file ?? null, company?.logoSha256 ?? null);
   // One export at a time, as Issue has one: the map's tiles can take seconds, and a second press would only wait behind it.
   const [exporting, setExporting] = useState(false);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('callSheet.noProject')}</p>;
@@ -117,7 +120,7 @@ export function CallSheetTile() {
       </div>
       <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople} />
       <IssuedVersions sheet={sheet} dayId={dayId} />
-      <DaySection sheet={sheet} projectName={project.name} />
+      <DaySection sheet={sheet} projectName={project.name} company={company} logoUrl={logoUrl} />
       <LocationsSection sheet={sheet} />
       <ScenesSection sheet={sheet} />
       <PeopleSection

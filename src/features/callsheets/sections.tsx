@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import type { SheetCompany } from './sheetCompany';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { showInfo } from '../../app/notice';
 import { list, t, tn } from '../../core/i18n';
@@ -40,12 +41,30 @@ export function Section({ label, children }: { label: string; children: ReactNod
 const Empty = ({ children }: { children: string }) => <p className="py-2 text-[13px] text-text-muted">{children}</p>;
 
 /** The day: the project, "Day 3 of 5", its date in full, and the crew call and wrap (edited in Shoot days). */
-export function DaySection({ sheet, projectName }: { sheet: CallSheet; projectName: string }) {
+export function DaySection({ sheet, projectName, company, logoUrl }: { sheet: CallSheet; projectName: string; company?: SheetCompany | null; logoUrl?: string | null }) {
   const { day } = sheet;
   const date = dayDateFull(day.fields.date);
   return (
     <Section label={t('callSheet.section.day')}>
       <div className="flex flex-col gap-1 py-2">
+        {/* The project's company (4.12): its name and a small logo above the title, as the PDF's header has them. */}
+        {company && (
+          <div data-sheet-company="" className="flex items-center gap-2">
+            {logoUrl && (
+              // On paper, as the PDF has it, so a dark logo shows in the dark theme too.
+              <img
+                src={logoUrl}
+                alt={company.name === '' ? t('company.logoOf', { name: t('company.unnamed') }) : ''}
+                className="h-[32px] max-w-[112px] border border-border bg-paper-fixed object-contain p-1"
+              />
+            )}
+            {company.name !== '' && (
+              <p data-user-text="" className="sb-label text-text">
+                {company.name}
+              </p>
+            )}
+          </div>
+        )}
         <p data-user-text="" className="text-[18px] leading-tight font-bold">
           {sheet.title || projectName}
         </p>

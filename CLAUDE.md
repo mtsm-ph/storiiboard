@@ -176,6 +176,7 @@
   Built in 4.10: the map on the call sheet, on screen (read-only) and in the PDF, composed from the tiles into one
   image per location (src/features/callsheets/composeMap.ts, gatherSheetMaps.ts), with its credit.
   Built in 4.11 (Kevin, Nov 10): the sheet lists only Need-to-shoot frames (`sheetFrames`); the Calendar keeps all.
+  Built in 4.12: the header prints the attached company's name and logo (the logo redrawn in sRGB for the PDF).
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
