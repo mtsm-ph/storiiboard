@@ -347,6 +347,55 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 10, evening: Phase 4 built)
+
+- Phase 4 is built and reviewed, 4.0 to 4.10 plus Kevin's follow-ups 4.11 (only frames to shoot), 4.12 (company on
+  the header) and 4.13 (ambulance numbers, Latin America), as a stack of PRs each based on the one before (so each diff
+  is its milestone): #120 (4.0, base `v2`) ← #121 ← #122 ← #123 ← #124 ← #125 ← #126 ← #127 ← #128 ← #129 (4.9) ← #130
+  (4.10) ← #131 ← #132 ← #133 (4.13) ← the docs PR (this file, the Phase 5 plan).
+- Kevin approved the baselines of #120, #124 and #126 (Nov 10). 4.9 and 4.10 changed no screenshots.
+- **The merges didn't happen:** this session's permission classifier refused `gh pr merge` ("Merge Without Review")
+  though Kevin's message authorized it. Next: merge #120 into `v2` (merge commit, delete the branch so GitHub
+  retargets #121 to `v2`), merge `v2` into the next branch so its CI runs on the new base, wait for green, merge; and
+  so on up to #133 and the docs PR. Each branch already holds the ones below, so no conflicts are expected.
+- Then the full checkpoint on `v2` Kevin asked for (`git push origin v2:checkpoint/phase4-gate`: Linux and Mac smoke,
+  Mac and Windows installers). Until then, `checkpoint/phase4-stack` (the top of the stack, 4.13) has the installers
+  of everything built (see the report for its run).
+- Phase 5: the plan is in PLAN.md ("Phase 5 milestones") and docs/PHASE5_DECISIONS.md; nothing is built until Kevin
+  answers.
+- Kevin's other Nov 10 answers, kept: the MET credit stays translated; HMU minimum 45, editable; 4.7's Spanish words
+  wait for him; "Week starts on" becomes "By this computer's region" the next time the Settings screenshots change
+  anyway (none of 4.9 to 4.13 changed them, so it's still to do).
+- Builder model: every builder run's transcript recorded `claude-sonnet-5-5` at effort medium (each assistant message:
+  `model: claude-sonnet-5-5`, `advisorModel: claude-opus-5-5`; the meta file's `pickedEffortModel` names the advisor).
+- Leftovers (deleting was refused): test-results/probe.test.ts.leftover (4.3's builder's scratch test, moved out of
+  src), test-results/shots, test-results/e2e-run*.log, test-results/fp* (the main session's probes). All build output.
+
+### Phase 4 gate: Kevin's checklist (riskiest first)
+
+1. On both computers, from the stack's installers: a real shoot day's call sheet end to end (who's on it, calls,
+   cast times, contacts), Export PDF, then Issue; open the issued PDF in Preview and in Acrobat or a browser.
+2. The map (desktop only; nothing in tests touches the network): open a location with a place, pan and zoom (click
+   the map first; Ctrl/⌘ + wheel always zooms), drag the pin, ⌘Z. Then a fast wheel from 16 to 10: in the cache
+   folder's tiles/osm, no zoom 11–15 tiles should keep arriving once you stop.
+3. Settings → Online services: "Use this server" with an own tile server: the system question must name the host;
+   Cancel and Escape save nothing. (It uses the dialog plugin's message dialog, from Rust: say OK to that use.)
+4. The forecast on a location a few days out: fetched once, "Up to date until …" on Refresh, the MET credit; then
+   Settings → App → Weather units.
+5. Sun times at a place far from your time zone (pick a zone on the location), and a high-latitude place in June
+   (Reykjavík): merged golden and blue hours with +1.
+6. Find nearest hospital (Nominatim, on a press), pick one, the safety box (Emergency/Ambulance and the number), type
+   another name over it (the 24-hour line and distance go).
+7. The checks strip: a cast member with HMU 20 minutes after call; a location missing parking; a DAWN scene on an
+   overnight day (18:00 to 08:00) must not be flagged. (#122's who's-on-the-day: a new day starts empty; Add everyone;
+   a time typed on a member stays theirs when the department's call changes; ⌘Z inside a time field.)
+8. Your company profile attached: the logo's colours on paper match the logo file (WebKit on the Mac stores logos in
+   P3; the PDF redraws them in sRGB).
+9. On a Mac: WebKit wasn't run for the call sheet tests (only the smoke set runs there); the call sheet tile and its
+   PDF on the Mac are worth a look, and a half-typed time in a time field on WebKit may clear it (as the Shoot days
+   tile's times already do).
+10. Mark a frame Have: it leaves the sheet; the Calendar still lists its scene.
+
 ### Next session: start here (Nov 10)
 
 - Done Nov 10: #112 (3.17) merged after Kevin compared all 20 baselines; #119 put `services.json` on `main`
