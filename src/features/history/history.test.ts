@@ -7,6 +7,7 @@ import { createProject, openProject, type Project } from '../../core/storage/pro
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
+import { callsheetNoteChange } from '../callsheets/callsheetEdits';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
@@ -676,4 +677,16 @@ describe('a scene’s and a note’s own history', () => {
     const field = await lastChange('sc4', 'page_eighths');
     expect(changeText(field, field.after)).toBe('1 3/8 pg');
   });
+
+  it('names a call sheet by its day, read from the log, and never shows the note itself (4.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'day', type: 'shoot_day', parentId: project.projectId, sortKey: 'm', props: { date: '2026-11-16' } } },
+    ]);
+    await store.getState().applyWith((now) => ({ changes: callsheetNoteChange(now, 'day', 'notes', 'Gate code 4471') }));
+    await store.getState().applyWith((now) => ({ changes: callsheetNoteChange(now, 'day', 'safety_notes', 'Allergy: peanuts') }));
+    const all = await lines();
+    expect(all.slice(-2)).toEqual(['Call sheet · Mon, Nov 16: general notes — → not shown', 'Call sheet · Mon, Nov 16: safety notes — → not shown']);
+    expect(all.join(String.fromCharCode(10))).not.toMatch(/4471|peanuts/);
+  });
+
 });

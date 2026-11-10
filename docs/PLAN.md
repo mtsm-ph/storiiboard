@@ -7,19 +7,19 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups merged (3.4, 3.12 to 3.16, 3.18, 3.19); 3.17 (PR #112) waits for him to compare its new Settings baselines and say merge. **Phase 4 · Call sheets**: answered and approved Nov 9; 4.0's brief is written (docs/briefs/4.0-service-switch.md), to be built by the builder in a session that loads it (agent files are read when a session starts). The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
+| **Current phase** | **Phase 4 · Call sheets**, being built Nov 10 by the builder from briefs (docs/briefs/), one PR per milestone, each stacked on the one before while 4.0 waits for Kevin's look at its Settings baselines (#120). Phase 3 is built to its gate (checkpoint passed Nov 9); its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (3.18 and 3.19 merged; 4.0's brief written; 3.17 waits for Kevin) |
+| Last updated | Nov 10, 2026 (4.0 #120 waits for Kevin's baselines; 4.1 built, stacked on it) |
 
 | Phase | State |
 |---|---|
 | 0 · Foundation and .sbd | Done (Nov 2) |
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
-| 3 · Production data | **Current**: built (Nov 9); Kevin's Nov 9 follow-ups in progress; the gate is Kevin's |
-| 4 · Call sheets | Answered and approved Nov 9; 4.0 next, after 3.18 and 3.19 |
+| 3 · Production data | Built (Nov 9), follow-ups merged (Nov 10); the gate is Kevin's |
+| 4 · Call sheets | **Current**: answered and approved Nov 9; being built from Nov 10 |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
@@ -38,8 +38,8 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | | Not started |
-| 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | | Not started |
+| 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | #120 | Built Nov 10; two review rounds; waits for Kevin to compare the Settings baselines (the new tab) and say merge |
+| 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | #121 | Built Nov 10, stacked on 4.0; two review rounds; notes private in History |
 | 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | | Not started |
 | 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | | Not started |
 | 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | | Not started |

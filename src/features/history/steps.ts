@@ -74,6 +74,10 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     const picture = ops.find((op) => (op.after ?? op.before)?.type === 'media');
     const parentId = picture ? (picture.after ?? picture.before)?.parentId : null;
     if (picture && parentId && !ops.some((op) => op.recordId === parentId)) asks.push({ group, id: parentId, seq: picture.seq });
+    // A call sheet is named by its day (4.1), which the step doesn't write.
+    const sheet = ops.find((op) => (op.after ?? op.before)?.type === 'callsheet');
+    const dayId = sheet ? (sheet.after ?? sheet.before)?.parentId : null;
+    if (sheet && dayId && !ops.some((op) => op.recordId === dayId)) asks.push({ group, id: dayId, seq: sheet.seq });
     // As the step left it: a location picked by a new name is made in the same step.
     // Not Math.max(...seqs), which throws past about 125k arguments: a Restore to here can be a step that big.
     const end = ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1;

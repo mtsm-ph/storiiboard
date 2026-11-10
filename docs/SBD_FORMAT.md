@@ -566,6 +566,17 @@ order picked, each once. Anything in the list that isn't an id is kept as stored
 gone is ignored too. The first consistency check (src/core/checks) reads them: a frame in a day needing a live item
 the day's list doesn't have.
 
+## Call sheet props (4.1)
+
+A `callsheet` record (under a `shoot_day`) holds what a day's call sheet adds to the project's own records; everything
+else on the sheet (the day, locations, scenes, cast, crew) is read from the records and never copied. Props: `notes`
+(the General notes) and `safety_notes` (the Safety notes), both text; an empty note takes its prop off. It is made by the
+first note typed, in the same op group, never by viewing a day. Its parent is the day, so it goes with its day: a day in
+the Trash hides it, and a restore brings it back. It is not trashed on its own. If a day has more than one live
+`callsheet` (two computers, a merged file), the first by sort key is the call sheet and the others are ignored. Additive
+(no table change, no schema number): `callsheet` was already a record type, and an older version keeps the records as
+they are.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the
