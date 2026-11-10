@@ -6,8 +6,9 @@ import type { SbdRecord } from '../../core/model/record';
 import { dayLabel, projectShootDays } from '../../core/model/shootDay';
 import type { Change } from '../../core/ops/ops';
 import { Select } from '../../ui/fields';
-import { callsheetNoteChange, type CallsheetNote } from './callsheetEdits';
-import { CastSection, CrewSection, DaySection, LocationsSection, NotesSection, ScenesSection } from './sections';
+import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } from '../schedule/dayEdits';
+import { callsheetNoteChange, departmentCallChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
+import { CastSection, CrewSection, DaySection, LocationsSection, NotesSection, PeopleSection, ScenesSection } from './sections';
 
 // The Call sheet tile (4.1), in the Production workspace: a shoot day's call sheet, built live from the project (the
 // day, its locations, scenes, cast, crew), so what shows is what the crew would get. It scrolls inside the tile. The
@@ -53,10 +54,32 @@ export function CallSheetTile() {
       <DaySection sheet={sheet} projectName={project.name} />
       <LocationsSection sheet={sheet} />
       <ScenesSection sheet={sheet} />
-      <CastSection sheet={sheet} />
-      <CrewSection sheet={sheet} />
+      <PeopleSection
+        key={`people:${dayId}`}
+        sheet={sheet}
+        dayName={dayLabel(selected)}
+        onAdd={(personId) => edit((now) => dayPeopleAdd(now, dayId, personId))}
+        onRemove={(personId) => edit((now) => dayPeopleRemove(now, dayId, personId))}
+        onAddEveryone={() => edit((now) => dayPeopleAddEveryone(now, projectId, dayId))}
+        onChoose={() => edit((now) => dayPeopleChoose(now, projectId, dayId))}
+      />
+      <CastSection
+        sheet={sheet}
+        onTime={(personId, field, value) => {
+          void edit((now) => personTimeChange(now, dayId, personId, field, value));
+        }}
+      />
+      <CrewSection
+        sheet={sheet}
+        onDepartmentCall={(department, value) => {
+          void edit((now) => departmentCallChange(now, dayId, department, value));
+        }}
+        onTime={(personId, field, value) => {
+          void edit((now) => personTimeChange(now, dayId, personId, field, value));
+        }}
+      />
       <NotesSection
-        key={dayId}
+        key={`notes:${dayId}`}
         notes={sheet.notes}
         onNote={(prop: CallsheetNote, value) => {
           void edit((now) => callsheetNoteChange(now, dayId, prop, value));

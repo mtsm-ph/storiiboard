@@ -94,8 +94,8 @@ describe('shoot days', () => {
 
 describe('the Days tile’s edits', () => {
   it('make a new day the day after the latest, or today when there are none', () => {
-    expect(newDay(base(), 'p', '2026-11-09', 'n').record.props).toEqual({ date: '2026-11-19' });
-    expect(newDay(recordsOf(record('p', 'project', null, {})), 'p', '2026-11-09', 'n').record.props).toEqual({ date: '2026-11-09' });
+    expect(newDay(base(), 'p', '2026-11-09', 'n').record.props).toEqual({ date: '2026-11-19', people_ids: [] });
+    expect(newDay(recordsOf(record('p', 'project', null, {})), 'p', '2026-11-09', 'n').record.props).toEqual({ date: '2026-11-09', people_ids: [] });
     expect(nextDate('2026-12-31')).toBe('2027-01-01');
   });
 

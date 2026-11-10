@@ -535,8 +535,14 @@ older version keeps them as they are.
   reads as none: its frames are unscheduled until it's restored. Only "Need to shoot" frames are offered for a day.
 - `setup_minutes` on the `project`: the minutes per setup a day's estimate counts (1 to 600; missing means 30).
 - `crew` on a `shoot_day` (3.8): who has confirmed the day, `{ "<person id>": "confirmed" }`; anyone not there is
-  pending. Other values and ids this version doesn't know are kept as they are. Until call sheets (Phase 4) say who's
-  called, a day's crew is everyone live in Cast and crew.
+  pending. Other values and ids this version doesn't know are kept as they are. Who is called is `people_ids` (4.2,
+  below).
+- `people_ids` on a `shoot_day` (4.2): who is on the day, a list of person ids, in the order added, each once. A day
+  without the prop (every day made before 4.2) reads as everyone live in Cast and crew; a day made from 4.2 on starts
+  with `[]`, nobody. Ids of people in the Trash or gone are kept as they are and skipped when read, so a restore brings
+  them back; taking someone off keeps their `crew` entry and their times. A value that isn't a list of text reads as
+  the prop missing and is never written over. Additive (no schema number): an older version ignores it and treats
+  everyone as called.
 - A day's totals are worked out, never stored: its live "Need to shoot" frames in live scenes; their setups (frames
   sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
   Two days may share a date.
@@ -577,6 +583,18 @@ the Trash hides it, and a restore brings it back. It is not trashed on its own. 
 (no table change, no schema number): `callsheet` was already a record type, and an older version keeps the records as
 they are.
 
+4.2 adds two props, both additive (no schema number; an older version keeps them as they are):
+
+- `department_calls`: `{ "<department id>": "HH:MM" }`, a department's call where it differs from the day's crew call
+  (`call_time` on the day). An empty value takes its key off, and the prop with its last key.
+- `person_times`: `{ "<person id>": { "call": "HH:MM", "hmu_ready": "HH:MM", "on_set": "HH:MM" } }`. `call` is for
+  anyone; `hmu_ready` and `on_set` are offered for cast only, and kept if present on anyone. An empty value takes its
+  key off, and a person with nothing left is taken off. A person's call on the sheet is their own `call`; else the
+  earliest `department_calls` among their departments; else the day's crew call; else none.
+
+Values that aren't a time, and keys this version doesn't know, read as unset and are written back as they were when
+another key is written; a prop that isn't an object is never written over.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the
@@ -591,6 +609,12 @@ prop as it is and only shows every department, as before): true or false, set fr
 Missing or odd means never set: then it's on for a director or a DP (a role that approves) and off for everyone else.
 Off, the app shows that person's own departments first, the rest under Rest of crew, once they've picked themselves
 with This is me. A focus view, not access: the file holds everything for whoever opens it.
+
+`contact_on_sheet` (4.2, additive: no schema number, since an older version keeps the prop as it is and prints no
+contact on a call sheet it doesn't have): true or false, set from the person's "Phone and email on call sheets" switch.
+Missing or odd means never set: then it's off for someone who is only cast (departments exactly `cast`, or none and
+the role `cast`) and on for everyone else. A call sheet prints a person's phone and email only when it is on, and only
+for people on the day (`people_ids`). Never logged, never named in History.
 
 `cast_id` on a `character` (3.5b): the person who plays them, by id; missing means no one yet. A person in the Trash
 reads as none; their characters keep the id, so a restore gives them back. After Empty Trash the id names nothing and

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
 import { t, tn } from '../../core/i18n';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
-import { castOf, characterName, PERSON_TEXT_FIELDS, personFieldRecords, personFullView, personPart, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
+import { castOf, characterName, contactOnSheet, PERSON_TEXT_FIELDS, personFieldRecords, personFullView, personPart, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
 import type { SbdRecord } from '../../core/model/record';
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { Button } from '../../ui/Button';
@@ -14,7 +14,7 @@ import { Select, TextArea, TextField } from '../../ui/fields';
 import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
 import { focusOf } from '../department/perspective';
-import { castCharacter, newPerson, personChange, personDepartment, personFullViewChange, personRole, trashPerson } from './personEdits';
+import { castCharacter, newPerson, personChange, personDepartment, personContactOnSheetChange, personFullViewChange, personRole, trashPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
 // (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
@@ -186,6 +186,9 @@ export function PeopleTile() {
           onFullView={(on) => {
             void edit((now) => personFullViewChange(now, selected.record.id, on));
           }}
+          onContactOnSheet={(on) => {
+            void edit((now) => personContactOnSheetChange(now, selected.record.id, on));
+          }}
           onDelete={() => {
             const id = selected.record.id;
             const at = all.findIndex((p) => p.record.id === id);
@@ -232,16 +235,20 @@ interface PersonEditorProps {
   onDepartment: (department: (typeof DEPARTMENTS)[number], on: boolean) => void;
   /** Full view on or off (3.6c): set on the person, in the file. */
   onFullView: (on: boolean) => void;
+  /** Phone and email on call sheets on or off (4.2): set on the person, in the file. */
+  onContactOnSheet: (on: boolean) => void;
   /** The project's characters, and who plays each: picking one casts this person, again uncasts them. */
   characters: readonly { id: string; name: string; playedBy: string | null; castName: string }[];
   onCast: (characterId: string, on: boolean) => void;
   onDelete: () => void;
 }
 
-function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, characters, onCast, onDelete }: PersonEditorProps) {
+function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, onContactOnSheet, characters, onCast, onDelete }: PersonEditorProps) {
   const playsId = useId();
   const fullViewNoteId = useId();
   const fullView = personFullView(fields);
+  const contactNoteId = useId();
+  const contactShown = contactOnSheet(fields);
   // Off, but nothing to fold (no department of their own, or every one): they see everything, and the note says so.
   const folded = focusOf({ fullView, departments: personPart(fields).departments }) !== null;
   const meNoteId = useId();
@@ -407,7 +414,35 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
           </div>
         </div>
       )}
-      {PERSON_TEXT_FIELDS.map((prop) => text(prop, FIELD_LABEL[prop](), prop === 'notes', FIELD_TYPE[prop]))}
+      {PERSON_TEXT_FIELDS.map((prop) => (
+        <Fragment key={prop}>
+          {text(prop, FIELD_LABEL[prop](), prop === 'notes', FIELD_TYPE[prop])}
+          {/* Whether the phone and email above print on call sheets (4.2): on for crew, off for cast, until it is set. */}
+          {prop === 'email' && (
+            <div className="flex flex-col gap-1">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={contactShown}
+                aria-describedby={contactNoteId}
+                data-contact-on-sheet=""
+                onClick={() => {
+                  onContactOnSheet(!contactShown);
+                }}
+                className={cx(
+                  'self-start border-[1.5px] border-text px-2 py-0.5 text-[12px] font-semibold',
+                  contactShown ? 'bg-text text-text-inverse focus-visible:-outline-offset-4 focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                )}
+              >
+                {t('person.contactOnSheet')}
+              </button>
+              <p id={contactNoteId} className="text-[12px] text-text-muted">
+                {contactShown ? t('person.contactOnSheetOn') : t('person.contactOnSheetOff')}
+              </p>
+            </div>
+          )}
+        </Fragment>
+      ))}
       <div className="flex flex-col gap-3">
         <h4 className="sb-label">{t('person.customFields')}</h4>
         <CustomFields

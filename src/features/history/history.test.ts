@@ -7,7 +7,8 @@ import { createProject, openProject, type Project } from '../../core/storage/pro
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
-import { callsheetNoteChange } from '../callsheets/callsheetEdits';
+import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../callsheets/callsheetEdits';
+import { dayPeopleAdd, dayPeopleRemove } from '../schedule/dayEdits';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
@@ -687,6 +688,26 @@ describe('a scene’s and a note’s own history', () => {
     const all = await lines();
     expect(all.slice(-2)).toEqual(['Call sheet · Mon, Nov 16: general notes — → not shown', 'Call sheet · Mon, Nov 16: safety notes — → not shown']);
     expect(all.join(String.fromCharCode(10))).not.toMatch(/4471|peanuts/);
+  });
+
+  it('names who was added to a day and a call time by name, read from the log, never a phone (4.2)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'day', type: 'shoot_day', parentId: project.projectId, sortKey: 'm', props: { date: '2026-11-16', people_ids: [] } } },
+      { kind: 'create', record: { id: 'ana', type: 'person', parentId: project.projectId, sortKey: 'm', props: { name: 'Ana Ruiz', phone: '555 0101' } } },
+    ]);
+    await store.getState().applyWith((now) => ({ changes: dayPeopleAdd(now, 'day', 'ana') }));
+    await store.getState().applyWith((now) => ({ changes: personTimeChange(now, 'day', 'ana', 'call', '09:00') }));
+    await store.getState().applyWith((now) => ({ changes: departmentCallChange(now, 'day', 'camera', '06:30') }));
+    await store.getState().applyWith((now) => ({ changes: personTimeChange(now, 'day', 'ana', 'call', '09:30') }));
+    await store.getState().applyWith((now) => ({ changes: dayPeopleRemove(now, 'day', 'ana') }));
+    expect((await lines()).slice(-5)).toEqual([
+      'Added Ana Ruiz to Mon, Nov 16',
+      'Call sheet · Mon, Nov 16: Ana Ruiz’s call — → 09:00',
+      'Call sheet · Mon, Nov 16: Camera’s call — → 06:30',
+      'Call sheet · Mon, Nov 16: Ana Ruiz’s call 09:00 → 09:30',
+      'Took Ana Ruiz off Mon, Nov 16',
+    ]);
+    expect((await lines()).join(String.fromCharCode(10))).not.toMatch(/555/);
   });
 
 });

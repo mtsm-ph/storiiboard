@@ -156,7 +156,8 @@
   PDF as a read-only copy in the PDF reader, a link in the browser), Save a copy, Copy link.
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web. Built in 4.1: the Call
   sheet tile in Production (src/core/model/callsheet.ts), a `callsheet` record under its day holding only its notes,
-  never their text in History.
+  never their text in History. Built in 4.2: who's on a day is the day's `people_ids` (a day without it, from before
+  4.2, means everyone), calls and cast times on the `callsheet` record, and a person's `contact_on_sheet`.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's

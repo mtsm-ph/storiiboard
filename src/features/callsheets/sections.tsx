@@ -1,17 +1,20 @@
-import { useId, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { list, t, tn } from '../../core/i18n';
-import { dayDateFull, type CallSheet, type CallSheetNotes } from '../../core/model/callsheet';
-import { DEPARTMENT_LABELS } from '../../core/model/department';
+import { dayDateFull, type CallSheet, type CallSheetNotes, type SheetContact } from '../../core/model/callsheet';
+import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { ROLE_LABELS } from '../../core/model/role';
 import { pageLabel, sceneLabel } from '../../core/model/storyboard';
 import { headingOf } from '../storyboard/ScenesView';
-import { TextArea } from '../../ui/fields';
+import { Button } from '../../ui/Button';
+import { Select, TextArea } from '../../ui/fields';
 import { DepartmentTag } from '../../ui/tags';
-import type { CallsheetNote } from './callsheetEdits';
+import type { CallsheetNote, PersonTime } from './callsheetEdits';
+import { TimeInput } from './TimeInput';
 
 // The call sheet's sections (4.1), one small component each, so a later milestone adds a section without reshaping
-// the others. They only draw what callSheet() worked out; the notes are the only thing here a person edits.
+// the others. They only draw what callSheet() worked out; what a person edits here is who is on the day, the times,
+// and the notes.
 
 /** A section: a 10px mono label over a 1.5px rule, as the other tiles' sections are. */
 export function Section({ label, children }: { label: string; children: ReactNode }) {
@@ -134,12 +137,18 @@ export function ScenesSection({ sheet }: { sheet: CallSheet }) {
               </p>
               {characters.length > 0 && (
                 <ul aria-label={t('callSheet.charactersOf', { scene: sceneLabel(fields.number) })}>
-                  {characters.map(({ record: character, name, cast }) => (
+                  {characters.map(({ record: character, name, cast, onDay }) => (
                     <li key={character.id} className="flex gap-2 pl-3">
                       <span data-user-text="" className="font-semibold">
                         {name}
                       </span>
                       {cast ? <span data-user-text="">{cast.fields.name || t('people.unnamed')}</span> : <span className="text-text-muted">{t('callSheet.notCast')}</span>}
+                      {/* A missed actor, said in words (muted, never colour alone). */}
+                      {cast && !onDay && (
+                        <span data-not-on-day="" className="text-text-muted">
+                          {t('callSheet.notOnDay')}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -152,51 +161,264 @@ export function ScenesSection({ sheet }: { sheet: CallSheet }) {
   );
 }
 
-/** Each actor of the day's scenes once, with the characters they play that day. */
-export function CastSection({ sheet }: { sheet: CallSheet }) {
+/**
+ * Who is on the day (4.2): the people on it with a Take off each, Add person, Add everyone. An edit's promise settles
+ * once it has landed (true) so focus can move to what took the place of the button that went. The tile keys this by
+ * day, so a pick never carries to another day.
+ */
+export function PeopleSection({
+  sheet,
+  dayName,
+  onAdd,
+  onRemove,
+  onAddEveryone,
+  onChoose,
+}: {
+  sheet: CallSheet;
+  dayName: string;
+  onAdd: (personId: string) => Promise<boolean>;
+  onRemove: (personId: string) => Promise<boolean>;
+  onAddEveryone: () => Promise<boolean>;
+  onChoose: () => Promise<boolean>;
+}) {
+  const [pick, setPick] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  // A pick that has since gone on the day (or away) reads as none.
+  const picked = sheet.notOnDay.some((p) => p.record.id === pick) ? pick : '';
+  // Once the list has drawn again: the Take off of `id`, else the Add person field, else the first Take off.
+  const focusAfter = (done: boolean, id: string | null) => {
+    if (!done) return;
+    requestAnimationFrame(() => {
+      // Only focus lost with the button that went, or still in this section: never pull it from where the person has
+      // gone since (a time or a note half typed would commit on the blur).
+      const now = document.activeElement;
+      if (now && now !== document.body && !box.current?.contains(now)) return;
+      const row = id === null ? null : box.current?.querySelector<HTMLElement>(`[data-take-off="${CSS.escape(id)}"]`);
+      (row ?? box.current?.querySelector<HTMLElement>('[data-add-person]') ?? box.current?.querySelector<HTMLElement>('[data-take-off]'))?.focus();
+    });
+  };
+  if (!sheet.peopleChosen) {
+    // A day from before 4.2: everyone is on it until someone chooses, so nothing changes by itself.
+    return (
+      <Section label={t('callSheet.section.people')}>
+        <div ref={box} className="flex flex-wrap items-center gap-3 py-2">
+          <p data-everyone="" className="text-[13px] text-text-muted">
+            {sheet.peopleOdd ? t('callSheet.peopleOdd') : t('callSheet.everyone')}
+          </p>
+          {!sheet.peopleOdd && (
+            <Button
+              onClick={() => {
+                void onChoose().then((done) => {
+                  focusAfter(done, null);
+                });
+              }}
+            >
+              {t('callSheet.choose')}
+            </Button>
+          )}
+        </div>
+      </Section>
+    );
+  }
+  const ids = sheet.people.map((p) => p.record.id);
+  return (
+    <Section label={t('callSheet.section.people')}>
+      <div ref={box}>
+        {sheet.people.length === 0 ? (
+          <Empty>{t('callSheet.nobody')}</Empty>
+        ) : (
+          <ul>
+            {sheet.people.map(({ record, fields }) => {
+              const name = fields.name || t('people.unnamed');
+              return (
+                <li key={record.id} data-on-day={record.id} className="flex items-center gap-2 border-b border-border py-1 text-[13px]">
+                  <span data-user-text="" className="min-w-0 flex-1 truncate font-semibold">
+                    {name}
+                  </span>
+                  <Button
+                    data-take-off={record.id}
+                    aria-label={t('callSheet.takeOffNamed', { name, day: dayName })}
+                    onClick={() => {
+                      const at = ids.indexOf(record.id);
+                      void onRemove(record.id).then((done) => {
+                        focusAfter(done, ids[at + 1] ?? ids[at - 1] ?? null);
+                      });
+                    }}
+                  >
+                    {t('callSheet.takeOff')}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {sheet.notOnDay.length === 0 ? (
+          sheet.people.length > 0 && <Empty>{t('callSheet.allOn')}</Empty>
+        ) : (
+          <div className="flex flex-wrap items-end gap-2 py-2">
+            <span className="w-56">
+              <Select
+                label={t('callSheet.addPerson')}
+                value={picked}
+                data-add-person=""
+                onChange={(event) => {
+                  setPick(event.currentTarget.value);
+                }}
+              >
+                <option value="">{t('callSheet.pickPerson')}</option>
+                {sheet.notOnDay.map(({ record, fields }) => (
+                  <option key={record.id} value={record.id}>
+                    {fields.name || t('people.unnamed')}
+                  </option>
+                ))}
+              </Select>
+            </span>
+            <Button
+              disabled={picked === ''}
+              onClick={() => {
+                const id = picked;
+                setPick('');
+                void onAdd(id).then((done) => {
+                  focusAfter(done, null);
+                });
+              }}
+            >
+              {t('callSheet.addPersonButton')}
+            </Button>
+            <Button
+              onClick={() => {
+                void onAddEveryone().then((done) => {
+                  focusAfter(done, null);
+                });
+              }}
+            >
+              {t('callSheet.addEveryone')}
+            </Button>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** A person's phone and email where their record lets them print (4.2); nothing otherwise. */
+function Contact({ contact }: { contact: SheetContact | null }) {
+  const parts = contact ? [contact.phone, contact.email].filter((part) => part.trim() !== '') : [];
+  if (parts.length === 0) return null;
+  return (
+    <span data-user-text="" data-sheet-contact="" className="font-mono text-[12px]">
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
+type OnTime = (personId: string, field: PersonTime, value: string) => void;
+
+/** Each actor on the day once, with the characters they play that day, and their call, HMU ready and on set. */
+export function CastSection({ sheet, onTime }: { sheet: CallSheet; onTime: OnTime }) {
   return (
     <Section label={t('callSheet.section.cast')}>
       {sheet.cast.length === 0 ? (
         <Empty>{t('callSheet.noCast')}</Empty>
       ) : (
         <ul>
-          {sheet.cast.map(({ person, characters }) => (
-            <li key={person.record.id} data-sheet-cast={person.record.id} className="flex flex-wrap gap-x-2 border-b border-border py-1.5 text-[13px]">
-              <span data-user-text="" className="font-semibold">
-                {person.fields.name || t('people.unnamed')}
-              </span>
-              <span data-user-text="">{t('callSheet.plays', { characters: list(characters) })}</span>
-            </li>
-          ))}
+          {sheet.cast.map(({ person, characters, times, ownCall, contact }) => {
+            const name = person.fields.name || t('people.unnamed');
+            const id = person.record.id;
+            return (
+              <li key={id} data-sheet-cast={id} className="flex flex-col gap-1 border-b border-border py-1.5 text-[13px]">
+                <p className="flex flex-wrap gap-x-2">
+                  <span data-user-text="" className="font-semibold">
+                    {name}
+                  </span>
+                  {characters.length > 0 && <span data-user-text="">{t('callSheet.plays', { characters: list(characters) })}</span>}
+                  <Contact contact={contact} />
+                </p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  <TimeInput
+                    label={t('callSheet.callFor', { name })}
+                    caption={t('callSheet.call')}
+                    shown={times.call}
+                    stored={ownCall}
+                    onCommit={(value) => {
+                      onTime(id, 'call', value);
+                    }}
+                  />
+                  <TimeInput
+                    label={t('callSheet.hmuReadyFor', { name })}
+                    caption={t('callSheet.hmuReady')}
+                    shown={times.hmuReady}
+                    onCommit={(value) => {
+                      onTime(id, 'hmu_ready', value);
+                    }}
+                  />
+                  <TimeInput
+                    label={t('callSheet.onSetFor', { name })}
+                    caption={t('callSheet.onSet')}
+                    shown={times.onSet}
+                    onCommit={(value) => {
+                      onTime(id, 'on_set', value);
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Section>
   );
 }
 
-/** The crew by department, in the call sheet's order; no phone or email until 4.2 says whose may print. */
-export function CrewSection({ sheet }: { sheet: CallSheet }) {
+/** The crew by department, in the call sheet's order: each department's call, and each person's. */
+export function CrewSection({ sheet, onDepartmentCall, onTime }: { sheet: CallSheet; onDepartmentCall: (department: Department, value: string) => void; onTime: OnTime }) {
   return (
     <Section label={t('callSheet.section.crew')}>
       {sheet.crew.length === 0 ? (
         <Empty>{t('callSheet.noCrew')}</Empty>
       ) : (
-        sheet.crew.map(({ department, people }) => (
+        sheet.crew.map(({ department, call, ownCall: departmentOwn, people }) => (
           <div key={department ?? 'none'} className="flex flex-col gap-1 border-b border-border py-2" data-sheet-department={department ?? 'none'}>
-            {department ? <DepartmentTag department={department} label={DEPARTMENT_LABELS[department]} /> : <span className="sb-label">{t('callSheet.noDepartment')}</span>}
+            <div className="flex flex-wrap items-center gap-3">
+              {department ? <DepartmentTag department={department} label={DEPARTMENT_LABELS[department]} /> : <span className="sb-label">{t('callSheet.noDepartment')}</span>}
+              {department && call !== null && (
+                <TimeInput
+                  label={t('callSheet.departmentCallFor', { department: DEPARTMENT_LABELS[department] })}
+                  caption={t('callSheet.call')}
+                  shown={call}
+                  stored={departmentOwn}
+                  onCommit={(value) => {
+                    onDepartmentCall(department, value);
+                  }}
+                />
+              )}
+            </div>
             <ul>
-              {people.map(({ record, fields }) => {
+              {people.map(({ record, fields, call: personCall, ownCall: personOwn, contact }) => {
                 const what = fields.title.trim() || (fields.role ? ROLE_LABELS[fields.role] : '');
+                const name = fields.name || t('people.unnamed');
                 return (
-                  <li key={record.id} className="flex flex-wrap gap-x-2 py-0.5 text-[13px]">
+                  <li key={record.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5 text-[13px]">
                     <span data-user-text="" className="font-semibold">
-                      {fields.name || t('people.unnamed')}
+                      {name}
                     </span>
                     {what && (
                       <span data-user-text="" className="text-text-muted">
                         {what}
                       </span>
                     )}
+                    <Contact contact={contact} />
+                    <span className="ml-auto">
+                      <TimeInput
+                        label={t('callSheet.callFor', { name })}
+                        caption={t('callSheet.call')}
+                        shown={personCall}
+                        stored={personOwn}
+                        onCommit={(value) => {
+                          onTime(record.id, 'call', value);
+                        }}
+                      />
+                    </span>
                   </li>
                 );
               })}
