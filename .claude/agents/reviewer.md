@@ -1,6 +1,8 @@
 ---
 name: reviewer
 description: Read-only code reviewer for Storiiboard. Reads the code and a diff file the main session writes, and reports findings. Cannot run commands or change any file.
+model: claude-opus-5-5
+effort: high
 tools: Read, Grep, Glob
 ---
 
