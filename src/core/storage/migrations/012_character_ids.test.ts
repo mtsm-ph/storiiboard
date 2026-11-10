@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sceneCharacters } from '../../model/person';
 import type { SbdRecord } from '../../model/record';
+import { approvalBasis, approvalState, sceneApprovals } from '../../model/sceneApprovals';
 import { apply, getRecord, loadRecords, log, opsOfGroups, restoreTo, undo } from '../../ops/ops';
 import { migrate } from '../migrate';
 import { nodeDriver } from '../nodeDriver';
@@ -171,5 +172,37 @@ describe('the change itself', () => {
     const once = characterIdChanges(list, at);
     const after = [...list.filter((r) => r.id !== 's'), ...once.created, { ...(list[2] as SbdRecord), props: once.changes[0]?.props ?? {} }];
     expect(characterIdChanges(after, at)).toEqual({ created: [], changes: [] });
+  });
+});
+
+describe('approvals through the upgrade (3.18)', () => {
+  it('stay current when they were current before it, by whichever rule gave them; one changed before stays changed', async () => {
+    const path = await v11File();
+    // Approvals given on the scenes as they were: 3.6b's, 3.15's and 3.18's (as schema 9 now carries one), and one
+    // given before a change.
+    const file = await nodeDriver.open(path);
+    const before = Object.fromEntries((await loadRecords(file)).map((r) => [r.id, r]));
+    const sign = (basis: string) => [{ name: 'Sam Reyes', roles: ['dp'], at, basis }];
+    const basis = (scene: string, department: string) => approvalBasis(before, scene, department);
+    const given = {
+      s1: { camera: sign(basis('s1', 'camera').legacy), sound: sign(basis('s1', 'sound').v2), art: sign(basis('s1', 'art').current), hmu: sign('stale') },
+      s2: { camera: sign(basis('s2', 'camera').legacy) },
+    };
+    for (const [id, approvals] of Object.entries(given)) {
+      await file.tx([{ sql: `UPDATE records SET props = json_set(props, '$.department_approvals', json(?)) WHERE id = ?`, params: [JSON.stringify(approvals), id] }]);
+    }
+    // Schema 12 alone: schema 13 would repair what it missed.
+    await migrate(file, { isNew: false, migrations: MIGRATIONS.slice(0, 12), now: () => new Date(late) });
+    const after = Object.fromEntries((await loadRecords(file)).map((r) => [r.id, r]));
+    await file.close();
+    const state = (scene: string, department: string) =>
+      approvalState(sceneApprovals(after[scene]?.props ?? {})[department] ?? [], approvalBasis(after, scene, department));
+    expect(after.s1?.props.character_ids).toHaveLength(2);
+    for (const department of ['camera', 'sound', 'art']) expect(state('s1', department)).toBe('approved');
+    expect(state('s2', 'camera')).toBe('approved');
+    expect(state('s1', 'hmu')).toBe('changed');
+    // Each keeps the rule it was given under.
+    const s1 = sceneApprovals(after.s1?.props ?? {});
+    expect([s1.camera?.[0]?.basis.includes(':'), s1.sound?.[0]?.basis.slice(0, 2), s1.art?.[0]?.basis.slice(0, 2)]).toEqual([false, '2:', '3:']);
   });
 });

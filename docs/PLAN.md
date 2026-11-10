@@ -89,7 +89,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
-| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | | Not started |
+| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | | In review |
 | 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | Not started |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
@@ -97,6 +97,28 @@ plugin for links and saved files only; a map with Leaflet and raster tiles under
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.18 as built (Nov 9): approvals kept through upgrades (`src/core/model/sceneApprovals.ts`, schema 13,
+`src/core/storage/migrations/013_approvals_kept.ts`).
+- The rule (Kevin Nov 9): a new approval's fingerprint starts `3:`: 3.15's shared fields and the department's own
+  notes and ticks, plus the scene's characters (`character_ids`, and what a name match left in `characters`) for
+  every department, and each frame's T-stop, support and height for camera and grip-electric.
+- Every approval is read by the rule it was given under: `3:` by 3.18's, `2:` by 3.15's (kept exactly, its
+  fingerprint pinned in a test), no prefix by 3.6b's; a prefix this version doesn't know reads as changed. So a change
+  of rule turns none "Changed": a 3.15 approval stays current when a T-stop or the cast changes. Given again, an
+  approval takes the newest rule.
+- Through a format upgrade: `approvalsKeptThrough(before, after, scene)` re-stamps every sign-off that was current
+  before a migration and isn't after it, by its own rule, on the records after it. Schema 12 uses it now (its scenes'
+  names becoming ids changed what 3.6b's and 3.18's rules read; schema 9, run today, stamps `3:`, which reads
+  characters, so an old file's 9 then 12 needed it too).
+- Schema 13 (the change to existing data Kevin asked for: "clearing the false ones on already-upgraded files"):
+  for a file schema 12 upgraded before it re-stamped, it finds schema 12's own step for each scene in History (names
+  before, ids after), reads the scene with its old characters back, and re-stamps the sign-offs current then. A
+  sign-off changed for another reason, or a scene whose characters were edited since, stays as it is. One logged
+  step, backup first; nothing to repair, no step.
+- Tests: the new rule per department, each rule read by its own, the pinned fingerprints (3.6b, 3.15, 3.18),
+  re-stamping by rule (a changed sign-off left changed), schema 12 alone keeping approvals of every rule current (and
+  failing with the re-stamp off), schema 13 on a file upgraded by 12 as shipped.
 
 3.16 as built (Nov 9): approvals on the board (`ApprovalsMarker` in `src/features/storyboard/StoryboardView.tsx`,
 `sceneApprovalSummary` in `src/core/model/sceneApprovals.ts`).
