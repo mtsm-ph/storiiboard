@@ -60,6 +60,18 @@ jobs:
           name: visual-baselines-linux
           path: e2e/*-snapshots/*-linux.png
           retention-days: 7
+      # Every failed and flaky test by name (3.19, Kevin Nov 9): a flaky one passed on its retry, so the job stays green;
+      # listed in the log, and Playwright's report kept as an artifact either way.
+      - name: List the failed and flaky Linux tests
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        run: npm run failed-tests -- test-results/e2e.json
+      - name: Keep the Linux end-to-end report
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-report-linux
+          path: test-results/e2e.json
+          retention-days: 14
       - name: Upload the Playwright results
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7
@@ -101,6 +113,18 @@ jobs:
           name: visual-baselines-macos
           path: e2e/*-snapshots/*-darwin.png
           retention-days: 7
+      # Every failed and flaky test by name (3.19, Kevin Nov 9): a flaky one passed on its retry, so the job stays green;
+      # listed in the log, and Playwright's report kept as an artifact either way.
+      - name: List the failed and flaky macOS tests
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        run: npm run failed-tests -- test-results/e2e.json
+      - name: Keep the macOS end-to-end report
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-report-macos
+          path: test-results/e2e.json
+          retention-days: 14
       - name: Upload the Playwright results
         if: ${{ failure() }}
         uses: actions/upload-artifact@v7

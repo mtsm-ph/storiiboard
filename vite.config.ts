@@ -21,7 +21,10 @@ export default defineConfig({
     sourcemap: true,
   },
   test: {
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
     environment: 'node',
+    // The JSON report keeps every failed test's name (3.19): `npm run failed-tests` lists them, and CI keeps the file.
+    reporters: ['default', 'json'],
+    outputFile: { json: 'test-results/unit.json' },
   },
 });

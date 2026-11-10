@@ -51,3 +51,14 @@ jobs:
       - run: npm run lint
       # Vitest, then cargo test.
       - run: npm test
+      # Every failed test by name (3.19, Kevin Nov 9): listed in the log, and Vitest's report kept as an artifact.
+      - name: List the failed unit tests
+        if: ${{ !cancelled() && hashFiles('test-results/unit.json') != '' }}
+        run: npm run failed-tests -- test-results/unit.json
+      - name: Keep the unit test report
+        if: ${{ !cancelled() && hashFiles('test-results/unit.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-report
+          path: test-results/unit.json
+          retention-days: 14
