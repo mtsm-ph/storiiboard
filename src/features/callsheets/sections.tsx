@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { showInfo } from '../../app/notice';
 import { list, t, tn } from '../../core/i18n';
@@ -8,10 +8,11 @@ import type { SunBand, SunRange } from '../../core/model/sunTimes';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { ROLE_LABELS } from '../../core/model/role';
+import { HMU_MINUTES } from '../../core/model/shootDay';
 import { pageLabel, sceneLabel } from '../../core/model/storyboard';
 import { headingOf } from '../storyboard/ScenesView';
 import { Button } from '../../ui/Button';
-import { Select, TextArea } from '../../ui/fields';
+import { Select, TextArea, TextField } from '../../ui/fields';
 import { DepartmentTag } from '../../ui/tags';
 import type { CallsheetNote, PersonTime } from './callsheetEdits';
 import { TimeInput } from './TimeInput';
@@ -222,7 +223,7 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
               [t('callSheet.power'), fields.power, false],
             ];
             return (
-              <li key={record.id} data-sheet-location={record.id} className="flex flex-col gap-1 border-b border-border py-2 text-[13px]">
+              <li key={record.id} data-sheet-location={record.id} tabIndex={-1} className="flex flex-col gap-1 border-b border-border py-2 text-[13px] focus-visible:outline-offset-2">
                 <p className="flex flex-wrap items-center gap-2">
                   <span data-user-text="" className="font-semibold">
                     {fields.name || t('trash.unnamedLocation')}
@@ -270,7 +271,7 @@ export function ScenesSection({ sheet }: { sheet: CallSheet }) {
       ) : (
         <ul>
           {sheet.scenes.map(({ record, fields, location, frames, characters }) => (
-            <li key={record.id} data-sheet-scene={record.id} className="flex flex-col gap-1 border-b border-border py-2 text-[13px]">
+            <li key={record.id} data-sheet-scene={record.id} tabIndex={-1} className="flex flex-col gap-1 border-b border-border py-2 text-[13px] focus-visible:outline-offset-2">
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <span className="font-mono font-bold">{sceneLabel(fields.number)}</span>
                 <span data-user-text="" className="font-semibold">
@@ -354,6 +355,7 @@ export function PeopleSection({
           </p>
           {!sheet.peopleOdd && (
             <Button
+              data-choose-people=""
               onClick={() => {
                 void onChoose().then((done) => {
                   focusAfter(done, null);
@@ -461,10 +463,70 @@ function Contact({ contact }: { contact: SheetContact | null }) {
 
 type OnTime = (personId: string, field: PersonTime, value: string) => void;
 
+/**
+ * The least minutes HMU needs before a call (4.8), at the top of Cast: one edit on blur or Enter. Enter keeps focus where
+ * it is. The field follows the stored value (an undo shows) unless the person is in it.
+ */
+function HmuMinutes({ minutes, onCommit }: { minutes: number; onCommit: (minutes: number) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  // Only a field the person has typed in commits (as TimeInput does); otherwise it follows the stored value.
+  const typed = useRef(false);
+  useEffect(() => {
+    const element = input.current;
+    if (element && !typed.current) element.value = String(minutes);
+  }, [minutes]);
+  const commit = (element: HTMLInputElement) => {
+    const wasTyped = typed.current;
+    typed.current = false;
+    const value = Number(element.value);
+    if (wasTyped && element.value.trim() !== '' && Number.isInteger(value) && value >= HMU_MINUTES.min && value <= HMU_MINUTES.max) {
+      if (value !== minutes) onCommit(value);
+    } else element.value = String(minutes);
+  };
+  return (
+    <div className="w-56 py-2">
+      <TextField
+        ref={input}
+        label={t('callSheet.hmuMinutes')}
+        type="number"
+        mono
+        data-hmu-minutes=""
+        min={HMU_MINUTES.min}
+        max={HMU_MINUTES.max}
+        defaultValue={String(minutes)}
+        onFocus={() => {
+          typed.current = false;
+        }}
+        onInput={() => {
+          typed.current = true;
+        }}
+        onBlur={(event) => {
+          commit(event.currentTarget);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit(event.currentTarget);
+        }}
+      />
+    </div>
+  );
+}
+
 /** Each actor on the day once, with the characters they play that day, and their call, HMU ready and on set. */
-export function CastSection({ sheet, onTime }: { sheet: CallSheet; onTime: OnTime }) {
+export function CastSection({
+  sheet,
+  hmuMinutes,
+  onHmuMinutes,
+  onTime,
+}: {
+  sheet: CallSheet;
+  /** The least minutes HMU needs before a call (4.8): what the HMU check holds the times to. */
+  hmuMinutes: number;
+  onHmuMinutes: (minutes: number) => void;
+  onTime: OnTime;
+}) {
   return (
     <Section label={t('callSheet.section.cast')}>
+      <HmuMinutes minutes={hmuMinutes} onCommit={onHmuMinutes} />
       {sheet.cast.length === 0 ? (
         <Empty>{t('callSheet.noCast')}</Empty>
       ) : (
@@ -495,6 +557,7 @@ export function CastSection({ sheet, onTime }: { sheet: CallSheet; onTime: OnTim
                     label={t('callSheet.hmuReadyFor', { name })}
                     caption={t('callSheet.hmuReady')}
                     shown={times.hmuReady}
+                    field="hmu_ready"
                     onCommit={(value) => {
                       onTime(id, 'hmu_ready', value);
                     }}

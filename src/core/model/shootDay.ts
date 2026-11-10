@@ -122,6 +122,15 @@ export function setupMinutes(projectProps: Props | undefined): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= SETUP_MINUTES.min && value <= SETUP_MINUTES.max ? value : DEFAULT_SETUP_MINUTES;
 }
 
+export const DEFAULT_HMU_MINUTES = 45;
+export const HMU_MINUTES = { min: 0, max: 600 } as const;
+
+/** The least time HMU needs before a cast member's call (the `hmu_minutes` prop, 4.8), 0 to 600, else 45. */
+export function hmuMinutes(projectProps: Props | undefined): number {
+  const value = projectProps?.hmu_minutes;
+  return typeof value === 'number' && Number.isInteger(value) && value >= HMU_MINUTES.min && value <= HMU_MINUTES.max ? value : DEFAULT_HMU_MINUTES;
+}
+
 export interface DayTotals {
   /** Frames still to shoot ("Need to shoot"): one marked Have or Source since it was put in the day isn't counted. */
   frames: number;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Props, SbdRecord } from '../../core/model/record';
-import { callsheetNoteChange, departmentCallChange, personTimeChange } from './callsheetEdits';
+import { callsheetNoteChange, departmentCallChange, hmuMinutesChange, personTimeChange } from './callsheetEdits';
 
 const at = '2026-11-10T10:00:00.000Z';
 const record = (id: string, type: SbdRecord['type'], parentId: string | null, props: Props, trashedAt: string | null = null, sortKey = 'm'): SbdRecord => ({
@@ -118,5 +118,19 @@ describe('the call sheet’s time edits (4.2)', () => {
     const one = recordsOf(day, record('cs', 'callsheet', 'd', { person_times: { ana: { call: '09:00' } }, notes: 'Hi' }));
     expect(personTimeChange(one, 'd', 'ana', 'call', '')).toEqual([{ kind: 'update', id: 'cs', unset: ['person_times'] }]);
     expect(personTimeChange(one, 'd', 'ana', 'on_set', '')).toEqual([]);
+  });
+});
+
+describe('the HMU minimum edit', () => {
+  const project = record('p', 'project', null, {});
+
+  it('sets hmu_minutes on the project in one change, and nothing when unchanged or out of range', () => {
+    expect(hmuMinutesChange(recordsOf(project), 'p', 60)).toEqual([{ kind: 'update', id: 'p', set: { hmu_minutes: 60 } }]);
+    expect(hmuMinutesChange(recordsOf(record('p', 'project', null, { hmu_minutes: 60 })), 'p', 60)).toEqual([]);
+    expect(hmuMinutesChange(recordsOf(project), 'p', 0)).toHaveLength(1);
+    expect(hmuMinutesChange(recordsOf(project), 'p', 601)).toEqual([]);
+    expect(hmuMinutesChange(recordsOf(project), 'p', -1)).toEqual([]);
+    expect(hmuMinutesChange(recordsOf(project), 'p', 20.5)).toEqual([]);
+    expect(hmuMinutesChange(recordsOf(), 'p', 30)).toEqual([]);
   });
 });

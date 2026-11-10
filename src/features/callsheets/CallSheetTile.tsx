@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
 import { isPaperChoice } from '../../core/storage/settings';
@@ -6,17 +5,21 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { useZonesAt } from '../../app/timeZone';
 import { useWeatherUnits } from '../../app/weatherUnits';
 import { t } from '../../core/i18n';
+import { callSheetChecks } from '../../core/checks';
 import { callSheet, defaultSheetDay } from '../../core/model/callsheet';
 import { mapPlace, projectLocations } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
-import { dayLabel, projectShootDays } from '../../core/model/shootDay';
+import { dayLabel, hmuMinutes, projectShootDays } from '../../core/model/shootDay';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } from '../schedule/dayEdits';
 import { exportCallSheetPdf, type ExportCallSheetOptions } from './exportCallSheet';
 import { IssuedVersions, IssueButton } from './IssueBar';
-import { callsheetNoteChange, departmentCallChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
+import { CallSheetChecks } from './CallSheetChecks';
+import { callsheetNoteChange, departmentCallChange, hmuMinutesChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
+import { showSheetDay, useSheetDay } from './sheetDay';
+import { useHeldForecasts } from './useHeldForecasts';
 import { CastSection, CrewSection, DaySection, LocationsSection, NotesSection, PeopleSection, ScenesSection } from './sections';
 
 // The Call sheet tile (4.1), in the Production workspace: a shoot day's call sheet, built live from the project (the
@@ -34,7 +37,6 @@ function today(): string {
 export function CallSheetTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [chosen, setChosen] = useState<string | null>(null);
   const paper = usePaper();
   const paperChoice = usePaperChoice();
   const app = useDirectionsApp();
@@ -46,6 +48,9 @@ export function CallSheetTile() {
     return place ? [{ id: record.id, latitude: place.latitude, longitude: place.longitude }] : [];
   });
   const zones = useZonesAt(points);
+  // The forecasts already held, for the rain check; it never asks for one (4.8).
+  const held = useHeldForecasts(points);
+  const chosen = useSheetDay((s) => s.dayId);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('callSheet.noProject')}</p>;
   const projectId = project.projectId;
   const days = projectShootDays(records, projectId);
@@ -54,6 +59,9 @@ export function CallSheetTile() {
   const sheet = selected ? callSheet(records, projectId, selected.record.id, undefined, zones) : null;
   if (!selected || !sheet) return <p className="p-3 text-[13px] text-text-muted">{t('callSheet.noDays')}</p>;
   const dayId = selected.record.id;
+  // Shared with the Shoot days tile's count: each tile reads its own forecasts and zones, compared by what they hold, so the same records give the one cached answer.
+  const { findings } = callSheetChecks(records, projectId, dayId, held, zones);
+  const canAddPeople = sheet.peopleChosen ? sheet.notOnDay.length > 0 : !sheet.peopleOdd;
   const options: ExportCallSheetOptions = { projectId, dayId, zones, projectName: project.name, paper, app, units };
   const edit = (build: (now: Records) => Change[]) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
@@ -63,9 +71,10 @@ export function CallSheetTile() {
         <span className="min-w-0 flex-1">
           <Select
             label={t('callSheet.pick')}
+            data-day-select=""
             value={dayId}
             onChange={(event) => {
-              setChosen(event.currentTarget.value);
+              showSheetDay(event.currentTarget.value);
             }}
           >
             {days.map((day) => (
@@ -99,6 +108,7 @@ export function CallSheetTile() {
         </Button>
         <IssueButton sheet={sheet} options={options} />
       </div>
+      <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople} />
       <IssuedVersions sheet={sheet} dayId={dayId} />
       <DaySection sheet={sheet} projectName={project.name} />
       <LocationsSection sheet={sheet} />
@@ -114,6 +124,10 @@ export function CallSheetTile() {
       />
       <CastSection
         sheet={sheet}
+        hmuMinutes={hmuMinutes(records[projectId]?.props)}
+        onHmuMinutes={(minutes) => {
+          void edit((now) => hmuMinutesChange(now, projectId, minutes));
+        }}
         onTime={(personId, field, value) => {
           void edit((now) => personTimeChange(now, dayId, personId, field, value));
         }}

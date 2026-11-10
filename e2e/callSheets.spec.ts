@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { answerAsk } from './ask';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -581,6 +582,8 @@ test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet
   await sidebar(page).getByRole('button', { name: /^Production/ }).click();
 
   await issue.click();
+  // The sheet has problems (4.8): Issue asks once.
+  await answerAsk(page, true);
   await expect(status).toHaveText('Issued · v1');
   await expect(issue).toBeDisabled();
   await expect(sheet(page).locator('[data-issue-reason]')).toHaveText('Nothing has changed since version 1');
@@ -620,6 +623,7 @@ test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet
   expect(readFileSync(await (await again).path()).equals(v1Bytes)).toBe(true);
 
   await issue.click();
+  await answerAsk(page, true);
   await expect(status).toHaveText('Issued · v2');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText(/^v2 · Issued /);
@@ -652,6 +656,78 @@ test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet
   const third = page.waitForEvent('download');
   await sheet(page).getByRole('button', { name: 'Save a copy of version 2' }).click();
   expect(sha(readFileSync(await (await third).path()))).toBe(sha(readFileSync(await v2.path())));
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('the Checks strip says what is likely wrong, links to it, and Issue with problems asks once (4.8)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await setUp(page);
+  await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
+  const checks = sheet(page).locator('[data-checks]');
+  const check = (kind: string) => checks.locator(`[data-check="${kind}"]`);
+  const days = page.getByRole('region', { name: 'Shoot days', exact: true });
+  const editor = page.getByRole('region', { name: 'Locations', exact: true }).locator('[data-location-editor]');
+
+  // The location has an address and parking but no contact; nobody is in Direction, Sound, HMU or Wardrobe.
+  await expect(check('location-missing')).toHaveText(/is missing a contact \(name or phone\)Show$/);
+  await expect(check('department-missing')).toHaveCount(4);
+  await expect(check('department-missing').first()).toContainText('Nobody from Direction is on the day');
+  await expect(checks.locator('[data-checks-none]')).toHaveCount(0);
+
+  // Parking taken off: the finding lists it too; typed again, it clears.
+  await editor.getByRole('textbox', { name: 'Parking' }).fill('');
+  await editor.getByRole('textbox', { name: 'Parking' }).blur();
+  await expect(check('location-missing')).toContainText('a contact (name or phone) and a parking note');
+  await editor.getByRole('textbox', { name: 'Parking' }).fill('Lot behind the diner');
+  await editor.getByRole('textbox', { name: 'Parking' }).blur();
+  await expect(check('location-missing')).not.toContainText('parking note');
+
+  // An HMU time 20 minutes after the call is too short for the 45 minutes HMU needs; Show moves focus to the field.
+  await expect(check('hmu-too-short')).toHaveCount(0);
+  await sheet(page).getByLabel('HMU ready, Ana Ruiz', { exact: true }).fill('07:20');
+  await sheet(page).getByLabel('HMU ready, Ana Ruiz', { exact: true }).blur();
+  await expect(check('hmu-too-short')).toContainText('HMU too short: Ana Ruiz is ready at 07:20, 20 min after the 07:00 call (HMU needs at least 45 min)');
+  await check('hmu-too-short').getByRole('button', { name: /^Show: HMU too short/ }).click();
+  await expect(sheet(page).getByLabel('HMU ready, Ana Ruiz', { exact: true })).toBeFocused();
+
+  // The minimum is on the Cast heading: 15 minutes makes 20 enough; the project keeps it across a reload.
+  const minutes = sheet(page).getByLabel('HMU needs at least (min)');
+  await expect(minutes).toHaveValue('45');
+  await minutes.fill('15');
+  // Enter commits and keeps focus in the field.
+  await minutes.press('Enter');
+  await expect(check('hmu-too-short')).toHaveCount(0);
+  await expect(minutes).toBeFocused();
+  await expect(minutes).toHaveValue('15');
+  await minutes.fill('45');
+  await minutes.blur();
+  await expect(check('hmu-too-short')).toHaveCount(1);
+  await sheet(page).getByLabel('HMU ready, Ana Ruiz', { exact: true }).fill('08:00');
+  await sheet(page).getByLabel('HMU ready, Ana Ruiz', { exact: true }).blur();
+  await expect(check('hmu-too-short')).toHaveCount(0);
+
+  // The Shoot days tile counts the day's checks and opens the call sheet.
+  const count = days.locator('[data-day-checks]');
+  await expect(count).toHaveText(/▲ 5 checks/);
+  await count.click();
+  await expect(sheet(page).getByLabel('Shoot day')).toBeFocused();
+
+  // Issue with problems asks once, with how many; Cancel issues nothing.
+  const issue = sheet(page).locator('[data-issue-button]');
+  await issue.click();
+  await expect(page.getByRole('alertdialog')).toContainText('Issue with 5 problems?');
+  await answerAsk(page, false);
+  await expect(sheet(page).locator('[data-issued-versions]')).toHaveCount(0);
+  await expect(issue).toHaveText('Issue');
+  await issue.click();
+  await answerAsk(page, true);
+  await expect(sheet(page).locator('[data-issue-status]')).toHaveText('Issued · v1');
 
   const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
   expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);

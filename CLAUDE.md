@@ -166,7 +166,9 @@
   tile (src/features/callsheets/callSheetPdf.ts), Paper by region or chosen, Settings → App, Directions open in.
   Built in 4.7: Issue keeps the PDF as a `media` record under the `callsheet`, locks the day's scenes in the same op
   group, and compares later sheets through a fingerprint recipe frozen per version (src/features/callsheets/
-  fingerprint.ts: a new recipe is a new version; never edit an old one).
+  fingerprint.ts: a new recipe is a new version; never edit an old one). Built in 4.8: `callSheetChecks` in
+  src/core/checks (location details, departments, HMU, golden hour, rain), cached per records, saying which checks it
+  skipped without a zone or forecast; a strip on the sheet, a count in Shoot days, an ask before issuing.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's

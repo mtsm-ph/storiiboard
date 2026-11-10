@@ -3,7 +3,7 @@ import { getLocale, setLocale, t } from '../i18n';
 import { en } from '../i18n/locales/en';
 import { es } from '../i18n/locales/es';
 import { loadSettings, saveSettings } from '../storage/settings';
-import { answerFrom, cachedForecast, clockIn, conditionKey, dayWeather, forecastJson, isFresh, isUsLocale, momentIn, precipitationText, temperatureText, todayIn, unitsFor, weatherKey, windText, type ForecastEntry } from './weather';
+import { answerFrom, cachedForecast, clockIn, conditionKey, dayWeather, forecastJson, isFresh, isUsLocale, momentIn, precipitationBetween, precipitationText, temperatureText, todayIn, unitsFor, weatherKey, windText, type ForecastEntry } from './weather';
 import { recordedForecast } from './recordedWeather';
 
 // The call sheet's forecast (4.4), from the recorded answer (written by hand in the shape of MET Norway's compact
@@ -242,5 +242,21 @@ describe('the cache', () => {
       forecast: [{ time: '2026-11-16T12:00:00Z', temperature: 'warm', wind: 2, rain1h: 'wet', symbol1h: '<b>', symbol6h: 'rain' }],
     });
     expect(odd?.entries[0]).toEqual({ time: '2026-11-16T12:00:00Z', temperature: null, wind: 2, rain1h: null, rain6h: null, symbol1h: null, symbol6h: 'rain' });
+  });
+});
+
+describe('precipitation between two moments (4.8)', () => {
+  const entry = (time: string, rain1h: number | null): ForecastEntry => ({ time, temperature: null, wind: null, rain1h, rain6h: null, symbol1h: null, symbol6h: null });
+  const entries = [entry('2030-11-16T12:00:00Z', 1), entry('2030-11-16T13:00:00Z', 2), entry('2030-11-16T14:00:00Z', 0)];
+
+  it('adds each hour’s amount pro rata for the part inside the window', () => {
+    expect(precipitationBetween(entries, Date.parse('2030-11-16T12:00:00Z'), Date.parse('2030-11-16T14:00:00Z'))).toBe(3);
+    expect(precipitationBetween(entries, Date.parse('2030-11-16T12:30:00Z'), Date.parse('2030-11-16T13:30:00Z'))).toBe(1.5);
+  });
+
+  it('is null when the forecast doesn’t reach the window, which is not the same as dry', () => {
+    expect(precipitationBetween(entries, Date.parse('2030-11-16T20:00:00Z'), Date.parse('2030-11-16T22:00:00Z'))).toBeNull();
+    expect(precipitationBetween(entries, Date.parse('2030-11-16T01:00:00Z'), Date.parse('2030-11-16T02:00:00Z'))).toBeNull();
+    expect(precipitationBetween(entries, Date.parse('2030-11-16T14:00:00Z'), Date.parse('2030-11-16T15:00:00Z'))).toBe(0);
   });
 });
