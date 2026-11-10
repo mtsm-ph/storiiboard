@@ -290,10 +290,23 @@
   WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.
 - Update the status in docs/PLAN.md at the end of each PR.
+- Who does what (Kevin, Nov 9): the main session plans each milestone, writes the briefs, diagnoses what a builder
+  can't fix, judges review findings and fixes the subtle ones (routine ones go back to a builder), does all of git
+  (commits, PRs, merges), runs the CI checkpoints, keeps CLAUDE.md, PLAN.md and HANDOFF.md and writes the reports.
+  The builder (.claude/agents/builder.md) writes the long code and its tests from a brief; the reviewer
+  (.claude/agents/reviewer.md) reviews. Their models and effort are set in their files; start them without a model.
+  - A builder starts with none of the main session's context, so every brief is complete: the goal, the decisions
+    that apply, the files, the tests to add, the checks to run and what not to touch. A big milestone is several
+    briefs. One builder at a time, in this checkout, never two in parallel.
+- Screenshot baselines (Kevin, Nov 9): a change regenerates every baseline it touches (all systems, both engines) on
+  its PR's branch and pushes, with a PR comment on what changed; Kevin compares old and new in Files changed and says
+  merge.
 
-## Safety (Kevin, Nov 4)
-- Subagents, reviewers included, are read-only. They read and report; they never delete, move or install anything.
-  Only the main session changes files, and it runs any test or probe a reviewer asks for.
+## Safety (Kevin, Nov 4; builder Nov 9)
+- Reviewers and every other subagent are read-only: they read and report; they never delete, move or install
+  anything. The builder is the one exception: it edits and writes files in this checkout and runs checks, installs
+  only what its brief names, touches CI or .claude only when the brief says so, and never commits, pushes or merges.
+  The main session runs any test or probe a reviewer asks for.
 - Never delete anything outside this repo's own build output: node_modules, dist, src-tauri/target, test-results,
   playwright-report. Anything else that should go, Kevin deletes.
 - No git worktrees or directory junctions: removing a worktree once deleted a real node_modules through a junction.
