@@ -64,6 +64,14 @@ export const isWeekStartChoice = (value: unknown): value is WeekStartChoice => v
 export type WeatherUnitsChoice = 'region' | 'metric' | 'us';
 export const isWeatherUnitsChoice = (value: unknown): value is WeatherUnitsChoice => value === 'region' || value === 'metric' || value === 'us';
 
+/** The paper a call sheet's PDF is made for (4.6): by this computer's region, or Letter or A4 whatever it says. */
+export type PaperChoice = 'region' | 'letter' | 'a4';
+export const isPaperChoice = (value: unknown): value is PaperChoice => value === 'region' || value === 'letter' || value === 'a4';
+
+/** The map app a call sheet's directions link opens (4.6, Settings → App). */
+export type DirectionsApp = 'google' | 'apple' | 'osm';
+export const isDirectionsApp = (value: unknown): value is DirectionsApp => value === 'google' || value === 'apple' || value === 'osm';
+
 export interface Settings {
   theme: ThemePreference;
   /**
@@ -83,6 +91,10 @@ export interface Settings {
   weekStart: WeekStartChoice;
   /** The forecast's units (4.4, Settings → App); the cache keeps MET's metric values. */
   weatherUnits: WeatherUnitsChoice;
+  /** The paper a call sheet's PDF is made for (4.6, the Call sheet tile's Paper choice). */
+  callSheetPaper: PaperChoice;
+  /** Directions open in (4.6, Settings → App): the app a call sheet's directions link and QR code open. */
+  directionsApp: DirectionsApp;
   /** The sidebar folded to its strip (polish 2), as the person last left it. */
   sidebarHidden: boolean;
   profile: Profile;
@@ -190,6 +202,8 @@ export const DEFAULT_SETTINGS: Settings = {
   language: DEFAULT_LOCALE,
   weekStart: 'region',
   weatherUnits: 'region',
+  callSheetPaper: 'region',
+  directionsApp: 'google',
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
   projectRoles: {},
@@ -238,6 +252,8 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
       weekStart: isWeekStartChoice(saved.weekStart) ? saved.weekStart : 'region',
       weatherUnits: isWeatherUnitsChoice(saved.weatherUnits) ? saved.weatherUnits : 'region',
+      callSheetPaper: isPaperChoice(saved.callSheetPaper) ? saved.callSheetPaper : 'region',
+      directionsApp: isDirectionsApp(saved.directionsApp) ? saved.directionsApp : 'google',
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),

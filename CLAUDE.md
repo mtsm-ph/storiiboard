@@ -162,7 +162,8 @@
   Built in 4.4: the forecast per location (src-tauri/src/weather.rs, src/features/callsheets/forecast.ts), cached in
   `lookups` and in memory, renewed with If-Modified-Since; Settings → App, Weather units. Built in 4.5: Find nearest
   hospital (src-tauri/src/hospital.rs, sharing geocode.rs's queue), a safety box per location, the emergency number
-  from src/core/model/emergencyNumbers.ts by the location's `country_code`.
+  from src/core/model/emergencyNumbers.ts by the location's `country_code`. Built in 4.6: Export PDF… on the Call sheet
+  tile (src/features/callsheets/callSheetPdf.ts), Paper by region or chosen, Settings → App, Directions open in.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's

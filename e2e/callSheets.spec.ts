@@ -1,5 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { PDFDocument } from 'pdf-lib';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -465,4 +468,95 @@ test('the nearest hospital: Find needs a place, the list is recorded, the safety
   await expect(safety.locator('[data-hospital-distance]')).toHaveCount(0);
   await editor.getByRole('combobox', { name: 'Country' }).selectOption('');
   await expect(number).toHaveText('Emergency number: check locally');
+});
+
+/** Each page's text in an exported PDF, as a reader finds it. */
+async function pdfText(path: string): Promise<string> {
+  const pdf = await getDocument({ data: new Uint8Array(readFileSync(path)), disableFontFace: true, useSystemFonts: false }).promise;
+  const texts: string[] = [];
+  for (let n = 1; n <= pdf.numPages; n += 1) {
+    const content = await (await pdf.getPage(n)).getTextContent();
+    texts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '));
+  }
+  await pdf.destroy();
+  return texts.join(' ').replace(/\s+/g, ' ');
+}
+
+test('Export PDF writes the day’s sheet: its words, the directions link for the app chosen, A4 on request, a map link to copy (4.6)', async ({ page }) => {
+  await setUp(page);
+  await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
+  // A place and a hospital for the location, from the recorded searches.
+  const editor = page.getByRole('region', { name: 'Locations', exact: true }).locator('[data-location-editor]');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('button', { name: 'Search address' }).click();
+  await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await editor.getByRole('button', { name: 'Find nearest hospital' }).click();
+  await editor.getByRole('list', { name: 'Hospitals found' }).locator('[data-hospital-option]').first().click();
+  await expect(sheet(page).locator('[data-safety] [data-hospital]')).toContainText('Hospital EsSalud Adolfo Guevara Velasco');
+  // A call typed and Export pressed with no other step between: the click is what blurs the box and starts the save, and
+  // the PDF still has the new time.
+  await sheet(page).getByLabel('Call, Ana Ruiz', { exact: true }).fill('09:15');
+
+  // The paper starts on this browser's region (en-US: Letter), and the file is named for the project, day and date.
+  await expect(sheet(page).getByLabel('Paper')).toHaveValue('region');
+  await expect(sheet(page).getByLabel('Paper').locator('option').first()).toHaveText('By region (Letter)');
+  const first = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
+  const letter = await first;
+  expect(letter.suggestedFilename()).toBe('Bey County — Call sheet — Day 1 — 2030-11-16.pdf');
+  await expect(page.getByRole('status').getByText(/^Exported the call sheet to “Bey County — Call sheet — Day 1 — 2030-11-16\.pdf”\.$/)).toBeVisible();
+  const path = await letter.path();
+  expect((await PDFDocument.load(readFileSync(path))).getPage(0).getSize()).toEqual({ width: 612, height: 792 });
+  const text = await pdfText(path);
+  const coordinates = /(-?\d+\.\d{6}), (-?\d+\.\d{6})/.exec(text);
+  expect(coordinates).not.toBeNull();
+  for (const expected of [
+    'Bey County',
+    'Day 1 of 1',
+    'Saturday, November 16, 2030',
+    '07:00',
+    'Plaza de Armas, Cusco',
+    'Lot behind the diner',
+    'Ana Ruiz',
+    '09:15',
+    'Kevin Matos',
+    'Hospital EsSalud Adolfo Guevara Velasco',
+    '106',
+    'Made with Storiiboard',
+    '© OpenStreetMap contributors',
+  ]) {
+    expect(text, expected).toContain(expected);
+  }
+  // Google Maps by default, from the place's coordinates; a person's phone prints only where their record allows it.
+  expect(text).toContain(`https://www.google.com/maps/dir/?api=1&destination=${coordinates?.[1] ?? ''},${coordinates?.[2] ?? ''}`);
+  expect(text).toContain('555 0102');
+  expect(text).not.toContain('555 0101');
+
+  // A4 on request, and it is kept: the choice is this computer's.
+  await sheet(page).getByLabel('Paper').selectOption('a4');
+  const second = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
+  const { width, height } = (await PDFDocument.load(readFileSync(await (await second).path()))).getPage(0).getSize();
+  expect(Math.round(width)).toBe(595);
+  expect(Math.round(height)).toBe(842);
+
+  // Settings → App → Directions open in: Apple Maps changes the link, in the PDF and in Copy map link.
+  const app = await openSettings(page, 'App');
+  await expect(app.getByLabel('Directions open in')).toHaveValue('google');
+  await app.getByLabel('Directions open in').selectOption('apple');
+  await closeSettings(page);
+  const third = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
+  const apple = await pdfText(await (await third).path());
+  expect(apple).toContain(`https://maps.apple.com/?daddr=${coordinates?.[1] ?? ''},${coordinates?.[2] ?? ''}`);
+  expect(apple).not.toContain('google.com');
+  await sheet(page).getByRole('button', { name: /^Copy map link/ }).click();
+  await expect(page.locator('[data-notice]')).toContainText(/Copied a map link for this location\.|https:\/\/maps\.apple\.com\/\?daddr=/);
+  // The Locations tile's button gives the same link; its Open on the map keeps the OpenStreetMap pin.
+  await editor.getByRole('button', { name: 'Copy map link', exact: true }).click();
+  await expect(page.locator('[data-notice]')).toContainText(/Copied a map link for this location\.|https:\/\/maps\.apple\.com\/\?daddr=/);
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
 });
