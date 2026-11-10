@@ -17,7 +17,7 @@ real productions yet. [docs/PLAN.md](docs/PLAN.md) has the current phase and wha
 
 ## Running it
 
-You need Node 22 and Rust (stable).
+You need Node 22.18 or later and Rust (stable).
 
 ```sh
 npm install
