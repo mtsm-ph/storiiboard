@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval } from './departmentStatus';
 import type { Props, SbdRecord } from './record';
-import { approvalBasis, approvalState, isCurrent, sceneApprovals, sceneApprovalSummary, sceneApprovalText, withMySceneApproval, type ApprovalBasis } from './sceneApprovals';
+import { approvalBasis, approvalsKeptThrough, approvalState, isCurrent, sceneApprovals, sceneApprovalSummary, sceneApprovalText, withMySceneApproval, type ApprovalBasis } from './sceneApprovals';
 
 // Approvals per scene (3.6b): who signed each department off, and whether the scene has changed since.
 
@@ -139,26 +139,114 @@ describe('what a department touches in a scene', () => {
     expect(basis(records, 'art')).not.toBe(before);
   });
 
-  it('changes no approval with what no department works from: T-stop, support, height, a title, custom fields, gear, a note card', () => {
+  it('changes camera’s and grip-electric’s with T-stop, support and height, and no other department’s (3.18)', () => {
     const records = base();
-    const before = basis(records);
-    for (const change of [{ t_stop: 2.8 }, { support: 'Dolly' }, { height: 'Low' }, { title: 'Her reaction' }, { custom: { Mood: 'Blue' } }, { gear_ids: ['g'] }, { shoot_day_id: 'd' }]) {
-      expect(basis(withProps(records, 'a', change))).toBe(before);
+    for (const change of [{ t_stop: 2.8 }, { support: 'Dolly' }, { height: 'Low' }]) {
+      const changed = withProps(records, 'a', change);
+      for (const department of ['camera', 'grip-electric']) expect(basis(changed, department)).not.toBe(basis(records, department));
+      for (const department of ['art', 'sound', 'hmu']) expect(basis(changed, department)).toBe(basis(records, department));
     }
-    expect(basis(withProps(records, 'n', { text: 'Snow' }))).toBe(before);
-    for (const change of [{ number: '5' }, { page_eighths: 3 }, { character_ids: ['c'] }, { numbers_locked: true }]) {
-      expect(basis(withProps(records, 's', change))).toBe(before);
-    }
-    expect(basis(withProps(records, 'a', { number: '4Z' }))).toBe(before);
-    expect(basis(withProps(records, 'a', { status: 'have' }))).toBe(before);
   });
 
-  it('keeps both rules’ fingerprints exactly: approvals already stored depend on them, so any change here is a bug', () => {
+  it('changes every department’s with the scene’s characters (3.18)', () => {
+    const records = base();
+    for (const department of ['camera', 'art', 'sound', 'wardrobe']) {
+      const before = basis(records, department);
+      expect(basis(withProps(records, 's', { character_ids: ['c'] }), department)).not.toBe(before);
+      expect(basis(withProps(records, 's', { characters: [42] }), department)).not.toBe(before);
+      // The same characters in another order are another cast list as the scene shows it.
+      const two = withProps(records, 's', { character_ids: ['c', 'd'] });
+      expect(basis(withProps(two, 's', { character_ids: ['d', 'c'] }), department)).not.toBe(basis(two, department));
+    }
+  });
+
+  it('changes no approval with what no department works from: a title, custom fields, gear, the day, a note card', () => {
+    const records = base();
+    for (const department of ['camera', 'grip-electric', 'art']) {
+      const before = basis(records, department);
+      for (const change of [{ title: 'Her reaction' }, { custom: { Mood: 'Blue' } }, { gear_ids: ['g'] }, { shoot_day_id: 'd' }]) {
+        expect(basis(withProps(records, 'a', change), department)).toBe(before);
+      }
+      expect(basis(withProps(records, 'n', { text: 'Snow' }), department)).toBe(before);
+      for (const change of [{ number: '5' }, { page_eighths: 3 }, { numbers_locked: true }]) {
+        expect(basis(withProps(records, 's', change), department)).toBe(before);
+      }
+      expect(basis(withProps(records, 'a', { number: '4Z' }), department)).toBe(before);
+      expect(basis(withProps(records, 'a', { status: 'have' }), department)).toBe(before);
+    }
+  });
+
+  it('keeps every rule’s fingerprint exactly: approvals already stored depend on them, so any change here is a bug', () => {
     const now = approvalBasis(base(), 's', 'camera');
     // 3.6b's, as v2 computed it before 3.15 (from the same records).
     expect(now.legacy).toBe('0022f03f4eb4b7');
-    // 3.15's, as stored from here on.
-    expect(now.current).toBe('2:148ee4eebe8262');
+    // 3.15's, as stored until 3.18.
+    expect(now.v2).toBe('2:148ee4eebe8262');
+    // 3.18's, as stored from here on; with a cast and a rig, for a department the rig counts for and one it doesn't.
+    expect(now.current).toBe('3:098c62161d39c6');
+    const scene = base().s as SbdRecord;
+    const frame = base().a as SbdRecord;
+    const full = {
+      ...base(),
+      s: { ...scene, props: { ...scene.props, character_ids: ['mary', 'tom'], characters: [42] } },
+      a: { ...frame, props: { ...frame.props, t_stop: 2.8, support: 'dolly', height: 'low' } },
+    };
+    expect(approvalBasis(full, 's', 'camera').current).toBe('3:02b67c02a3f0b8');
+    expect(approvalBasis(full, 's', 'art').current).toBe('3:12d3d80e546e54');
+  });
+
+  it('reads an approval by the rule it was given under, so a change of rule turns none “Changed” (3.18)', () => {
+    const records = base();
+    const now = approvalBasis(records, 's', 'camera');
+    const sign = (basis: string) => [{ name: 'Sam Reyes', roles: ['dp' as const], at, basis }];
+    const old = sign(now.legacy);
+    const v2 = sign(now.v2);
+    const fresh = sign(now.current);
+    for (const given of [old, v2, fresh]) expect(approvalState(given, now)).toBe('approved');
+    // A T-stop: 3.6b counted every field, 3.18 counts it for camera; 3.15 didn't, so its approval stays current.
+    const stop = approvalBasis(withProps(records, 'a', { t_stop: 4 }), 's', 'camera');
+    expect([old, v2, fresh].map((given) => approvalState(given, stop))).toEqual(['changed', 'approved', 'changed']);
+    // The scene's characters: 3.6b and 3.18 read them, 3.15 didn't.
+    const cast = approvalBasis(withProps(records, 's', { character_ids: ['c'] }), 's', 'camera');
+    expect([old, v2, fresh].map((given) => approvalState(given, cast))).toEqual(['changed', 'approved', 'changed']);
+    // Lens counts under every rule.
+    const lens = approvalBasis(withProps(records, 'a', { lens_mm: 85 }), 's', 'camera');
+    expect([old, v2, fresh].map((given) => approvalState(given, lens))).toEqual(['changed', 'changed', 'changed']);
+    // A rule this version doesn't know reads as changed; approving again writes 3.18's.
+    expect(approvalState(sign('4:x'), now)).toBe('changed');
+    const props = { department_approvals: withMySceneApproval({ department_approvals: { camera: v2 } }, 'camera', { name: 'Sam Reyes', roles: ['dp'], at }, lens) ?? {} };
+    expect(sceneApprovals(props).camera?.[0]?.basis).toBe(lens.current);
+  });
+
+  it('re-stamps through an upgrade only the approvals that were current before it, each by its own rule', () => {
+    const scene = base().s as SbdRecord;
+    // Before the upgrade: a script's names on the scene.
+    const plain = { ...base(), s: { ...scene, props: { ...scene.props, characters: ['MARY'] } } };
+    const then = (department: string) => approvalBasis(plain, 's', department);
+    const sign = (basis: string, roles: ('dp' | 'director')[] = ['dp']) => ({ name: 'Sam Reyes', roles, at, basis });
+    const approvals = {
+      camera: [sign(then('camera').legacy), sign('stale', ['director'])],
+      art: [sign(then('art').current)],
+      sound: [sign(then('sound').v2)],
+      drone: 'later',
+    };
+    const was = { ...plain, s: { ...scene, props: { ...scene.props, characters: ['MARY'], department_approvals: approvals } } };
+    // The upgrade: the names become ids.
+    const after = { ...was, s: { ...scene, props: { ...scene.props, character_ids: ['mary'], department_approvals: approvals } } };
+    const kept = approvalsKeptThrough(was, after, 's');
+    expect(kept).toBeDefined();
+    const restamped = { ...after, s: { ...scene, props: { ...scene.props, character_ids: ['mary'], department_approvals: kept ?? {} } } };
+    const state = (department: string) => approvalState(sceneApprovals(restamped.s.props)[department] ?? [], approvalBasis(restamped, 's', department));
+    // The director's was changed before the upgrade, so camera stays changed; the DP's alone is re-stamped.
+    expect(kept?.camera).toEqual([sign(approvalBasis(after, 's', 'camera').legacy), sign('stale', ['director'])]);
+    expect(state('camera')).toBe('changed');
+    expect(state('art')).toBe('approved');
+    // 3.15's doesn't read characters: nothing to re-stamp.
+    expect(kept?.sound).toEqual(approvals.sound);
+    expect(state('sound')).toBe('approved');
+    expect(kept?.drone).toBe('later');
+    // Nothing a rule reads changed: nothing to do.
+    expect(approvalsKeptThrough(was, was, 's')).toBeUndefined();
   });
 
   it('counts a scene’s departments approved and changed since, for its heading (3.16)', () => {
@@ -175,31 +263,30 @@ describe('what a department touches in a scene', () => {
     expect(sceneApprovalSummary({ ...records, s: scene }, 's', ['camera', 'sound'])).toEqual({ approved: 1, changed: 1 });
   });
 
-  it('never works out 3.6b’s fingerprint for an approval made by 3.15’s rule', () => {
+  it('never works out an older rule’s fingerprint for an approval made by a newer one', () => {
     const basis: ApprovalBasis = {
-      current: '2:x',
+      current: '3:x',
+      get v2(): string {
+        throw new Error('v2 read');
+      },
       get legacy(): string {
         throw new Error('legacy read');
       },
     };
-    const fresh = { name: 'Sam Reyes', roles: ['dp' as const], at, basis: '2:x' };
+    const fresh = { name: 'Sam Reyes', roles: ['dp' as const], at, basis: '3:x' };
     expect(isCurrent(fresh, basis)).toBe(true);
     expect(approvalState([fresh], basis)).toBe('approved');
+    // A 3.15 approval reads 3.15's alone.
+    const v2: ApprovalBasis = { current: '3:x', v2: '2:y', get legacy(): string { throw new Error('legacy read'); } };
+    expect(isCurrent({ ...fresh, basis: '2:y' }, v2)).toBe(true);
   });
 
-  it('reads an approval given before 3.15 by the rule it was given under, and a new one by the new rule', () => {
+  it('gives an approval again with the newest rule’s fingerprint', () => {
     const records = base();
     const now = approvalBasis(records, 's', 'camera');
-    expect(now.current.startsWith('2:')).toBe(true);
+    expect(now.current.startsWith('3:')).toBe(true);
     const old = { name: 'Sam Reyes', roles: ['dp' as const], at, basis: now.legacy };
-    const fresh = { ...old, basis: now.current };
-    expect(approvalState([old], now)).toBe('approved');
-    expect(approvalState([fresh], now)).toBe('approved');
-    // A T-stop changed: under 3.6b's rule every field counted, so the old one reads as changed; the new one doesn't.
-    const changed = approvalBasis(withProps(records, 'a', { t_stop: 4 }), 's', 'camera');
-    expect(approvalState([old], changed)).toBe('changed');
-    expect(approvalState([fresh], changed)).toBe('approved');
-    // Given again, it keeps the new rule's fingerprint.
+    const changed = approvalBasis(withProps(records, 'a', { lens_mm: 85 }), 's', 'camera');
     const props = { department_approvals: withMySceneApproval({}, 'camera', old, changed) ?? {} };
     expect(sceneApprovals(props).camera?.[0]?.basis).toBe(changed.current);
   });
@@ -213,6 +300,6 @@ describe('what a department touches in a scene', () => {
       Object.entries(records).map(([id, r]) => [id, ['s', 'a', 'b', 'n'].includes(id) ? { ...r, trashedAt: at } : r]),
     );
     expect(basis(trashed)).toBe(before);
-    expect(approvalBasis(records, 'nothing', 'camera')).toEqual({ current: '', legacy: '' });
+    expect(approvalBasis(records, 'nothing', 'camera')).toEqual({ current: '', v2: '', legacy: '' });
   });
 });

@@ -307,6 +307,27 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v13: approvals kept through the upgrade (3.18)
+
+Changes existing data (Kevin Nov 9: "An approval that was current before an upgrade stays current after it"); no
+table change. 3.6b's approval rule reads a scene's props, its `characters` among them, so schema 12 as first built
+left an approval given before it reading "Changed since approval" on a scene whose names it turned into ids. Schema 12
+now re-stamps them itself (below); schema 13 repairs files upgraded before it did.
+
+- For each scene with `department_approvals`, schema 12's own step in History is the newest `update` op on it whose
+  `before` holds a `characters` list and whose `after` holds no name there and differs in nothing else but
+  `character_ids` (a list it emptied, `[]` or blank names only, came off with no ids written).
+- When the scene's `character_ids` and `characters` are still what that step wrote, the scene is read as it is now
+  with the step's `before` characters back. Each sign-off current then and not now gets `basis` re-stamped by the rule
+  it was made with, on the scene as it is now. A sign-off changed for another reason, or on a scene whose characters
+  were edited since, stays as it is.
+- The changes are one logged `edit` step in History, and the undo and redo stacks end there, as schemas 9 and 12's
+  do; a file with nothing to repair gets no step. The file is backed up first.
+- A Restore to a point between schema 12's step and schema 13's, or Open version of a version named there, brings
+  back the approvals as they were then, before the repair, and no migration runs again: approving again clears them.
+- Any later migration that rewrites what an approval rule reads does the same: every sign-off current just before it
+  is re-stamped by its own rule on the records after it (src/core/model/sceneApprovals.ts, `approvalsKeptThrough`).
+
 ## Schema v12: scene characters as ids (3.13)
 
 Changes existing data (approved by Kevin Nov 9); no table change. A scene's speaking characters were names
@@ -323,6 +344,8 @@ a scene and who plays them.
 - The changes, new characters included, are one logged `edit` step in History (`create` ops for the characters,
   `update` ops for the scenes), and the undo and redo stacks end there, as schema 9's do. The file is backed up first.
 - From here a script import writes `character_ids` too. A character in the Trash, or gone for good, reads as none.
+- A scene's sign-offs current before the upgrade are re-stamped by their own rule on the scene after it (3.18), in
+  the same step, so none reads "Changed since approval" because of it.
 - Restore to here, or Open version, from before the upgrade puts scenes back with `characters` names (the characters
   it made go with it), and nothing converts them again. A scene without `character_ids` reads its `characters` as the
   upgrade matched them: the project's live characters by name, trimmed and in any case, the first by sort key.
@@ -637,7 +660,7 @@ shot), both ordered by `sort_key`. Like every prop, a missing or unreadable valu
 | character | name | text | 1.17. A speaking character from script import, without extensions such as (V.O.). One per name, whatever its case |
 | character | cast_id | id | 3.5b. The person who plays them; missing, trashed or gone reads as no one |
 | scene | numbers_locked | true or false | Locks the scene's shot numbers (below) |
-| scene | department_approvals | object by department id | 3.6b (schema 9). `{ "camera": [{ "name": "Kevin Matos", "roles": ["dp"], "at": "<ISO time>", "basis": "2:<14 hex digits>" }] }`: the director's or the DP's sign-offs on the whole scene, named as shot approvals were (the approver's name as it was then, or initials, or empty; one person who is both is one approval with both roles). `basis` fingerprints what the department touched in the scene when it was given (cyrb53 over canonical JSON, src/core/model/sceneApprovals.ts). From 3.15 it starts `2:` and covers, for every department, the shared fields: the scene's `name`, `heading`, `int_ext`, `day_night` and `location_id`; its live frames in sibling order, each with its `action`, `dialogue`, `size`, `lens_mm`, `move`, `crop`, `clip` and `location_id`, its picture's stored file (the media record's `file`, a sha256) and its strokes' ids; and, for that department alone, its own entry in each frame's `department_status` but `priority` and `approvals` (its `working`, `done` and notes; a value of `false`, `null` or `""` is the same as none). A `basis` without `2:` was made by 3.6b's rule and is still read by it: the scene's props but this one; its live frames and note cards in sibling order, each frame's props but `department_status`, its picture's file and its strokes' ids; and that department's `working` and `done` on each frame. When it no longer matches, the app shows "Changed since approval". Missing or empty for a scene without approvals. Departments, approvals and fields this version doesn't know are kept as they are |
+| scene | department_approvals | object by department id | 3.6b (schema 9). `{ "camera": [{ "name": "Kevin Matos", "roles": ["dp"], "at": "<ISO time>", "basis": "3:<14 hex digits>" }] }`: the director's or the DP's sign-offs on the whole scene, named as shot approvals were (the approver's name as it was then, or initials, or empty; one person who is both is one approval with both roles). `basis` fingerprints what the department touched in the scene when it was given (cyrb53 over canonical JSON, src/core/model/sceneApprovals.ts). From 3.18 it starts `3:` and covers what `2:` does plus the scene's `character_ids` and `characters` for every department, and each live frame's `t_stop`, `support` and `height` for `camera` and `grip-electric`. A `basis` starting `2:` (3.15's rule) is still read by it, which covers, for every department, the shared fields: the scene's `name`, `heading`, `int_ext`, `day_night` and `location_id`; its live frames in sibling order, each with its `action`, `dialogue`, `size`, `lens_mm`, `move`, `crop`, `clip` and `location_id`, its picture's stored file (the media record's `file`, a sha256) and its strokes' ids; and, for that department alone, its own entry in each frame's `department_status` but `priority` and `approvals` (its `working`, `done` and notes; a value of `false`, `null` or `""` is the same as none). A `basis` without a prefix was made by 3.6b's rule and is still read by it: the scene's props but this one; its live frames and note cards in sibling order, each frame's props but `department_status`, its picture's file and its strokes' ids; and that department's `working` and `done` on each frame. A prefix this version doesn't know reads as changed. Each sign-off is read by the rule it was made with, so a new rule never turns one changed; given again, it takes the newest. When it no longer matches, the app shows "Changed since approval". Missing or empty for a scene without approvals. Departments, approvals and fields this version doesn't know are kept as they are |
 | shot | number | text | The full slate number, `4B`; stored, so exports and editors see exactly the board's numbers |
 | shot | title | text | Nov 5 (a prop, no table change): an optional title, "Mary wipes the counter", edited in place. Missing for none, as in every older file; an emptied title is taken off |
 | shot | size | `EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT` | |
@@ -983,6 +1006,7 @@ merge a database, so two guards sit around every open project:
 | 10 | 3.10 | Notification read state: `notification_cursors`, `notification_reads` |
 | 11 | 3.4 | Cached network lookups: `lookups` |
 | 12 | 3.13 | Scene characters as ids: `characters` (names) becomes `character_ids`, characters made for names with none. No table change |
+| 13 | 3.18 | Approvals kept through schema 12: sign-offs it left "Changed" re-stamped by their own rule. No table change |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

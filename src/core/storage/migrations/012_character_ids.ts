@@ -1,4 +1,5 @@
 import type { JsonValue, Props, SbdRecord } from '../../model/record';
+import { approvalsKeptThrough } from '../../model/sceneApprovals';
 import { keyBetween } from '../../ops/order';
 import { loadRecords, loggedRewrite } from '../../ops/ops';
 import type { ProjectFile, Statement } from '../driver';
@@ -73,6 +74,17 @@ export function characterIdChanges(
     if (ids.length > 0) props.character_ids = ids;
     if (kept.length > 0) props.characters = kept;
     if (JSON.stringify(props) !== JSON.stringify(scene.props)) changes.push({ before: scene, props });
+  }
+  // A scene's characters are part of what its approvals read (3.6b's rule, 3.18's), so the upgrade alone would show
+  // them "Changed since approval": every one current before it is re-stamped on the scene as it is after (Kevin Nov 9).
+  if (changes.length > 0) {
+    const before: Record<string, SbdRecord> = Object.fromEntries(list.map((r) => [r.id, r]));
+    const after: Record<string, SbdRecord> = { ...before };
+    for (const { before: scene, props } of changes) after[scene.id] = { ...scene, props };
+    for (const change of changes) {
+      const approvals = approvalsKeptThrough(before, after, change.before.id);
+      if (approvals) change.props = { ...change.props, department_approvals: approvals };
+    }
   }
   return { created, changes };
 }
