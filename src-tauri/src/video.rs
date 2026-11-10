@@ -300,6 +300,22 @@ fn run_heard(
     run_stoppable(command, timeout, errors, None, None)
 }
 
+/// How the last stop on this thread ended, for the tests: the file removed while the stop waited (the promise: gone
+/// before the app can quit), refused by the system even after the retries, or left to the thread that waits for the
+/// process because it took longer than the stop's wait to end.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum StopEnd {
+    Here,
+    Refused,
+    Later,
+}
+
+#[cfg(test)]
+thread_local! {
+    static STOP_END: std::cell::Cell<Option<StopEnd>> = const { std::cell::Cell::new(None) };
+}
+
 /// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`. `leftover`, a file
 /// the sidecar writes, is removed when it's stopped or given up on, once it has ended: Windows can't delete a file a
 /// process still has open, and on a Mac a sidecar told to stop as the app quits would otherwise finish it alone.
@@ -346,6 +362,17 @@ fn run_stoppable(
             .map(|p| Box::new(p) as Box<dyn Read + Send>),
     );
     let leftover = leftover.map(Path::to_path_buf);
+    // Windows can refuse to delete a file for a moment after the process that wrote it has gone (the system, or a virus
+    // scanner, still has it open), so the delete is tried again for up to a second.
+    let remove = |file: &Path| -> bool {
+        for _ in 0..20 {
+            if std::fs::remove_file(file).is_ok() || !file.exists() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    };
     // Killed: waited for here a moment (a stop asked for should end with the file gone, before the app quits), else
     // on a thread of its own, which removes the file once the process has let it go.
     let end = move |mut child: std::process::Child, wait: Duration| {
@@ -353,17 +380,26 @@ fn run_stoppable(
         let started = Instant::now();
         while started.elapsed() < wait {
             if let Ok(Some(_)) = child.try_wait() {
-                if let Some(file) = &leftover {
-                    let _ = std::fs::remove_file(file);
-                }
+                let gone = leftover.as_deref().is_none_or(remove);
+                #[cfg(test)]
+                STOP_END.with(|end| {
+                    end.set(Some(if gone {
+                        StopEnd::Here
+                    } else {
+                        StopEnd::Refused
+                    }))
+                });
+                let _ = gone;
                 return;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+        #[cfg(test)]
+        STOP_END.with(|end| end.set(Some(StopEnd::Later)));
         std::thread::spawn(move || {
             let _ = child.wait();
             if let Some(file) = &leftover {
-                let _ = std::fs::remove_file(file);
+                remove(file);
             }
         });
     };
@@ -2768,6 +2804,26 @@ mod tests {
             )
         });
         assert_eq!(outcome.unwrap_err(), CLIP_CANCELLED);
+        // Failed twice on the Windows runner (Nov 10) with the file still there. Either ffmpeg took longer than the
+        // stop's wait to end, so the file went from the thread that waits for it, or the delete was refused for a
+        // moment after it ended (a virus scanner reading the new file), which the stop now retries. Which one is said.
+        let how = STOP_END.with(std::cell::Cell::get);
+        assert_ne!(
+            how,
+            Some(StopEnd::Refused),
+            "the system kept refusing to delete the unfinished file"
+        );
+        if how == Some(StopEnd::Later) {
+            eprintln!(
+                "ffmpeg outlasted the stop's wait; the file goes from the thread that waits for it"
+            );
+            let started = Instant::now();
+            while partial.exists() && started.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        } else {
+            assert_eq!(how, Some(StopEnd::Here));
+        }
         assert!(
             !partial.exists(),
             "the unfinished file is gone once it's stopped"
