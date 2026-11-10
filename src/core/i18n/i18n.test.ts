@@ -175,6 +175,8 @@ describe('errors raised below the UI', () => {
       '"X" isn\'t an app data file.',
       'The backup copy has already ended.',
       "Couldn't set the project's journal mode (got X).",
+      // A service id the code doesn't list: a bug in the app, never something a person did.
+      "Storiiboard doesn't know that service.",
     ]);
     const missing = [...new Set(messages)].filter((m) => !internal.has(m) && !errorEntries.some((pattern) => pattern.test(m)));
     expect(missing).toEqual([]);

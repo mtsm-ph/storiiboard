@@ -19,7 +19,10 @@ pub(crate) const USER_AGENT: &str = concat!(
 /// Every host the app may reach, and the rule each follows:
 /// - `nominatim.openstreetmap.org`: the address search (3.4), only when the person presses Search, at most one request
 ///   a second (geocode.rs), every answer cached in the project (`lookups`).
-const HOSTS: &[&str] = &["nominatim.openstreetmap.org"];
+/// - `raw.githubusercontent.com`: the service switch file (4.0, services.rs), `services.json` on this repo's `main`,
+///   read at most once a day and only just before an online service is used; it can turn a service off or move it
+///   to another server on the code's list, never add a host.
+const HOSTS: &[&str] = &["nominatim.openstreetmap.org", "raw.githubusercontent.com"];
 
 /// Whether a request may go to `url`: HTTPS, to a host on the list, on the default port, with no name or password.
 pub(crate) fn allowed(url: &Url) -> bool {
@@ -81,10 +84,20 @@ fn status_error(status: StatusCode) -> String {
 
 /// GETs `url` and reads its JSON answer, asking for `language` first (an `Accept-Language` value such as `es`).
 pub(crate) async fn get_json(url: Url, language: &str) -> Result<serde_json::Value, String> {
+    get_json_within(url, language, TIMEOUT).await
+}
+
+/// As `get_json`, with `limit` as the most the whole request may take (connecting and reading the answer), for a
+/// caller that mustn't make a person wait as long as the usual limit.
+pub(crate) async fn get_json_within(
+    url: Url,
+    language: &str,
+    limit: Duration,
+) -> Result<serde_json::Value, String> {
     if !allowed(&url) {
         return Err(NOT_ALLOWED.to_owned());
     }
-    let mut request = client()?.get(url);
+    let mut request = client()?.get(url).timeout(limit.min(TIMEOUT));
     if !language.is_empty()
         && language.len() <= 35
         && language
@@ -141,6 +154,18 @@ mod tests {
             "https://nominatim.openstreetmap.org.evil.example/"
         )));
         assert!(!allowed(&url("https://openstreetmap.org/")));
+    }
+
+    #[test]
+    fn the_switch_file_host_is_allowed_only_over_https() {
+        assert!(allowed(&url(
+            "https://raw.githubusercontent.com/mtsm-ph/storiiboard/main/services.json"
+        )));
+        assert!(!allowed(&url(
+            "http://raw.githubusercontent.com/mtsm-ph/storiiboard/main/services.json"
+        )));
+        assert!(!allowed(&url("https://githubusercontent.com/")));
+        assert!(!allowed(&url("https://github.com/mtsm-ph/storiiboard")));
     }
 
     #[test]

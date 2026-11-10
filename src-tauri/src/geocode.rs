@@ -11,9 +11,12 @@ use std::{
 use reqwest::Url;
 use serde::Serialize;
 
-use crate::net;
+use tauri::AppHandle;
 
-const SEARCH: &str = "https://nominatim.openstreetmap.org/search";
+use crate::{net, services};
+
+/// The service's id in services.rs, whose switch can turn the search off or move it to another listed server.
+const SERVICE: &str = "nominatim";
 /// Nominatim's usage policy: an absolute maximum of one request a second.
 const GAP: Duration = Duration::from_secs(1);
 const MAX_RESULTS: usize = 5;
@@ -42,10 +45,11 @@ fn cleaned(query: &str) -> Result<String, String> {
     Ok(joined.chars().take(MAX_QUERY).collect())
 }
 
-fn search_url(query: &str) -> Url {
+/// The search address on `server`, one of the servers listed in services.rs.
+fn search_url(server: &str, query: &str) -> Url {
     let limit = MAX_RESULTS.to_string();
     Url::parse_with_params(
-        SEARCH,
+        &format!("{server}/search"),
         [
             ("q", query),
             ("format", "jsonv2"),
@@ -97,11 +101,9 @@ fn book(next_free: &mut Option<Instant>, now: Instant) -> Duration {
 
 static NEXT_FREE: Mutex<Option<Instant>> = Mutex::new(None);
 
-/// Searches for `query`, the place names in `language` where the map has them.
-#[tauri::command]
-pub async fn address_search(query: String, language: String) -> Result<Vec<Place>, String> {
-    let query = cleaned(&query)?;
-    let wait = {
+/// Books this search's place in the queue, and says how long it waits; an error when the queue is a backlog.
+fn reserve() -> Result<Duration, String> {
+    {
         let mut next_free = NEXT_FREE
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -111,12 +113,25 @@ pub async fn address_search(query: String, language: String) -> Result<Vec<Place
         if next_free.is_some_and(|free| free.saturating_duration_since(now) > MAX_QUEUE) {
             return Err(net::BUSY.to_owned());
         }
-        book(&mut next_free, now)
-    };
+        Ok(book(&mut next_free, now))
+    }
+}
+
+/// Searches for `query`, the place names in `language` where the map has them. Asks the service switch first: a
+/// service turned off answers with why (services::OFF_PREFIX) and nothing is sent.
+#[tauri::command]
+pub async fn address_search(
+    app: AppHandle,
+    query: String,
+    language: String,
+) -> Result<Vec<Place>, String> {
+    let query = cleaned(&query)?;
+    let server = services::service_server(&app, SERVICE).await?;
+    let wait = reserve()?;
     if !wait.is_zero() {
         let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(wait)).await;
     }
-    places(&net::get_json(search_url(&query), &language).await?)
+    places(&net::get_json(search_url(&server, &query), &language).await?)
 }
 
 #[cfg(test)]
@@ -165,7 +180,7 @@ mod tests {
         );
         assert_eq!(cleaned("   "), Err(NO_QUERY.to_owned()));
         assert_eq!(cleaned(&"a".repeat(1000)).map(|q| q.len()), Ok(MAX_QUERY));
-        let url = search_url("Calle 5 & 6, Cusco");
+        let url = search_url("https://nominatim.openstreetmap.org", "Calle 5 & 6, Cusco");
         assert!(net::allowed(&url));
         assert_eq!(
             url.query(),
@@ -177,7 +192,7 @@ mod tests {
     fn refuses_a_backlog_before_it_asks() {
         // Searches booked well ahead (something pressing far faster than a person): the next is refused, unsent.
         *NEXT_FREE.lock().expect("lock") = Some(Instant::now() + MAX_QUEUE * 2);
-        let answer = tauri::async_runtime::block_on(address_search("Lima".into(), "en".into()));
+        let answer = reserve();
         *NEXT_FREE.lock().expect("lock") = None;
         assert_eq!(answer, Err(net::BUSY.to_owned()));
     }
