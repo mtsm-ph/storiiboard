@@ -1057,7 +1057,6 @@ export const es: Messages = {
   'statusBar.unreadOpen.other': '{count} sin leer: abrir Notificaciones',
   // src/features/schedule/CalendarTile.tsx (3.8: the Calendar)
   'calendar.noProject': 'Abre un proyecto para ver sus días de rodaje por mes y semana.',
-  'calendar.firstDay': '1',
   'calendar.view': 'Vista',
   'calendar.month': 'Mes',
   'calendar.week': 'Semana',
@@ -1488,6 +1487,10 @@ export const es: Messages = {
   'error.pathTooLong': 'La ruta de la carpeta de este proyecto es demasiado larga para poner una copia a su lado. Mueve el proyecto a una carpeta con una ruta más corta y vuelve a abrir la versión.',
   // src/app/preferences/AppTile.tsx
   'app.language': 'Idioma de la app',
+  'app.weekStart': 'La semana empieza el',
+  'app.weekStart.region': 'Como dice la región de esta computadora',
+  'app.weekStart.sunday': 'Domingo',
+  'app.weekStart.monday': 'Lunes',
   'app.languageNote': 'Cada pantalla, aviso y exportación, para ti en esta computadora. Un proyecto que compartes se abre en el idioma de cada persona.',
   // src/core/i18n (lists)
   'list.and': '{items} y {last}',

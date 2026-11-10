@@ -88,7 +88,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | #109 | Done |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
-| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
+| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | #112 | Done |
 | 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | #116 | Done |
 | 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | #117 | Done |
 
@@ -140,6 +140,24 @@ Every other default from the overnight run is approved. After 3.17: the Phase 4 
 - Tests: the new rule per department, each rule read by its own, the pinned fingerprints (3.6b, 3.15, 3.18),
   re-stamping by rule (a changed sign-off left changed), schema 12 alone keeping approvals of every rule current (and
   failing with the re-stamp off), schema 13 on a file upgraded by 12 as shipped.
+
+3.17 as built (Nov 9): the week's first day (`src/app/weekStart.ts`, `src-tauri/src/region.rs`).
+- The Calendar's week starts on the day this computer's regional settings say, in every language (it went by the
+  language before: Sunday in English, Monday in Spanish). Settings → App has "Week starts on": as the region says
+  (the default), Sunday or Monday.
+- A webview knows the app's language, not the region's formats, so on the desktop Rust reads them: Windows' regional
+  "first day of week" (GetLocaleInfoEx; `windows-sys`'s Globalization feature, a part of a crate already used, no new
+  one), a Mac's first day from Language & Region (`defaults read -g AppleFirstWeekday`, else the region in
+  `AppleLocale`). The page turns a region into a first day with Intl's week info, or CLDR's table where the engine
+  has none, so a region that starts on Saturday does too. In a browser, the browser's language stands in.
+- A Mac's region picked apart from its language (`en_GB@rg=uszzzz`, British English set to the US) counts as the
+  region. Linux's `C` and `POSIX` name none.
+- Decided by default, review: the setting is this computer's, as the language is; a region whose week starts on
+  Saturday starts it there (the grid takes any day), though the override offers only Sunday and Monday, as asked.
+- Tests: Rust (Windows' and a Mac's counting; a locale read as a page reads one; this computer read without failing);
+  the region's first day (US, Mexico, Spain, Britain, Egypt), Settings over the region, the computer's own over its
+  region, the setting kept and an unknown one read as the region's; end to end, the region's Sunday, Monday from
+  Settings, and the region again in Spanish.
 
 3.16 as built (Nov 9): approvals on the board (`ApprovalsMarker` in `src/features/storyboard/StoryboardView.tsx`,
 `sceneApprovalSummary` in `src/core/model/sceneApprovals.ts`).

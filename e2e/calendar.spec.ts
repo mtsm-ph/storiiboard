@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { closeSettings, openSettings } from './settings';
 
 // The Calendar (3.8) in the memory build: shoot days by month and week, a date picked to narrow the shoot schedule,
 // each day with its scenes, locations and crew confirmed (set in the Shoot days tile). The page's clock is fixed, so
@@ -89,4 +90,25 @@ test('a shoot day on the month, picked to narrow the schedule, with its scenes a
   await expect(week.getByRole('gridcell')).toHaveCount(7);
   await calendar(page).getByRole('button', { name: 'Next week' }).click();
   await expect(week.getByRole('button', { name: /^16\s*Monday, November 16, ?Day 1/ })).toBeVisible();
+});
+
+test('the week starts as this computer’s region says, or as Settings → App sets it, in any language (3.17)', async ({ page }) => {
+  const grid = calendar(page).getByRole('grid');
+  const firstColumn = grid.getByRole('columnheader').first();
+  // The browser here is en-US: its region starts the week on Sunday.
+  await expect(firstColumn).toHaveText('Sun');
+  const app = await openSettings(page, 'App');
+  const weekStart = app.getByLabel('Week starts on');
+  await expect(weekStart).toHaveValue('region');
+  await weekStart.selectOption('monday');
+  await closeSettings(page);
+  await expect(firstColumn).toHaveText('Mon');
+  // In Spanish, still as set: Monday because Settings says so, not because of the language.
+  await openSettings(page, 'App');
+  await app.getByLabel('Language').selectOption('es');
+  // The tab's own name is Spanish now: the field is found by its label, and the window by its Spanish name.
+  await page.getByLabel('La semana empieza el').selectOption('region');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Configuración' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Calendario', exact: true }).getByRole('grid').getByRole('columnheader').first()).toHaveText(/^dom/);
 });

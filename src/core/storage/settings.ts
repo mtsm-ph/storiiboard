@@ -56,6 +56,10 @@ function profileOf(value: unknown): Profile {
 /** `project`, Follow project (the default since 1.15): the open project's own mode, or the OS with none open. */
 export type ThemePreference = 'project' | 'system' | 'light' | 'dark';
 
+/** Where the week starts (3.17): as this computer's region says, or Sunday or Monday whatever it says. */
+export type WeekStartChoice = 'region' | 'sunday' | 'monday';
+export const isWeekStartChoice = (value: unknown): value is WeekStartChoice => value === 'region' || value === 'sunday' || value === 'monday';
+
 export interface Settings {
   theme: ThemePreference;
   /**
@@ -71,6 +75,8 @@ export interface Settings {
   backupsNextToProject: boolean;
   /** The app's language (Settings → App). The person's, never the project's: a shared .sbd opens in each one's own. */
   language: LocaleId;
+  /** Where the Calendar's week starts (3.17, Settings → App), in every language. */
+  weekStart: WeekStartChoice;
   /** The sidebar folded to its strip (polish 2), as the person last left it. */
   sidebarHidden: boolean;
   profile: Profile;
@@ -176,6 +182,7 @@ export const DEFAULT_SETTINGS: Settings = {
   syncNoted: [],
   backupsNextToProject: false,
   language: DEFAULT_LOCALE,
+  weekStart: 'region',
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
   projectRoles: {},
@@ -222,6 +229,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       backupsNextToProject: saved.backupsNextToProject === true,
       // A language this version doesn't have (saved by a newer one, say) reads as the default.
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
+      weekStart: isWeekStartChoice(saved.weekStart) ? saved.weekStart : 'region',
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),

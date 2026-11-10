@@ -191,7 +191,8 @@
   reader is This is me, else `local`; steps you made count as read; the status bar's count opens the tile.
   - Unread count; filters for all, unread and the current scene; Mark all read. Filtered to one item, it is that
     item's history.
-- Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. Picking a day
+- Calendar (Phase 3): month and week views of shoot days and availability, plus a shoot schedule list. The week
+  starts as this computer's region says, in every language, or as Settings → App sets it (3.17). Picking a day
   narrows the list; each day shows its scenes, its location's status and how many crew have confirmed.
 - Calendar, Notifications and Trash are tiles any workspace can open. Calendar is in the Production workspace's default
   layout; Notifications and Trash are in none.

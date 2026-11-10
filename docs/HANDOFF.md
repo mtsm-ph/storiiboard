@@ -427,6 +427,19 @@ Lows deferred (noted, not planned yet):
   it was isn't 12's) is in.
 - Checks: lint, unit tests 1,024 and Rust 162 pass; end-to-end (Chromium) 307 passed, 0 failed, 2 skipped.
 
+### 3.17: review
+
+- Decided by default, review: see PLAN.md, "3.17 as built" (the setting is this computer's; a region that starts on
+  Saturday or Friday starts there, though the override offers only Sunday and Monday, as asked).
+- Round 1: no high; one medium, fixed: on a Mac the region picked apart from the language (`AppleLocale`'s `rg=`,
+  Spanish (Spain) set to Mexico) was dropped, so the week started where the language's region does; it's read as the
+  region now. Lows fixed: Linux's `C` and `POSIX` name no region; China starts on Monday (out of the Sunday list), the
+  Maldives on Friday; the region is read as the app starts, not when the Calendar first draws (no redraw from Sunday
+  to Monday); the end-to-end test waits for the Spanish-named Settings to close.
+- The Settings screenshots: the new "Week starts on" field is on Settings → App, which the four `settings-*`
+  tests capture. Every baseline was regenerated (Windows here; Linux and the Mac from a checkpoint), Kevin compared
+  all 20 (only the field changed) and said merge, Nov 10.
+
 ### 3.16: review
 
 - Decided by default, review: see PLAN.md, "3.16 as built" (the word "changed" beside the dot; in a focus view, your
