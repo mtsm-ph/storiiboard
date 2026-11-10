@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { projectStore, useProject } from '../../app/projectStore';
+import { useZonesAt } from '../../app/timeZone';
 import { t } from '../../core/i18n';
 import { callSheet, defaultSheetDay } from '../../core/model/callsheet';
+import { mapPlace, projectLocations } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
 import { dayLabel, projectShootDays } from '../../core/model/shootDay';
 import type { Change } from '../../core/ops/ops';
@@ -26,12 +28,19 @@ export function CallSheetTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
+  // Each location's zone from its place on the map (4.3), asked of Rust once per place; before it answers, the
+  // sheet shows no sun and no "Times in" line (a guess could be the wrong solar day).
+  const points = (project ? projectLocations(records, project.projectId) : []).flatMap(({ record }) => {
+    const place = mapPlace(record.props);
+    return place ? [{ id: record.id, latitude: place.latitude, longitude: place.longitude }] : [];
+  });
+  const zones = useZonesAt(points);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('callSheet.noProject')}</p>;
   const projectId = project.projectId;
   const days = projectShootDays(records, projectId);
   if (days.length === 0) return <p className="p-3 text-[13px] text-text-muted">{t('callSheet.noDays')}</p>;
   const selected = days.find((d) => d.record.id === chosen) ?? defaultSheetDay(days, today());
-  const sheet = selected ? callSheet(records, projectId, selected.record.id) : null;
+  const sheet = selected ? callSheet(records, projectId, selected.record.id, undefined, zones) : null;
   if (!selected || !sheet) return <p className="p-3 text-[13px] text-text-muted">{t('callSheet.noDays')}</p>;
   const dayId = selected.record.id;
   const edit = (build: (now: Records) => Change[]) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Open-source pre-production for filmmakers"
 authors = ["Kevin Matos"]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 # The _lib suffix avoids a Windows name clash between the lib and the bin.
@@ -32,6 +32,11 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring", "
 # Opening a web link in the browser and a PDF attachment's copy in the PDF reader (3.12, approved Nov 9), from Rust only
 # (src/open.rs): the page has no opener permission. Pinned exactly (MIT or Apache; released Oct 14, 2026).
 tauri-plugin-opener = "=2.7.2"
+
+# A place's time zone from its coordinates, offline (4.3, Kevin Nov 10), through src/timezone.rs only. bundled carries
+# the boundary data in the binary; no default features leaves out its command-line clap. Pinned exactly (MIT; Oct 11,
+# 2026). Its data crate tzf-dist is held at 0.0.2026-e in Cargo.lock (MIT and ODbL-1.0, OpenStreetMap data).
+tzf-rs = { version = "=2.1.3", default-features = false, features = ["bundled"] }
 
 # Desktop only: a second launch (a double-click on a .sbd while the app runs, on Windows) hands its arguments to the
 # running app and exits, so one window owns the open project (src/opened.rs).

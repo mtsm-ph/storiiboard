@@ -51,6 +51,7 @@ export const LOCATION_BUILT_IN_FIELDS = [
   'location.contactEmail',
   'location.parking',
   'location.power',
+  'location.timeZone',
   'location.notes',
   'location.photos',
   'field.newField',

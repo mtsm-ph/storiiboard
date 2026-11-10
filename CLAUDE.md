@@ -33,8 +33,8 @@
 - Video: ffmpeg sidecar, LGPL build, for proxies, stills and trims.
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
-- PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: @photostructure/tz-lookup,
-  offline (Kevin, Nov 9). Maps: react-konva, tiles fetched through Rust and cached on disk. 3D (Phase 10): three.js
+- PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
+  offline (Kevin, Nov 10; src-tauri/src/timezone.rs). Maps: react-konva, tiles fetched through Rust and cached on disk. 3D (Phase 10): three.js
   through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
@@ -157,7 +157,8 @@
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web. Built in 4.1: the Call
   sheet tile in Production (src/core/model/callsheet.ts), a `callsheet` record under its day holding only its notes,
   never their text in History. Built in 4.2: who's on a day is the day's `people_ids` (a day without it, from before
-  4.2, means everyone), calls and cast times on the `callsheet` record, and a person's `contact_on_sheet`.
+  4.2, means everyone), calls and cast times on the `callsheet` record, and a person's `contact_on_sheet`. Built in
+  4.3: sun times per location (src/core/model/sunTimes.ts), in the location's `time_zone` or the zone tzf-rs finds.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
