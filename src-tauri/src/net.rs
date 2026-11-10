@@ -19,10 +19,18 @@ pub(crate) const USER_AGENT: &str = concat!(
 /// Every host the app may reach, and the rule each follows:
 /// - `nominatim.openstreetmap.org`: the address search (3.4), only when the person presses Search, at most one request
 ///   a second (geocode.rs), every answer cached in the project (`lookups`).
+/// - `api.met.no`: the weather (4.4, weather.rs), MET Norway's Locationforecast, only when a call sheet is opened on a
+///   day or its Refresh is pressed, coordinates cut to 4 decimals, never again for a place before the answer's
+///   `Expires` (the page keeps the answer in the project, `lookups`); a 403 or 429 means stop, never retried. Credit
+///   "Data from MET Norway" (CC BY 4.0) on the sheet.
 /// - `raw.githubusercontent.com`: the service switch file (4.0, services.rs), `services.json` on this repo's `main`,
 ///   read at most once a day and only just before an online service is used; it can turn a service off or move it
 ///   to another server on the code's list, never add a host.
-const HOSTS: &[&str] = &["nominatim.openstreetmap.org", "raw.githubusercontent.com"];
+const HOSTS: &[&str] = &[
+    "nominatim.openstreetmap.org",
+    "api.met.no",
+    "raw.githubusercontent.com",
+];
 
 /// Whether a request may go to `url`: HTTPS, to a host on the list, on the default port, with no name or password.
 pub(crate) fn allowed(url: &Url) -> bool {
@@ -94,6 +102,41 @@ pub(crate) async fn get_json_within(
     language: &str,
     limit: Duration,
 ) -> Result<serde_json::Value, String> {
+    Ok(get_answer(url, language, limit, None, status_error)
+        .await?
+        .json)
+}
+
+/// A JSON answer with the headers a caching caller needs (weather.rs: `Expires`, `Date`), as the server wrote them.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Answer {
+    pub json: serde_json::Value,
+    pub expires: Option<String>,
+    pub last_modified: Option<String>,
+    /// The server's own clock when it answered, so an expiry can be counted from it rather than the local clock.
+    pub date: Option<String>,
+    /// A 304 to a request sent with `If-Modified-Since`: nothing changed, `json` is null.
+    pub not_modified: bool,
+}
+
+/// As `get_json`, with the `Expires` and `Last-Modified` headers, and `words` choosing the error for a status that
+/// isn't success (a caller whose service says "stop asking" with 403 or 429 words that its own way).
+/// `modified_since` is an HTTP date sent as `If-Modified-Since`, for a caller renewing what it already holds.
+pub(crate) async fn get_json_with_headers(
+    url: Url,
+    modified_since: Option<String>,
+    words: fn(StatusCode) -> String,
+) -> Result<Answer, String> {
+    get_answer(url, "", TIMEOUT, modified_since, words).await
+}
+
+async fn get_answer(
+    url: Url,
+    language: &str,
+    limit: Duration,
+    modified_since: Option<String>,
+    words: fn(StatusCode) -> String,
+) -> Result<Answer, String> {
     if !allowed(&url) {
         return Err(NOT_ALLOWED.to_owned());
     }
@@ -106,12 +149,35 @@ pub(crate) async fn get_json_within(
     {
         request = request.header(reqwest::header::ACCEPT_LANGUAGE, language);
     }
+    let asked_if_modified = modified_since.is_some();
+    if let Some(date) = modified_since {
+        request = request.header(reqwest::header::IF_MODIFIED_SINCE, date);
+    }
     let response = request.send().await.map_err(|_| NO_CONNECTION.to_owned())?;
     if !allowed(response.url()) {
         return Err(NOT_ALLOWED.to_owned());
     }
+    let header = |name: reqwest::header::HeaderName| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let expires = header(reqwest::header::EXPIRES);
+    let last_modified = header(reqwest::header::LAST_MODIFIED);
+    let date = header(reqwest::header::DATE);
+    if asked_if_modified && response.status() == StatusCode::NOT_MODIFIED {
+        return Ok(Answer {
+            json: serde_json::Value::Null,
+            expires,
+            last_modified,
+            date,
+            not_modified: true,
+        });
+    }
     if !response.status().is_success() {
-        return Err(status_error(response.status()));
+        return Err(words(response.status()));
     }
     if response
         .content_length()
@@ -126,7 +192,13 @@ pub(crate) async fn get_json_within(
     if bytes.len() > MAX_ANSWER {
         return Err(ODD_ANSWER.to_owned());
     }
-    serde_json::from_slice(&bytes).map_err(|_| ODD_ANSWER.to_owned())
+    Ok(Answer {
+        json: serde_json::from_slice(&bytes).map_err(|_| ODD_ANSWER.to_owned())?,
+        expires,
+        last_modified,
+        date,
+        not_modified: false,
+    })
 }
 
 #[cfg(test)]
@@ -166,6 +238,16 @@ mod tests {
         )));
         assert!(!allowed(&url("https://githubusercontent.com/")));
         assert!(!allowed(&url("https://github.com/mtsm-ph/storiiboard")));
+    }
+
+    #[test]
+    fn the_weather_host_is_allowed_only_over_https() {
+        assert!(allowed(&url(
+            "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=1&lon=2"
+        )));
+        assert!(!allowed(&url("http://api.met.no/weatherapi/")));
+        assert!(!allowed(&url("https://met.no/")));
+        assert!(!allowed(&url("https://api.met.no.evil.example/")));
     }
 
     #[test]

@@ -34,7 +34,10 @@ describe('Online services', () => {
 
   it('says Not checked yet before the switch has been read, which is all a browser build knows', () => {
     expect(render(nominatim({ state: 'unchecked' }))).toContain('Not checked yet');
-    expect(BROWSER_SERVICES.map((s) => [s.id, s.state])).toEqual([['nominatim', 'unchecked']]);
+    expect(BROWSER_SERVICES.map((s) => [s.id, s.state])).toEqual([
+      ['nominatim', 'unchecked'],
+      ['met-norway', 'unchecked'],
+    ]);
   });
 
   it('says why a service is off, in words of the app and not the file', () => {
@@ -65,5 +68,19 @@ describe('Online services', () => {
   it('tells the off error from Rust apart from any other', () => {
     expect(offReasonFrom('service-off:maintenance')).toBe('maintenance');
     expect(offReasonFrom('The service is busy. Try again in a minute.')).toBeNull();
+  });
+
+  it('lists MET Norway, the weather, with what it is for and when, in English and Spanish', () => {
+    const html = renderToString(<OnlineServicesView services={BROWSER_SERVICES} />).replaceAll('<!-- -->', '');
+    expect(html).toContain('Weather (MET Norway)');
+    expect(html).toContain('The forecast for each location on a call sheet.');
+    expect(html).toContain('Only when a call sheet is opened or refreshed, and never again for a place before the forecast says it’s out of date.');
+    expect(html).toContain('https://api.met.no/weatherapi/locationforecast/2.0');
+    expect(html.match(/data-service="/g)).toHaveLength(2);
+    setLocale('es');
+    const spanish = renderToString(<OnlineServicesView services={BROWSER_SERVICES} />).replaceAll('<!-- -->', '');
+    expect(spanish).toContain('Clima (MET Norway)');
+    expect(spanish).toContain('El pronóstico de cada locación en una hoja de llamado.');
+    expect(es['services.metNorway.when']).toContain('nunca otra vez');
   });
 });

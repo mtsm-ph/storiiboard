@@ -20,6 +20,7 @@ mod services;
 mod synced;
 mod timezone;
 mod video;
+mod weather;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -99,6 +100,7 @@ pub fn run() {
             export::export_choose_folder,
             export::export_write,
             geocode::address_search,
+            weather::weather_forecast,
             services::services_status,
             open::open_link,
             open::open_pdf,

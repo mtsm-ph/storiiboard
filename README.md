@@ -32,6 +32,10 @@ Storiiboard asks these online services for things, and nothing else, only when a
 
 - **Nominatim** (nominatim.openstreetmap.org): the address search in the Locations tile. One request when someone
   presses Search address, at most one request a second, and every answer is cached in the project.
+- **MET Norway** (api.met.no): the forecast for each location on a call sheet (Locationforecast 2.0). One request when
+  a call sheet is opened on a day or its Refresh is pressed, for a place with coordinates cut to 4 decimals, never
+  again for that place before the answer's `Expires`, and every answer is cached in the project. Data from MET
+  Norway, CC BY 4.0.
 - **The service list** (raw.githubusercontent.com): `services.json` in this repository, read at most once a day and
   only just before one of the services above is used.
 

@@ -60,6 +60,10 @@ export type ThemePreference = 'project' | 'system' | 'light' | 'dark';
 export type WeekStartChoice = 'region' | 'sunday' | 'monday';
 export const isWeekStartChoice = (value: unknown): value is WeekStartChoice => value === 'region' || value === 'sunday' || value === 'monday';
 
+/** The units the call sheet's forecast is written in (4.4): by this computer's region, or metric or US whatever it says. */
+export type WeatherUnitsChoice = 'region' | 'metric' | 'us';
+export const isWeatherUnitsChoice = (value: unknown): value is WeatherUnitsChoice => value === 'region' || value === 'metric' || value === 'us';
+
 export interface Settings {
   theme: ThemePreference;
   /**
@@ -77,6 +81,8 @@ export interface Settings {
   language: LocaleId;
   /** Where the Calendar's week starts (3.17, Settings → App), in every language. */
   weekStart: WeekStartChoice;
+  /** The forecast's units (4.4, Settings → App); the cache keeps MET's metric values. */
+  weatherUnits: WeatherUnitsChoice;
   /** The sidebar folded to its strip (polish 2), as the person last left it. */
   sidebarHidden: boolean;
   profile: Profile;
@@ -183,6 +189,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupsNextToProject: false,
   language: DEFAULT_LOCALE,
   weekStart: 'region',
+  weatherUnits: 'region',
   sidebarHidden: false,
   profile: EMPTY_PROFILE,
   projectRoles: {},
@@ -230,6 +237,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       // A language this version doesn't have (saved by a newer one, say) reads as the default.
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
       weekStart: isWeekStartChoice(saved.weekStart) ? saved.weekStart : 'region',
+      weatherUnits: isWeatherUnitsChoice(saved.weatherUnits) ? saved.weatherUnits : 'region',
       sidebarHidden: saved.sidebarHidden === true,
       profile: profileOf(saved.profile),
       projectRoles: projectRolesOf(saved.projectRoles),

@@ -50,33 +50,53 @@ export interface SunDay {
 
 /** Whether `timeZone` is an IANA zone this computer knows. Odd values read as unset (the file may come from anywhere). */
 export function isTimeZone(timeZone: unknown): timeZone is string {
-  if (typeof timeZone !== 'string' || timeZone.trim() === '') return false;
-  try {
-    new Intl.DateTimeFormat(undefined, { timeZone });
-    return true;
-  } catch {
-    return false;
+  return typeof timeZone === 'string' && timeZone.trim() !== '' && zoneFormatter(timeZone) !== null;
+}
+
+/** One formatter per zone, made once: building an Intl formatter is the slow part of reading a clock in a zone. */
+const formatters = new Map<string, Intl.DateTimeFormat | null>();
+function zoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
+  let found = formatters.get(timeZone);
+  if (found === undefined) {
+    try {
+      found = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hourCycle: 'h23',
+        numberingSystem: 'latn',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+      });
+    } catch {
+      found = null;
+    }
+    formatters.set(timeZone, found);
   }
+  return found;
 }
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function parts(instant: Date, timeZone: string): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const p of new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    numberingSystem: 'latn',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).formatToParts(instant)) {
+  for (const p of zoneFormatter(timeZone)?.formatToParts(instant) ?? []) {
     if (p.type !== 'literal') out[p.type] = Number(p.value);
   }
   return out;
+}
+
+/** A moment's date (YYYY-MM-DD) and wall clock in a zone: the forecast's days are the location's. */
+export function zoneClock(instant: Date, timeZone: string): { date: string; hour: number; minute: number } | null {
+  if (Number.isNaN(instant.getTime()) || !isTimeZone(timeZone)) return null;
+  const p = parts(instant, timeZone);
+  return {
+    date: `${String(p.year ?? 0).padStart(4, '0')}-${String(p.month ?? 0).padStart(2, '0')}-${String(p.day ?? 0).padStart(2, '0')}`,
+    hour: p.hour ?? 0,
+    minute: p.minute ?? 0,
+  };
 }
 
 /** How far the zone's wall clock is ahead of UTC at this instant, in milliseconds (summer time included). */
@@ -91,9 +111,17 @@ function offsetAt(instant: Date, timeZone: string): number {
  * (SunCalc reads the solar day around the instant it's given), and noon is never inside a clock change.
  */
 export function noonIn(date: string, timeZone: string): Date | null {
+  return wallInstant(date, 12, 0, timeZone);
+}
+
+/**
+ * The instant the wall clock of `timeZone` reads `hour`:`minute` on `date` (YYYY-MM-DD); null for a date or zone that
+ * can't be read. Midnight (0:00) is the start of the day there.
+ */
+export function wallInstant(date: string, hour: number, minute: number, timeZone: string): Date | null {
   const m = DAY.exec(date);
   if (!m || !isTimeZone(timeZone)) return null;
-  const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+  const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hour, minute);
   // The offset is read near the answer, so it's the one in force at noon even on a day the clocks change.
   const first = new Date(wall - offsetAt(new Date(wall), timeZone));
   return new Date(wall - offsetAt(first, timeZone));
