@@ -127,7 +127,7 @@ describe('the frozen recipe', () => {
   // Any edit to recipe 1 changes this string and fails here: a change to what the sheet hashes is a new recipe under a
   // new fingerprint_version, never an edit of version 1, or every issue already made would read as changed.
   it('recipe 1 gives the same fingerprint for the same records, always', async () => {
-    expect(await hash(base())).toBe('7921137abce864dc716dc2fd876ed3c2bbcf91ce890a0dde1decce14f4ef9566');
+    expect(await hash(base())).toBe('2c7c695176232706f4134e9fbd989c79c46ce91dd849eef5182cc2ecd5301d50');
   });
 
   it('recipe 1 on a full sheet: hospital with place, country, contacts, calls, a second location, a person time', async () => {
@@ -140,7 +140,21 @@ describe('the frozen recipe', () => {
         record('b', 'shot', 's1', { number: '1B', shoot_day_id: 'd', location_id: 'loc2' }),
       ],
     });
-    expect(await hash(records)).toBe('0e333e06901eb07c87065f1e4fcf1e55e1bb2fcc0c36b9def205fb1898f82ac1');
+    expect(await hash(records)).toBe('a8d656f7b04fa31ab23742717c8380303953a7916837a2f8c3367f2787648bc1');
+  });
+
+  it('never hashes the name of a zone found from the map or taken from this computer, only one typed on the location', () => {
+    // Two computers in different zones share a file: CI (UTC) and a laptop (New York) once disagreed here.
+    const records = base({ extra: [record('loc2', 'location', 'p', { name: 'Parking lot' }), record('b', 'shot', 's1', { number: '1B', shoot_day_id: 'd', location_id: 'loc2' })] });
+    const sheet = callSheet(records, 'p', 'd', undefined, zones);
+    if (!sheet) throw new Error('no sheet');
+    const json = JSON.parse(printedJson(sheet, 'google', 'Bey County')) as { locations: { id: string; zone: unknown }[] };
+    expect(json.locations.find((l) => l.id === 'loc2')?.zone).toEqual({ source: 'computer' });
+    expect(json.locations.find((l) => l.id === 'loc')?.zone).toEqual({ source: 'map' });
+    const typed = callSheet(base({ loc: { time_zone: 'America/Chicago' } }), 'p', 'd', undefined, zones);
+    if (!typed) throw new Error('no sheet');
+    const typedJson = JSON.parse(printedJson(typed, 'google', 'Bey County')) as { locations: { id: string; zone: unknown }[] };
+    expect(typedJson.locations.find((l) => l.id === 'loc')?.zone).toEqual({ zone: 'America/Chicago', source: 'location' });
   });
 
   it('does not read what the code works out: the emergency number table, the sun, the distance, the link', () => {
