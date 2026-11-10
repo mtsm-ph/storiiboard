@@ -386,6 +386,22 @@ Lows deferred (noted, not planned yet):
 - Waiting for Kevin, besides Phase 4's answers: the map (Leaflet, pigeon-maps or our own on react-konva; tiles through
   Rust), and 3.17's screenshots.
 
+### 3.19: review
+
+- Built by the main session (a CI change; the builder wasn't loadable). Reviewer round 1: three mediums, fixed: a
+  Playwright run that failed outside every test (a spec that threw as it loaded, no tests found, the web server) and a
+  Vitest file failed by a hook listed as clean; and a rerun of one file rewrote the full run's report (each report's
+  start time is printed now, and CLAUDE.md says to list them right after the full run). Lows: `engines` raised to
+  Node 22.18; Vitest's unhandled errors, which its report can't hold, said in the docs; a job cancelled by its time
+  limit keeps no report (as before; noted). Both failures outside a test were probed against the real reporters.
+- The probe files are in test-results/probe (build output); deleting them was refused by this session's permissions,
+  so they stay until Kevin or a clean deletes them. Nothing reads them: outside testDir, Vitest's include, tsconfig and
+  eslint.
+- The first full end-to-end run of 3.19 failed 7 tests, all unrelated (a11y sweep light en and es, custom fields,
+  department status 3.6b, docking, PNG export work, gear), in 11.2 minutes instead of 3.9: the main session was
+  editing files and running lint and Vitest beside it. The quiet rerun passed all 307. Run the suite alone.
+- Checks: lint, unit tests and Rust pass; end-to-end (Chromium) 307 passed, 0 failed, 2 skipped.
+
 ### 3.18: review
 
 - Built by the main session (the builder wasn't loadable yet). Reviewer round 1: no high; one medium, fixed: schema

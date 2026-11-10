@@ -1,4 +1,7 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
+
+const ciReporters: ReporterDescription[] = [['list'], ['github']];
+const localReporters: ReporterDescription[] = [['list']];
 
 // Playwright drives the UI in a browser, not the Tauri app: the Mac WKWebView has no
 // WebDriver. WebKit is the closest stand-in for the Mac shell, Chromium for WebView2.
@@ -13,8 +16,11 @@ export default defineConfig({
   // the retry compare the screenshot with itself and pass. Linux and macOS baselines come from the Checkpoint workflow,
   // on a push to checkpoint/baselines-<name>; Windows ones from the Windows gate.
   updateSnapshots: process.env.CI ? 'none' : 'missing',
-  // On CI, list prints each test to the log and github annotates the failing lines.
-  reporter: process.env.CI ? [['list'], ['github']] : 'list',
+  // On CI, list prints each test to the log and github annotates the failing lines. The JSON report keeps every
+  // failed and flaky test's name (3.19): `npm run failed-tests` lists them, and CI keeps the file. It sits beside
+  // outputDir, not in it: Playwright empties outputDir as a run starts, and Vitest's report lives in test-results too.
+  reporter: [...(process.env.CI ? ciReporters : localReporters), ['json', { outputFile: 'test-results/e2e.json' }]],
+  outputDir: 'test-results/e2e',
   use: {
     baseURL: 'http://localhost:1420',
     trace: 'retain-on-failure',

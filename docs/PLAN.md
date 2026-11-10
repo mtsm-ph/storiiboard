@@ -89,14 +89,35 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
-| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | | In review |
-| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | Not started |
+| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | #116 | Done |
+| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | In review |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
 plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.19 as built (Nov 9): failed tests by name (`scripts/failedTests.ts`, `npm run failed-tests`).
+- Vitest writes a JSON report beside its usual output (test-results/unit.json), Playwright one beside its own
+  (test-results/e2e.json); Playwright's output folder moved to test-results/e2e, since it empties that folder as a run
+  starts and would take Vitest's report with it.
+- `npm run failed-tests` lists every failed test by file and title, and every flaky one (Playwright passed it only on
+  its retry, which CI allows once): from the last local run, or from report files named on the command line (a CI
+  artifact). It says so when none failed, and fails when a report is missing or unreadable, so no report never reads
+  as a clean run.
+- CI: the quick checks list failed unit tests in the log and keep unit-test-report; each checkpoint smoke job lists
+  failed and flaky end-to-end tests and keeps e2e-test-report-linux or -macos, 14 days, whether the job passed or not
+  (a flaky test leaves it green). Rust's tests stay in the log: Kevin named Vitest and Playwright.
+- A run can fail with no test failed, and is listed then too: a Vitest file that didn't load or whose hook threw
+  (a beforeAll skips its tests; an afterAll fails the file after they passed), and Playwright's errors outside every
+  test (a spec that threw as it loaded, a test.only on CI, the web server, no tests found). Each report's start time
+  is printed, since a rerun of one file rewrites the report. What it can't see: an error Vitest reports outside every
+  file (an unhandled rejection) isn't in its report; a red `npm test` with nothing listed is that, in the log.
+- `engines` is Node 22.18 or later, the first 22 to run TypeScript without a flag.
+- Tests: the two report shapes as each tool writes them (a file that didn't load, a hook that threw, describe blocks,
+  projects, flaky, skipped, errors outside a test), the start time, and a clean run; and a probe of each failure
+  outside a test against the real reporters (in test-results/probe).
 
 3.18 as built (Nov 9): approvals kept through upgrades (`src/core/model/sceneApprovals.ts`, schema 13,
 `src/core/storage/migrations/013_approvals_kept.ts`).
