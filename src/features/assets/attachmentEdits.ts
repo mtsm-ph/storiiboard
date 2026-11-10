@@ -95,7 +95,7 @@ export function trashAttachment(records: Records, id: string): Change[] {
   return record && record.trashedAt === null && attachmentFields(record.props) ? [{ kind: 'trash', id }] : [];
 }
 
-async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   return [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

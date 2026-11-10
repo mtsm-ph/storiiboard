@@ -4,7 +4,7 @@ import { emergencyNumbers } from './emergencyNumbers';
 import { haversineKm } from '../net/hospitals';
 import { frameLocationId, keptHospital, locationFields, mapPlace, zoneFor, type LocationFields, type ZoneSource } from './location';
 import type { Place } from '../net/places';
-import { sunTimes, type SunDay } from './sunTimes';
+import { isTimeZone, sunTimes, type SunDay } from './sunTimes';
 import type { Department } from './department';
 import type { JsonValue, SbdRecord } from './record';
 import { dayLocations, dayPeople, dayPeopleChosen, dayScenes } from './schedule';
@@ -87,6 +87,8 @@ export interface SheetScene {
   fields: SceneFields;
   /** The live locations this scene's frames are shot at on this day (a frame's own first), by name; null for none. */
   location: string | null;
+  /** The same locations by id, which no language changes (the fingerprint of an issued sheet reads these, 4.7). */
+  locationIds: string[];
   /** How many of the scene's frames are on this day. */
   frames: number;
   characters: SheetCharacter[];
@@ -264,11 +266,13 @@ export function callSheet(
   const scenes = dayScenes(records, projectId, dayId).map((record): SheetScene => {
     const fields = sceneFields(record.props);
     const here = frames.filter((f) => f.scene.id === record.id);
-    const places = [...new Set(here.map(({ shot }) => frameLocationId(records, shot)).filter((id): id is string => id !== null))].map((id) => locationFields(records[id]?.props ?? {}).name || t('trash.unnamedLocation'));
+    const placeIds = [...new Set(here.map(({ shot }) => frameLocationId(records, shot)).filter((id): id is string => id !== null))];
+    const places = placeIds.map((id) => locationFields(records[id]?.props ?? {}).name || t('trash.unnamedLocation'));
     return {
       record,
       fields,
       location: places.length > 0 ? places.join(', ') : null,
+      locationIds: placeIds,
       frames: here.length,
       // An unnamed character has nothing to print.
       characters: sceneCharacters(records, record).filter((c) => characterName(c) !== '').map((character) => {
@@ -351,4 +355,74 @@ export function callSheet(
     notOnDay: allPeople(records, projectId).filter((p) => !onDayIds.has(p.record.id)),
     notes: { record: sheet, general: text(sheet?.props.notes), safety: text(sheet?.props.safety_notes) },
   };
+}
+
+// -- Issued versions (4.7) -------------------------------------------------------------------------------------------
+// Issuing keeps the sheet's PDF as sent: a `media` record of kind `pdf` under the day's `callsheet` record, with the
+// attachment props of 3.11 (`file`, `source_name`, `byte_size`) and these. Listed newest first.
+
+export interface CallSheetIssue {
+  record: SbdRecord;
+  /** 1, 2, 3…: the highest live issue's plus one, so an undone issue's number is used again. */
+  version: number;
+  /** ISO time it was issued. */
+  issuedAt: string;
+  issuedBy: string;
+  /** The zone its time was written in (the sheet's "Times in" zone, else this computer's then); '' if not stored. */
+  zone: string;
+  /** SHA-256 of what the sheet printed (except the forecast and the issue header), when it was issued. */
+  fingerprint: string;
+  /** Which recipe made `fingerprint` (src/features/callsheets/fingerprint.ts); '' for none. */
+  fingerprintVersion: number | null;
+  /** The PDF's stored bytes, by SHA-256. */
+  file: string;
+  name: string;
+  byteSize: number;
+}
+
+const issueOf = (record: SbdRecord): CallSheetIssue | null => {
+  const { props } = record;
+  if (record.type !== 'media' || props.kind !== 'pdf' || typeof props.issue_version !== 'number' || !Number.isInteger(props.issue_version) || props.issue_version < 1) return null;
+  return {
+    record,
+    version: props.issue_version,
+    issuedAt: text(props.issued_at),
+    issuedBy: text(props.issued_by),
+    zone: text(props.issued_zone),
+    fingerprint: text(props.fingerprint),
+    fingerprintVersion: typeof props.fingerprint_version === 'number' ? props.fingerprint_version : null,
+    file: text(props.file),
+    name: text(props.source_name),
+    byteSize: typeof props.byte_size === 'number' && props.byte_size >= 0 ? props.byte_size : 0,
+  };
+};
+
+/** A day's live issued versions, newest first. */
+export function callSheetIssues(records: Records, dayId: string): CallSheetIssue[] {
+  const sheet = dayCallsheet(records, dayId);
+  if (!sheet) return [];
+  return Object.values(records)
+    .filter((r) => r.parentId === sheet.id && r.trashedAt === null)
+    .flatMap((r) => issueOf(r) ?? [])
+    .sort((a, b) => b.version - a.version);
+}
+
+/** The number the next issue takes: the highest live issue's plus one. */
+export const nextIssueVersion = (records: Records, dayId: string): number => (callSheetIssues(records, dayId)[0]?.version ?? 0) + 1;
+
+/**
+ * "Mon, Nov 16 18:04 EST": when a sheet was issued, in the zone its times are in, else this computer's, with the
+ * zone's short name so the hour can't be misread.
+ */
+export function issueTime(at: Date, zone: string | null): string {
+  const timeZone = zone !== null && isTimeZone(zone) ? zone : undefined;
+  const date = formatDate(at, { weekday: 'short', month: 'short', day: 'numeric', ...(timeZone ? { timeZone } : {}) });
+  // The zone's short name comes with the clock ("18:04 EST"; where the language has no short name, "GMT-5").
+  const clock = formatDate(at, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short', ...(timeZone ? { timeZone } : {}) });
+  return `${date} ${clock}`;
+}
+
+/** The header's top-right line (4.7): "Version 1 · Issued Mon, Nov 16 18:04 EST", "Revised · Version 2 · …" from version 2. */
+export function issueStamp(version: number, at: Date, zone: string | null): string {
+  return t(version >= 2 ? 'callSheet.issue.stampRevised' : 'callSheet.issue.stamp', { version, when: issueTime(at, zone) });
 }

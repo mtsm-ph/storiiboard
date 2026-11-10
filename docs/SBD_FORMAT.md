@@ -627,6 +627,32 @@ they are.
 Values that aren't a time, and keys this version doesn't know, read as unset and are written back as they were when
 another key is written; a prop that isn't an object is never written over.
 
+## Issued call sheets (4.7)
+
+Issuing a call sheet keeps the PDF as sent. It is a `media` record of kind `pdf` whose parent is the day's `callsheet`
+record (made in the same op group when the day has none). Its bytes are in `media_files` by SHA-256, as an attachment's
+are (3.11, at most 50 MB), and it has the attachment props `file` (the SHA-256), `source_name` (the file name, with
+` v2` before `.pdf` from version 2) and `byte_size`, and:
+
+- `issue_version`: 1, 2, 3…, the highest live issue's plus one. An undone issue's record is gone, so its number is used
+  again.
+- `issued_at`: ISO time. `issued_by`: the author as the op log records it.
+- `fingerprint`: SHA-256 (hex) of the text of everything the PDF prints except the forecast and the issue header: a
+  stable JSON (keys sorted) of the sheet's data, the directions links included, the language and the paper not. The
+  Call sheet tile compares the newest live issue's with the sheet as it is and shows "Changed since issued".
+- `fingerprint_version`: 1. It names the frozen recipe that made `fingerprint`; a recipe is never edited once issues exist,
+  a change is a new recipe under the next number. It hashes stored values (the date, the place, the zone, the country
+  code, the hospital as kept, the map app's id), not what the app works out from them (links, sun times, emergency
+  numbers, distances). The tile compares the live sheet with the newest issue by that issue's own recipe, so an upgrade
+  alone never makes an issue read as changed. An issue whose version this app has no recipe for (or with no fingerprint)
+  can't be compared: the tile makes no claim either way and still offers the next version.
+- `issued_zone`: the IANA zone the header's issue time was written in.
+
+The same op group sets `numbers_locked` on each live scene of the day that was not locked, exactly as the Scenes tile's
+lock does (frames get their letters and the slate numbers are kept). A version cannot be deleted on its own; it goes
+with its day or with an undo. It is not listed in Assets. Additive: no table change, no schema number; an older version
+keeps the records as they are.
+
 ## Person props (3.5)
 
 A `person` record (under the project) is one person on the production, cast or crew. Props: `name`; `role` (one of the

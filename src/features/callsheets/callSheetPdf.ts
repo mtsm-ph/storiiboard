@@ -3,7 +3,7 @@ import { PDFDocument, PDFString, rgb, setCharacterSpacing, type PDFFont, type PD
 import qrcode from 'qrcode-generator';
 import tokens from '../../../design/tokens/tokens.json';
 import { getLocale, list, t, tn } from '../../core/i18n';
-import { dayDateFull, type CallSheet, type SheetContact, type SheetLocation, type SheetZone } from '../../core/model/callsheet';
+import { dayDateFull, issueStamp, type CallSheet, type SheetContact, type SheetLocation, type SheetZone } from '../../core/model/callsheet';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { directionsLink } from '../../core/model/directions';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
@@ -43,6 +43,8 @@ export interface CallSheetPdfInput {
   forecasts: ReadonlyMap<string, PdfForecast>;
   fonts: PdfFonts;
   now?: Date;
+  /** An issued sheet (4.7): its version and time are printed at the header's top right ("Revised" from version 2). */
+  issue?: { version: number; issuedAt: Date };
 }
 
 export interface CallSheetPdf {
@@ -85,6 +87,8 @@ export const QR_SIZE = 25 * (72 / 25.4);
 const QUIET_MODULES = 4;
 /** Room kept free at the top right of the first page for the version and issue time (4.7). */
 const RESERVED_WIDTH = 170;
+/** What an issued sheet's stamp is given (4.7): the version and the issue time take up to three lines this wide. */
+const STAMP_WIDTH = 250;
 
 /** A QR code's modules, error correction M (4.6), or null for a link too long for any version. */
 export function qrModules(link: string): boolean[][] | null {
@@ -291,8 +295,15 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   /** The first page's header: the title, what this is, the day, and the crew call large. */
   const firstHeader = (): Block => {
     const b = new Block(W);
-    // The top right stays clear for the version and the time it was issued (4.7).
-    para(b, title, (s) => bold(s, 20), W - RESERVED_WIDTH, 24, 0, 2);
+    // The top right holds the version and the time it was issued (4.7), in the zone the sheet's times are in.
+    const stamp = input.issue ? issueStamp(input.issue.version, input.issue.issuedAt, sheet.timesIn?.zone ?? null) : '';
+    const room = stamp === '' ? RESERVED_WIDTH : STAMP_WIDTH;
+    const titleLines = wrap(printable(f.bold, title), f.bold, 20, W - room, 2);
+    const stampLines = stamp === '' ? [] : wrap(printable(f.monoBold, stamp), f.monoBold, 8, room - 12, 3);
+    for (let i = 0; i < Math.max(titleLines.length, stampLines.length); i += 1) {
+      const right = stampLines[i];
+      b.line(titleLines[i] === undefined ? [] : [bold(titleLines[i] ?? '', 20)], 24, right === undefined ? {} : { right: [monoBold(right, 8)] });
+    }
     b.gap(4);
     b.line([label(t('callSheet.pdf.header'), 10, INK)], 14);
     const dayText = t('callSheet.dayOf', { number: sheet.day.number, total: sheet.dayCount });

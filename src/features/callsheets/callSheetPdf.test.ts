@@ -285,6 +285,56 @@ describe('the layout', () => {
   });
 });
 
+describe('an issued sheet (4.7)', () => {
+  const issuedAt = new Date('2026-11-16T23:04:00Z');
+
+  it('prints its version and issue time at the header, "Revised" from version 2, and nothing of the kind before it is issued', async () => {
+    const records = project();
+    const draft = await allText((await callSheetPdf(input(records))).bytes);
+    expect(draft).not.toMatch(/Version \d|Revised|Issued/);
+    const one = await allText((await callSheetPdf(input(records, { issue: { version: 1, issuedAt } }))).bytes);
+    // Lima is five hours behind UTC all year; the zone's short name is whatever the language has for it.
+    expect(one).toMatch(/Version 1 · Issued Mon, Nov 16 18:04 (GMT-5|PET)/);
+    expect(one).not.toContain('Revised');
+    const two = await allText((await callSheetPdf(input(records, { issue: { version: 2, issuedAt } }))).bytes);
+    expect(two).toMatch(/Revised · Version 2 · Issued Mon, Nov 16 18:04 (GMT-5|PET)/);
+  });
+
+  it('says it in Spanish, and keeps the stamp clear of the title on both papers', async () => {
+    setLocale('es');
+    for (const paper of ['letter', 'a4'] as const) {
+      const { bytes } = await callSheetPdf(input(project({ long: true }), { paper, issue: { version: 3, issuedAt } }));
+      const items = await pageItems(bytes, 1);
+      expect(items.map((i) => i.str).join(' ')).toContain('Revisada');
+      expect(items.map((i) => i.str).join(' ')).toContain('Versión 3');
+    }
+  });
+});
+
+describe('an issued sheet with a long title (4.7)', () => {
+  it('keeps the title and the stamp apart on the first page, in English and Spanish, on both papers', async () => {
+    const records = project();
+    records.p = record('p', 'project', null, { title: 'The Extraordinarily Long Title of a Feature Film About Many Things and Places' });
+    for (const [locale, paper] of [['en', 'letter'], ['es', 'a4']] as const) {
+      setLocale(locale);
+      const { bytes } = await callSheetPdf(input(records, { paper, issue: { version: 12, issuedAt: new Date('2026-11-16T23:04:00Z') } }));
+      const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+      const page = await pdf.getPage(1);
+      const boxes = (await page.getTextContent()).items.flatMap((item) =>
+        'str' in item && item.str.trim() !== '' ? [{ str: item.str, x: Number(item.transform[4]), y: Number(item.transform[5]), w: item.width, h: item.height }] : [],
+      );
+      for (const [i, a] of boxes.entries()) {
+        for (const b of boxes.slice(i + 1)) {
+          const across = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          const down = Math.min(a.y + a.h * 0.7, b.y + b.h * 0.7) - Math.max(a.y, b.y);
+          expect(across > 0.5 && down > 0.5, `${locale}: "${a.str}" over "${b.str}"`).toBe(false);
+        }
+      }
+      await pdf.destroy();
+    }
+  });
+});
+
 describe('the QR code', () => {
   it('a known link gives its version’s size: 72 bytes at error correction M is version 5, 37 modules', () => {
     const link = directionsLink('google', { name: '', address: '' }, { name: 'x', latitude: -13.5167674, longitude: -71.9787787 }) ?? '';

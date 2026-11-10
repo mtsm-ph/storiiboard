@@ -66,3 +66,28 @@ describe('History for a call sheet’s notes', () => {
     expect(lineText(describeEdit([op('create', null, made)], none))).toBe('La hoja de llamado: notas de seguridad — → no se muestra');
   });
 });
+
+describe('History for an issued call sheet (4.7)', () => {
+  const pdf = (version: number) =>
+    record('m', 'media', 'cs', { kind: 'pdf', file: 'abc', source_name: 'Secret Contents.pdf', byte_size: 9, issue_version: version, fingerprint: 'x', fingerprint_version: 1 });
+  const lock = op('update', record('s1', 'scene', 'p', { number: '1' }), record('s1', 'scene', 'p', { number: '1', numbers_locked: true }));
+
+  it('is one line naming the day and the version, with the lock as part of the step and the PDF never listed', () => {
+    const made = record('cs', 'callsheet', 'd', {});
+    const ops = [op('create', null, made), op('create', null, pdf(2)), lock];
+    expect(lineText(describeEdit(ops, none, around))).toBe('Issued the call sheet for Mon, Nov 16 (version 2)');
+    expect(lineText(describeEdit(ops, none, around))).not.toContain('Secret');
+  });
+
+  it('names the day when the call sheet was already there (read through the call sheet, as the step left it)', () => {
+    const sheet = record('cs', 'callsheet', 'd', {});
+    expect(lineText(describeEdit([op('create', null, pdf(1))], none, new Map([['d', day], ['cs', sheet]])))).toBe('Issued the call sheet for Mon, Nov 16 (version 1)');
+  });
+
+  it('says it in Spanish', () => {
+    setLocale('es');
+    expect(lineText(describeEdit([op('create', null, pdf(1))], none, new Map([['d', day], ['cs', record('cs', 'callsheet', 'd', {})]])))).toBe(
+      'Se emitió la hoja de llamado del lun, 16 nov (versión 1)',
+    );
+  });
+});

@@ -14,7 +14,8 @@ import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } from '../schedule/dayEdits';
-import { exportCallSheetPdf } from './exportCallSheet';
+import { exportCallSheetPdf, type ExportCallSheetOptions } from './exportCallSheet';
+import { IssuedVersions, IssueButton } from './IssueBar';
 import { callsheetNoteChange, departmentCallChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
 import { CastSection, CrewSection, DaySection, LocationsSection, NotesSection, PeopleSection, ScenesSection } from './sections';
 
@@ -53,6 +54,7 @@ export function CallSheetTile() {
   const sheet = selected ? callSheet(records, projectId, selected.record.id, undefined, zones) : null;
   if (!selected || !sheet) return <p className="p-3 text-[13px] text-text-muted">{t('callSheet.noDays')}</p>;
   const dayId = selected.record.id;
+  const options: ExportCallSheetOptions = { projectId, dayId, zones, projectName: project.name, paper, app, units };
   const edit = (build: (now: Records) => Change[]) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
   return (
@@ -90,12 +92,14 @@ export function CallSheetTile() {
         </span>
         <Button
           onClick={() => {
-            void exportCallSheetPdf({ projectId, dayId, zones, projectName: project.name, paper, app, units });
+            void exportCallSheetPdf(options);
           }}
         >
           {t('callSheet.exportPdf')}
         </Button>
+        <IssueButton sheet={sheet} options={options} />
       </div>
+      <IssuedVersions sheet={sheet} dayId={dayId} />
       <DaySection sheet={sheet} projectName={project.name} />
       <LocationsSection sheet={sheet} />
       <ScenesSection sheet={sheet} />

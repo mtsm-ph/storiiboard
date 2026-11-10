@@ -94,6 +94,8 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
       ]),
     );
     // The people added to or taken off a shoot day (4.2), and those a call sheet's times name: by name as they were then.
+    // An issued call sheet (4.7) is named by its day, which is the call sheet's parent: asked for below, once the call
+    // sheet (here, or as it was) is known.
     const people = ops.flatMap((op) => {
       const diff = peopleDiff(op.before?.props.people_ids, op.after?.props.people_ids);
       const timed = [op.before, op.after].flatMap((r) => (r?.type === 'callsheet' && isObject(r.props.person_times) ? Object.keys(r.props.person_times) : []));
@@ -103,13 +105,24 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
   }
   const found = await recordsBefore(file, asks);
   const around = new Map<string, Map<string, SbdRecord>>();
-  asks.forEach((ask, i) => {
-    const record = found[i];
-    if (!record) return;
-    const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
-    named.set(ask.id, record);
-    around.set(ask.group, named);
+  const keep = (list: readonly { group: string; id: string }[], records: readonly (SbdRecord | null)[]): void => {
+    list.forEach((ask, i) => {
+      const record = records[i];
+      if (!record) return;
+      const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
+      named.set(ask.id, record);
+      around.set(ask.group, named);
+    });
+  };
+  keep(asks, found);
+  // An issued call sheet that already existed (4.7): its day, which only the call sheet record knows.
+  const days = [...around].flatMap(([group, named]) => {
+    const issued = byGroup.get(group)?.find((op) => op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');
+    const parent = issued?.after?.parentId;
+    const sheet = parent ? named.get(parent) : undefined;
+    return issued && sheet?.parentId && !named.has(sheet.parentId) ? [{ group, id: sheet.parentId, seq: issued.seq }] : [];
   });
+  keep(days, await recordsBefore(file, days));
   return around;
 }
 

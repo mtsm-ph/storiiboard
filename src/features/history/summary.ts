@@ -599,6 +599,16 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
   );
   const record = (op: LoggedOp) => op.after ?? op.before;
+  // An issued call sheet (4.7): one line for the group (the PDF, the call sheet made with it, the scenes it locked),
+  // named by its day and version, never by what the PDF holds.
+  const issued = ops.find((op) => op.kind === 'create' && op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');
+  if (issued?.after) {
+    const sheetId = issued.after.parentId;
+    const sheet = ops.find((op) => op.recordId === sheetId);
+    const sheetRecord = (sheet ? record(sheet) : null) ?? (sheetId ? (around.get(sheetId) ?? null) : null);
+    const day = sheetRecord?.parentId ? around.get(sheetRecord.parentId) : undefined;
+    return line('history.issuedCallsheet', {}, { day: day ? dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') : t('history.aShootDay'), version: Number(issued.after.props.issue_version) });
+  }
   const of = (kind: LoggedOp['kind'], type?: SbdRecord['type']) => ops.filter((op) => op.kind === kind && (!type || record(op)?.type === type));
   const items = (n: number) => tn('history.items', n);
   const removed = ops.some((op) => {
