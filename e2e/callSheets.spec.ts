@@ -563,6 +563,169 @@ test('Export PDF writes the day’s sheet: its words, the directions link for th
   expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
 });
 
+test('the location block shows its place on a map (the browser grid, with its credit), and Export PDF holds the map frame and credit (4.10)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await setUp(page);
+  await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
+  // No place yet: no map on the sheet.
+  await expect(sheet(page).locator('[data-sheet-location]')).toHaveCount(1);
+  await expect(sheet(page).locator('[data-sheet-map]')).toHaveCount(0);
+
+  const editor = page.getByRole('region', { name: 'Locations', exact: true }).locator('[data-location-editor]');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('button', { name: 'Search address' }).click();
+  await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+
+  // A read-only map: the grid of a browser build, the pin's canvas and the credit, and none of the editor's controls.
+  const map = sheet(page).locator('[data-sheet-map]');
+  await expect(map).toHaveCount(1);
+  await expect(map.locator('canvas').first()).toBeVisible();
+  await expect(map.locator('[data-sheet-map-credit]')).toHaveText('© OpenStreetMap contributors');
+  await expect(map.getByText('Map tiles show in the desktop app')).toBeVisible();
+  await expect(map.getByRole('button', { name: 'Zoom in' })).toHaveCount(0);
+  await expect(map.getByRole('button', { name: 'Move pin' })).toHaveCount(0);
+  const box = await map.locator('canvas').first().boundingBox();
+  expect(box?.height).toBe(160);
+
+  const download = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
+  const text = await pdfText(await (await download).path());
+  // The frame's own words (the grid's marker in a browser build) and the credit under it, besides the footer's.
+  expect(text).toContain('Map tiles show in the desktop app');
+  expect(text.split('© OpenStreetMap contributors').length - 1).toBeGreaterThanOrEqual(2);
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[data-sheet-map]').withTags(tags).analyze()).violations).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+for (const fallback of [false, true]) {
+test(`the map picture is composed from the frame’s tiles on a canvas into one JPEG that is far smaller than the tiles themselves (4.10)${fallback ? ', with no OffscreenCanvas (macOS 13.0 to 13.2): the <canvas> fallback' : ''}`, async ({ page }, testInfo) => {
+  if (fallback) {
+    await page.addInitScript(() => {
+      Reflect.deleteProperty(window, 'OffscreenCanvas');
+    });
+  }
+  await page.goto('/?files=memory');
+  // Tiles drawn like a street map (blocks, roads, a label) as PNG; the first sent as WebP and the second as JPEG, which the
+  // browser decodes just the same. Then the module under test makes the picture from them.
+  const made = await page.evaluate(async () => {
+    const load = async (path: string) => (await import(/* @vite-ignore */ path)) as Record<string, unknown>;
+    const { composeMap } = (await load('/src/features/callsheets/composeMap.ts')) as {
+      composeMap: (place: { latitude: number; longitude: number }, tiles: Map<string, Uint8Array>) => Promise<Uint8Array | null>;
+    };
+    const { mapTilesFor, tileKey } = (await load('/src/features/callsheets/sheetMap.ts')) as {
+      mapTilesFor: (place: { latitude: number; longitude: number }) => { z: number; x: number; y: number; left: number }[];
+      tileKey: (tile: { z: number; x: number; y: number }) => string;
+    };
+    const { makeCanvas, canvasBlob } = (await load('/src/core/media/canvas.ts')) as {
+      makeCanvas: (w: number, h: number) => { canvas: unknown; ctx: CanvasRenderingContext2D | null };
+      canvasBlob: (canvas: unknown, type: string, quality?: number) => Promise<Blob | null>;
+    };
+    const blobOf = async (canvas: unknown, type: string) => {
+      const blob = await canvasBlob(canvas, type);
+      if (!blob) throw new Error('no encoder');
+      return blob;
+    };
+    const place = { latitude: -13.5167674, longitude: -71.9787787 };
+    const tiles = mapTilesFor(place);
+    const bytesOf = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+    const drawTile = async (n: number, type: string) => {
+      const { canvas, ctx: g } = makeCanvas(256, 256);
+      if (!g) throw new Error('no canvas');
+      // Solid colour all over, so a seam or a missing edge shows as white; roads and blocks over it.
+      g.fillStyle = 'rgb(200, 60, 60)';
+      g.fillRect(0, 0, 256, 256);
+      g.fillStyle = 'rgb(240, 235, 225)';
+      for (let i = 0; i < 6; i += 1) g.fillRect(10 + ((i * 41 + n * 17) % 200), 12 + ((i * 53 + n * 29) % 200), 38, 26);
+      g.strokeStyle = 'rgb(255, 255, 255)';
+      g.lineWidth = 6;
+      g.beginPath();
+      g.moveTo(0, 80 + n * 9);
+      g.lineTo(256, 120 - n * 7);
+      g.moveTo(90 + n * 5, 0);
+      g.lineTo(130, 256);
+      g.stroke();
+      g.fillStyle = 'rgb(40, 40, 40)';
+      g.font = '12px sans-serif';
+      g.fillText('Calle del Sol ' + String(n), 20, 200);
+      return bytesOf(await blobOf(canvas, type));
+    };
+    const pngs = new Map<string, Uint8Array>();
+    const mixed = new Map<string, Uint8Array>();
+    for (const [n, tile] of tiles.entries()) {
+      pngs.set(tileKey(tile), await drawTile(n, 'image/png'));
+      mixed.set(tileKey(tile), await drawTile(n, n === 0 ? 'image/webp' : n === 1 ? 'image/jpeg' : 'image/png'));
+    }
+    const jpeg = await composeMap(place, pngs);
+    const fromMixed = await composeMap(place, mixed);
+    const fromNone = await composeMap(place, new Map());
+    const fromBroken = await composeMap(place, new Map([[tileKey(tiles[0] ?? { z: 0, x: 0, y: 0 }), new Uint8Array([1, 2, 3])]]));
+    if (!jpeg || !fromMixed) throw new Error('no picture');
+    // The same frame from plain red tiles, so that anything not covered shows as white.
+    const { canvas: solidTile, ctx: solidContext } = makeCanvas(256, 256);
+    if (!solidContext) throw new Error('no canvas');
+    solidContext.fillStyle = 'rgb(200, 60, 60)';
+    solidContext.fillRect(0, 0, 256, 256);
+    const solidBytes = await bytesOf(await blobOf(solidTile, 'image/png'));
+    const solid = await composeMap(place, new Map(tiles.map((tile) => [tileKey(tile), solidBytes])));
+    if (!solid) throw new Error('no picture');
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(solid)]));
+    const { ctx: context } = makeCanvas(bitmap.width, bitmap.height);
+    if (!context) throw new Error('no canvas');
+    context.drawImage(bitmap, 0, 0);
+    // Pixels on the joins between tiles (a seam would be white) and in the four corners.
+    const joins: number[][] = [];
+    for (const tile of tiles) {
+      const x = Math.round(tile.left * 2);
+      if (x > 2 && x < bitmap.width - 2) joins.push([...context.getImageData(x, 5, 1, 1).data]);
+    }
+    const corners = [[1, 1], [bitmap.width - 2, 1], [1, bitmap.height - 2], [bitmap.width - 2, bitmap.height - 2]].map(([x, y]) => [...context.getImageData(x ?? 0, y ?? 0, 1, 1).data]);
+    const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+    return {
+      count: tiles.length,
+      width: bitmap.width,
+      height: bitmap.height,
+      isJpeg: jpeg[0] === 0xff && jpeg[1] === 0xd8,
+      mixedIsJpeg: fromMixed[0] === 0xff && fromMixed[1] === 0xd8,
+      fromNone,
+      fromBroken,
+      joins,
+      corners,
+      jpeg: b64(jpeg),
+      pngs: [...pngs.values()].map(b64),
+    };
+  });
+  // About 680 x 454 px for the 60 x 40 mm frame (twice the tile pixels it covers), at most 6 tiles, one JPEG.
+  expect(made.width).toBe(680);
+  expect(made.height).toBe(454);
+  expect(made.count).toBeLessThanOrEqual(6);
+  expect(made.isJpeg).toBe(true);
+  expect(made.mixedIsJpeg).toBe(true);
+  // No tile drawn: nothing to print. A tile that cannot be decoded is not a picture either.
+  expect(made.fromNone).toBeNull();
+  expect(made.fromBroken).toBeNull();
+  // No white seam where tiles meet, and the frame is covered to its corners.
+  const notWhite = (pixel: number[]) => (pixel[0] ?? 0) > 150 && (pixel[1] ?? 255) < 140;
+  expect(made.joins.every(notWhite)).toBe(true);
+  expect(made.corners.every(notWhite)).toBe(true);
+
+  // The file: one composed picture against each tile embedded whole.
+  const composed = await PDFDocument.create();
+  await composed.embedJpg(Buffer.from(made.jpeg, 'base64'));
+  const perTile = await PDFDocument.create();
+  for (const png of made.pngs) await perTile.embedPng(Buffer.from(png, 'base64'));
+  const composedSize = (await composed.save()).length;
+  const perTileSize = (await perTile.save()).length;
+  testInfo.annotations.push({ type: 'map sizes', description: `${String(made.count)} tiles embedded whole: ${String(perTileSize)} bytes; one composed JPEG: ${String(composedSize)} bytes` });
+  expect(composedSize).toBeLessThan(perTileSize);
+});
+}
+
 test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet changed, and one ⌘Z takes an issue back (4.7)', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {

@@ -185,3 +185,17 @@ describe('the header’s issue line', () => {
     expect(issueStamp(1, when, null)).toMatch(/^Version 1 · Issued \w{3}, \w{3} \d{1,2} \d\d:\d\d \S+/);
   });
 });
+
+describe('the map image (4.10)', () => {
+  it('is not part of the fingerprint (it comes from tiles, not from an edit), while the place that centres it is', async () => {
+    const one = await hash(base({ loc: { map_name: 'Diner, NJ' } }));
+    // The recipe takes the sheet, the map app and the title: no tiles, credit or map state can reach it.
+    expect(callSheetFingerprint.length).toBe(3);
+    const sheet = callSheet(base({ loc: { map_name: 'Diner, NJ' } }), 'p', 'd', undefined, zones);
+    if (!sheet) throw new Error('no sheet');
+    expect(printedJson(sheet, 'google', 'Bey County')).not.toMatch(/tile|credit|mapimage/i);
+    expect(await hash(base({ loc: { map_name: 'Diner, NJ' } }))).toBe(one);
+    expect(await hash(base({ loc: { map_name: 'Diner, NJ', latitude: 40.8 } }))).not.toBe(one);
+    expect(FINGERPRINT_VERSION).toBe(1);
+  });
+});

@@ -46,18 +46,21 @@ export const useTileProviderLoaded = (): boolean => useStore(providerStore, (s) 
 /** Whether reading the provider failed. */
 export const useTileProviderFailed = (): boolean => useStore(providerStore, (s) => s.failed);
 
-let asked = false;
+let pending: Promise<void> | null = null;
 /** Reads the provider from Rust once; a failed read is tried again the next time. A browser build has none. */
-export async function loadTileProvider(): Promise<void> {
-  if (!isTauriApp || asked) return;
-  asked = true;
-  try {
-    const answer = await invoke<unknown>('map_tile_provider');
-    providerStore.setState({ provider: isProvider(answer) ? answer : null, loaded: true, failed: false });
-  } catch {
-    asked = false;
-    providerStore.setState({ failed: true });
-  }
+export function loadTileProvider(): Promise<void> {
+  if (!isTauriApp) return Promise.resolve();
+  // Whoever asks while the answer is on its way waits for the same one.
+  pending ??= invoke<unknown>('map_tile_provider').then(
+    (answer) => {
+      providerStore.setState({ provider: isProvider(answer) ? answer : null, loaded: true, failed: false });
+    },
+    () => {
+      pending = null;
+      providerStore.setState({ failed: true });
+    },
+  );
+  return pending;
 }
 
 /** What setting a provider came to: saved, back to OpenStreetMap, or the person said no when asked. */
@@ -95,14 +98,21 @@ export function tileProblem(error: unknown): string {
   return off === null ? localizeError(text) : offReason(off);
 }
 
-async function fetchImage(z: number, x: number, y: number): Promise<HTMLImageElement> {
-  const bytes = await invoke<ArrayBuffer>('map_tile', { z, x, y });
+/** A tile as it came: decoded for the screen, and its PNG bytes for the call sheet's PDF (4.10). */
+interface LoadedTile {
+  image: HTMLImageElement;
+  bytes: Uint8Array;
+}
+
+async function fetchImage(z: number, x: number, y: number): Promise<LoadedTile> {
+  const answer = await invoke<ArrayBuffer>('map_tile', { z, x, y });
+  const bytes = new Uint8Array(answer);
   const url = URL.createObjectURL(new Blob([bytes]));
   try {
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
+    return await new Promise<LoadedTile>((resolve, reject) => {
       const image = new Image();
       image.onload = () => {
-        resolve(image);
+        resolve({ image, bytes });
       };
       image.onerror = () => {
         reject(new Error(t('error.oddAnswer')));
@@ -117,7 +127,10 @@ async function fetchImage(z: number, x: number, y: number): Promise<HTMLImageEle
 
 const queue = createTileQueue(fetchImage, IN_FLIGHT, MEMORY, RETRY_AFTER);
 
-/** Says which tiles are in view; queued ones outside it are dropped before they are asked for. Call before `tileImage`. */
+/**
+ * Says which tiles `owner` (a map on the page, or the PDF being made) has in view; queued ones nobody wants are dropped
+ * before they are asked for. Call before `tileImage` or `tileBytes`.
+ */
 export const wantTiles = queue.want;
 
 /** Everything held in memory is dropped (a new provider, Clear). */
@@ -129,7 +142,25 @@ export function forgetTiles(): void {
  * The tile as a picture, queued behind at most 2 asked at once. Rejects with `TileDropped` if its view moved on before
  * it was asked for. Never called in a browser build.
  */
-export const tileImage = queue.get;
+export const tileImage = (z: number, x: number, y: number): Promise<HTMLImageElement> => queue.get(z, x, y).then((tile) => tile.image);
+
+/** The tile's PNG, through the same queue as the screen's (4.10: the call sheet's PDF prints the map). */
+export const tileBytes = (z: number, x: number, y: number): Promise<Uint8Array> => queue.get(z, x, y).then((tile) => tile.bytes);
+
+/** What the PDF's map says in place of tiles that could not be had: a switched-off service by its reason, else offline. */
+export function tileMissingWords(error: unknown): string {
+  const text = typeof error === 'string' ? error : error instanceof Error ? error.message : String(error);
+  const off = offReasonFrom(text);
+  return off === null ? t('callSheet.pdf.mapOffline') : offReason(off);
+}
+
+/** The provider once Rust has said which it is (null: OpenStreetMap); rejects when it could not be read. */
+export async function tileProviderNow(): Promise<TileProvider | null> {
+  await loadTileProvider();
+  const now = providerStore.getState();
+  if (!now.loaded) throw new Error(t('error.oddAnswer'));
+  return now.provider;
+}
 
 // --- Settings → Storage ---------------------------------------------------------------------------------------
 

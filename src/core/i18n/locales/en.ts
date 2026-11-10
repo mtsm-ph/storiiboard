@@ -2099,6 +2099,7 @@ export const en = {
   'callSheet.pdf.madeWith': 'Made with Storiiboard',
   'callSheet.pdf.scan': 'Scan for directions',
   'callSheet.pdf.coordinates': 'Coordinates',
+  'callSheet.pdf.mapOffline': 'Map not available offline',
   'callSheet.pdf.directions': 'Directions',
   'callSheet.pdf.forecastNotFetched': 'Forecast not fetched',
   'callSheet.weatherCredit': 'Data from MET Norway',

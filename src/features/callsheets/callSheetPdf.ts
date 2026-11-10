@@ -1,5 +1,5 @@
 import fontkit from '@pdf-lib/fontkit';
-import { PDFDocument, PDFString, rgb, setCharacterSpacing, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, PDFString, rgb, setCharacterSpacing, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import qrcode from 'qrcode-generator';
 import tokens from '../../../design/tokens/tokens.json';
 import { getLocale, list, t, tn } from '../../core/i18n';
@@ -17,6 +17,7 @@ import { momentIn, precipitationText, temperatureText, todayIn, windText, type D
 import type { DirectionsApp } from '../../core/storage/settings';
 import { INK, MUTED, printer, wrap, type PdfFonts } from '../export/pdfStoryboard';
 import { headingOf } from '../storyboard/ScenesView';
+import { MAP_HEIGHT, MAP_WIDTH, mapTilesFor, POINTS_PER_PIXEL, TILE_POINTS, type PdfMap } from './sheetMap';
 
 // A day's call sheet as a PDF (4.6): Letter or A4, portrait, drawn with pdf-lib in the app's look on paper (ink on
 // paper, 1.5 pt rules, mono labels, Inter Tight and JetBrains Mono from the bundled fonts). Pure: the sheet comes in
@@ -42,6 +43,8 @@ export interface CallSheetPdfInput {
   /** By location id; a location with no entry prints "Forecast not fetched". */
   forecasts: ReadonlyMap<string, PdfForecast>;
   fonts: PdfFonts;
+  /** By location id: what each location's map image is drawn from (4.10). A location with no entry prints no map. */
+  maps?: ReadonlyMap<string, PdfMap>;
   now?: Date;
   /** An issued sheet (4.7): its version and time are printed at the header's top right ("Revised" from version 2). */
   issue?: { version: number; issuedAt: Date };
@@ -171,6 +174,15 @@ class Block {
     this.height += height;
   }
 
+  /** Something drawn by hand, `height` tall; the op is given the top of its area. */
+  area(height: number, op: Op): void {
+    const start = this.height;
+    this.ops.push((page, left, top) => {
+      op(page, left, top - start);
+    });
+    this.height += height;
+  }
+
   /** A rule across the block's width, `at` down from its top. */
   rule(at: number): void {
     this.ops.push((page, left, top) => {
@@ -263,6 +275,18 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   };
   const { printable, state } = printer();
 
+  // The map pictures (4.10): one JPEG per location, composed from its tiles before this runs (composeMap.ts), so the file
+  // holds one image per map and this stays pure.
+  const mapImages = new Map<string, PDFImage>();
+  for (const [id, map] of input.maps ?? []) {
+    if (map.kind !== 'image') continue;
+    try {
+      mapImages.set(id, await pdf.embedJpg(map.jpeg));
+    } catch {
+      // Not a picture after all: the frame stays empty.
+    }
+  }
+
   // Parts, in the sheet's type: Inter Tight for words, JetBrains Mono for every time, number and code.
   const sans = (text: string, s = 10, color: Colour = INK): Part => ({ text: printable(f.sans, text), font: f.sans, size: s, color });
   const semi = (text: string, s = 10, color: Colour = INK): Part => ({ text: printable(f.semi, text), font: f.semi, size: s, color });
@@ -287,7 +311,7 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   const zoneLine = ({ zone, source }: SheetZone): string => (source === 'computer' ? t('callSheet.timesInComputer') : t('callSheet.timesIn', { zone }));
 
   // What the footer credits: set as the blocks are built, read once the pages are known.
-  const printed = { met: false, osm: false };
+  const printed = { met: false, osm: false, mapCredits: new Set<string>() };
   const qrSides: number[] = [];
 
   // -- The blocks ------------------------------------------------------------------------------------------------------
@@ -482,6 +506,55 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
     return b;
   };
 
+  /**
+   * The location's map (4.10): the tiles around its place at zoom 16 in a 60 x 40 mm frame (clipped to it), the pin in
+   * vector on top, a 1.5 pt ink frame and the credit under it. Without tiles the frame is empty with one line, and in a
+   * browser build it holds the grid the screen's map draws.
+   */
+  const mapBlock = (location: SheetLocation): Block | null => {
+    const { place } = location;
+    const map = input.maps?.get(location.record.id);
+    if (!place || !map) return null;
+    const b = new Block(W);
+    b.gap(8);
+    const image = mapImages.get(location.record.id);
+    // A picture that would not embed is an empty frame like any other missing map.
+    const words = map.kind === 'grid' ? t('map.browserOnly') : map.kind === 'none' ? map.why : image ? '' : t('callSheet.pdf.mapOffline');
+    const lines = words === '' ? [] : wrap(printable(f.sans, words), f.sans, 7.5, MAP_WIDTH - 12, 3);
+    b.area(MAP_HEIGHT, (page, left, top) => {
+      const bottomEdge = top - MAP_HEIGHT;
+      // The picture is the frame: cut to it already, so nothing can lie outside.
+      if (image) page.drawImage(image, { x: left, y: bottomEdge, width: MAP_WIDTH, height: MAP_HEIGHT });
+      else if (map.kind === 'grid') {
+        // The grid the screen's map draws, clipped by hand to the frame's edges: whole squares only where they fit.
+        for (const tile of mapTilesFor(place)) {
+          const x0 = Math.max(left, left + tile.left * POINTS_PER_PIXEL);
+          const x1 = Math.min(left + MAP_WIDTH, left + tile.left * POINTS_PER_PIXEL + TILE_POINTS);
+          const y1 = Math.min(top, top - tile.top * POINTS_PER_PIXEL);
+          const y0 = Math.max(bottomEdge, top - tile.top * POINTS_PER_PIXEL - TILE_POINTS);
+          if (x1 > x0 && y1 > y0) page.drawRectangle({ x: x0, y: y0, width: x1 - x0, height: y1 - y0, borderColor: MUTED, borderWidth: 0.5 });
+        }
+      }
+      for (const [n, text] of lines.entries()) {
+        const at = map.kind === 'grid' ? bottomEdge + 5 + (lines.length - 1 - n) * 9 : top - 14 - n * 10;
+        page.drawText(text, { x: left + 6, y: at, size: 7.5, font: f.sans, color: MUTED });
+      }
+      // The pin at the place, which is the frame's centre: an ink ring with a paper dot, as the screen draws it.
+      const centre = { x: left + MAP_WIDTH / 2, y: bottomEdge + MAP_HEIGHT / 2 };
+      page.drawCircle({ ...centre, size: 5.5, color: rgb(1, 1, 1), borderColor: INK, borderWidth: RULE });
+      page.drawCircle({ ...centre, size: 2, color: INK });
+      page.drawRectangle({ x: left, y: bottomEdge, width: MAP_WIDTH, height: MAP_HEIGHT, borderColor: INK, borderWidth: RULE });
+    });
+    if (map.kind === 'grid' || (map.kind === 'image' && image)) {
+      b.gap(2);
+      // Wrapped to the frame's width, as many lines as it needs: a long credit of one's own is never cut.
+      for (const each of wrap(printable(f.sans, map.credit), f.sans, 7, MAP_WIDTH, 40)) b.line([sans(each, 7, MUTED)], 9);
+      printed.mapCredits.add(map.credit);
+    }
+    b.gap(2);
+    return b;
+  };
+
   /** A location as blocks that stay together when they fit a page, and split between them when they can't. */
   const locationBlocks = (location: SheetLocation): Block[] => {
     const { fields, place } = location;
@@ -551,7 +624,7 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
     const end = safetyBox(location);
     end.gap(8);
     end.rule(end.height - 0.75);
-    return [b, sunLines(location), weatherLines(location), end].filter((block) => block.height > 0);
+    return [b, mapBlock(location), sunLines(location), weatherLines(location), end].filter((block): block is Block => block !== null).filter((block) => block.height > 0);
   };
 
   // -- The flow --------------------------------------------------------------------------------------------------------
@@ -793,18 +866,23 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   }
 
   // -- Footers, once the number of pages is known -----------------------------------------------------------------------
-  const credits = [
+  // The footer's credits take the lines they need. Past 2 lines they would run into the bottom margin, where some
+  // printers can't print, so the provider's own credit then stays under its map only, in full.
+  const footerCredits = (withOwn: boolean): string[] => [
     ...(printed.met ? [t('callSheet.weatherCredit')] : []),
     ...(printed.osm ? [t('callSheet.osmCredit')] : []),
+    ...(withOwn ? [...printed.mapCredits].filter((credit) => credit !== t('callSheet.osmCredit')) : []),
     t('callSheet.pdf.madeWith'),
   ];
+  const footerLines = (credits: string[]): string[] => wrap(printable(f.mono, credits.join(' · ')), f.mono, 7, W - 100, 40);
+  let credits = footerLines(footerCredits(true));
+  if (credits.length > 2) credits = footerLines(footerCredits(false));
   for (const [index, each] of pages.entries()) {
     const foot = new Block(W);
     foot.rule(0);
     foot.gap(RULE + 1);
     const total = t('callSheet.pdf.page', { page: index + 1, pages: pages.length });
-    const lines = wrap(printable(f.mono, credits.join(' · ')), f.mono, 7, W - 100, 2);
-    for (const [n, text] of lines.entries()) {
+    for (const [n, text] of credits.entries()) {
       foot.line([mono(text, 7, MUTED)], 9, n === 0 ? { right: [mono(total, 8, MUTED)] } : {});
     }
     foot.draw(each, MARGIN, MARGIN + FOOTER - 8);

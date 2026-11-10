@@ -10,12 +10,14 @@ import { replacedWarning } from '../export/pdfStoryboardFormat';
 import { callSheetFileName } from './callSheetName';
 import { makeCallSheetPdf, sheetNow, stillFindingZone, type ExportCallSheetOptions } from './exportCallSheet';
 import { callSheetFingerprint } from './fingerprint';
+import { gatherSheetMaps } from './gatherSheetMaps';
 import { issueChanges, issuedFileName, type IssueInput, type IssueRefusal } from './issue';
 import { pdfFileStatement, sha256 } from '../assets/attachmentEdits';
 
 // Issue on the Call sheet tile (4.7): the part that touches the world. It makes the PDF (4.6's code, with the version and
 // time in its header), hashes it, and writes the whole issue as one edit; issue.ts decides what that edit is. It sends
-// nothing to anyone (publishing is Phase 9), and never asks the network: the forecast is whatever the tile already holds.
+// nothing to anyone (publishing is Phase 9). It asks for no forecast: that is whatever the tile already holds. The map images'
+// tiles come through the tile cache (4.10) and are not part of the fingerprint.
 
 export interface IssueWrite extends IssueInput {
   /** The PDF itself, stored by its SHA-256 in the same edit. */
@@ -55,7 +57,23 @@ export async function writeIssue(store: StoreApi<ProjectState>, write: IssueWrit
 /** Resolves to whether the sheet was issued; a refusal has said why. */
 export async function issueCallSheetPdf(options: ExportCallSheetOptions): Promise<boolean> {
   try {
-    // A call typed just before pressing Issue is saved on the blur, in the queue: wait for it, then read the project.
+    // The maps first: they depend only on the places, and the tiles can take seconds. Then the records are read after the
+    // queued edits land, and the sheet, PDF and fingerprint follow at once, so the time between the PDF's sheet and the
+    // lock being written stays milliseconds. A place that changed meanwhile has its map gathered again, and only that one.
+    // What would be refused anyway (no date, a zone still on its way) is said before any wait for tiles.
+    // A call or date typed just before pressing Issue is saved on the blur, in the queue: wait for it first.
+    await projectStore.getState().applyWith(() => ({ changes: [] }));
+    const first = sheetNow(options);
+    if (first?.day.fields.date === '') {
+      showNotice(new Error(t('callSheet.issue.noDate')));
+      return false;
+    }
+    if (first && stillFindingZone(first)) {
+      showNotice(new Error(t('callSheet.pdf.zonePending')));
+      return false;
+    }
+    const maps = first ? await gatherSheetMaps(first) : undefined;
+    // Edits made during the tiles' wait land too, then the project is read.
     await projectStore.getState().applyWith(() => ({ changes: [] }));
     const sheet = sheetNow(options);
     if (!sheet) return false;
@@ -70,7 +88,7 @@ export async function issueCallSheetPdf(options: ExportCallSheetOptions): Promis
     const version = nextIssueVersion(projectStore.getState().records, options.dayId);
     const issuedAt = new Date();
     const fingerprint = await callSheetFingerprint(sheet, options.app, options.projectName);
-    const pdf = await makeCallSheetPdf(sheet, options, { version, issuedAt });
+    const pdf = await makeCallSheetPdf(sheet, options, { version, issuedAt }, maps);
     if (pdf.bytes.length > MAX_PDF_BYTES) {
       showNotice(new Error(t('callSheet.issue.tooBig', { size: sizeLabel(pdf.bytes.length), max: sizeLabel(MAX_PDF_BYTES) })));
       return false;
