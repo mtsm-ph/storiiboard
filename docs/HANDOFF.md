@@ -347,6 +347,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Kevin's answers and the new way of working (Nov 9, evening)
+
+- Workflow (#114): the main session plans, briefs, judges reviews, does git and writes reports; the builder
+  (.claude/agents/builder.md, Sonnet 5.5, effort medium) writes the long code from complete briefs, one at a time in
+  this checkout; the reviewer (Opus 5.5, effort high) stays read-only. Agent files are read when a session starts:
+  the builder was first usable in the session after #114.
+- Phase 4 answered and approved (docs/PHASE4_DECISIONS.md, CLAUDE.md's call sheet and network rules): order 3.17's
+  baselines (on #112's branch, not merged; Kevin compares and says merge), 3.18, 3.19, then 4.0 to 4.10, stopping at
+  the gate.
+- The map: answered (4.9): react-konva, tiles through Rust with a disk cache, OSM's tile policy; the section "Map:
+  before building" below is history now.
+- Pins chosen (each at least two weeks old on Nov 9): suncalc 2.1.1 (Oct 5; 2.1.2 and 2.1.3 are newer than two
+  weeks), qrcode-generator 2.0.4, @photostructure/tz-lookup 11.7.0 (Sep 16; 11.8.0 is Nov 5). tz-lookup's code is CC0;
+  its zone shapes come from timezone-boundary-builder (OSM data); its README says it trades accuracy for size (about
+  30% of random points on Earth differ from the exact library, mostly far from people), which the edit on the
+  location covers.
+
 ### Phase 4: plan written, waits for Kevin (Nov 9)
 
 - Kevin's Nov 9 order: 3.4, then his changes as small milestones (3.12 to 3.17), then the Phase 4 plan and a one-page
