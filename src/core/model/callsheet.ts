@@ -7,9 +7,9 @@ import type { Place } from '../net/places';
 import { isTimeZone, sunTimes, type SunDay } from './sunTimes';
 import type { Department } from './department';
 import type { JsonValue, SbdRecord } from './record';
-import { dayLocations, dayPeople, dayPeopleChosen, dayScenes } from './schedule';
+import { dayPeople, dayPeopleChosen, locationsOfFrames, scenesOfFrames } from './schedule';
 import { dayFrames, isClockTime, isDayDate, projectShootDays, type ShootDay } from './shootDay';
-import { sceneFields, type SceneFields } from './storyboard';
+import { sceneFields, shotFields, type SceneFields } from './storyboard';
 
 // A shoot day's call sheet (4.1), worked out from the project's records whenever it's drawn: nothing on it is copied
 // from elsewhere (CLAUDE.md: views read records). The only thing it stores is what a call sheet adds, its own notes,
@@ -146,6 +146,8 @@ export interface CallSheet {
   /** The zone the day's crew call and wrap are in (4.3): its first location's; null with no location. */
   timesIn: SheetZone | null;
   scenes: SheetScene[];
+  /** The day has frames, but all are Have or Source (4.11): the Scenes section says there is nothing left to shoot. */
+  nothingLeft: boolean;
   cast: SheetCast[];
   crew: SheetCrewGroup[];
   /** Whether someone chose who's on the day; while not, everyone live in Cast and crew is. */
@@ -237,6 +239,15 @@ export function safetyOf(props: SbdRecord['props'], countryCode: string, place: 
 }
 
 /**
+ * The frames a day's call sheet lists (4.11): the day's frames still to shoot ("Need to shoot", as the day's totals
+ * count them), in board order. One already marked Have or Source drops off the sheet; the Calendar still counts it.
+ * The scenes, locations, cast and checks are all built from these.
+ */
+export function sheetFrames(records: Records, projectId: string, dayId: string): { scene: SbdRecord; shot: SbdRecord }[] {
+  return dayFrames(records, projectId, dayId).filter(({ shot }) => shotFields(shot.props).status === 'need');
+}
+
+/**
  * The sections of one day's call sheet, or null when the day isn't a live day of the project. `people` is who is on
  * the day; left out, it is the people the day's `people_ids` names (4.2), or everyone live in Cast and crew while
  * nobody has chosen. `zones` is each location's zone looked up from its place (4.3, by location id; the page asks
@@ -262,8 +273,8 @@ export function callSheet(
   const dayCall = day.fields.callTime;
   const contactOf = ({ fields }: SheetPerson): SheetContact | null => (contactOnSheet(fields) ? { phone: fields.phone, email: fields.email } : null);
 
-  const frames = dayFrames(records, projectId, dayId);
-  const scenes = dayScenes(records, projectId, dayId).map((record): SheetScene => {
+  const frames = sheetFrames(records, projectId, dayId);
+  const scenes = scenesOfFrames(frames).map((record): SheetScene => {
     const fields = sceneFields(record.props);
     const here = frames.filter((f) => f.scene.id === record.id);
     const placeIds = [...new Set(here.map(({ shot }) => frameLocationId(records, shot)).filter((id): id is string => id !== null))];
@@ -325,7 +336,7 @@ export function callSheet(
       })),
     }));
   const project = records[projectId];
-  const locations = dayLocations(records, projectId, dayId).map(({ record }): SheetLocation => {
+  const locations = locationsOfFrames(records, frames).map(({ record }): SheetLocation => {
     const fields = locationFields(record.props);
     const place = mapPlace(record.props);
     // Waiting for the answer: a guess from this computer's zone could be the wrong solar day.
@@ -347,6 +358,7 @@ export function callSheet(
     locations,
     timesIn: locations[0]?.zone ?? null,
     scenes,
+    nothingLeft: frames.length === 0 && dayFrames(records, projectId, dayId).length > 0,
     cast,
     crew,
     peopleChosen: chosen,

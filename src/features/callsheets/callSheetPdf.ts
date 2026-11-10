@@ -713,7 +713,12 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   }
 
   // Scenes
-  if (sheet.scenes.length > 0) {
+  if (sheet.nothingLeft) {
+    const b = new Block(W);
+    b.gap(6);
+    b.line([sans(t('callSheet.nothingLeft'), 10, MUTED)], 14);
+    place([b], { label: t('callSheet.section.scenes'), started: false });
+  } else if (sheet.scenes.length > 0) {
     const section: Section = { label: t('callSheet.section.scenes'), started: false };
     const indent = 56;
     const actorX = indent + 150;

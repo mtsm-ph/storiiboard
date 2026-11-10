@@ -1,8 +1,8 @@
-import { callSheetIssues, dayCallsheet, nextIssueVersion } from '../../core/model/callsheet';
+import { callSheetIssues, dayCallsheet, nextIssueVersion, sheetFrames } from '../../core/model/callsheet';
 import { MAX_PDF_BYTES } from '../../core/model/attachment';
 import type { SbdRecord } from '../../core/model/record';
 import { isDayDate } from '../../core/model/shootDay';
-import { dayScenes } from '../../core/model/schedule';
+import { scenesOfFrames } from '../../core/model/schedule';
 import { sceneFields } from '../../core/model/storyboard';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
@@ -87,13 +87,13 @@ export function issueChanges(records: Records, slate: SlateNumbers, input: Issue
       },
     },
   });
-  // Only the scenes not locked yet: the ones already locked are left alone, so undoing the issue unlocks only what it locked.
+  // The sheet's scenes (frames still to shoot, 4.11). Only the ones not locked yet: the ones already locked are left alone, so undoing the issue unlocks only what it locked.
   // A lock can re-letter frames to keep slate numbers unique (1.26): said, as the Scenes tile says it.
   // One scene at a time, each reading the records as the one before left them, so two scenes never both take the same
   // letter (4AA).
   const notices: string[] = [];
   let around = records;
-  for (const scene of dayScenes(records, input.projectId, input.dayId)) {
+  for (const scene of scenesOfFrames(sheetFrames(records, input.projectId, input.dayId))) {
     const now = around[scene.id] ?? scene;
     const fields = sceneFields(now.props);
     if (fields.numbersLocked) continue;
