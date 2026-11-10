@@ -331,8 +331,12 @@
   - A builder starts with none of the main session's context, so every brief is complete: the goal, the decisions
     that apply, the files, the tests to add, the checks to run and what not to touch. A big milestone is several
     briefs. One builder at a time, in this checkout, never two in parallel.
-- Every report lists the name of every test that failed, flaky ones included, from CI's saved reports (3.19, Kevin
-  Nov 9). If the Player's grab-a-still test fails again, its cause is found before going on.
+- Every report lists the name of every test that failed, flaky ones included (3.19, Kevin Nov 9): `npm run
+  failed-tests` reads the last local run's reports (test-results/unit.json, test-results/e2e.json); CI keeps them as
+  artifacts (unit-test-report, e2e-test-report-linux and -macos) and lists them in the log. Each run rewrites its
+  report, so list them right after the full run, before any rerun; a red `npm test` with nothing listed is an error
+  outside every test file (in the log). If the Player's grab-a-still test fails again, its cause is found before
+  going on.
 - Screenshot baselines (Kevin, Nov 9): a change regenerates every baseline it touches (all systems, both engines) on
   its PR's branch and pushes, with a PR comment on what changed; Kevin compares old and new in Files changed and says
   merge.

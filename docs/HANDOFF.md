@@ -347,7 +347,25 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 9, late)
+
+- Merged tonight: #114 (agents), #115 (Kevin's answers in the docs), #116 (3.18), #117 (3.19). #112 (3.17) has every
+  Settings baseline regenerated and a comment for Kevin; it waits for him to say merge.
+- Next: 4.0, the service switch. Its brief is complete: docs/briefs/4.0-service-switch.md. Start the builder with it
+  (no model passed; check the subagent's transcript records `claude-sonnet-5-5`, as Kevin asked to be told how each
+  agent's model was confirmed). Then 4.1 to 4.8, 4.9, 4.10 in order, each split into briefs, stopping at the gate.
+- Decided by default in 4.0's brief, for Kevin's review: the file at the repo root on `main`
+  (raw.githubusercontent.com), reasons as codes with translated words (never text from the file), and a new Settings
+  tab, Online services (it changes the Settings screenshots again).
+- Leftover: test-results/probe holds 3.19's probe files (build output; deleting them was refused by this session's
+  permissions). Nothing reads them.
+
 ### Kevin's answers and the new way of working (Nov 9, evening)
+
+- The builder couldn't run in this session: agent files are read when a session starts, and this one started
+  before builder.md existed; the general-purpose agent is denied by this computer's local settings, so there was no
+  stand-in either. 3.18 (subtle approval logic) and 3.19 (a CI change) were done by the main session; the long Phase 4
+  code waits for a session that loads the builder.
 
 - Workflow (#114): the main session plans, briefs, judges reviews, does git and writes reports; the builder
   (.claude/agents/builder.md, Sonnet 5.5, effort medium) writes the long code from complete briefs, one at a time in
@@ -381,6 +399,34 @@ Lows deferred (noted, not planned yet):
 - Waiting for Kevin, besides Phase 4's answers: the map (Leaflet, pigeon-maps or our own on react-konva; tiles through
   Rust), and 3.17's screenshots.
 
+### 3.19: review
+
+- Built by the main session (a CI change; the builder wasn't loadable). Reviewer round 1: three mediums, fixed: a
+  Playwright run that failed outside every test (a spec that threw as it loaded, no tests found, the web server) and a
+  Vitest file failed by a hook listed as clean; and a rerun of one file rewrote the full run's report (each report's
+  start time is printed now, and CLAUDE.md says to list them right after the full run). Lows: `engines` raised to
+  Node 22.18; Vitest's unhandled errors, which its report can't hold, said in the docs; a job cancelled by its time
+  limit keeps no report (as before; noted). Both failures outside a test were probed against the real reporters.
+- The probe files are in test-results/probe (build output); deleting them was refused by this session's permissions,
+  so they stay until Kevin or a clean deletes them. Nothing reads them: outside testDir, Vitest's include, tsconfig and
+  eslint.
+- The first full end-to-end run of 3.19 failed 7 tests, all unrelated (a11y sweep light en and es, custom fields,
+  department status 3.6b, docking, PNG export work, gear), in 11.2 minutes instead of 3.9: the main session was
+  editing files and running lint and Vitest beside it. The quiet rerun passed all 307. Run the suite alone.
+- Checks: lint, unit tests and Rust pass; end-to-end (Chromium) 307 passed, 0 failed, 2 skipped.
+
+### 3.18: review
+
+- Built by the main session (the builder wasn't loadable yet). Reviewer round 1: no high; one medium, fixed: schema
+  13 missed scenes schema 12 emptied (`characters: []` or blank names: the prop came off with no ids), so their
+  3.6b approvals stayed "Changed"; it now takes any update with a `characters` list before, no name after, a changed
+  cast and nothing else changed. Lows fixed: the comment on which fingerprints are lazy, two more `3:` pins (a cast
+  and a rig, camera and art), fuller schema 13 tests (stamps unchanged where they should be, a file today's 12 already
+  re-stamped gets no step), and SBD_FORMAT says a Restore to between 12's step and 13's brings the false "Changed"
+  back (approving again clears it). Round 2: nothing high or medium; its one hardening (a step that left the cast as
+  it was isn't 12's) is in.
+- Checks: lint, unit tests 1,024 and Rust 162 pass; end-to-end (Chromium) 307 passed, 0 failed, 2 skipped.
+
 ### 3.17: review
 
 - Decided by default, review: see PLAN.md, "3.17 as built" (the setting is this computer's; a region that starts on
@@ -390,11 +436,9 @@ Lows deferred (noted, not planned yet):
   region now. Lows fixed: Linux's `C` and `POSIX` name no region; China starts on Monday (out of the Sunday list), the
   Maldives on Friday; the region is read as the app starts, not when the Calendar first draws (no redraw from Sunday
   to Monday); the end-to-end test waits for the Spanish-named Settings to close.
-- **Waits for Kevin: the Settings screenshots.** The new "Week starts on" field is on Settings → App, which the four
-  `settings-*` screenshot tests capture, so they fail until their baselines are regenerated, and Kevin sees new
-  baselines first. The new images (only the field added, everything under it moved down) were saved for him. Every
-  other end-to-end test passes (304). PR #112 is ready but not merged until he says the images are right; then
-  regenerate the Windows baselines and push `checkpoint/baselines-3.17` for the Linux and Mac ones.
+- The Settings screenshots: the new "Week starts on" field is on Settings → App, which the four `settings-*`
+  tests capture. Every baseline was regenerated (Windows here; Linux and the Mac from a checkpoint), Kevin compared
+  all 20 (only the field changed) and said merge, Nov 10.
 
 ### 3.16: review
 

@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups 3.4, 3.12 to 3.16 merged; 3.17 (PR #112) waits for him to compare its new Settings baselines; 3.18 and 3.19 next. **Phase 4 · Call sheets**: answered and approved Nov 9 (docs/PHASE4_DECISIONS.md); 4.0 to 4.10 follow 3.19, stopping at the gate. The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups merged (3.4, 3.12 to 3.16, 3.18, 3.19); 3.17 (PR #112) waits for him to compare its new Settings baselines and say merge. **Phase 4 · Call sheets**: answered and approved Nov 9; 4.0's brief is written (docs/briefs/4.0-service-switch.md), to be built by the builder in a session that loads it (agent files are read when a session starts). The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (Kevin's answers to the Phase 4 decisions and the map written in) |
+| Last updated | Nov 9, 2026 (3.18 and 3.19 merged; 4.0's brief written; 3.17 waits for Kevin) |
 
 | Phase | State |
 |---|---|
@@ -88,15 +88,58 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.14 Project data or Full archive | The JSON export's two choices: Project data (the default) leaves out the Trash and History; Full archive carries both; both import back without loss (Kevin, Nov 9) | #109 | Done |
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
-| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | #112 | Ready: baselines regenerated on every system and engine; waits for Kevin to compare them and say merge |
-| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | | Not started |
-| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | Not started |
+| 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | #112 | Done |
+| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | #116 | Done |
+| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | #117 | Done |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
 plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the
 provider switchable in Settings (the map waits for one question back: docs/HANDOFF.md, "Map: before building"); scene
 characters as ids, data change approved; the JSON export's two choices; the approvals changes; the week's first day.
 Every other default from the overnight run is approved. After 3.17: the Phase 4 plan and decision sheet, not its build.
+
+3.19 as built (Nov 9): failed tests by name (`scripts/failedTests.ts`, `npm run failed-tests`).
+- Vitest writes a JSON report beside its usual output (test-results/unit.json), Playwright one beside its own
+  (test-results/e2e.json); Playwright's output folder moved to test-results/e2e, since it empties that folder as a run
+  starts and would take Vitest's report with it.
+- `npm run failed-tests` lists every failed test by file and title, and every flaky one (Playwright passed it only on
+  its retry, which CI allows once): from the last local run, or from report files named on the command line (a CI
+  artifact). It says so when none failed, and fails when a report is missing or unreadable, so no report never reads
+  as a clean run.
+- CI: the quick checks list failed unit tests in the log and keep unit-test-report; each checkpoint smoke job lists
+  failed and flaky end-to-end tests and keeps e2e-test-report-linux or -macos, 14 days, whether the job passed or not
+  (a flaky test leaves it green). Rust's tests stay in the log: Kevin named Vitest and Playwright.
+- A run can fail with no test failed, and is listed then too: a Vitest file that didn't load or whose hook threw
+  (a beforeAll skips its tests; an afterAll fails the file after they passed), and Playwright's errors outside every
+  test (a spec that threw as it loaded, a test.only on CI, the web server, no tests found). Each report's start time
+  is printed, since a rerun of one file rewrites the report. What it can't see: an error Vitest reports outside every
+  file (an unhandled rejection) isn't in its report; a red `npm test` with nothing listed is that, in the log.
+- `engines` is Node 22.18 or later, the first 22 to run TypeScript without a flag.
+- Tests: the two report shapes as each tool writes them (a file that didn't load, a hook that threw, describe blocks,
+  projects, flaky, skipped, errors outside a test), the start time, and a clean run; and a probe of each failure
+  outside a test against the real reporters (in test-results/probe).
+
+3.18 as built (Nov 9): approvals kept through upgrades (`src/core/model/sceneApprovals.ts`, schema 13,
+`src/core/storage/migrations/013_approvals_kept.ts`).
+- The rule (Kevin Nov 9): a new approval's fingerprint starts `3:`: 3.15's shared fields and the department's own
+  notes and ticks, plus the scene's characters (`character_ids`, and what a name match left in `characters`) for
+  every department, and each frame's T-stop, support and height for camera and grip-electric.
+- Every approval is read by the rule it was given under: `3:` by 3.18's, `2:` by 3.15's (kept exactly, its
+  fingerprint pinned in a test), no prefix by 3.6b's; a prefix this version doesn't know reads as changed. So a change
+  of rule turns none "Changed": a 3.15 approval stays current when a T-stop or the cast changes. Given again, an
+  approval takes the newest rule.
+- Through a format upgrade: `approvalsKeptThrough(before, after, scene)` re-stamps every sign-off that was current
+  before a migration and isn't after it, by its own rule, on the records after it. Schema 12 uses it now (its scenes'
+  names becoming ids changed what 3.6b's and 3.18's rules read; schema 9, run today, stamps `3:`, which reads
+  characters, so an old file's 9 then 12 needed it too).
+- Schema 13 (the change to existing data Kevin asked for: "clearing the false ones on already-upgraded files"):
+  for a file schema 12 upgraded before it re-stamped, it finds schema 12's own step for each scene in History (names
+  before, ids after), reads the scene with its old characters back, and re-stamps the sign-offs current then. A
+  sign-off changed for another reason, or a scene whose characters were edited since, stays as it is. One logged
+  step, backup first; nothing to repair, no step.
+- Tests: the new rule per department, each rule read by its own, the pinned fingerprints (3.6b, 3.15, 3.18),
+  re-stamping by rule (a changed sign-off left changed), schema 12 alone keeping approvals of every rule current (and
+  failing with the re-stamp off), schema 13 on a file upgraded by 12 as shipped.
 
 3.17 as built (Nov 9): the week's first day (`src/app/weekStart.ts`, `src-tauri/src/region.rs`).
 - The Calendar's week starts on the day this computer's regional settings say, in every language (it went by the

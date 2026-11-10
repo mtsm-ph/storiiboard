@@ -14,9 +14,14 @@ import type { JsonValue, Props, SbdRecord } from './record';
 // time, so undoing the change brings the approval back to current, as undo should.
 //
 // What a department touches (3.15, Kevin Nov 9): the shared fields count for every department, the department's own
-// notes and ticks only for it. A fingerprint from then on starts `2:`. One from before (3.6b's, which counted every
-// frame field for every department) is still read by the rule it was made with, so no approval given before 3.15
-// turns "Changed" just because the rule did; given again, it takes the new one.
+// notes and ticks only for it. A fingerprint from then on starts `2:`. 3.18 (Kevin Nov 9) adds the scene's characters
+// for every department, and T-stop, support and height for camera and grip-electric: `3:`. One from before (3.6b's,
+// with no prefix, which counted every frame field for every department; or 3.15's) is still read by the rule it was
+// made with, so no approval turns "Changed" just because the rule did; given again, it takes the newest.
+//
+// Nor because the file's format did (Kevin Nov 9): a migration that rewrites what a rule reads (schema 12 turned a
+// scene's character names into ids, which 3.6b's rule read) re-stamps every approval that was current just before it
+// with its own rule's fingerprint of the records after it (approvalsKeptThrough).
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -52,24 +57,39 @@ export const approvalsIn = (approvals: SceneApprovals, department: string): read
 /** None given; all still match the scene; or at least one was given before the scene changed. */
 export type SceneApprovalState = 'none' | 'approved' | 'changed';
 
-/** What a department touches now, by the rule of 3.15 (`current`, what a new approval keeps) and 3.6b's (`legacy`). */
+/**
+ * What a department touches now, by each rule an approval may have been given under: 3.18's (`current`, what a new
+ * approval keeps), 3.15's (`v2`) and 3.6b's (`legacy`). 3.6b's is worked out only when an approval made by it is
+ * read, since it reads the whole scene again; 3.15's costs one more hash of what 3.18's reads anyway.
+ */
 export interface ApprovalBasis {
   readonly current: string;
+  readonly v2: string;
   readonly legacy: string;
 }
 
-/** A fingerprint made by 3.15's rule. */
-const CURRENT = '2:';
+/** A fingerprint made by 3.18's rule, and one made by 3.15's. */
+const CURRENT = '3:';
+const V2 = '2:';
 
-/** A plain fingerprint reads as both: for tests and callers that hold one already. */
-const asBasis = (basis: ApprovalBasis | string): ApprovalBasis => (typeof basis === 'string' ? { current: basis, legacy: basis } : basis);
+/** A plain fingerprint reads as every rule's: for tests and callers that hold one already. */
+const asBasis = (basis: ApprovalBasis | string): ApprovalBasis => (typeof basis === 'string' ? { current: basis, v2: basis, legacy: basis } : basis);
+
+/**
+ * The scene's fingerprint by the rule `stamp` was made with, or null for a rule this version doesn't know (a newer
+ * version's, `4:` say), which reads as changed: approving again writes this version's.
+ */
+function byRuleOf(stamp: string, now: ApprovalBasis): string | null {
+  if (stamp.startsWith(CURRENT)) return now.current;
+  if (stamp.startsWith(V2)) return now.v2;
+  // 3.6b's had no prefix: a hash, never a colon.
+  return stamp.includes(':') ? null : now.legacy;
+}
 
 /** Whether an approval still matches the scene: by the rule it was given under. */
 export function isCurrent(approval: SceneApproval, basis: ApprovalBasis | string): boolean {
   if (approval.basis === '') return false;
-  const now = asBasis(basis);
-  // 3.6b's fingerprint is read only for an approval made by it: it reads the whole scene again.
-  return approval.basis.startsWith(CURRENT) ? approval.basis === now.current : approval.basis === now.legacy;
+  return approval.basis === byRuleOf(approval.basis, asBasis(basis));
 }
 
 export function approvalState(approvals: readonly SceneApproval[], basis: ApprovalBasis | string): SceneApprovalState {
@@ -130,11 +150,13 @@ export function sceneApprovalLine(approvals: readonly SceneApproval[], basis: Ap
 // the scene has, in order; and the scene's heading (its name, INT/EXT, DAY/NIGHT, location), as the frames' shared
 // ground. The department's own, for it alone: its entry on each frame, its notes and ticks (Working on it, Done, and
 // anything a newer version keeps there), never Priority. Nothing else (T-stop, support, height, a title, custom
-// fields, gear, the shoot day, note cards) changes an approval. (When Phase 6 gives a frame its lens from a setup or
-// the bird's-eye plan, that source belongs here too.)
+// fields, gear, the shoot day, note cards, the scene's characters) changes an approval by this rule.
 //
-// A fingerprint starting with anything else (a newer version's rule, `3:` say) is compared with 3.6b's and reads as
-// changed: approving again writes this version's.
+// 3.18's rule (`current`, Kevin Nov 9): 3.15's, plus the scene's characters (`character_ids`, and any value a name
+// match left in `characters`) for every department, and each frame's T-stop, support and height for camera and
+// grip-electric, who light and rig for them. Nothing else (a title, custom fields, gear, the shoot day, note cards)
+// changes an approval. (When Phase 6 gives a frame its lens from a setup or the bird's-eye plan, that source belongs
+// here too, as a rule of its own.)
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 
@@ -288,10 +310,34 @@ function sharedContent(records: Records, sceneId: string): SceneContent | null {
   return content;
 }
 
+/** The scene's cast, for every department (3.18). */
+const CAST_SCENE_FIELDS = ['character_ids', 'characters'] as const;
+/** What a frame is lit and rigged for (3.18), and the departments it counts for. */
+const RIG_FRAME_FIELDS = ['t_stop', 'support', 'height'] as const;
+const RIG_DEPARTMENTS: ReadonlySet<string> = new Set(['camera', 'grip-electric']);
+
+const rigCache = new WeakMap<Records, Map<string, string>>();
+/** 3.18's scene-wide parts: the cast, and the frames' rig for the departments it counts for. Hashed once a scene. */
+function sceneExtras(records: Records, sceneId: string, content: SceneContent): { cast: string; rig: string } {
+  let byScene = rigCache.get(records);
+  if (!byScene) {
+    byScene = new Map();
+    rigCache.set(records, byScene);
+  }
+  const scene = records[sceneId];
+  const cast = canonical(scene ? pick(scene.props, CAST_SCENE_FIELDS) : {});
+  let rig = byScene.get(sceneId);
+  if (rig === undefined) {
+    rig = hash(canonical(content.shots.map((shot) => pick(shot.props, RIG_FRAME_FIELDS))));
+    byScene.set(sceneId, rig);
+  }
+  return { cast, rig };
+}
+
 /** The fingerprints of what `department` touches in the scene now; '' each for a scene that isn't there. */
 export function approvalBasis(records: Records, sceneId: string, department: string): ApprovalBasis {
   const content = sharedContent(records, sceneId);
-  if (!content) return { current: '', legacy: '' };
+  if (!content) return { current: '', v2: '', legacy: '' };
   const entries = content.shots.map((shot): JsonValue => {
     const status = isObject(shot.props.department_status) ? shot.props.department_status[department] : undefined;
     // Its notes and ticks: a tick that's off (`false`) or empty is the same as none.
@@ -301,15 +347,58 @@ export function approvalBasis(records: Records, sceneId: string, department: str
     // An entry with nothing of its own (only Priority, or emptied) is none, as a frame without one.
     return own.length > 0 ? Object.fromEntries(own) : null;
   });
+  const own = `${department}|${canonical(entries)}`;
+  const { cast, rig } = sceneExtras(records, sceneId, content);
   let legacy: string | undefined;
   return {
-    current: `${CURRENT}${hash(`${content.shared}|${department}|${canonical(entries)}`)}`,
+    current: `${CURRENT}${hash(`${content.shared}|${cast}|${RIG_DEPARTMENTS.has(department) ? rig : ''}|${own}`)}`,
+    // Kept exactly as 3.15 computed it: approvals stored with `2:` depend on it.
+    v2: `${V2}${hash(`${content.shared}|${own}`)}`,
     // Worked out only when an approval from before 3.15 is read: it reads the whole scene again.
     get legacy() {
       legacy ??= legacyBasis(records, sceneId, department);
       return legacy;
     },
   };
+}
+
+/**
+ * A scene's `department_approvals` after a migration rewrote records from `before` to `after`, with every sign-off
+ * that was current before it re-stamped by its own rule on `after`, so a format upgrade never shows "Changed since
+ * approval" (Kevin Nov 9); undefined when none needs it. A sign-off that was already changed stays as it was, as does
+ * everything this version can't read.
+ */
+export function approvalsKeptThrough(before: Records, after: Records, sceneId: string): JsonObject | undefined {
+  const scene = after[sceneId];
+  if (scene?.type !== 'scene' || before[sceneId]?.type !== 'scene') return undefined;
+  const all = stored(scene.props);
+  let touched = false;
+  const out: JsonObject = {};
+  for (const [department, list] of Object.entries(all)) {
+    if (!Array.isArray(list)) {
+      out[department] = list;
+      continue;
+    }
+    let was: ApprovalBasis | undefined;
+    let now: ApprovalBasis | undefined;
+    const next: JsonValue[] = [];
+    for (const value of list) {
+      const approval = sceneApprovalOf(value);
+      if (approval && isObject(value)) {
+        was ??= approvalBasis(before, sceneId, department);
+        now ??= approvalBasis(after, sceneId, department);
+        const stamp = isCurrent(approval, was) && !isCurrent(approval, now) ? byRuleOf(approval.basis, now) : null;
+        if (stamp) {
+          touched = true;
+          next.push({ ...value, basis: stamp });
+          continue;
+        }
+      }
+      next.push(value);
+    }
+    out[department] = next;
+  }
+  return touched ? out : undefined;
 }
 
 /** How a scene's approvals stand, for the marker on its heading (3.16): departments approved, and changed since. */
