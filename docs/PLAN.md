@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**, built to the gate, with Kevin's Nov 9 follow-ups merged (3.4, 3.12 to 3.16; 3.17 waits for him to see new Settings screenshots, PR #112). **Phase 4's plan and decision sheet are written** ("Phase 4 milestones", docs/PHASE4_DECISIONS.md): nothing in Phase 4 is built until Kevin answers. The map waits for one answer too (docs/HANDOFF.md). The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups 3.4, 3.12 to 3.16 merged; 3.17 (PR #112) waits for him to compare its new Settings baselines; 3.18 and 3.19 next. **Phase 4 · Call sheets**: answered and approved Nov 9 (docs/PHASE4_DECISIONS.md); 4.0 to 4.10 follow 3.19, stopping at the gate. The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (Phase 4 plan written; 3.17 and the map wait for Kevin) |
+| Last updated | Nov 9, 2026 (Kevin's answers to the Phase 4 decisions and the map written in) |
 
 | Phase | State |
 |---|---|
@@ -19,7 +19,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
 | 3 · Production data | **Current**: built (Nov 9); Kevin's Nov 9 follow-ups in progress; the gate is Kevin's |
-| 4 · Call sheets | Plan and decision sheet written (Nov 9); waits for Kevin's answers and go |
+| 4 · Call sheets | Answered and approved Nov 9; 4.0 next, after 3.18 and 3.19 |
 | 5 · Canvas flow (moodboards and decks) | Not started |
 | 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
@@ -29,24 +29,30 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 ### Phase 4 milestones
 
-Plan written Nov 9, 2026 (Kevin: plan and decision sheet, not the build, until he answers). The decisions, one page:
-`docs/PHASE4_DECISIONS.md`. One PR per milestone into `v2`, each with its tests, reviewed until nothing high or medium
-is left, under the same rules as Phase 3. The gate: a call sheet used on a real shoot day.
+Plan written Nov 9, 2026; Kevin answered and said go the same day: 4.0, 4.1 to 4.8, 4.9, 4.10, in that order, stopping
+at the gate. His answers, one page: `docs/PHASE4_DECISIONS.md`. One PR per milestone into `v2`, each with its tests,
+reviewed until nothing high or medium is left, under the same rules as Phase 3, built by the builder from briefs
+(CLAUDE.md, Workflow). Approved: SunCalc, qrcode-generator, @photostructure/tz-lookup, and the hosts for the service
+switch file, api.met.no and tile.openstreetmap.org; anything else new, or any other change to existing data, waits
+for Kevin. The gate: a call sheet used on a real shoot day.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
+| 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | | Not started |
 | 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | | Not started |
 | 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | | Not started |
 | 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | | Not started |
-| 4.4 Weather | The day's forecast at each location from the source Kevin picks (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched; said as not yet available beyond the forecast's range; credited | | Not started |
-| 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): up to five, by straight-line distance; one picked is kept on the location, editable by hand, and printed on every call sheet there | | Not started |
-| 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4) | | Not started |
-| 4.7 Issuing | Issue: the PDF kept as sent, the version and time, the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after; re-issue as version 2, 3… (decision 5) | | Not started |
+| 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | | Not started |
+| 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | | Not started |
+| 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | | Not started |
+| 4.7 Issuing | Issue: the PDF kept as sent, the version and issue time in its header ("Revised" from version 2), the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after (a new forecast doesn't count); re-issue as version 2, 3… (decision 5) | | Not started |
 | 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | | Not started |
+| 4.9 The map on a location | react-konva, tiles through Rust with a disk cache under OpenStreetMap's tile policy (User-Agent, credit always visible, cache headers or 7 days, only the tiles in view, no offline download); a provider of one's own in Settings adds that one host, said so there; the pin dragged to where the crew should go saves the location's place | | Not started |
+| 4.10 The map on the call sheet | The map image on the call sheet (decision 4b), from the tile cache, with the credit | | Not started |
 | Phase 4 gate | A checkpoint and Kevin's checklist: a call sheet used on a real shoot day | | Not started |
 
 Not in Phase 4: cast availability (Phase 9, from the web), sending call sheets (publishing is Phase 9), driving times
-to the hospital (a routing service), a map image until the map is decided.
+to the hospital (a routing service), US weather alerts (NWS, later).
 
 ### Phase 3 milestones
 
@@ -83,6 +89,8 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.15 Approvals by what a department touches | Shared fields (picture, sketch, action, dialogue, shot size, lens, movement) change every department's approval; a department's own notes and ticks change only its own (Kevin, Nov 9) | #110 | Done |
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
+| 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | | Not started |
+| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | Not started |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
 plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the

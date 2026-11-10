@@ -33,7 +33,9 @@
 - Video: ffmpeg sidecar, LGPL build, for proxies, stills and trims.
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
-- PDFs: pdf-lib. Sun times: SunCalc. 3D (Phase 10): three.js through react-three-fiber.
+- PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: @photostructure/tz-lookup,
+  offline (Kevin, Nov 9). Maps: react-konva, tiles fetched through Rust and cached on disk. 3D (Phase 10): three.js
+  through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
   (sql.js, dev only, src/app/fileAccess.ts), so end-to-end tests can create, edit, reload and reopen projects.
@@ -136,7 +138,9 @@
 - Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
   scene (3.6b), only by the director or the DP, showing "Changed since approval" once what that department touches
   (3.15: picture, sketch, action, dialogue, shot size, lens and movement for every department; its own notes and
-  ticks for it alone) in the scene changes. Each scene heading on the board shows how many departments are approved
+  ticks for it alone; 3.18: T-stop, support and height for camera and grip-electric, the scene's characters for every
+  department) in the scene changes. An approval current before an upgrade stays current after it: neither a format
+  upgrade nor a change to this rule may show "Changed since approval" (Kevin, Nov 9). Each scene heading on the board shows how many departments are approved
   and a dot with "changed" when any changed since (3.16). A department's name in the Inspector opens its workspace
   (3.6a). Perspective views (3.6c): the director, the DP and anyone with Full view (a switch per person in Cast and crew) see every department first;
   everyone else sees their own, the rest folded under Rest of crew. A focus view, not access control.
@@ -153,6 +157,20 @@
 - Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
+  - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
+    shot numbers in the same step, then "Changed since issued" (a new forecast doesn't count); each issued PDF prints
+    its version and issue time, "Revised" from version 2. Calls are overrides of the day's crew call per department
+    and per person; cast call, HMU ready and on set. Only the people on the day ("Add everyone" for a small crew);
+    phone and email print only where the person's record allows it (on by default for crew, off for cast). Times in
+    the location's time zone, editable on the location. Sun: golden hour from 6° above to 4° below the horizon, blue
+    hour 4° to 6° below. Weather units by region (°F and mph in the US, °C and km/h elsewhere), a Settings override;
+    the sheet says when the forecast was fetched. Paper by region (Letter or A4), a choice in Export. The safety box
+    prints the location's country's emergency number from an editable table in the code.
+  - The map on paper: address, coordinates, link and QR (4.6), then a map image from the tile cache with its credit
+    (4.10). The QR and Copy map link give directions in the app chosen in Settings: Google Maps (default), Apple Maps
+    or OpenStreetMap. A link only; the app never contacts Google.
+- Location map (4.9): drawn with react-konva from tiles fetched through Rust; the pin can be dragged to where the crew
+  should go (an entrance, a basecamp), which saves the location's place.
 - Moodboards: one per department; they link to scenes, characters and locations.
 - Cloud links: one shared link per project; list, download and relink media.
 - Missing media: flag it clearly and offer relink. Device-wide file search is a later phase.
@@ -202,11 +220,25 @@
 - Every request goes through src-tauri/src/net.rs (Kevin, Nov 9), only to hosts on its fixed list in the code, over
   HTTPS, with a generic app name in the User-Agent, never a person's name or email. A new host is added there with
   the rule it follows. Dependencies are pinned to a release at least two weeks old.
-- Weather: Open-Meteo, no key, non-commercial use only; credit it on call sheets (CC BY 4.0).
+- Service switch (4.0, Kevin, Nov 9): a small JSON file in this repo, read through net.rs at most once a day and only
+  just before an online service is used. It can turn a service off (with a message where the service is used) or move
+  it to another server already on the code's list; it can never add a host. Unreadable: the last copy, then the
+  defaults in code. Settings lists every online service the app may contact, what for and when; the README tells
+  service operators what each is used for and to reach us through GitHub issues. Tests use a fixture, never GitHub.
+- Weather (Kevin, Nov 9): MET Norway's Locationforecast (api.met.no), free for any use, paid shoots included; credit
+  "Data from MET Norway" (CC BY 4.0) on call sheets; coordinates cut to 4 decimals; never asked again before the
+  answer's `Expires`; only when a call sheet is opened or refreshed. Not Open-Meteo (its free API is non-commercial).
+- Map tiles (Kevin, Nov 9): OpenStreetMap's tile policy (tile.openstreetmap.org): the app's User-Agent, the credit
+  always visible, cache headers honored (7 days when there are none), only the tiles being viewed, never a download
+  for offline. A tile provider of one's own, set in Settings, adds that one host, and Settings says so where it's set.
+- Nearest hospital (Kevin, Nov 9): Nominatim, only when the person presses Find, or typed by hand; never Google
+  Places. Hospitals OSM marks with an emergency department first; the rest with a note to check for a 24-hour
+  emergency room.
 - Geocoding: Nominatim only when the user presses Search; at most 1 request per second;
   app name in the User-Agent; cache results in the .sbd; never autocomplete. Built in 3.4: Search address in the
   Locations tile (src-tauri/src/geocode.rs), cached in `lookups`; tests read a recorded answer, never the service.
-- Google Maps only with the user's own key from Settings.
+- Google Maps only with the user's own key from Settings. A directions link that opens Google Maps (4.6) isn't a
+  request: the app itself never contacts Google.
 - Dropbox: a public folder link with dl=1 downloads as one zip.
 - Google Drive: "anyone with the link" folders through the Drive API with a project API key.
 - Cache every lookup in the .sbd with a fetched_at timestamp.
@@ -298,6 +330,8 @@
   - A builder starts with none of the main session's context, so every brief is complete: the goal, the decisions
     that apply, the files, the tests to add, the checks to run and what not to touch. A big milestone is several
     briefs. One builder at a time, in this checkout, never two in parallel.
+- Every report lists the name of every test that failed, flaky ones included, from CI's saved reports (3.19, Kevin
+  Nov 9). If the Player's grab-a-still test fails again, its cause is found before going on.
 - Screenshot baselines (Kevin, Nov 9): a change regenerates every baseline it touches (all systems, both engines) on
   its PR's branch and pushes, with a PR comment on what changed; Kevin compares old and new in Files changed and says
   merge.
