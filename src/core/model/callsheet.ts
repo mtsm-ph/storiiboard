@@ -1,6 +1,8 @@
 import { formatDate, t } from '../i18n';
 import { castOf, characterName, contactOnSheet, isCastOnly, peopleByDepartment, personFields, projectPeople as allPeople, sceneCharacters, type PersonFields } from './person';
-import { frameLocationId, locationFields, mapPlace, zoneFor, type LocationFields, type ZoneSource } from './location';
+import { emergencyNumbers } from './emergencyNumbers';
+import { haversineKm } from '../net/hospitals';
+import { frameLocationId, keptHospital, locationFields, mapPlace, zoneFor, type LocationFields, type ZoneSource } from './location';
 import type { Place } from '../net/places';
 import { sunTimes, type SunDay } from './sunTimes';
 import type { Department } from './department';
@@ -30,6 +32,29 @@ export interface SheetZone {
   source: ZoneSource;
 }
 
+/** A location's hospital as the safety box prints it (4.5). */
+export interface SheetHospital {
+  name: string;
+  address: string;
+  phone: string;
+  /** Straight line from the location's place on the map, in km; null for a hospital typed by hand or a location with no place. */
+  distanceKm: number | null;
+  /** OpenStreetMap says it has an emergency department; false means "check it has a 24-hour emergency room". */
+  emergency: boolean;
+  /** Found by the OpenStreetMap search: the box then credits OpenStreetMap. */
+  fromSearch: boolean;
+}
+
+/** The safety box of one location (4.5): the number to call, and the hospital. */
+export interface SheetSafety {
+  /** The location's country (ISO 3166-1 alpha-2), or '' when not set. */
+  countryCode: string;
+  /** The numbers for that country, the main one first; none for a country not in the table: "check locally". */
+  numbers: readonly string[];
+  /** Null while the location has no hospital: the box says to find one. */
+  hospital: SheetHospital | null;
+}
+
 export interface SheetLocation {
   record: SbdRecord;
   fields: LocationFields;
@@ -39,6 +64,7 @@ export interface SheetLocation {
   zone: SheetZone | null;
   /** The day's sun there (4.3); null without a place on the map or a date on the day. */
   sun: SunDay | null;
+  safety: SheetSafety;
 }
 
 /** A person's phone and email as the sheet prints them (4.2): only where their record allows it. */
@@ -189,6 +215,25 @@ export function personCall(own: string, departments: readonly string[], calls: R
   return earliest ?? dayCall;
 }
 
+/** One location's safety box (4.5), from the hospital and country kept on it. */
+export function safetyOf(props: SbdRecord['props'], countryCode: string, place: Place | null): SheetSafety {
+  const kept = keptHospital(props);
+  return {
+    countryCode,
+    numbers: emergencyNumbers(countryCode),
+    hospital: kept
+      ? {
+          name: kept.name,
+          address: kept.address,
+          phone: kept.phone,
+          distanceKm: place && kept.place ? haversineKm(place, kept.place) : null,
+          emergency: kept.emergency,
+          fromSearch: kept.fromSearch,
+        }
+      : null,
+  };
+}
+
 /**
  * The sections of one day's call sheet, or null when the day isn't a live day of the project. `people` is who is on
  * the day; left out, it is the people the day's `people_ids` names (4.2), or everyone live in Cast and crew while
@@ -288,6 +333,7 @@ export function callSheet(
       place,
       zone,
       sun: place && zone && isDayDate(day.fields.date) ? sunTimes(day.fields.date, place.latitude, place.longitude, zone.zone) : null,
+      safety: safetyOf(record.props, fields.country_code, place),
     };
   });
   return {

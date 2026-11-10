@@ -101,8 +101,18 @@ fn book(next_free: &mut Option<Instant>, now: Instant) -> Duration {
 
 static NEXT_FREE: Mutex<Option<Instant>> = Mutex::new(None);
 
+/// Tests that touch the one queue take this first, so they don't see each other's bookings.
+#[cfg(test)]
+pub(crate) static QUEUE_TEST: Mutex<()> = Mutex::new(());
+
+/// Empties the queue, for the tests.
+#[cfg(test)]
+pub(crate) fn forget_queue() {
+    *NEXT_FREE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+}
+
 /// Books this search's place in the queue, and says how long it waits; an error when the queue is a backlog.
-fn reserve() -> Result<Duration, String> {
+pub(crate) fn reserve() -> Result<Duration, String> {
     {
         let mut next_free = NEXT_FREE
             .lock()
@@ -117,6 +127,15 @@ fn reserve() -> Result<Duration, String> {
     }
 }
 
+/// Waits this request's turn in the app's one-a-second queue (shared with the nearest-hospital search, hospital.rs).
+pub(crate) async fn wait_turn() -> Result<(), String> {
+    let wait = reserve()?;
+    if !wait.is_zero() {
+        let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(wait)).await;
+    }
+    Ok(())
+}
+
 /// Searches for `query`, the place names in `language` where the map has them. Asks the service switch first: a
 /// service turned off answers with why (services::OFF_PREFIX) and nothing is sent.
 #[tauri::command]
@@ -127,10 +146,7 @@ pub async fn address_search(
 ) -> Result<Vec<Place>, String> {
     let query = cleaned(&query)?;
     let server = services::service_server(&app, SERVICE).await?;
-    let wait = reserve()?;
-    if !wait.is_zero() {
-        let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(wait)).await;
-    }
+    wait_turn().await?;
     places(&net::get_json(search_url(&server, &query), &language).await?)
 }
 
@@ -191,6 +207,7 @@ mod tests {
     #[test]
     fn refuses_a_backlog_before_it_asks() {
         // Searches booked well ahead (something pressing far faster than a person): the next is refused, unsent.
+        let _alone = QUEUE_TEST.lock().unwrap_or_else(|p| p.into_inner());
         *NEXT_FREE.lock().expect("lock") = Some(Instant::now() + MAX_QUEUE * 2);
         let answer = reserve();
         *NEXT_FREE.lock().expect("lock") = None;

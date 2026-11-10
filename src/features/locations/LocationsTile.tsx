@@ -3,7 +3,7 @@ import { showInfo, showNotice } from '../../app/notice';
 import { openLink } from '../../app/opener';
 import { useZonesAt } from '../../app/timeZone';
 import { projectStore, useProject } from '../../app/projectStore';
-import { t, tn } from '../../core/i18n';
+import { getLocale, t, tn } from '../../core/i18n';
 import {
   LOCATION_STATUS_LABEL,
   LOCATION_STATUSES,
@@ -24,6 +24,7 @@ import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, timeZoneChange, trashLocation } from './locationEdits';
 import { LocationPhotos } from './LocationPhotos';
 import { AddressSearch } from './AddressSearch';
+import { HospitalFinder } from './HospitalFinder';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { locationFieldRecords } from '../../core/model/location';
 import { CustomFields } from '../storyboard/InspectorView';
@@ -268,6 +269,8 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]),
         // The search sits under the address it looks up.
         prop === 'address' && <AddressSearch key="address-search" locationId={id} place={place} query={() => typed('address').trim() || typed('name')} />,
+        // The nearest hospital, and the country with its emergency number, under the place it is searched around.
+        prop === 'address' && <HospitalFinder key="hospital" locationId={id} fields={fields} place={place} locale={getLocale()} />,
         // The time zone sits under the address, as the sun times on the call sheet are worked out in it.
         prop === 'address' && (
           <div key="time-zone" className="flex flex-col gap-1">

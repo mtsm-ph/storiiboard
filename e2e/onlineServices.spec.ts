@@ -17,7 +17,7 @@ test('lists the address search and the weather with their servers and "Not check
   const panel = await openSettings(page, 'Online services');
   const nominatim = panel.locator('[data-service="nominatim"]');
   await expect(nominatim).toContainText('Address search');
-  await expect(nominatim).toContainText('Only when you press Search address.');
+  await expect(nominatim).toContainText('Only when you press Search address or Find nearest hospital.');
   await expect(nominatim).toContainText('https://nominatim.openstreetmap.org');
   await expect(nominatim).toContainText('Not checked yet');
   const weather = panel.locator('[data-service="met-norway"]');

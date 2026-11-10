@@ -361,10 +361,10 @@ Additive (approved Nov 9). Every lookup the app makes on the network is kept in 
 | Column | Type | Notes |
 |---|---|---|
 | id, created_at, updated_at | | As every table |
-| kind | text | `address_search` (3.4) or `weather` (4.4); the nearest hospital comes with 4.5. No schema change: the column takes any kind |
+| kind | text | `address_search` (3.4), `weather` (4.4) or `hospital_search` (4.5). No schema change: the column takes any kind |
 | query_key | text | What was asked, as the lookup keys it. For `address_search`: the language and the words, in one case and spacing (`en\|plaza de armas, cusco`), since Nominatim names places in the language asked |
 | query | text | The words as asked. For `weather`: the same as `query_key` |
-| result | text | The answer as JSON. For `address_search`: a list of `{ "name", "latitude", "longitude" }`, at most five, in the service's order. For `weather`: `{ "expires", "last_modified", "forecast": [...] }` (below) |
+| result | text | The answer as JSON. For `address_search`: a list of `{ "name", "latitude", "longitude" }`, at most five, in the service's order. For `hospital_search`: a list of `{ "name", "address", "latitude", "longitude", "distanceKm", "emergency", "phone", "countryCode" }`, at most five, emergency department first, then nearest (its `query_key` is the language and the place to 3 decimals, `en|-13.517,-71.979`). For `weather`: `{ "expires", "last_modified", "forecast": [...] }` (below) |
 | fetched_at | text | When the answer came from the network (ISO 8601) |
 
 - Unique on (`kind`, `query_key`): asking again (Search again) replaces the row.
@@ -543,6 +543,17 @@ typed (an empty one takes `map_name`). Like the address, they're private in Hist
 chosen by hand. Missing, empty or a name the reader doesn't know reads as unset, and the call sheet then uses the zone
 looked up offline from the place on the map (`latitude`, `longitude`), else the reading computer's. A new address that
 takes the place off the map leaves `time_zone` as it is.
+
+4.5, also no table change (additive, like `full_view`; an older version keeps these props as they are and prints no safety
+box): `country_code` is the location's country, ISO 3166-1 alpha-2 in upper case (`PE`); missing or anything else reads as
+not set. The call sheet prints the emergency number for it from a table in the code (src/core/model/emergencyNumbers.ts),
+or "check locally" for a country not in it. The nearest hospital is kept as `hospital_name`, `hospital_address`,
+`hospital_phone` (text), `hospital_latitude` and `hospital_longitude` (numbers, degrees, where it is; a hospital typed by
+hand has none), `hospital_emergency` (`true` when OpenStreetMap says it has an emergency department; missing means
+unknown, never "none") and `hospital_source` (`osm` when it was picked from the OpenStreetMap search, which the call sheet
+then credits; missing for one typed by hand). A hospital exists while any of `hospital_name`, `hospital_address` or `hospital_phone` is set. Typing by hand over a picked hospital takes `hospital_emergency` and the coordinates off with a new name, and the coordinates off with a new address (the call sheet then says to check the emergency room, and gives no distance); `hospital_source` stays `osm` through hand edits until Clear or a new pick. Picking one sets them
+in one op, and sets `country_code` too when the location has none; Clear hospital unsets all seven props in one op. The
+hospital's address, phone and coordinates are private in History: named, never shown.
 
 ## Shoot day props (3.7)
 

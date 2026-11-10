@@ -683,9 +683,10 @@ export async function emptyTrash(
     { sql: 'DELETE FROM records WHERE id IN (SELECT value FROM json_each(?))', params: [gone] },
     // A frame's Seen goes with it (schema 7); nothing else reads those rows.
     forgetSeenStatement(gone),
-    // The address searches (3.4) hold addresses, which are private: once a location goes for good, the cache of
-    // searches goes too (it can't say whose each was; it's only a cache, asked again when pressed).
-    ...(ids.some((id) => all.find((r) => r.id === id)?.type === 'location') ? [{ sql: "DELETE FROM lookups WHERE kind = 'address_search'" }] : []),
+    // The address searches (3.4) hold addresses, which are private, and the hospital searches (4.5) are around a
+    // location's place: once a location goes for good, the cache of both goes too (it can't say whose each was; it's
+    // only a cache, asked again when pressed).
+    ...(ids.some((id) => all.find((r) => r.id === id)?.type === 'location') ? [{ sql: "DELETE FROM lookups WHERE kind IN ('address_search', 'hospital_search')" }] : []),
     {
       sql: `INSERT INTO op_groups (id, seq, kind, target_group_id, restore_to, stack_below, undo_top, redo_top, author,
         timestamp, created_at, updated_at) VALUES (?, ?, 'empty_trash', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
