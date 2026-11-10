@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups 3.4, 3.12 to 3.16 merged; 3.17 (PR #112) waits for him to compare its new Settings baselines; 3.18 and 3.19 next. **Phase 4 · Call sheets**: answered and approved Nov 9 (docs/PHASE4_DECISIONS.md); 4.0 to 4.10 follow 3.19, stopping at the gate. The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
+| **Current phase** | **Phase 3 · Production data**, built to the gate; Kevin's Nov 9 follow-ups merged (3.4, 3.12 to 3.16, 3.18, 3.19); 3.17 (PR #112) waits for him to compare its new Settings baselines and say merge. **Phase 4 · Call sheets**: answered and approved Nov 9; 4.0's brief is written (docs/briefs/4.0-service-switch.md), to be built by the builder in a session that loads it (agent files are read when a session starts). The Phase 3 gate checkpoint passed Nov 9; its checklist is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 9, 2026 (Kevin's answers to the Phase 4 decisions and the map written in) |
+| Last updated | Nov 9, 2026 (3.18 and 3.19 merged; 4.0's brief written; 3.17 waits for Kevin) |
 
 | Phase | State |
 |---|---|
@@ -90,7 +90,7 @@ is left. The gate: a real shoot's people, places and gear are entered.
 | 3.16 Approvals on the board | A small marker on each scene heading: how many departments are approved, and a dot when any shows "Changed since approval" (Kevin, Nov 9) | #111 | Done |
 | 3.17 The week's first day | From this computer's regional settings in every language, with a Sunday or Monday override in Settings (Kevin, Nov 9) | | Not started |
 | 3.18 Approvals, kept through upgrades | T-stop, support and height count for camera and grip-electric; the scene's characters for every department; an approval current before an upgrade (of the format or of the rule) stays current after it, 3.13's false "Changed" cleared where it can be (Kevin, Nov 9) | #116 | Done |
-| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | | In review |
+| 3.19 Failed tests by name | Every failed test's name saved: Playwright's retries report flaky ones, Vitest writes a report, both kept as CI artifacts and listed in each report; grab-a-still's cause found if it fails again (Kevin, Nov 9) | #117 | Done |
 
 Kevin's Nov 9 answers: the address search approved (one shared HTTP client, rustls, pinned, fixed hosts); the opener
 plugin for links and saved files only; a map with Leaflet and raster tiles under the OpenStreetMap tile policy, the
