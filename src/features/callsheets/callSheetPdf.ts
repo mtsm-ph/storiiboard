@@ -6,6 +6,7 @@ import { getLocale, list, t, tn } from '../../core/i18n';
 import { dayDateFull, issueStamp, type CallSheet, type SheetContact, type SheetLocation, type SheetZone } from '../../core/model/callsheet';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { directionsLink } from '../../core/model/directions';
+import { emergencyText } from '../../core/model/emergencyNumbers';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PAPER_SIZES, type Paper } from '../../core/model/paper';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -511,16 +512,17 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
   const safetyBox = (location: SheetLocation): Block => {
     const b = new Block(W);
     const { numbers, hospital } = location.safety;
-    const [first, second] = numbers;
     b.gap(6);
     const start = b.height;
     const inset = 8;
     const inner = W - 2 * inset;
     b.gap(5);
     b.line([label(t('callSheet.safetyBox'))], 11, { x: inset });
-    if (first === undefined) b.line([sans(t('emergency.checkLocally'), 10)], 14, { x: inset });
+    if (numbers.length === 0) b.line([sans(t('emergency.checkLocally'), 10)], 14, { x: inset });
     else {
-      b.line([label(t('emergency.label')), gap(2), monoBold(second === undefined ? first : t('emergency.two', { first, second }), 20)], 26, { x: inset });
+      // Two numbers with their words are long: a smaller size keeps them on one line on A4 and Letter.
+      const line = emergencyText(numbers);
+      b.line([monoBold(line, line.length > 24 ? 15 : 20)], 26, { x: inset });
     }
     if (hospital) {
       b.gap(3);

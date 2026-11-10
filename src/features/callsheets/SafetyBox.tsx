@@ -1,6 +1,7 @@
 import { useWeatherUnits } from '../../app/weatherUnits';
 import { t } from '../../core/i18n';
 import type { SheetLocation } from '../../core/model/callsheet';
+import { emergencyText } from '../../core/model/emergencyNumbers';
 import { distanceText } from '../../core/net/hospitals';
 
 // One location's safety box on the call sheet (4.5): the number to call for an ambulance in its country, large and in
@@ -11,18 +12,14 @@ import { distanceText } from '../../core/net/hospitals';
 export function SafetyBox({ location }: { location: SheetLocation }) {
   const units = useWeatherUnits();
   const { numbers, hospital } = location.safety;
-  const [first, second] = numbers;
   return (
     <div data-safety="" className="flex flex-col gap-1 border border-border p-2">
       <p className="sb-label">{t('callSheet.safetyBox')}</p>
-      {first === undefined ? (
+      {numbers.length === 0 ? (
         <p data-emergency-number="">{t('emergency.checkLocally')}</p>
       ) : (
-        <p className="flex flex-wrap items-baseline gap-2">
-          <span className="sb-label">{t('emergency.label')}</span>
-          <span data-emergency-number="" className="font-mono text-[22px] font-bold">
-            {second === undefined ? first : t('emergency.two', { first, second })}
-          </span>
+        <p data-emergency-number="" className="font-mono text-[22px] font-bold">
+          {emergencyText(numbers)}
         </p>
       )}
       {hospital === null ? (

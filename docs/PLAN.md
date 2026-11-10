@@ -51,7 +51,7 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 | 4.10 The map on the call sheet | The map image on the call sheet (decision 4b), from the tile cache, with the credit | #130 | Built Nov 10, stacked on 4.9; three review rounds; the map composed into one JPEG per location (canvas fallback for macOS 13.0–13.2) |
 | 4.11 Only frames to shoot | Kevin's Nov 10 answer to #121: the call sheet lists only Need-to-shoot frames; Have and Source drop off the sheet (scenes, locations, cast, checks, PDF, issuing follow); the Calendar keeps showing them | #131 | Built Nov 10, stacked on 4.10; one review round |
 | 4.12 The company on the header | Kevin's Nov 10 answer to #126: the call sheet's header prints the project's company name and logo when one is attached, with the title | #132 | Built Nov 10, stacked on 4.11; two review rounds; the logo redrawn in sRGB for print |
-| 4.13 Ambulance numbers | Kevin's Nov 10 answer to #125: ambulance-only numbers labelled Ambulance; the other Latin American countries added, each from an official government source | | Not started |
+| 4.13 Ambulance numbers | Kevin's Nov 10 answer to #125: ambulance-only numbers labelled Ambulance; the other Latin American countries added, each from an official government source | #133 | Built Nov 10, stacked on 4.12; checked by the main session against its sources; Bolivia left out (168 isn't national) |
 | Phase 4 gate | A checkpoint and Kevin's checklist: a call sheet used on a real shoot day | | Not started |
 
 Not in Phase 4: cast availability (Phase 9, from the web), sending call sheets (publishing is Phase 9), driving times

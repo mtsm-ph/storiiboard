@@ -13,8 +13,8 @@ describe('a location’s safety box', () => {
   });
 
   it('gives the number for the country, two for the UK', () => {
-    expect(of({ country_code: 'PE' }).numbers).toEqual(['106']);
-    expect(of({ country_code: 'GB' }).numbers).toEqual(['999', '112']);
+    expect(of({ country_code: 'PE' }).numbers).toEqual([{ kind: 'ambulance', number: '106' }]);
+    expect(of({ country_code: 'GB' }).numbers).toEqual([{ kind: 'emergency', number: '999' }, { kind: 'emergency', number: '112' }]);
     // A country not in the table: check locally, never 112.
     expect(of({ country_code: 'ZA' })).toMatchObject({ countryCode: 'ZA', numbers: [] });
     // Something that is not a code reads as not set.
