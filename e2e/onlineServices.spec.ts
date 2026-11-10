@@ -4,7 +4,7 @@ import { openSettings } from './settings';
 
 // Settings → Online services (4.0): in a browser build the service switch is never read, so every state is "Not
 // checked yet".
-test('lists the address search and the weather with their servers and "Not checked yet"', async ({ page }) => {
+test('lists the address search, the weather and the map tiles with their servers and "Not checked yet"', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?files=memory');
   await page.evaluate(() => {
@@ -25,6 +25,11 @@ test('lists the address search and the weather with their servers and "Not check
   await expect(weather).toContainText('The forecast for each location on a call sheet.');
   await expect(weather).toContainText('https://api.met.no/weatherapi/locationforecast/2.0');
   await expect(weather).toContainText('Not checked yet');
-  await expect(panel.locator('[data-service]')).toHaveCount(2);
+  const tiles = panel.locator('[data-service="osm-tiles"]');
+  await expect(tiles).toContainText('Map tiles (OpenStreetMap)');
+  await expect(tiles).toContainText('The map on a location.');
+  await expect(tiles).toContainText('https://tile.openstreetmap.org');
+  await expect(tiles).toContainText('Not checked yet');
+  await expect(panel.locator('[data-service]')).toHaveCount(3);
   await expect(panel).toContainText('at most once a day');
 });

@@ -5,7 +5,10 @@
 //! Everything except lookups, cloud links and publishing works offline (CLAUDE.md), so callers treat a failure here
 //! as "not now", never as lost work.
 
-use std::{sync::OnceLock, time::Duration};
+use std::{
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use reqwest::{redirect, Client, StatusCode, Url};
 
@@ -27,19 +30,37 @@ pub(crate) const USER_AGENT: &str = concat!(
 /// - `raw.githubusercontent.com`: the service switch file (4.0, services.rs), `services.json` on this repo's `main`,
 ///   read at most once a day and only just before an online service is used; it can turn a service off or move it
 ///   to another server on the code's list, never add a host.
+/// - `tile.openstreetmap.org`: the map's tiles (4.9, tiles.rs), under OpenStreetMap's tile policy: this app's
+///   User-Agent, only the tiles of the map being viewed (no prefetching, no bulk or offline download), at most 2
+///   requests at a time, zoom 0 to 19, cache headers honoured (7 days with none, validators sent when renewing), and
+///   the credit "© OpenStreetMap contributors" always visible on the map. A tile server of the person's own, set in
+///   Settings, is one more host for tiles only (`get_bytes`' `extra_host`), never for anything else.
 const HOSTS: &[&str] = &[
     "nominatim.openstreetmap.org",
     "api.met.no",
     "raw.githubusercontent.com",
+    "tile.openstreetmap.org",
 ];
+
+/// Whether `host` is one the app already reaches for its own services (a tile server of one's own may not be).
+pub(crate) fn is_listed(host: &str) -> bool {
+    HOSTS.contains(&host)
+}
 
 /// Whether a request may go to `url`: HTTPS, to a host on the list, on the default port, with no name or password.
 pub(crate) fn allowed(url: &Url) -> bool {
+    allowed_with(url, None)
+}
+
+/// As `allowed`, with one more host (the person's own tile server, for tiles only).
+pub(crate) fn allowed_with(url: &Url, extra_host: Option<&str>) -> bool {
     url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
-        && url.host_str().is_some_and(|host| HOSTS.contains(&host))
+        && url
+            .host_str()
+            .is_some_and(|host| HOSTS.contains(&host) || extra_host == Some(host))
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -53,33 +74,58 @@ pub(crate) const BUSY: &str = "The service is busy. Try again in a minute.";
 pub(crate) const ODD_ANSWER: &str = "The service sent an answer Storiiboard can't read.";
 const NOT_ALLOWED: &str = "Storiiboard doesn't connect to that address.";
 
+/// A client. `own_host` is a tile server of the person's own: its redirects may stay on that host and nowhere else
+/// (not on another host of the list); with none, a redirect is followed only to a host on the list.
+fn build_client(own_host: Option<String>) -> Result<Client, String> {
+    // rustls needs one crypto provider for the process; ring, as the updater plugin installs it. Whichever
+    // installs first wins, so a second install failing is fine.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .https_only(true)
+        // A redirect is followed only a few times.
+        .redirect(redirect::Policy::custom(move |attempt| {
+            let stays = match &own_host {
+                Some(host) => {
+                    attempt.url().host_str() == Some(host.as_str())
+                        && allowed_with(attempt.url(), Some(host))
+                }
+                None => allowed(attempt.url()),
+            };
+            if attempt.previous().len() < 3 && stays {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }))
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(TIMEOUT)
+        .build()
+        .map_err(|_| NO_CONNECTION.to_owned())
+}
+
 fn client() -> Result<&'static Client, String> {
     static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
     CLIENT
-        .get_or_init(|| {
-            // rustls needs one crypto provider for the process; ring, as the updater plugin installs it. Whichever
-            // installs first wins, so a second install failing is fine.
-            if rustls::crypto::CryptoProvider::get_default().is_none() {
-                let _ = rustls::crypto::ring::default_provider().install_default();
-            }
-            Client::builder()
-                .user_agent(USER_AGENT)
-                .https_only(true)
-                // A redirect is followed only to a host on the list too, and only a few times.
-                .redirect(redirect::Policy::custom(|attempt| {
-                    if attempt.previous().len() < 3 && allowed(attempt.url()) {
-                        attempt.follow()
-                    } else {
-                        attempt.stop()
-                    }
-                }))
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(TIMEOUT)
-                .build()
-                .map_err(|_| NO_CONNECTION.to_owned())
-        })
+        .get_or_init(|| build_client(None))
         .as_ref()
         .map_err(Clone::clone)
+}
+
+/// The client for a tile server of the person's own: kept while the same host is asked for again.
+fn own_client(host: &str) -> Result<Client, String> {
+    static OWN: Mutex<Option<(String, Client)>> = Mutex::new(None);
+    let mut kept = OWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((kept_host, client)) = kept.as_ref() {
+        if kept_host == host {
+            return Ok(client.clone());
+        }
+    }
+    let client = build_client(Some(host.to_owned()))?;
+    *kept = Some((host.to_owned(), client.clone()));
+    Ok(client)
 }
 
 /// The words for a status that isn't success.
@@ -202,6 +248,97 @@ async fn get_answer(
     })
 }
 
+/// The most a map tile may be.
+const MAX_TILE: usize = 1024 * 1024;
+
+/// What a renewing caller already holds, sent back as `If-None-Match` and `If-Modified-Since`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Validators {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+/// A binary answer (a map tile) with the headers a cache needs, as the server wrote them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Bytes {
+    pub bytes: Vec<u8>,
+    pub cache_control: Option<String>,
+    pub expires: Option<String>,
+    pub date: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    /// A 304 to a request sent with validators: nothing changed, `bytes` is empty.
+    pub not_modified: bool,
+}
+
+/// GETs `url` as bytes (4.9, a map tile): the same client, HTTPS and host list as every request, plus `extra_host`
+/// when given. `held` is sent as the conditional headers when it has any.
+pub(crate) async fn get_bytes(
+    url: Url,
+    extra_host: Option<&str>,
+    held: &Validators,
+) -> Result<Bytes, String> {
+    if !allowed_with(&url, extra_host) {
+        return Err(NOT_ALLOWED.to_owned());
+    }
+    let client = match extra_host {
+        Some(host) => own_client(host)?,
+        None => client()?.clone(),
+    };
+    let mut request = client.get(url);
+    let mut conditional = false;
+    // Header values that aren't plain text are not sent (reqwest would refuse them), never an error.
+    if let Some(etag) = held.etag.as_deref().filter(|v| v.is_ascii()) {
+        request = request.header(reqwest::header::IF_NONE_MATCH, etag);
+        conditional = true;
+    }
+    if let Some(date) = held.last_modified.as_deref().filter(|v| v.is_ascii()) {
+        request = request.header(reqwest::header::IF_MODIFIED_SINCE, date);
+        conditional = true;
+    }
+    let response = request.send().await.map_err(|_| NO_CONNECTION.to_owned())?;
+    if !allowed_with(response.url(), extra_host) {
+        return Err(NOT_ALLOWED.to_owned());
+    }
+    let header = |name: reqwest::header::HeaderName| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let mut answer = Bytes {
+        cache_control: header(reqwest::header::CACHE_CONTROL),
+        expires: header(reqwest::header::EXPIRES),
+        date: header(reqwest::header::DATE),
+        etag: header(reqwest::header::ETAG),
+        last_modified: header(reqwest::header::LAST_MODIFIED),
+        ..Bytes::default()
+    };
+    if conditional && response.status() == StatusCode::NOT_MODIFIED {
+        answer.not_modified = true;
+        return Ok(answer);
+    }
+    if !response.status().is_success() {
+        return Err(status_error(response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_TILE as u64)
+    {
+        return Err(ODD_ANSWER.to_owned());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| NO_CONNECTION.to_owned())?;
+    if bytes.len() > MAX_TILE {
+        return Err(ODD_ANSWER.to_owned());
+    }
+    answer.bytes = bytes.to_vec();
+    Ok(answer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +386,55 @@ mod tests {
         assert!(!allowed(&url("http://api.met.no/weatherapi/")));
         assert!(!allowed(&url("https://met.no/")));
         assert!(!allowed(&url("https://api.met.no.evil.example/")));
+    }
+
+    #[test]
+    fn the_tile_host_is_allowed_only_over_https() {
+        assert!(allowed(&url("https://tile.openstreetmap.org/16/1/2.png")));
+        assert!(!allowed(&url("http://tile.openstreetmap.org/16/1/2.png")));
+        assert!(!allowed(&url(
+            "https://a.tile.openstreetmap.org/16/1/2.png"
+        )));
+        assert!(!allowed(&url(
+            "https://tile.openstreetmap.org.evil.example/"
+        )));
+    }
+
+    #[test]
+    fn an_extra_host_is_that_one_host_over_https_only() {
+        let own = Some("tiles.example.org");
+        assert!(allowed_with(
+            &url("https://tiles.example.org/1/2/3.png"),
+            own
+        ));
+        assert!(!allowed_with(
+            &url("https://tiles.example.org/1/2/3.png"),
+            None
+        ));
+        assert!(!allowed_with(
+            &url("http://tiles.example.org/1/2/3.png"),
+            own
+        ));
+        assert!(!allowed_with(
+            &url("https://other.example.org/1/2/3.png"),
+            own
+        ));
+        assert!(!allowed_with(
+            &url("https://tiles.example.org:8443/1/2/3.png"),
+            own
+        ));
+        // The listed hosts stay allowed.
+        assert!(allowed_with(&url("https://api.met.no/x"), own));
+    }
+
+    #[test]
+    fn a_tile_host_off_the_list_is_refused_before_anything_is_sent() {
+        let answer = tauri::async_runtime::block_on(get_bytes(
+            url("https://example.com/1/2/3.png"),
+            None,
+            &Validators::default(),
+        ));
+        assert_eq!(answer, Err(NOT_ALLOWED.to_owned()));
     }
 
     #[test]

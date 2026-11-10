@@ -11,6 +11,7 @@ import {
   LOCATION_TEXT_FIELDS,
   mapLink,
   mapPlace,
+  pinPlacedByHand,
   projectLocations,
   type LocationFields,
   type LocationTextField,
@@ -26,6 +27,7 @@ import { locationChange, newLocation, timeZoneChange, trashLocation } from './lo
 import { LocationPhotos } from './LocationPhotos';
 import { AddressSearch } from './AddressSearch';
 import { HospitalFinder } from './HospitalFinder';
+import { LocationMap } from './LocationMap';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { locationFieldRecords } from '../../core/model/location';
 import { directionsLink } from '../../core/model/directions';
@@ -274,6 +276,8 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]),
         // The search sits under the address it looks up.
         prop === 'address' && <AddressSearch key="address-search" locationId={id} place={place} query={() => typed('address').trim() || typed('name')} />,
+        // The map under the place it shows (4.9); the pin can be dragged to where the crew should go.
+        prop === 'address' && place && <LocationMap key={`map-${id}`} locationId={id} place={place} moved={pinPlacedByHand(props)} />,
         // The nearest hospital, and the country with its emergency number, under the place it is searched around.
         prop === 'address' && <HospitalFinder key="hospital" locationId={id} fields={fields} place={place} locale={getLocale()} />,
         // The time zone sits under the address, as the sun times on the call sheet are worked out in it.

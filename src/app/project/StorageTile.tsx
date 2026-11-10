@@ -11,6 +11,7 @@ import { projectStore, useProject } from '../projectStore';
 import { pluralKey, t, tn } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 import { canOpenFiles } from '../fileAccess';
+import { MapTilesPanel } from './MapTilesPanel';
 import { PlaybackCopiesPanel } from './PlaybackCopies';
 
 // Settings → Storage (1.21): what the project's pictures take, and the two ways to give space back, each after a
@@ -75,6 +76,7 @@ export function StorageTile() {
         {canOpenFiles && (
           <div className="flex flex-col gap-5 border-t border-border pt-4">
             <PlaybackCopiesPanel />
+            <MapTilesPanel />
           </div>
         )}
       </div>
@@ -215,6 +217,7 @@ export function StorageTile() {
       {canOpenFiles && (
         <div className="flex flex-col gap-5 border-t border-border pt-4">
           <PlaybackCopiesPanel />
+          <MapTilesPanel />
         </div>
       )}
     </div>

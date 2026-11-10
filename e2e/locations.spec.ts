@@ -248,3 +248,102 @@ test('a location’s time zone is chosen from the zones, kept across a reload, a
   await page.keyboard.press(await undoKey(page));
   await expect(zone).toHaveValue('');
 });
+
+test('a place shows its map (a grid here), with the credit; the pin moved from the keyboard saves in one edit', async ({ page }) => {
+  // Nothing may reach a tile server from a browser build.
+  const tileRequests: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('request', (request) => {
+    if (request.url().includes('tile.openstreetmap.org')) tileRequests.push(request.url());
+  });
+  const editor = tile(page).locator('[data-location-editor]');
+  // No place yet, no map.
+  await expect(editor.locator('[data-location-map]')).toHaveCount(0);
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('button', { name: 'Search address' }).click();
+  await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+  const map = editor.locator('[data-location-map]');
+  await expect(map).toBeVisible();
+  await expect(map.locator('canvas').first()).toBeVisible();
+  await expect(map.getByRole('application', { name: /^Map of / })).toBeVisible();
+  await expect(map.getByText('Map tiles show in the desktop app')).toBeVisible();
+  // The credit is on the map, a link to OpenStreetMap's copyright page.
+  const credit = map.locator('[data-map-credit]');
+  await expect(credit).toBeVisible();
+  // A button, not a link: it opens through the app (open.rs), which a middle-click on a link would skip.
+  await expect(credit.getByRole('button', { name: '© OpenStreetMap contributors' })).toBeVisible();
+  await expect(credit.getByRole('link')).toHaveCount(0);
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 16');
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[data-location-map]').withTags(tags).analyze()).violations).toEqual([]);
+
+  // The wheel scrolls the editor past an unfocused map; it zooms once the map has focus, or with Ctrl held.
+  const canvas = map.getByRole('application');
+  await canvas.hover();
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(250);
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 16');
+  // The unfocused wheel scrolled the editor, so the pointer goes back over the map.
+  await canvas.hover();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up('Control');
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 17');
+  await page.waitForTimeout(250);
+  await canvas.click();
+  await expect(map.getByRole('application')).toBeFocused();
+  await page.mouse.wheel(0, 120);
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 16');
+
+  // Zoom with the buttons and the keyboard.
+  await map.getByRole('button', { name: 'Zoom in' }).click();
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 17');
+  await map.getByRole('application').focus();
+  await page.keyboard.press('-');
+  await page.keyboard.press('-');
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 15');
+  await page.keyboard.press('+');
+  await page.keyboard.press('+');
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 17');
+  await page.keyboard.press('ArrowLeft');
+  await expect(map.locator('[data-map-zoom]')).toHaveText('Zoom 17');
+  await expect(editor.getByText('-13.51677, -71.97878')).toBeVisible();
+  await expect(map.locator('[data-map-hand]')).toHaveCount(0);
+
+  // Move pin, then the arrows, then Enter: the new coordinates are saved in one edit.
+  await map.getByRole('button', { name: 'Move pin' }).click();
+  await expect(map.getByRole('application')).toBeFocused();
+  await expect(map.locator('[data-map-status]')).toContainText('Moving the pin: -13.51677, -71.97878');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await expect(map.locator('[data-map-status]')).not.toContainText('-13.51677, -71.97878');
+  // Escape drops the move.
+  await page.keyboard.press('Escape');
+  await expect(editor.getByText('-13.51677, -71.97878')).toBeVisible();
+  await expect(map.getByRole('button', { name: 'Move pin' })).toBeFocused();
+  await map.getByRole('button', { name: 'Move pin' }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(map.locator('[data-map-hand]')).toHaveText('Pin placed by hand');
+  await expect(editor.getByText('-13.51677, -71.97878')).toHaveCount(0);
+  const moved = await editor.locator('[data-address-search] p', { hasText: 'On the map' }).locator('span.font-mono').textContent();
+  expect(moved).toMatch(/^-13\.5\d{4}, -71\.97\d{3}$/);
+  expect(moved).not.toBe('-13.51677, -71.97878');
+  // The name on the map stays; the address as typed stays.
+  await expect(editor.getByText('Plaza de Armas', { exact: false }).first()).toBeVisible();
+  await expect(editor.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue('Plaza de Armas, Cusco');
+
+  // One ⌘Z puts the place back, and the hand-placed note goes.
+  await page.keyboard.press(await undoKey(page));
+  await expect(editor.getByText('-13.51677, -71.97878')).toBeVisible();
+  await expect(map.locator('[data-map-hand]')).toHaveCount(0);
+  expect(tileRequests).toEqual([]);
+  // No React warnings from the map (keys, effects, controlled values).
+  expect(consoleErrors).toEqual([]);
+});

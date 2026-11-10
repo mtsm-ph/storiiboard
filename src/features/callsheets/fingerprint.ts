@@ -1,5 +1,5 @@
 import type { CallSheet, CallSheetIssue, SheetContact, SheetCrewPerson } from '../../core/model/callsheet';
-import { keptHospital } from '../../core/model/location';
+import { keptHospital, type ZoneSource } from '../../core/model/location';
 import type { DirectionsApp } from '../../core/storage/settings';
 import { sha256 } from '../assets/attachmentEdits';
 
@@ -48,12 +48,19 @@ interface Inputs {
  * times, the emergency number, the hospital's distance), so a refactor or a table edit in the code never flips an issue
  * already made. `numbersLocked` is left out: it isn't printed, and issuing sets it.
  */
+/**
+ * A zone as stored input: its name only when it was typed on the location. One found from the map comes from the
+ * place (hashed already) through tzf's table in the code, and one that is this computer's differs from computer to
+ * computer, so two computers sharing the file would disagree on "Changed since issued" (CI caught it: UTC there).
+ */
+const zoneInput = (zone: { zone: string; source: ZoneSource }): Json => (zone.source === 'location' ? { zone: zone.zone, source: zone.source } : { source: zone.source });
+
 const recipe1 = ({ sheet, app, projectName }: Inputs): Json => {
   const { day } = sheet;
   return {
     title: sheet.title || projectName,
     day: { number: day.number, count: sheet.dayCount, date: day.fields.date, call: day.fields.callTime, wrap: day.fields.wrapTime },
-    timesIn: sheet.timesIn ? { zone: sheet.timesIn.zone, source: sheet.timesIn.source } : null,
+    timesIn: sheet.timesIn ? zoneInput(sheet.timesIn) : null,
     locations: sheet.locations.map(({ record, fields, place, zone }) => {
       const kept = keptHospital(record.props);
       return {
@@ -68,7 +75,7 @@ const recipe1 = ({ sheet, app, projectName }: Inputs): Json => {
         place: place ? { latitude: place.latitude, longitude: place.longitude } : null,
         // The link and its QR code are printed whenever there is a place, an address or a name; the app picks the link.
         directions: place !== null || fields.address.trim() !== '' || fields.name.trim() !== '' ? app : null,
-        zone: zone ? { zone: zone.zone, source: zone.source } : null,
+        zone: zone ? zoneInput(zone) : null,
         country: fields.country_code,
         hospital: kept
           ? { name: kept.name, address: kept.address, phone: kept.phone, place: kept.place, emergency: kept.emergency, fromSearch: kept.fromSearch }

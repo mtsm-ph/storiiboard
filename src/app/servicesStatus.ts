@@ -22,6 +22,7 @@ export interface ServiceStatus {
 export const BROWSER_SERVICES: readonly ServiceStatus[] = [
   { id: 'nominatim', server: 'https://nominatim.openstreetmap.org', state: 'unchecked', reason: null },
   { id: 'met-norway', server: 'https://api.met.no/weatherapi/locationforecast/2.0', state: 'unchecked', reason: null },
+  { id: 'osm-tiles', server: 'https://tile.openstreetmap.org', state: 'unchecked', reason: null },
 ];
 
 function isStatus(value: unknown): value is ServiceStatus {
@@ -53,4 +54,5 @@ export function offReasonFrom(message: string): string | null {
 export const SERVICE_WORDS: Readonly<Record<string, { name: MessageKey; purpose: MessageKey; when: MessageKey }>> = {
   nominatim: { name: 'services.nominatim.name', purpose: 'services.nominatim.purpose', when: 'services.nominatim.when' },
   'met-norway': { name: 'services.metNorway.name', purpose: 'services.metNorway.purpose', when: 'services.metNorway.when' },
+  'osm-tiles': { name: 'services.osmTiles.name', purpose: 'services.osmTiles.purpose', when: 'services.osmTiles.when' },
 };

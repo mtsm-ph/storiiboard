@@ -64,8 +64,28 @@ export function placeLocation(records: Records, id: string, place: Place): Chang
       kind: 'update',
       id,
       set: { latitude: place.latitude, longitude: place.longitude, map_name: place.name, ...(address.trim() === '' ? { address: place.name } : {}) },
+      // A new pick is where the search says, not where a pin was dragged (4.9).
+      ...('map_moved' in location.props ? { unset: ['map_moved'] } : {}),
     },
   ];
+}
+
+/** Degrees kept to 6 places, about 10 cm: a drag's pixels are no finer than that. */
+const sixPlaces = (degrees: number) => Math.round(degrees * 1e6) / 1e6;
+
+/**
+ * The pin dragged (or moved from the keyboard) to where the crew should go (4.9), in one edit: the new `latitude` and
+ * `longitude`, `map_moved` set so the sheet can say the pin was placed by hand, and `map_name` kept as it was. Nothing
+ * when the location has no place yet, isn't live, the point isn't on the Earth, or it is where the pin already is.
+ */
+export function movePin(records: Records, id: string, latitude: number, longitude: number): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const now = mapPlace(location.props);
+  if (!now || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return [];
+  const [lat, lon] = [sixPlaces(latitude), sixPlaces(longitude)];
+  if (lat === now.latitude && lon === now.longitude) return [];
+  return [{ kind: 'update', id, set: { latitude: lat, longitude: lon, map_moved: true } }];
 }
 
 /** The location's place on the map taken off (its address stays); nothing when it has none. */

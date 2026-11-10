@@ -169,6 +169,10 @@
   fingerprint.ts: a new recipe is a new version; never edit an old one). Built in 4.8: `callSheetChecks` in
   src/core/checks (location details, departments, HMU, golden hour, rain), cached per records, saying which checks it
   skipped without a zone or forecast; a strip on the sheet, a count in Shoot days, an ask before issuing.
+  Built in 4.9: the location map (src/features/locations/LocationMap.tsx), tiles through src-tauri/src/tiles.rs
+  (cache in the app's cache folder, 200 MB, at most 2 requests, only the tiles in view via src/app/tileQueue.ts), the
+  pin dragged or moved from the keyboard (`map_moved`), one's own tile server in Settings → Online services (asked
+  natively by Rust, no key in the address).
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's

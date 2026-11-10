@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { t } from '../../core/i18n';
+import { TileProviderPanel } from './TileProviderPanel';
 import { BROWSER_SERVICES, offReason, SERVICE_WORDS, servicesStatus, type ServiceStatus } from '../servicesStatus';
 
 // Settings → Online services (4.0): every online service the app may contact, what for, when, which server, and what
@@ -66,5 +67,10 @@ export function OnlineServicesTab() {
       current = false;
     };
   }, []);
-  return <OnlineServicesView services={services} />;
+  return (
+    <>
+      <OnlineServicesView services={services} />
+      <TileProviderPanel />
+    </>
+  );
 }
