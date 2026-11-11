@@ -6,6 +6,8 @@ import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumber
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { restoredScene } from '../storyboard/board';
+import { boardTitle, restoreBoardChanges } from '../moodboards/boards';
+import { itemFields, KIND_LABEL } from '../moodboards/items';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
@@ -17,7 +19,7 @@ import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attach
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment';
+export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment' | 'board' | 'boardItem';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -29,6 +31,8 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   day: 'trash.kind.day',
   gear: 'trash.kind.gear',
   attachment: 'trash.kind.attachment',
+  board: 'trash.kind.board',
+  boardItem: 'trash.kind.boardItem',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -42,6 +46,8 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   day: 'trash.kinds.day',
   gear: 'trash.kinds.gear',
   attachment: 'trash.kinds.attachment',
+  board: 'trash.kinds.board',
+  boardItem: 'trash.kinds.boardItem',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -55,6 +61,8 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   day: 'trash.kindLower.day',
   gear: 'trash.kindLower.gear',
   attachment: 'trash.kindLower.attachment',
+  board: 'trash.kindLower.board',
+  boardItem: 'trash.kindLower.boardItem',
 });
 
 export interface NamePart {
@@ -96,6 +104,8 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'person') return 'person';
   if (record.type === 'shoot_day') return 'day';
   if (record.type === 'gear_item') return 'gear';
+  if (record.type === 'board') return 'board';
+  if (record.type === 'board_item') return 'boardItem';
   return null;
 }
 
@@ -128,6 +138,14 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const fields = attachmentFields(record.props);
       const name = fields ? fields.name || (fields.kind === 'link' ? fields.url : t('assets.unnamedPdf')) : '';
       return [plain(name), plain(fields ? t('trash.attachmentKind', { kind: ATTACHMENT_KIND_LABEL[fields.kind] }) : '')];
+    }
+    case 'board':
+      return [plain(boardTitle(record))];
+    case 'boardItem': {
+      // "Rectangle on Camera board": what it is, and the board it was on (as that board is called now).
+      const board = record.parentId ? records[record.parentId] : undefined;
+      const kind = itemFields(record.props) ? KIND_LABEL.rect() : t('trash.boardItemUnknown');
+      return [plain(t('trash.itemOnBoard', { item: kind, board: board ? boardTitle(board) : t('moodboard.untitled') }))];
     }
     case 'gear': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('gear.unnamed');
@@ -255,6 +273,17 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
         { kind: 'update', id: parent.id, set: { media_id: id }, unset: ['crop'] },
         ...(showing && showing.id !== id && showing.trashedAt === null ? [{ kind: 'trash' as const, id: showing.id }] : []),
       ];
+    }
+    case 'board':
+      // With the items that went to the Trash with it, not ones deleted before.
+      return restoreBoardChanges(records, id);
+    case 'board_item': {
+      // An item whose board is in the Trash brings the board back whole, or it would come back onto nothing.
+      if (parent?.type === 'board' && parent.trashedAt !== null) {
+        const board = restoreBoardChanges(records, parent.id);
+        return board.some((c) => c.kind === 'restore' && c.id === id) ? board : [...board, { kind: 'restore', id }];
+      }
+      return [{ kind: 'restore', id }];
     }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.

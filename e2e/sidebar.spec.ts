@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const section = (page: Page, name: string) => sidebar(page).getByRole('button', { name: new RegExp(`^${name}`) });
 
-test('lists the six sections in order, each showing its phase, and opens one per click', async ({ page }) => {
+test('lists the six sections in order, each showing its phase until it is built, and opens one per click', async ({ page }) => {
   const sections = sidebar(page).locator('[id^="section-"]');
   await expect(sections).toHaveText([
     'StoryboardPhase 1',
@@ -17,7 +17,8 @@ test('lists the six sections in order, each showing its phase, and opens one per
     'TeamPhase 3',
     'SetupPhase 6',
     'ProductionPhases 3–4',
-    'MoodboardPhase 5',
+    // Built in 5.0: no phase, and not muted.
+    'Moodboard',
   ]);
   // Settings is a window of the app's own (polish B), behind the gear at the sidebar's foot (polish C).
   await expect(gear(page)).toBeVisible();

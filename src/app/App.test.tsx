@@ -23,7 +23,9 @@ describe('App shell', () => {
     expect(nav).toMatch(/aria-label="Settings \((Ctrl|⌘)/);
     expect(nav).toContain('Set up your profile');
     expect(nav).toContain('Web version');
-    expect(nav).toContain('Phase 5');
+    // Moodboard is built (5.0): it shows no phase.
+    expect(nav).not.toContain('Phase 5');
+    expect(nav).toContain('Add Board');
     expect(nav).toContain('No project open');
   });
 });

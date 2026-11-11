@@ -698,7 +698,7 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   having no location meanwhile. Typing or importing its name again restores it rather than making a second. Empty
   Trash deletes it for good, and its scenes' `location_id` then names nothing, which every view reads as no location.
 - Trashing a scene trashes its live shots and notes in the same op group (polish 5, Delete scene), so one restore
-  brings the whole scene back.
+  brings the whole scene back. A board (5.0) goes the same way with its items.
 - Restore (1.20, src/features/trash/trash.ts) brings back what an item needs to be seen again, in its op group: a
   frame or a note's scene when that's in the Trash too, with everything trashed with that scene (polish 5), and the
   frame's scene's numbers (unless locked). A frame's
@@ -722,6 +722,46 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
 - Clean up old pictures (1.21, Settings → Storage, after a confirm) deletes stored pictures no record uses, live or
   in the Trash, though older ops may (a picture added and undone), and no named version's step shows (1.23). The log
   is unchanged; a step that brings such a record back shows its picture as removed.
+
+## Boards (5.0)
+
+A `board` record (under the project) is one moodboard; its `board_item` records are what is drawn on it. Both record types
+were always in the list, so there is no migration and no schema number (additive, approved with Phase 5 decision 1).
+
+`board` props:
+- `kind`: `moodboard` (5.5 adds `deck`). Anything else reads as a moodboard.
+- `department`: a department id, or `null` for a free board. A department's board is made the first time it is opened,
+  never ahead, so a new project has none. At most one board per department is outside the Trash; a department's board in
+  the Trash is restored when that department's board is opened, never made twice.
+- `name`: the board's name, or `null`. A department's board has `name: null` and reads as its department's label in the
+  language in use (stored values never change with the language); a free board has a name. Renaming a department's
+  board is not offered.
+- Boards sort among the project's boards by `sort_key`, in the order they were made.
+
+`board_item` props (5.0 has one kind, a rectangle):
+- `kind`: `rect`. An item whose `kind` this version doesn't know is kept and not shown.
+- `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
+  assumes pixels, so Phase 6's plans can give them a scale in metres.
+- `width`, `height`: world units, never below 8. Anything smaller reads as 8.
+- `rotation`: degrees, clockwise, round the item's centre; 0 up to but not including 360. Missing reads as 0.
+- A rectangle has no colour prop in 5.0; it draws in the theme's raised surface with an ink 1.5px outline. 5.1 adds colour.
+- **Z order is the sibling order** (decision 1's "z order"): the items' `sort_key`s, back to front, as for every record's
+  ordered children (src/core/ops/order.ts). Bringing an item to the front is a `move` op to a key after the last item's;
+  a reorder of several items writes those items' rows only. The first is at the back. Siblings in the Trash, and items
+  of a kind this version doesn't show, keep their keys and are never moved or tied: a new key is made between them and
+  the neighbours, so no two siblings share one. A reorder that changes nothing among the items that show writes nothing.
+
+Edits are ops like any other. One gesture is one op group: a drag, a resize, a rotate or a reorder of several items is
+one group, written when the gesture ends; a nudge by an arrow key is one group per key press; a paste is one group.
+Selection, tool and each board's view (zoom 10% to 800%, and where it is looking) are view state, kept in memory for the
+session: never an op, never in the project.
+
+Deleting a board or an item is a `trash` op, so the Trash lists it (a board by its name or department; an item as
+"Rectangle on Camera board") and Restore is a `restore` op. Trashing a board trashes its live items in the same op group
+(same `trashed_at` and `trashed_by`); restoring the board restores those items, not ones deleted before it. Restoring an
+item whose board is in the Trash brings the board back with it. Both kinds are among what Empty Trash deletes, a board
+with everything under it. Views skip trashed records. Boards and items are in both JSON exports (the Trash and History
+only in the full archive) and round-trip with every other record.
 
 ## Project record props
 
@@ -1112,3 +1152,4 @@ merge a database, so two guards sit around every open project:
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.
+Boards (5.0) are the `board` and `board_item` record types and their props (see Boards); they need no table change either.
