@@ -694,3 +694,22 @@ describe('the map image', () => {
     }
   });
 });
+
+describe('only frames still to shoot (4.11)', () => {
+  it('prints “Nothing left to shoot” in the Scenes section, in both languages, when every frame is Have', async () => {
+    const records = project();
+    const shot = { ...records, a: { ...(records.a as SbdRecord), props: { ...(records.a as SbdRecord).props, status: 'have' } } };
+    const text = await allText((await callSheetPdf(input(shot))).bytes);
+    expect(text).toContain('Nothing left to shoot on this day.');
+    expect(text).not.toContain('SC 01');
+    expect(text).toContain('Monday, November 16, 2026');
+    setLocale('es');
+    expect(await allText((await callSheetPdf(input(shot))).bytes)).toContain('No queda nada por filmar en este día.');
+  });
+
+  it('prints the scene while its frame is still Need to shoot', async () => {
+    const text = await allText((await callSheetPdf(input(project()))).bytes);
+    expect(text).toContain('SC 01');
+    expect(text).not.toContain('Nothing left to shoot');
+  });
+});

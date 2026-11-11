@@ -896,3 +896,27 @@ test('the Checks strip says what is likely wrong, links to it, and Issue with pr
   expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('a frame marked Have leaves the call sheet, which says nothing is left to shoot; the Calendar still lists the scene (4.11)', async ({ page }) => {
+  await setUp(page);
+  await expect(sheet(page).locator('[data-sheet-scene]')).toContainText('SC 01');
+  await expect(sheet(page).locator('[data-sheet-location]')).toHaveCount(1);
+
+  // Mark the day's only frame Have, from the Storyboard.
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await page.getByRole('region', { name: 'Storyboard', exact: true }).locator('[data-shot-id]').first().click();
+  await page.getByRole('region', { name: 'Frame inspector', exact: true }).getByRole('radio', { name: 'Have' }).click();
+
+  await sidebar(page).getByRole('button', { name: /^Production/ }).click();
+  await expect(sheet(page).locator('[data-sheet-scene]')).toHaveCount(0);
+  await expect(sheet(page).locator('[data-sheet-location]')).toHaveCount(0);
+  await expect(sheet(page)).toContainText('Nothing left to shoot on this day.');
+  await expect(sheet(page)).toContainText('Saturday, November 16, 2030');
+
+  // The Calendar keeps showing the day's scene and location.
+  const calendar = page.getByRole('region', { name: 'Calendar', exact: true });
+  await expect(calendar.locator('[data-schedule-day]')).toContainText('SC 01');
+  await expect(calendar.locator('[data-schedule-day]')).toContainText(/diner/i);
+  // Its frame count is need-only, as before.
+  await expect(calendar.locator('[data-schedule-day]')).toContainText('0 frames');
+});

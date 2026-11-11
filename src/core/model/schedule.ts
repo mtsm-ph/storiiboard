@@ -14,11 +14,17 @@ import { dayFrames } from './shootDay';
 // suggestions over the same prop.
 
 type Records = Readonly<Record<string, SbdRecord>>;
+type Frame = { scene: SbdRecord; shot: SbdRecord };
 
 /** The live scenes a day's frames are in, in board order. */
 export function dayScenes(records: Records, projectId: string, dayId: string): SbdRecord[] {
+  return scenesOfFrames(dayFrames(records, projectId, dayId));
+}
+
+/** The scenes of some frames, each once, in the frames' order (the call sheet passes only its frames still to shoot, 4.11). */
+export function scenesOfFrames(frames: readonly Frame[]): SbdRecord[] {
   const seen = new Set<string>();
-  return dayFrames(records, projectId, dayId).flatMap(({ scene }) => {
+  return frames.flatMap(({ scene }) => {
     if (seen.has(scene.id)) return [];
     seen.add(scene.id);
     return [scene];
@@ -27,7 +33,12 @@ export function dayScenes(records: Records, projectId: string, dayId: string): S
 
 /** The live locations a day's frames are shot at (a frame's own, else its scene's), each with its status, by name. */
 export function dayLocations(records: Records, projectId: string, dayId: string): { record: SbdRecord; name: string; status: LocationStatus }[] {
-  const ids = new Set(dayFrames(records, projectId, dayId).map(({ shot }) => frameLocationId(records, shot)).filter((id): id is string => id !== null));
+  return locationsOfFrames(records, dayFrames(records, projectId, dayId));
+}
+
+/** The live locations of some frames, as dayLocations lists them (the call sheet passes only its frames, 4.11). */
+export function locationsOfFrames(records: Records, frames: readonly Frame[]): { record: SbdRecord; name: string; status: LocationStatus }[] {
+  const ids = new Set(frames.map(({ shot }) => frameLocationId(records, shot)).filter((id): id is string => id !== null));
   return [...ids]
     .flatMap((id) => {
       const record = records[id];

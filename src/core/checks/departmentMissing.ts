@@ -21,8 +21,7 @@ export function departmentMissing(ctx: CheckContext): DepartmentMissing[] {
   const { sheet, frames } = ctx;
   const dayId = sheet.day.record.id;
   if (dayTotals(frames, 1).frames === 0) return [];
-  // Only "Need to shoot" frames: one already shot (Have, Source) asks nothing of the day.
-  const toShoot = frames.filter(({ shot }) => shotFields(shot.props).status === 'need');
+  // The context's frames are already the sheet's: only "Need to shoot" ones, so one already shot asks nothing of the day.
   const present = new Set(sheet.people.flatMap((p) => personPart(p.fields).departments));
   const found: DepartmentMissing[] = [];
   const need = (department: Department, reason: DepartmentReason) => {
@@ -34,8 +33,8 @@ export function departmentMissing(ctx: CheckContext): DepartmentMissing[] {
   need('camera', 'frames');
   // Sound: dialogue means a scene being shot with a speaking character (3.13's character_ids, from the script) or a
   // frame to shoot with dialogue written on it.
-  const sceneIds = new Set(toShoot.map(({ scene }) => scene.id));
-  if (sheet.scenes.some((s) => sceneIds.has(s.record.id) && s.characters.length > 0) || toShoot.some(({ shot }) => shotFields(shot.props).dialogue.trim() !== '')) {
+  const sceneIds = new Set(frames.map(({ scene }) => scene.id));
+  if (sheet.scenes.some((s) => sceneIds.has(s.record.id) && s.characters.length > 0) || frames.some(({ shot }) => shotFields(shot.props).dialogue.trim() !== '')) {
     need('sound', 'dialogue');
   }
   // HMU and Wardrobe: whenever an actor is on the day, somebody dresses and makes them up.

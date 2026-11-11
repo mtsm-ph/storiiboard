@@ -215,7 +215,8 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
   return (
     <Section label={t('callSheet.section.locations')}>
       {sheet.locations.length === 0 ? (
-        <Empty>{t('callSheet.noLocations')}</Empty>
+        // Nothing left to shoot: the Scenes section says so, and this one stays quiet.
+        sheet.nothingLeft ? null : <Empty>{t('callSheet.noLocations')}</Empty>
       ) : (
         <ul>
           {sheet.locations.map((location) => {
@@ -273,7 +274,7 @@ export function ScenesSection({ sheet }: { sheet: CallSheet }) {
   return (
     <Section label={t('callSheet.section.scenes')}>
       {sheet.scenes.length === 0 ? (
-        <Empty>{t('callSheet.noScenes')}</Empty>
+        <Empty>{t(sheet.nothingLeft ? 'callSheet.nothingLeft' : 'callSheet.noScenes')}</Empty>
       ) : (
         <ul>
           {sheet.scenes.map(({ record, fields, location, frames, characters }) => (
