@@ -93,4 +93,15 @@ describe('the Call sheet tile', () => {
     expect(odd).not.toContain('Choose who’s on the day');
     expect(draw({ date: '2026-11-16', people_ids: [] })).toContain('Nobody on this day yet.');
   });
+
+  it('draws the company name above the title in the day section, and nothing without one', () => {
+    const records = recordsOf(record('p', 'project', null, { title: 'Bey County' }), record('d', 'shoot_day', 'p', { date: '2026-11-16' }));
+    const sheet = callSheet(records, 'p', 'd');
+    if (!sheet) throw new Error('no sheet');
+    const html = renderToString(<DaySection sheet={sheet} projectName="file" company={{ name: 'Zima Blue Pictures', logoSha256: null }} logoUrl="blob:logo" />);
+    expect(html).toContain('Zima Blue Pictures');
+    expect(html).toContain('src="blob:logo"');
+    expect(html.indexOf('Zima Blue Pictures')).toBeLessThan(html.indexOf('Bey County'));
+    expect(renderToString(<DaySection sheet={sheet} projectName="file" />)).not.toContain('data-sheet-company');
+  });
 });

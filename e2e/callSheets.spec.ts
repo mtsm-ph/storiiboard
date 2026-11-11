@@ -1,8 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { decodePDFRawStream, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { answerAsk } from './ask';
 import { skipOnboarding } from './onboarding';
@@ -919,4 +920,70 @@ test('a frame marked Have leaves the call sheet, which says nothing is left to s
   await expect(calendar.locator('[data-schedule-day]')).toContainText(/diner/i);
   // Its frame count is need-only, as before.
   await expect(calendar.locator('[data-schedule-day]')).toContainText('0 frames');
+});
+
+test('a company attached in Settings → Project prints its name and logo at the top of the sheet and in the PDF (4.12)', async ({ page }) => {
+  await setUp(page);
+  await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
+  // A profile saved once with a logo, then attached to this project.
+  let panel = await openSettings(page, 'App');
+  await panel.getByRole('button', { name: 'Add company' }).click();
+  const company = panel.getByRole('list', { name: 'Company profiles' }).getByRole('group').first();
+  await company.getByRole('textbox', { name: 'Name' }).fill('Zima Blue Pictures');
+  await company.getByRole('textbox', { name: 'Website' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await panel.getByRole('group', { name: 'Zima Blue Pictures' }).getByRole('button', { name: 'Choose logo…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect(panel.getByRole('img', { name: 'Logo of Zima Blue Pictures' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
+  await panel.getByRole('combobox', { name: 'Company', exact: true }).selectOption({ label: 'Zima Blue Pictures' });
+  await panel.getByRole('button', { name: 'Attach', exact: true }).click();
+  await expect(panel.locator('[data-project-company]')).toContainText('The same as its profile on this computer.');
+  await closeSettings(page);
+
+  // On screen: the name and a small logo above the title.
+  const header = sheet(page).locator('[data-sheet-company]');
+  await expect(header).toContainText('Zima Blue Pictures');
+  await expect(header.locator('img')).toBeVisible();
+  // Where the engine can draw in Display P3 (Chromium, WebView2, Safari), prepareImage stores the logo tagged P3, so the
+  // pixel check below really tests the PDF's sRGB redraw; where it can't, the logo is sRGB. The profile's name is
+  // written in ASCII or UTF-16 (isTaggedP3 looks for both), and the engine's P3 support is probed as media.spec does.
+  const { tagged, engineP3 } = await header.locator('img').evaluate(async (img) => {
+    const bytes = new Uint8Array(await (await fetch((img as HTMLImageElement).src)).arrayBuffer());
+    const head = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 64 * 1024)));
+    const probe = new OffscreenCanvas(1, 1).getContext('2d', { colorSpace: 'display-p3' });
+    if (!probe) throw new Error('no 2d context');
+    probe.fillStyle = 'rgb(255, 0, 0)';
+    probe.fillRect(0, 0, 1, 1);
+    return {
+      tagged: ['Display P3', 'Display P3'.replace(/./g, '\u0000$&')].some((name) => head.includes(name)),
+      engineP3: (probe.getImageData(0, 0, 1, 1).data[1] ?? 0) > 20,
+    };
+  });
+  expect(tagged).toBe(engineP3);
+
+  // In the PDF: the name is in its text.
+  const download = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
+  const path = await (await download).path();
+  expect(await pdfText(path)).toContain('ZIMA BLUE PICTURES');
+
+  // The logo in the PDF was redrawn in sRGB: a pixel of the picture is the fixture's own colour (200, 80, 40), not the
+  // P3 numbers read as sRGB (which print shifted).
+  const pdf = await PDFDocument.load(readFileSync(path));
+  const images = pdf.context
+    .enumerateIndirectObjects()
+    .flatMap(([, object]) => (object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image') ? [object] : []));
+  // The logo is the Flate-encoded RGB picture (a map, if one is ever drawn here, is a JPEG: DCTDecode).
+  const logo = images.find((image) => image.dict.get(PDFName.of('ColorSpace')) === PDFName.of('DeviceRGB') && image.dict.get(PDFName.of('Filter')) === PDFName.of('FlateDecode'));
+  if (!logo) throw new Error('no logo picture in the PDF');
+  const width = (logo.dict.get(PDFName.of('Width')) as PDFNumber).asNumber();
+  const height = (logo.dict.get(PDFName.of('Height')) as PDFNumber).asNumber();
+  const rgb = decodePDFRawStream(logo).decode();
+  const at = (Math.floor(height / 2) * width + Math.floor(width / 2)) * 3;
+  const [red = 0, green = 0, blue = 0] = rgb.subarray(at, at + 3);
+  expect(Math.abs(red - 200)).toBeLessThanOrEqual(8);
+  expect(Math.abs(green - 80)).toBeLessThanOrEqual(8);
+  expect(Math.abs(blue - 40)).toBeLessThanOrEqual(8);
 });

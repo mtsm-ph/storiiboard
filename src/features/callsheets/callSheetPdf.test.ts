@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFString } from 'pdf-lib';
 import { setLocale } from '../../core/i18n';
 import { callSheet } from '../../core/model/callsheet';
@@ -711,5 +713,138 @@ describe('only frames still to shoot (4.11)', () => {
     const text = await allText((await callSheetPdf(input(project()))).bytes);
     expect(text).toContain('SC 01');
     expect(text).not.toContain('Nothing left to shoot');
+  });
+});
+
+// The company on the header (4.12): its logo at the top left in a 140 x 40 pt box, its name beside it, the issue stamp
+// still at the top right.
+describe('the company on the header (4.12)', () => {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (bytes: Uint8Array): number => {
+    let c = 0xffffffff;
+    for (const byte of bytes) c = (crcTable[(c ^ byte) & 255] ?? 0) ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  /** A solid grey PNG of the given size, made here so no picture file is needed. */
+  function png(width: number, height: number): Uint8Array {
+    const chunk = (kind: string, data: Uint8Array): Buffer => {
+      const out = Buffer.alloc(12 + data.length);
+      out.writeUInt32BE(data.length, 0);
+      out.write(kind, 4, 'latin1');
+      out.set(data, 8);
+      out.writeUInt32BE(crc(out.subarray(4, 8 + data.length)), 8 + data.length);
+      return out;
+    };
+    const head = Buffer.alloc(13);
+    head.writeUInt32BE(width, 0);
+    head.writeUInt32BE(height, 4);
+    head.set([8, 2, 0, 0, 0], 8);
+    const rows = Buffer.alloc((width * 3 + 1) * height, 0x80);
+    for (let y = 0; y < height; y += 1) rows[y * (width * 3 + 1)] = 0;
+    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', head), chunk('IDAT', deflateSync(rows)), chunk('IEND', new Uint8Array())]));
+  }
+  /** The map test one-pixel JPEG with its size changed in the frame header (only the header is read to embed it). */
+  function jpegOf(width: number, height: number): Uint8Array {
+    const bytes = new Uint8Array(Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64'));
+    const sof = bytes.findIndex((byte, n) => byte === 0xff && bytes[n + 1] === 0xc2);
+    bytes.set([height >> 8, height & 255, width >> 8, width & 255], sof + 5);
+    return bytes;
+  }
+
+  /** The first picture drawn on page 1, as [x, y, width, height] in points, y up from the foot. */
+  async function firstImage(bytes: Uint8Array): Promise<[number, number, number, number] | null> {
+    const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+    const { fnArray, argsArray } = await (await pdf.getPage(1)).getOperatorList();
+    let found: [number, number, number, number] | null = null;
+    // The current transformation matrix, kept as the page's operators save, restore and transform it.
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const saved: number[][] = [];
+    for (const [n, fn] of fnArray.entries()) {
+      const m = (argsArray[n] ?? []) as number[];
+      if (fn === OPS.save) saved.push(ctm);
+      else if (fn === OPS.restore) ctm = saved.pop() ?? ctm;
+      else if (fn === OPS.transform) {
+        const [a = 1, b = 0, c = 0, d = 1, e = 0, f = 0] = m;
+        const [A = 1, B = 0, C = 0, D = 1, E = 0, F = 0] = ctm;
+        ctm = [a * A + b * C, a * B + b * D, c * A + d * C, c * B + d * D, e * A + f * C + E, e * B + f * D + F];
+      }
+      if (fn === OPS.paintImageXObject && !found) found = [ctm[4] ?? 0, ctm[5] ?? 0, Math.abs(ctm[0] ?? 0), Math.abs(ctm[3] ?? 0)];
+    }
+    await pdf.destroy();
+    return found;
+  }
+  async function boxes(bytes: Uint8Array) {
+    const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+    const items = (await (await pdf.getPage(1)).getTextContent()).items.flatMap((item) =>
+      'str' in item && item.str.trim() !== '' ? [{ str: item.str, x: Number(item.transform[4]), y: Number(item.transform[5]), w: item.width, h: item.height }] : [],
+    );
+    await pdf.destroy();
+    return items;
+  }
+
+  it('draws a PNG logo inside its box with the company name, and a JPEG the same', async () => {
+    for (const [logo, wide] of [[png(400, 50), true], [jpegOf(100, 200), false]] as const) {
+      const { bytes } = await callSheetPdf(input(project(), { company: { name: 'Zima Blue Pictures', logo } }));
+      expect(await allText(bytes)).toContain('ZIMA BLUE PICTURES');
+      const image = await firstImage(bytes);
+      if (!image) throw new Error('no logo drawn');
+      const [x, , width, height] = image;
+      expect(x).toBeCloseTo(36, 0);
+      expect(width).toBeLessThanOrEqual(140.01);
+      expect(height).toBeLessThanOrEqual(40.01);
+      // Aspect kept: the wide one fills the width, the tall one the height.
+      expect(wide ? width / height : height / width).toBeCloseTo(wide ? 8 : 2, 1);
+      expect(wide ? width : height).toBeCloseTo(wide ? 140 : 40, 0);
+    }
+  });
+
+  it('prints the name alone for a logo it cannot embed, and for none', async () => {
+    const odd = await callSheetPdf(input(project(), { company: { name: 'Zima Blue Pictures', logo: new Uint8Array([1, 2, 3, 4]) } }));
+    expect(await allText(odd.bytes)).toContain('ZIMA BLUE PICTURES');
+    expect(await firstImage(odd.bytes)).toBeNull();
+    const none = await callSheetPdf(input(project(), { company: { name: 'Zima Blue Pictures', logo: null } }));
+    expect(await allText(none.bytes)).toContain('ZIMA BLUE PICTURES');
+  });
+
+  it('is the sheet as it was without a company: the same bytes, and a nameless empty company prints nothing', async () => {
+    const records = project();
+    const before = (await callSheetPdf(input(records))).bytes;
+    // Pinned, so a later change that moves both paths together still fails here; a deliberate change to the sheet updates it.
+    expect(createHash('sha256').update(before).digest('hex')).toBe('77934b3343f99cb0517ae2239c05906a214c7b63a5eddd699ca5bd3965a34d6c');
+    expect(Buffer.from((await callSheetPdf(input(records, { company: null }))).bytes).equals(Buffer.from(before))).toBe(true);
+    expect(Buffer.from((await callSheetPdf(input(records, { company: { name: ' ', logo: null } }))).bytes).equals(Buffer.from(before))).toBe(true);
+  });
+
+  it('keeps a long name and a wide logo clear of the issue stamp and the title, in English on Letter and Spanish on A4', async () => {
+    const name = 'The Extraordinarily Long Named Motion Picture and Television Production Company of Bey County Limited';
+    const issuedAt = new Date('2026-11-16T23:04:00Z');
+    for (const [locale, paper] of [['en', 'letter'], ['es', 'a4']] as const) {
+      setLocale(locale);
+      const { bytes } = await callSheetPdf(input(project({ long: true }), { paper, company: { name, logo: png(600, 60) }, issue: { version: 12, issuedAt } }));
+      const text = await boxes(bytes);
+      for (const [i, a] of text.entries()) {
+        for (const b of text.slice(i + 1)) {
+          const across = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          const down = Math.min(a.y + a.h * 0.7, b.y + b.h * 0.7) - Math.max(a.y, b.y);
+          expect(across > 0.5 && down > 0.5, `${locale}: "${a.str}" over "${b.str}"`).toBe(false);
+        }
+      }
+      const image = await firstImage(bytes);
+      if (!image) throw new Error('no logo drawn');
+      const [x, y, width, height] = image;
+      for (const box of text) {
+        const across = Math.min(x + width, box.x + box.w) - Math.max(x, box.x);
+        const down = Math.min(y + height, box.y + box.h * 0.7) - Math.max(y, box.y);
+        expect(across > 0.5 && down > 0.5, `${locale}: logo over "${box.str}"`).toBe(false);
+      }
+      // The stamp stays in the top right: its text starts right of the logo's box.
+      const stamp = text.find((box) => /Version|Versión/.test(box.str));
+      expect(stamp, locale).toBeDefined();
+      expect((stamp?.x ?? 0) > x + width).toBe(true);
+    }
   });
 });

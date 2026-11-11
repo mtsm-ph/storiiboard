@@ -48,6 +48,8 @@ export interface CallSheetPdfInput {
   now?: Date;
   /** An issued sheet (4.7): its version and time are printed at the header's top right ("Revised" from version 2). */
   issue?: { version: number; issuedAt: Date };
+  /** The project's company (4.12): its name and its logo's bytes (PNG or JPEG) at the header's top left. */
+  company?: { name: string; logo: Uint8Array | null } | null;
 }
 
 export interface CallSheetPdf {
@@ -90,6 +92,9 @@ export const QR_SIZE = 25 * (72 / 25.4);
 const QUIET_MODULES = 4;
 /** Room kept free at the top right of the first page for the version and issue time (4.7). */
 const RESERVED_WIDTH = 170;
+/** The company logo's box at the header's top left (4.12), in points. */
+const LOGO_WIDTH = 140;
+const LOGO_HEIGHT = 40;
 /** What an issued sheet's stamp is given (4.7): the version and the issue time take up to three lines this wide. */
 const STAMP_WIDTH = 250;
 
@@ -287,6 +292,19 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
     }
   }
 
+  // The company's logo (4.12): JPEG is the common path (a logo with no transparency is kept as one), PNG when it has some.
+  // Another format, or bytes that are not a picture, print the name alone.
+  let logoImage: PDFImage | null = null;
+  const logoBytes = input.company?.logo;
+  if (logoBytes) {
+    try {
+      if (logoBytes[0] === 0x89 && logoBytes[1] === 0x50) logoImage = await pdf.embedPng(logoBytes);
+      else if (logoBytes[0] === 0xff && logoBytes[1] === 0xd8) logoImage = await pdf.embedJpg(logoBytes);
+    } catch {
+      logoImage = null;
+    }
+  }
+
   // Parts, in the sheet's type: Inter Tight for words, JetBrains Mono for every time, number and code.
   const sans = (text: string, s = 10, color: Colour = INK): Part => ({ text: printable(f.sans, text), font: f.sans, size: s, color });
   const semi = (text: string, s = 10, color: Colour = INK): Part => ({ text: printable(f.semi, text), font: f.semi, size: s, color });
@@ -322,11 +340,36 @@ export async function callSheetPdf(input: CallSheetPdfInput): Promise<CallSheetP
     // The top right holds the version and the time it was issued (4.7), in the zone the sheet's times are in.
     const stamp = input.issue ? issueStamp(input.issue.version, input.issue.issuedAt, sheet.timesIn?.zone ?? null) : '';
     const room = stamp === '' ? RESERVED_WIDTH : STAMP_WIDTH;
-    const titleLines = wrap(printable(f.bold, title), f.bold, 20, W - room, 2);
+    const company = input.company && (input.company.name.trim() !== '' || logoImage) ? input.company : null;
+    // With a company the stamp keeps the top right but moves into the company's row, so the title is as wide as without one.
+    const titleLines = wrap(printable(f.bold, title), f.bold, 20, W - (company ? RESERVED_WIDTH : room), 2);
     const stampLines = stamp === '' ? [] : wrap(printable(f.monoBold, stamp), f.monoBold, 8, room - 12, 3);
-    for (let i = 0; i < Math.max(titleLines.length, stampLines.length); i += 1) {
-      const right = stampLines[i];
-      b.line(titleLines[i] === undefined ? [] : [bold(titleLines[i] ?? '', 20)], 24, right === undefined ? {} : { right: [monoBold(right, 8)] });
+    if (company) {
+      const logoSize = logoImage ? logoImage.scaleToFit(LOGO_WIDTH, LOGO_HEIGHT) : { width: 0, height: 0 };
+      const logo = new Block(logoSize.width);
+      if (logoImage) {
+        const image = logoImage;
+        logo.area(logoSize.height, (page, left, top) => {
+          page.drawImage(image, { x: left, y: top - logoSize.height, width: logoSize.width, height: logoSize.height });
+        });
+      }
+      const nameX = logoImage ? logoSize.width + 10 : 0;
+      const nameBlock = new Block(Math.max(40, W - room - nameX));
+      const probe = label('');
+      for (const each of wrap(printable(probe.font, company.name.trim().toLocaleUpperCase(getLocale())), probe.font, 9, nameBlock.width / 1.14, 2)) {
+        // The label's tracking adds 0.08 em to every letter, hence the narrower line.
+        nameBlock.line([label(each, 9, INK)], 12);
+      }
+      const stampBlock = new Block(room);
+      for (const each of stampLines) stampBlock.line([], 10, { right: [monoBold(each, 8)] });
+      b.columns([[logo, 0], [nameBlock, nameX], [stampBlock, W - room]]);
+      b.gap(6);
+      for (const each of titleLines) b.line([bold(each, 20)], 24);
+    } else {
+      for (let i = 0; i < Math.max(titleLines.length, stampLines.length); i += 1) {
+        const right = stampLines[i];
+        b.line(titleLines[i] === undefined ? [] : [bold(titleLines[i] ?? '', 20)], 24, right === undefined ? {} : { right: [monoBold(right, 8)] });
+      }
     }
     b.gap(4);
     b.line([label(t('callSheet.pdf.header'), 10, INK)], 14);

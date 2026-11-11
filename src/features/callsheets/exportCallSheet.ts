@@ -12,6 +12,7 @@ import { fontBytes, replacedWarning } from '../export/pdfStoryboardFormat';
 import type { CallSheetPdf, PdfForecast } from './callSheetPdf';
 import { callSheetFileName } from './callSheetName';
 import { findForecast } from './forecast';
+import { companyLogoBytes, sheetCompany } from './sheetCompany';
 import { gatherSheetMaps } from './gatherSheetMaps';
 import type { GatheredMap } from './sheetMap';
 
@@ -71,6 +72,10 @@ async function mapsFor(sheet: CallSheet, gathered: ReadonlyMap<string, GatheredM
  * sheet prints in its header (4.7); a sheet being exported has none.
  */
 export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallSheetOptions, issue?: { version: number; issuedAt: Date }, gathered?: ReadonlyMap<string, GatheredMap>): Promise<CallSheetPdf> {
+  // The company on the header (4.12): the project's own copy, taken now with the sheet (the fonts and maps below can take
+  // seconds), its logo read from the file after.
+  const state = projectStore.getState();
+  const found = sheetCompany(state.records, options.projectId);
   const [{ callSheetPdf }, forecasts, maps, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
     import('./callSheetPdf'),
     heldForecasts(sheet),
@@ -84,7 +89,8 @@ export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallShee
     fontBytes(() => import('../export/fonts/JetBrainsMono-Bold.ttf?url')),
   ]);
   const { projectName, paper, app, units } = options;
-  return callSheetPdf({ sheet, projectName, paper, app, units, forecasts, maps, fonts: { sans, sansSemiBold, sansBold, mono, monoBold }, ...(issue ? { issue } : {}) });
+  const company = found ? { name: found.name, logo: await companyLogoBytes(state.project?.file ?? null, found) } : null;
+  return callSheetPdf({ sheet, company, projectName, paper, app, units, forecasts, maps, fonts: { sans, sansSemiBold, sansBold, mono, monoBold }, ...(issue ? { issue } : {}) });
 }
 
 export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promise<void> {
