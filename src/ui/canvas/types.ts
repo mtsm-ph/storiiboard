@@ -40,6 +40,10 @@ export interface CanvasColours {
 
 export interface DrawContext extends Size {
   colours: CanvasColours;
+  /** The view's zoom, so an item can draw more detail up close (a picture's full size). */
+  zoom: number;
+  /** Whether the item meets the view; one drawn only because it is selected is out of it. */
+  inView: boolean;
 }
 
 export interface CanvasItem extends Geometry {
@@ -50,6 +54,10 @@ export interface CanvasItem extends Geometry {
   draw?: (context: DrawContext) => ReactNode;
   /** Whether Enter or a double-click edits it in place (text and sticky notes); the host does the editing. */
   editable?: boolean;
+  /** Whether Enter or a double-click opens it (a video card in the Player, a link in the browser); the host does it. */
+  openable?: boolean;
+  /** Resizing keeps its proportions: corner handles only (a picture, a video card). */
+  keepRatio?: boolean;
 }
 
 /** The view: the world point at the middle of the canvas and the zoom (1 is 100%), so it survives a resize. */
@@ -59,8 +67,8 @@ export interface Viewport {
   zoom: number;
 }
 
-/** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes). */
-export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky';
+/** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card). */
+export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link';
 
 export type Tool = 'select' | 'hand' | PlaceTool;
 

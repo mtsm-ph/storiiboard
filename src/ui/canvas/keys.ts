@@ -15,7 +15,7 @@ export interface KeyLike {
 export const isCommand = (event: Pick<KeyLike, 'metaKey' | 'ctrlKey'>, mac: boolean): boolean =>
   mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 
-/** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse); read from the letter typed, so it follows the keyboard's layout. */
+/** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse), L (link); read from the letter typed, so it follows the keyboard's layout. */
 export function toolForKey(event: KeyLike): Tool | null {
   if (event.altKey || event.metaKey || event.ctrlKey) return null;
   switch (event.key.toLowerCase()) {
@@ -31,6 +31,8 @@ export function toolForKey(event: KeyLike): Tool | null {
       return 'sticky';
     case 'o':
       return 'ellipse';
+    case 'l':
+      return 'link';
     default:
       return null;
   }

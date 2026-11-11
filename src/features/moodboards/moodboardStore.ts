@@ -1,6 +1,6 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import type { Tool, Viewport } from '../../ui/canvas/types';
+import type { Geometry, Tool, Viewport } from '../../ui/canvas/types';
 import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
 import type { ClipItem, ItemSeed } from './items';
 
@@ -18,6 +18,12 @@ export interface Editing {
   draft: ItemSeed | null;
 }
 
+/** The Link tool has placed a card and is asking for its address (5.1b); nothing is in the project until it is given. */
+export interface LinkAsk {
+  boardId: string;
+  geometry: Geometry;
+}
+
 interface MoodboardState {
   /** Null shows the picker. */
   openBoardId: string | null;
@@ -25,14 +31,18 @@ interface MoodboardState {
   viewports: Readonly<Record<string, Viewport>>;
   tool: Tool;
   clipboard: readonly ClipItem[];
+  /** The project the clipboard's items were copied from: its id and path. */
+  clipSource: { projectId: string; path: string } | null;
   editing: Editing | null;
+  linkAsk: LinkAsk | null;
   openBoard: (boardId: string | null) => void;
   select: (boardId: string, ids: readonly string[]) => void;
   setViewport: (boardId: string, view: Viewport) => void;
   setTool: (tool: Tool) => void;
-  copy: (items: readonly ClipItem[]) => void;
+  copy: (items: readonly ClipItem[], source?: { projectId: string; path: string } | null) => void;
   startEditing: (editing: Editing) => void;
   stopEditing: () => void;
+  askLink: (ask: LinkAsk | null) => void;
 }
 
 export const moodboardStore = createStore<MoodboardState>()((set) => ({
@@ -41,9 +51,11 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   viewports: {},
   tool: 'select',
   clipboard: [],
+  clipSource: null,
   editing: null,
+  linkAsk: null,
   openBoard: (openBoardId) => {
-    set({ openBoardId, tool: 'select', editing: null });
+    set({ openBoardId, tool: 'select', editing: null, linkAsk: null });
   },
   select: (boardId, ids) => {
     set((s) => ({ selections: { ...s.selections, [boardId]: ids } }));
@@ -54,14 +66,17 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   setTool: (tool) => {
     set({ tool });
   },
-  copy: (clipboard) => {
-    set({ clipboard });
+  copy: (clipboard, source = null) => {
+    set({ clipboard, clipSource: source });
   },
   startEditing: (editing) => {
     set({ editing, tool: 'select' });
   },
   stopEditing: () => {
     set({ editing: null });
+  },
+  askLink: (linkAsk) => {
+    set({ linkAsk, tool: 'select' });
   },
 }));
 

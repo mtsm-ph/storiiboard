@@ -25,6 +25,23 @@ describe('the Player tile (2.4)', () => {
     expect(render({ playing: true })).toMatch(/aria-pressed="true"[^>]*>Pause</);
   });
 
+  it('plays a board card’s video with step, play and pause, and says in and out and grab work on a storyboard frame (5.1b)', () => {
+    const html = render({ cardOnly: true, onGrabStill: () => undefined });
+    expect(html).toContain('data-player-card-only=""');
+    expect(html).toContain('work on a storyboard frame');
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Play</);
+    expect(html).toContain('aria-label="Next frame"');
+    for (const hidden of ['Set in', 'Set out', 'Grab still', 'data-grab-still', 'In 01:00:00:12']) expect(html).not.toContain(hidden);
+    // A frame's clip keeps all of them.
+    expect(render({ onGrabStill: () => undefined })).toContain('data-grab-still');
+  });
+
+  it('says in words about the card when the board card being played is gone (5.1b)', () => {
+    const html = render({ status: { kind: 'noCard' }, video: null });
+    expect(html).toContain('This video card is no longer on its board');
+    expect(html).not.toContain('This frame has no video');
+  });
+
   it('says what stands in the picture’s place, in a live region that’s always there', () => {
     const says = (status: PlayerStatus, extra: Partial<PlayerViewProps> = {}) => render({ status, ...extra });
     expect(says({ kind: 'noProject' }, { video: null })).toContain('No project open.');

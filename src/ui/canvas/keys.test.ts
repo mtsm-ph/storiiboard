@@ -14,6 +14,11 @@ describe('the canvas keys', () => {
     expect(toolForKey(key('s', { metaKey: true }))).toBeNull();
   });
 
+  it('reads L as the link tool (5.1b)', () => {
+    expect(toolForKey(key('l'))).toBe('link');
+    expect(toolForKey(key('L', { ctrlKey: true }))).toBeNull();
+  });
+
   it('maps the edit commands with ⌘ on a Mac and Ctrl elsewhere', () => {
     expect(commandForKey(key('c', { metaKey: true }), true, null)).toEqual({ kind: 'copy' });
     expect(commandForKey(key('c', { ctrlKey: true }), true, null)).toBeNull();

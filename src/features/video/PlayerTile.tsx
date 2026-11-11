@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { projectStore, useProject } from '../../app/projectStore';
-import { displayAspect, readClip, videoFields } from '../../core/media/video';
+import { displayAspect, readClip, videoFields, type Clip } from '../../core/media/video';
 import { aspectRatioValue, projectStoryboard } from '../../core/model/storyboard';
 import { useSelection } from '../storyboard/selection';
 import { t } from '../../core/i18n';
@@ -10,6 +10,7 @@ import { clipWithIn, clipWithOut, frameInVideo, frameOfPresentation, framesOfLen
 import { grabStill } from './grabStill';
 import { copyMayBeGone, copyToPlay, makeCopy, useCopy } from './playbackCopies';
 import { PlayerView, type PlayerStatus, type PlayerVideo } from './PlayerView';
+import { usePlayerCard } from './playerSource';
 import { useVideoMissing } from './videoStatus';
 
 // The Player tile (2.4): the selected frame's video, from its playback copy. It asks for the copy when there's none,
@@ -23,7 +24,15 @@ export function PlayerTile() {
   const records = useProject((s) => s.records);
   const shotId = useSelection((s) => s.shotId);
   const shot = shotId ? records[shotId] : undefined;
-  const clip = shot?.type === 'shot' && shot.trashedAt === null ? readClip(shot.props) : null;
+  // A board's video card plays in place of the frame's clip while it holds (playerSource.ts): the whole video, no frame.
+  const card = usePlayerCard();
+  const cardRecord = card ? records[card.videoId] : undefined;
+  const cardItem = card ? records[card.itemId] : undefined;
+  // Its board item in the Trash, or its video gone: the card is gone, and the Player says so in words about the card.
+  const cardGone = card !== null && (cardItem?.type !== 'board_item' || cardItem.trashedAt !== null || cardRecord?.type !== 'media' || cardRecord.trashedAt !== null);
+  const cardVideo = cardRecord?.type === 'media' && cardRecord.trashedAt === null ? videoFields(cardRecord.props) : null;
+  const cardClip: Clip | null = card && cardVideo ? { videoId: card.videoId, inFrame: 0, outFrame: Math.max(0, cardVideo.durationFrames - 1), crop: DEFAULT_CROP } : null;
+  const clip = card ? (cardGone ? null : cardClip) : shot?.type === 'shot' && shot.trashedAt === null ? readClip(shot.props) : null;
   const videoId = clip?.videoId ?? null;
   const videoRecord = videoId ? records[videoId] : undefined;
   const linked = videoRecord?.type === 'media' && videoRecord.trashedAt === null ? videoFields(videoRecord.props) : null;
@@ -51,7 +60,7 @@ export function PlayerTile() {
 
   // Another frame or video (or none): from its in point, paused. Set as the selection changes, not each time the in
   // point moves; two frames of one take each start at their own in point.
-  const shown = `${shotId ?? ''}|${videoId ?? ''}`;
+  const shown = `${card ? 'card' : (shotId ?? '')}|${videoId ?? ''}`;
   const [shownFor, setShownFor] = useState(shown);
   if (shownFor !== shown) {
     setShownFor(shown);
@@ -121,7 +130,9 @@ export function PlayerTile() {
 
   const status: PlayerStatus = !project
     ? { kind: 'noProject' }
-    : !shot || shot.type !== 'shot' || shot.trashedAt !== null
+    : card && cardGone
+      ? { kind: 'noCard' }
+      : !card && (!shot || shot.type !== 'shot' || shot.trashedAt !== null)
       ? { kind: 'noFrame' }
       : !clip
         ? { kind: 'noVideo' }
@@ -153,7 +164,7 @@ export function PlayerTile() {
   };
   /** Sets the in or out point at the frame showing, on the clip as it is when the edit lands. */
   const setPoint = (which: 'in' | 'out') => {
-    if (!shotId) return;
+    if (!shotId || card) return;
     const at = frame;
     void projectStore.getState().applyWith((now) => {
       const current = now[shotId];
@@ -188,6 +199,7 @@ export function PlayerTile() {
         seek(frame + delta);
       }}
       onSeek={seek}
+      cardOnly={card !== null}
       onSetIn={() => {
         setPoint('in');
       }}
@@ -197,7 +209,7 @@ export function PlayerTile() {
       grabbing={grabbing}
       grabSaid={grabSaid}
       onGrabStill={() => {
-        if (!shotId || grabbing) return;
+        if (!shotId || grabbing || card) return;
         // Playing: paused first, and the frame it settles on is the one grabbed, as the readout and the picture
         // settle there too (the pause's own handler sets them from the same time).
         const element = videoRef.current;
@@ -243,7 +255,7 @@ export function PlayerTile() {
         }
       }}
       framing={
-        video && linked && project
+        video && linked && project && !card
           ? {
               crop: clip?.crop ?? DEFAULT_CROP,
               imageAspect,

@@ -5,6 +5,10 @@ import { keyBetween } from '../../core/ops/order';
 import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode } from '../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../ui/canvas/zOrder';
+import { cardUrl, linkLabel } from './links';
+import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './itemMedia';
+import { mediaFields } from '../../core/media/store';
+import { videoFields } from '../../core/media/video';
 
 // A board's items (docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 had one kind, a rectangle;
 // 5.1a adds fill and stroke to the shapes (rectangle, ellipse, triangle, diamond), text boxes and sticky notes. Z order
@@ -14,9 +18,13 @@ type Records = Readonly<Record<string, SbdRecord>>;
 
 export const SHAPE_KINDS = ['rect', 'ellipse', 'triangle', 'diamond'] as const;
 export type ShapeKind = (typeof SHAPE_KINDS)[number];
-export type ItemKind = ShapeKind | 'text' | 'sticky';
-const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky'];
-export const isShapeKind = (kind: ItemKind): kind is ShapeKind => kind !== 'text' && kind !== 'sticky';
+/** 5.1b: a picture (with its `media` child), a video card (with its video `media`) and a link card. */
+export const MEDIA_KINDS = ['picture', 'video', 'link'] as const;
+export type MediaKind = (typeof MEDIA_KINDS)[number];
+export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind;
+const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS];
+export const isShapeKind = (kind: ItemKind): kind is ShapeKind => (SHAPE_KINDS as readonly string[]).includes(kind);
+export const isMediaKind = (kind: ItemKind): kind is MediaKind => (MEDIA_KINDS as readonly string[]).includes(kind);
 
 export type Align = 'left' | 'center' | 'right';
 export const ALIGNS: readonly Align[] = ['left', 'center', 'right'];
@@ -30,6 +38,8 @@ export const STICKY_INK = '#16150F';
 export const BOARD_PAPER = '#EEE9DF';
 export const BOARD_INK = '#16150F';
 export const BOARD_RAISED = '#C9C1B1';
+/** Truffle, the warning colour (paper text on it), fixed like the rest of a board's content. */
+export const BOARD_WARNING = '#A35139';
 /** What the canvas draws a board in: fixed, so a board looks the same in light and dark and prints as seen. */
 export const BOARD_COLOURS: CanvasColours = { ink: BOARD_INK, paper: BOARD_PAPER, raised: BOARD_RAISED };
 /** Swatches for shapes and text: the brand's inks and papers, then a few hues for a board's own use. */
@@ -56,6 +66,9 @@ export interface ItemFields extends Geometry {
   fontItalic: boolean;
   fontSize: number;
   align: Align;
+  /** A link card's address (http or https) and the title a person typed for it; '' for none. */
+  url: string;
+  title: string;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -110,6 +123,8 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     fontItalic: props.font_italic === true,
     fontSize: cleanSize(props.font_size, sticky ? DEFAULT_STICKY_FONT_SIZE : DEFAULT_FONT_SIZE),
     align: ALIGNS.find((a) => a === props.align) ?? 'left',
+    url: kind === 'link' && typeof props.url === 'string' ? props.url : '',
+    title: kind === 'link' && typeof props.title === 'string' ? props.title : '',
   };
 }
 
@@ -143,16 +158,48 @@ export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = {
   diamond: () => t('moodboard.item.diamond'),
   text: () => t('moodboard.item.text'),
   sticky: () => t('moodboard.item.sticky'),
+  picture: () => t('moodboard.item.picture'),
+  video: () => t('moodboard.item.video'),
+  link: () => t('moodboard.item.link'),
 };
 
 export const isTextKind = (kind: ItemKind): kind is 'text' | 'sticky' => kind === 'text' || kind === 'sticky';
+
+/** What a screen reader hears for an item: a card by its own name, "Link: Look book", "Video: A001.MP4", "Picture: IMG_4012.JPG". */
+export function announcedAs(records: Records, id: string, fields: ItemFields): string {
+  const named = (key: 'moodboard.announce.picture' | 'moodboard.announce.video' | 'moodboard.announce.link', name: string) => (name.trim() === '' ? KIND_LABEL[fields.kind]() : t(key, { name }));
+  if (fields.kind === 'link') return named('moodboard.announce.link', linkLabel(fields.url, fields.title));
+  if (fields.kind === 'picture') {
+    const media = mediaChildOf(records, id, 'image');
+    return named('moodboard.announce.picture', (media ? mediaFields(media.props)?.sourceName : '') ?? '');
+  }
+  if (fields.kind === 'video') {
+    const media = mediaChildOf(records, id, 'video');
+    return named('moodboard.announce.video', (media ? videoFields(media.props)?.sourceName : '') ?? '');
+  }
+  return KIND_LABEL[fields.kind]();
+}
 
 /** What the canvas draws, back to front (without drawing: src/features/moodboards/drawing.tsx adds that). */
 export function canvasItems(records: Records, boardId: string): CanvasItem[] {
   return itemsOf(records, boardId).flatMap((record) => {
     const fields = itemFields(record.props);
     return fields
-      ? [{ id: record.id, x: fields.x, y: fields.y, width: fields.width, height: fields.height, rotation: fields.rotation, label: KIND_LABEL[fields.kind](), editable: isTextKind(fields.kind) }]
+      ? [
+          {
+            id: record.id,
+            x: fields.x,
+            y: fields.y,
+            width: fields.width,
+            height: fields.height,
+            rotation: fields.rotation,
+            label: announcedAs(records, record.id, fields),
+            editable: isTextKind(fields.kind),
+            openable: fields.kind === 'video' || fields.kind === 'link',
+            // A picture or video keeps its shape when resized.
+            keepRatio: fields.kind === 'picture' || fields.kind === 'video',
+          },
+        ]
       : [];
   });
 }
@@ -204,6 +251,12 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
   if (isShapeKind(seed.kind)) {
     if (seed.fill) props.fill = seed.fill;
     if (seed.stroke) props.stroke = seed.stroke;
+    return props;
+  }
+  if (seed.kind === 'picture' || seed.kind === 'video') return props;
+  if (seed.kind === 'link') {
+    props.url = seed.url ?? '';
+    if (seed.title) props.title = seed.title;
     return props;
   }
   props.text = seed.text ?? '';
@@ -322,19 +375,39 @@ export function trashItemsChanges(records: Records, ids: readonly string[]): Cha
   return ids.filter((id) => records[id]?.type === 'board_item' && records[id].trashedAt === null).map((id): Change => ({ kind: 'trash', id }));
 }
 
-/** What Copy keeps: the selected items, kind, geometry and style, back to front. */
-export type ClipItem = ItemFields;
+/** What Copy keeps: the selected items, kind, geometry and style, back to front; a picture or video card's media too. */
+export type ClipItem = ItemFields & { media: ClipMedia | null };
 
 export function clipOf(records: Records, boardId: string, selected: readonly string[]): ClipItem[] {
   return itemsOf(records, boardId).flatMap((record) => {
     const fields = selected.includes(record.id) ? itemFields(record.props) : null;
-    return fields ? [fields] : [];
+    if (!fields) return [];
+    return [{ ...fields, media: fields.kind === 'picture' || fields.kind === 'video' ? clipMediaOf(records, record.id, fields.kind) : null }];
   });
 }
 
-/** Pasted at the pointer or offset 16 units from the originals, at the front. */
-export function pasteChanges(records: Records, boardId: string, clip: readonly ClipItem[], at: { x: number; y: number } | null): { ids: string[]; changes: Change[] } {
-  return createItems(records, boardId, pasted(clip, at));
+/**
+ * Pasted at the pointer or offset 16 units from the originals, at the front. A picture or video card gets a new media
+ * record naming the same stored file (no second copy of the bytes).
+ */
+export function pasteChanges(
+  records: Records,
+  boardId: string,
+  clip: readonly ClipItem[],
+  at: { x: number; y: number } | null,
+): { ids: string[]; changes: Change[]; videos: { from: string; to: string }[] } {
+  const placed = pasted(clip, at);
+  const made = createItems(records, boardId, placed);
+  const videos: { from: string; to: string }[] = [];
+  const changes = made.changes.flatMap((change, i) => {
+    const media = placed[i]?.media;
+    const id = made.ids[i];
+    if (!media || !id) return [change];
+    const copied = mediaCopyChanges(id, media);
+    if (copied.video) videos.push(copied.video);
+    return [change, ...copied.changes];
+  });
+  return { ids: made.ids, changes, videos };
 }
 
 /** A property change from the properties strip: what each kind takes of it is decided in `styleChanges`. */
@@ -363,7 +436,8 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
   return ids.flatMap((id): Change[] => {
     const record = records[id];
     const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
-    if (!now) return [];
+    // Pictures, video cards and links have no style to set here (a link's words are linkChanges).
+    if (!now || isMediaKind(now.kind)) return [];
     const wanted: Record<string, string | number | boolean | undefined> = {};
     if (isShapeKind(now.kind)) {
       wanted.fill = patch.fill;
@@ -418,6 +492,25 @@ export function textEditChanges(records: Records, id: string, text: string, meas
     if (height !== now.height) Object.assign(set, { height, ...keepTop(now, height) });
   }
   return Object.keys(set).length === 0 ? [] : [{ kind: 'update', id, set }];
+}
+
+/** A link card's address and title, edited in the properties strip: only what changed. The address must be an http(s) one. */
+export function linkChanges(records: Records, id: string, patch: { url?: string; title?: string }): Change[] {
+  const record = records[id];
+  const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
+  if (now?.kind !== 'link') return [];
+  const set: Record<string, string> = {};
+  const url = patch.url === undefined ? undefined : cardUrl(patch.url);
+  // An address that isn't http or https is never written.
+  if (patch.url !== undefined && url === null) return [];
+  if (url !== undefined && url !== null && url !== now.url) set.url = url;
+  const unset: string[] = [];
+  if (patch.title !== undefined && patch.title !== now.title) {
+    if (patch.title === '') unset.push('title');
+    else set.title = patch.title;
+  }
+  if (Object.keys(set).length === 0 && unset.length === 0) return [];
+  return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
 }
 
 /** A new text box or sticky note with what was typed in it: a text box's height is its text's. */

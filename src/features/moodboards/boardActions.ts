@@ -1,13 +1,26 @@
-import { showInfo } from '../../app/notice';
+import { showInfo, showNotice } from '../../app/notice';
+import { openLink } from '../../app/opener';
+import { fromFile, type PictureFile } from '../../app/pictures';
 import { projectStore } from '../../app/projectStore';
 import { isMac } from '../../app/shell/undoShortcuts';
-import { t } from '../../core/i18n';
+import { rememberVideoFile, videoFileKept } from '../../app/videoFiles';
+import { localizeError, t } from '../../core/i18n';
 import type { Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
-import type { Geometry, GeometryChange, PlaceTool, ReorderMode } from '../../ui/canvas/types';
+import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
+import type { Geometry, GeometryChange, PlaceTool, Point, ReorderMode } from '../../ui/canvas/types';
+import { prepare, reason, toAdded, type AddedFile } from '../storyboard/addPictures';
+import { picturesBusy } from '../storyboard/picturesBusy';
+import type { PreparedFile } from '../video/linkVideos';
+import { makeCopy } from '../video/playbackCopies';
+import { playCard } from '../video/playerSource';
+import { clipText, clipTaken, decidePasteOf } from './clipboardMarker';
+import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
 import { boardsOf, boardTitle, newBoard, openDepartmentBoard, renameBoard, trashBoardChanges } from './boards';
-import { clipOf, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, geometryChanges, nudgeChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
+import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, geometryChanges, nudgeChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
 import { fontReady } from './fonts';
+import { mediaChildOf, shaOfClip } from './itemMedia';
+import { cardUrl, pastedAddress } from './links';
 import { moodboardStore } from './moodboardStore';
 import { measureText } from './textFit';
 
@@ -97,6 +110,11 @@ export async function placeItem(boardId: string, geometry: Geometry, tool: Place
     moodboardStore.getState().startEditing({ boardId, id: crypto.randomUUID(), draft: { ...geometry, kind: tool } });
     return;
   }
+  if (tool === 'link') {
+    // The card is made once it has an address (placeLink): the person is asked for it in a small window.
+    moodboardStore.getState().askLink({ boardId, geometry });
+    return;
+  }
   let ids: string[] = [];
   const written = await projectStore.getState().applyWith((records) => {
     const made = createItems(records, boardId, [{ ...geometry, kind: tool }]);
@@ -176,9 +194,24 @@ export async function reorder(boardId: string, mode: ReorderMode): Promise<void>
   await projectStore.getState().applyWith((records) => ({ changes: reorderChanges(records, boardId, ids, mode) }));
 }
 
+/** The words a copied item puts on the system clipboard: a text's or sticky's text, a link's address, a file's name. */
+function wordsOf(item: ClipItem): string {
+  if (item.kind === 'text' || item.kind === 'sticky') return item.text;
+  if (item.kind === 'link') return item.url;
+  const name = item.media?.props.source_name;
+  return typeof name === 'string' ? name : '';
+}
+
+/**
+ * Copy: the items are kept inside the app at once (a paste right after sees them) and the system clipboard gets their
+ * words, marked as ours (src/features/moodboards/clipboardMarker.ts).
+ */
 export function copySelection(boardId: string): number {
-  const clip = clipOf(projectStore.getState().records, boardId, liveSelection(projectStore.getState().records, boardId));
-  if (clip.length > 0) moodboardStore.getState().copy(clip);
+  const { project, records } = projectStore.getState();
+  const clip = clipOf(records, boardId, liveSelection(records, boardId));
+  if (clip.length === 0) return 0;
+  moodboardStore.getState().copy(clip, project ? { projectId: project.projectId, path: project.file.path } : null);
+  clipTaken(clipText(clip.map(wordsOf)));
   return clip.length;
 }
 
@@ -193,20 +226,184 @@ export async function cutSelection(boardId: string): Promise<void> {
   if (copySelection(boardId) > 0) await deleteSelection(boardId);
 }
 
-/** Paste at the pointer when it's over the canvas, else offset 16 units from the originals; the pasted are selected. */
-export async function pasteClipboard(boardId: string, at: { x: number; y: number } | null, clip = moodboardStore.getState().clipboard): Promise<void> {
+/**
+ * Paste at the pointer when it's over the canvas, else offset 16 units from the originals; the pasted are selected.
+ * Pictures and video cards paste only into the project they were copied in; there, one whose stored picture has gone
+ * since (Empty Trash) is left out. What is stored is looked at inside the edit's turn in the queue, after any Empty
+ * Trash ahead of it. Each of these says so, once.
+ */
+export async function pasteClipboard(
+  boardId: string,
+  at: { x: number; y: number } | null,
+  clip = moodboardStore.getState().clipboard,
+  store: typeof projectStore = projectStore,
+): Promise<void> {
   if (clip.length === 0) return;
+  const { project } = store.getState();
+  if (!project) return;
+  const { clipSource, clipboard } = moodboardStore.getState();
+  // A duplicate gives its clip directly, from this project. Another file with the same id (a backup, an opened version) is another project.
+  const elsewhere = clip === clipboard && clipSource !== null && (clipSource.projectId !== project.projectId || clipSource.path !== project.file.path);
   let ids: string[] = [];
-  const written = await projectStore.getState().applyWith((records) => {
-    const made = pasteChanges(records, boardId, clip, at);
+  let videos: { from: string; to: string }[] = [];
+  const outcome = { left: 'none' as 'none' | 'elsewhere' | 'gone' };
+  const written = await store.getState().applyWith(async () => {
+    const shas = [...new Set(clip.flatMap((item) => (item.media ? [shaOfClip(item.media)] : [])).filter((sha): sha is string => sha !== null))];
+    const rows = elsewhere || shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
+    const stored = new Set(rows.map((row) => String(row.sha256)));
+    const allowed = clip.filter((item) => {
+      if (!item.media) return true;
+      const sha = shaOfClip(item.media);
+      // A video card with no poster pastes without one; anything else needs its stored picture.
+      return !elsewhere && (sha === null ? item.kind === 'video' : stored.has(sha));
+    });
+    if (allowed.length < clip.length) outcome.left = elsewhere ? 'elsewhere' : 'gone';
+    if (allowed.length === 0) return { changes: [] };
+    const made = pasteChanges(store.getState().records, boardId, allowed, at);
     ids = made.ids;
+    videos = made.videos;
     return { changes: made.changes };
   });
-  if (written) select(boardId, ids);
+  if (outcome.left === 'elsewhere') showNotice(t('moodboard.pasteElsewhere'));
+  else if (outcome.left === 'gone') showNotice(t('moodboard.pasteGone'));
+  if (!written) return;
+  // The browser build plays the file it was handed: a pasted card plays it too.
+  for (const { from, to } of videos) rememberVideoFile(to, videoFileKept(from) ?? undefined);
+  select(boardId, ids);
 }
 
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
 export async function duplicateSelection(boardId: string): Promise<void> {
-  const clip = clipOf(projectStore.getState().records, boardId, liveSelection(projectStore.getState().records, boardId));
-  await pasteClipboard(boardId, null, clip);
+  const { records } = projectStore.getState();
+  await pasteClipboard(boardId, null, clipOf(records, boardId, liveSelection(records, boardId)));
+}
+
+/** A link card with its address (http or https only) and the title typed for it; false when the address isn't one. */
+export async function placeLink(boardId: string, geometry: Geometry, typed: string, title = ''): Promise<boolean> {
+  const url = cardUrl(typed);
+  if (url === null) return false;
+  let ids: string[] = [];
+  const written = await projectStore.getState().applyWith((records) => {
+    const made = createItems(records, boardId, [{ ...geometry, kind: 'link', url, ...(title.trim() !== '' ? { title: title.trim() } : {}) }]);
+    ids = made.ids;
+    return { changes: made.changes };
+  });
+  if (written) select(boardId, ids);
+  return written;
+}
+
+/** The address or the title of the selected link card, edited in the properties strip. */
+export async function changeLink(id: string, patch: { url?: string; title?: string }): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: linkChanges(records, id, patch) }));
+}
+
+/** Where files go that have no drop point (a paste, the Picture button): the middle of the view. */
+const viewCentre = (boardId: string): Point => {
+  const view = moodboardStore.getState().viewports[boardId] ?? DEFAULT_VIEWPORT;
+  return { x: view.cx, y: view.cy };
+};
+
+/**
+ * Dropped, pasted or chosen files onto a board: each is prepared as a frame's is (src/features/storyboard/addPictures.ts;
+ * a file that can't be read is left out and named in one notice), then all land in one edit, side by side from the drop
+ * point, so one undo takes back the whole drop. Without a point they are centred on the view.
+ */
+export async function addBoardFiles(boardId: string, added: readonly AddedFile[], at: Point | null, centred = at === null): Promise<void> {
+  const { project } = projectStore.getState();
+  if (!project || added.length === 0) return;
+  picturesBusy.setState((s) => ({ count: s.count + added.length }));
+  const prepared: PreparedFile[] = [];
+  const problems: { name: string; reason: string }[] = [];
+  try {
+    for (const file of added) {
+      try {
+        prepared.push(await prepare(file, project.file.nativeHandle));
+      } catch (error) {
+        problems.push({ name: file.file.name, reason: reason(error) });
+      }
+    }
+  } finally {
+    picturesBusy.setState((s) => ({ count: s.count - added.length }));
+  }
+  // Another project may have opened while they were prepared; they belong to the one they were dropped on.
+  if (prepared.length > 0 && projectStore.getState().project === project) {
+    let placed: PlacedBoardFiles | null = null;
+    const saved = await projectStore.getState().applyWith((records) => {
+      const board = records[boardId];
+      // The board went to the Trash while the files were prepared: nothing is written onto it.
+      placed = board?.type === 'board' && board.trashedAt === null ? boardFileChanges(records, boardId, prepared, at ?? viewCentre(boardId), project.file.path, centred) : null;
+      return placed ?? { changes: [] };
+    });
+    const result = placed as PlacedBoardFiles | null;
+    if (saved && result) {
+      // The browser build keeps the file to play; the desktop app makes the video's playback copy (the frames' way).
+      const videos = prepared.flatMap((file) => (file.kind === 'video' ? [file.video] : []));
+      result.videoIds.forEach((videoId, i) => {
+        rememberVideoFile(videoId, videos[i]?.file);
+        makeCopy(videoId);
+      });
+      select(boardId, result.ids);
+    } else if (!result) {
+      showNotice(t('moodboard.boardGone'));
+    }
+  }
+  const [first] = problems;
+  if (first) {
+    showNotice(
+      added.length === 1
+        ? localizeError(first.reason)
+        : t('pictures.someNotAdded', { failed: problems.length, total: added.length, name: first.name, reason: localizeError(first.reason) }),
+    );
+  }
+}
+
+/** Pictures and videos as a drop, a paste or the Picture button hand them over: a video by its name goes in as a video. */
+export const addBoardPictures = (boardId: string, files: readonly PictureFile[], at: Point | null, centred = at === null): Promise<void> => addBoardFiles(boardId, toAdded(files), at, centred);
+
+/**
+ * ⌘V into the focused canvas: pictures on the system clipboard, or text that is one web address, are the board's (true);
+ * anything else is left for the items copied inside the app.
+ */
+export function pasteFromSystem(boardId: string, data: DataTransfer, at: Point | null): boolean {
+  const decision = decidePasteOf(data, moodboardStore.getState().clipboard.length > 0);
+  // The items copied in the app; or text that isn't the board's and isn't an address, which pastes nothing.
+  if (decision === 'items') return false;
+  if (decision === 'nothing') return true;
+  if (decision === 'foreign') {
+    showInfo(t('moodboard.pasteNothing'));
+    return true;
+  }
+  const files = [...data.files];
+  if (files.length > 0) {
+    // A paste lands with its middle at the pointer; a drop with its top left there.
+    void addBoardPictures(boardId, files.map(fromFile), at, true);
+    return true;
+  }
+  const url = pastedAddress(data.getData('text/plain'));
+  if (url === null) return false;
+  const point = at ?? viewCentre(boardId);
+  const size = { width: 280, height: 88 };
+  void placeLink(boardId, { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2), ...size, rotation: 0 }, url);
+  return true;
+}
+
+/**
+ * Enter or a double-click on a card: a link opens in the browser (through the app's opener; nothing is fetched), a video
+ * opens the Player on its video. `showPlayer` brings the Player tile to the front of the current workspace.
+ */
+export async function openCard(boardId: string, id: string, showPlayer: () => void, records: Records = projectStore.getState().records): Promise<void> {
+  const record = records[id];
+  const fields = record?.type === 'board_item' && record.parentId === boardId && record.trashedAt === null ? itemFields(record.props) : null;
+  if (fields?.kind === 'link') {
+    try {
+      await openLink(fields.url);
+    } catch (error) {
+      showNotice(localizeError(reason(error)));
+    }
+  } else if (fields?.kind === 'video') {
+    const video = mediaChildOf(records, id, 'video');
+    if (!video) return;
+    playCard(video.id, id);
+    showPlayer();
+  }
 }

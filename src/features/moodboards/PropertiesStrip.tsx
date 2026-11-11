@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { Select } from '../../ui/fields';
 import { ColourControl } from './ColourControl';
 import { availability, familiesOf, useFonts, type FontFamilyEntry } from './fonts';
-import { ALIGNS, BOARD_INK, BOARD_RAISED, isShapeKind, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
+import { ALIGNS, BOARD_INK, BOARD_RAISED, isShapeKind, isTextKind, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
 
 // What the selected items share, under the tools (5.1a): fill and stroke for shapes, colour for text, the sticky colours,
 // and font family, style, size and alignment for text boxes and sticky notes. A change applies to every selected item it
@@ -57,15 +57,17 @@ interface PropertiesStripProps {
   /** Changes when the selection does, so the size field starts again from the new selection's value. */
   selectionKey: string;
   onChange: (patch: StylePatch) => void;
+  /** What a picture, video card or link adds (CardProperties). */
+  children?: ReactNode;
 }
 
-export function PropertiesStrip({ fields, selectionKey, onChange }: PropertiesStripProps) {
+export function PropertiesStrip({ fields, selectionKey, onChange, children }: PropertiesStripProps) {
   const system = useFonts((s) => s.system);
   const status = useFonts((s) => s.status);
   const shapes = fields.filter((f) => isShapeKind(f.kind));
   const texts = fields.filter((f) => f.kind === 'text');
   const stickies = fields.filter((f) => f.kind === 'sticky');
-  const lettered = fields.filter((f) => !isShapeKind(f.kind));
+  const lettered = fields.filter((f) => isTextKind(f.kind));
   const first = lettered[0];
   const families = useMemo(() => familiesOf(system), [system]);
   // The band is always there at one height, empty with nothing selected, so the canvas below never changes size.
@@ -81,6 +83,7 @@ export function PropertiesStrip({ fields, selectionKey, onChange }: PropertiesSt
 
   return (
     <div role="group" aria-label={t('moodboard.properties')} data-board-properties="" className={BAND}>
+      {children}
       {shapes[0] && (
         <>
           <ColourControl label={t('moodboard.fill')} value={shapes[0].fill} mixed={!same(shapes, (f) => f.fill)} unset={BOARD_RAISED} onChange={(fill) => { onChange({ fill }); }} />
