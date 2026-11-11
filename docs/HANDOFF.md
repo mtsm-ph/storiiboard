@@ -347,6 +347,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 10)
+
+- Done Nov 10: #112 (3.17) merged after Kevin compared all 20 baselines; #119 put `services.json` on `main`
+  (Nominatim on); 4.0's brief updated with Kevin's Nov 10 answers on branch `phase4/4.0-service-switch` (the file is
+  on main, the codes and the tab approved, the Spanish "Según la región de esta computadora", Settings' real files),
+  with README's Node 22.18 line.
+- The builder still couldn't start: Nov 10's "new session" was this conversation resumed (its transcript began
+  Nov 4), and agent files load only when a conversation starts. A brand-new conversation is needed. In it: check out
+  `phase4/4.0-service-switch`, start the builder on the brief, confirm its transcript records `claude-sonnet-5-5`
+  (Kevin: if not, stop and tell him), then on through Phase 4.
+- Kevin's Nov 10 notes still to act on: 4.3 uses tzf-rs on the Rust side, not tz-lookup (MIT, OSM data about 10 MB,
+  a release at least two weeks old; tell him before falling back if it doesn't build cleanly on Windows and the Mac;
+  CLAUDE.md's Stack line and PHASE4_DECISIONS change with it). 4.0's Settings screenshots are shown to him the 3.17
+  way.
+- Done locally: `.git/info/exclude` no longer hides `.claude/agents/` (only `.claude/settings.local.json` of .claude).
+
 ### Next session: start here (Nov 9, late)
 
 - Merged tonight: #114 (agents), #115 (Kevin's answers in the docs), #116 (3.18), #117 (3.19). #112 (3.17) has every

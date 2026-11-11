@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla';
 // Which Settings tab is open (polish B), apart from the window itself (SettingsWindow.tsx), so what a tab shows can
 // open Settings at another tab without importing the window that holds it.
 
-export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'profile'] as const;
+export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'online', 'profile'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 interface SettingsState {

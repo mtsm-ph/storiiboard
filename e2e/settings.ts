@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 
-export type SettingsTab = 'Project' | 'App' | 'Theme' | 'Backups' | 'Storage' | 'Profile';
+export type SettingsTab = 'Project' | 'App' | 'Theme' | 'Backups' | 'Storage' | 'Online services' | 'Profile';
 
 /** The Settings window (polish B), a window of the app's own. */
 export const settingsWindow = (page: Page): Locator => page.getByRole('dialog', { name: 'Settings' });

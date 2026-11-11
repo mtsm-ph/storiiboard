@@ -16,6 +16,7 @@ mod pictures;
 mod playback;
 mod region;
 mod sbd;
+mod services;
 mod synced;
 mod video;
 
@@ -97,6 +98,7 @@ pub fn run() {
             export::export_choose_folder,
             export::export_write,
             geocode::address_search,
+            services::services_status,
             open::open_link,
             open::open_pdf,
             region::region_week,

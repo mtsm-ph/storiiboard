@@ -4,6 +4,7 @@ import { labels, t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { roveFocus } from '../../ui/roving';
+import { OnlineServicesTab } from '../preferences/OnlineServicesTab';
 import { AppTile } from '../preferences/AppTile';
 import { BackupsPanel } from '../project/BackupsPanel';
 import { ProjectHome } from '../project/ProjectHome';
@@ -26,6 +27,7 @@ const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   theme: 'settings.tab.theme',
   backups: 'settings.tab.backups',
   storage: 'settings.tab.storage',
+  online: 'settings.tab.online',
   profile: 'settings.tab.profile',
 });
 
@@ -35,6 +37,7 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   theme: ThemeTile,
   backups: BackupsPanel,
   storage: StorageTile,
+  online: OnlineServicesTab,
   profile: ProfileTab,
 };
 
