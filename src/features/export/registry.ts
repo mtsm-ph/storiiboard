@@ -1,6 +1,8 @@
 import type { SbdRecord } from '../../core/model/record';
 import type { ExportTarget } from '../../core/storage/exportFiles';
 import type { ProjectFile } from '../../core/storage/driver';
+import { deckPdf } from './deckPdf';
+import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
 import { pngFrames } from './pngFrames';
 import type { ExportScope } from './scope';
@@ -26,11 +28,17 @@ export interface ExportContext {
   signal: AbortSignal;
   /** Print each scene's palette in its heading (polish PP); formats without headings ignore it. */
   scenePalettes?: boolean;
+  /** The deck an export from a deck's Export button is for (5.6a); absent for Export Project. */
+  deckId?: string;
+  /** A page's pixels per world unit, 1 or 2, for the formats that offer the choice. */
+  pixelRatio?: 1 | 2;
 }
 
 export interface ExportFormatOptions {
   /** The format can print scene palettes, so Export offers the choice. */
   scenePalettes?: boolean;
+  /** The format draws pages at 1x or 2x, so Export offers the choice. */
+  pixelRatio?: boolean;
 }
 
 export interface ExportFormat {
@@ -39,6 +47,8 @@ export interface ExportFormat {
   /** What it writes, in a sentence. */
   description: string;
   output: 'file' | 'folder';
+  /** It is for the open deck (5.6a), offered from the deck's Export button and not in Export Project. */
+  deck?: true;
   /** The watermark it carries, when Watermark Settings say so; none for a report. */
   watermark?: WatermarkUse;
   /** The choices Export offers for it. */
@@ -64,3 +74,6 @@ export interface ExportResult {
 }
 
 export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, projectJsonFormat, fullArchiveFormat];
+
+/** What a deck's Export button offers (5.6a): scoped to the open deck, so none is in Export Project's list above. */
+export const DECK_FORMATS: readonly ExportFormat[] = [deckPdf, deckPng];

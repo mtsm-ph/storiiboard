@@ -1,15 +1,15 @@
 //! Exports (1.24): the Save dialog for one file and the folder dialog for a set of files open from here, so the page
 //! never names a place on disk to write. A write goes only to a file the person chose, once, or into a new folder made
 //! inside the folder they chose, so an export never overwrites anything already there.
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
@@ -21,6 +21,14 @@ const EXTENSIONS: &[&str] = &["csv", "png", "pdf", "mp4"];
 pub struct Chosen {
     files: Mutex<HashSet<PathBuf>>,
     folders: Mutex<HashSet<PathBuf>>,
+    /// Folders picked in the folder dialog, by the one-time token of the run that picked them: the new folder for a set
+    /// of files is made inside one only when the first file is written (5.6a), so an export that stops before it
+    /// writes anything leaves nothing behind. A token, not the folder, names a run: two exports into the same folder
+    /// each get a folder of their own.
+    parents: Mutex<HashMap<String, PathBuf>>,
+    /// The folder each run made, once it has, by token.
+    made: Mutex<HashMap<String, PathBuf>>,
+    runs: AtomicU64,
     choosing: AtomicBool,
 }
 
@@ -170,7 +178,7 @@ fn as_export(picked: PathBuf, extension: &str) -> Result<PathBuf, String> {
 pub async fn export_choose_folder(
     app: AppHandle,
     folder: String,
-) -> Result<Option<String>, String> {
+) -> Result<Option<PickedFolder>, String> {
     if !plain_part(&folder) {
         return Err("That isn't a name an export folder can have.".into());
     }
@@ -185,9 +193,34 @@ pub async fn export_choose_folder(
     let Some(parent) = picked.and_then(|p| p.into_path().ok()) else {
         return Ok(None);
     };
-    let made = new_folder(&parent, &folder)?;
-    remember(&app.state::<Chosen>().folders, &made);
-    Ok(made.to_str().map(str::to_owned))
+    // Not made yet: the first write makes it (folder_write), and Stop or a failure can take it away again.
+    let Some(path) = parent.to_str().map(str::to_owned) else {
+        return Ok(None);
+    };
+    let token = begin_run(&app.state::<Chosen>(), &parent);
+    Ok(Some(PickedFolder { path, token }))
+}
+
+/// What the folder dialog hands the page: the folder picked, and the token of this run, which every write of the run
+/// carries.
+#[derive(Serialize)]
+pub struct PickedFolder {
+    path: String,
+    token: String,
+}
+
+/// A new run in `parent`, with a token used once: process id, a count and the clock, so it can't be guessed from the last.
+fn begin_run(chosen: &Chosen, parent: &Path) -> String {
+    let count = chosen.runs.fetch_add(1, Ordering::SeqCst);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let token = format!("{:x}-{count:x}-{nanos:x}", std::process::id());
+    if let Ok(mut parents) = chosen.parents.lock() {
+        parents.insert(token.clone(), parent.to_path_buf());
+    }
+    token
 }
 
 /// `parent/name`, or `parent/name 2` and so on when that's taken: always a folder that wasn't there, right inside
@@ -215,21 +248,148 @@ struct WriteHeader {
     path: String,
     /// In a folder: the file's name.
     name: Option<String>,
+    /// A set of files (5.6a): the name of the new folder to make inside `path`, which is the folder the person picked.
+    #[serde(default)]
+    folder: Option<String>,
+    /// For a set: "stage" (write the file under a temporary name), "commit" (give it its name), "remove_temp",
+    /// "remove_file" (a file this run committed), "remove_folder" (the one it made, if it is empty) or "finish" (the run
+    /// is done and keeps its folder). The last two end the run: its token is no good afterwards.
+    #[serde(default)]
+    action: Option<String>,
+    /// For a set: the token of the run, from the folder dialog.
+    #[serde(default)]
+    token: Option<String>,
 }
 
 /// Writes an export's bytes: the body is a 4-byte big-endian length, that many bytes of JSON header (`WriteHeader`),
 /// then the file's bytes.
 #[tauri::command]
-pub async fn export_write(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+pub async fn export_write(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
     let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
         return Err("Expected the export as raw bytes.".into());
     };
     let (header, bytes) = split_body(body)?;
+    if header.folder.is_some() {
+        let bytes = bytes.to_vec();
+        let handle = app.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            folder_write(&handle.state::<Chosen>(), &header, &bytes)
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
     let target = target_of(&app.state::<Chosen>(), &header)?;
     let bytes = bytes.to_vec();
     tauri::async_runtime::spawn_blocking(move || write_to(&target, &bytes))
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())??;
+    Ok(String::new())
+}
+
+/// One step of a set of files written into a folder made for them (5.6a). Files are staged under temporary names and
+/// renamed to their own once every page is made, so a stopped or failed export has nothing to show for it but what it
+/// removes again. Only a folder picked in the folder dialog is written into, and only names this module would accept.
+/// Returns the new folder's name (it may be "Pitch 2" where "Pitch" was taken).
+fn folder_write(chosen: &Chosen, header: &WriteHeader, bytes: &[u8]) -> Result<String, String> {
+    let denied = || "Storiiboard writes exports only where you choose.".to_string();
+    let parent = PathBuf::from(&header.path);
+    let folder = header.folder.as_deref().ok_or_else(denied)?;
+    let token = header.token.as_deref().ok_or_else(denied)?;
+    let picked = chosen
+        .parents
+        .lock()
+        .map_err(|_| denied())?
+        .get(token)
+        .cloned();
+    if picked.as_ref() != Some(&parent) || !plain_part(folder) {
+        return Err(denied());
+    }
+    let action = header.action.as_deref().unwrap_or("stage");
+    let known = chosen
+        .made
+        .lock()
+        .map_err(|_| denied())?
+        .get(token)
+        .cloned();
+    let name_of = |made: &Path| {
+        made.file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    if action == "remove_folder" {
+        // Only an empty folder goes: remove_dir refuses one with anything in it.
+        if let Some(made) = known {
+            let _ = fs::remove_dir(&made);
+        }
+        end_run(chosen, token);
+        return Ok(String::new());
+    }
+    if action == "finish" {
+        end_run(chosen, token);
+        return Ok(known.as_deref().map(name_of).unwrap_or_default());
+    }
+    let name = header
+        .name
+        .as_deref()
+        .filter(|n| plain_name(n))
+        .ok_or_else(denied)?;
+    let made = match known {
+        Some(made) => made,
+        None if action == "stage" => {
+            let made = new_folder(&parent, folder)?;
+            chosen
+                .made
+                .lock()
+                .map_err(|_| denied())?
+                .insert(token.to_owned(), made.clone());
+            made
+        }
+        None => return Ok(String::new()),
+    };
+    let target = inside(&made, name).ok_or_else(denied)?;
+    let temp = made.join(format!(".{name}.part"));
+    match action {
+        "stage" => {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)
+                .map_err(|error| error.to_string())?;
+            file.write_all(bytes).map_err(|error| {
+                let _ = fs::remove_file(&temp);
+                error.to_string()
+            })?;
+        }
+        "commit" => {
+            // A rename would replace a file already there on every system: looked at first.
+            if fs::symlink_metadata(&target).is_ok() {
+                return Err(format!("{name} is in that folder already."));
+            }
+            fs::rename(&temp, &target).map_err(|error| error.to_string())?;
+        }
+        "remove_temp" => {
+            let _ = fs::remove_file(&temp);
+        }
+        "remove_file" => {
+            let _ = fs::remove_file(&target);
+        }
+        _ => return Err(denied()),
+    }
+    Ok(name_of(&made))
+}
+
+/// Forgets a run: its token, and the folder it made, which stays on disk or went already.
+fn end_run(chosen: &Chosen, token: &str) {
+    if let Ok(mut made) = chosen.made.lock() {
+        made.remove(token);
+    }
+    if let Ok(mut parents) = chosen.parents.lock() {
+        parents.remove(token);
+    }
 }
 
 fn split_body(body: &[u8]) -> Result<(WriteHeader, &[u8]), String> {
@@ -353,6 +513,9 @@ mod tests {
         let header = WriteHeader {
             path: "/Footage/A001_C003.MP4".into(),
             name: None,
+            folder: None,
+            action: None,
+            token: None,
         };
         assert!(target_of(&chosen, &header).is_err());
         assert!(
@@ -373,7 +536,187 @@ mod tests {
         WriteHeader {
             path: path.to_str().unwrap().to_owned(),
             name: name.map(str::to_owned),
+            folder: None,
+            action: None,
+            token: None,
         }
+    }
+
+    fn set_header(token: &str, parent: &Path, name: Option<&str>, action: &str) -> WriteHeader {
+        WriteHeader {
+            path: parent.to_str().unwrap().to_owned(),
+            name: name.map(str::to_owned),
+            folder: Some("Pitch".into()),
+            action: Some(action.into()),
+            token: Some(token.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_set_makes_its_folder_on_the_first_write_and_takes_it_away_again() {
+        let dir = temp("set");
+        let chosen = Chosen::default();
+        // Nothing picked: nothing is written.
+        let tok = String::from("nobody");
+        assert!(folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "stage"),
+            b"x"
+        )
+        .is_err());
+        let tok = begin_run(&chosen, &dir);
+        // Picked, but no folder is made until a file is.
+        assert_eq!(names_in(&dir), Vec::<String>::new());
+        assert_eq!(
+            folder_write(
+                &chosen,
+                &set_header(&tok, &dir, Some("a.png"), "stage"),
+                b"one"
+            )
+            .unwrap(),
+            "Pitch"
+        );
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("b.png"), "stage"),
+            b"two",
+        )
+        .unwrap();
+        let made = dir.join("Pitch");
+        assert_eq!(names_in(&made), vec![".a.png.part", ".b.png.part"]);
+        // Committed, each file has its own name.
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "commit"),
+            b"",
+        )
+        .unwrap();
+        assert_eq!(names_in(&made), vec![".b.png.part", "a.png"]);
+        // A failure or Stop: the temporary file, the committed file and the empty folder go.
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("b.png"), "remove_temp"),
+            b"",
+        )
+        .unwrap();
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "remove_file"),
+            b"",
+        )
+        .unwrap();
+        folder_write(&chosen, &set_header(&tok, &dir, None, "remove_folder"), b"").unwrap();
+        assert_eq!(names_in(&dir), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_set_never_replaces_a_file_or_removes_a_folder_with_something_in_it() {
+        let dir = temp("set-keep");
+        let chosen = Chosen::default();
+        let tok = begin_run(&chosen, &dir);
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "stage"),
+            b"one",
+        )
+        .unwrap();
+        let made = dir.join("Pitch");
+        // Somebody put a file of the same name there meanwhile: the commit refuses, and the file stays.
+        fs::write(made.join("a.png"), b"theirs").unwrap();
+        assert!(folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "commit"),
+            b""
+        )
+        .is_err());
+        assert_eq!(fs::read(made.join("a.png")).unwrap(), b"theirs");
+        // The folder has a file in it that isn't ours to remove: it stays.
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "remove_temp"),
+            b"",
+        )
+        .unwrap();
+        folder_write(&chosen, &set_header(&tok, &dir, None, "remove_folder"), b"").unwrap();
+        assert!(made.join("a.png").exists());
+        // Names and folders the page makes up are refused.
+        let tok = begin_run(&chosen, &dir);
+        for bad in ["../x.png", ".hidden.png", "a.exe", "sub/a.png"] {
+            assert!(
+                folder_write(&chosen, &set_header(&tok, &dir, Some(bad), "stage"), b"x").is_err(),
+                "{bad}"
+            );
+        }
+        let mut odd = set_header(&tok, &dir, Some("a.png"), "stage");
+        odd.folder = Some("../out".into());
+        assert!(folder_write(&chosen, &odd, b"x").is_err());
+        // A parent that wasn't picked is no place to write.
+        let other = temp("set-other");
+        assert!(folder_write(
+            &chosen,
+            &set_header(&tok, &other, Some("a.png"), "stage"),
+            b"x"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn two_runs_into_the_same_folder_each_get_a_folder_of_their_own() {
+        let dir = temp("set-twice");
+        let chosen = Chosen::default();
+        let mut made = Vec::new();
+        for _ in 0..2 {
+            let tok = begin_run(&chosen, &dir);
+            let name = folder_write(
+                &chosen,
+                &set_header(&tok, &dir, Some("a.png"), "stage"),
+                b"x",
+            )
+            .unwrap();
+            folder_write(
+                &chosen,
+                &set_header(&tok, &dir, Some("a.png"), "commit"),
+                b"",
+            )
+            .unwrap();
+            folder_write(&chosen, &set_header(&tok, &dir, None, "finish"), b"").unwrap();
+            made.push(name);
+            // The run is over: its token writes nothing more.
+            assert!(folder_write(
+                &chosen,
+                &set_header(&tok, &dir, Some("b.png"), "stage"),
+                b"x"
+            )
+            .is_err());
+        }
+        assert_eq!(made, ["Pitch", "Pitch 2"]);
+        assert_eq!(names_in(&dir.join("Pitch")), ["a.png"]);
+        assert_eq!(names_in(&dir.join("Pitch 2")), ["a.png"]);
+        // A run that stops takes away only its own folder.
+        let tok = begin_run(&chosen, &dir);
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "stage"),
+            b"x",
+        )
+        .unwrap();
+        folder_write(
+            &chosen,
+            &set_header(&tok, &dir, Some("a.png"), "remove_temp"),
+            b"",
+        )
+        .unwrap();
+        folder_write(&chosen, &set_header(&tok, &dir, None, "remove_folder"), b"").unwrap();
+        assert_eq!(names_in(&dir), ["Pitch", "Pitch 2"]);
+        // One run's token is no good for another parent.
+        let other = temp("set-twice-other");
+        let tok = begin_run(&chosen, &dir);
+        assert!(folder_write(
+            &chosen,
+            &set_header(&tok, &other, Some("a.png"), "stage"),
+            b"x"
+        )
+        .is_err());
     }
 
     fn body(header: &[u8], bytes: &[u8]) -> Vec<u8> {

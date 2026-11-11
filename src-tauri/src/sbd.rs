@@ -458,6 +458,16 @@ impl SbdFile {
         Ok(())
     }
 
+    /// The folder the project file is in, which a relative path the project stores is read against.
+    pub fn folder(&self) -> Option<&Path> {
+        // Only an absolute project path can be read against: a relative one would resolve against wherever the app runs.
+        if self.path.is_absolute() {
+            self.path.parent()
+        } else {
+            None
+        }
+    }
+
     /// The file a full copy in progress is being written to.
     pub fn copying_path(&self) -> Option<PathBuf> {
         self.copying.as_ref()?.path().map(Path::to_path_buf)

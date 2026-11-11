@@ -12,6 +12,8 @@ import { isAttached, type CanvasColours, type CanvasItem, type CanvasLink, type 
 
 /** Pictures are drawn as if zoomed in this far, so a presentation asks for each at full size. */
 const PRESENT_ZOOM = 4;
+/** An export asks for every picture at its stored size, however small it is drawn. */
+const PRINT_ZOOM = 1000;
 
 const anchorOf = (boxes: ReadonlyMap<string, Geometry>, end: LinkEnd): Anchor | null => {
   if (!isAttached(end)) return { point: { x: end.x, y: end.y } };
@@ -28,9 +30,13 @@ interface PageStageProps {
   /** The room it is fitted into, in screen pixels. */
   size: Size;
   colours: CanvasColours;
+  /** Drawn to be exported (5.6a): the same drawing, pictures at their stored size and no outline round the page. */
+  print?: boolean;
+  /** The zoom pictures are asked for at, in place of the one `print` or a presentation gives: 0 asks for the small picture only. */
+  pictureZoom?: number;
 }
 
-export function PageStage({ page, items, links, size, colours }: PageStageProps) {
+export function PageStage({ page, items, links, size, colours, print = false, pictureZoom }: PageStageProps) {
   const stage = useRef<Konva.Stage>(null);
   // What the stage actually drew: the items whose nodes hold a shape, read back from Konva (the canvas is pixels), for the tests.
   const [drawnIds, setDrawnIds] = useState<string[]>([]);
@@ -55,7 +61,7 @@ export function PageStage({ page, items, links, size, colours }: PageStageProps)
   const draw = (item: CanvasItem, withTab: boolean) => (
     <Group key={item.id}>
       <Group id={item.id} name="stage-item" x={item.x + item.width / 2} y={item.y + item.height / 2} offsetX={item.width / 2} offsetY={item.height / 2} rotation={item.rotation} listening={false}>
-        {item.draw?.({ width: item.width, height: item.height, colours, zoom: PRESENT_ZOOM, inView: true, present: true })}
+        {item.draw?.({ width: item.width, height: item.height, colours, zoom: pictureZoom ?? (print ? PRINT_ZOOM : PRESENT_ZOOM), inView: true, present: true, ...(print ? { print: true } : {}) })}
       </Group>
       {withTab && item.section?.drawTab && (
         <Group x={item.x} y={item.y} listening={false}>

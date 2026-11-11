@@ -10,10 +10,18 @@ export interface ExportTarget {
   readonly label: string;
   /** Writes one file; for a single-file export, `name` is the file chosen. */
   write(name: string, bytes: Uint8Array): Promise<void>;
+  /**
+   * A set of files that appear only once every one is made (5.6a): `stage` keeps a file under a temporary name (in the
+   * browser build, in memory), `commit` gives every staged file its own name, and `abandon` takes away whatever this run
+   * made, the folder included, after a Stop or a failure. A target without them writes with `write` as it always did.
+   */
+  stage?(name: string, bytes: Uint8Array): Promise<void>;
+  commit?(): Promise<void>;
+  abandon?(): Promise<void>;
 }
 
 /** Packs a header and bytes for export_write: a 4-byte big-endian length, the JSON header, then the bytes. */
-function writeBody(header: { path: string; name?: string }, bytes: Uint8Array): Uint8Array {
+function writeBody(header: { path: string; name?: string; folder?: string; action?: string; token?: string }, bytes: Uint8Array): Uint8Array {
   const json = new TextEncoder().encode(JSON.stringify(header));
   const body = new Uint8Array(4 + json.length + bytes.length);
   new DataView(body.buffer).setUint32(0, json.length);
@@ -57,15 +65,73 @@ export async function chooseExportFile(name: string, desktop: boolean): Promise<
   };
 }
 
-/** The folder dialog for a set of files: they go into a new folder `folder` inside the one picked. Null when cancelled. */
+/**
+ * The folder dialog for a set of files: they go into a new folder `folder` inside the one picked, made when the first file is
+ * written, not before (5.6a). Null when cancelled.
+ */
 export async function chooseExportFolder(folder: string, desktop: boolean): Promise<ExportTarget | null> {
-  if (!desktop) return { label: folder, write: downloading };
-  const path = await invoke<string | null>('export_choose_folder', { folder });
-  if (path === null) return null;
+  if (!desktop) {
+    let held: { name: string; bytes: Uint8Array }[] = [];
+    return {
+      label: folder,
+      write: downloading,
+      stage: (name, bytes) => {
+        held.push({ name, bytes });
+        return Promise.resolve();
+      },
+      commit: () => {
+        const files = held;
+        held = [];
+        for (const file of files) download(file.name, file.bytes);
+        return Promise.resolve();
+      },
+      abandon: () => {
+        held = [];
+        return Promise.resolve();
+      },
+    };
+  }
+  const picked = await invoke<{ path: string; token: string } | null>('export_choose_folder', { folder });
+  if (picked === null) return null;
+  // The token belongs to this run alone, so a second export into the same folder makes a folder of its own.
+  const { path: parent, token } = picked;
+  // The folder's own name, as Rust made it ("Pitch 2" where "Pitch" was taken), once there is a folder.
+  let label = folder;
+  const send = async (action: string, name?: string, bytes: Uint8Array = new Uint8Array()) => {
+    const made = await invoke<string>('export_write', writeBody({ path: parent, folder, action, token, ...(name === undefined ? {} : { name }) }, bytes));
+    if (made !== '') label = made;
+  };
+  let staged: string[] = [];
+  let committed: string[] = [];
   return {
-    label: lastPart(path),
+    get label() {
+      return label;
+    },
     write: async (name, bytes) => {
-      await invoke('export_write', writeBody({ path, name }, bytes));
+      await send('stage', name, bytes);
+      await send('commit', name);
+    },
+    stage: async (name, bytes) => {
+      // Listed first: a write that fails partway still leaves a temporary file to take away.
+      staged.push(name);
+      await send('stage', name, bytes);
+    },
+    commit: async () => {
+      for (const name of staged) {
+        await send('commit', name);
+        committed.push(name);
+      }
+      staged = [];
+      await send('finish').catch(() => undefined);
+    },
+    abandon: async () => {
+      const pending = staged;
+      const done = committed;
+      staged = [];
+      committed = [];
+      for (const name of pending) await send('remove_temp', name).catch(() => undefined);
+      for (const name of done) await send('remove_file', name).catch(() => undefined);
+      await send('remove_folder').catch(() => undefined);
     },
   };
 }

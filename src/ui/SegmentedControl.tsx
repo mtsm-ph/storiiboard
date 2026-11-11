@@ -16,6 +16,7 @@ interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void;
   /** md: 30px cells, label above. sm: 18px cells, label beside, for the status bar. */
   size?: 'md' | 'sm';
+  disabled?: boolean;
 }
 
 export function SegmentedControl<T extends string>({
@@ -24,6 +25,7 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   size = 'md',
+  disabled = false,
 }: SegmentedControlProps<T>) {
   const labelId = useId();
   return (
@@ -46,6 +48,7 @@ export function SegmentedControl<T extends string>({
               key={option.value}
               type="button"
               role="radio"
+              disabled={disabled}
               aria-checked={selected}
               title={option.hint}
               aria-describedby={option.hint ? `${labelId}-${option.value}` : undefined}

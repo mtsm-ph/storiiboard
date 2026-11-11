@@ -67,7 +67,7 @@ function videoCard(id: string, card: CardInfo | null, context: DrawContext): Rea
   const missing = card?.missing === true;
   return (
     <>
-      <PictureNode id={id} sha256={card?.sha256 ?? null} width={width} height={height} zoom={0} inView colours={colours} />
+      <PictureNode id={id} sha256={card?.sha256 ?? null} width={width} height={height} zoom={context.print === true ? context.zoom : 0} inView colours={colours} />
       <Rect y={height - bar} width={width} height={bar} fill={missing ? BOARD_WARNING : BOARD_INK} listening={false} />
       <Group clipX={0} clipY={height - bar} clipWidth={width} clipHeight={bar}>
         <Text
@@ -100,7 +100,8 @@ function linkCard(fields: ItemFields, { width, height, colours }: DrawContext): 
   const family = cssFamily(DEFAULT_FONT_FAMILY, fontsStore.getState(), { weight: 700, italic: false });
   return (
     <>
-      <Rect width={width} height={height} fill={BOARD_PAPER} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />
+      {/* The address rides on the card's box, for a PDF export to make it a link (5.6a). */}
+      <Rect width={width} height={height} fill={BOARD_PAPER} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} name="sb-link" {...{ sbUrl: fields.url }} />
       <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
         <Text x={12} y={10} width={width - 24} text={t('moodboard.link.label')} fontFamily={MONO} fontSize={10} letterSpacing={1} fill={colours.ink} listening={false} />
         <Text x={12} y={26} width={width - 24} height={Math.max(0, height - 52)} text={label} fontFamily={family} fontStyle="bold" fontSize={18} lineHeight={1.2} fill={colours.ink} ellipsis listening={false} />
@@ -116,7 +117,9 @@ function sectionBox(fields: ItemFields, { width, height, colours }: DrawContext)
 }
 
 /** A page: its own background (white unless changed) with the board's ink outline. */
-function pageBox(fields: ItemFields, { width, height, colours }: DrawContext): ReactNode {
+function pageBox(fields: ItemFields, { width, height, colours, print }: DrawContext): ReactNode {
+  // An export prints the page as the paper it is: its background, without the outline the screen draws round it.
+  if (print === true) return <Rect width={width} height={height} fill={fields.background} />;
   return <Rect width={width} height={height} fill={fields.background} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />;
 }
 
@@ -230,7 +233,7 @@ export function withDrawing(
         if (fields.kind === 'text') {
           return (
             <Group key={fontsVersion}>
-              {fields.text === '' && <Rect width={context.width} height={context.height} stroke={context.colours.ink} strokeWidth={1} dash={[4, 3]} strokeScaleEnabled={false} />}
+              {fields.text === '' && context.present !== true && <Rect width={context.width} height={context.height} stroke={context.colours.ink} strokeWidth={1} dash={[4, 3]} strokeScaleEnabled={false} />}
               {!hidden && words(fields, { width: context.width }, fields.color ?? context.colours.ink, 0)}
             </Group>
           );
