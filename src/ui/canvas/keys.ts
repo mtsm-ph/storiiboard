@@ -1,4 +1,4 @@
-import type { CanvasCommand, Point, Tool } from './types';
+import type { CanvasCommand, Point, Side, Tool } from './types';
 
 // The canvas's keys as pure functions, so the table is tested without a browser.
 
@@ -15,7 +15,7 @@ export interface KeyLike {
 export const isCommand = (event: Pick<KeyLike, 'metaKey' | 'ctrlKey'>, mac: boolean): boolean =>
   mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 
-/** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse), L (link); read from the letter typed, so it follows the keyboard's layout. */
+/** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse), L (link), C (connector); read from the letter typed, so it follows the keyboard's layout. */
 export function toolForKey(event: KeyLike): Tool | null {
   if (event.altKey || event.metaKey || event.ctrlKey) return null;
   switch (event.key.toLowerCase()) {
@@ -33,6 +33,8 @@ export function toolForKey(event: KeyLike): Tool | null {
       return 'ellipse';
     case 'l':
       return 'link';
+    case 'c':
+      return 'connector';
     default:
       return null;
   }
@@ -75,4 +77,15 @@ export function zoomStepFor(event: Pick<KeyLike, 'key' | 'metaKey' | 'ctrlKey' |
   if (event.key === '+' || event.key === '=') return 1;
   if (event.key === '-' || event.key === '_') return -1;
   return 0;
+}
+
+const ARROW_SIDE: Readonly<Record<string, Side>> = { ArrowUp: 'top', ArrowRight: 'right', ArrowDown: 'bottom', ArrowLeft: 'left' };
+
+/**
+ * ⌘⌥ + an arrow on a Mac, Ctrl+Shift + an arrow elsewhere (5.2): the side to make a connected copy of the selected item
+ * on. Not Ctrl+Alt, which graphics drivers use to turn the screen.
+ */
+export function quickSideFor(event: KeyLike, mac: boolean): Side | null {
+  const chord = mac ? event.metaKey && event.altKey && !event.ctrlKey && !event.shiftKey : event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey;
+  return chord ? (ARROW_SIDE[event.key] ?? null) : null;
 }

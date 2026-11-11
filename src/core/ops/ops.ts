@@ -15,6 +15,9 @@ import { recordSlateNumbers } from '../storage/slateNumbers';
 /** `revert` is a record set back to an earlier point by restoreTo. Undo and redo rows keep the kind they reverse. */
 export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restore' | 'revert' | 'purge';
 
+/** Ids to delete for good together with a purge, given every record and the ids being purged. */
+export type AlsoPurge = (records: readonly SbdRecord[], purgedIds: readonly string[]) => Iterable<string>;
+
 /** What one op group was: an edit, or one of the three ways of going back and forth through the log. */
 export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore' | 'empty_trash';
 
@@ -663,11 +666,19 @@ export async function loggedRewrite(
  */
 export async function emptyTrash(
   file: ProjectFile,
-  options: OpOptions & { only?: ReadonlySet<string> } = {},
+  options: OpOptions & { only?: ReadonlySet<string>; alsoPurge?: AlsoPurge } = {},
 ): Promise<{ touched: Touched; removed: number; freed: number; pictures: string[] } | null> {
-  const { author = 'local', now = () => new Date(), only } = options;
+  const { author = 'local', now = () => new Date(), only, alsoPurge } = options;
   const all = await loadRecords(file);
-  const ids = purgeIds(all, only);
+  const purged = purgeIds(all, only);
+  // Records a feature names to go with what is deleted (a board's connectors joined to a deleted item), live or not, worked
+  // out here from the records as they are now and the final set, so what was restored while a confirm was up stays. They go
+  // only when something else does, only if they are there, and only if they have nothing under them: extras must be
+  // childless records the caller has checked, since a child left behind would hang from nothing.
+  const known = new Set(all.map((r) => r.id));
+  const parents = new Set(all.flatMap((r) => (r.parentId ? [r.parentId] : [])));
+  const extra = purged.length === 0 || !alsoPurge ? [] : [...alsoPurge(all, purged)].filter((id) => known.has(id) && !parents.has(id));
+  const ids = [...new Set([...purged, ...extra])];
   if (ids.length === 0) return null;
   const unreachable = await onlyInHistoryUnder(file, all, ids);
   const pictures = await unusedPictures(file, [...ids, ...unreachable]);

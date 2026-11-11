@@ -4,7 +4,7 @@ import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetDecoded } from '../core/media/decoded';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
@@ -81,7 +81,7 @@ export interface ProjectState {
    * Empty Trash (1.21): deletes the Trash for good, after the person has confirmed it. Resolves to what went, or null
    * when nothing did (an empty Trash, or a refusal, which has set `error`).
    */
-  emptyTrash: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
+  emptyTrash: (only?: ReadonlySet<string>, alsoPurge?: AlsoPurge) => Promise<{ removed: number; freed: number } | null>;
   /**
    * Restores the project to how it was right after a step in History (1.22), or as created with null, as one new op
    * group that undo takes back. Resolves to whether it changed anything.
@@ -312,10 +312,10 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           }
         });
       },
-      emptyTrash: async (only) => {
+      emptyTrash: async (only, alsoPurge) => {
         let result: { removed: number; freed: number } | null = null;
         await edit(async (project) => {
-          const done = await emptyTrash(project.file, { author: author(), ...(only ? { only } : {}) });
+          const done = await emptyTrash(project.file, { author: author(), ...(only ? { only } : {}), ...(alsoPurge ? { alsoPurge } : {}) });
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);

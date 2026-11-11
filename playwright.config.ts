@@ -22,7 +22,7 @@ export default defineConfig({
   reporter: [...(process.env.CI ? ciReporters : localReporters), ['json', { outputFile: 'test-results/e2e.json' }]],
   outputDir: 'test-results/e2e',
   use: {
-    baseURL: 'http://localhost:1420',
+    baseURL: 'http://localhost:1421',
     trace: 'retain-on-failure',
   },
   projects: [
@@ -31,7 +31,9 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:1420',
+    // Its own port, with hot reload off: a dev server on 1420 is never reused.
+    env: { STORIIBOARD_E2E: '1', STORIIBOARD_PORT: '1421' },
+    url: 'http://localhost:1421',
     reuseExistingServer: !process.env.CI,
     // A cold start on a runner includes Vite pre-bundling the dependencies.
     timeout: 120_000,

@@ -1,17 +1,19 @@
 import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Group, Layer, Rect, Stage, Transformer } from 'react-konva';
+import { Circle, Group, Layer, Rect, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsOf, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
-import { commandForKey, isCommand, toolForKey, zoomShortcut, zoomStepFor } from './keys';
+import { commandForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
+import { LABEL_FONT_SIZE, LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
-import { isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type Geometry, type GeometryChange, type PlaceTool, type Point, type Rect as WorldRect, type Size, type Tool, type Viewport } from './types';
+import { labelBox, pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd, type Anchor, type Path } from './routing';
+import { isAttached, isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type CanvasLink, type ConnectDrop, type Geometry, type GeometryChange, type LinkEnd, type PlaceTool, type Point, type Rect as WorldRect, type Side, type Size, type Tool, type Viewport } from './types';
 import { useCanvasColours } from './useCanvasColours';
-import { centreOn, fitBounds, panBy, rectsMeet, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
+import { centreOn, fitBounds, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
 
 // The canvas core (decision 11): a react-konva stage that pans, zooms, selects, moves, resizes and rotates rectangles in
 // world units and reports each finished gesture, never a half-done one. It knows nothing of boards: the host gives it
@@ -34,12 +36,33 @@ const ZOOM_BUTTON = cx(BUTTON, 'text-text hover:bg-surface-raised');
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const ALL_ANCHORS = ['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left'];
 const ROTATION_SNAPS = Array.from({ length: 24 }, (_, i) => i * 15);
+/** The "+" handles of a quick connected copy (5.2) sit this far outside a side, in screen pixels; the rotate handle is further. */
+const QUICK_OFFSET = 13;
+const QUICK_SIZE = 12;
+/** How near (screen pixels) the pointer must be to a selected connector's end to take it. */
+const END_GRAB = 9;
+const QUICK_LABEL: Readonly<Record<Side, () => string>> = {
+  top: () => t('canvas.quick.top'),
+  right: () => t('canvas.quick.right'),
+  bottom: () => t('canvas.quick.bottom'),
+  left: () => t('canvas.quick.left'),
+};
 
 type Gesture =
   | { kind: 'pan'; last: Point }
   | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; moved: boolean; collapseTo: string | null }
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
-  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; moved: boolean };
+  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; moved: boolean }
+  // A connector drawn (the tool, or a "+" handle) or one of its ends dragged: `fixed` stays, the other end follows the pointer.
+  | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null };
+
+/** A connector being drawn or re-ended: the ends as the pointer makes them, and the side it would join. */
+interface ConnectDraft {
+  id: string | null;
+  from: LinkEnd;
+  to: LinkEnd;
+  mark: Point | null;
+}
 
 export interface CanvasProps {
   /** The board's name: the container's label. */
@@ -78,6 +101,12 @@ export interface CanvasProps {
    */
   onSystemCopy?: (data: DataTransfer | null, native: Event | null) => void;
   onCommand: (command: CanvasCommand) => void;
+  /** The connectors (5.2), back to front: drawn under the items, picked within 6 px of their path, each end following its item live. */
+  links?: readonly CanvasLink[];
+  /** A connector drawn, or one of its ends dragged, finished (the host writes it). */
+  onConnect?: (drop: ConnectDrop) => unknown;
+  /** The "+" handle on a quick-create item, or ⌘⌥ + an arrow: make a connected copy on that side (the host does it). */
+  onQuickCreate?: (id: string, side: Side) => void;
   /** Whether Paste has something to paste (the host keeps the clipboard). */
   canPaste: boolean;
   /**
@@ -86,6 +115,25 @@ export interface CanvasProps {
    */
   fixedColours?: CanvasColours;
 }
+
+/** An end as the router takes it: the item's box and side, or the free point; null when the item isn't there. */
+function anchorOf(boxes: ReadonlyMap<string, Geometry>, end: LinkEnd): Anchor | null {
+  if (!isAttached(end)) return { point: { x: end.x, y: end.y } };
+  const box = boxes.get(end.item);
+  return box ? { box, side: end.side } : null;
+}
+
+/** The numbers a path depends on at one end. */
+const anchorKey = (a: Anchor): number[] =>
+  'point' in a ? [a.point.x, a.point.y] : [a.box.x, a.box.y, a.box.width, a.box.height, a.box.rotation, ['top', 'right', 'bottom', 'left', 'auto'].indexOf(a.side)];
+
+/** The items as boxes for snapping, back to front. */
+/** Whether a point picks a connector: within 6 screen px of its line (and half its width), or on its label's patch. */
+const linkHit = (r: ResolvedLink, p: Point, zoom: number): boolean =>
+  pathHits(r.path, p, PICK_DISTANCE / zoom + r.link.width / 2) ||
+  (r.patch !== null && p.x >= r.patch.x && p.x <= r.patch.x + r.patch.width && p.y >= r.patch.y && p.y <= r.patch.y + r.patch.height);
+const pathBoundsOf = (r: ResolvedLink): WorldRect => pathBounds(r.path);
+const boxesOf = (items: readonly CanvasItem[]) => items.map((item) => ({ id: item.id, box: item }));
 
 const isMac = () => typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
@@ -114,6 +162,9 @@ export function Canvas({
   onOpen,
   onPasteData,
   onSystemCopy,
+  links = [],
+  onConnect,
+  onQuickCreate,
   onCommand,
   canPaste,
   fixedColours,
@@ -154,9 +205,44 @@ export function Canvas({
   const [preview, setPreview] = useState<{ kind: 'marquee' | 'draw'; rect: WorldRect } | null>(null);
   const [menu, setMenu] = useState<{ at: Point; world: Point } | null>(null);
   const [minimap, setMinimap] = useState(false);
+  const [connecting, setConnecting] = useState<ConnectDraft | null>(null);
+  // Where the items being resized or turned by the handles are right now, so the connectors follow before the gesture ends.
+  const [transforming, setTransforming] = useState<{ key: string; live: ReadonlyMap<string, Geometry> } | null>(null);
   const describedBy = useId();
 
   const shown = useMemo(() => items.map((item) => ({ ...item, ...(draft?.get(item.id) ?? item) })), [items, draft]);
+  // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
+  // The handles' live geometry counts only for the selection it was made on.
+  const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
+  // A cache the render fills as it goes: it only saves routing again, never changes what is drawn.
+  const [routes] = useState(() => new Map<string, { key: string; path: Path }>());
+  const resolved = useMemo((): ResolvedLink[] => {
+    const boxes = new Map(shown.map((item) => [item.id, liveBoxes?.get(item.id) ?? item]));
+    return links.flatMap((original) => {
+      const link = connecting?.id === original.id ? { ...original, from: connecting.from, to: connecting.to } : original;
+      const a = anchorOf(boxes, link.from);
+      const b = anchorOf(boxes, link.to);
+      if (!a || !b) return [];
+      // Routed again only when the numbers it depends on changed (a move elsewhere on the board leaves it as it was).
+      const key = JSON.stringify([link.route, link.width, anchorKey(a), anchorKey(b)]);
+      const cached = routes.get(link.id);
+      const path = cached?.key === key ? cached.path : routeBetween(a, b, link.route);
+      if (cached?.key !== key) routes.set(link.id, { key, path });
+      const middle = pathMiddle(path);
+      const typing = editing === link.id;
+      return [{ link, path, middle, patch: link.text !== '' || typing ? labelBox(link.text, middle, LABEL_FONT_SIZE, typing ? 120 : 0) : null }];
+    });
+  }, [links, shown, connecting, editing, liveBoxes, routes]);
+  // A connector being drawn is shown with the others, lighter.
+  const drawing = useMemo((): ResolvedLink | null => {
+    if (!connecting || connecting.id !== null) return null;
+    const boxes = new Map(shown.map((item) => [item.id, item]));
+    const a = anchorOf(boxes, connecting.from);
+    const b = anchorOf(boxes, connecting.to);
+    if (!a || !b) return null;
+    const path = routeBetween(a, b, 'straight');
+    return { link: { id: '', label: '', from: connecting.from, to: connecting.to, route: 'straight', startHead: 'none', endHead: 'arrow', color: null, width: 1.5, text: '' }, path, middle: pathMiddle(path), patch: null };
+  }, [connecting, shown]);
   const view = viewport;
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
@@ -174,10 +260,10 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
-  const latest = useRef({ items, shown, selection, tool, viewport, size, draft, onViewportChange });
+  const latest = useRef({ items, shown, resolved, selection, tool, viewport, size, draft, onViewportChange });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, selection, tool, viewport, size, draft, onViewportChange };
+    latest.current = { items, shown, resolved, selection, tool, viewport, size, draft, onViewportChange };
   });
 
   // The canvas follows the tile's size.
@@ -321,7 +407,24 @@ export function Canvas({
     });
   };
 
+  // The handles' live geometry for the nodes they hold, as onTransformEnd would write it.
+  const nodeGeometry = (g: Geometry, node: Konva.Group): Geometry => {
+    const width = tidy(atLeastMinimum(g.width * node.scaleX()));
+    const height = tidy(atLeastMinimum(g.height * node.scaleY()));
+    return { x: tidy(node.x() - width / 2), y: tidy(node.y() - height / 2), width, height, rotation: normalisedRotation(node.rotation()) };
+  };
+  const onTransform = () => {
+    const live = new Map<string, Geometry>();
+    for (const item of latest.current.items) {
+      const node = nodes.current.get(item.id);
+      if (!node || !latest.current.selection.includes(item.id)) continue;
+      live.set(item.id, nodeGeometry(latest.current.draft?.get(item.id) ?? item, node));
+    }
+    setTransforming({ key: latest.current.selection.join('|'), live });
+  };
+
   const onTransformEnd = () => {
+    setTransforming(null);
     const changes: GeometryChange[] = [];
     for (const item of latest.current.items) {
       const node = nodes.current.get(item.id);
@@ -354,6 +457,8 @@ export function Canvas({
     gesture.current = null;
     setPanning(false);
     setPreview(null);
+    setConnecting(null);
+    setTransforming(null);
     // Only a drag that began its own hold lets it go: a pending write's hold is not this gesture's to drop.
     if (g?.kind === 'move' && g.moved) setDraft(null);
   };
@@ -376,7 +481,28 @@ export function Canvas({
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const world = worldOf(screen);
-    const { shown: all, selection: picked, tool: current } = latest.current;
+    const { shown: all, selection: picked, tool: current, resolved: lines, viewport: now } = latest.current;
+    if (current === 'connector') {
+      // Drag from an item (or empty space) to an item (or empty space): the first end snaps as the second does.
+      const start = snapEnd(boxesOf(all), world, now.zoom);
+      gesture.current = { kind: 'connect', id: null, fixed: start.end, moving: 'to', screen, moved: false, quick: null, quickSide: null };
+      return;
+    }
+    // A selected connector's ends are taken first: they sit over the items they join.
+    const only = picked.length === 1 ? lines.find((r) => r.link.id === picked[0]) : undefined;
+    if (only && current === 'select') {
+      const ends = [
+        { moving: 'from' as const, at: only.path.points[0] },
+        { moving: 'to' as const, at: only.path.points[only.path.points.length - 1] },
+      ];
+      for (const end of ends) {
+        const there = end.at ? toScreen(now, latest.current.size, end.at) : null;
+        if (there && Math.hypot(there.x - screen.x, there.y - screen.y) <= END_GRAB) {
+          gesture.current = { kind: 'connect', id: only.link.id, fixed: end.moving === 'from' ? only.link.to : only.link.from, moving: end.moving, screen, moved: false, quick: null, quickSide: null };
+          return;
+        }
+      }
+    }
     if (isPlaceTool(current)) {
       gesture.current = { kind: 'draw', tool: current, start: world, screen, moved: false };
       return;
@@ -405,6 +531,12 @@ export function Canvas({
       };
       return;
     }
+    // No item: a connector near the pointer is picked (the topmost of them).
+    const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
+    if (line) {
+      onSelectionChange(event.shiftKey ? (picked.includes(line.link.id) ? picked.filter((id) => id !== line.link.id) : [...picked, line.link.id]) : [line.link.id]);
+      return;
+    }
     if (!event.shiftKey) onSelectionChange([]);
     gesture.current = { kind: 'marquee', start: world, screen, base: event.shiftKey ? [...picked] : [], moved: false };
   };
@@ -423,6 +555,11 @@ export function Canvas({
     if (!g.moved && Math.hypot(screen.x - g.screen.x, screen.y - g.screen.y) < DRAG_THRESHOLD) return;
     if (!g.moved && g.kind === 'move') generation.current += 1;
     g.moved = true;
+    if (g.kind === 'connect') {
+      const snap = snapEnd(boxesOf(latest.current.shown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
+      setConnecting({ id: g.id, from: g.moving === 'to' ? g.fixed : snap.end, to: g.moving === 'to' ? snap.end : g.fixed, mark: snap.mark });
+      return;
+    }
     if (g.kind === 'move') {
       const dx = tidy(world.x - g.start.x);
       const dy = tidy(world.y - g.start.y);
@@ -438,6 +575,29 @@ export function Canvas({
     setPanning(false);
     if (!g || g.kind === 'pan') return;
     const world = worldOf(local(event));
+    if (g.kind === 'connect') {
+      setConnecting(null);
+      if (!g.moved) {
+        // A press on a "+" handle without a drag makes the connected copy; any other press does nothing.
+        if (g.quick !== null && g.quickSide !== null) {
+          onQuickCreate?.(g.quick, g.quickSide);
+          return;
+        }
+        // A press on a selected connector's end that doesn't drag is an ordinary click there: the item or connector under
+        // it is picked, or nothing is.
+        if (g.id !== null) {
+          const { shown: all, resolved: lines, viewport: now } = latest.current;
+          const top = topmostAt(all, world);
+          const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
+          onSelectionChange(top ? [top.id] : line ? [line.link.id] : []);
+        }
+        return;
+      }
+      const snap = snapEnd(boxesOf(latest.current.shown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
+      void onConnect?.({ id: g.id, from: g.moving === 'to' ? g.fixed : snap.end, to: g.moving === 'to' ? snap.end : g.fixed });
+      if (g.id === null) onToolChange('select');
+      return;
+    }
     if (g.kind === 'move') {
       if (!g.moved) {
         if (g.collapseTo) onSelectionChange([g.collapseTo]);
@@ -450,7 +610,10 @@ export function Canvas({
       setPreview(null);
       if (!g.moved) return;
       const box = rectFromCorners(g.start, world);
-      const touched = latest.current.shown.filter((item) => marqueeTouches(item, box)).map((item) => item.id);
+      const touched = [
+        ...latest.current.resolved.filter((r) => pathTouchesRect(r.path, box)).map((r) => r.link.id),
+        ...latest.current.shown.filter((item) => marqueeTouches(item, box)).map((item) => item.id),
+      ];
       onSelectionChange([...new Set([...g.base, ...touched])]);
     } else {
       setPreview(null);
@@ -485,7 +648,8 @@ export function Canvas({
   };
 
   const cycle = (direction: 1 | -1) => {
-    const ids = latest.current.items.map((i) => i.id);
+    // Connectors draw under the items, so they come first, back to front like the rest.
+    const ids = [...latest.current.resolved.map((r) => r.link.id), ...latest.current.items.map((i) => i.id)];
     if (ids.length === 0) return;
     const picked = ids.map((id, i) => (latest.current.selection.includes(id) ? i : -1)).filter((i) => i >= 0);
     const from = direction === 1 ? Math.max(...picked) : Math.min(...picked);
@@ -494,9 +658,10 @@ export function Canvas({
     onSelectionChange([next]);
     // An item out of view is brought into it.
     const item = latest.current.shown.find((i) => i.id === next);
+    const line = latest.current.resolved.find((r) => r.link.id === next);
     const { viewport: now, size: box } = latest.current;
-    if (item && !rectsMeet(boundsOf(item), visibleWorld(now, box))) {
-      const b = boundsOf(item);
+    const b = item ? boundsOf(item) : line ? pathBoundsOf(line) : null;
+    if (b && !rectsMeet(b, visibleWorld(now, box))) {
       onViewportChange(centreOn(now, { x: b.x + b.width / 2, y: b.y + b.height / 2 }));
     }
   };
@@ -512,6 +677,16 @@ export function Canvas({
       space.current = true;
       setSpaceHeld(true);
       return;
+    }
+    // ⌘⌥ + an arrow (Ctrl+Shift on Windows): a connected copy of the one selected item on that side.
+    const quickSide = quickSideFor(event, mac);
+    if (quickSide && picked.length === 1) {
+      const only = latest.current.items.find((i) => i.id === picked[0]);
+      if (only?.quick && onQuickCreate) {
+        event.preventDefault();
+        if (!event.repeat) onQuickCreate(only.id, quickSide);
+        return;
+      }
     }
     if (event.key === 'Tab' && !modifiers && picked.length > 0) {
       event.preventDefault();
@@ -536,7 +711,7 @@ export function Canvas({
     }
     if (isCommand(event, mac) && event.key.toLowerCase() === 'a' && !event.shiftKey) {
       event.preventDefault();
-      onSelectionChange(latest.current.items.map((i) => i.id));
+      onSelectionChange([...latest.current.resolved.map((r) => r.link.id), ...latest.current.items.map((i) => i.id)]);
       return;
     }
     const command = commandForKey(event, mac, pointer.current ? worldOf(pointer.current) : null);
@@ -634,6 +809,11 @@ export function Canvas({
       // Enter on one selected text or sticky item edits it in place.
       if (event.key === 'Enter' && onEdit && picked.length === 1) {
         const only = latest.current.items.find((i) => i.id === picked[0]);
+        if (!only && latest.current.resolved.some((r) => r.link.id === picked[0])) {
+          event.preventDefault();
+          onEdit(picked[0] as string);
+          return;
+        }
         if (only?.editable) {
           event.preventDefault();
           onEdit(only.id);
@@ -648,17 +828,36 @@ export function Canvas({
     }
   };
 
-  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
-  const editingItem = editing ? shown.find((i) => i.id === editing) : undefined;
+  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : tool === 'connector' ? 'crosshair' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
+  // The item being typed into, or a connector's label (its patch, as wide as the words need and no less than 120).
+  const editingLine = editing ? resolved.find((r) => r.link.id === editing) : undefined;
+  const editingItem: CanvasItem | undefined = editing
+    ? (shown.find((i) => i.id === editing) ??
+      (editingLine?.patch ? { id: editingLine.link.id, label: editingLine.link.label, ...editingLine.patch, rotation: 0, editable: true } : undefined))
+    : undefined;
   const percent = Math.round(view.zoom * 100);
+  // One item that can be copied with a connector selected, at rest: its four "+" handles show.
+  const quickItem =
+    tool === 'select' && selection.length === 1 && !editing && !draft && !connecting && !liveBoxes && onQuickCreate
+      ? shown.find((item) => item.id === selection[0] && item.quick === true)
+      : undefined;
   const live =
     selection.length === 0
       ? ''
       : selection.length === 1
-        ? t('canvas.selectedAt', { label: items.find((i) => i.id === selection[0])?.label ?? '', n: items.findIndex((i) => i.id === selection[0]) + 1, total: items.length })
+        ? t('canvas.selectedAt', {
+            label: items.find((i) => i.id === selection[0])?.label ?? links.find((l) => l.id === selection[0])?.label ?? '',
+            n: [...links, ...items].findIndex((i) => i.id === selection[0]) + 1,
+            total: links.length + items.length,
+          })
         : tn('canvas.itemsSelected', selection.length);
   const data = useMemo(() => JSON.stringify(items.map(({ id, x, y, width, height, rotation }) => ({ id, x, y, width, height, rotation }))), [items]);
   const chosen = useMemo(() => JSON.stringify(selection), [selection]);
+  // The connectors' paths, as plain data for the end-to-end tests (the canvas is pixels).
+  const lineData = useMemo(
+    () => JSON.stringify(resolved.map((r) => ({ id: r.link.id, kind: r.path.kind, points: r.path.points.map((p) => ({ x: tidy(p.x), y: tidy(p.y) })) }))),
+    [resolved],
+  );
 
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- an application region: it takes the canvas's own keys and pointer
@@ -676,6 +875,7 @@ export function Canvas({
       // What is drawn, as plain data: the canvas itself is pixels, so the end-to-end tests read the board from here.
       data-items={data}
       data-selection={chosen}
+      data-links={lineData}
       data-tool={tool}
       style={{ cursor, ...(fixedColours ? { background: fixedColours.paper, outlineColor: fixedColours.ink } : {}) }}
       className="relative h-full min-h-60 w-full touch-none overflow-hidden bg-surface select-none focus-visible:-outline-offset-4"
@@ -689,9 +889,15 @@ export function Canvas({
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
-        const top = topmostAt(latest.current.shown, worldOf(local(event)));
+        const at = worldOf(local(event));
+        const top = topmostAt(latest.current.shown, at);
         if (top?.editable) onEdit?.(top.id);
         else if (top?.openable) onOpen?.(top.id);
+        else if (!top) {
+          // A connector's label is typed in place.
+          const line = [...latest.current.resolved].reverse().find((r) => linkHit(r, at, latest.current.viewport.zoom));
+          if (line) onEdit?.(line.link.id);
+        }
       }}
       onCopy={(event) => {
         if (event.target !== event.currentTarget || selection.length === 0) return;
@@ -754,6 +960,17 @@ export function Canvas({
       </p>
       <Stage ref={stage} width={size.width} height={size.height} listening>
         <Layer x={size.width / 2 - view.cx * view.zoom} y={size.height / 2 - view.cy * view.zoom} scaleX={view.zoom} scaleY={view.zoom}>
+          {resolved.map((r) => (
+            <LinkShape
+              key={r.link.id}
+              resolved={r}
+              colours={colours}
+              selected={pickedSet.has(r.link.id)}
+              hideText={editing === r.link.id}
+              handles={selection.length === 1 && selection[0] === r.link.id && tool === 'select'}
+              zoom={view.zoom}
+            />
+          ))}
           {drawn.map((item) => (
             <Group
               key={item.id}
@@ -777,6 +994,8 @@ export function Canvas({
               )}
             </Group>
           ))}
+          {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
+          {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
           {preview && (
             <Rect
               x={preview.rect.x}
@@ -808,6 +1027,7 @@ export function Canvas({
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
             boundBoxFunc={(was, next) => (next.width < MIN_SIZE * view.zoom || next.height < MIN_SIZE * view.zoom ? was : next)}
+            onTransform={onTransform}
             onTransformEnd={onTransformEnd}
           />
         </Layer>
@@ -847,6 +1067,32 @@ export function Canvas({
           {t('canvas.minimap')}
         </button>
       </div>
+      {quickItem &&
+        SIDES.map((side) => {
+          // Just outside the side, along its (turned) normal; the rotate handle sits further out than these.
+          const middle = toScreen(view, size, sideMidpoint(quickItem, side));
+          const normal = sideNormal(quickItem, side);
+          return (
+            <button
+              key={side}
+              type="button"
+              tabIndex={-1}
+              data-quick-side={side}
+              aria-label={QUICK_LABEL[side]()}
+              className="absolute z-10 flex items-center justify-center border border-text bg-surface font-mono text-[10px] leading-none text-text hover:bg-surface-raised"
+              style={{ left: middle.x + normal.x * QUICK_OFFSET - QUICK_SIZE / 2, top: middle.y + normal.y * QUICK_OFFSET - QUICK_SIZE / 2, width: QUICK_SIZE, height: QUICK_SIZE }}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                frame.current?.focus({ preventScroll: true });
+                frame.current?.setPointerCapture(event.pointerId);
+                gesture.current = { kind: 'connect', id: null, fixed: { item: quickItem.id, side }, moving: 'to', screen: local(event), moved: false, quick: quickItem.id, quickSide: side };
+              }}
+            >
+              +
+            </button>
+          );
+        })}
       {editingItem && renderEditor && (
         <div
           data-canvas-editor=""

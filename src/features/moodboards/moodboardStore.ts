@@ -1,7 +1,8 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import type { Geometry, Tool, Viewport } from '../../ui/canvas/types';
+import type { Geometry, Side, Tool, Viewport } from '../../ui/canvas/types';
 import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
+import type { ClipConnector } from './connectors';
 import type { ClipItem, ItemSeed } from './items';
 
 // Where the person is in the Moodboard: the board open, what's selected on each, each board's view and the tool. View
@@ -16,6 +17,8 @@ export interface Editing {
   boardId: string;
   id: string;
   draft: ItemSeed | null;
+  /** A new text box made with a connector from this item's side (5.2 quick-create): both are written when typing ends, or neither. */
+  join?: { item: string; side: Side };
 }
 
 /** The Link tool has placed a card and is asking for its address (5.1b); nothing is in the project until it is given. */
@@ -31,6 +34,8 @@ interface MoodboardState {
   viewports: Readonly<Record<string, Viewport>>;
   tool: Tool;
   clipboard: readonly ClipItem[];
+  /** The connectors copied with them (5.2), their ends naming the copied items by place in `clipboard`. */
+  clipConnectors: readonly ClipConnector[];
   /** The project the clipboard's items were copied from: its id and path. */
   clipSource: { projectId: string; path: string } | null;
   editing: Editing | null;
@@ -39,7 +44,7 @@ interface MoodboardState {
   select: (boardId: string, ids: readonly string[]) => void;
   setViewport: (boardId: string, view: Viewport) => void;
   setTool: (tool: Tool) => void;
-  copy: (items: readonly ClipItem[], source?: { projectId: string; path: string } | null) => void;
+  copy: (items: readonly ClipItem[], source?: { projectId: string; path: string } | null, connectors?: readonly ClipConnector[]) => void;
   startEditing: (editing: Editing) => void;
   stopEditing: () => void;
   askLink: (ask: LinkAsk | null) => void;
@@ -51,6 +56,7 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   viewports: {},
   tool: 'select',
   clipboard: [],
+  clipConnectors: [],
   clipSource: null,
   editing: null,
   linkAsk: null,
@@ -66,8 +72,8 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   setTool: (tool) => {
     set({ tool });
   },
-  copy: (clipboard, source = null) => {
-    set({ clipboard, clipSource: source });
+  copy: (clipboard, source = null, clipConnectors = []) => {
+    set({ clipboard, clipSource: source, clipConnectors });
   },
   startEditing: (editing) => {
     set({ editing, tool: 'select' });

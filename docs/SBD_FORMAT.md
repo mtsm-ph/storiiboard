@@ -739,7 +739,7 @@ were always in the list, so there is no migration and no schema number (additive
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
 `board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
-- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b). An item whose `kind` this version doesn't know is
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2). An item whose `kind` this version doesn't know is
   kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
@@ -784,6 +784,38 @@ were always in the list, so there is no migration and no schema number (additive
 - Trashing a picture, video or link item trashes the item only; its `media` child stays under it, so Restore brings the
   item back whole. Empty Trash deletes the item with everything under it, and the stored picture bytes with them unless
   another record (a frame's picture, another item) or an older step of one still names the same `file`.
+- A `connector` item (5.2) joins two things on the board and has no `x`, `y`, `width` or `height` of its own: its path is worked
+  out when it is drawn, from its ends. Its props:
+  - `from` and `to`: each an object, either `{ "item": <board_item id>, "side": "top" | "right" | "bottom" | "left" | "auto" }`
+    (attached) or `{ "x": number, "y": number }` (free, world units). An unknown side reads as `auto`, which picks the side
+    facing the other end each time it is drawn. An end that is neither reads the whole connector as unknown (kept, not shown).
+  - `route`: `straight` (default), `elbow` (right angles only: it leaves an attached side perpendicular and at least 16 units
+    out, then turns at right angles, at most five segments: out, across, along, across, in; between two free ends, one bend; it
+    never crosses either box it joins, and two facing sides closer than 32 units split the room, each leaving by half of it) or `curved` (a cubic Bézier
+    whose control points leave each attached end perpendicular to its side by a third of the distance; a free end aims at
+    the other end). For a turned item the side is the turned side: anchors are the rotated side midpoints, and an elbow
+    uses the right angle nearest the turned side's normal.
+  - `start_head` and `end_head`: `none` or `arrow` (defaults `none` and `arrow`). The head sits at the very end, pointing
+    along the last segment's direction.
+  - `color`: `#RRGGBB`; missing reads as ink `#16150F` (board content is never themed). `width`: line width in world units,
+    0.5 to 24, default 1.5. `label`: text drawn at the path's middle on a paper patch; missing or empty is none.
+  - An attached end follows its item live: moving, resizing or turning an item writes nothing to its connectors. A new
+    connector is given a sort key before every other sibling's, so it draws under the items it joins. A connector whose
+    attached item is in the Trash, or gone, is not shown until the item is back. A connector may be attached to an item of
+    its own board only.
+  - Trashing an item trashes the connectors attached to it in the same op group (same `trashed_at` and `trashed_by`). The
+    Trash does not list those: it lists the item, and Restore brings the item back with every connector trashed with it, even
+    when the connector's other item is still in the Trash: it then stays hidden until that item is back, and is never listed on
+    its own. A connector deleted on its own is listed ("Connector on Camera board")
+    and restored alone; if one of its items is in the Trash it stays hidden until that item is back. Empty Trash deletes a
+    connector listed on its own as any other row, and every connector attached to an item it deletes, live or in the Trash, so
+    none is left hanging from nothing.
+  - Copy and paste: a connector copied with both of its items is pasted attached to their copies; copied without one of them
+    (or with a picture left out of a paste) that end is pasted free where it was; an end that was free moves with the paste.
+    The text put on the system clipboard is the connector's label, if it has one.
+  - Quick-create (the "+" handles beside one selected sticky note, shape or text box, or ⌘⌥ + an arrow, Ctrl+Shift on Windows):
+    one op group makes a copy of the item's kind and style (text empty) 80 units beyond the chosen side, aligned to it and
+    turned as it is, and a connector from the original's side to the copy's facing side.
 - A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
   (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
   Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
@@ -1204,3 +1236,5 @@ Boards (5.0) are the `board` and `board_item` record types and their props (see 
 change and no schema number; an older version keeps an item of a kind it doesn't know and doesn't show it.
 5.1b adds the `picture`, `video` and `link` kinds to `board_item` (with `url` and `title` on a link) and `media` records
 under a picture or video item: additive, no table change, no migration and no schema_version change.
+5.2 adds the `connector` kind to `board_item` (with `from`, `to`, `route`, `start_head`, `end_head`, `color`, `width` and `label`): additive, no
+table change, no migration and no schema_version change; an older version keeps a connector and doesn't show it.

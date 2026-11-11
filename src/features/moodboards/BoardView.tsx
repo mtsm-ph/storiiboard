@@ -10,6 +10,7 @@ import { videoDriver } from '../../app/video';
 import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import { Canvas } from '../../ui/canvas/Canvas';
+import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
 import type { CanvasCommand, Point } from '../../ui/canvas/types';
 import { toWorld } from '../../ui/canvas/viewport';
@@ -22,6 +23,7 @@ import {
   openCard,
   pasteFromSystem,
   changeGeometry,
+  connect,
   copySelection,
   cutSelection,
   deleteSelection,
@@ -31,6 +33,7 @@ import {
   finishEditing,
   nudge,
   placeItem,
+  quickCreate,
   pasteClipboard,
   renameBoardTo,
   reorder,
@@ -38,6 +41,9 @@ import {
 import { cardInfo, originalOf } from './cards';
 import { markSystemClipboard } from './clipboardMarker';
 import { CardProperties } from './CardProperties';
+import { canvasLinks, connectorsOf } from './connectors';
+import { connectorFields } from './connectorFields';
+import { ConnectorProperties } from './ConnectorProperties';
 import { withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
 import { useDrawnLevels } from './PictureNode';
@@ -60,6 +66,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const viewports = useMoodboard((s) => s.viewports);
   const tool = useMoodboard((s) => s.tool);
   const clipboard = useMoodboard((s) => s.clipboard);
+  const clipConnectors = useMoodboard((s) => s.clipConnectors);
   const editing = useMoodboard((s) => s.editing);
   const linkAsk = useMoodboard((s) => s.linkAsk);
   const workspaceId = useWorkspaceId();
@@ -72,6 +79,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const brokenFonts = useFonts((s) => s.broken);
   const mine = editing?.boardId === board.id ? editing : null;
   const placed = useMemo(() => canvasItems(records, board.id), [records, board.id]);
+  const links = useMemo(() => canvasLinks(records, board.id), [records, board.id]);
   // A new text box or sticky note being typed into is not in the project yet: it is shown beside the real items.
   const draftFields = useMemo(() => (mine?.draft ? itemFields(propsFor(mine.draft)) : null), [mine]);
   const items = useMemo(() => {
@@ -97,9 +105,15 @@ export function BoardView({ board }: { board: SbdRecord }) {
     [items, records, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
   );
   // An undo that removed an item takes it out of the selection.
-  const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id)), [stored, items]);
+  const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id) || links.some((link) => link.id === id)), [stored, items, links]);
   const selectedFields = selection.flatMap((id) => {
     const fields = itemFields(records[id]?.props ?? {});
+    return fields ? [fields] : [];
+  });
+
+  // The selected connectors, for the strip.
+  const selectedConnectors = selection.flatMap((id) => {
+    const fields = records[id] ? connectorFields(records[id].props) : null;
     return fields ? [fields] : [];
   });
 
@@ -107,6 +121,12 @@ export function BoardView({ board }: { board: SbdRecord }) {
   // board's kinds, colours and words from here.
   const data = useMemo(
     () => JSON.stringify(itemsOf(records, board.id).flatMap((r) => { const f = itemFields(r.props); return f ? [{ id: r.id, ...f }] : []; })),
+    [records, board.id],
+  );
+
+  // The connectors' props as plain data, for the end-to-end tests.
+  const connectorData = useMemo(
+    () => JSON.stringify(connectorsOf(records, board.id).flatMap((r) => { const f = connectorFields(r.props); return f ? [{ id: r.id, ...f }] : []; })),
     [records, board.id],
   );
 
@@ -184,6 +204,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const strip =
     only && onlyFields && isMediaKind(onlyFields.kind) ? (
       <CardProperties id={only} fields={onlyFields} card={cardInfo(records, only, onlyFields, missingVideos)} original={originalOf(records, only)} />
+    ) : selectedConnectors.length > 0 ? (
+      <ConnectorProperties boardId={board.id} fields={selectedConnectors} selectionKey={selection.join('|')} />
     ) : null;
 
   const run = (command: CanvasCommand) => {
@@ -273,6 +295,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
         ref={wrapper}
         className="min-h-0 flex-1"
         data-board-data={data}
+      data-board-connectors={connectorData}
         data-picture-levels={JSON.stringify(levels)}
         // Marks the canvas as the board's own for pictures dropped or pasted, so the storyboard's listeners leave them.
         data-moodboard-canvas=""
@@ -303,6 +326,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
           onGeometry={(changes) => changeGeometry(changes)}
           onNudge={(ids, dx, dy) => nudge(ids, dx, dy)}
           onCreate={(geometry, placing) => placeItem(board.id, geometry, placing)}
+          links={links}
+          onConnect={(drop) => connect(board.id, drop)}
+          onQuickCreate={(id, side) => {
+            void quickCreate(board.id, id, side);
+          }}
           onEdit={(id) => {
             editItem(board.id, id);
           }}
@@ -314,10 +342,16 @@ export function BoardView({ board }: { board: SbdRecord }) {
           editing={mine?.id ?? null}
           renderEditor={(item, zoom) => {
             const fields = fieldsOf(item.id);
-            return fields ? <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} onEnd={(text) => void finishEditing(text)} /> : null;
+            if (fields) return <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} onEnd={(text) => void finishEditing(text)} />;
+            // A connector's label: centred, small, in ink as it is drawn, over its paper patch.
+            const connector = records[item.id] ? connectorFields(records[item.id]?.props ?? {}) : null;
+            const labelAs = connector
+              ? itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: LABEL_FONT_SIZE, align: 'center' }))
+              : null;
+            return connector && labelAs ? <TextEditor key={item.id} fields={labelAs} text={connector.label} zoom={zoom} ariaLabel={t('moodboard.connector.editLabel')} onEnd={(text) => void finishEditing(text)} /> : null;
           }}
           onCommand={run}
-          canPaste={clipboard.length > 0}
+          canPaste={clipboard.length > 0 || clipConnectors.length > 0}
           fixedColours={BOARD_COLOURS}
         />
       </div>

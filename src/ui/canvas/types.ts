@@ -58,6 +58,8 @@ export interface CanvasItem extends Geometry {
   openable?: boolean;
   /** Resizing keeps its proportions: corner handles only (a picture, a video card). */
   keepRatio?: boolean;
+  /** Whether the "+" handles and ⌘⌥ + an arrow make a connected copy of it (5.2: a sticky, a shape, a text box); the host does it. */
+  quick?: boolean;
 }
 
 /** The view: the world point at the middle of the canvas and the zoom (1 is 100%), so it survives a resize. */
@@ -70,9 +72,48 @@ export interface Viewport {
 /** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card). */
 export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link';
 
-export type Tool = 'select' | 'hand' | PlaceTool;
+/** The Connector tool (5.2) draws a line between items; it places nothing by itself. */
+export type Tool = 'select' | 'hand' | 'connector' | PlaceTool;
 
-export const isPlaceTool = (tool: Tool): tool is PlaceTool => tool !== 'select' && tool !== 'hand';
+export const isPlaceTool = (tool: Tool): tool is PlaceTool => tool !== 'select' && tool !== 'hand' && tool !== 'connector';
+
+/** A side of an item's box, before its rotation. */
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+
+/**
+ * One end of a connector (5.2): attached to an item at a side (`auto` picks the side facing the other end each time it is
+ * drawn), or free at a world point.
+ */
+export type LinkEnd = { item: string; side: Side | 'auto' } | { x: number; y: number };
+export const isAttached = (end: LinkEnd): end is { item: string; side: Side | 'auto' } => 'item' in end;
+
+export type Route = 'straight' | 'elbow' | 'curved';
+export type Head = 'none' | 'arrow';
+
+/** A connector as the canvas draws it: its ends, route and look. It has no box of its own; its path is worked out from its ends. */
+export interface CanvasLink {
+  id: string;
+  /** What a person calls it, for the live region: "Connector from Sticky to Rectangle". */
+  label: string;
+  from: LinkEnd;
+  to: LinkEnd;
+  route: Route;
+  startHead: Head;
+  endHead: Head;
+  /** `#RRGGBB`, or null for the board's ink. */
+  color: string | null;
+  /** Line width in world units. */
+  width: number;
+  /** The words drawn at its middle, on a paper patch; may be empty. */
+  text: string;
+}
+
+/** A finished drag of a connector: a new one (no `id`) or one end of an existing one moved. */
+export interface ConnectDrop {
+  id: string | null;
+  from: LinkEnd;
+  to: LinkEnd;
+}
 
 export type ReorderMode = 'forward' | 'backward' | 'front' | 'back';
 

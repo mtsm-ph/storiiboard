@@ -331,7 +331,8 @@ test('works from the keyboard alone: Tab in, R, Enter, arrows, Tab between items
   const key = await mod(page);
   // Tab into the canvas: it is one stop, named for the board.
   await tile(page).getByRole('button', { name: 'Select' }).focus();
-  // Select, Hand, Rectangle, Text, Sticky, Link (5.1b) and Shapes come before the canvas.
+  // Select, Hand, Rectangle, Text, Sticky, Link (5.1b), Connector (5.2) and Shapes come before the canvas.
+  await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
