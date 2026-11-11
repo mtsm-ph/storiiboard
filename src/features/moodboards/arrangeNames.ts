@@ -1,7 +1,7 @@
 import type { SbdRecord } from '../../core/model/record';
 import { alignItems, distributeItems, tidyItems } from '../../ui/canvas/arrange';
 import type { AlignMode, GeometryChange } from '../../ui/canvas/types';
-import { itemFields } from './items';
+import { isFrameKind, itemFields } from './items';
 
 // History names the layout commands (5.3) without the log knowing about them: an op group is only its records' before and
 // after. A command writes a row for every item it covered, so the step is told by running the commands again on the
@@ -22,7 +22,7 @@ type Row = { id: string; before: SbdRecord['props']; after: SbdRecord['props'] }
 export function coveredRows<T extends Row>(rows: readonly T[]): T[] {
   const parsed = rows.map((row) => ({ row, before: itemFields(row.before), after: itemFields(row.after) }));
   const moved = parsed.flatMap(({ row, before, after }) =>
-    before?.kind === 'section' && after && after.width === before.width && after.height === before.height && (after.x !== before.x || after.y !== before.y)
+    before && isFrameKind(before.kind) && after && after.width === before.width && after.height === before.height && (after.x !== before.x || after.y !== before.y)
       ? [{ id: row.id, box: before, dx: after.x - before.x, dy: after.y - before.y }]
       : [],
   );

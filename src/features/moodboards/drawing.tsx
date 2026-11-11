@@ -4,12 +4,14 @@ import { t } from '../../core/i18n';
 import type { CanvasItem, DrawContext } from '../../ui/canvas/types';
 import type { CardInfo } from './cards';
 import { cssFamily, fontsStore } from './fonts';
-import { BOARD_INK, BOARD_PAPER, BOARD_WARNING, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
+import { isFrameKind, BOARD_INK, BOARD_MUTED, BOARD_PAPER, BOARD_WARNING, pageTitle, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
 import { linkLabel } from './links';
 import { PictureNode } from './PictureNode';
+import { DECK_FIELD_LABEL } from './pageFormats';
+import type { FieldValue } from './deckFields';
 import { drawLive } from './liveDraw';
 import { isLiveKind, type LiveCardData } from './liveCards';
-import { fontStyleOf } from './textFit';
+import { fontStyleOf, measureText } from './textFit';
 
 // How each kind of board item is drawn, in its own box (0 to width by 0 to height). Colours a person gave an item are
 // drawn as stored: board content is never themed. What was never given one reads as the board's own defaults, which the
@@ -113,8 +115,63 @@ function sectionBox(fields: ItemFields, { width, height, colours }: DrawContext)
   return <Rect width={width} height={height} fill={fields.color ?? SECTION_COLOURS[0]} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />;
 }
 
-/** A section's name above its top left corner, in Inter Tight bold; "Section" when it has none. */
-function sectionName(fields: ItemFields, width: number, colours: DrawContext['colours']): ReactNode {
+/** A page: its own background (white unless changed) with the board's ink outline. */
+function pageBox(fields: ItemFields, { width, height, colours }: DrawContext): ReactNode {
+  return <Rect width={width} height={height} fill={fields.background} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />;
+}
+
+/** The size a field card's words are set at to fit its box: the size set, or smaller down to a floor of 60% of it, and whether they still overflow. */
+const FIT_FLOOR = 0.6;
+const fitted = new Map<string, { size: number; over: boolean }>();
+export function fitFieldText(fields: ItemFields, text: string, width: number, height: number): { size: number; over: boolean } {
+  // Measured once per text, face, size and box: a card is drawn again on every frame of a pan or zoom.
+  const key = JSON.stringify([text, fields.fontFamily, fields.fontWeight, fields.fontItalic, fields.fontSize, fields.align, width, height]);
+  const known = fitted.get(key);
+  if (known) return known;
+  const result = measureFit(fields, text, width, height);
+  if (fitted.size >= 500) fitted.clear();
+  fitted.set(key, result);
+  return result;
+}
+
+function measureFit(fields: ItemFields, text: string, width: number, height: number): { size: number; over: boolean } {
+  const floor = Math.max(4, fields.fontSize * FIT_FLOOR);
+  let size = fields.fontSize;
+  for (let guard = 0; guard < 12; guard += 1) {
+    const needed = measureText({ text, fontFamily: fields.fontFamily, fontWeight: fields.fontWeight, fontItalic: fields.fontItalic, fontSize: size, align: fields.align, width });
+    if (needed <= height) return { size, over: false };
+    if (size <= floor) return { size: floor, over: true };
+    size = Math.max(floor, size * 0.92);
+  }
+  return { size: floor, over: true };
+}
+
+/**
+ * A field card (5.5): the project's words in the text style it was given. With nothing to show it draws the field's name in
+ * muted ink on screen and nothing in a presentation. A dashed outline on screen marks the box, as an empty text box has.
+ */
+function fieldCard(fields: ItemFields, value: FieldValue | null, { width, height, colours, present }: DrawContext): ReactNode {
+  const text = value?.text ?? '';
+  const empty = text === '';
+  if (empty && present === true) return null;
+  const label = fields.field === '' ? '' : DECK_FIELD_LABEL[fields.field];
+  // Long lists shrink to fit their box, down to 60% of the size set; past that, a mark on screen says there is more.
+  const fit = empty ? { size: fields.fontSize, over: false } : fitFieldText(fields, text, width, height);
+  return (
+    <>
+      {present !== true && <Rect width={width} height={height} stroke={colours.ink} strokeWidth={1} dash={[4, 3]} strokeScaleEnabled={false} listening={false} />}
+      <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
+        {words({ ...fields, fontSize: fit.size, text: empty ? label : text }, { width }, empty ? BOARD_MUTED : (fields.color ?? colours.ink), 0)}
+      </Group>
+      {fit.over && present !== true && (
+        <Text x={width - 28} y={height - 22} width={26} height={20} align="center" text="..." fontFamily={MONO} fontStyle="bold" fontSize={14} fill={BOARD_INK} listening={false} />
+      )}
+    </>
+  );
+}
+
+/** A section's (or a page's) name above its top left corner, in Inter Tight bold; "Section" when it has none. */
+function sectionName(fields: ItemFields, width: number, colours: DrawContext['colours'], pageNumber = 0): ReactNode {
   return (
     <Text
       y={-SECTION_TAB_HEIGHT}
@@ -122,7 +179,7 @@ function sectionName(fields: ItemFields, width: number, colours: DrawContext['co
       height={SECTION_TAB_HEIGHT}
       verticalAlign="middle"
       paddingLeft={4}
-      text={sectionTitle(fields.name)}
+      text={fields.kind === 'page' ? pageTitle(pageNumber, fields.name) : sectionTitle(fields.name)}
       fontFamily={cssFamily(DEFAULT_FONT_FAMILY, fontsStore.getState(), { weight: 700, italic: false })}
       fontStyle="bold"
       fontSize={SECTION_NAME_SIZE}
@@ -138,6 +195,15 @@ function sectionName(fields: ItemFields, width: number, colours: DrawContext['co
  * Gives each item its drawing. The item being edited in place is drawn without its text: the editor over it shows it.
  * The fonts version keys the text, so it is drawn again once a font it waited for has loaded.
  */
+export interface DrawExtras {
+  /** A page's number in the deck's order (5.5), for the tab above its corner. */
+  pageNumbers?: ReadonlyMap<string, number>;
+  /** What a field card shows now. */
+  fieldOf?: (id: string) => FieldValue | null;
+  /** Drawn for a presentation. */
+  present?: boolean;
+}
+
 export function withDrawing(
   items: readonly CanvasItem[],
   fieldsOf: (id: string) => ItemFields | null,
@@ -145,6 +211,7 @@ export function withDrawing(
   liveOf: (id: string) => LiveCardData | null,
   editingId: string | null,
   fontsVersion: number,
+  extras: DrawExtras = {},
 ): CanvasItem[] {
   return items.map((item) => {
     const fields = fieldsOf(item.id);
@@ -153,11 +220,13 @@ export function withDrawing(
     return {
       ...item,
       // A section's name is drawn by the canvas beside it (outside its box, so the handles don't take it in); not while it is typed.
-      ...(fields.kind === 'section' && item.section
-        ? { section: { ...item.section, drawTab: ({ colours }: { colours: DrawContext['colours'] }) => <Group key={fontsVersion}>{!hidden && sectionName(fields, item.section?.tab.width ?? item.width, colours)}</Group> } }
+      ...(isFrameKind(fields.kind) && item.section
+        ? { section: { ...item.section, drawTab: ({ colours }: { colours: DrawContext['colours'] }) => <Group key={fontsVersion}>{!hidden && sectionName(fields, item.section?.tab.width ?? item.width, colours, extras.pageNumbers?.get(item.id) ?? 0)}</Group> } }
         : {}),
       draw: (context) => {
         if (fields.kind === 'section') return sectionBox(fields, context);
+        if (fields.kind === 'page') return pageBox(fields, context);
+        if (fields.kind === 'field_card') return <Group key={fontsVersion}>{fieldCard(fields, extras.fieldOf?.(item.id) ?? null, { ...context, ...(extras.present ? { present: true } : {}) })}</Group>;
         if (fields.kind === 'text') {
           return (
             <Group key={fontsVersion}>

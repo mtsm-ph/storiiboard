@@ -12,6 +12,7 @@ import { mediaFields } from '../../core/media/store';
 import { videoFields } from '../../core/media/video';
 import { connectorsAttachedTo } from './connectorFields';
 import { isLiveKind, liveCardData, liveLabel, LIVE_KINDS, projectIdOf, type LiveKind } from './liveCards';
+import { DECK_FIELD_LABEL, DEFAULT_PAGE_BACKGROUND, ratioLocked, pageSize, isDeckField, isPageFormat, isPaper, type DeckField, type PageFormat, type PageOrientation } from './pageFormats';
 
 // A board's items (docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 had one kind, a rectangle;
 // 5.1a adds fill and stroke to the shapes (rectangle, ellipse, triangle, diamond), text boxes and sticky notes. Z order
@@ -24,8 +25,12 @@ export type ShapeKind = (typeof SHAPE_KINDS)[number];
 /** 5.1b: a picture (with its `media` child), a video card (with its video `media`) and a link card. */
 export const MEDIA_KINDS = ['picture', 'video', 'link'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
-export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind | 'section' | LiveKind;
-const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS, 'section', ...LIVE_KINDS];
+export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind | 'section' | LiveKind | 'page' | 'field_card';
+const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS, 'section', ...LIVE_KINDS, 'page', 'field_card'];
+/** A section (5.3) and a deck's page (5.5) are frames: drawn under the connectors and the items, picked by their tab or edge, upright, and they hold what lies wholly inside them. */
+export const isFrameKind = (kind: ItemKind): kind is 'section' | 'page' => kind === 'section' || kind === 'page';
+/** Text boxes, sticky notes and field cards carry a font, a size and an alignment. */
+export const hasTextStyle = (kind: ItemKind): kind is 'text' | 'sticky' | 'field_card' => kind === 'text' || kind === 'sticky' || kind === 'field_card';
 export { isLiveKind, type LiveKind };
 export const isShapeKind = (kind: ItemKind): kind is ShapeKind => (SHAPE_KINDS as readonly string[]).includes(kind);
 export const isMediaKind = (kind: ItemKind): kind is MediaKind => (MEDIA_KINDS as readonly string[]).includes(kind);
@@ -48,6 +53,9 @@ export const BOARD_RAISED = '#C9C1B1';
 export const BOARD_MUTED = '#5E5A52';
 /** Truffle, the warning colour (paper text on it), fixed like the rest of a board's content. */
 export const BOARD_WARNING = '#A35139';
+/** A presentation's stage and its chrome (5.5): black with white marks, whatever the theme, as a screen in a dark room is. */
+export const PRESENT_BLACK = '#000000';
+export const PRESENT_WHITE = '#FFFFFF';
 /** What the canvas draws a board in: fixed, so a board looks the same in light and dark and prints as seen. */
 export const BOARD_COLOURS: CanvasColours = { ink: BOARD_INK, paper: BOARD_PAPER, raised: BOARD_RAISED };
 /** Swatches for shapes and text: the brand's inks and papers, then a few hues for a board's own use. */
@@ -82,6 +90,12 @@ export interface ItemFields extends Geometry {
   /** The frame a shot card shows, and the scene a scene or palette card shows (5.4); '' for any other kind. */
   shotId: string;
   sceneId: string;
+  /** A page's format and, for paper, its orientation, and its background `#RRGGBB` (5.5); defaults for any other kind. */
+  format: PageFormat;
+  orientation: PageOrientation;
+  background: string;
+  /** The field a field card shows (5.5); '' for any other kind. */
+  field: DeckField | '';
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -120,14 +134,17 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
   if (x === null || y === null || width === null || height === null) return null;
   const sticky = kind === 'sticky';
   const section = kind === 'section';
+  const frame = isFrameKind(kind);
+  const page = kind === 'page';
+  const format = page && isPageFormat(props.format) ? props.format : '16:9';
   return {
     kind,
     x,
     y,
     width: atLeastMinimum(width),
     height: atLeastMinimum(height),
-    // A section is always upright.
-    rotation: section ? 0 : (num(props.rotation) ?? 0),
+    // A section and a page are always upright.
+    rotation: frame ? 0 : (num(props.rotation) ?? 0),
     fill: hexColour(props.fill),
     stroke: hexColour(props.stroke),
     // A sticky colour outside the six reads as the first.
@@ -144,9 +161,13 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     align: ALIGNS.find((a) => a === props.align) ?? 'left',
     url: kind === 'link' && typeof props.url === 'string' ? props.url : '',
     title: kind === 'link' && typeof props.title === 'string' ? props.title : '',
-    name: section && typeof props.name === 'string' ? props.name : '',
+    name: frame && typeof props.name === 'string' ? props.name : '',
     shotId: kind === 'shot_card' && typeof props.shot_id === 'string' ? props.shot_id : '',
     sceneId: (kind === 'scene_card' || kind === 'palette_card') && typeof props.scene_id === 'string' ? props.scene_id : '',
+    format,
+    orientation: page && isPaper(format) && props.orientation === 'landscape' ? 'landscape' : 'portrait',
+    background: page ? (hexColour(props.background) ?? DEFAULT_PAGE_BACKGROUND) : '',
+    field: kind === 'field_card' && isDeckField(props.field) ? props.field : '',
   };
 }
 
@@ -195,6 +216,8 @@ export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = {
   scene_card: () => t('moodboard.item.scene_card'),
   palette_card: () => t('moodboard.item.palette_card'),
   brand_card: () => t('moodboard.item.brand_card'),
+  page: () => t('moodboard.item.page'),
+  field_card: () => t('moodboard.item.field_card'),
 };
 
 export const isTextKind = (kind: ItemKind): kind is 'text' | 'sticky' => kind === 'text' || kind === 'sticky';
@@ -212,6 +235,7 @@ export function announcedAs(records: Records, id: string, fields: ItemFields): s
     const media = mediaChildOf(records, id, 'video');
     return named('moodboard.announce.video', (media ? videoFields(media.props)?.sourceName : '') ?? '');
   }
+  if (fields.kind === 'field_card') return fields.field === '' ? KIND_LABEL.field_card() : t('moodboard.announce.fieldCard', { field: DECK_FIELD_LABEL[fields.field] });
   return KIND_LABEL[fields.kind]();
 }
 
@@ -228,9 +252,12 @@ export const setNameMeasurer = (measure: ((text: string) => number) | null): voi
 /** What a section is called where it shows: its name, or "Section" when it has none. */
 export const sectionTitle = (name: string): string => (name.trim() === '' ? t('moodboard.item.section') : name);
 
-/** The name tab above a section's corner, relative to it: as wide as its name needs (an estimate, no wider than the section). */
-export function sectionTab(fields: Pick<ItemFields, 'name' | 'width'>): SectionLook['tab'] {
-  const title = sectionTitle(fields.name);
+/** What a page is called where it shows: its number and its name, "3 The look" (just "3" when it has none). */
+export const pageTitle = (number: number, name: string): string => `${String(number)} ${name.trim()}`.trim();
+
+/** The name tab above a section's (or a page's) corner, relative to it: as wide as its name needs (an estimate, no wider than the section). */
+export function sectionTab(fields: Pick<ItemFields, 'name' | 'width'> & { kind?: ItemKind }, pageNumber = 0): SectionLook['tab'] {
+  const title = fields.kind === 'page' ? pageTitle(pageNumber, fields.name) : sectionTitle(fields.name);
   // Measured in the face it is drawn in where the page can (textFit.ts); an estimate where it can't.
   const wanted = Math.ceil((nameWidth?.(title) ?? title.length * SECTION_NAME_SIZE * 0.6) + 16);
   return { x: 0, y: -SECTION_TAB_HEIGHT, width: Math.min(fields.width, Math.max(72, wanted)), height: SECTION_TAB_HEIGHT };
@@ -242,6 +269,8 @@ export function canvasItems(records: Records, boardId: string): CanvasItem[] {
     const fields = itemFields(record.props);
     return fields ? [{ id: record.id, ...fields }] : [];
   });
+  // A page's number is its place among the deck's pages: the pages' sibling order (5.5).
+  const numbers = pageNumbers(live);
   return live.map((fields): CanvasItem => {
     const { id } = fields;
     return {
@@ -253,21 +282,32 @@ export function canvasItems(records: Records, boardId: string): CanvasItem[] {
       rotation: fields.rotation,
       // A section is announced with its name and how many items it holds (5.3).
       label:
-        fields.kind === 'section'
+        fields.kind === 'page'
+          ? fields.name.trim() === ''
+            ? t('moodboard.announce.page', { number: numbers.get(id) ?? 0 })
+            : t('moodboard.announce.pageNamed', { number: numbers.get(id) ?? 0, name: fields.name.trim() })
+          : fields.kind === 'section'
           ? fields.name.trim() === ''
             ? tn('moodboard.announce.sectionUnnamed', sectionContents(fields, live).length)
             : tn('moodboard.announce.section', sectionContents(fields, live).length, { name: fields.name.trim() })
           : announcedAs(records, id, fields),
-      editable: isTextKind(fields.kind) || fields.kind === 'section',
+      // A page's name is typed on its tab, as a section's is.
+      editable: isTextKind(fields.kind) || isFrameKind(fields.kind),
       // A shot or scene card jumps back to the storyboard, a palette card opens its editor, the brand kit's Settings (5.4).
-      openable: fields.kind === 'video' || fields.kind === 'link' || isLiveKind(fields.kind),
-      // A picture, video or live card keeps its shape when resized.
-      keepRatio: fields.kind === 'picture' || fields.kind === 'video' || isLiveKind(fields.kind),
+      // A field card opens where its value is edited (5.5).
+      openable: fields.kind === 'video' || fields.kind === 'link' || isLiveKind(fields.kind) || fields.kind === 'field_card',
+      // A picture, video, live card or page keeps its shape when resized (a page keeps its format's ratio).
+      keepRatio: fields.kind === 'picture' || fields.kind === 'video' || isLiveKind(fields.kind) || fields.kind === 'page',
       // A sticky, shape or text box can be copied with a connector (5.2).
       quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
-      ...(fields.kind === 'section' ? { section: { tab: sectionTab(fields) } } : {}),
+      ...(isFrameKind(fields.kind) ? { section: { tab: sectionTab(fields, numbers.get(id) ?? 0) } } : {}),
     };
   });
+}
+
+/** Each live page's number, 1 for the first in the deck's order; `items` runs in the sibling order. */
+export function pageNumbers(items: readonly { id: string; kind: ItemKind }[]): Map<string, number> {
+  return new Map(items.filter((item) => item.kind === 'page').map((item, i) => [item.id, i + 1]));
 }
 
 const geometryProps = (g: Geometry) => ({ x: g.x, y: g.y, width: g.width, height: g.height, rotation: g.rotation });
@@ -329,6 +369,16 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
   if (seed.kind === 'shot_card') return { ...props, shot_id: seed.shotId ?? '' };
   if (seed.kind === 'scene_card' || seed.kind === 'palette_card') return { ...props, scene_id: seed.sceneId ?? '' };
   if (seed.kind === 'brand_card') return props;
+  if (seed.kind === 'page') {
+    // A page is upright, in one of the formats; paper also says which way up. Its contents are worked out, never stored.
+    const format = seed.format ?? '16:9';
+    props.rotation = 0;
+    props.format = format;
+    if (isPaper(format)) props.orientation = seed.orientation ?? 'portrait';
+    props.name = seed.name ?? '';
+    props.background = seed.background ?? DEFAULT_PAGE_BACKGROUND;
+    return props;
+  }
   if (seed.kind === 'section') {
     props.rotation = 0;
     props.name = seed.name ?? '';
@@ -340,7 +390,9 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
     if (seed.title) props.title = seed.title;
     return props;
   }
-  props.text = seed.text ?? '';
+  // A field card's words come from the project (5.5): it stores which field, and the text's style.
+  if (seed.kind === 'field_card') props.field = seed.field ? seed.field : 'title';
+  else props.text = seed.text ?? '';
   props.font_family = seed.fontFamily ?? DEFAULT_FONT_FAMILY;
   props.font_weight = seed.fontWeight ?? 400;
   props.font_italic = seed.fontItalic ?? false;
@@ -402,8 +454,13 @@ export function geometryChanges(records: Records, changes: readonly GeometryChan
         next = { ...c, ...keepTop(c, height), height };
       }
     }
-    // A section is always upright.
-    if (now?.kind === 'section') next = { ...next, rotation: 0 };
+    // A section and a page are always upright.
+    if (now && isFrameKind(now.kind)) next = { ...next, rotation: 0 };
+    // A page keeps its format's ratio (5.5): the width asked for decides, else the height asked for does.
+    if (now?.kind === 'page') {
+      const exact = pageSize(now.format, now.orientation);
+      next = c.width !== now.width || c.height === now.height ? { ...next, ...ratioLocked(now.format, now.orientation, c.width) } : { ...next, width: tidy((c.height * exact.width) / exact.height), height: c.height };
+    }
     const set = geometryProps(next);
     if (now && Object.entries(set).every(([key, value]) => now[key as keyof typeof now] === value)) return [];
     return [{ kind: 'update', id: c.id, set }];
@@ -429,8 +486,9 @@ export function nudgeChanges(records: Records, ids: readonly string[], dx: numbe
  */
 export function reorderChanges(records: Records, boardId: string, selected: readonly string[], mode: ReorderMode): Change[] {
   const live = itemsOf(records, boardId);
+  // A page's place is the deck's page order (5.5), changed in the Pages panel: the order commands leave pages alone.
   const sections = live.filter((r) => itemFields(r.props)?.kind === 'section').map((r) => r.id);
-  const others = live.filter((r) => itemFields(r.props)?.kind !== 'section').map((r) => r.id);
+  const others = live.filter((r) => itemFields(r.props)?.kind !== 'section' && itemFields(r.props)?.kind !== 'page').map((r) => r.id);
   let now = records;
   const out: Change[] = [];
   for (const ids of [sections, others]) {
@@ -525,6 +583,8 @@ export interface StylePatch {
   stickyColor?: string;
   /** Sections (5.3): one of the six tints. */
   sectionColor?: string;
+  /** Pages (5.5): the page's background, `#RRGGBB`. */
+  pageBackground?: string;
   /** Text boxes and sticky notes. */
   fontFamily?: string;
   fontWeight?: number;
@@ -551,8 +611,11 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
     } else if (now.kind === 'section') {
       // Only the six tints are sections' colours.
       wanted.color = SECTION_COLOURS.find((c) => c === patch.sectionColor);
+    } else if (now.kind === 'page') {
+      // A page's background (5.5): board content, never themed.
+      wanted.background = hexColour(patch.pageBackground) ?? undefined;
     } else {
-      wanted.color = now.kind === 'text' ? patch.textColor : patch.stickyColor;
+      wanted.color = now.kind === 'sticky' ? patch.stickyColor : patch.textColor;
       wanted.font_family = patch.fontFamily;
       wanted.font_weight = patch.fontWeight;
       wanted.font_italic = patch.fontItalic;
@@ -568,6 +631,7 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
       font_italic: now.fontItalic,
       font_size: now.fontSize,
       align: now.align,
+      background: now.background,
     };
     const set: Record<string, string | number | boolean> = {};
     for (const [key, value] of Object.entries(wanted)) {
@@ -593,8 +657,8 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
 export function textEditChanges(records: Records, id: string, text: string, measure: MeasureText = estimateTextHeight): Change[] {
   const record = records[id];
   const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
-  // A section's name is one line: line breaks typed into it become spaces.
-  if (now?.kind === 'section') {
+  // A section's or a page's name is one line: line breaks typed into it become spaces.
+  if (now && isFrameKind(now.kind)) {
     const name = text.replace(/\s*\n\s*/g, ' ');
     return name === now.name ? [] : [{ kind: 'update', id, set: { name } }];
   }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { fromFile, choosePictures, onWindowDrop } from '../../app/pictures';
-import { useProject } from '../../app/projectStore';
+import { projectStore, useProject } from '../../app/projectStore';
+import { isMac } from '../../app/shell/undoShortcuts';
 import { isTauriApp } from '../../app/fileAccess';
 import { openTile } from '../../app/shell/docking/layout';
 import { layoutsOf, layoutStore } from '../../app/shell/docking/layoutStore';
@@ -13,13 +14,21 @@ import { Canvas } from '../../ui/canvas/Canvas';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
 import type { CanvasCommand, Point } from '../../ui/canvas/types';
-import { toWorld } from '../../ui/canvas/viewport';
+import { fitBounds, toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useMissingVideos } from '../video/videoStatus';
 import { boardFields, boardTitle, linkedLine } from './boards';
 import { AddFromStoryboard } from './AddFromStoryboard';
 import { BoardLinksDialog } from './BoardLinksDialog';
 import { LiveProperties } from './LiveProperties';
+import { addFieldCard, openFieldCard } from './deckActions';
+import { fieldValue, type FieldValue } from './deckFields';
+import { DECK_FIELDS, DECK_FIELD_LABEL } from './pageFormats';
+import { isDeck, pageRect, pagesOf, type PageInfo } from './pages';
+import { PagesPanel } from './PagesPanel';
+import { Present } from './Present';
+import { isPresentKey } from './presentKey';
+import { Menu, MenuGroup, MenuItem } from '../../ui/Menu';
 import { openLiveCard } from './liveActions';
 import { isLiveKind, liveCardData, liveLabel, projectIdOf, type LiveCardData } from './liveCards';
 
@@ -56,7 +65,7 @@ import { withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
 import { useDrawnLevels } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
-import { BOARD_COLOURS, BOARD_INK, canvasItems, isMediaKind, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, type ItemFields } from './items';
+import { BOARD_COLOURS, BOARD_INK, canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
@@ -108,6 +117,17 @@ export function BoardView({ board }: { board: SbdRecord }) {
     return out;
   }, [records, board.id, locale]);
   const liveOf = (id: string): LiveCardData | null => liveCards.get(id) ?? null;
+  const deck = isDeck(board);
+  // What each field card shows, read from the project as it is now (5.5), and each page's number in the deck's order.
+  const fieldValues = useMemo(() => {
+    const out = new Map<string, FieldValue>();
+    for (const record of itemsOf(records, board.id)) {
+      const fields = itemFields(record.props);
+      if (fields?.kind === 'field_card' && fields.field !== '') out.set(record.id, fieldValue(records, projectIdOf(records, record.id), fields.field, locale));
+    }
+    return out;
+  }, [records, board.id, locale]);
+  const numbers = useMemo(() => pageNumbers(itemsOf(records, board.id).flatMap((r) => { const f = itemFields(r.props); return f ? [{ id: r.id, kind: f.kind }] : []; })), [records, board.id]);
   const fieldsOf = (id: string): ItemFields | null => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {}));
   const drawn = useMemo(
     () =>
@@ -121,10 +141,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
         (id) => liveOf(id),
         mine?.id ?? null,
         fontsVersion,
+        { pageNumbers: numbers, fieldOf: (id) => fieldValues.get(id) ?? null },
       ),
     // fontsStatus and systemFonts decide which family a text is drawn in, so they redraw it too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, records, liveCards, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
+    [items, records, liveCards, fieldValues, numbers, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
   );
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id) || links.some((link) => link.id === id)), [stored, items, links]);
@@ -161,6 +182,9 @@ export function BoardView({ board }: { board: SbdRecord }) {
       ),
     [liveCards],
   );
+
+  // What the field cards show (5.5), as plain data too. Cast and crew are names and roles only, as the cards are.
+  const fieldData = useMemo(() => JSON.stringify([...fieldValues].map(([id, value]) => ({ id, field: value.field, text: value.text }))), [fieldValues]);
 
   // The connectors' props as plain data, for the end-to-end tests.
   const connectorData = useMemo(
@@ -210,7 +234,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
     const seen = new Map<string, { fontFamily: string; fontWeight: number; fontItalic: boolean }>();
     for (const item of items) {
       const fields = fieldsOf(item.id);
-      if (fields && isTextKind(fields.kind)) seen.set([fields.fontFamily, String(fields.fontWeight), String(fields.fontItalic)].join('|'), fields);
+      if (fields && (isTextKind(fields.kind) || fields.kind === 'field_card')) seen.set([fields.fontFamily, String(fields.fontWeight), String(fields.fontItalic)].join('|'), fields);
     }
     // The brand kit's fonts are set in their own faces (5.4), so they are loaded, and named when this computer lacks one.
     for (const data of liveCards.values()) {
@@ -236,6 +260,9 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const title = boardTitle(board);
   const linked = linkedLine(records, board);
   const [picking, setPicking] = useState(false);
+  const [presenting, setPresenting] = useState(false);
+  const presentButton = useRef<HTMLButtonElement>(null);
+  const pageCount = useMemo(() => pagesOf(records, board.id).length, [records, board.id]);
   const [linking, setLinking] = useState(false);
   const free = boardFields(board.props).name !== null;
 
@@ -259,6 +286,41 @@ export function BoardView({ board }: { board: SbdRecord }) {
     ) : selectedConnectors.length > 0 ? (
       <ConnectorProperties boardId={board.id} fields={selectedConnectors} selectionKey={selection.join('|')} />
     ) : null;
+
+  // Present (5.5): ⌘⌥P (Ctrl+Alt+P elsewhere) on a deck with a page. By the key's place, since ⌥P types another letter on a Mac.
+  useEffect(() => {
+    if (!deck) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!isPresentKey(event, isMac())) return;
+      event.preventDefault();
+      if (pagesOf(projectStore.getState().records, board.id).length > 0) setPresenting(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [deck, board.id]);
+
+  /** Centres the view on a page, whole in the canvas (the Pages panel's click). */
+  const centreOnPage = (page: PageInfo) => {
+    const frame = wrapper.current?.querySelector<HTMLElement>('[data-canvas]');
+    const size = { width: Math.max(80, Math.round(frame?.clientWidth ?? 800)), height: Math.max(80, Math.round(frame?.clientHeight ?? 600)) };
+    moodboardStore.getState().setViewport(board.id, fitBounds(pageRect(page.fields), size));
+  };
+
+  // A deck opens fitted to its first page, unless the person has looked around in it already (L10).
+  useEffect(() => {
+    if (!deck || moodboardStore.getState().viewports[board.id]) return;
+    const frame = requestAnimationFrame(() => {
+      const first = pagesOf(projectStore.getState().records, board.id)[0];
+      if (first && !moodboardStore.getState().viewports[board.id]) centreOnPage(first);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+    // centreOnPage reads the refs and the store as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck, board.id]);
 
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
@@ -292,7 +354,14 @@ export function BoardView({ board }: { board: SbdRecord }) {
 
   return (
     <div className="flex h-full min-h-80 flex-col">
-      <ToolStrip tool={tool} onTool={moodboardStore.getState().setTool}>
+      <ToolStrip
+        tool={tool}
+        pages={deck}
+        // The Page tool belongs to a deck's board (5.5): its key does nothing on a moodboard.
+        onTool={(next) => {
+          if (next !== 'page' || deck) moodboardStore.getState().setTool(next);
+        }}
+      >
         <button
           type="button"
           data-boards-back=""
@@ -349,6 +418,44 @@ export function BoardView({ board }: { board: SbdRecord }) {
         >
           {t('moodboard.live.addFromStoryboard')}
         </button>
+        {deck && (
+          <>
+            <button
+              ref={presentButton}
+              type="button"
+              data-present-button=""
+              disabled={pageCount === 0}
+              aria-keyshortcuts={isMac() ? 'Meta+Alt+P' : 'Control+Alt+P'}
+              title={pageCount === 0 ? t('deck.present.noPages') : undefined}
+              onClick={() => {
+                setPresenting(true);
+              }}
+              className="sb-label h-7 border border-text bg-accent px-2.5 text-accent-contrast disabled:border-dashed disabled:border-text-muted disabled:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
+            >
+              {t('deck.present')}
+            </button>
+            {pageCount === 0 && <span className="text-[12px] text-text-muted">{t('deck.present.noPages')}</span>}
+            <div className="flex h-7">
+            <Menu label={t('deck.addField')} buttonClassName="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4" panelClassName="w-44">
+              {(close) => (
+                <MenuGroup>
+                  {DECK_FIELDS.map((id) => (
+                    <MenuItem
+                      key={id}
+                      onClick={() => {
+                        close();
+                        void addFieldCard(board.id, id);
+                      }}
+                    >
+                      {DECK_FIELD_LABEL[id]}
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+              )}
+            </Menu>
+            </div>
+          </>
+        )}
         {/* The scenes, characters and locations this board is about (5.4): read the other way in the places that list a scene's boards. */}
         <span data-board-links="" className="flex min-w-0 items-center gap-2 text-[12px]">
           {linked !== '' && (
@@ -379,13 +486,16 @@ export function BoardView({ board }: { board: SbdRecord }) {
       >
         {strip}
       </PropertiesStrip>
+      <div className="flex min-h-0 flex-1">
+      {deck && <PagesPanel boardId={board.id} onCentre={centreOnPage} />}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes files dropped on the board; the canvas inside is the control */}
       <div
         ref={wrapper}
-        className="min-h-0 flex-1"
+        className="min-h-0 min-w-0 flex-1"
         data-board-data={data}
       data-board-connectors={connectorData}
         data-board-live={liveData}
+        data-board-fields={fieldData}
         data-picture-levels={JSON.stringify(levels)}
         // Marks the canvas as the board's own for pictures dropped or pasted, so the storyboard's listeners leave them.
         data-moodboard-canvas=""
@@ -425,7 +535,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
             editItem(board.id, id);
           }}
           onOpen={(id) => {
-            if (liveCards.has(id)) openLiveCard(board.id, id, showTrash);
+            if (fieldValues.has(id) || itemFields(records[id]?.props ?? {})?.kind === 'field_card') openFieldCard(records, id);
+            else if (liveCards.has(id)) openLiveCard(board.id, id, showTrash);
             else void openCard(board.id, id, showPlayer);
           }}
           onPasteData={(data, at) => pasteFromSystem(board.id, data, at)}
@@ -434,9 +545,9 @@ export function BoardView({ board }: { board: SbdRecord }) {
           renderEditor={(item, zoom) => {
             const fields = fieldsOf(item.id);
             // A section's name: one line in Inter Tight bold, on its tab.
-            if (fields?.kind === 'section') {
+            if (fields?.kind === 'section' || fields?.kind === 'page') {
               const named = itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: SECTION_NAME_SIZE, fontWeight: 700, color: BOARD_INK }));
-              return named ? <TextEditor key={item.id} fields={named} text={fields.name} zoom={zoom} singleLine ariaLabel={t('moodboard.section.editName')} onEnd={(text) => void finishEditing(text)} /> : null;
+              return named ? <TextEditor key={item.id} fields={named} text={fields.name} zoom={zoom} singleLine ariaLabel={fields.kind === 'page' ? t('deck.editPageName') : t('moodboard.section.editName')} onEnd={(text) => void finishEditing(text)} /> : null;
             }
             if (fields) return <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} onEnd={(text) => void finishEditing(text)} />;
             // A connector's label: centred, small, in ink as it is drawn, over its paper patch.
@@ -452,6 +563,21 @@ export function BoardView({ board }: { board: SbdRecord }) {
           fixedColours={BOARD_COLOURS}
         />
       </div>
+      </div>
+      {presenting && (
+        <Present
+          boardId={board.id}
+          deckName={title}
+          items={drawn}
+          links={links}
+          startId={selection.find((id) => itemFields(records[id]?.props ?? {})?.kind === 'page') ?? null}
+          onClose={() => {
+            setPresenting(false);
+            // Focus goes back to the button that opened it.
+            requestAnimationFrame(() => presentButton.current?.focus());
+          }}
+        />
+      )}
       {picking && <AddFromStoryboard boardId={board.id} onClose={() => { setPicking(false); }} />}
       {linking && <BoardLinksDialog boardId={board.id} onClose={() => { setLinking(false); }} />}
       {linkAsk?.boardId === board.id && (

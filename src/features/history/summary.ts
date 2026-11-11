@@ -12,6 +12,7 @@ import { boardTitle } from '../moodboards/boards';
 import { connectorFields, isConnector } from '../moodboards/connectorFields';
 import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
+import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -497,6 +498,8 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   scene_card: 'history.aSceneCard',
   palette_card: 'history.aPaletteCard',
   brand_card: 'history.aBrandCard',
+  page: 'history.aPage',
+  field_card: 'history.aFieldCard',
 };
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
@@ -604,6 +607,9 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
         const scene = around.get(fields.sceneId);
         if (scene) return t(fields.kind === 'scene_card' ? 'history.sceneCardNamed' : 'history.paletteCardNamed', { name: sceneLabel(sceneFields(scene.props).number) });
       }
+      // A deck's page is named by its name (5.5) and a field card by its field.
+      if (fields?.kind === 'page' && fields.name.trim() !== '') return t('history.pageNamed', { name: fields.name.trim() });
+      if (fields?.kind === 'field_card' && fields.field !== '') return t('history.fieldCardNamed', { field: DECK_FIELD_LABEL[fields.field] });
       return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
     }
     case 'project':
@@ -820,8 +826,16 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         const copy = others[0];
         if (kind === 'create' && joins.length === 1 && copy && others.length === 1) return [...line('history.addedWithConnector', { name: nameOf(record(copy)) }), tag];
         if (joins.length > 0 && others.length > 0) found.splice(0, found.length, ...others);
+        // A page and what it held, made together (Duplicate page, 5.5): named after the page.
+        const madePages = others.filter((op) => itemFields(record(op)?.props ?? {})?.kind === 'page');
+        const madePage = madePages[0];
+        if (kind === 'create' && madePages.length === 1 && madePage && others.length > 1) return [...line('history.pageDuplicated', { name: nameOf(record(madePage)) }), tag];
       }
       const first = found[0];
+      // A deck (5.5) says so: the pages and cards made with it are not the news.
+      if (type === 'board' && first && record(first)?.props.kind === 'deck') {
+        return line(kind === 'create' ? 'history.added.deck' : kind === 'trash' ? 'history.deleted.deck' : 'history.restored.deck', { name: nameOf(record(first)) });
+      }
       if (found.length > 1 || !first) return [t(MANY[kind], { things: type === 'board_item' ? itemsCount(found.map((op) => record(op)), found.length) : count(type, found.length) })];
       if (type === 'board_item') return [...line(ONE[kind][type], { name: nameOf(record(first), around) }), tag];
       return type === 'note' ? [t(A_NOTE[kind])] : line(ONE[kind][type], { name: nameOf(record(first)) });
@@ -834,6 +848,8 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   const moves = of('move');
   const moved = moves[0];
   if (moved) {
+    // One page moved to another place in the deck (5.5).
+    if (moves.length === 1 && itemFields(record(moved)?.props ?? {})?.kind === 'page') return [...line('history.moved', { name: nameOf(record(moved)) }), tag];
     // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
     if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: itemsCount(moves.map((op) => record(op)), new Set(moves.map((op) => op.recordId)).size) })];
     if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];

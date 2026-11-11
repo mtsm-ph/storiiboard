@@ -152,14 +152,15 @@ function swatches(colors: readonly string[], x: number, y: number): ReactNode {
   });
 }
 
-function paletteCard(data: PaletteCardData, k: number, design: { width: number; height: number }): ReactNode {
+function paletteCard(data: PaletteCardData, k: number, design: { width: number; height: number }, present: boolean): ReactNode {
   return (
     <Group scaleX={k} scaleY={k}>
       <Rect width={design.width} height={design.height} fill={BOARD_PAPER} stroke={BOARD_INK} strokeWidth={STROKE} strokeScaleEnabled={false} />
       <Text x={12} y={10} text={data.label} fontFamily={MONO} fontStyle="bold" fontSize={14} fill={BOARD_INK} listening={false} />
       <Text x={12} y={28} width={design.width - 24} text={data.heading} fontFamily={sans()} fontStyle="bold" fontSize={18} wrap="none" ellipsis fill={BOARD_INK} listening={false} />
       {data.colors.length === 0 ? (
-        <Text x={12} y={PALETTE_HEADER} width={design.width - 24} text={t('moodboard.live.noPalette')} fontFamily={sans(false)} fontSize={15} lineHeight={1.3} fill={BOARD_INK} listening={false} />
+        // The hint is for the person editing; a presentation draws none.
+        present ? null : <Text x={12} y={PALETTE_HEADER} width={design.width - 24} text={t('moodboard.live.noPalette')} fontFamily={sans(false)} fontSize={15} lineHeight={1.3} fill={BOARD_INK} listening={false} />
       ) : (
         swatches(data.colors, 12, PALETTE_HEADER)
       )}
@@ -167,8 +168,9 @@ function paletteCard(data: PaletteCardData, k: number, design: { width: number; 
   );
 }
 
-function brandCard(id: string, data: BrandCardData, { zoom, inView, colours }: DrawContext, k: number, design: { width: number; height: number }): ReactNode {
+function brandCard(id: string, data: BrandCardData, { zoom, inView, colours, present }: DrawContext, k: number, design: { width: number; height: number }): ReactNode {
   if (!data.company) {
+    if (present === true) return null;
     return (
       <Group scaleX={k} scaleY={k}>
         <Rect width={design.width} height={design.height} fill={BOARD_PAPER} stroke={BOARD_INK} strokeWidth={STROKE} dash={[8, 6]} strokeScaleEnabled={false} />
@@ -191,7 +193,7 @@ function brandCard(id: string, data: BrandCardData, { zoom, inView, colours }: D
       <Group x={12} y={logoY}>
         {data.logoSha256 ? (
           <PictureNode id={id} sha256={data.logoSha256} width={design.width - 24} height={BRAND_LOGO_HEIGHT} zoom={zoom * k} inView={inView} colours={colours} fit={{ kind: 'contain' }} />
-        ) : (
+        ) : present === true ? null : (
           <Text width={design.width - 24} height={BRAND_LOGO_HEIGHT} verticalAlign="middle" text={t('moodboard.live.brandNoLogo')} fontFamily={MONO} fontSize={12} fill={MUTED} listening={false} />
         )}
       </Group>
@@ -210,9 +212,11 @@ export function drawLive(id: string, data: LiveCardData, context: DrawContext): 
   const design = designSize(data.kind);
   const k = drawScale(data.kind, context.width, context.height);
   if (data.kind === 'brand_card') return brandCard(id, data, context, k, design);
+  // A presentation draws no editing hint: a card whose record is in the Trash or gone is left out.
+  if (context.present === true && data.state !== 'live') return null;
   if (data.state === 'gone') return missing(data.kind, 'gone', context.width, context.height);
   const body =
-    data.kind === 'shot_card' ? shotCard(id, data, context, k, design) : data.kind === 'scene_card' ? sceneCard(id, data, context, k, design) : paletteCard(data, k, design);
+    data.kind === 'shot_card' ? shotCard(id, data, context, k, design) : data.kind === 'scene_card' ? sceneCard(id, data, context, k, design) : paletteCard(data, k, design, context.present === true);
   if (data.state === 'live') return body;
   // In the Trash: dimmed, and says so; it stays on the board.
   return (

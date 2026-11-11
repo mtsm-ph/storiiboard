@@ -15,6 +15,8 @@ import type { PreparedFile } from '../video/linkVideos';
 import { makeCopy } from '../video/playbackCopies';
 import { playCard } from '../video/playerSource';
 import { clipText, clipTaken, decidePasteOf } from './clipboardMarker';
+import { placePage } from './deckActions';
+import { duplicatePagesChanges, isDeck, pageContents } from './pages';
 import { isLiveKind } from './liveCards';
 import { isConnector } from './connectorFields';
 import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, grownQuickSeed, labelChanges, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
@@ -108,6 +110,11 @@ const select = (boardId: string, ids: readonly string[]) => {
  * person types into, and is written when editing ends (finishEditing), so an empty text box leaves no step behind.
  */
 export async function placeItem(boardId: string, geometry: Geometry, tool: PlaceTool): Promise<void> {
+  // A deck's page takes the deck's format (5.5).
+  if (tool === 'page') {
+    await placePage(boardId, geometry);
+    return;
+  }
   if (tool === 'text' || tool === 'sticky') {
     // Nothing is selected while it is typed: the properties strip must not show, or change, what was selected before.
     select(boardId, []);
@@ -225,7 +232,7 @@ export async function reorder(boardId: string, mode: ReorderMode): Promise<void>
 function wordsOf(item: ClipItem): string {
   if (item.kind === 'text' || item.kind === 'sticky') return item.text;
   if (item.kind === 'link') return item.url;
-  if (item.kind === 'section') return item.name;
+  if (item.kind === 'section' || item.kind === 'page') return item.name;
   const name = item.media?.props.source_name;
   return typeof name === 'string' ? name : '';
 }
@@ -277,12 +284,17 @@ export async function pasteClipboard(
   const elsewhere = clip === clipboard && clipSource !== null && (clipSource.projectId !== project.projectId || clipSource.path !== project.file.path);
   let ids: string[] = [];
   let videos: { from: string; to: string }[] = [];
-  const outcome = { left: 'none' as 'none' | 'elsewhere' | 'gone', cards: false };
+  const outcome = { left: 'none' as 'none' | 'elsewhere' | 'gone', cards: false, pages: false };
   const written = await store.getState().applyWith(async () => {
     const shas = [...new Set(clip.flatMap((item) => (item.media ? [shaOfClip(item.media)] : [])).filter((sha): sha is string => sha !== null))];
     const rows = elsewhere || shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
     const stored = new Set(rows.map((row) => String(row.sha256)));
     const keptAt = clip.flatMap((item, i) => {
+      // A page belongs to a deck (5.5): into a board that isn't one it is left out.
+      if (item.kind === 'page' && !isDeck(store.getState().records[boardId])) {
+        outcome.pages = true;
+        return [];
+      }
       // A card from the storyboard names a frame or scene of the project it was copied in: not pasted into another (the brand kit reads the project it is in).
       if (!item.media) {
         if (elsewhere && isLiveKind(item.kind) && item.kind !== 'brand_card') {
@@ -311,7 +323,7 @@ export async function pasteClipboard(
     videos = made.videos;
     return { changes: [...made.changes, ...joined.changes] };
   });
-  const sentences = [outcome.left === 'elsewhere' ? t('moodboard.pasteElsewhere') : outcome.left === 'gone' ? t('moodboard.pasteGone') : '', outcome.cards ? t('moodboard.pasteElsewhereCards') : ''].filter((s) => s !== '');
+  const sentences = [outcome.left === 'elsewhere' ? t('moodboard.pasteElsewhere') : outcome.left === 'gone' ? t('moodboard.pasteGone') : '', outcome.cards ? t('moodboard.pasteElsewhereCards') : '', outcome.pages ? t('moodboard.pasteDeckOnly') : ''].filter((s) => s !== '');
   if (sentences.length > 0) showNotice(sentences.join(' '));
   if (!written) return;
   // The browser build plays the file it was handed: a pasted card plays it too.
@@ -320,10 +332,38 @@ export async function pasteClipboard(
 }
 
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
-export async function duplicateSelection(boardId: string): Promise<void> {
-  const { records } = projectStore.getState();
+export async function duplicateSelection(boardId: string, store: typeof projectStore = projectStore): Promise<void> {
+  const { records } = store.getState();
   const selected = liveSelection(records, boardId);
-  await pasteClipboard(boardId, null, clipOf(records, boardId, selected), projectStore, clipConnectorsOf(records, boardId, selected));
+  // Pages are duplicated with what they hold, after the last page (5.5), not copied as bare frames; what a page held is not copied
+  // twice. The pages and any other items selected go in ONE op group, so one undo takes every copy away.
+  const pageIds = selected.filter((id) => itemFields(records[id]?.props ?? {})?.kind === 'page');
+  if (pageIds.length > 0 && isDeck(records[boardId])) {
+    const out = { ids: [] as string[], videos: [] as { from: string; to: string }[] };
+    const written = await store.getState().applyWith((now) => {
+      const held = new Set(pageIds.flatMap((id) => pageContents(now, boardId, id)));
+      const made = duplicatePagesChanges(now, boardId, pageIds);
+      const rest = selected.filter((id) => !pageIds.includes(id) && !held.has(id));
+      const clip = clipOf(made.working, boardId, rest);
+      const connectors = clipConnectorsOf(made.working, boardId, rest);
+      let changes = [...made.changes];
+      out.ids = [...made.ids];
+      out.videos = [...made.videos];
+      if (clip.length > 0 || connectors.length > 0) {
+        const pasted = pasteChanges(made.working, boardId, clip, null);
+        const joined = pasteConnectorChanges(made.working, boardId, connectors, pasted.ids, pasteDelta(clip, connectors, null));
+        changes = [...changes, ...pasted.changes, ...joined.changes];
+        out.ids.push(...pasted.ids, ...joined.ids);
+        out.videos.push(...pasted.videos);
+      }
+      return { changes };
+    });
+    if (!written) return;
+    for (const { from, to } of out.videos) rememberVideoFile(to, videoFileKept(from) ?? undefined);
+    select(boardId, out.ids);
+    return;
+  }
+  await pasteClipboard(boardId, null, clipOf(records, boardId, selected), store, clipConnectorsOf(records, boardId, selected));
 }
 
 /** A link card with its address (http or https only) and the title typed for it; false when the address isn't one. */

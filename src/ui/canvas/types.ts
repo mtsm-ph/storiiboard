@@ -44,6 +44,8 @@ export interface DrawContext extends Size {
   zoom: number;
   /** Whether the item meets the view; one drawn only because it is selected is out of it. */
   inView: boolean;
+  /** Drawn for a presentation (5.5): what is only there to be edited on screen (a placeholder) is left out. */
+  present?: boolean;
 }
 
 export interface CanvasItem extends Geometry {
@@ -83,8 +85,8 @@ export interface Viewport {
   zoom: number;
 }
 
-/** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card). */
-export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link' | 'section';
+/** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card; 5.5 a deck's page). */
+export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link' | 'section' | 'page';
 
 /** The Connector tool (5.2) draws a line between items; it places nothing by itself. */
 export type Tool = 'select' | 'hand' | 'connector' | PlaceTool;
