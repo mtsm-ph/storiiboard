@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 4 · Call sheets**, being built Nov 10 by the builder from briefs (docs/briefs/), one PR per milestone, each stacked on the one before while 4.0 waits for Kevin's look at its Settings baselines (#120). Phase 3 is built to its gate (checkpoint passed Nov 9); its checklist is Kevin's |
+| **Current phase** | **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), as a stack of PRs #120 to #133 waiting to merge into `v2` in order (this session's permissions refused the merges; Kevin merges or allows it). **Phase 5 · Canvas flow**: plan and decision sheet written Nov 10, waiting for Kevin's answers (docs/PHASE5_DECISIONS.md); nothing built |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (4.0 #120 and 4.4 #124 wait for Kevin's Settings baselines; 4.1 to 4.10 built, stacked; #126 waits for baselines too) |
+| Last updated | Nov 10, 2026 (Phase 4 built and reviewed, #120 to #133; Phase 5 planned) |
 
 | Phase | State |
 |---|---|
@@ -19,13 +19,35 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
 | 3 · Production data | Built (Nov 9), follow-ups merged (Nov 10); the gate is Kevin's |
-| 4 · Call sheets | **Current**: answered and approved Nov 9; being built from Nov 10 |
-| 5 · Canvas flow (moodboards and decks) | Not started |
+| 4 · Call sheets | **Built** (Nov 10): #120 to #133 wait to merge; the gate is Kevin's |
+| 5 · Canvas flow (moodboards and decks) | Planned Nov 10; waits for Kevin's answers |
 | 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
+
+### Phase 5 milestones
+
+Plan written Nov 10, 2026, from "Phase 5 notes" (Kevin, Nov 5): moodboards and decks merge into one canvas flow, like
+Figma and FigJam. **Waiting for Kevin's answers** in `docs/PHASE5_DECISIONS.md`; nothing is built until then. Built
+by the builder from briefs, one PR per milestone into `v2`, reviewed until nothing high or medium is left, as Phase 4
+was. The gate: a deck built in under an hour, for a real pitch.
+
+| Milestone | Scope | PR | State |
+|---|---|---|---|
+| 5.0 The canvas core | react-konva canvas shared with Phase 6 (decision 11): pan, zoom (wheel, pinch, keys), a minimap, selection (click, shift, marquee), move, resize, rotate, z order, copy and paste, delete to the Trash; every change an op (decision 1); the Moodboard section lists boards (decision 2), one per department to start | | Not started |
+| 5.1 Items | Text boxes (bundled and this computer's fonts, decision 7), sticky notes, shapes in any colour; pictures dropped or pasted (decision 4); video cards with a still (decision 5); links | | Not started |
+| 5.2 Connectors | Straight, bent or curved, arrowheads and labels, snapping to items and moving with them; quick-create a connected item | | Not started |
+| 5.3 Sections and layout | Sections that group items and move with their contents; Tidy up (rows, columns, grid), align and distribute, snap guides | | Not started |
+| 5.4 Live cards | Shots and scenes from the storyboard as live cards (decision 6) that jump back to the board; scene palettes; brand-kit cards from the company profile (colours, fonts, logo); links of a board to scenes, characters and locations | | Not started |
+| 5.5 Decks | Page frames on a board (decision 3), ordered; Present; four templates filled from the project (decision 8) | | Not started |
+| 5.6 Export | Deck PDF (Konva renders each page, pdf-lib builds the file) and PNG per page; scene palettes from a moodboard, swatches as a PNG strip and Adobe .ase (decision 9) | | Not started |
+| 5.7 Performance | The 500-item board (decision 12): drawing only what's in view, picture copies for the canvas, a test like Q2's | | Not started |
+| Phase 5 gate | A checkpoint and Kevin's checklist: a deck built in under an hour | | Not started |
+
+Not in Phase 5: comments and boards on the web (Phase 9), the bird's-eye view (Phase 6, on the same core), AI-made
+images (never: Phase 7 writes prompts only).
 
 ### Phase 4 milestones
 
