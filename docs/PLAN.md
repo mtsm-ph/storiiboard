@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), as a stack of PRs #120 to #133 waiting to merge into `v2` in order (this session's permissions refused the merges; Kevin merges or allows it). **Phase 5 · Canvas flow**: plan and decision sheet written Nov 10, waiting for Kevin's answers (docs/PHASE5_DECISIONS.md); nothing built |
+| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); building from 5.0. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (Phase 4 built and reviewed, #120 to #133; Phase 5 planned) |
+| Last updated | Nov 10, 2026 (Phase 4 merged, #120 to #134; Phase 5 answered; Windows 10 22H2 supported) |
 
 | Phase | State |
 |---|---|
@@ -19,8 +19,8 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 1 · Storyboard | Built and polished; the gate is Kevin's |
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
 | 3 · Production data | Built (Nov 9), follow-ups merged (Nov 10); the gate is Kevin's |
-| 4 · Call sheets | **Built** (Nov 10): #120 to #133 wait to merge; the gate is Kevin's |
-| 5 · Canvas flow (moodboards and decks) | Planned Nov 10; waits for Kevin's answers |
+| 4 · Call sheets | **Built** and merged (Nov 10, #120 to #134); the gate is Kevin's |
+| 5 · Canvas flow (moodboards and decks) | Answered Nov 10; building |
 | 6 · Bird's-eye view | Not started |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
@@ -30,20 +30,22 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 ### Phase 5 milestones
 
 Plan written Nov 10, 2026, from "Phase 5 notes" (Kevin, Nov 5): moodboards and decks merge into one canvas flow, like
-Figma and FigJam. **Waiting for Kevin's answers** in `docs/PHASE5_DECISIONS.md`; nothing is built until then. Built
-by the builder from briefs, one PR per milestone into `v2`, reviewed until nothing high or medium is left, as Phase 4
-was. The gate: a deck built in under an hour, for a real pitch.
+Figma and FigJam. Kevin answered Nov 10 and said go: `docs/PHASE5_DECISIONS.md` (1, 5, 6 and 8 to 13 as
+recommended; 2, 3, 4 and 7 with his changes). Built by the builder from briefs, one PR per milestone into `v2`,
+reviewed until nothing high or medium is left, as Phase 4 was. Approved: font-kit 0.14.3 (Rust, MIT or Apache-2.0);
+anything else new, or any other change to existing data, waits for Kevin. The gate: a deck built in under an hour, for
+a real pitch.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 5.0 The canvas core | react-konva canvas shared with Phase 6 (decision 11): pan, zoom (wheel, pinch, keys), a minimap, selection (click, shift, marquee), move, resize, rotate, z order, copy and paste, delete to the Trash; every change an op (decision 1); the Moodboard section lists boards (decision 2), one per department to start | | Not started |
-| 5.1 Items | Text boxes (bundled and this computer's fonts, decision 7), sticky notes, shapes in any colour; pictures dropped or pasted (decision 4); video cards with a still (decision 5); links | | Not started |
+| 5.0 The canvas core | react-konva canvas shared with Phase 6 (decision 11): pan, zoom (wheel, pinch, keys), a minimap, selection (click, shift, marquee), move, resize, rotate, z order, copy and paste, delete to the Trash; every change an op (decision 1); the Moodboard section lists boards (decision 2): a department's board is created the first time it's opened, + makes more | | Not started |
+| 5.1 Items | Text boxes in the bundled fonts and this computer's, listed through font-kit (decision 7: Adobe Fonts checked on a Mac and on Windows; a font this computer lacks shows its fallback and says which), sticky notes, shapes in any colour; pictures dropped or pasted, stored as frames' are, at most 2560 px with a pointer to the original, never the original embedded (decision 4); video cards with a still (decision 5); links | | Not started |
 | 5.2 Connectors | Straight, bent or curved, arrowheads and labels, snapping to items and moving with them; quick-create a connected item | | Not started |
 | 5.3 Sections and layout | Sections that group items and move with their contents; Tidy up (rows, columns, grid), align and distribute, snap guides | | Not started |
 | 5.4 Live cards | Shots and scenes from the storyboard as live cards (decision 6) that jump back to the board; scene palettes; brand-kit cards from the company profile (colours, fonts, logo); links of a board to scenes, characters and locations | | Not started |
-| 5.5 Decks | Page frames on a board (decision 3), ordered; Present; four templates filled from the project (decision 8) | | Not started |
-| 5.6 Export | Deck PDF (Konva renders each page, pdf-lib builds the file) and PNG per page; scene palettes from a moodboard, swatches as a PNG strip and Adobe .ase (decision 9) | | Not started |
-| 5.7 Performance | The 500-item board (decision 12): drawing only what's in view, picture copies for the canvas, a test like Q2's | | Not started |
+| 5.5 Decks | Page frames on a board (decision 3: 16:9, 9:16 and 4:5 for social decks, A4 and Letter for a treatment), ordered; Present; four templates filled from the project (decision 8) | | Not started |
+| 5.6 Export | Deck PDF (pdf-lib: text as text in its font, embedded only where its `fsType` bits allow, else the fallback and the export says so; pictures at full quality from their originals) and PNG per page (Konva); scene palettes from a moodboard, swatches as a PNG strip and Adobe .ase (decision 9) | | Not started |
+| 5.7 Performance | The 500-item board (decision 12): drawing only what's in view, small previews when zoomed out and the full picture only up close (decision 4), a test like Q2's | | Not started |
 | Phase 5 gate | A checkpoint and Kevin's checklist: a deck built in under an hour | | Not started |
 
 Not in Phase 5: comments and boards on the web (Phase 9), the bird's-eye view (Phase 6, on the same core), AI-made
@@ -60,20 +62,20 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | #120 | Built Nov 10; two review rounds; waits for Kevin to compare the Settings baselines (the new tab) and say merge |
+| 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | #120 | Built Nov 10; two review rounds; Settings baselines (the new tab) approved by Kevin, Nov 10 |
 | 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | #121 | Built Nov 10, stacked on 4.0; two review rounds; notes private in History |
 | 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | #122 | Built Nov 10, stacked on 4.1; three review rounds |
 | 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | #123 | Built Nov 10, stacked on 4.2; three review rounds; tzf-rs in Rust (Kevin, Nov 10); high latitudes show merged golden and blue stretches |
-| 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | #124 | Built Nov 10, stacked on 4.3; two review rounds; If-Modified-Since on renewals; waits for Kevin's Settings baselines (Weather units) |
+| 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | #124 | Built Nov 10, stacked on 4.3; two review rounds; If-Modified-Since on renewals; Settings baselines (Weather units) approved by Kevin, Nov 10 |
 | 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | #125 | Built Nov 10, stacked on 4.4; three review rounds; boxes 10 km then 50 km (not 25/75), real hospitals only |
-| 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | #126 | Built Nov 10, stacked on 4.5; two review rounds; tappable links; waits for Kevin's Settings baselines (Directions open in) |
+| 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | #126 | Built Nov 10, stacked on 4.5; two review rounds; tappable links; Settings baselines (Directions open in) approved by Kevin, Nov 10 |
 | 4.7 Issuing | Issue: the PDF kept as sent, the version and issue time in its header ("Revised" from version 2), the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after (a new forecast doesn't count); re-issue as version 2, 3… (decision 5) | #127 | Built Nov 10, stacked on 4.6; three review rounds; a frozen fingerprint recipe per version |
-| 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | #128 | Built Nov 10, stacked on 4.7; three review rounds; checks say which they skipped (for the MCP) |
-| 4.9 The map on a location | react-konva, tiles through Rust with a disk cache under OpenStreetMap's tile policy (User-Agent, credit always visible, cache headers or 7 days, only the tiles in view, no offline download); a provider of one's own in Settings adds that one host, said so there; the pin dragged to where the crew should go saves the location's place | #129 | Built Nov 10, stacked on 4.8; three review rounds; the tile-server question is a native message dialog from Rust (waits for Kevin's OK: the dialog plugin's rule names only Open and Save) |
+| 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | #128 | Built Nov 10, stacked on 4.7; three review rounds; checks say which they skipped (for the MCP); the department rules approved by Kevin, Nov 10 |
+| 4.9 The map on a location | react-konva, tiles through Rust with a disk cache under OpenStreetMap's tile policy (User-Agent, credit always visible, cache headers or 7 days, only the tiles in view, no offline download); a provider of one's own in Settings adds that one host, said so there; the pin dragged to where the crew should go saves the location's place | #129 | Built Nov 10, stacked on 4.8; three review rounds; the tile-server question is a native message dialog from Rust (Kevin's OK, Nov 10: only to confirm a new host); keys for one's own tile server later |
 | 4.10 The map on the call sheet | The map image on the call sheet (decision 4b), from the tile cache, with the credit | #130 | Built Nov 10, stacked on 4.9; three review rounds; the map composed into one JPEG per location (canvas fallback for macOS 13.0–13.2) |
 | 4.11 Only frames to shoot | Kevin's Nov 10 answer to #121: the call sheet lists only Need-to-shoot frames; Have and Source drop off the sheet (scenes, locations, cast, checks, PDF, issuing follow); the Calendar keeps showing them | #131 | Built Nov 10, stacked on 4.10; one review round |
 | 4.12 The company on the header | Kevin's Nov 10 answer to #126: the call sheet's header prints the project's company name and logo when one is attached, with the title | #132 | Built Nov 10, stacked on 4.11; two review rounds; the logo redrawn in sRGB for print |
-| 4.13 Ambulance numbers | Kevin's Nov 10 answer to #125: ambulance-only numbers labelled Ambulance; the other Latin American countries added, each from an official government source | #133 | Built Nov 10, stacked on 4.12; checked by the main session against its sources; Bolivia left out (168 isn't national) |
+| 4.13 Ambulance numbers | Kevin's Nov 10 answer to #125: ambulance-only numbers labelled Ambulance; the other Latin American countries added, each from an official government source | #133 | Built Nov 10, stacked on 4.12; checked by the main session against its sources; Bolivia left out (168 isn't national), "check locally": the table accepted by Kevin, Nov 10 |
 | Phase 4 gate | A checkpoint and Kevin's checklist: a call sheet used on a real shoot day | | Not started |
 
 Not in Phase 4: cast availability (Phase 9, from the web), sending call sheets (publishing is Phase 9), driving times
@@ -1294,7 +1296,8 @@ Phase 0 calls, Nov 1 and 2, 2026:
     into a Project tile in the Settings workspace, beside the Backups tile 0.7b fills.
   - The browser build can't open files: it keeps the placeholder workspaces, and the switcher says projects open
     in the desktop app. The Projects view is drawn in the UI catalogue so the axe checks cover it.
-  - The dialog plugin (tauri-plugin-dialog 2.8.3) was approved Nov 2. Only its Open and Save dialogs are allowed.
+  - The dialog plugin (tauri-plugin-dialog 2.8.3) was approved Nov 2. Only its Open and Save dialogs are allowed, and
+    its message dialog from Rust only to confirm a new host for one's own tile server (Kevin, Nov 10, 4.9).
 - 0.7b as built (Nov 2):
   - Open backup copies the backup beside its project as `<backup name> (from backup).sbd` (numbered if opened
     again) and opens the copy, so the backup itself is never edited and pruning can't take work with it. It's on the
@@ -1773,6 +1776,7 @@ Tauri, React and the build tools bring with them.
 | windows-sys 0.61.2 (Windows only) | MIT or Apache 2.0 | Free space on a drive; a Job Object, so ffmpeg stops when the app does, crash or not | Kevin, Nov 5 (D2) |
 | libc (macOS only) | MIT or Apache 2.0 | The attribute File Provider services put on synced folders; free space (D2) | Nov 2 |
 | pdf-lib 1.17.1, @pdf-lib/fontkit 1.1.1 | MIT | The PDF storyboard and, later, call sheets | Nov 4 |
+| font-kit 0.14.3 (Rust) | MIT or Apache 2.0 | This computer's fonts for boards, and their embedding bits for PDF export (Phase 5, decision 7) | Kevin, Nov 10 |
 
 The installers ship each built-in licence beside the binaries (`ffmpeg-LICENSE.txt` and `.md`, `zimg-LICENSE.txt`,
 `dav1d-LICENSE.txt`) and `ffmpeg-SOURCE.txt`, which records every source, its checksum and how it was built, with
@@ -1901,8 +1905,42 @@ Not built now. Storiiboard never generates images itself.
   quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
 - [ ] Third-party notices with the installers (4.3): SunCalc (BSD-2-Clause), tzf-rs and its geometry crates (MIT),
   and tzf-dist's time-zone shapes (ODbL-1.0, © OpenStreetMap contributors, from timezone-boundary-builder).
+- [ ] A Windows 10 pass (Kevin, Nov 10): Storiiboard supports Windows 10 22H2 and Windows 11, and CI only runs
+  Windows Server, so each release's Windows installer is run by hand on a Windows 10 22H2 PC: an install with
+  WebView2 already there, one without it and online, and one without it and offline (see "Windows 10" below), then
+  the release's checklist.
 - [ ] Attach the FFmpeg source tarball (`ffmpeg-<version>.tar.xz`, in each ffmpeg CI artifact) to every release beside
   the installers, as the LGPL asks of whoever hands out the binaries (2.1).
+
+### Windows 10
+
+Storiiboard supports Windows 10 22H2 and Windows 11 (Kevin, Nov 10), 64-bit (x64), and macOS 13 Ventura or later on
+Apple silicon (the Mac build is `aarch64-apple-darwin` only). Nothing in the code rules Windows 10 out: WebView2 keeps
+updating there until at least October 2028, Rust's `x86_64-pc-windows-msvc` target runs on 10, and the Windows calls
+the app makes (free space, Job Objects, regional formats, the file association, the single-instance hand-off, the
+native dialogs) all exist on 10. CI runs only Windows Server, so these are what could differ, and what the by-hand
+pass checks:
+- **No WebView2.** It usually comes with Windows updates or Microsoft 365, but not on every clean or long-offline
+  install. Tauri's installer is in its default mode (`downloadBootstrapper`): it downloads WebView2 when it's missing,
+  so it needs the internet then; offline, the install can't finish. The other modes: `embedBootstrapper` (still
+  online), `offlineInstaller` (works offline, adds well over 100 MB to the installer). Kevin's call for Phase 8 (in
+  docs/HANDOFF.md): the recommendation is a second, offline Windows installer beside the normal one.
+- **N editions** (Windows 10 N and 11 N) lack Media Foundation until Microsoft's Media Feature Pack is installed:
+  without it, playback copies can't be made (the LGPL ffmpeg has no other H.264 encoder) and WebView2 can't play
+  H.264. Pictures, boards and call sheets still work. Today the app says only "That video couldn't be made into a
+  playback copy"; naming the Media Feature Pack there is a small fix, in HANDOFF for Kevin.
+- **Windows 10 on Arm** can't run x64 apps (only Windows 11 on Arm emulates them), so it isn't supported; Windows 11
+  on Arm runs the x64 build. S mode installs only Store apps.
+- **Older GPUs.** Windows 10 PCs are often older, and WebView2 turns off GPU drawing on blocked drivers, which slows
+  every canvas (the storyboard, maps, Phase 5's boards). The pass includes the Q2 board and, once built, Phase 5's
+  500-item board.
+- **Certificates.** Requests verify through Windows' own certificate store (rustls-platform-verifier), which fetches
+  missing roots from Windows Update; a PC with root updates turned off by policy may refuse api.met.no or the tile
+  server. Worth one look on a managed PC.
+- **Fonts.** The app's fonts are bundled, so nothing depends on Windows 11's (Segoe UI Variable). Phase 5's font list
+  reads Windows' own collection, so per-user fonts (Adobe Fonts) are checked on 10 as on 11.
+- **The look of the window**: title bar, dark mode and scaling come from Windows; 10 has square corners and no Mica,
+  which the app doesn't use.
 
 **After Phase 10:** device-wide search for missing files, sign-in for private cloud folders, real-time collaboration,
 Resolve and Premiere marker export.
