@@ -15,6 +15,12 @@ import { editAuthor, profileStore } from './settings/profileStore';
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
 
+/** What a build returns: the changes to write as one group. */
+export interface BuiltEdit {
+  changes: readonly Change[];
+  alsoWrite?: OpOptions['alsoWrite'];
+}
+
 export interface ProjectState {
   project: Project | null;
   /** Every record by id, trashed ones included; views filter. */
@@ -66,7 +72,7 @@ export interface ProjectState {
     build: (
       records: Readonly<Record<string, SbdRecord>>,
       slateNumbers: SlateNumbers,
-    ) => { changes: readonly Change[]; alsoWrite?: OpOptions['alsoWrite'] },
+    ) => BuiltEdit | Promise<BuiltEdit>,
   ) => Promise<boolean>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
@@ -236,14 +242,26 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           return touched;
         });
       },
-      applyWith: (build) =>
-        edit(async (project) => {
-          const { changes, alsoWrite } = build(get().records, get().slateNumbers);
+      applyWith: async (build) => {
+        const dropped = { value: false };
+        const written = await edit(async (project) => {
+          // A build may wait (for a font to load): it keeps its place in the queue meanwhile, so no later edit, undo or
+          // delete lands before it. It is handed the records as they were when its turn began; one that waits reads
+          // them again from the store when it is done waiting.
+          const { changes, alsoWrite } = await build(get().records, get().slateNumbers);
+          // A project closed or switched during the wait: the edit belongs to the one it was made in, so it's dropped,
+          // and the caller is told it wasn't written.
+          if (get().project !== project) {
+            dropped.value = true;
+            return null;
+          }
           if (changes.length === 0) return null;
           const touched = await apply(project.file, changes, { author: author(), ...(alsoWrite ? { alsoWrite } : {}) });
           if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
-        }),
+        });
+        return written && !dropped.value;
+      },
       undo: async () => {
         // A notice about the step just made ("Locked SC 04. … 4C is now 4E.") would describe one that's no longer
         // there (1.28's low): it goes, but only when something was undone, and only a notice about a step.

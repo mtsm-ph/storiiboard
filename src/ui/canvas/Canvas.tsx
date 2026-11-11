@@ -1,5 +1,5 @@
 import type Konva from 'konva';
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Group, Layer, Rect, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
@@ -8,7 +8,7 @@ import { boundsOf, marqueeTouches, rectFromCorners, topmostAt } from './hitTest'
 import { commandForKey, isCommand, toolForKey, zoomShortcut, zoomStepFor } from './keys';
 import { Minimap } from './Minimap';
 import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
-import type { CanvasCommand, CanvasItem, Geometry, GeometryChange, Point, Rect as WorldRect, Size, Tool, Viewport } from './types';
+import { isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type Geometry, type GeometryChange, type PlaceTool, type Point, type Rect as WorldRect, type Size, type Tool, type Viewport } from './types';
 import { useCanvasColours } from './useCanvasColours';
 import { centreOn, fitBounds, panBy, rectsMeet, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
 
@@ -38,7 +38,7 @@ type Gesture =
   | { kind: 'pan'; last: Point }
   | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; moved: boolean; collapseTo: string | null }
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
-  | { kind: 'draw'; start: Point; screen: Point; moved: boolean };
+  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; moved: boolean };
 
 export interface CanvasProps {
   /** The board's name: the container's label. */
@@ -55,11 +55,22 @@ export interface CanvasProps {
   onGeometry: (changes: GeometryChange[]) => unknown;
   /** An arrow key's nudge, as a distance: the host adds it to the items as they are when the edit is written. */
   onNudge: (ids: string[], dx: number, dy: number) => unknown;
-  /** A rectangle drawn, clicked into place or placed with Enter. */
-  onCreate: (geometry: Geometry) => unknown;
+  /** An item drawn, clicked into place or placed with Enter, by the tool that placed it. */
+  onCreate: (geometry: Geometry, tool: PlaceTool) => unknown;
+  /** Enter or a double-click on an editable item (text, sticky): the host edits it in place. */
+  onEdit?: (id: string) => void;
+  /** The item being edited in place, if any: the host draws its editor over it (renderEditor). */
+  editing?: string | null;
+  /** The editor for the item being edited, given the zoom; it fills the item's box on screen, turned as the item is. */
+  renderEditor?: (item: CanvasItem, zoom: number) => ReactNode;
   onCommand: (command: CanvasCommand) => void;
   /** Whether Paste has something to paste (the host keeps the clipboard). */
   canPaste: boolean;
+  /**
+   * Fixed colours for the world, the items' defaults, the selection and the handles, in place of the theme's: a host
+   * whose content is never themed (a board) gives its own paper and ink. The controls around the canvas still follow the theme.
+   */
+  fixedColours?: CanvasColours;
 }
 
 const isMac = () => typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
@@ -83,10 +94,15 @@ export function Canvas({
   onGeometry,
   onNudge,
   onCreate,
+  onEdit,
+  editing = null,
+  renderEditor,
   onCommand,
   canPaste,
+  fixedColours,
 }: CanvasProps) {
-  const colours = useCanvasColours();
+  const themed = useCanvasColours();
+  const colours = fixedColours ?? themed;
   const frame = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
   const transformer = useRef<Konva.Transformer>(null);
@@ -313,8 +329,8 @@ export function Canvas({
     event.currentTarget.setPointerCapture(event.pointerId);
     const world = worldOf(screen);
     const { shown: all, selection: picked, tool: current } = latest.current;
-    if (current === 'rect') {
-      gesture.current = { kind: 'draw', start: world, screen, moved: false };
+    if (isPlaceTool(current)) {
+      gesture.current = { kind: 'draw', tool: current, start: world, screen, moved: false };
       return;
     }
     const top = topmostAt(all, world);
@@ -395,7 +411,8 @@ export function Canvas({
       void onCreate(
         g.moved
           ? { x: tidy(box.x), y: tidy(box.y), width: tidy(Math.max(MIN_SIZE, box.width)), height: tidy(Math.max(MIN_SIZE, box.height)), rotation: 0 }
-          : placedAt(g.start),
+          : placedAt(g.start, g.tool),
+        g.tool,
       );
       onToolChange('select');
     }
@@ -506,12 +523,21 @@ export function Canvas({
         }
         return;
       }
-      if (event.key === 'Enter' && latest.current.tool === 'rect') {
+      if (event.key === 'Enter' && isPlaceTool(latest.current.tool)) {
         event.preventDefault();
-        const { viewport: view } = latest.current;
-        void onCreate(placedAt({ x: view.cx, y: view.cy }));
+        const { viewport: view, tool: placing } = latest.current;
+        void onCreate(placedAt({ x: view.cx, y: view.cy }, placing), placing);
         onToolChange('select');
         return;
+      }
+      // Enter on one selected text or sticky item edits it in place.
+      if (event.key === 'Enter' && onEdit && picked.length === 1) {
+        const only = latest.current.items.find((i) => i.id === picked[0]);
+        if (only?.editable) {
+          event.preventDefault();
+          onEdit(only.id);
+          return;
+        }
       }
       const next = toolForKey(event);
       if (next) {
@@ -521,7 +547,8 @@ export function Canvas({
     }
   };
 
-  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : tool === 'rect' ? 'crosshair' : 'default';
+  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
+  const editingItem = editing ? shown.find((i) => i.id === editing) : undefined;
   const percent = Math.round(view.zoom * 100);
   const live =
     selection.length === 0
@@ -549,7 +576,7 @@ export function Canvas({
       data-items={data}
       data-selection={chosen}
       data-tool={tool}
-      style={{ cursor }}
+      style={{ cursor, ...(fixedColours ? { background: fixedColours.paper, outlineColor: fixedColours.ink } : {}) }}
       className="relative h-full min-h-60 w-full touch-none overflow-hidden bg-surface select-none focus-visible:-outline-offset-4"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -559,6 +586,11 @@ export function Canvas({
         pointer.current = null;
       }}
       onKeyDown={onKeyDown}
+      onDoubleClick={(event) => {
+        if (!onEdit || event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement)) return;
+        const top = topmostAt(latest.current.shown, worldOf(local(event)));
+        if (top?.editable) onEdit(top.id);
+      }}
       onKeyUp={(event) => {
         if (event.key === ' ') {
           space.current = false;
@@ -683,6 +715,22 @@ export function Canvas({
           {t('canvas.minimap')}
         </button>
       </div>
+      {editingItem && renderEditor && (
+        <div
+          data-canvas-editor=""
+          style={{
+            position: 'absolute',
+            left: (editingItem.x - view.cx) * view.zoom + size.width / 2,
+            top: (editingItem.y - view.cy) * view.zoom + size.height / 2,
+            width: editingItem.width * view.zoom,
+            height: editingItem.height * view.zoom,
+            transform: `rotate(${String(editingItem.rotation)}deg)`,
+            transformOrigin: 'center',
+          }}
+        >
+          {renderEditor(editingItem, view.zoom)}
+        </div>
+      )}
       {menu && (
         <CanvasMenu
           at={menu.at}

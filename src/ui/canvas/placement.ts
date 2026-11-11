@@ -1,5 +1,5 @@
 import { boundsOf } from './hitTest';
-import type { Geometry, Point } from './types';
+import type { Geometry, PlaceTool, Point } from './types';
 import { unionBounds } from './viewport';
 
 // Where things go: a nudge by an arrow key, a paste, a rectangle placed by a click or Enter.
@@ -50,7 +50,18 @@ export function pasted<T extends Geometry>(items: readonly T[], at: Point | null
   return items.map((g) => moved(g, tidy(dx), tidy(dy)));
 }
 
-/** The default rectangle centred on a world point. */
-export function placedAt(point: Point): Geometry {
-  return { x: tidy(point.x - NEW_WIDTH / 2), y: tidy(point.y - NEW_HEIGHT / 2), width: NEW_WIDTH, height: NEW_HEIGHT, rotation: 0 };
+/** What a click places, by tool: a sticky note is square, a text box is wide and one line tall (it grows with its text). */
+export const PLACED_SIZE: Readonly<Record<PlaceTool, { width: number; height: number }>> = {
+  rect: { width: NEW_WIDTH, height: NEW_HEIGHT },
+  ellipse: { width: NEW_WIDTH, height: NEW_HEIGHT },
+  triangle: { width: NEW_WIDTH, height: NEW_HEIGHT },
+  diamond: { width: NEW_WIDTH, height: NEW_HEIGHT },
+  text: { width: 240, height: 29 },
+  sticky: { width: 200, height: 200 },
+};
+
+/** The default item for a tool, centred on a world point. */
+export function placedAt(point: Point, tool: PlaceTool = 'rect'): Geometry {
+  const { width, height } = PLACED_SIZE[tool];
+  return { x: tidy(point.x - width / 2), y: tidy(point.y - height / 2), width, height, rotation: 0 };
 }

@@ -193,6 +193,8 @@ test('selects by click, shift and marquee, moves by drag, and each step undoes',
   await page.mouse.click(...(Object.values(await world(page, 0, -300)) as [number, number]));
   await drag(page, await world(page, 200, -40), await world(page, 220, -40));
   await expect.poll(async () => (await items(page))[1]?.x).toBe(120);
+  // The canvas keeps its size under a press-drag, so the item moves only as far as the pointer did.
+  expect((await items(page))[1]?.y).toBe(-100);
   expect(await selection(page)).toEqual([b]);
   expect((await items(page))[0]?.x).toBe(-300);
 });
@@ -329,6 +331,10 @@ test('works from the keyboard alone: Tab in, R, Enter, arrows, Tab between items
   const key = await mod(page);
   // Tab into the canvas: it is one stop, named for the board.
   await tile(page).getByRole('button', { name: 'Select' }).focus();
+  // Select, Hand, Rectangle, Text, Sticky and Shapes come before the canvas.
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');

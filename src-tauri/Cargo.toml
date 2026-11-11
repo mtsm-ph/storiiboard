@@ -60,3 +60,9 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_System_JobObjects",
   "Win32_System_Threading",
 ] }
+
+# This computer's fonts for a board's text (5.1a, Kevin Nov 10), through src/fonts.rs only: the list of families, and a
+# font's bytes so the page can draw it without relying on what the webview lets pages see. On macOS it asks CoreText and
+# on Windows DirectWrite, so Adobe Fonts and anything else registered with the system appear. Pinned exactly (MIT or
+# Apache; released May 26, 2025). Linux (tested, not shipped) loads fontconfig at run time, so CI needs no new package.
+font-kit = { version = "=0.14.3", features = ["source-fontconfig-dlopen"] }

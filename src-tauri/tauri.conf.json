@@ -35,7 +35,13 @@
       "binaries/ffmpeg-LICENSE.md": "ffmpeg-LICENSE.md",
       "binaries/zimg-LICENSE.txt": "zimg-LICENSE.txt",
       "binaries/dav1d-LICENSE.txt": "dav1d-LICENSE.txt",
-      "binaries/ffmpeg-SOURCE.txt": "ffmpeg-SOURCE.txt"
+      "binaries/ffmpeg-SOURCE.txt": "ffmpeg-SOURCE.txt",
+      "../src/ui/fonts/archivo/OFL.txt": "fonts-archivo-OFL.txt",
+      "../src/ui/fonts/bodonimoda/OFL.txt": "fonts-bodonimoda-OFL.txt",
+      "../src/ui/fonts/intertight/OFL.txt": "fonts-intertight-OFL.txt",
+      "../src/ui/fonts/jetbrainsmono/OFL.txt": "fonts-jetbrainsmono-OFL.txt",
+      "../src/ui/fonts/jost/OFL.txt": "fonts-jost-OFL.txt",
+      "../src/ui/fonts/outfit/OFL.txt": "fonts-outfit-OFL.txt"
     },
     "shortDescription": "Open-source pre-production for filmmakers",
     "icon": [

@@ -1,4 +1,4 @@
-//! The licences of what ships beside the app (2.3b): FFmpeg's LGPL and its notes, zimg's and dav1d's, and where the
+//! The licences of what ships beside the app (2.3b; the six fonts' OFL from 5.1a): FFmpeg's LGPL and its notes, zimg's and dav1d's, and where the
 //! exact sources are. The build puts them among the app's resources (tauri.conf.json); the page asks for one by its
 //! name, from a fixed list, so it can never name any other file.
 
@@ -8,12 +8,18 @@ use std::path::Path;
 use tauri::{AppHandle, Manager};
 
 /// The files, as `bundle.resources` names them.
-pub const NAMES: [&str; 5] = [
+pub const NAMES: [&str; 11] = [
     "ffmpeg-LICENSE.txt",
     "ffmpeg-LICENSE.md",
     "zimg-LICENSE.txt",
     "dav1d-LICENSE.txt",
     "ffmpeg-SOURCE.txt",
+    "fonts-archivo-OFL.txt",
+    "fonts-bodonimoda-OFL.txt",
+    "fonts-intertight-OFL.txt",
+    "fonts-jetbrainsmono-OFL.txt",
+    "fonts-jost-OFL.txt",
+    "fonts-outfit-OFL.txt",
 ];
 
 const MISSING: &str =

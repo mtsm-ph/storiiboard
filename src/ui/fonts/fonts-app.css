@@ -1,5 +1,6 @@
-/* App faces only (Inter Tight, JetBrains Mono), so the desktop bundle doesn't carry the website fonts.
-   Same declarations as fonts.css, which keeps the kit's full set for the website. OFL: see each folder. */
+/* The faces the app loads at start (Inter Tight, JetBrains Mono). The other four (Archivo, Bodoni Moda, Jost, Outfit) are
+   on offer for a board's text and load from their files only when a board uses them (src/features/moodboards/fonts.ts).
+   Same declarations as fonts.css, which keeps the kit's full set. OFL: see each folder. */
 @font-face { font-family: 'Inter Tight'; src: url('intertight/InterTight[wght].ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Inter Tight'; src: url('intertight/InterTight-Italic[wght].ttf') format('truetype'); font-weight: 100 900; font-style: italic; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('jetbrainsmono/JetBrainsMono[wght].ttf') format('truetype'); font-weight: 100 800; font-style: normal; font-display: swap; }

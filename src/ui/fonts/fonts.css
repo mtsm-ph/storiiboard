@@ -7,7 +7,7 @@
 @font-face { font-family: 'JetBrains Mono'; src: url('jetbrainsmono/JetBrainsMono[wght].ttf') format('truetype'); font-weight: 100 800; font-style: normal; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('jetbrainsmono/JetBrainsMono-Italic[wght].ttf') format('truetype'); font-weight: 100 800; font-style: italic; font-display: swap; }
 
-/* ---- Website only ---- */
+/* ---- Also in the app, for a board's text; loaded only when a board uses them (not by this file) ---- */
 @font-face { font-family: 'Archivo'; src: url('archivo/Archivo[wdth,wght].ttf') format('truetype'); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
 @font-face { font-family: 'Archivo'; src: url('archivo/Archivo-Italic[wdth,wght].ttf') format('truetype'); font-weight: 100 900; font-stretch: 62% 125%; font-style: italic; font-display: swap; }
 @font-face { font-family: 'Jost'; src: url('jost/Jost[wght].ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }

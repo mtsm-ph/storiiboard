@@ -5,6 +5,7 @@ use tauri::{webview::PageLoadEvent, Manager};
 mod app_data;
 mod backup;
 mod export;
+mod fonts;
 mod geocode;
 mod hospital;
 mod licences;
@@ -108,6 +109,8 @@ pub fn run() {
             open::open_link,
             open::open_pdf,
             region::region_week,
+            fonts::fonts_list,
+            fonts::font_bytes,
             timezone::time_zone_at,
             tiles::map_tile,
             tiles::map_tiles_info,

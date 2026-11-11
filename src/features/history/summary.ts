@@ -9,6 +9,7 @@ import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { boardTitle } from '../moodboards/boards';
+import { itemFields, type ItemKind } from '../moodboards/items';
 import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -433,7 +434,26 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   y: 'history.field.position',
   width: 'history.field.boardSize',
   height: 'history.field.boardSize',
+  text: 'history.field.boardText',
+  fill: 'history.field.fill',
+  stroke: 'history.field.stroke',
+  color: 'history.field.colour',
+  font_family: 'history.field.font',
+  font_weight: 'history.field.fontStyle',
+  font_italic: 'history.field.fontStyle',
+  font_size: 'history.field.fontSize',
+  align: 'history.field.alignment',
 });
+
+/** What a board item is called in a line: "a rectangle", "a text box" (5.1a). */
+const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
+  rect: 'history.aRectangle',
+  ellipse: 'history.aEllipse',
+  triangle: 'history.aTriangle',
+  diamond: 'history.aDiamond',
+  text: 'history.aTextBox',
+  sticky: 'history.aSticky',
+};
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
@@ -524,8 +544,10 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     }
     case 'board':
       return boardTitle(record);
-    case 'board_item':
-      return t('history.aRectangle');
+    case 'board_item': {
+      const kind = itemFields(record.props)?.kind;
+      return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
+    }
     case 'project':
       return t('history.theProject');
     case 'media': {
@@ -562,6 +584,9 @@ const count = (type: SbdRecord['type'], n: number): string => {
   const base = COUNT[type];
   return base ? tn(base, n) : tn('count.items', n);
 };
+/** Board items counted by what they are: rectangles while all are (5.0), items once other kinds are among them. */
+const itemsCount = (records: readonly (SbdRecord | null | undefined)[], n: number): string =>
+  records.every((r) => r && itemFields(r.props)?.kind === 'rect') ? tn('count.rectangles', n) : tn('count.boardItems', n);
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
 const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day' | 'gear_item' | 'board' | 'board_item', MessageKey>>>> = {
@@ -723,7 +748,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         return line(kind === 'trash' ? 'history.erasedOn' : 'history.restoredStrokesOn', { frame }, { strokes: tn('count.strokes', found.length) });
       }
       const first = found[0];
-      if (found.length > 1 || !first) return [t(MANY[kind], { things: count(type, found.length) })];
+      if (found.length > 1 || !first) return [t(MANY[kind], { things: type === 'board_item' ? itemsCount(found.map((op) => record(op)), found.length) : count(type, found.length) })];
       return type === 'note' ? [t(A_NOTE[kind])] : line(ONE[kind][type], { name: nameOf(record(first)) });
     }
     // Checked before the moves and updates below: a delete renumbers the frames after it in the same step, and once
@@ -735,7 +760,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   const moved = moves[0];
   if (moved) {
     // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
-    if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: tn('count.rectangles', new Set(moves.map((op) => op.recordId)).size) })];
+    if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: itemsCount(moves.map((op) => record(op)), new Set(moves.map((op) => op.recordId)).size) })];
     if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];
     return purged(moved) ? [t('history.movedLost')] : line('history.moved', { name: nameOf(record(moved)) });
   }
@@ -745,10 +770,13 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   if (updates.length > 0 && updates.every((op) => op.before?.type === 'board_item' && op.after)) {
     const props = new Set(updates.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
     const only = (allowed: readonly string[]) => [...props].every((prop) => allowed.includes(prop));
-    const things = tn('count.rectangles', new Set(updates.map((op) => op.recordId)).size);
+    const things = itemsCount(updates.map((op) => record(op)), new Set(updates.map((op) => op.recordId)).size);
     if (props.size > 0 && only(['x', 'y'])) return [t('history.boardItemsMoved', { things })];
     if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.boardItemsRotated', { things })];
     if ((props.has('width') || props.has('height')) && only(['x', 'y', 'width', 'height'])) return [t('history.boardItemsResized', { things })];
+    // Text typed into a box (its height follows it), or a style set on several items at once (5.1a).
+    if (props.has('text') && only(['text', 'height', 'x', 'y'])) return [t('history.boardTextEdited', { things })];
+    if (updates.length > 1 && !props.has('text')) return [t('history.boardItemsChanged', { things })];
   }
   if (updates.length === 0 && lostUpdates.length > 0) return [t('history.lostChanged', { items: items(new Set(lostUpdates.map((op) => op.recordId)).size), tag })];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {

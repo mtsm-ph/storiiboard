@@ -328,7 +328,7 @@ describe('items and gestures', () => {
   it('does not list an item a later version wrote with a kind this one does not know', async () => {
     const { boardId } = await cameraBoard(1);
     await store.getState().apply([
-      { kind: 'create', record: { id: 'future', type: 'board_item', parentId: boardId, sortKey: 'zz', props: { kind: 'sticky', x: 0, y: 0, width: 10, height: 10, rotation: 0 } } },
+      { kind: 'create', record: { id: 'future', type: 'board_item', parentId: boardId, sortKey: 'zz', props: { kind: 'hologram', x: 0, y: 0, width: 10, height: 10, rotation: 0 } } },
     ]);
     expect(order(boardId)).toHaveLength(1);
     expect(records().future).toBeDefined();
