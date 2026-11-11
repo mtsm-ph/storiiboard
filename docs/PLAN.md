@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (4.0 #120 waits for Kevin's baselines; 4.1 and 4.2 built, stacked on it) |
+| Last updated | Nov 10, 2026 (4.0 #120 waits for Kevin's baselines; 4.1 to 4.3 built, stacked on it) |
 
 | Phase | State |
 |---|---|
@@ -32,7 +32,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 Plan written Nov 9, 2026; Kevin answered and said go the same day: 4.0, 4.1 to 4.8, 4.9, 4.10, in that order, stopping
 at the gate. His answers, one page: `docs/PHASE4_DECISIONS.md`. One PR per milestone into `v2`, each with its tests,
 reviewed until nothing high or medium is left, under the same rules as Phase 3, built by the builder from briefs
-(CLAUDE.md, Workflow). Approved: SunCalc, qrcode-generator, @photostructure/tz-lookup, and the hosts for the service
+(CLAUDE.md, Workflow). Approved: SunCalc, qrcode-generator, tzf-rs (Kevin, Nov 10, in place of @photostructure/tz-lookup), and the hosts for the service
 switch file, api.met.no and tile.openstreetmap.org; anything else new, or any other change to existing data, waits
 for Kevin. The gate: a call sheet used on a real shoot day.
 
@@ -41,7 +41,7 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 | 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | #120 | Built Nov 10; two review rounds; waits for Kevin to compare the Settings baselines (the new tab) and say merge |
 | 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | #121 | Built Nov 10, stacked on 4.0; two review rounds; notes private in History |
 | 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | #122 | Built Nov 10, stacked on 4.1; three review rounds |
-| 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | | Not started |
+| 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | #123 | Built Nov 10, stacked on 4.2; three review rounds; tzf-rs in Rust (Kevin, Nov 10); high latitudes show merged golden and blue stretches |
 | 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | | Not started |
 | 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | | Not started |
 | 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | | Not started |
@@ -1874,6 +1874,8 @@ Not built now. Storiiboard never generates images itself.
   no one-time notice for existing profiles, as Kevin is the only user so far).
 - [ ] Stop every card redrawing on each change, so a feature film's board (about 1000 frames in 120 scenes) stays as
   quick as a 300-frame one (Kevin, Nov 5; the numbers are in Q2 as built).
+- [ ] Third-party notices with the installers (4.3): SunCalc (BSD-2-Clause), tzf-rs and its geometry crates (MIT),
+  and tzf-dist's time-zone shapes (ODbL-1.0, © OpenStreetMap contributors, from timezone-boundary-builder).
 - [ ] Attach the FFmpeg source tarball (`ffmpeg-<version>.tar.xz`, in each ffmpeg CI artifact) to every release beside
   the installers, as the LGPL asks of whoever hands out the binaries (2.1).
 

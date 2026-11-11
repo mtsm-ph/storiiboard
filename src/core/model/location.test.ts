@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { locationChange, newLocation, trashLocation } from '../../features/locations/locationEdits';
-import { locationFields, mapLink, projectLocations } from './location';
+import { locationChange, newLocation, timeZoneChange, trashLocation } from '../../features/locations/locationEdits';
+import { computerTimeZone, locationFields, mapLink, projectLocations, unpinnedBy, zoneFor } from './location';
 import type { SbdRecord } from './record';
 
 // Locations (3.3): read from their records, listed with the scenes set there, and changed one field at a time.
@@ -271,5 +271,34 @@ describe('a location on the map (3.4)', () => {
     const lines = fieldChanges(before, after).map((c) => `${changeLabel(c)}: ${changeValue(c, c.before)} → ${changeValue(c, c.after)}`);
     expect(lines.join(' | ')).not.toMatch(/13\.5|71\.9|Cusco/);
     expect(lines).toContain('place on the map: — → not shown');
+  });
+
+  it('chooses the zone a location’s times are in (4.3): its own, else the map’s, else this computer’s', () => {
+    const mine = (props: SbdRecord['props']) => locationFields(props);
+    expect(zoneFor(mine({ time_zone: 'Europe/Madrid' }), 'America/New_York')).toEqual({ zone: 'Europe/Madrid', source: 'location' });
+    expect(zoneFor(mine({}), 'America/New_York')).toEqual({ zone: 'America/New_York', source: 'map' });
+    // Odd values read as unset, so the map's zone (or this computer's) is used instead.
+    expect(mine({ time_zone: 'Mars/Olympus' }).time_zone).toBe('');
+    expect(mine({ time_zone: 7 }).time_zone).toBe('');
+    expect(zoneFor(mine({ time_zone: 'Mars/Olympus' }), 'Asia/Tokyo')).toEqual({ zone: 'Asia/Tokyo', source: 'map' });
+    expect(zoneFor(mine({}), null)).toEqual({ zone: computerTimeZone(), source: 'computer' });
+    expect(zoneFor(mine({}), 'Not/AZone')).toEqual({ zone: computerTimeZone(), source: 'computer' });
+  });
+
+  it('sets, changes and unsets the time zone in one edit each, and leaves it when a new address unpins the place (4.3)', () => {
+    const all = { ...records(), l4: record('l4', 'location', 'p', { name: 'Pier', address: 'Old', latitude: 1, longitude: 2, map_name: 'Old', time_zone: 'Asia/Tokyo' }) };
+    expect(timeZoneChange(all, 'l1', 'Europe/Madrid')).toEqual([{ kind: 'update', id: 'l1', set: { time_zone: 'Europe/Madrid' } }]);
+    expect(timeZoneChange(all, 'l4', 'Asia/Tokyo')).toEqual([]);
+    expect(timeZoneChange(all, 'l1', 'Mars/Olympus')).toEqual([]);
+    expect(timeZoneChange(all, 'l4', null)).toEqual([{ kind: 'update', id: 'l4', unset: ['time_zone'] }]);
+    // Already unset: nothing to write. A trashed or missing location: nothing either.
+    expect(timeZoneChange(all, 'l1', null)).toEqual([]);
+    expect(timeZoneChange(all, 'l3', 'Europe/Madrid')).toEqual([]);
+    expect(timeZoneChange(all, 'nope', 'Europe/Madrid')).toEqual([]);
+    // A new address takes the place off, never the zone chosen by hand.
+    expect(unpinnedBy(all.l4.props, 'New address')).toEqual(['latitude', 'longitude', 'map_name']);
+    expect(locationChange(all, 'l4', 'address', 'New address')).toEqual([
+      { kind: 'update', id: 'l4', set: { address: 'New address' }, unset: ['latitude', 'longitude', 'map_name'] },
+    ]);
   });
 });

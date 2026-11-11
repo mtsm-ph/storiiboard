@@ -213,3 +213,38 @@ test('Search address looks up only when pressed, puts a place on the map in one 
   await search.click();
   await expect(status).toHaveText('Storiiboard couldn\'t reach the service. Check the connection and try again.');
 });
+
+test('a location’s time zone is chosen from the zones, kept across a reload, and one ⌘Z takes it back (4.3)', async ({ page }) => {
+  const editor = tile(page).locator('[data-location-editor]');
+  const zone = editor.getByRole('combobox', { name: 'Time zone' });
+  // No place on the map yet: the first option says so, and the credit sits under the field.
+  await expect(zone.locator('option').first()).toHaveText('From the map: none yet');
+  await expect(zone).toHaveValue('');
+  await expect(editor.getByText('Time zones from timezone-boundary-builder. Data © OpenStreetMap contributors, ODbL.')).toBeVisible();
+  expect(await zone.locator('option').count()).toBeGreaterThan(100);
+
+  await zone.selectOption('Europe/Madrid');
+  await expect(zone).toHaveValue('Europe/Madrid');
+  // A new address leaves a zone chosen by hand as it is.
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Calle Mayor, Madrid');
+  await editor.getByRole('textbox', { name: 'Parking' }).click();
+  await expect(zone).toHaveValue('Europe/Madrid');
+
+  // Landed once History lists it; then reload.
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.locator('[data-tile="history"]').click();
+  await expect(page.getByRole('region', { name: 'History', exact: true })).toContainText(/time zone/i);
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
+  await expect(zone).toHaveValue('Europe/Madrid');
+
+  // The address was the last edit, so the first ⌘Z takes it back (the zone stays); the next takes the zone back.
+  await zone.focus();
+  await page.keyboard.press(await undoKey(page));
+  await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('');
+  await expect(zone).toHaveValue('Europe/Madrid');
+  await zone.focus();
+  await page.keyboard.press(await undoKey(page));
+  await expect(zone).toHaveValue('');
+});

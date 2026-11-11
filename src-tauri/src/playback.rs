@@ -4494,7 +4494,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             Arc::new(move |_| {
                 let truth = budget.saturating_sub(bytes_in(&folder));
                 let mut shown = lock(&shown);
-                if shown.0 % 4 == 0 {
+                if shown.0.is_multiple_of(4) {
                     shown.1 = truth;
                 }
                 shown.0 += 1;

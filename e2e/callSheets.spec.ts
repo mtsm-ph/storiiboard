@@ -7,6 +7,10 @@ import { skipOnboarding } from './onboarding';
 // scene with its character and actor, the cast and the crew; a general note is kept across a reload, and one ⌘Z takes
 // it off.
 
+// Sun times (4.3) are written in the location's zone; the memory build looks a place's zone up as this browser's, so
+// the spec sets it.
+test.use({ timezoneId: 'America/New_York' });
+
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const sheet = (page: Page) => page.getByRole('region', { name: 'Call sheet', exact: true });
 const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
@@ -256,4 +260,53 @@ test('who is on the day and when they are called: add, take off, calls, cast tim
   await page.keyboard.press(await undoKey(page));
   await expect(field('On set, Ana Ruiz')).toHaveValue('10:30');
   await expect(field('HMU ready, Ana Ruiz')).toHaveValue('08:00');
+});
+
+test('sun times: a note without a place, then sunrise and sunset in the location’s zone, which can be changed (4.3)', async ({ page }) => {
+  await setUp(page);
+  const locations = page.getByRole('region', { name: 'Locations', exact: true });
+  const editor = locations.locator('[data-location-editor]');
+  const sun = sheet(page).locator('[data-sheet-location] [data-sun]');
+
+  // No place on the map: the sheet says so and guesses nothing from the address text.
+  await expect(sheet(page).locator('[data-sun-note]')).toHaveText('Pick the address on the map for sun times');
+  await expect(sun).toHaveCount(0);
+
+  // A place from the address search (the recorded answer), then the Sun block: sunrise, sunset, golden and blue hours.
+  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('button', { name: 'Search address' }).click();
+  await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await expect(editor.getByRole('combobox', { name: 'Time zone' }).locator('option').first()).toHaveText('From the map: America/New_York');
+  await expect(editor.getByText('Time zones from timezone-boundary-builder. Data © OpenStreetMap contributors, ODbL.')).toBeVisible();
+  await expect(sun).toBeVisible();
+  const clock = /^\d\d:\d\d$/;
+  const rise = sun.locator('[data-sun-rise]');
+  const set = sun.locator('[data-sun-set]');
+  await expect(rise).toHaveText(clock);
+  await expect(set).toHaveText(clock);
+  await expect(sun.locator('[data-sun-range="golden-morning"]')).toContainText('Morning');
+  await expect(sun.locator('[data-sun-range="golden-evening"]')).toContainText(/\d\d:\d\d–\d\d:\d\d/);
+  await expect(sun.locator('[data-sun-range="blue-evening"]')).toBeVisible();
+  await expect(sun).toContainText('Golden hour');
+  await expect(sun.locator('[data-sun-zone]')).toHaveText('Times in America/New_York');
+  await expect(sheet(page).locator('[data-times-in]')).toHaveText('Times in America/New_York');
+  const before = [await rise.textContent(), await set.textContent()];
+
+  // A different zone chosen on the location moves the times (Tokyo is 14 hours ahead of New York in November).
+  await editor.getByRole('combobox', { name: 'Time zone' }).selectOption('Asia/Tokyo');
+  await expect(sun.locator('[data-sun-zone]')).toHaveText('Times in Asia/Tokyo');
+  await expect(sheet(page).locator('[data-times-in]')).toHaveText('Times in Asia/Tokyo');
+  await expect(rise).not.toHaveText(before[0] ?? '');
+  await expect(set).not.toHaveText(before[1] ?? '');
+  const hour = async (clockText: Promise<string | null>) => Number((await clockText)?.slice(0, 2));
+  expect((await hour(rise.textContent()) - Number(before[0]?.slice(0, 2)) + 24) % 24).toBe(14);
+
+  // First option goes back to the zone from the map.
+  await editor.getByRole('combobox', { name: 'Time zone' }).selectOption({ index: 0 });
+  await expect(sun.locator('[data-sun-zone]')).toHaveText('Times in America/New_York');
+  await expect(rise).toHaveText(before[0] ?? '');
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
 });

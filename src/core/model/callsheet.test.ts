@@ -199,4 +199,53 @@ describe('the day the tile starts on', () => {
     expect(defaultSheetDay(days, '2027-01-01')?.record.id).toBe('d3');
     expect(defaultSheetDay([], '2026-11-16')).toBeNull();
   });
+
+  it('works out each location’s sun in its zone, notes a location with no place, and says whose clock the day is in (4.3)', () => {
+    const sunny = recordsOf(
+      record('p', 'project', null, {}),
+      record('d', 'shoot_day', 'p', { date: '2026-06-21', call_time: '06:00' }),
+      record('ny', 'location', 'p', { name: 'Roof', latitude: 40.7128, longitude: -74.006, map_name: 'New York' }),
+      record('bare', 'location', 'p', { name: 'Barn', address: 'Somewhere' }),
+      record('s1', 'scene', 'p', { number: '1', location_id: 'ny' }, 'a'),
+      record('s2', 'scene', 'p', { number: '2', location_id: 'bare' }, 'b'),
+      record('a', 'shot', 's1', { number: '1A', shoot_day_id: 'd' }, 'a'),
+      record('b', 'shot', 's2', { number: '2A', shoot_day_id: 'd' }, 'b'),
+    );
+    const sheet = callSheet(sunny, 'p', 'd', undefined, new Map([['ny', 'America/New_York']]));
+    const roof = sheet?.locations.find((l) => l.record.id === 'ny');
+    const barn = sheet?.locations.find((l) => l.record.id === 'bare');
+    expect(roof?.zone).toEqual({ zone: 'America/New_York', source: 'map' });
+    expect(roof?.sun?.sunrise).toMatch(/^05:2[3-7]$/);
+    expect(roof?.sun?.sunset).toMatch(/^20:(29|3[0-3])$/);
+    // No place on the map: no sun, nothing guessed from the address.
+    expect(barn?.place).toBeNull();
+    expect(barn?.sun).toBeNull();
+    // The day's clock is the first location's zone.
+    expect(sheet?.timesIn).toEqual(sheet?.locations[0]?.zone);
+    // A zone chosen on the location wins over the map's, and moves the clock the times are written in.
+    const moved = { ...sunny, ny: record('ny', 'location', 'p', { ...sunny.ny?.props, time_zone: 'Europe/Madrid' }) };
+    const there = callSheet(moved, 'p', 'd', undefined, new Map([['ny', 'America/New_York']]))?.locations.find((l) => l.record.id === 'ny');
+    expect(there?.zone).toEqual({ zone: 'Europe/Madrid', source: 'location' });
+    expect(there?.sun?.sunrise).toMatch(/^11:2[3-7]$/);
+  });
+
+  it('has no sun without a date and no zone line without a location', () => {
+    const none = recordsOf(record('p', 'project', null, {}), record('d', 'shoot_day', 'p', {}), record('ny', 'location', 'p', { name: 'Roof', latitude: 40.7, longitude: -74, map_name: 'NY' }));
+    expect(callSheet(none, 'p', 'd')?.timesIn).toBeNull();
+    const undated = recordsOf(
+      record('p', 'project', null, {}),
+      record('d', 'shoot_day', 'p', {}),
+      record('ny', 'location', 'p', { name: 'Roof', latitude: 40.7, longitude: -74, map_name: 'NY' }),
+      record('s1', 'scene', 'p', { number: '1', location_id: 'ny' }),
+      record('a', 'shot', 's1', { number: '1A', shoot_day_id: 'd' }),
+    );
+    // Still waiting for the zone: no zone, no sun, no "Times in" line.
+    const waiting = callSheet(undated, 'p', 'd');
+    expect(waiting?.locations[0]?.zone).toBeNull();
+    expect(waiting?.timesIn).toBeNull();
+    const sheet = callSheet(undated, 'p', 'd', undefined, new Map([['ny', null]]));
+    expect(sheet?.locations[0]?.sun).toBeNull();
+    // Nothing known of the place's zone yet: this computer's, said as such.
+    expect(sheet?.timesIn?.source).toBe('computer');
+  });
 });

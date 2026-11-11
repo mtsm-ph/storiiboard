@@ -1,6 +1,8 @@
 import { formatDate, t } from '../i18n';
 import { castOf, characterName, contactOnSheet, isCastOnly, peopleByDepartment, personFields, projectPeople as allPeople, sceneCharacters, type PersonFields } from './person';
-import { frameLocationId, locationFields, type LocationFields } from './location';
+import { frameLocationId, locationFields, mapPlace, zoneFor, type LocationFields, type ZoneSource } from './location';
+import type { Place } from '../net/places';
+import { sunTimes, type SunDay } from './sunTimes';
 import type { Department } from './department';
 import type { JsonValue, SbdRecord } from './record';
 import { dayLocations, dayPeople, dayPeopleChosen, dayScenes } from './schedule';
@@ -22,9 +24,21 @@ export interface SheetPerson {
   fields: PersonFields;
 }
 
+/** The time zone a sheet's times are in (4.3), and where it came from (the sheet says when it's this computer's). */
+export interface SheetZone {
+  zone: string;
+  source: ZoneSource;
+}
+
 export interface SheetLocation {
   record: SbdRecord;
   fields: LocationFields;
+  /** Its place on the map (3.4); null before one is picked, and then there are no sun times. */
+  place: Place | null;
+  /** Null while the looked-up zone of its place is still on its way: the sheet shows no sun until it arrives. */
+  zone: SheetZone | null;
+  /** The day's sun there (4.3); null without a place on the map or a date on the day. */
+  sun: SunDay | null;
 }
 
 /** A person's phone and email as the sheet prints them (4.2): only where their record allows it. */
@@ -101,6 +115,8 @@ export interface CallSheet {
   /** The project's title as the top bar shows it; '' when it has none (the caller names it by the file). */
   title: string;
   locations: SheetLocation[];
+  /** The zone the day's crew call and wrap are in (4.3): its first location's; null with no location. */
+  timesIn: SheetZone | null;
   scenes: SheetScene[];
   cast: SheetCast[];
   crew: SheetCrewGroup[];
@@ -176,9 +192,17 @@ export function personCall(own: string, departments: readonly string[], calls: R
 /**
  * The sections of one day's call sheet, or null when the day isn't a live day of the project. `people` is who is on
  * the day; left out, it is the people the day's `people_ids` names (4.2), or everyone live in Cast and crew while
- * nobody has chosen.
+ * nobody has chosen. `zones` is each location's zone looked up from its place (4.3, by location id; the page asks
+ * Rust): a zone, null for a place that can't be placed, and no entry while the answer is pending. A place waiting
+ * for its answer has no zone and no sun yet, so this stays a pure function of what it's given.
  */
-export function callSheet(records: Records, projectId: string, dayId: string, people?: readonly SheetPerson[]): CallSheet | null {
+export function callSheet(
+  records: Records,
+  projectId: string,
+  dayId: string,
+  people?: readonly SheetPerson[],
+  zones: ReadonlyMap<string, string | null> = new Map(),
+): CallSheet | null {
   const days = projectShootDays(records, projectId);
   const day = days.find((d) => d.record.id === dayId);
   if (!day) return null;
@@ -252,11 +276,26 @@ export function callSheet(records: Records, projectId: string, dayId: string, pe
       })),
     }));
   const project = records[projectId];
+  const locations = dayLocations(records, projectId, dayId).map(({ record }): SheetLocation => {
+    const fields = locationFields(record.props);
+    const place = mapPlace(record.props);
+    // Waiting for the answer: a guess from this computer's zone could be the wrong solar day.
+    const waiting = place !== null && fields.time_zone === '' && !zones.has(record.id);
+    const zone = waiting ? null : zoneFor(fields, zones.get(record.id) ?? null);
+    return {
+      record,
+      fields,
+      place,
+      zone,
+      sun: place && zone && isDayDate(day.fields.date) ? sunTimes(day.fields.date, place.latitude, place.longitude, zone.zone) : null,
+    };
+  });
   return {
     day,
     dayCount: days.length,
     title: text(project?.props.title) || text(project?.props.name),
-    locations: dayLocations(records, projectId, dayId).map(({ record }) => ({ record, fields: locationFields(record.props) })),
+    locations,
+    timesIn: locations[0]?.zone ?? null,
     scenes,
     cast,
     crew,

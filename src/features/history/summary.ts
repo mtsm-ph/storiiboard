@@ -118,6 +118,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   contact_phone: 'history.field.contactPhone',
   contact_email: 'history.field.contactEmail',
   parking: 'history.field.parking',
+  time_zone: 'history.field.timeZone',
   phone: 'history.field.phone',
   email: 'history.field.email',
   role: 'history.field.role',

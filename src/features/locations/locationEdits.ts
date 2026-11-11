@@ -1,5 +1,6 @@
 import { imageStatements, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
+import { isTimeZone } from '../../core/model/sunTimes';
 import type { Statement } from '../../core/storage/driver';
 import { MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
 import type { Place } from '../../core/net/places';
@@ -32,6 +33,19 @@ export function locationChange(records: Records, id: string, prop: string, value
   return [{ kind: 'update', id, set: { [prop]: value }, ...(pin.length > 0 ? { unset: pin } : {}) }];
 }
 
+
+/**
+ * The location's time zone (4.3) set by hand, or unset (null: back to the zone from the map), in one edit. Nothing when
+ * it's already that, the zone isn't one this computer knows, or the location isn't live.
+ */
+export function timeZoneChange(records: Records, id: string, zone: string | null): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const current = isTimeZone(location.props.time_zone) ? location.props.time_zone : null;
+  if (zone === null) return 'time_zone' in location.props ? [{ kind: 'update', id, unset: ['time_zone'] }] : [];
+  if (!isTimeZone(zone) || zone === current) return [];
+  return [{ kind: 'update', id, set: { time_zone: zone } }];
+}
 
 /**
  * A place picked from the address search (3.4) put on the location, in one edit: where it is and its name on the map.

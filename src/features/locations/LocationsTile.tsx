@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { openLink } from '../../app/opener';
+import { useZonesAt } from '../../app/timeZone';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import {
@@ -17,10 +18,10 @@ import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
-import { TextArea, TextField } from '../../ui/fields';
+import { Select, TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
-import { locationChange, newLocation, trashLocation } from './locationEdits';
+import { locationChange, newLocation, timeZoneChange, trashLocation } from './locationEdits';
 import { LocationPhotos } from './LocationPhotos';
 import { AddressSearch } from './AddressSearch';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
@@ -52,6 +53,9 @@ const LONG: ReadonlySet<LocationTextField> = new Set(['address', 'parking', 'pow
 const SIDE_BY_SIDE = 520;
 
 type Records = Readonly<Record<string, SbdRecord>>;
+
+/** Every IANA zone this computer knows (4.3), sorted. */
+const ALL_ZONES: readonly string[] = [...Intl.supportedValuesOf('timeZone')].sort();
 
 export function LocationsTile() {
   const project = useProject((s) => s.project);
@@ -156,6 +160,9 @@ export function LocationsTile() {
           scenes={selected.scenes}
           frames={selected.frames}
           nameField={nameField}
+          onTimeZone={(zone) => {
+            void edit((now) => timeZoneChange(now, selected.record.id, zone));
+          }}
           onChange={(prop, value) => {
             // One name per place: a rename onto another live location's name is refused, so the "/" menu never
             // offers two of the same.
@@ -197,12 +204,14 @@ interface LocationEditorProps {
   /** Frames shot here though their scene is set elsewhere. */
   frames: SbdRecord[];
   nameField: React.RefObject<HTMLInputElement | null>;
+  /** The time zone chosen by hand, or null for the one from the map (4.3). */
+  onTimeZone: (zone: string | null) => void;
   /** False when the change is refused (a name another location has): the field goes back to what's stored. */
   onChange: (prop: string, value: string) => boolean;
   onDelete: () => void;
 }
 
-function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameField, onChange, onDelete }: LocationEditorProps) {
+function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameField, onTimeZone, onChange, onDelete }: LocationEditorProps) {
   const editor = useRef<HTMLElement>(null);
   const headingId = useId();
   const text = (prop: 'name' | LocationTextField, label: string, long = false, type?: string) => {
@@ -235,6 +244,9 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
   /** What's in a field now, typed and not yet written included. */
   const typed = (prop: string) => editor.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-field="${prop}"]`)?.value ?? '';
   const place = mapPlace(props);
+  // The zone the map's place is in, looked up offline (4.3); the first option names it.
+  const looked = useZonesAt(place ? [{ id, latitude: place.latitude, longitude: place.longitude }] : []).get(id) ?? null;
+  const zones = fields.time_zone === '' || ALL_ZONES.includes(fields.time_zone) ? ALL_ZONES : [...ALL_ZONES, fields.time_zone].sort();
   /** The link from what's in the fields now: the place on the map once one is picked. */
   const currentLink = () => mapLink({ address: typed('address'), name: typed('name') }, place);
   const sorted = [...scenes].sort((a, b) => compareSceneNumbers(sceneFields(a.props).number, sceneFields(b.props).number));
@@ -256,6 +268,28 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]),
         // The search sits under the address it looks up.
         prop === 'address' && <AddressSearch key="address-search" locationId={id} place={place} query={() => typed('address').trim() || typed('name')} />,
+        // The time zone sits under the address, as the sun times on the call sheet are worked out in it.
+        prop === 'address' && (
+          <div key="time-zone" className="flex flex-col gap-1">
+            <Select
+              label={t('location.timeZone')}
+              mono
+              value={fields.time_zone}
+              data-field="time_zone"
+              onChange={(event) => {
+                onTimeZone(event.currentTarget.value === '' ? null : event.currentTarget.value);
+              }}
+            >
+              <option value="">{looked !== null && place ? t('location.timeZoneFromMap', { zone: looked }) : t('location.timeZoneNoMap')}</option>
+              {zones.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-text-muted">{t('location.timeZoneCredit')}</p>
+          </div>
+        ),
       ])}
       <LocationPhotos locationId={id} name={fields.name || t('locations.unnamed')} />
       <div className="flex flex-col gap-3">

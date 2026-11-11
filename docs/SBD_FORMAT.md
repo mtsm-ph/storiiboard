@@ -523,6 +523,11 @@ WGS 84) and `map_name` (the place's name as the map service wrote it) on the loc
 none count: a latitude outside ±90, a longitude outside ±180, or a missing name reads as no place. `address` stays as
 typed (an empty one takes `map_name`). Like the address, they're private in History: named, never shown.
 
+4.3, also no table change (additive, like `full_view`): `time_zone` on a location is an IANA zone id (`America/New_York`)
+chosen by hand. Missing, empty or a name the reader doesn't know reads as unset, and the call sheet then uses the zone
+looked up offline from the place on the map (`latitude`, `longitude`), else the reading computer's. A new address that
+takes the place off the map leaves `time_zone` as it is.
+
 ## Shoot day props (3.7)
 
 A `shoot_day` record (under the project) is one day of the shoot. Props: `date` (`YYYY-MM-DD`, a real calendar date;

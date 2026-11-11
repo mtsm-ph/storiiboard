@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { list, t, tn } from '../../core/i18n';
-import { dayDateFull, type CallSheet, type CallSheetNotes, type SheetContact } from '../../core/model/callsheet';
+import { dayDateFull, type CallSheet, type CallSheetNotes, type SheetContact, type SheetLocation, type SheetZone } from '../../core/model/callsheet';
+import type { SunBand, SunRange } from '../../core/model/sunTimes';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -49,8 +50,111 @@ export function DaySection({ sheet, projectName }: { sheet: CallSheet; projectNa
           <Time label={t('callSheet.crewCall')} time={day.fields.callTime} />
           <Time label={t('days.wrap')} time={day.fields.wrapTime} />
         </dl>
+        {/* The call and wrap are the clock as typed; this says whose clock (the first location's). */}
+        {sheet.timesIn && (
+          <p data-times-in="" className="text-[12px] text-text-muted">
+            {zoneLine(sheet.timesIn)}
+          </p>
+        )}
       </div>
     </Section>
+  );
+}
+
+/** "Times in America/New_York", or that they are in this computer's zone when nothing better is known. */
+function zoneLine({ zone, source }: SheetZone): string {
+  return source === 'computer' ? t('callSheet.timesInComputer') : t('callSheet.timesIn', { zone });
+}
+
+/** A time in mono; one on the day after the sheet's carries "+1", the day before "−1" (a screen reader says "+1 day"). */
+function Clock({ time, next, prev }: { time: string; next: boolean; prev: boolean }) {
+  return (
+    <span className="font-mono">
+      {time}
+      {(next || prev) && (
+        <>
+          <span aria-hidden="true"> {next ? '+1' : '−1'}</span>
+          <span className="sr-only"> {next ? t('callSheet.nextDay') : t('callSheet.previousDay')}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+const Stretch = ({ range }: { range: SunRange }) => (
+  <>
+    <Clock time={range.start} next={range.startNext} prev={range.startPrev} />–<Clock time={range.end} next={range.endNext} prev={range.endPrev} />
+  </>
+);
+
+/** One location's sun (4.3): sunrise and sunset, golden and blue hours, and the zone they are in. */
+function SunBlock({ location }: { location: SheetLocation }) {
+  const { place, sun, zone } = location;
+  if (!place) {
+    // Nothing is guessed from the address text.
+    return (
+      <p data-sun-note="" className="text-text-muted">
+        {t('callSheet.noSunPlace')}
+      </p>
+    );
+  }
+  // Waiting for the place's zone, or no date on the day: nothing to show yet.
+  if (!sun || !zone) return null;
+  const stretches = (label: string, band: SunBand, golden: boolean) => {
+    if (!band.allDay && !band.morning && !band.evening && !band.whole) return null;
+    const kind = golden ? 'golden' : 'blue';
+    return (
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {/* Golden hour is Burning Flame with ink text, and its name in words as the second cue. */}
+        <span className={golden ? 'sb-label bg-highlight px-[7px] py-1 text-ink-fixed' : 'sb-label shrink-0 pt-[2px]'}>{label}</span>
+        {band.allDay && <span data-sun-range={`${kind}-all-day`}>{t('callSheet.allDay')}</span>}
+        {band.whole && (
+          <span data-sun-range={`${kind}-whole`}>
+            <Stretch range={band.whole} />
+          </span>
+        )}
+        {band.morning && (
+          <span data-sun-range={`${kind}-morning`}>
+            <span className="text-text-muted">{t('callSheet.morning')} </span>
+            <Stretch range={band.morning} />
+          </span>
+        )}
+        {band.evening && (
+          <span data-sun-range={`${kind}-evening`}>
+            <span className="text-text-muted">{t('callSheet.evening')} </span>
+            <Stretch range={band.evening} />
+          </span>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div data-sun="" className="flex flex-col gap-1">
+      <p className="sb-label">{t('callSheet.sun')}</p>
+      {sun.state === 'normal' ? (
+        <p className="flex flex-wrap gap-x-4">
+          <span>
+            <span className="sb-label">{t('callSheet.sunrise')} </span>
+            <span data-sun-rise="">
+              <Clock time={sun.sunrise} next={sun.sunriseNext} prev={sun.sunrisePrev} />
+            </span>
+          </span>
+          <span>
+            <span className="sb-label">{t('callSheet.sunset')} </span>
+            <span data-sun-set="">
+              <Clock time={sun.sunset} next={sun.sunsetNext} prev={sun.sunsetPrev} />
+            </span>
+          </span>
+        </p>
+      ) : (
+        <p data-sun-state={sun.state}>{sun.state === 'up' ? t('callSheet.sunUp') : t('callSheet.sunDown')}</p>
+      )}
+      {stretches(t('callSheet.goldenHour'), sun.golden, true)}
+      {stretches(t('callSheet.blueHour'), sun.blue, false)}
+      <p data-sun-zone="" className="text-[12px] text-text-muted">
+        {zoneLine(zone)}
+      </p>
+    </div>
   );
 }
 
@@ -71,7 +175,8 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
         <Empty>{t('callSheet.noLocations')}</Empty>
       ) : (
         <ul>
-          {sheet.locations.map(({ record, fields }) => {
+          {sheet.locations.map((location) => {
+            const { record, fields } = location;
             const contact = [fields.contact_name, fields.contact_phone].filter((part) => part.trim() !== '').join(' · ');
             const rows: [string, string, boolean][] = [
               [t('callSheet.contact'), contact, true],
@@ -105,6 +210,7 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
                       </span>
                     </p>
                   ))}
+                <SunBlock location={location} />
               </li>
             );
           })}

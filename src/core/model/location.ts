@@ -1,6 +1,7 @@
 import type { JsonValue, Props, SbdRecord } from './record';
 import { labels } from '../i18n';
 import { placeFrom, type Place } from '../net/places';
+import { isTimeZone } from './sunTimes';
 
 // A location (3.3): one place a scene is shot, named once and linked from every scene there (`scene.location_id`), so an
 // address or a parking note changed here is changed for every scene and, from Phase 4, every call sheet. Its contact's
@@ -34,6 +35,8 @@ export interface LocationFields {
   parking: string;
   power: string;
   notes: string;
+  /** An IANA zone chosen by hand (4.3), or '' for none, or for a value this computer doesn't know. */
+  time_zone: string;
 }
 
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -49,6 +52,7 @@ export function locationFields(props: Props): LocationFields {
     parking: text(props.parking),
     power: text(props.power),
     notes: text(props.notes),
+    time_zone: isTimeZone(props.time_zone) ? props.time_zone : '',
   };
 }
 
@@ -137,4 +141,20 @@ export function mapLink(fields: Pick<LocationFields, 'address' | 'name'>, place:
   }
   const query = (fields.address.trim() || fields.name.trim()).replace(/\s+/g, ' ');
   return query === '' ? null : `https://www.openstreetmap.org/search?query=${encodeURIComponent(query)}`;
+}
+
+/** Where a location's time zone came from (4.3): chosen on it, looked up from its place on the map, or this computer's. */
+export type ZoneSource = 'location' | 'map' | 'computer';
+
+/** This computer's IANA zone. */
+export const computerTimeZone = (): string => new Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/**
+ * The zone a location's times are in (4.3): its own `time_zone` when set and valid, else the one looked up from its
+ * place (`lookedUp`, null when none), else this computer's, which the sheet says so it's not taken for the location's.
+ */
+export function zoneFor(fields: Pick<LocationFields, 'time_zone'>, lookedUp: string | null): { zone: string; source: ZoneSource } {
+  if (fields.time_zone !== '') return { zone: fields.time_zone, source: 'location' };
+  if (lookedUp !== null && isTimeZone(lookedUp)) return { zone: lookedUp, source: 'map' };
+  return { zone: computerTimeZone(), source: 'computer' };
 }
