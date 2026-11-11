@@ -75,7 +75,7 @@ describe('company profiles on this computer (3.2)', () => {
 });
 
 describe('a company attached to a project (3.2)', () => {
-  const profile = { id: 'co1', name: 'Zima Blue Pictures', address: '', phone: '', email: '', website: 'https://example.com', logo: 'data:image/png;base64,AA==' };
+  const profile = { id: 'co1', name: 'Zima Blue Pictures', address: '', phone: '', email: '', website: 'https://example.com', logo: 'data:image/png;base64,AA==', brandColors: [], brandFonts: [] };
   const base = () => ({ p: record('p', 'project', null, { title: 'Bey County' }) });
 
   it('copies the profile and its logo in one edit, and attaching again sends the old logo to the Trash', () => {
@@ -111,6 +111,32 @@ describe('a company attached to a project (3.2)', () => {
       { kind: 'update', id: 'p', unset: ['company'] },
     ]);
     expect(detachCompany(base(), 'p')).toEqual([]);
+  });
+
+  it('copies the brand kit on attach and again on Update from profile, as one edit with the rest (5.4)', () => {
+    const kit = { ...profile, logo: null, brandColors: ['#DF5E27', '#16150F'], brandFonts: ['Jost', 'Outfit'] };
+    const first = attachCompany(base(), 'p', kit, null, '/Films/Bey County.sbd');
+    const update = first.changes.find((c) => c.kind === 'update');
+    const props = update?.kind === 'update' ? (update.set ?? {}) : {};
+    expect(projectCompany(props)).toMatchObject({ brandColors: ['#DF5E27', '#16150F'], brandFonts: ['Jost', 'Outfit'] });
+    const now = { p: record('p', 'project', null, { title: 'Bey County', ...props }) };
+    // The profile's kit changes; the project keeps its copy until Update from profile.
+    const edited = { ...kit, brandColors: ['#2C5F8A'], brandFonts: ['Jost'] };
+    expect(projectCompany(now.p.props)).toMatchObject({ brandColors: ['#DF5E27', '#16150F'] });
+    const updated = attachCompany(now, 'p', edited, null, '/Films/Bey County.sbd').changes.find((c) => c.kind === 'update');
+    expect(projectCompany(updated?.kind === 'update' ? updated.set : {})).toMatchObject({ brandColors: ['#2C5F8A'], brandFonts: ['Jost'] });
+    // A new profile has an empty kit, and the colours and fonts a person saves are cleaned (hex only, at most eight and three).
+    expect(addCompany()).toBeNull();
+    const made = companiesStore.getState().companies.at(-1);
+    if (!made) throw new Error('the profile');
+    expect(made).toMatchObject({ brandColors: [], brandFonts: [] });
+    const nine = Array.from({ length: 9 }, (_, i) => `#00000${String(i)}`);
+    expect(saveCompany({ ...made, brandColors: ['#df5e27', 'nope', ...nine], brandFonts: ['a', 'b', 'c', 'd'] })).toBeNull();
+    const kept = companiesStore.getState().companies.find((c) => c.id === made.id);
+    expect(kept?.brandColors).toHaveLength(8);
+    expect(kept?.brandColors[0]).toBe('#DF5E27');
+    expect(kept?.brandFonts).toEqual(['a', 'b', 'c']);
+    expect(removeCompany(made.id)).toBeNull();
   });
 
   it('never trashes a frame, a scene or the project that a hand-edited logo_id names', () => {

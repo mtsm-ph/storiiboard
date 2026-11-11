@@ -180,6 +180,20 @@ export function ProjectCompanyFields({ record }: { record: SbdRecord }) {
                 <dd>{copy[field]}</dd>
               </div>
             ))}
+            {copy.brandColors.length > 0 && (
+              <div className="contents">
+                <dt className="sb-label self-center">{t('company.brandColors')}</dt>
+                <dd data-brand-colors-copy="" className="font-mono text-[12px]">
+                  {copy.brandColors.join(' ')}
+                </dd>
+              </div>
+            )}
+            {copy.brandFonts.length > 0 && (
+              <div className="contents">
+                <dt className="sb-label self-center">{t('company.brandFonts')}</dt>
+                <dd data-brand-fonts-copy="">{copy.brandFonts.join(', ')}</dd>
+              </div>
+            )}
           </dl>
           <div className="flex flex-wrap gap-2">
             {profile && changed && (

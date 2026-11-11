@@ -25,6 +25,7 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { compareSceneNumbers, locationNameTaken } from '../storyboard/board';
 import { locationChange, newLocation, timeZoneChange, trashLocation } from './locationEdits';
 import { LocationPhotos } from './LocationPhotos';
+import { LinkedBoards } from '../moodboards/LinkedBoards';
 import { AddressSearch } from './AddressSearch';
 import { HospitalFinder } from './HospitalFinder';
 import { LocationMap } from './LocationMap';
@@ -304,6 +305,8 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         ),
       ])}
       <LocationPhotos locationId={id} name={fields.name || t('locations.unnamed')} />
+      {/* The boards that link to this location (5.4); nothing shows when none does. */}
+      <LinkedBoards kind="location" id={id} />
       <div className="flex flex-col gap-3">
         <h4 className="sb-label">{t('location.customFields')}</h4>
         {/* The location's own fields (drone permit, curfew, anything), as a frame's are (1.19). */}

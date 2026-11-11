@@ -730,6 +730,11 @@ were always in the list, so there is no migration and no schema number (additive
 
 `board` props:
 - `kind`: `moodboard` (5.5 adds `deck`). Anything else reads as a moodboard.
+- `scene_ids`, `character_ids`, `location_ids` (5.4): lists of record ids, the scenes, characters and locations the board is about
+  ("Linked to: SC 04, MAYA, Rooftop" in the board's strip). Missing or empty is none; an emptied list is taken off the record.
+  Additive: no migration, no schema_version change. A linked record in the Trash is not shown, but its id stays in the list,
+  so restoring it brings the link back; one deleted for good simply never shows. The links are read the other way (the boards
+  that link to a scene, character or location) by scanning the live boards, never stored on the scene, character or location.
 - `department`: a department id, or `null` for a free board. A department's board is made the first time it is opened,
   never ahead, so a new project has none. At most one board per department is outside the Trash; a department's board in
   the Trash is restored when that department's board is opened, never made twice.
@@ -739,7 +744,7 @@ were always in the list, so there is no migration and no schema number (additive
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
 `board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
-- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2) or `section` (5.3). An item whose `kind` this version doesn't know is
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2), `section` (5.3) or `shot_card`, `scene_card`, `palette_card` or `brand_card` (5.4). An item whose `kind` this version doesn't know is
   kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
@@ -837,6 +842,22 @@ were always in the list, so there is no migration and no schema number (additive
     board" ("Section on Camera board" without a name).
   - Layout commands change `x` and `y` only (Align, Distribute, Tidy up). The group holds a row for every item the command
     covered, moved or not, which is how History says "Aligned 3 items".
+- A **live card** (5.4) shows a record of the project as it is now. It stores which record it shows and nothing it draws: `x`, `y`,
+  `width`, `height` and `rotation` like any item, and
+  - `shot_card`: `shot_id`, the frame. Drawn from the frame as it is: its picture (the thumbnail, the full picture up close, cropped as
+    the storyboard crops it) or else its sketch, its number exactly as on the slate, its shot size, lens and movement, and its
+    status shape (Have ■, Need to shoot □, Source ◩).
+  - `scene_card`: `scene_id`, the scene. Its heading as the board shows it ("SC 04 INT. KITCHEN — NIGHT"), how many frames it has,
+    and its first four frames' thumbnails.
+  - `palette_card`: `scene_id`. The scene's `palette` (see Storyboard props) as it is now, swatches in order with their hex.
+  - `brand_card`: no other prop. The project's company (see Project record props): its name, its logo picture, brand colours
+    and brand fonts, each font set in its own face.
+  A card whose frame or scene is in the Trash is drawn dimmed with "In the Trash" and stays on the board; one whose record is gone
+  for good says "Shot removed" or "Scene removed". Neither is an error, and nothing is written to the card. Edits to the frame
+  change the card with no op on the card. Cards keep their aspect when resized. Copy and paste within the project copy the
+  card; into another project a card naming a frame or scene is left out (with the notice of 5.1b), since its record is not there.
+  Double-click or Enter on a shot or scene card selects the frame or scene in the Storyboard (one in the Trash opens the Trash
+  tile filtered to it instead). The Trash lists a card as "Shot card 4A on Camera board" and History as "Added shot card 4A".
 - A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
   (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
   Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
@@ -875,7 +896,7 @@ and MCP read them.
 | logline, format, runtime | text | 3.1. Free text: `TVC · 60s`, `12 min` |
 | client | `name`, `company`, `email`, `phone` (text) | 3.1. The client contact. Private: shown in the app, never logged. Fields this version doesn't know are kept |
 | deliverables | array of `id` (UUID), `text`, `done` (true or false) | 3.1. The deliverables checklist, in order. Fields this version doesn't know are kept |
-| company | `profile_id`, `name`, `address`, `phone`, `email`, `website` (text), `logo_id` (a media record under the project, or null), `logo_source` (a mark of the logo copied, to tell whether the profile's changed) | 3.2. The production company, copied from a profile saved in the app's settings on some computer; it stays as copied until Update from profile. Its logo is a picture (schema 3) whose media record has `role` = `company_logo`; replaced or detached, it goes to the Trash, which doesn't list it on its own (undo brings it back with the company) but counts and clears it with Empty Trash. `logo_source` is null when the project holds no logo. Fields this version doesn't know are kept |
+| company | `profile_id`, `name`, `address`, `phone`, `email`, `website` (text), `logo_id` (a media record under the project, or null), `logo_source` (a mark of the logo copied, to tell whether the profile's changed), `brand_colors` (up to 8 `#RRGGBB`, upper case, each once; 5.4), `brand_fonts` (up to 3 font family names; 5.4) | 3.2. The production company, copied from a profile saved in the app's settings on some computer; it stays as copied until Update from profile. Its logo is a picture (schema 3) whose media record has `role` = `company_logo`; replaced or detached, it goes to the Trash, which doesn't list it on its own (undo brings it back with the company) but counts and clears it with Empty Trash. `logo_source` is null when the project holds no logo. Fields this version doesn't know are kept. `brand_colors` and `brand_fonts` (5.4, the brand kit) are copied from the profile on attach and on Update from profile, as the other details are; a company copied before 5.4 has neither, which reads as none. Anything in them that isn't a `#RRGGBB` colour, or past the limits, is dropped when read |
 | theme | object (below) | Phase 1 |
 | watermark | `text`, `position` (`top-left`, `top-right`, `center`, `bottom-left`, `bottom-right`), `opacity` (0.05 to 1), `applies_to` (any of `pdf`, `png`, `review`) | 1.24, Watermark Settings. Missing, or empty text, means no watermark |
 | aspect_ratio | `2.39:1`, `2:1`, `1.85:1`, `16:9`, `4:3`, `1:1`, `4:5`, `9:16` | 1.6. The storyboard's frame shape; missing reads as `16:9` |
@@ -1261,3 +1282,6 @@ under a picture or video item: additive, no table change, no migration and no sc
 table change, no migration and no schema_version change; an older version keeps a connector and doesn't show it.
 5.3 adds the `section` kind to `board_item` (with `name` and `color`; its contents are worked out, not stored): additive, no table
 change, no migration and no schema_version change; an older version keeps a section and doesn't show it.
+5.4 adds the live card kinds `shot_card`, `scene_card`, `palette_card` and `brand_card` to `board_item` (with `shot_id` or `scene_id`), the
+board props `scene_ids`, `character_ids` and `location_ids`, and the project's `company` value gains `brand_colors` and `brand_fonts`: additive, no table
+change, no migration and no schema_version change; an older version keeps a card and doesn't show it, and ignores the rest.

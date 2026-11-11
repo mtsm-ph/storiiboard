@@ -20,6 +20,8 @@ import { addPictures } from './addPictures';
 import { paletteOf } from '../../core/model/palette';
 import { copyHex, editPalette, generatePalette } from './palette/actions';
 import { PaletteEditor } from './palette/PaletteEditor';
+import { boardsLinkedTo } from '../moodboards/boards';
+import { LinkedBoards } from '../moodboards/LinkedBoards';
 import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from './palette/Eyedropper';
 import { framesWithPictures } from './palette/read';
 import { locations, setCustomField, setFrameLocation, setSceneNumber } from './board';
@@ -241,6 +243,9 @@ export function InspectorTile() {
               onAddHex={(hex) => addColour(scene.id, hex)}
             />
           ) : undefined
+        }
+        boards={
+          scene && boardsLinkedTo(records, project.projectId, 'scene', scene.id).length > 0 ? <LinkedBoards kind="scene" id={scene.id} label={false} /> : undefined
         }
         focus={focus}
         gear={

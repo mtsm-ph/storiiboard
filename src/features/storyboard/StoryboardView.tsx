@@ -1,4 +1,4 @@
-import { useCallback, useContext, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useContext, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { FocusContext } from '../department/perspective';
 import { customValue } from '../../core/model/customFields';
 import { departmentStates } from '../../core/model/departmentStatus';
@@ -141,9 +141,20 @@ export interface StoryboardViewProps {
   /** A scene's name or a frame's title, edited in place with the pencil (Nov 5); empty for none. */
   onRenameScene?: (sceneId: string, name: string) => void;
   onRetitleShot?: (shotId: string, title: string) => void;
+  /** The context menu on a frame or a scene's heading (also the menu key and Shift+F10): "Add to board…" (5.4). */
+  onContextMenu?: (target: { kind: 'shot' | 'scene'; id: string }, from: HTMLElement, at: { x: number; y: number }) => void;
 }
 
 const NAV = '[data-board-item]';
+
+/** Where a context menu opens: at the pointer, or beside the element when the keyboard asked (no pointer position). */
+function menuPoint(event: { button: number; clientX: number; clientY: number }, near: Element): { x: number; y: number } {
+  if (event.button === -1 || (event.clientX === 0 && event.clientY === 0)) {
+    const box = near.getBoundingClientRect();
+    return { x: box.left, y: box.bottom + 4 };
+  }
+  return { x: event.clientX, y: event.clientY };
+}
 
 /** "4 have · 1 need · 1 source", leaving out what's zero. */
 export function countsLine(counts: Record<ShotStatus, number>): string {
@@ -224,12 +235,15 @@ function SceneTitleRow({
   className,
   headingClassName,
   onRename,
+  onMenu,
   pencilTabbable,
 }: {
   scene: SceneGroup;
   className?: string;
   headingClassName?: string;
   onRename?: ((name: string) => void) | undefined;
+  /** The context menu on the heading, or on its pencil from the keyboard. */
+  onMenu?: ((from: HTMLElement, at: { x: number; y: number }) => void) | undefined;
   /** Only the scene holding the board's Tab stop has its pencil in the Tab order: the board stays one stop. */
   pencilTabbable: boolean;
 }) {
@@ -238,7 +252,28 @@ function SceneTitleRow({
   const label = t('title.sceneName', { scene: sceneLabel(scene.number) });
   return (
     // The whole row counts as the heading for a dragged frame (useItemDrag): over it, the frame lands at the start.
-    <div data-heading-row="" className={cx('group/title flex min-w-0 items-start gap-1', className)}>
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the context menu is also reached from the pencil's keyboard (the menu key, Shift+F10), which bubbles here
+    <div
+      data-heading-row=""
+      className={cx('group/title flex min-w-0 items-start gap-1', className)}
+      onContextMenu={
+        onMenu &&
+        ((event) => {
+          const target = event.target instanceof Element ? event.target : null;
+          // The rename field keeps its own (native) menu.
+          if (target?.closest('input, textarea, [contenteditable]')) return;
+          event.preventDefault();
+          // What Escape gives focus back to: what was pressed if it takes focus, else the heading's pencil, else the scene's first item.
+          const pressed = target?.closest<HTMLElement>('button, a[href], [tabindex]') ?? null;
+          const from =
+            (pressed && event.currentTarget.contains(pressed) ? pressed : null) ??
+            pencil.current ??
+            event.currentTarget.closest('[data-scene-group]')?.querySelector<HTMLElement>('[data-board-item]') ??
+            event.currentTarget;
+          onMenu(from, menuPoint(event, event.currentTarget));
+        })
+      }
+    >
       <h3 id={`scene-${scene.id}`} className={cx('min-w-0', headingClassName)}>
         {editing && onRename ? (
           <span className="flex items-baseline gap-x-3">
@@ -303,6 +338,7 @@ export function StoryboardView({
   onSketch,
   onRenameScene,
   onRetitleShot,
+  onContextMenu,
 }: StoryboardViewProps) {
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   // Your departments alone on the cards, in a focus view (3.6c); the tile gives it.
@@ -456,6 +492,13 @@ export function StoryboardView({
     ...dragHandlers(frame.id, frame.number),
     onClick: () => {
       onSelect(frame.id, sceneId);
+    },
+    onContextMenu: (event: MouseEvent<HTMLButtonElement>) => {
+      if (!onContextMenu) return;
+      event.preventDefault();
+      // The frame the menu is on becomes the selected one, as a click on it would make it.
+      onSelect(frame.id, sceneId);
+      onContextMenu({ kind: 'shot', id: frame.id }, event.currentTarget, menuPoint(event, event.currentTarget));
     },
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
       onKeyDown(event, frame.id);
@@ -633,6 +676,7 @@ export function StoryboardView({
       >
         <SceneTitleRow
           scene={scene}
+          onMenu={onContextMenu && ((from, at) => { onContextMenu({ kind: 'scene', id: scene.id }, from, at); })}
           pencilTabbable={stopSceneId === scene.id}
           className="mb-2.5"
           onRename={
@@ -674,6 +718,7 @@ export function StoryboardView({
           >
             <SceneTitleRow
               scene={scene}
+              onMenu={onContextMenu && ((from, at) => { onContextMenu({ kind: 'scene', id: scene.id }, from, at); })}
               pencilTabbable={stopSceneId === scene.id}
               className="max-w-full"
               headingClassName="flex-nowrap whitespace-nowrap"

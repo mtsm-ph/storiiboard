@@ -1,6 +1,7 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { t } from '../../core/i18n';
-import { COMPANY_FIELDS, MAX_COMPANIES, type CompanyField, type CompanyProfile } from '../../core/model/company';
+import { COMPANY_FIELDS, MAX_BRAND_COLORS, MAX_BRAND_FONTS, MAX_COMPANIES, type CompanyField, type CompanyProfile } from '../../core/model/company';
+import { familiesOf, loadSystemFonts, useFonts } from '../../features/moodboards/fonts';
 import { Button } from '../../ui/Button';
 import { TextField } from '../../ui/fields';
 import { choosePictures } from '../pictures';
@@ -23,6 +24,11 @@ const FIELD_TYPE: Partial<Record<CompanyField, string>> = { phone: 'tel', email:
 
 export function CompanyProfilesPanel() {
   const companies = useCompanies();
+  const system = useFonts((state) => state.system);
+  const fontListId = useId();
+  useEffect(() => {
+    void loadSystemFonts();
+  }, []);
   const headingId = useId();
   const [problem, setProblem] = useState<string | null>(null);
   /** Says why the last change wasn't kept, or clears what was said. */
@@ -35,11 +41,17 @@ export function CompanyProfilesPanel() {
         {t('company.profiles')}
       </h3>
       <p className="text-[12px] text-text-muted">{t('company.profilesNote')}</p>
+      {/* The fonts a brand kit can name, listed once for every profile's pickers. */}
+      <datalist id={fontListId}>
+        {familiesOf(system).map((f) => (
+          <option key={f.name} value={f.name} />
+        ))}
+      </datalist>
       {companies.length === 0 && <p className="text-[13px]">{t('company.none')}</p>}
       <ul className="flex flex-col gap-3" aria-label={t('company.profiles')}>
         {companies.map((company, index) => (
           <li key={company.id}>
-            <CompanyEditor company={company} index={index} onSaved={said} />
+            <CompanyEditor company={company} index={index} fontListId={fontListId} onSaved={said} />
           </li>
         ))}
       </ul>
@@ -61,7 +73,7 @@ export function CompanyProfilesPanel() {
   );
 }
 
-function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; index: number; onSaved: (problem: CompanyProblem | null, words?: string) => void }) {
+function CompanyEditor({ company, index, fontListId, onSaved }: { company: CompanyProfile; index: number; fontListId: string; onSaved: (problem: CompanyProblem | null, words?: string) => void }) {
   const groupId = useId();
   const title = company.name || t('company.untitled', { n: index + 1 });
   return (
@@ -86,6 +98,7 @@ function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; i
           />
         ))}
       </div>
+      <BrandKit company={company} fontListId={fontListId} onSaved={onSaved} />
       <div className="flex flex-wrap items-center gap-2">
         {company.logo ? (
           <img src={company.logo} alt={t('company.logoOf', { name: title })} className="h-[40px] max-w-[160px] border border-border object-contain" />
@@ -139,5 +152,145 @@ function CompanyEditor({ company, index, onSaved }: { company: CompanyProfile; i
         </Button>
       </div>
     </fieldset>
+  );
+}
+
+/** What was typed into the colours field as a list: hex colours (with or without the #) split by spaces or commas; `bad` is the first piece that isn't one. */
+export function parseBrandColors(text: string): { colors: string[]; bad: string | null } {
+  const colors: string[] = [];
+  for (const piece of text.split(/[\s,;]+/).filter((p) => p !== '')) {
+    const hex = /^#?([0-9a-f]{6})$/i.exec(piece);
+    if (!hex?.[1]) return { colors, bad: piece };
+    const value = `#${hex[1].toUpperCase()}`;
+    if (!colors.includes(value)) colors.push(value);
+  }
+  return { colors, bad: null };
+}
+
+/** The brand kit of a profile (5.4): up to eight colours and three fonts, copied into a project with the rest. */
+function BrandKit({ company, fontListId, onSaved }: { company: CompanyProfile; fontListId: string; onSaved: (problem: CompanyProblem | null, words?: string) => void }) {
+  const system = useFonts((state) => state.system);
+  const families = familiesOf(system);
+  const colorsProblemId = useId();
+  // What is wrong with the colours field now, said beside it; gone once the value is valid.
+  const [colorsProblem, setColorsProblem] = useState<string | null>(null);
+  const status = useFonts((state) => state.status);
+  const fontProblemId = useId();
+  // What is wrong with each font field, by slot, said under it.
+  const [fontProblems, setFontProblems] = useState<Readonly<Record<number, string>>>({});
+  const setFontProblem = (slot: number, words: string | null) => {
+    setFontProblems((now) => {
+      if ((now[slot] ?? null) === words) return now;
+      const rest = Object.fromEntries(Object.entries(now).filter(([key]) => key !== String(slot)));
+      return words === null ? rest : { ...rest, [slot]: words };
+    });
+  };
+  const fontName = (slot: number) => company.brandFonts[slot] ?? '';
+  const setFont = (slot: number, family: string) => {
+    const next = [...company.brandFonts];
+    // A slot cleared ends the list there; later ones move up.
+    if (family === '') next.splice(slot, 1);
+    else next[slot] = family;
+    onSaved(saveCompany({ ...company, brandFonts: next.filter((n, i) => n !== '' && next.indexOf(n) === i) }));
+  };
+  return (
+    <div className="flex flex-col gap-3" data-brand-kit="">
+      <div className="flex flex-col gap-1">
+        <TextField
+          key={`colors:${company.brandColors.join(',')}`}
+          label={t('company.brandColors')}
+          mono
+          defaultValue={company.brandColors.join(' ')}
+          placeholder={t('company.brandColorsExample')}
+          autoComplete="off"
+          data-brand-colors=""
+          aria-invalid={colorsProblem !== null || undefined}
+          {...(colorsProblem !== null ? { 'aria-describedby': colorsProblemId } : {})}
+          onChange={() => {
+            setColorsProblem(null);
+          }}
+          onBlur={(event) => {
+            const { colors, bad } = parseBrandColors(event.currentTarget.value);
+            const problem = bad !== null ? t('company.brandColorBad', { text: bad }) : colors.length > MAX_BRAND_COLORS ? t('company.brandColorsTooMany', { max: MAX_BRAND_COLORS }) : null;
+            setColorsProblem(problem);
+            if (problem !== null) {
+              event.currentTarget.value = company.brandColors.join(' ');
+              return;
+            }
+            if (JSON.stringify(colors) !== JSON.stringify(company.brandColors)) onSaved(saveCompany({ ...company, brandColors: colors }));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+        />
+        {colorsProblem !== null && (
+          <p id={colorsProblemId} role="alert" className="text-[12px]">
+            {colorsProblem}
+          </p>
+        )}
+        <p className="text-[11px] text-text-muted">{t('company.brandColorsNote', { max: MAX_BRAND_COLORS })}</p>
+        {company.brandColors.length > 0 && (
+          <ul className="flex flex-wrap gap-1" aria-label={t('company.brandColors')}>
+            {company.brandColors.map((hex) => (
+              <li key={hex} className="flex items-center gap-1 border border-border px-1 font-mono text-[11px]">
+                <span aria-hidden="true" className="inline-block size-3 border border-text" style={{ backgroundColor: hex }} />
+                {hex}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {/* One list of fonts for every picker (the panel's datalist), not a copy of it in each. */}
+      <div className="grid grid-cols-3 gap-3">
+        {Array.from({ length: MAX_BRAND_FONTS }, (_, slot) => {
+          const value = fontName(slot);
+          // A slot opens once the one before it is set.
+          const open = slot === 0 || fontName(slot - 1) !== '';
+          const problem = fontProblems[slot] ?? null;
+          return (
+            <div key={`${String(slot)}:${value}`} className="flex flex-col gap-1">
+              <TextField
+                label={t('company.brandFont', { n: slot + 1 })}
+                list={fontListId}
+                defaultValue={value}
+                disabled={!open}
+                autoComplete="off"
+                data-brand-font={slot}
+                aria-invalid={problem !== null || undefined}
+                {...(problem !== null ? { 'aria-describedby': `${fontProblemId}-${String(slot)}` } : {})}
+                onChange={() => {
+                  setFontProblem(slot, null);
+                }}
+                onBlur={(event) => {
+                  const typed = event.currentTarget.value.trim();
+                  if (typed === value) {
+                    setFontProblem(slot, null);
+                    return;
+                  }
+                  // Only a font in the list (the bundled ones and this computer's), or none. Case doesn't matter and the
+                  // listed spelling is kept; until the list is known, the name is taken as typed.
+                  const listed = typed === '' || status !== 'ready' ? typed : families.find((f) => f.name.toLowerCase() === typed.toLowerCase())?.name;
+                  if (listed === undefined) {
+                    setFontProblem(slot, t('company.brandFontUnknown', { name: typed }));
+                    event.currentTarget.value = value;
+                    return;
+                  }
+                  setFontProblem(slot, null);
+                  setFont(slot, listed);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+              />
+              {problem !== null && (
+                <p id={`${fontProblemId}-${String(slot)}`} role="alert" className="text-[12px]">
+                  {problem}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

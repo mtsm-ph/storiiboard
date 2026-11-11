@@ -14,6 +14,7 @@ import { Select, TextArea, TextField } from '../../ui/fields';
 import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
 import { focusOf } from '../department/perspective';
+import { LinkedBoards } from '../moodboards/LinkedBoards';
 import { castCharacter, newPerson, personChange, personDepartment, personContactOnSheetChange, personFullViewChange, personRole, trashPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
@@ -403,6 +404,7 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
                   >
                     {character.name}
                   </button>
+                  <LinkedBoards kind="character" id={character.id} label={false} name={character.name} />
                   {other && (
                     <span id={`${playsId}-${character.id}`} className="text-[12px] text-text-muted">
                       {t('person.playedBy', { name: character.castName || t('people.unnamed') })}

@@ -105,6 +105,9 @@ const FIELD: Readonly<Record<string, string>> = labels({
   person_times: 'history.field.personTimes',
   characters: 'history.field.characters',
   character_ids: 'history.field.characters',
+  // A board's links (5.4).
+  scene_ids: 'history.field.sceneIds',
+  location_ids: 'history.field.locationIds',
   text: 'history.field.text',
   theme: 'history.field.theme',
   title: 'history.field.title',
@@ -262,6 +265,9 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
   // The people on a shoot day (4.2), kept by id (some may since be in the Trash): a step names who, this just says it changed.
   if (prop === 'people_ids' && Array.isArray(value)) return value.length === 0 ? '—' : t('history.changed');
+  // A board's linked scenes and locations (5.4), kept by id: said as how many (its characters are counted below).
+  if (prop === 'scene_ids' && Array.isArray(value)) return tn('count.scenes', value.filter((id) => typeof id === 'string').length);
+  if (prop === 'location_ids' && Array.isArray(value)) return tn('count.locations', value.filter((id) => typeof id === 'string').length);
   // A scene's characters (3.13), kept by id: said as how many.
   if (prop === 'character_ids' && Array.isArray(value)) return tn('count.characters', value.filter((id) => typeof id === 'string').length);
   // A frame's gear or a day's list (3.9b), kept by item id: said as how many.
@@ -487,6 +493,10 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   video: 'history.aVideoCard',
   link: 'history.aLinkCard',
   section: 'history.aSection',
+  shot_card: 'history.aShotCard',
+  scene_card: 'history.aSceneCard',
+  palette_card: 'history.aPaletteCard',
+  brand_card: 'history.aBrandCard',
 };
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
@@ -581,8 +591,19 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     case 'board':
       return boardTitle(record);
     case 'board_item': {
-      const kind = itemFields(record.props)?.kind;
+      const fields = itemFields(record.props);
+      const kind = fields?.kind;
       if (!kind && isConnector(record)) return t('history.aConnector');
+      // A live card (5.4) is named by the frame or scene it shows, as it was then (`around`): "shot card 4A".
+      if (fields?.kind === 'shot_card') {
+        const shot = around.get(fields.shotId);
+        const number = shot ? shotFields(shot.props).number : '';
+        if (number !== '') return t('history.shotCardNumbered', { number });
+      }
+      if (fields?.kind === 'scene_card' || fields?.kind === 'palette_card') {
+        const scene = around.get(fields.sceneId);
+        if (scene) return t(fields.kind === 'scene_card' ? 'history.sceneCardNamed' : 'history.paletteCardNamed', { name: sceneLabel(sceneFields(scene.props).number) });
+      }
       return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
     }
     case 'project':
@@ -802,7 +823,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
       }
       const first = found[0];
       if (found.length > 1 || !first) return [t(MANY[kind], { things: type === 'board_item' ? itemsCount(found.map((op) => record(op)), found.length) : count(type, found.length) })];
-      if (type === 'board_item') return [...line(ONE[kind][type], { name: nameOf(record(first)) }), tag];
+      if (type === 'board_item') return [...line(ONE[kind][type], { name: nameOf(record(first), around) }), tag];
       return type === 'note' ? [t(A_NOTE[kind])] : line(ONE[kind][type], { name: nameOf(record(first)) });
     }
     // Checked before the moves and updates below: a delete renumbers the frames after it in the same step, and once

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Image as KonvaImage, Rect, Text } from 'react-konva';
+import { Group, Image as KonvaImage, Rect, Text } from 'react-konva';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { projectStore } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import type { CanvasColours } from '../../ui/canvas/types';
+import { cropBox, DEFAULT_CROP, type Crop } from '../../core/media/crop';
 import { decodedPicture, levelFor, loadPicture, useDecodedGeneration, type PictureLevel } from '../../core/media/decoded';
 
 // A stored picture on the canvas (5.1b): the thumbnail until the item is drawn larger than 640 device pixels on its
@@ -68,7 +69,31 @@ function usePicture(sha256: string | null, wanted: PictureLevel): { image: HTMLI
   return { image: decodedPicture(file, sha256, 'thumbnail'), level: 'thumbnail' };
 }
 
-export function PictureNode({ id, sha256, width, height, zoom, inView, colours }: { id: string; sha256: string | null; width: number; height: number; zoom: number; inView: boolean; colours: CanvasColours }) {
+/**
+ * How a picture sits in its box (5.4): stretched to it (a picture card, whose box has the picture's shape), covering it with a
+ * frame's crop (a shot card: the frame's own picture, as the storyboard crops it), or fitted whole inside it (a logo).
+ */
+export type PictureFit = { kind: 'stretch' } | { kind: 'cover'; crop?: Crop } | { kind: 'contain' };
+
+export function PictureNode({
+  id,
+  sha256,
+  width,
+  height,
+  zoom,
+  inView,
+  colours,
+  fit = { kind: 'stretch' },
+}: {
+  id: string;
+  sha256: string | null;
+  width: number;
+  height: number;
+  zoom: number;
+  inView: boolean;
+  colours: CanvasColours;
+  fit?: PictureFit;
+}) {
   const ratio = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
   const { image, level } = usePicture(sha256, levelFor(width, height, zoom, ratio, inView));
   const shown = image ?? null;
@@ -78,6 +103,20 @@ export function PictureNode({ id, sha256, width, height, zoom, inView, colours }
       report(id, null);
     };
   }, [id, level, shown]);
+  if (shown && fit.kind === 'cover') {
+    const box = cropBox(fit.crop ?? DEFAULT_CROP, shown.naturalWidth / shown.naturalHeight, width / height);
+    return (
+      <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
+        <KonvaImage image={shown} x={(box.left / 100) * width} y={(box.top / 100) * height} width={(box.width / 100) * width} height={(box.height / 100) * height} listening={false} />
+      </Group>
+    );
+  }
+  if (shown && fit.kind === 'contain') {
+    const scale = Math.min(width / shown.naturalWidth, height / shown.naturalHeight);
+    const w = shown.naturalWidth * scale;
+    const h = shown.naturalHeight * scale;
+    return <KonvaImage image={shown} x={(width - w) / 2} y={(height - h) / 2} width={w} height={h} listening={false} />;
+  }
   if (shown) return <KonvaImage image={shown} width={width} height={height} listening={false} />;
   return (
     <>

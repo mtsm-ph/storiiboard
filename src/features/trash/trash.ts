@@ -9,7 +9,7 @@ import { restoredScene } from '../storyboard/board';
 import { boardTitle, restoreBoardChanges } from '../moodboards/boards';
 import { connectorsToRestore, trashedWithItem } from '../moodboards/connectors';
 import { isConnector } from '../moodboards/connectorFields';
-import { itemFields, KIND_LABEL } from '../moodboards/items';
+import { isLiveKind, itemFields, KIND_LABEL } from '../moodboards/items';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
@@ -149,6 +149,19 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const fields = itemFields(record.props);
       const kind = fields ? KIND_LABEL[fields.kind]() : isConnector(record) ? t('moodboard.item.connector') : t('trash.boardItemUnknown');
       const where = board ? boardTitle(board) : t('moodboard.untitled');
+      // A live card (5.4) is named by what it shows: "Shot card 4A on Camera board". One whose record is gone is just its kind.
+      if (fields && isLiveKind(fields.kind) && fields.kind !== 'brand_card') {
+        const shown = fields.kind === 'shot_card' ? records[fields.shotId] : records[fields.sceneId];
+        const name =
+          fields.kind === 'shot_card'
+            ? shown?.type === 'shot'
+              ? shotFields(shown.props).number
+              : ''
+            : shown?.type === 'scene'
+              ? sceneLabel(sceneFields(shown.props).number)
+              : '';
+        if (name !== '') return [plain(t('trash.liveCardOnBoard', { item: KIND_LABEL[fields.kind](), name, board: where }))];
+      }
       // A section is named: "Section 'Act One' on Camera board" (5.3).
       if (fields?.kind === 'section' && fields.name.trim() !== '') return [plain(t('trash.sectionOnBoard', { name: fields.name.trim(), board: where }))];
       return [plain(t('trash.itemOnBoard', { item: kind, board: where }))];

@@ -4,6 +4,7 @@ import { list, t, tn } from '../../core/i18n';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { characterName, charactersPlayedBy, peopleByDepartment, projectPeople } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
+import { LinkedBoards } from '../moodboards/LinkedBoards';
 
 // The Team section (3.5b): who is on the project, by department in the call sheet's order, each with their title (or
 // role) and, for cast, the characters they play. Read from the same person records as Production's Cast and crew
@@ -33,12 +34,15 @@ export function TeamTile() {
                 const what = fields.title.trim() || (fields.role ? ROLE_LABELS[fields.role] : '');
                 // The parts they play, under Cast, or where they're listed first when they aren't in Cast (a cameo).
                 const listedFirst = department === 'cast' || (!fields.departments.includes('cast') && (fields.departments[0] ?? null) === department);
-                const plays = listedFirst ? charactersPlayedBy(records, project.projectId, record.id).map(characterName) : [];
+                const played = listedFirst ? charactersPlayedBy(records, project.projectId, record.id) : [];
+                const plays = played.map(characterName);
                 return (
                   <li key={record.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-[13px]">
                     <span className="font-semibold">{fields.name || t('people.unnamed')}</span>
                     {what && <span className="text-text-muted">{what}</span>}
                     {plays.length > 0 && <span className="text-text-muted">{t('team.as', { characters: list(plays) })}</span>}
+                    {/* The boards linked to a character they play (5.4). */}
+                    {played.map((character) => <LinkedBoards key={character.id} kind="character" id={character.id} label={false} name={characterName(character)} />)}
                   </li>
                 );
               })}
