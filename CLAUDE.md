@@ -154,7 +154,9 @@
 - Assets (3.11): the Assets tile keeps PDFs (inside the .sbd, at most 50 MB, bytes in `media_files`) and links on
   the project, a scene, a frame, a location or a person, as `media` records of kind `pdf` or `link`. Open (3.12: a
   PDF as a read-only copy in the PDF reader, a link in the browser), Save a copy, Copy link.
-- Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web.
+- Call sheets: generated per shoot_day from linked records, with editable notes; PDF and web. Built in 4.1: the Call
+  sheet tile in Production (src/core/model/callsheet.ts), a `callsheet` record under its day holding only its notes,
+  never their text in History.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
@@ -226,6 +228,8 @@
   it to another server already on the code's list; it can never add a host. Unreadable: the last copy, then the
   defaults in code. Settings lists every online service the app may contact, what for and when; the README tells
   service operators what each is used for and to reach us through GitHub issues. Tests use a fixture, never GitHub.
+  Built in 4.0: src-tauri/src/services.rs (a new service is one line in its `REGISTRY`, its host in net.rs and its
+  words in src/app/servicesStatus.ts), Settings → Online services.
 - Weather (Kevin, Nov 9): MET Norway's Locationforecast (api.met.no), free for any use, paid shoots included; credit
   "Data from MET Norway" (CC BY 4.0) on call sheets; coordinates cut to 4 decimals; never asked again before the
   answer's `Expires`; only when a call sheet is opened or refreshed. Not Open-Meteo (its free API is non-commercial).

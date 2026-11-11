@@ -14,6 +14,7 @@ import { DaysTile } from '../../features/schedule/DaysTile';
 import { CalendarTile } from '../../features/schedule/CalendarTile';
 import { GearTile } from '../../features/gear/GearTile';
 import { NotificationsTile } from '../../features/notifications/NotificationsTile';
+import { CallSheetTile } from '../../features/callsheets/CallSheetTile';
 import { AssetsTile } from '../../features/assets/AssetsTile';
 import type { TileId } from './docking/layout';
 
@@ -35,4 +36,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   gear: GearTile,
   notifications: NotificationsTile,
   assets: AssetsTile,
+  sheet: CallSheetTile,
 };

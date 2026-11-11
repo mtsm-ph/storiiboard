@@ -293,6 +293,8 @@ export interface FieldChange {
   /** Said only as set, changed or removed, never as itself: a person's notes and own fields (3.5), which may hold
    * anything from an agent's phone to an allergy. */
   private?: true;
+  /** A call sheet's note (4.1): `notes` there is the General notes, not the plain "notes" other records have. */
+  sheet?: true;
 }
 
 const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
@@ -335,8 +337,15 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     // A checklist that changed with no item changed (reordered, or an entry without an id): the list as a whole.
     return byId && entries.length === 0 ? [{ prop, before: before.props[prop], after: after.props[prop] }] : entries;
   });
+  if (after.type === 'callsheet') return changes.map((change) => ({ ...change, sheet: true as const, private: true as const }));
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
+
+/** A call sheet's two notes by the names its tile gives them (4.1). */
+const CALLSHEET_FIELD: Readonly<Record<string, string>> = labels({
+  notes: 'history.field.callsheetNotes',
+  safety_notes: 'history.field.callsheetSafety',
+});
 
 /** A person's props said only as set, changed or removed (3.5): their notes and own fields, besides PRIVATE_PROPS. */
 const PERSON_PRIVATE: ReadonlySet<string> = new Set(['notes', 'custom']);
@@ -348,7 +357,9 @@ const isSceneApproval = (change: FieldChange): change is FieldChange & { key: st
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange): string =>
-  isStatus(change) || isSceneApproval(change)
+  change.sheet === true && change.key === undefined && Object.hasOwn(CALLSHEET_FIELD, change.prop)
+    ? (CALLSHEET_FIELD[change.prop] ?? change.prop)
+    : isStatus(change) || isSceneApproval(change)
     ? departmentName(change.key)
     : isClient(change)
       ? (CLIENT_FIELD[change.key] ?? t('history.client.unknownField', { field: change.key }))
@@ -398,7 +409,7 @@ const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Par
   change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
-function nameOf(record: SbdRecord | null): Part {
+function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord> = new Map()): Part {
   if (!record) return t('history.anItem');
   switch (record.type) {
     case 'shot': {
@@ -421,6 +432,11 @@ function nameOf(record: SbdRecord | null): Part {
       // By its date (3.7); its number belongs to the order the days are in now.
       const date = dayDateLabel(shootDayFields(record.props).date);
       return date || t('history.undatedDay');
+    }
+    case 'callsheet': {
+      // By its day, as the step left it (`around`): "Call sheet · Mon, Nov 16".
+      const day = record.parentId ? around.get(record.parentId) : undefined;
+      return day ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') }) : t('history.aCallsheet');
     }
     case 'project':
       return t('history.theProject');
@@ -489,8 +505,13 @@ const purged = (op: LoggedOp) => op.kind !== 'purge' && op.before === null && op
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then.
  */
-export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
-  if (ops.length === 0) return [t('history.noChange')];
+export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
+  if (opsIn.length === 0) return [t('history.noChange')];
+  // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
+  // is read as an update from a record with no props.
+  const ops = opsIn.map((op): LoggedOp =>
+    op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
+  );
   const record = (op: LoggedOp) => op.after ?? op.before;
   const of = (kind: LoggedOp['kind'], type?: SbdRecord['type']) => ops.filter((op) => op.kind === kind && (!type || record(op)?.type === type));
   const items = (n: number) => tn('history.items', n);
@@ -604,7 +625,7 @@ export function describeEdit(ops: readonly LoggedOp[], stored: ReadonlySet<strin
     const op = updates[0];
     if (op?.before && op.after) {
       const changes = fieldChanges(op.before, op.after);
-      const who = capitalise(nameOf(op.after));
+      const who = capitalise(nameOf(op.after, around));
       const [only] = changes;
       // A custom field put on or taken off; a department's status reads as a change ("Camera: — → Priority") below.
       if (changes.length === 1 && only?.prop === 'custom' && only.key !== undefined && (only.before === undefined || only.after === undefined)) {
