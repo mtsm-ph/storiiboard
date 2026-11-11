@@ -5,6 +5,9 @@ import { deckPdf } from './deckPdf';
 import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
 import { pngFrames } from './pngFrames';
+import type { SwatchSource } from './swatchSet';
+import { swatchesAse } from './swatchesAse';
+import { swatchesPng } from './swatchesPng';
 import type { ExportScope } from './scope';
 import type { WatermarkUse } from './watermark';
 import { fullArchiveFormat, projectJsonFormat } from './projectJsonFormat';
@@ -30,6 +33,8 @@ export interface ExportContext {
   scenePalettes?: boolean;
   /** The deck an export from a deck's Export button is for (5.6a); absent for Export Project. */
   deckId?: string;
+  /** The colours an export from a palette or a brand kit is for (5.6b); absent for the other exports. */
+  swatches?: SwatchSource;
   /** A page's pixels per world unit, 1 or 2, for the formats that offer the choice. */
   pixelRatio?: 1 | 2;
 }
@@ -49,6 +54,8 @@ export interface ExportFormat {
   output: 'file' | 'folder';
   /** It is for the open deck (5.6a), offered from the deck's Export button and not in Export Project. */
   deck?: true;
+  /** It is for a scene's palette or the brand kit (5.6b), offered from them and not in Export Project. */
+  swatches?: true;
   /** The watermark it carries, when Watermark Settings say so; none for a report. */
   watermark?: WatermarkUse;
   /** The choices Export offers for it. */
@@ -77,3 +84,6 @@ export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvForma
 
 /** What a deck's Export button offers (5.6a): scoped to the open deck, so none is in Export Project's list above. */
 export const DECK_FORMATS: readonly ExportFormat[] = [deckPdf, deckPng];
+
+/** What a palette's or a brand kit's Export swatches offers (5.6b): scoped to the colours, so none is in Export Project's list. */
+export const SWATCH_FORMATS: readonly ExportFormat[] = [swatchesPng, swatchesAse];

@@ -1,5 +1,6 @@
 import { t } from '../../core/i18n';
 import { Button } from '../../ui/Button';
+import { openSwatchesExport } from '../export/exportStore';
 import { copyHex } from '../storyboard/palette/actions';
 import { openLiveCard } from './liveActions';
 import type { LiveCardData } from './liveCards';
@@ -17,7 +18,18 @@ interface Props {
 
 export function LiveProperties({ boardId, id, data, showTrash }: Props) {
   if (data.kind === 'brand_card') {
-    return data.company ? null : (
+    return data.company ? (
+      data.colors.length > 0 && (
+        <Button
+          data-export-swatches=""
+          onClick={() => {
+            openSwatchesExport({ kind: 'brand' });
+          }}
+        >
+          {t('palette.exportSwatches')}
+        </Button>
+      )
+    ) : (
       <Button
         data-live-open=""
         onClick={() => {
@@ -38,6 +50,16 @@ export function LiveProperties({ boardId, id, data, showTrash }: Props) {
           }}
         >
           {data.state === 'trash' ? t('moodboard.live.openTrash') : data.kind === 'palette_card' ? t('moodboard.live.openPalette') : t('moodboard.live.openStoryboard')}
+        </Button>
+      )}
+      {data.kind === 'palette_card' && data.state === 'live' && data.colors.length > 0 && (
+        <Button
+          data-export-swatches=""
+          onClick={() => {
+            openSwatchesExport({ kind: 'scene', sceneId: data.sceneId });
+          }}
+        >
+          {t('palette.exportSwatches')}
         </Button>
       )}
       {data.kind === 'palette_card' && data.state === 'live' && data.colors.length > 0 && (

@@ -1763,6 +1763,18 @@ export const es: Messages = {
   // src/features/storyboard/palette/actions.ts
   'palette.allLocked': 'Todos los colores están bloqueados. Sube la cantidad, o desbloquea algunos, para obtener nuevos.',
   'palette.nothingNew': 'Estos cuadros no tienen otros colores que ofrecer. Bloquea los que te gusten, o agrega imágenes.',
+  // src/features/moodboards/boardPalette.ts and src/features/storyboard/palette/PaletteEditor.tsx (5.6b: a palette from a board)
+  'palette.fromBoard': 'Desde un tablero',
+  'palette.board.make': 'Crear paleta desde este tablero',
+  'export.swatches.cantDraw': 'Esta computadora no puede dibujar las muestras.',
+  'palette.board.madeDepartment': 'Se creó la paleta de {scene} desde el tablero de {board}.',
+  'palette.board.kindDepartment': '{name} (departamento)',
+  'palette.board.kindFree': '{name} (tablero)',
+  'palette.board.made': 'Se creó la paleta de {scene} desde {board}.',
+  'palette.board.noPictures': '{board} no tiene imágenes, carteles de video ni tarjetas de plano que leer, así que no hay paleta que crear.',
+  'palette.board.unreadable': 'No se pudo leer ninguna imagen de {board}, así que no hay paleta que crear.',
+  'palette.board.nothingNew': '{board} no tiene otros colores que ofrecer. Bloquea los que te gusten, o agrega imágenes.',
+  'palette.exportSwatches': 'Exportar muestras…',
   // src/features/history/summary.ts
   'history.field.palette': 'paleta',
   'history.paletteLocked': '{hex} (bloqueado)',
@@ -2630,6 +2642,14 @@ export const es: Messages = {
   'export.deck.pixelRatio': 'Tamaño',
   'export.deck.pixelRatio.1': '1× (el tamaño de la página)',
   'export.deck.pixelRatio.2': '2× (doble)',
+  // src/features/export/swatchesPng.ts, swatchesAse.ts (5.6b: a palette's or the brand kit's swatches)
+  'export.swatches.what': 'paleta',
+  'export.swatches.png.label': 'Muestras en PNG',
+  'export.swatches.png.description': 'Una fila de muestras iguales en orden, cada una con su hex debajo, sobre papel.',
+  'export.swatches.ase.label': 'Muestras en .ase',
+  'export.swatches.ase.description': 'Un archivo Adobe Swatch Exchange para Photoshop, Illustrator e InDesign, con cada muestra nombrada por su hex.',
+  'export.swatches.none': 'Todavía no hay colores que exportar.',
+  'export.swatches.cantSave': 'Esta computadora no pudo guardar las muestras como imagen.',
   'export.deck.pageFile': '{deck} {number} {name}',
   'export.deck.pageFileUnnamed': '{deck} {number}',
   'export.deck.cantSave': 'Esta computadora no pudo guardar la página {number} como PNG.',

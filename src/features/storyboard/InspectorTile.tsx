@@ -21,6 +21,8 @@ import { paletteOf } from '../../core/model/palette';
 import { copyHex, editPalette, generatePalette } from './palette/actions';
 import { PaletteEditor } from './palette/PaletteEditor';
 import { boardsLinkedTo } from '../moodboards/boards';
+import { boardChoices, makePaletteFromBoard } from '../moodboards/boardPalette';
+import { openSwatchesExport } from '../export/exportStore';
 import { LinkedBoards } from '../moodboards/LinkedBoards';
 import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from './palette/Eyedropper';
 import { framesWithPictures } from './palette/read';
@@ -229,6 +231,7 @@ export function InspectorTile() {
           scene ? (
             <PaletteEditor
               key={scene.id}
+              sceneId={scene.id}
               scene={sceneLabel(sceneFields(scene.props).number)}
               palette={paletteOf(scene.props)}
               canGenerate={framesWithPictures(records, scene.id).length > 0}
@@ -241,6 +244,11 @@ export function InspectorTile() {
                 else startEyedropper(scene.id);
               }}
               onAddHex={(hex) => addColour(scene.id, hex)}
+              boards={boardChoices(boardsLinkedTo(records, project.projectId, 'scene', scene.id))}
+              onFromBoard={(boardId) => makePaletteFromBoard(boardId, scene.id)}
+              onExport={() => {
+                openSwatchesExport({ kind: 'scene', sceneId: scene.id });
+              }}
             />
           ) : undefined
         }

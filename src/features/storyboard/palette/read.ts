@@ -26,12 +26,14 @@ export function framesWithPictures(records: Records, sceneId: string): { sha256:
   });
 }
 
-/** One frame's pixels as framed, or null when its picture can't be read (missing from the file, say). */
-async function readFrame(file: ProjectFile, sha256: string, crop: ReturnType<typeof shotFields>['crop'], frameAspect: number): Promise<Lab[] | null> {
+/** One frame's pixels as framed (or a board's picture's whole, with no aspect), or null when its picture can't be read (missing from the file, say). */
+export async function readFrame(file: ProjectFile, sha256: string, crop: ReturnType<typeof shotFields>['crop'], aspect: number | null): Promise<Lab[] | null> {
   const stored = await readThumbnail(file, sha256);
   if (!stored) return null;
   const bitmap = await createImageBitmap(new Blob([stored.bytes as BlobPart], { type: stored.mime }));
   try {
+    // A picture on a board (5.6b) is read whole, as it is shaped: null takes the picture's own.
+    const frameAspect = aspect ?? bitmap.width / bitmap.height;
     const width = frameAspect >= 1 ? READ_EDGE : Math.max(1, Math.round(READ_EDGE * frameAspect));
     const height = frameAspect >= 1 ? Math.max(1, Math.round(READ_EDGE / frameAspect)) : READ_EDGE;
     const canvas = new OffscreenCanvas(width, height);
