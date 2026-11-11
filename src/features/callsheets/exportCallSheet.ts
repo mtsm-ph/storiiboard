@@ -12,6 +12,8 @@ import { fontBytes, replacedWarning } from '../export/pdfStoryboardFormat';
 import type { CallSheetPdf, PdfForecast } from './callSheetPdf';
 import { callSheetFileName } from './callSheetName';
 import { findForecast } from './forecast';
+import { gatherSheetMaps } from './gatherSheetMaps';
+import type { GatheredMap } from './sheetMap';
 
 // Export PDF… on the Call sheet tile (4.6): the day's sheet as a file to send. The PDF itself is callSheetPdf.ts (pure);
 // this is the part that touches the world: the forecast the sheet already holds, the bundled fonts, the Save dialog.
@@ -50,14 +52,31 @@ export const sheetNow = (o: ExportCallSheetOptions): CallSheet | null => callShe
 /** A place whose time zone hasn't come back yet has no sun or forecast to print; the sheet would go out without them. */
 export const stillFindingZone = (sheet: CallSheet): boolean => sheet.locations.some((l) => l.place !== null && l.zone === null);
 
+/** The maps gathered earlier that still fit (centred on the place the location has now), and again only the rest. */
+async function mapsFor(sheet: CallSheet, gathered: ReadonlyMap<string, GatheredMap> | undefined): Promise<Map<string, GatheredMap>> {
+  const maps = new Map<string, GatheredMap>();
+  const changed = new Set<string>();
+  for (const { record, place } of sheet.locations) {
+    if (!place) continue;
+    const map = gathered?.get(record.id);
+    if (map && map.at.latitude === place.latitude && map.at.longitude === place.longitude) maps.set(record.id, map);
+    else changed.add(record.id);
+  }
+  if (changed.size > 0) for (const [id, map] of await gatherSheetMaps(sheet, undefined, changed)) maps.set(id, map);
+  return maps;
+}
+
 /**
  * The sheet as a PDF with the forecast it already holds and the bundled fonts. `issue` is the version and time an issued
  * sheet prints in its header (4.7); a sheet being exported has none.
  */
-export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallSheetOptions, issue?: { version: number; issuedAt: Date }): Promise<CallSheetPdf> {
-  const [{ callSheetPdf }, forecasts, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
+export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallSheetOptions, issue?: { version: number; issuedAt: Date }, gathered?: ReadonlyMap<string, GatheredMap>): Promise<CallSheetPdf> {
+  const [{ callSheetPdf }, forecasts, maps, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
     import('./callSheetPdf'),
     heldForecasts(sheet),
+    // The map pictures: the tiles through the tile queue and Rust's cache, waiting up to 10 s, then what came (4.10). Ones
+    // gathered earlier (Issue does it before reading the records) are used while the places are still the same.
+    mapsFor(sheet, gathered),
     fontBytes(() => import('../export/fonts/InterTight-Regular.ttf?url')),
     fontBytes(() => import('../export/fonts/InterTight-SemiBold.ttf?url')),
     fontBytes(() => import('../export/fonts/InterTight-Bold.ttf?url')),
@@ -65,7 +84,7 @@ export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallShee
     fontBytes(() => import('../export/fonts/JetBrainsMono-Bold.ttf?url')),
   ]);
   const { projectName, paper, app, units } = options;
-  return callSheetPdf({ sheet, projectName, paper, app, units, forecasts, fonts: { sans, sansSemiBold, sansBold, mono, monoBold }, ...(issue ? { issue } : {}) });
+  return callSheetPdf({ sheet, projectName, paper, app, units, forecasts, maps, fonts: { sans, sansSemiBold, sansBold, mono, monoBold }, ...(issue ? { issue } : {}) });
 }
 
 export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promise<void> {

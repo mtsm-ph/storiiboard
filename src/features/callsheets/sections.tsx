@@ -11,6 +11,7 @@ import { ROLE_LABELS } from '../../core/model/role';
 import { HMU_MINUTES } from '../../core/model/shootDay';
 import { pageLabel, sceneLabel } from '../../core/model/storyboard';
 import { headingOf } from '../storyboard/ScenesView';
+import { LocationMap } from '../locations/LocationMap';
 import { Button } from '../../ui/Button';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { DepartmentTag } from '../../ui/tags';
@@ -206,6 +207,9 @@ function CopyMapLink({ location }: { location: SheetLocation }) {
   );
 }
 
+/** The map on a location's block: about 100% wide and 160 px tall. */
+const SHEET_MAP_HEIGHT = 160;
+
 /** The live locations the day's frames are shot at; a field not filled in is left out, except the address. */
 export function LocationsSection({ sheet }: { sheet: CallSheet }) {
   return (
@@ -249,6 +253,8 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
                       </span>
                     </p>
                   ))}
+                {/* The place on a map (4.10): a view only, zoom 16 on the place, with the pin and the tile credit. */}
+                {location.place && <LocationMap locationId={record.id} place={location.place} moved={false} readOnly height={SHEET_MAP_HEIGHT} />}
                 <CopyMapLink location={location} />
                 <SunBlock location={location} />
                 <WeatherBlock location={location} date={sheet.day.fields.date} callTime={sheet.day.fields.callTime} />

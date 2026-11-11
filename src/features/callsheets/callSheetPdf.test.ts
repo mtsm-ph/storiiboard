@@ -9,6 +9,7 @@ import { directionsLink } from '../../core/model/directions';
 import type { PdfFonts } from '../export/pdfStoryboard';
 import { callSheetPdf, qrModules, type CallSheetPdfInput, type PdfForecast } from './callSheetPdf';
 import { callSheetFileName } from './callSheetName';
+import type { PdfMap } from './sheetMap';
 
 // The call sheet as a PDF (4.6): page size, the text it holds, contacts only where allowed, the QR code, a long crew
 // flowing to a second page, the credits in the footer only for what is printed, and every word in English and Spanish.
@@ -563,5 +564,133 @@ describe('tappable links', () => {
     // The text, the QR (about 25 mm square) and its caption, which wraps to two lines.
     expect(found.length).toBe(4);
     expect(found.filter((a) => Math.abs(a.width - 70.87) < 0.1 && Math.abs(a.height - 70.87) < 0.1)).toHaveLength(1);
+  });
+});
+
+// The map on the sheet (4.10): the frame's picture (composed in the page from the tiles, given here as JPEG bytes), the
+// pin, the credit under it.
+describe('the map image', () => {
+  // A 1 x 1 JPEG: the picture's bytes are only embedded, never looked at.
+  const jpeg = new Uint8Array(Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64'));
+  const OSM = '© OpenStreetMap contributors';
+  const pictured = (credit = OSM): PdfMap => ({ kind: 'image', jpeg, credit });
+  const maps = (map: PdfMap) => new Map([['loc', map]]);
+
+  async function content(bytes: Uint8Array, page = 0): Promise<string> {
+    const doc = await PDFDocument.load(bytes);
+    const contents = doc.getPage(page).node.Contents();
+    const streams = contents instanceof PDFArray ? contents.asArray().map((ref) => doc.context.lookup(ref)) : [contents];
+    return streams.map((s) => (s instanceof PDFRawStream ? new TextDecoder('latin1').decode(decodePDFRawStream(s).decode()) : '')).join('\n');
+  }
+
+  it('is one picture placed exactly on the 60 x 40 mm frame, with the credit under the location’s address', async () => {
+    const { bytes } = await callSheetPdf(input(project(), { maps: maps(pictured()) }));
+    const stream = await content(bytes);
+    expect((stream.match(/\bDo\b/g) ?? []).length).toBe(1);
+    // pdf-lib places an image with two cm lines: a translate to its corner, then the scale to its size.
+    const lines = stream.split(/\r?\n/);
+    const at = lines.findIndex((l) => /^170\.0\d* 0 0 113\.3\d* 0 0 cm$/.test(l));
+    expect(at).toBeGreaterThan(0);
+    const corner = lines
+      .slice(Math.max(0, at - 4), at)
+      .map((l) => /^1 0 0 1 ([\d.]+) ([\d.]+) cm$/.exec(l))
+      .findLast((m) => m !== null && m[1] !== '0');
+    // The block starts at the left margin (36 pt).
+    expect(Number(corner?.[1])).toBeCloseTo(36, 1);
+    const items = await pageItems(bytes, 1);
+    const credit = items.find((i) => i.str === OSM);
+    const address = items.find((i) => i.str.includes('12 Route 9'));
+    expect(credit).toBeDefined();
+    // Under the frame, which is under the address.
+    expect(credit?.y).toBeLessThan(Number(corner?.[2]));
+    expect(Number(corner?.[2])).toBeLessThan(address?.y ?? 0);
+  });
+
+  it('draws the pin at the place and the 1.5 pt ink frame: two circles and the frame’s outline', async () => {
+    const plain = await content((await callSheetPdf(input(project()))).bytes);
+    const withMap = await content((await callSheetPdf(input(project(), { maps: maps(pictured()) }))).bytes);
+    const curves = (s: string) => (s.match(/ c$/gm) ?? []).length;
+    // Each circle is four curves.
+    expect(curves(withMap) - curves(plain)).toBe(8);
+    expect(withMap).toContain('1.5 w');
+  });
+
+  it('draws a grid in a browser build inside the frame, with the screen map’s words and the credit', async () => {
+    const { bytes } = await callSheetPdf(input(project(), { maps: maps({ kind: 'grid', credit: OSM }) }));
+    expect(await allText(bytes)).toContain('Map tiles show in the desktop app');
+    expect((await pageItems(bytes, 1)).some((i) => i.str === OSM)).toBe(true);
+    expect(await content(bytes)).not.toMatch(/\bDo\b/);
+  });
+
+  it('is an empty frame with one line when no tile could be had, no credit, and the address, coordinates, link and QR still print', async () => {
+    const { bytes, qr } = await callSheetPdf(input(project(), { maps: maps({ kind: 'none', why: 'Map not available offline' }) }));
+    const text = await allText(bytes);
+    expect(text).toContain('Map not available offline');
+    expect(await content(bytes)).not.toMatch(/\bDo\b/);
+    expect((await pageItems(bytes, 1)).filter((i) => i.str === OSM)).toHaveLength(0);
+    for (const expected of ['12 Route 9, Bey County', '-13.516767, -71.978779', 'https://www.google.com/maps/dir/?api=1&destination=-13.516767,-71.978779']) expect(text).toContain(expected);
+    expect(qr).toEqual([37]);
+    const off = await allText((await callSheetPdf(input(project(), { maps: maps({ kind: 'none', why: 'This service is switched off.' }) }))).bytes);
+    expect(off).toContain('This service is switched off.');
+  });
+
+  it('is left out of a location with no place, and when no map is given', async () => {
+    const noPlace = await callSheetPdf(input(project({ location: { name: 'Diner', address: '12 Route 9' } }), { maps: maps(pictured()) }));
+    expect(await content(noPlace.bytes)).not.toMatch(/\bDo\b/);
+    const none = await allText((await callSheetPdf(input(project()))).bytes);
+    expect(none).not.toContain('Map not available');
+    expect(none).not.toContain('desktop app');
+  });
+
+  it('prints on an issued sheet too', async () => {
+    const issue = { version: 2, issuedAt: new Date('2026-11-16T23:04:00Z') };
+    const { bytes } = await callSheetPdf(input(project(), { maps: maps(pictured()), issue }));
+    expect((await content(bytes)).match(/\bDo\b/g) ?? []).toHaveLength(1);
+    expect(await allText(bytes)).toContain('Revised');
+    expect((await pageItems(bytes, 1)).some((i) => i.str === OSM)).toBe(true);
+  });
+
+  it('wraps a long credit of one’s own to the frame under the map, and the footer carries it whole', async () => {
+    const own = 'Map tiles: tiles.example.com. Imagery and data by Example Mapping Ltd and its contributors, used under licence';
+    const { bytes } = await callSheetPdf(input(project(), { maps: maps(pictured(own)) }));
+    const items = await pageItems(bytes, 1);
+    // Under the map it is several lines: no single item holds the whole credit there.
+    const parts = items.filter((i) => own.includes(i.str.trim()) && i.str.trim().length > 6 && i.str.trim() !== own);
+    expect(parts.length).toBeGreaterThanOrEqual(3);
+    const flat = await allText(bytes);
+    expect(flat).toContain('Example Mapping Ltd');
+    expect(flat).toContain('used under licence');
+    expect(flat).toContain(OSM);
+  });
+
+  it('is in Spanish too: the offline line', async () => {
+    setLocale('es');
+    const { bytes } = await callSheetPdf(input(project(), { maps: maps({ kind: 'none', why: 'Mapa no disponible sin conexión' }) }));
+    expect(await allText(bytes)).toContain('Mapa no disponible sin conexión');
+  });
+
+  it('keeps a location with its map whole: one that would land at the page foot moves to the next page, picture and all', async () => {
+    const many = Object.fromEntries(
+      [1, 2, 3, 4].flatMap((n) => [
+        [`ml${String(n)}`, record(`ml${String(n)}`, 'location', 'p', { ...diner, name: `Stage ${String(n)}` })],
+        [`ms${String(n)}`, record(`ms${String(n)}`, 'shot', 's1', { number: `9${String(n)}`, shoot_day_id: 'd', location_id: `ml${String(n)}` })],
+      ]),
+    );
+    const all = { ...project(), ...many };
+    const sheet = callSheet(all, 'p', 'd', undefined, new Map([...zones, ...[1, 2, 3, 4].map((n): [string, string] => [`ml${String(n)}`, 'America/Lima'])]));
+    if (!sheet) throw new Error('no sheet');
+    const withMaps = new Map(sheet.locations.map((l): [string, PdfMap] => [l.record.id, pictured()]));
+    const { bytes, pages } = await callSheetPdf({ ...input(all), sheet, maps: withMaps });
+    expect(pages).toBeGreaterThanOrEqual(2);
+    // As many pictures as locations, each on the page of its own block; none cut by a page or under the footer.
+    let pictures = 0;
+    for (let n = 0; n < pages; n += 1) pictures += ((await content(bytes, n)).match(/\bDo\b/g) ?? []).length;
+    expect(pictures).toBe(withMaps.size);
+    await expectNothingBelowFooter(bytes, pages);
+    // On every page the pictures are as many as the locations named there: a block and its map are never parted.
+    for (let n = 0; n < pages; n += 1) {
+      const names = ((await pageTexts(bytes))[n]?.match(/(Stage \d|Diner) CONFIRMED/g) ?? []).length;
+      expect(((await content(bytes, n)).match(/\bDo\b/g) ?? []).length, `page ${String(n + 1)}`).toBe(names);
+    }
   });
 });

@@ -35,11 +35,18 @@ interface LocationMapProps {
   place: Place;
   /** The pin was placed by hand (`map_moved`): said under the map. */
   moved: boolean;
+  /**
+   * The call sheet's map (4.10): zoom 16 centred on the place, no panning, zooming or pin dragging, and none of the
+   * controls. It is a view like the Locations tile's, so its tiles load under the same rules and land in the same cache.
+   */
+  readOnly?: boolean;
+  /** The map's height in pixels (the editor's is taller than the sheet's). */
+  height?: number;
 }
 
 type Loaded = ReadonlyMap<string, HTMLImageElement | null>;
 
-export function LocationMap({ locationId, place, moved }: LocationMapProps) {
+export function LocationMap({ locationId, place, moved, readOnly = false, height = MAP_HEIGHT }: LocationMapProps) {
   const helpId = useId();
   const provider = useTileProvider();
   const frame = useRef<HTMLDivElement>(null);
@@ -105,17 +112,17 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
   const [seen, setSeen] = useState({ latitude, longitude });
   if (seen.latitude !== latitude || seen.longitude !== longitude) {
     setSeen({ latitude, longitude });
-    if (!onScreen({ latitude, longitude }, view, width, MAP_HEIGHT)) setView({ ...view, center: { latitude, longitude } });
+    if (readOnly || !onScreen({ latitude, longitude }, view, width, height)) setView({ ...view, center: { latitude, longitude } });
   }
 
-  const tiles = useMemo(() => tilesInView(view.center, view.zoom, width, MAP_HEIGHT), [view, width]);
+  const tiles = useMemo(() => tilesInView(view.center, view.zoom, width, height), [view, width, height]);
 
   // The queue forgets what is queued when the map goes.
   useEffect(
     () => () => {
-      wantTiles([]);
+      wantTiles([], helpId);
     },
-    [],
+    [helpId],
   );
 
   // Only the tiles in view are asked for, and none ahead; a browser build asks for none at all, and nothing is asked
@@ -125,7 +132,7 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
     if (providerFailed || !measured || !providerLoaded) return;
     let live = true;
     // Tiles of a view already left, still waiting, are dropped before they are asked for.
-    wantTiles(tiles);
+    wantTiles(tiles, helpId);
     for (const tile of tiles) {
       const key = `${String(tile.z)}/${String(tile.x)}/${String(tile.y)}`;
       void tileImage(tile.z, tile.x, tile.y).then(
@@ -144,10 +151,10 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
     return () => {
       live = false;
     };
-  }, [tiles, measured, providerLoaded, providerFailed, providerKey]);
+  }, [tiles, measured, providerLoaded, providerFailed, providerKey, helpId]);
 
   const shown: LatLon = draft ?? { latitude, longitude };
-  const pin = toScreen(shown, view.center, view.zoom, width, MAP_HEIGHT);
+  const pin = toScreen(shown, view.center, view.zoom, width, height);
   const credit = mapCredit(provider);
 
   const save = (to: LatLon) => {
@@ -196,17 +203,17 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
         finishMove(false);
         return;
       }
-      const next = pinAfterKey(draft ?? { latitude, longitude }, view, event.key, event.shiftKey, width, MAP_HEIGHT);
+      const next = pinAfterKey(draft ?? { latitude, longitude }, view, event.key, event.shiftKey, width, height);
       if (next) {
         event.preventDefault();
         setDraft(next);
         // The pin never leaves the map: it carries the view along.
-        if (!onScreen(next, view, width, MAP_HEIGHT)) setView({ ...view, center: next });
+        if (!onScreen(next, view, width, height)) setView({ ...view, center: next });
         return;
       }
     }
     // Zoom keys work while moving the pin too; the arrows then belong to the pin (handled above).
-    const next = moving && event.key.startsWith('Arrow') ? null : viewAfterKey(view, event.key, event.shiftKey, width, MAP_HEIGHT);
+    const next = moving && event.key.startsWith('Arrow') ? null : viewAfterKey(view, event.key, event.shiftKey, width, height);
     if (next) {
       event.preventDefault();
       setView(next);
@@ -215,26 +222,24 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
 
   const grid = !tilesOnline;
   return (
-    <div className="flex flex-col gap-1" data-location-map="">
-      <div ref={frame} className="relative w-full" style={{ height: MAP_HEIGHT }}>
+    <div className="flex flex-col gap-1" {...(readOnly ? { 'data-sheet-map': '' } : { 'data-location-map': '' })}>
+      <div ref={frame} className="relative w-full" style={{ height }}>
         {/* A canvas can't be read or reached by itself: this region takes the keys, and the buttons below do the rest.
-            jsx-a11y counts application as non-interactive, as in the crop editor. */}
-        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+            jsx-a11y counts application as non-interactive, as in the crop editor. The call sheet's map is a picture only. */}
         <div
           ref={region}
-          role="application"
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-          tabIndex={0}
+          role={readOnly ? 'img' : 'application'}
+          tabIndex={readOnly ? undefined : 0}
           aria-label={t('map.label', { name: place.name })}
-          aria-describedby={helpId}
-          onKeyDown={onKeyDown}
+          aria-describedby={readOnly ? undefined : helpId}
+          onKeyDown={readOnly ? undefined : onKeyDown}
           className="h-full w-full overflow-hidden border border-border bg-surface-raised"
         >
           <Stage
             ref={stage}
             width={width}
-            height={MAP_HEIGHT}
-            draggable
+            height={height}
+            draggable={!readOnly}
             onDragEnd={(event) => {
               // The pin's own drag ends bubble up here; only the map's is a pan.
               if (event.target !== event.target.getStage()) return;
@@ -245,6 +250,7 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
             onWheel={(event) => {
               // The wheel zooms the map only when it has focus (click it, or Tab to it), or with Ctrl or ⌘ held;
               // otherwise it scrolls the editor past, as it does anywhere else. A wheel with no vertical turn is no zoom.
+              if (readOnly) return;
               const asked = event.evt.ctrlKey || event.evt.metaKey || document.activeElement === region.current;
               if (!asked || event.evt.deltaY === 0) return;
               event.evt.preventDefault();
@@ -252,9 +258,9 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
               // One step at a time, however fast a trackpad scrolls.
               if (now - lastWheel.current < 150) return;
               lastWheel.current = now;
-              const at = stage.current?.getPointerPosition() ?? { x: width / 2, y: MAP_HEIGHT / 2 };
+              const at = stage.current?.getPointerPosition() ?? { x: width / 2, y: height / 2 };
               setView((v) => {
-                const next = zoomedAround(v.center, v.zoom, clampZoom(v.zoom + (event.evt.deltaY < 0 ? 1 : -1)), at, width, MAP_HEIGHT);
+                const next = zoomedAround(v.center, v.zoom, clampZoom(v.zoom + (event.evt.deltaY < 0 ? 1 : -1)), at, width, height);
                 return { center: next.center, zoom: next.zoom };
               });
             }}
@@ -277,8 +283,10 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
               <Group
                 x={pin.x}
                 y={pin.y}
-                draggable
+                draggable={!readOnly}
                 onMouseEnter={(event) => {
+                  // A pin that can't be dragged doesn't offer to be.
+                  if (readOnly) return;
                   event.target.getStage()?.container().style.setProperty('cursor', 'grab');
                 }}
                 onMouseLeave={(event) => {
@@ -293,7 +301,7 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
                 onDragEnd={(event) => {
                   event.cancelBubble = true;
                   const at = event.target.position();
-                  void save(fromScreen(at, view.center, view.zoom, width, MAP_HEIGHT));
+                  void save(fromScreen(at, view.center, view.zoom, width, height));
                 }}
               >
                 {/* The pin: an ink ring with a paper dot, readable on any tile; the map's selection is ink, never orange. */}
@@ -305,7 +313,7 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
         </div>
         {/* The credit sits on the map itself, always (OpenStreetMap's tile policy). Its link is a button that opens the
             page through the app (open.rs), so a middle-click or a drag can't open it any other way. */}
-        <p className="absolute right-0 bottom-0 bg-surface px-1.5 py-0.5 text-[10px] text-text" data-map-credit="">
+        <p className="absolute right-0 bottom-0 bg-surface px-1.5 py-0.5 text-[10px] text-text" {...(readOnly ? { 'data-sheet-map-credit': '' } : { 'data-map-credit': '' })}>
           {credit.href === null ? (
             credit.text
           ) : (
@@ -321,71 +329,77 @@ export function LocationMap({ locationId, place, moved }: LocationMapProps) {
           )}
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          aria-label={t('map.zoomIn')}
-          aria-disabled={view.zoom >= 19 || undefined}
-          onClick={() => {
-            // At the limit it stays focused and does nothing.
-            if (view.zoom < 19) setView((v) => viewZoomed(v, 1, width, MAP_HEIGHT));
-          }}
-        >
-          +
-        </Button>
-        <Button
-          aria-label={t('map.zoomOut')}
-          aria-disabled={view.zoom <= 0 || undefined}
-          onClick={() => {
-            if (view.zoom > 0) setView((v) => viewZoomed(v, -1, width, MAP_HEIGHT));
-          }}
-        >
-          −
-        </Button>
-        <span className="font-mono text-[11px]" data-map-zoom="">
-          {t('map.zoomLevel', { zoom: view.zoom })}
-        </span>
-        {moving ? (
-          <>
-            <Button
-              variant="primary"
-              onClick={() => {
-                finishMove(true);
-              }}
-            >
-              {t('map.placePin')}
-            </Button>
-            <Button
-              onClick={() => {
-                finishMove(false);
-              }}
-            >
-              {t('map.cancelPin')}
-            </Button>
-          </>
-        ) : (
+      {!readOnly && (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
-            ref={moveButton}
+            aria-label={t('map.zoomIn')}
+            aria-disabled={view.zoom >= 19 || undefined}
             onClick={() => {
-              setDraft({ latitude, longitude });
-              setMoving(true);
-              setSaid('');
-              region.current?.focus();
+              // At the limit it stays focused and does nothing.
+              if (view.zoom < 19) setView((v) => viewZoomed(v, 1, width, height));
             }}
           >
-            {t('map.movePin')}
+            +
           </Button>
-        )}
-      </div>
-      <p id={helpId} className="text-[11px] text-text-muted">
-        {t('map.help')}
-      </p>
+          <Button
+            aria-label={t('map.zoomOut')}
+            aria-disabled={view.zoom <= 0 || undefined}
+            onClick={() => {
+              if (view.zoom > 0) setView((v) => viewZoomed(v, -1, width, height));
+            }}
+          >
+            −
+          </Button>
+          <span className="font-mono text-[11px]" data-map-zoom="">
+            {t('map.zoomLevel', { zoom: view.zoom })}
+          </span>
+          {moving ? (
+            <>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  finishMove(true);
+                }}
+              >
+                {t('map.placePin')}
+              </Button>
+              <Button
+                onClick={() => {
+                  finishMove(false);
+                }}
+              >
+                {t('map.cancelPin')}
+              </Button>
+            </>
+          ) : (
+            <Button
+              ref={moveButton}
+              onClick={() => {
+                setDraft({ latitude, longitude });
+                setMoving(true);
+                setSaid('');
+                region.current?.focus();
+              }}
+            >
+              {t('map.movePin')}
+            </Button>
+          )}
+        </div>
+      )}
+      {!readOnly && (
+        <p id={helpId} className="text-[11px] text-text-muted">
+          {t('map.help')}
+        </p>
+      )}
       {grid && <p className="text-[12px]">{t('map.browserOnly')}</p>}
       {(providerFailed || problem !== null) && <p className="text-[12px]">{t('map.tilesFailed', { why: providerFailed ? t('error.oddAnswer') : (problem ?? '') })}</p>}
-      {moved && !moving && <p className="text-[12px]" data-map-hand="">{t('map.handPlaced')}</p>}
+      {!readOnly && moved && !moving && <p className="text-[12px]" data-map-hand="">{t('map.handPlaced')}</p>}
       {/* Always in the page, so each new line is read out; out of sight while empty. */}
-      <p role="status" className={moving || said !== '' ? 'font-mono text-[12px]' : 'sr-only'} data-map-status="">
-        {moving ? t('map.moving', { coordinates: coordinatesLabel(shown) }) : said}
-      </p>
+      {!readOnly && (
+        <p role="status" className={moving || said !== '' ? 'font-mono text-[12px]' : 'sr-only'} data-map-status="">
+          {moving ? t('map.moving', { coordinates: coordinatesLabel(shown) }) : said}
+        </p>
+      )}
     </div>
   );
 }

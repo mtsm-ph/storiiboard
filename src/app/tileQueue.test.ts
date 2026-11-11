@@ -98,4 +98,22 @@ describe('the tile queue', () => {
     await settle();
     expect(calls).toHaveLength(1);
   });
+
+  it('keeps one owner’s tiles when another’s view moves on (two maps on the sheet, or the PDF beside a map)', async () => {
+    const { calls, queue } = rig(1);
+    const mine = view(16, 3);
+    const theirs = [{ z: 16, x: 0, y: 5 }];
+    queue.want(mine, 'a');
+    queue.want(theirs, 'b');
+    const got = [...mine, ...theirs].map((tile) => queue.get(tile.z, tile.x, tile.y).then(() => 'ok', (e: unknown) => (e instanceof TileDropped ? 'dropped' : 'failed')));
+    // b's view moves on: only b's own queued tile goes, a's stay.
+    queue.want([], 'b');
+    expect(await got[3]).toBe('dropped');
+    expect(queue.stats().waiting).toBe(2);
+    // A tile both want is kept until both let go.
+    queue.want([{ z: 16, x: 2, y: 0 }], 'b');
+    queue.want([], 'a');
+    expect(queue.stats().waiting).toBe(1);
+    expect(calls).toHaveLength(1);
+  });
 });

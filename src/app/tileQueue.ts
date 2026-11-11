@@ -20,8 +20,11 @@ interface Pending<T> {
 }
 
 export interface TileQueue<T> {
-  /** Says which tiles are in view now; queued tiles outside it are dropped. Call before `get` for the view's tiles. */
-  want: (tiles: readonly { z: number; x: number; y: number }[]) => void;
+  /**
+   * Says which tiles `owner` has in view now; queued tiles no owner wants are dropped. Call before `get` for the view's
+   * tiles. Each map on the page (and the PDF being made) is its own owner, so one's view never drops another's tiles.
+   */
+  want: (tiles: readonly { z: number; x: number; y: number }[], owner?: string) => void;
   /** The tile, queued if it isn't held. A tile held is not asked for again. */
   get: (z: number, x: number, y: number) => Promise<T>;
   /** Forgets what is held (a new tile server). Tiles in the queue are dropped. */
@@ -38,14 +41,15 @@ interface Held<T> {
 export function createTileQueue<T>(load: (z: number, x: number, y: number) => Promise<T>, limit: number, memory: number, retryAfter: number): TileQueue<T> {
   const held = new Map<string, Held<T>>();
   const queue: Pending<T>[] = [];
-  let wanted = new Set<string>();
+  const wantedBy = new Map<string, Set<string>>();
+  const isWanted = (key: string) => [...wantedBy.values()].some((set) => set.has(key));
   let outstanding = 0;
   const keyOf = (z: number, x: number, y: number) => `${String(z)}/${String(x)}/${String(y)}`;
 
   const dropUnwanted = () => {
     for (let i = queue.length - 1; i >= 0; i--) {
       const entry = queue[i];
-      if (entry && !wanted.has(entry.key)) {
+      if (entry && !isWanted(entry.key)) {
         queue.splice(i, 1);
         held.delete(entry.key);
         entry.reject(new TileDropped());
@@ -70,8 +74,9 @@ export function createTileQueue<T>(load: (z: number, x: number, y: number) => Pr
   };
 
   return {
-    want(tiles) {
-      wanted = new Set(tiles.map((tile) => keyOf(tile.z, tile.x, tile.y)));
+    want(tiles, owner = '') {
+      if (tiles.length === 0) wantedBy.delete(owner);
+      else wantedBy.set(owner, new Set(tiles.map((tile) => keyOf(tile.z, tile.x, tile.y))));
       dropUnwanted();
     },
     get(z, x, y) {
@@ -103,7 +108,7 @@ export function createTileQueue<T>(load: (z: number, x: number, y: number) => Pr
     },
     forget() {
       held.clear();
-      wanted = new Set();
+      wantedBy.clear();
       dropUnwanted();
     },
     stats: () => ({ outstanding, waiting: queue.length }),

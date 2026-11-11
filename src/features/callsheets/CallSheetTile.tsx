@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
 import { isPaperChoice } from '../../core/storage/settings';
@@ -51,6 +52,8 @@ export function CallSheetTile() {
   // The forecasts already held, for the rain check; it never asks for one (4.8).
   const held = useHeldForecasts(points);
   const chosen = useSheetDay((s) => s.dayId);
+  // One export at a time, as Issue has one: the map's tiles can take seconds, and a second press would only wait behind it.
+  const [exporting, setExporting] = useState(false);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('callSheet.noProject')}</p>;
   const projectId = project.projectId;
   const days = projectShootDays(records, projectId);
@@ -100,8 +103,12 @@ export function CallSheetTile() {
           </Select>
         </span>
         <Button
+          disabled={exporting}
           onClick={() => {
-            void exportCallSheetPdf(options);
+            setExporting(true);
+            void exportCallSheetPdf(options).finally(() => {
+              setExporting(false);
+            });
           }}
         >
           {t('callSheet.exportPdf')}

@@ -2051,6 +2051,7 @@ export const es: Messages = {
   'callSheet.pdf.madeWith': 'Hecho con Storiiboard',
   'callSheet.pdf.scan': 'Escanea para ir',
   'callSheet.pdf.coordinates': 'Coordenadas',
+  'callSheet.pdf.mapOffline': 'Mapa no disponible sin conexión',
   'callSheet.pdf.directions': 'Cómo llegar',
   'callSheet.pdf.forecastNotFetched': 'Pronóstico no obtenido',
   'callSheet.weatherCredit': 'Datos de MET Norway',

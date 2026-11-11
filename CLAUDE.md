@@ -173,6 +173,8 @@
   (cache in the app's cache folder, 200 MB, at most 2 requests, only the tiles in view via src/app/tileQueue.ts), the
   pin dragged or moved from the keyboard (`map_moved`), one's own tile server in Settings → Online services (asked
   natively by Rust, no key in the address).
+  Built in 4.10: the map on the call sheet, on screen (read-only) and in the PDF, composed from the tiles into one
+  image per location (src/features/callsheets/composeMap.ts, gatherSheetMaps.ts), with its credit.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
