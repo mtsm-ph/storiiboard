@@ -25,6 +25,7 @@ import { dayChange, newDay, scheduleFrames, setupMinutesChange, trashDay, type D
 import { confirmedCrew, crewChange, dayPeople, dayPeopleChosen } from '../../core/model/schedule';
 import { gearFields, gearIdsOf, moneyLabel, projectCurrency, projectGear } from '../../core/model/gear';
 import { gearNotOnDay } from '../../core/checks';
+import { DayChecksButton } from '../callsheets/DayChecksButton';
 import { GearPicker } from '../gear/GearPicker';
 import { gearListChange } from '../gear/gearEdits';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -346,6 +347,8 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
         <span>{tn('days.setups', totals.setups)}</span>
         <span>{t('days.estimate', { duration: durationLabel(totals.minutes) })}</span>
       </p>
+      {/* The call sheet's checks (4.8) for this day: the count opens the sheet on this day. */}
+      <DayChecksButton records={records} projectId={projectId} dayId={id} dayName={label} />
       <TextArea
         key={`notes:${day.fields.notes}`}
         label={t('days.notes')}

@@ -9,11 +9,13 @@ import { isClockTime } from '../../core/model/shootDay';
  * the engine reports it as bad input (Chromium). WebKit may read a half-typed field as empty, which takes a stored time
  * off, as the Shoot days tile's times do. The input is never remounted, so Tab keeps focus.
  *
+ * `field` names it for the Checks strip, which moves focus to a field it points at (4.8).
+ *
  * Only a field the person has typed in commits. One they merely pass through, or are in when another edit lands (a
  * department's call moving a member's, an undo), follows `shown` and commits nothing: committing what it showed before
  * would store a stale time as their own call, or bring back a time just undone.
  */
-export function TimeInput({ label, caption, shown, stored = shown, onCommit }: { label: string; caption: string; shown: string; stored?: string; onCommit: (value: string) => void }) {
+export function TimeInput({ label, caption, shown, stored = shown, field, onCommit }: { label: string; caption: string; shown: string; stored?: string; field?: string; onCommit: (value: string) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const typed = useRef(false);
   useEffect(() => {
@@ -28,6 +30,7 @@ export function TimeInput({ label, caption, shown, stored = shown, onCommit }: {
       <input
         ref={input}
         type="time"
+        data-time={field}
         aria-label={label}
         defaultValue={shown}
         className="h-7 w-[96px] border border-text bg-surface-raised px-1.5 font-mono text-[13px] text-text"

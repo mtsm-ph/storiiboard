@@ -84,6 +84,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   longitude: 'history.field.mapPlace',
   map_name: 'history.field.mapPlace',
   setup_minutes: 'history.field.setupMinutes',
+  hmu_minutes: 'history.field.hmuMinutes',
   crew: 'history.field.crew',
   quantity: 'history.field.quantity',
   source: 'history.field.source',

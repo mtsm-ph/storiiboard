@@ -1,6 +1,6 @@
 import { dayCallsheet } from '../../core/model/callsheet';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
-import { isClockTime } from '../../core/model/shootDay';
+import { HMU_MINUTES, isClockTime } from '../../core/model/shootDay';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
@@ -92,4 +92,11 @@ export function personTimeChange(records: Records, dayId: string, personId: stri
   const next = Object.fromEntries(Object.entries(times).filter(([key]) => key !== personId));
   if (Object.keys(nextEntry).length > 0) next[personId] = nextEntry;
   return sheetProp(records, dayId, 'person_times', Object.keys(next).length === 0 ? undefined : next, id);
+}
+
+/** The least minutes HMU needs before a cast call (4.8), on the project: nothing for a value out of range or unchanged. */
+export function hmuMinutesChange(records: Records, projectId: string, minutes: number): Change[] {
+  const project = records[projectId];
+  if (project?.type !== 'project' || !Number.isInteger(minutes) || minutes < HMU_MINUTES.min || minutes > HMU_MINUTES.max) return [];
+  return project.props.hmu_minutes === minutes ? [] : [{ kind: 'update', id: projectId, set: { hmu_minutes: minutes } }];
 }

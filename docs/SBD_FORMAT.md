@@ -566,6 +566,8 @@ older version keeps them as they are.
 - `shoot_day_id` on a `shot`: the day it's shot. A frame is in at most one day. A day in the Trash, or gone for good,
   reads as none: its frames are unscheduled until it's restored. Only "Need to shoot" frames are offered for a day.
 - `setup_minutes` on the `project`: the minutes per setup a day's estimate counts (1 to 600; missing means 30).
+- `hmu_minutes` on the `project` (4.8): the least minutes HMU needs between a cast member's call and their HMU ready time, for the call sheet's
+  "HMU too short" check (0 to 600; missing or odd means 45). Additive: no schema number; an older version ignores it.
 - `crew` on a `shoot_day` (3.8): who has confirmed the day, `{ "<person id>": "confirmed" }`; anyone not there is
   pending. Other values and ids this version doesn't know are kept as they are. Who is called is `people_ids` (4.2,
   below).

@@ -49,7 +49,7 @@ describe('the Call sheet tile', () => {
         <LocationsSection sheet={sheet} />
         <ScenesSection sheet={sheet} />
         <PeopleSection sheet={sheet} dayName="Day 1" onAdd={done} onRemove={done} onAddEveryone={done} onChoose={done} />
-        <CastSection sheet={sheet} onTime={() => undefined} />
+        <CastSection sheet={sheet} hmuMinutes={45} onHmuMinutes={() => undefined} onTime={() => undefined} />
         <CrewSection sheet={sheet} onDepartmentCall={() => undefined} onTime={() => undefined} />
         <NotesSection notes={sheet.notes} onNote={() => undefined} />
       </>,

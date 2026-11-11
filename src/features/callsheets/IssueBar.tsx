@@ -1,14 +1,16 @@
 import { useEffect, useId, useState } from 'react';
+import { ask } from '../../app/ask';
 import { openPdf } from '../../app/opener';
 import { showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
-import { t } from '../../core/i18n';
+import { t, tn } from '../../core/i18n';
 import { callSheetIssues, issueTime, type CallSheet } from '../../core/model/callsheet';
 import { Button } from '../../ui/Button';
 import { savePdfCopy } from '../assets/attachmentEdits';
 import { stillFindingZone, type ExportCallSheetOptions } from './exportCallSheet';
 import { fingerprintOf, hasRecipe, printedJson } from './fingerprint';
 import { issueCallSheetPdf } from './issueCallSheet';
+import { problemsNow } from './issueProblems';
 
 // Issue, and the versions already issued (4.7), on the Call sheet tile: the button beside Export PDF, "Changed since
 // issued" when what the sheet prints has changed (the forecast aside), and each issued PDF with Open and Save a copy.
@@ -67,9 +69,26 @@ export function IssueButton({ sheet, options }: { sheet: CallSheet; options: Exp
         aria-describedby={nothing ? reasonId : undefined}
         onClick={() => {
           setBusy(true);
-          void issueCallSheetPdf(options).finally(() => {
-            setBusy(false);
-          });
+          // Findings (4.8) ask once, in the app's own window, counted now; Cancel issues nothing.
+          void problemsNow(options)
+            .then((problems) =>
+              problems === 0
+                ? 'issue'
+                : ask({
+                    title: tn('callSheet.issueAsk.title', problems),
+                    text: t('callSheet.issueAsk.text'),
+                    choices: [
+                      { id: 'cancel', label: t('common.cancel') },
+                      { id: 'issue', label: t('callSheet.issueAsk.anyway'), variant: 'primary' },
+                    ],
+                    cancel: 'cancel',
+                  }),
+            )
+            .then((answer) => (answer === 'issue' ? issueCallSheetPdf(options) : false))
+            .catch(showNotice)
+            .finally(() => {
+              setBusy(false);
+            });
         }}
       >
         {label}

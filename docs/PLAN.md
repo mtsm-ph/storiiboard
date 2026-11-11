@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (4.0 #120 and 4.4 #124 wait for Kevin's Settings baselines; 4.1 to 4.7 built, stacked; #126 waits for baselines too) |
+| Last updated | Nov 10, 2026 (4.0 #120 and 4.4 #124 wait for Kevin's Settings baselines; 4.1 to 4.8 built, stacked; #126 waits for baselines too) |
 
 | Phase | State |
 |---|---|
@@ -46,7 +46,7 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 | 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | #125 | Built Nov 10, stacked on 4.4; three review rounds; boxes 10 km then 50 km (not 25/75), real hospitals only |
 | 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | #126 | Built Nov 10, stacked on 4.5; two review rounds; tappable links; waits for Kevin's Settings baselines (Directions open in) |
 | 4.7 Issuing | Issue: the PDF kept as sent, the version and issue time in its header ("Revised" from version 2), the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after (a new forecast doesn't count); re-issue as version 2, 3… (decision 5) | #127 | Built Nov 10, stacked on 4.6; three review rounds; a frozen fingerprint recipe per version |
-| 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | | Not started |
+| 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | #128 | Built Nov 10, stacked on 4.7; three review rounds; checks say which they skipped (for the MCP) |
 | 4.9 The map on a location | react-konva, tiles through Rust with a disk cache under OpenStreetMap's tile policy (User-Agent, credit always visible, cache headers or 7 days, only the tiles in view, no offline download); a provider of one's own in Settings adds that one host, said so there; the pin dragged to where the crew should go saves the location's place | | Not started |
 | 4.10 The map on the call sheet | The map image on the call sheet (decision 4b), from the tile cache, with the credit | | Not started |
 | Phase 4 gate | A checkpoint and Kevin's checklist: a call sheet used on a real shoot day | | Not started |

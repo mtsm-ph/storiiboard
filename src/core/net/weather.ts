@@ -281,6 +281,18 @@ export function dayWeather(entries: readonly ForecastEntry[], date: string, zone
   };
 }
 
+/**
+ * The precipitation, in mm, between two instants (ms): each span's amount pro rata for the part of it inside. Null when
+ * no span of the forecast reaches into the window (nothing is known, which is not the same as dry). For the call
+ * sheet's rain check (4.8), which asks about the day's working hours rather than the whole day.
+ */
+export function precipitationBetween(entries: readonly ForecastEntry[], from: number, to: number): number | null {
+  const wet = spansOf(entries).rain.filter((s) => s.start < to && s.end > from);
+  if (wet.length === 0) return null;
+  const total = wet.reduce((sum, s) => sum + (s.value * (Math.min(s.end, to) - Math.max(s.start, from))) / (s.end - s.start), 0);
+  return Math.round(total * 1000) / 1000;
+}
+
 /** HH:MM in a zone for an ISO time (the fetch time, the expiry), or '' for a time or zone that can't be read. */
 export function clockIn(iso: string, zone: string): string {
   return hhmm(Date.parse(iso), zone);

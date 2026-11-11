@@ -129,6 +129,16 @@ function appDeps(): ForecastDeps {
   };
 }
 
+const heldListeners = new Set<() => void>();
+
+/** Calls `listener` whenever a forecast was asked for and is now held; returns how to stop. */
+export function onForecastHeld(listener: () => void): () => void {
+  heldListeners.add(listener);
+  return () => {
+    heldListeners.delete(listener);
+  };
+}
+
 // Two locations at the same place, shown together, share one ask.
 const inFlight = new Map<string, Promise<Loaded | null>>();
 
@@ -136,9 +146,15 @@ export function findForecast(latitude: number, longitude: number, mayAsk: boolea
   const key = `${projectStore.getState().project?.projectId ?? ''}|${weatherKey(latitude, longitude)}|${String(mayAsk)}`;
   const running = inFlight.get(key);
   if (running) return running;
-  const next = forecastAt(latitude, longitude, mayAsk, appDeps()).finally(() => {
-    inFlight.delete(key);
-  });
+  const next = forecastAt(latitude, longitude, mayAsk, appDeps())
+    .then((loaded) => {
+      // A forecast the sheet asked for is now held: the checks, which never ask, read it again (4.8).
+      if (mayAsk && loaded) for (const listener of heldListeners) listener();
+      return loaded;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
   inFlight.set(key, next);
   return next;
 }
