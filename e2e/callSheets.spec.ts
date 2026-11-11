@@ -421,8 +421,8 @@ test('the nearest hospital: Find needs a place, the list is recorded, the safety
   await expect(editor.getByRole('textbox', { name: 'Hospital', exact: true })).toHaveValue('Hospital EsSalud Adolfo Guevara Velasco');
   await expect(editor.getByRole('textbox', { name: 'Hospital phone' })).toHaveValue('+51 84 223 691');
   await expect(editor.getByRole('combobox', { name: 'Country' })).toHaveValue('PE');
-  await expect(editor.locator('[data-hospital-finder] [data-emergency-number]')).toHaveText('Emergency number: 106');
-  await expect(number).toHaveText('106');
+  await expect(editor.locator('[data-hospital-finder] [data-emergency-number]')).toHaveText('Ambulance 106');
+  await expect(number).toHaveText('Ambulance 106');
   await expect(safety.locator('[data-hospital]')).toContainText('Hospital EsSalud Adolfo Guevara Velasco');
   await expect(safety.locator('[data-hospital]')).toContainText('+51 84 223 691');
   await expect(safety.locator('[data-hospital-distance]')).toHaveText(/^\d\.\d mi$/);
@@ -454,7 +454,7 @@ test('the nearest hospital: Find needs a place, the list is recorded, the safety
   await editor.getByRole('button', { name: 'Clear hospital' }).click();
   await expect(safety.locator('[data-hospital-none]')).toBeVisible();
   await expect(editor.getByRole('textbox', { name: 'Hospital', exact: true })).toHaveValue('');
-  await expect(number).toHaveText('106');
+  await expect(number).toHaveText('Ambulance 106');
   await find.click();
   await expect(editor.locator('[data-hospital-finder] [role="status"]')).toContainText('5 hospitals found. From the search saved');
   await editor.getByRole('button', { name: 'Find again' }).click();
@@ -464,7 +464,7 @@ test('the nearest hospital: Find needs a place, the list is recorded, the safety
   await editor.getByRole('textbox', { name: 'Hospital', exact: true }).fill('Posta Local');
   await editor.getByRole('textbox', { name: 'Hospital', exact: true }).blur();
   await editor.getByRole('combobox', { name: 'Country' }).selectOption('GB');
-  await expect(number).toHaveText('999 or 112');
+  await expect(number).toHaveText('Emergency 999 or 112');
   await expect(safety.locator('[data-hospital]')).toContainText('Posta Local');
   await expect(safety.locator('[data-hospital-check]')).toHaveText('▲ Check it has a 24-hour emergency room');
   await expect(safety.locator('[data-hospital-credit]')).toHaveCount(0);
@@ -525,7 +525,7 @@ test('Export PDF writes the day’s sheet: its words, the directions link for th
     '09:15',
     'Kevin Matos',
     'Hospital EsSalud Adolfo Guevara Velasco',
-    '106',
+    'Ambulance 106',
     'Made with Storiiboard',
     '© OpenStreetMap contributors',
   ]) {

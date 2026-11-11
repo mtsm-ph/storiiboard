@@ -1,6 +1,6 @@
 import { formatDate, t } from '../i18n';
 import { castOf, characterName, contactOnSheet, isCastOnly, peopleByDepartment, personFields, projectPeople as allPeople, sceneCharacters, type PersonFields } from './person';
-import { emergencyNumbers } from './emergencyNumbers';
+import { emergencyNumbers, type EmergencyNumber } from './emergencyNumbers';
 import { haversineKm } from '../net/hospitals';
 import { frameLocationId, keptHospital, locationFields, mapPlace, zoneFor, type LocationFields, type ZoneSource } from './location';
 import type { Place } from '../net/places';
@@ -50,7 +50,7 @@ export interface SheetSafety {
   /** The location's country (ISO 3166-1 alpha-2), or '' when not set. */
   countryCode: string;
   /** The numbers for that country, the main one first; none for a country not in the table: "check locally". */
-  numbers: readonly string[];
+  numbers: readonly EmergencyNumber[];
   /** Null while the location has no hospital: the box says to find one. */
   hospital: SheetHospital | null;
 }

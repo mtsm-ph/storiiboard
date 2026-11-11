@@ -814,7 +814,7 @@ describe('the company on the header (4.12)', () => {
     const records = project();
     const before = (await callSheetPdf(input(records))).bytes;
     // Pinned, so a later change that moves both paths together still fails here; a deliberate change to the sheet updates it.
-    expect(createHash('sha256').update(before).digest('hex')).toBe('77934b3343f99cb0517ae2239c05906a214c7b63a5eddd699ca5bd3965a34d6c');
+    expect(createHash('sha256').update(before).digest('hex')).toBe('d41eb9e447a519ddbb1fdade834d4a93fd1ffb321a5dd9a4253359b0bd6b8dc3');
     expect(Buffer.from((await callSheetPdf(input(records, { company: null }))).bytes).equals(Buffer.from(before))).toBe(true);
     expect(Buffer.from((await callSheetPdf(input(records, { company: { name: ' ', logo: null } }))).bytes).equals(Buffer.from(before))).toBe(true);
   });

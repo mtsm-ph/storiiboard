@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { projectStore } from '../../app/projectStore';
 import { useWeatherUnits } from '../../app/weatherUnits';
 import { formatDate, localizeError, t, tn } from '../../core/i18n';
-import { emergencyNumbers } from '../../core/model/emergencyNumbers';
+import { emergencyNumbers, emergencyText } from '../../core/model/emergencyNumbers';
 import { distanceText, hospitalKey, type Hospital } from '../../core/net/hospitals';
 import type { Place } from '../../core/net/places';
 import { Button } from '../../ui/Button';
@@ -23,11 +23,10 @@ type State =
   | ({ kind: 'found'; placeKey: string } & FoundNearby)
   | { kind: 'failed'; message: string };
 
-/** The numbers to call as one line: "911", "999 or 112", or the words for a country not in the table. */
+/** The numbers to call as one line: "Emergency 911", "Ambulance 106", or the words for a country not in the table. */
 export function emergencyLine(countryCode: string): string {
-  const [first, second] = emergencyNumbers(countryCode);
-  if (first === undefined) return t('emergency.checkLocally');
-  return t('emergency.number', { number: second === undefined ? first : t('emergency.two', { first, second }) });
+  const numbers = emergencyNumbers(countryCode);
+  return numbers.length === 0 ? t('emergency.checkLocally') : emergencyText(numbers);
 }
 
 interface HospitalFinderProps {

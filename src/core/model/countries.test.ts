@@ -14,7 +14,7 @@ describe('countries', () => {
     for (const code of ['EU', 'EZ', 'UN', 'QO', 'ZZ', 'XA', 'XB', 'IC', 'EA', 'AC', 'CP', 'DG', 'TA', 'UK', 'DD', 'FX']) expect(ISO_COUNTRIES, code).not.toContain(code);
     // Every country the emergency table lists is in the menu.
     for (const code of ['US', 'GB', 'IE', 'PE', 'AU', 'NZ', 'JP', 'IN', 'PR', 'GU', 'VI']) expect(ISO_COUNTRIES).toContain(code);
-    expect(emergencyNumbers('PR')).toEqual(['911']);
+    expect(emergencyNumbers('PR')).toEqual([{ kind: 'emergency', number: '911' }]);
   });
 
   it('are named in the app’s language and sorted by name', () => {
