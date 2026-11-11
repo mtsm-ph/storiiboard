@@ -6,6 +6,7 @@ mod app_data;
 mod backup;
 mod export;
 mod geocode;
+mod hospital;
 mod licences;
 mod lock;
 mod net;
@@ -100,6 +101,7 @@ pub fn run() {
             export::export_choose_folder,
             export::export_write,
             geocode::address_search,
+            hospital::nearest_hospitals,
             weather::weather_forecast,
             services::services_status,
             open::open_link,

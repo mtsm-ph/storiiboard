@@ -2,7 +2,8 @@ import { imageStatements, mediaProps, type ImageSource, type PreparedImage } fro
 import type { SbdRecord } from '../../core/model/record';
 import { isTimeZone } from '../../core/model/sunTimes';
 import type { Statement } from '../../core/storage/driver';
-import { MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
+import { countryCodeOf, HOSPITAL_PROPS, MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
+import type { Hospital } from '../../core/net/hospitals';
 import type { Place } from '../../core/net/places';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
@@ -73,6 +74,75 @@ export function unplaceLocation(records: Records, id: string): Change[] {
   if (location?.type !== 'location' || location.trashedAt !== null) return [];
   const props = MAP_PLACE_PROPS.filter((prop) => prop in location.props);
   return props.length === 0 ? [] : [{ kind: 'update', id, unset: props }];
+}
+
+/**
+ * A hospital picked from the search (4.5) kept on the location, in one edit: its name, address, phone and where it is,
+ * whether OpenStreetMap says it has an emergency department, and that it came from the search. The location's country
+ * is set from the hospital's only when the location has none. Nothing when the location isn't live.
+ */
+export function pickHospital(records: Records, id: string, hospital: Hospital): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const set: Record<string, string | number | boolean> = {
+    hospital_name: hospital.name,
+    hospital_address: hospital.address,
+    hospital_latitude: hospital.latitude,
+    hospital_longitude: hospital.longitude,
+    hospital_source: 'osm',
+  };
+  const unset: string[] = [];
+  // Missing, not false, when unknown: the prop says "yes" or says nothing.
+  if (hospital.emergency) set.hospital_emergency = true;
+  else unset.push('hospital_emergency');
+  if (hospital.phone !== null) set.hospital_phone = hospital.phone;
+  else unset.push('hospital_phone');
+  if (countryCodeOf(location.props.country_code) === '' && hospital.countryCode !== null) set.country_code = hospital.countryCode;
+  return [{ kind: 'update', id, set, unset: unset.filter((prop) => prop in location.props) }];
+}
+
+/** The location's hospital taken off, all of it, in one edit; nothing when it has none. */
+export function clearHospital(records: Records, id: string): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const props = HOSPITAL_PROPS.filter((prop) => prop in location.props);
+  return props.length === 0 ? [] : [{ kind: 'update', id, unset: props }];
+}
+
+/**
+ * The hospital's name, address or phone typed by hand (4.5), one edit each. Typed over a picked hospital it may be
+ * another one, so what OpenStreetMap said about the old one must not be printed for the new: a new name takes off the
+ * emergency-room flag and where it is (the sheet then says to check, and gives no distance), a new address takes off
+ * where it is, a phone takes off nothing. `hospital_source` stays until Clear or a new pick: crediting OpenStreetMap
+ * too much is harmless, too little is not.
+ */
+export function hospitalFieldChange(records: Records, id: string, prop: 'hospital_name' | 'hospital_address' | 'hospital_phone', value: string): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  const current = typeof location.props[prop] === 'string' ? location.props[prop] : '';
+  if (current === value) return [];
+  // Only a change of words takes the search's facts off: spaces added or trimmed leave the same hospital.
+  const words = (text: string) => text.trim().replace(/\s+/g, ' ');
+  const stale = (
+    words(current) === words(value)
+      ? []
+      : {
+          hospital_name: ['hospital_emergency', 'hospital_latitude', 'hospital_longitude'],
+          hospital_address: ['hospital_latitude', 'hospital_longitude'],
+          hospital_phone: [] as string[],
+        }[prop]
+  ).filter((p) => p in location.props);
+  return [{ kind: 'update', id, set: { [prop]: value }, ...(stale.length > 0 ? { unset: stale } : {}) }];
+}
+
+/** The location's country (4.5) set by hand (ISO 3166-1 alpha-2), or unset with null. Nothing when it's already that. */
+export function countryChange(records: Records, id: string, code: string | null): Change[] {
+  const location = records[id];
+  if (location?.type !== 'location' || location.trashedAt !== null) return [];
+  if (code === null) return 'country_code' in location.props ? [{ kind: 'update', id, unset: ['country_code'] }] : [];
+  const upper = code.toUpperCase();
+  if (countryCodeOf(upper) === '' || upper === location.props.country_code) return [];
+  return [{ kind: 'update', id, set: { country_code: upper } }];
 }
 
 /** A location to the Trash; its scenes keep their link, so a restore brings them back with it. */

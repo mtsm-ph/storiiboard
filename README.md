@@ -31,7 +31,8 @@ npm run e2e         # end-to-end tests in Chromium and WebKit
 Storiiboard asks these online services for things, and nothing else, only when a person asks it to:
 
 - **Nominatim** (nominatim.openstreetmap.org): the address search in the Locations tile. One request when someone
-  presses Search address, at most one request a second, and every answer is cached in the project.
+  presses Search address, and the nearest hospital (one or two requests, on a press of Find nearest hospital), at most one
+  request a second, and every answer is cached in the project.
 - **MET Norway** (api.met.no): the forecast for each location on a call sheet (Locationforecast 2.0). One request when
   a call sheet is opened on a day or its Refresh is pressed, for a place with coordinates cut to 4 decimals, never
   again for that place before the answer's `Expires`, and every answer is cached in the project. Data from MET

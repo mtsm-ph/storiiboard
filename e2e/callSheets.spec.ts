@@ -50,7 +50,7 @@ async function setUp(page: Page) {
   await sidebar(page).getByRole('button', { name: /^Production/ }).click();
   await expect(sheet(page)).toContainText('No shoot days yet.');
   const locations = page.getByRole('region', { name: 'Locations', exact: true });
-  await locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Address' }).fill('12 Route 9, Bey County');
+  await locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Address', exact: true }).fill('12 Route 9, Bey County');
   await locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Parking' }).fill('Lot behind the diner');
   await locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Parking' }).blur();
 
@@ -274,7 +274,7 @@ test('sun times: a note without a place, then sunrise and sunset in the location
   await expect(sun).toHaveCount(0);
 
   // A place from the address search (the recorded answer), then the Sun block: sunrise, sunset, golden and blue hours.
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
   await editor.getByRole('button', { name: 'Search address' }).click();
   await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
   await expect(editor.getByText('On the map')).toBeVisible();
@@ -329,7 +329,7 @@ test.describe('the forecast (4.4)', () => {
     await expect(sheet(page).locator('[data-weather-note]')).toHaveText('Pick the address on the map for the forecast');
     await expect(weather).toHaveCount(0);
 
-    await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+    await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
     await editor.getByRole('button', { name: 'Search address' }).click();
     await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
     await expect(editor.getByText('On the map')).toBeVisible();
@@ -375,4 +375,94 @@ test.describe('the forecast (4.4)', () => {
     await closeSettings(page);
     await expect(fact('high')).toHaveText('65°F');
   });
+});
+
+test('the nearest hospital: Find needs a place, the list is recorded, the safety box prints the number and the hospital, Clear takes it off (4.5)', async ({ page }) => {
+  await setUp(page);
+  const locations = page.getByRole('region', { name: 'Locations', exact: true });
+  const editor = locations.locator('[data-location-editor]');
+  const find = editor.getByRole('button', { name: 'Find nearest hospital' });
+  const safety = sheet(page).locator('[data-sheet-location] [data-safety]');
+  const number = safety.locator('[data-emergency-number]');
+
+  // No place on the map: Find is disabled and says why; the safety box says what is missing.
+  await expect(find).toBeDisabled();
+  await expect(editor.getByText('Search the address and pick a place first: the hospital is looked for around it.')).toBeVisible();
+  await expect(number).toHaveText('Emergency number: check locally');
+  await expect(safety.locator('[data-hospital-none]')).toHaveText('No hospital set: find one on the location');
+
+  // A place from the address search (recorded), then Find: the recorded hospitals, emergency departments first, each with
+  // its distance (miles: this browser's region is the US) and the check note when the emergency room is not known.
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('button', { name: 'Search address' }).click();
+  await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+  await expect(find).toBeEnabled();
+  await find.click();
+  await expect(editor.locator('[data-hospital-finder] [role="status"]')).toHaveText('5 hospitals found.');
+  const options = editor.getByRole('list', { name: 'Hospitals found' }).locator('[data-hospital-option]');
+  await expect(options).toHaveCount(5);
+  await expect(options.first()).toContainText('Hospital EsSalud Adolfo Guevara Velasco');
+  await expect(options.first()).toContainText(/\d\.\d mi/);
+  await expect(options.first()).toContainText('24-hour emergency room');
+  await expect(options.nth(3)).toContainText('Check it has a 24-hour emergency room');
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Locations"]').withTags(tags).analyze()).violations).toEqual([]);
+
+  // Picking the first is the edit: the hospital and its country (Peru: 106) are on the location, and on the sheet.
+  await options.first().click();
+  await expect(options).toHaveCount(0);
+  await expect(find).toBeFocused();
+  await expect(editor.getByRole('textbox', { name: 'Hospital', exact: true })).toHaveValue('Hospital EsSalud Adolfo Guevara Velasco');
+  await expect(editor.getByRole('textbox', { name: 'Hospital phone' })).toHaveValue('+51 84 223 691');
+  await expect(editor.getByRole('combobox', { name: 'Country' })).toHaveValue('PE');
+  await expect(editor.locator('[data-hospital-finder] [data-emergency-number]')).toHaveText('Emergency number: 106');
+  await expect(number).toHaveText('106');
+  await expect(safety.locator('[data-hospital]')).toContainText('Hospital EsSalud Adolfo Guevara Velasco');
+  await expect(safety.locator('[data-hospital]')).toContainText('+51 84 223 691');
+  await expect(safety.locator('[data-hospital-distance]')).toHaveText(/^\d\.\d mi$/);
+  await expect(safety.locator('[data-hospital-emergency]')).toHaveText('24-hour emergency room');
+  await expect(safety.locator('[data-hospital-credit]')).toHaveText('© OpenStreetMap contributors');
+  expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+
+  // One ⌘Z takes the whole pick back, the country with it.
+  await find.focus();
+  await page.keyboard.press(await undoKey(page));
+  await expect(safety.locator('[data-hospital-none]')).toBeVisible();
+  await expect(number).toHaveText('Emergency number: check locally');
+  await page.keyboard.press(`${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+Shift+z`);
+  await expect(safety.locator('[data-hospital]')).toContainText('Hospital EsSalud Adolfo Guevara Velasco');
+
+  // A new name typed after a pick may be another hospital: the address, phone and credit stay, but the emergency room
+  // and the distance (OpenStreetMap's facts about the old one) go, and the sheet says to check.
+  await editor.getByRole('textbox', { name: 'Hospital', exact: true }).fill('EsSalud Guevara Velasco');
+  await editor.getByRole('textbox', { name: 'Hospital', exact: true }).blur();
+  await expect(safety.locator('[data-hospital]')).toContainText('EsSalud Guevara Velasco');
+  await expect(safety.locator('[data-hospital]')).toContainText('+51 84 223 691');
+  await expect(safety.locator('[data-hospital]')).toContainText('Avenida Collasuyo');
+  await expect(safety.locator('[data-hospital-emergency]')).toHaveCount(0);
+  await expect(safety.locator('[data-hospital-check]')).toHaveText('▲ Check it has a 24-hour emergency room');
+  await expect(safety.locator('[data-hospital-distance]')).toHaveCount(0);
+  await expect(safety.locator('[data-hospital-credit]')).toHaveText('© OpenStreetMap contributors');
+
+  // Clear hospital takes the hospital off in one edit; the country stays. The search is saved, so Find shows it at once.
+  await editor.getByRole('button', { name: 'Clear hospital' }).click();
+  await expect(safety.locator('[data-hospital-none]')).toBeVisible();
+  await expect(editor.getByRole('textbox', { name: 'Hospital', exact: true })).toHaveValue('');
+  await expect(number).toHaveText('106');
+  await find.click();
+  await expect(editor.locator('[data-hospital-finder] [role="status"]')).toContainText('5 hospitals found. From the search saved');
+  await editor.getByRole('button', { name: 'Find again' }).click();
+  await expect(editor.locator('[data-hospital-finder] [role="status"]')).toHaveText('5 hospitals found.');
+
+  // By hand: a name and a country with two numbers. No credit for a hospital nobody searched for, and the check note.
+  await editor.getByRole('textbox', { name: 'Hospital', exact: true }).fill('Posta Local');
+  await editor.getByRole('textbox', { name: 'Hospital', exact: true }).blur();
+  await editor.getByRole('combobox', { name: 'Country' }).selectOption('GB');
+  await expect(number).toHaveText('999 or 112');
+  await expect(safety.locator('[data-hospital]')).toContainText('Posta Local');
+  await expect(safety.locator('[data-hospital-check]')).toHaveText('▲ Check it has a 24-hour emergency room');
+  await expect(safety.locator('[data-hospital-credit]')).toHaveCount(0);
+  await expect(safety.locator('[data-hospital-distance]')).toHaveCount(0);
+  await editor.getByRole('combobox', { name: 'Country' }).selectOption('');
+  await expect(number).toHaveText('Emergency number: check locally');
 });

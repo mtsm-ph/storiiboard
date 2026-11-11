@@ -5,6 +5,7 @@ import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
 import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
 import { attachmentFields } from '../../core/model/attachment';
+import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -13,7 +14,7 @@ import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
 import { POSITION_LABEL, POSITIONS } from '../export/watermark';
-import { labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
+import { getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
 // 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B"; the
@@ -119,6 +120,14 @@ const FIELD: Readonly<Record<string, string>> = labels({
   contact_email: 'history.field.contactEmail',
   parking: 'history.field.parking',
   time_zone: 'history.field.timeZone',
+  country_code: 'history.field.countryCode',
+  hospital_name: 'history.field.hospitalName',
+  hospital_address: 'history.field.hospitalAddress',
+  hospital_phone: 'history.field.hospitalPhone',
+  hospital_latitude: 'history.field.hospitalLatitude',
+  hospital_longitude: 'history.field.hospitalLongitude',
+  hospital_emergency: 'history.field.hospitalEmergency',
+  hospital_source: 'history.field.hospitalSource',
   phone: 'history.field.phone',
   email: 'history.field.email',
   role: 'history.field.role',
@@ -251,6 +260,10 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'source' && (value === 'owned' || value === 'rental')) return GEAR_SOURCE_LABEL[value];
   // A shoot day's date (3.7), as the Days tile writes it.
   if (prop === 'date' && typeof value === 'string') return dayDateLabel(value) || value;
+  // A location's hospital (4.5): where it came from and whether it has an emergency room, in words; its country by name.
+  if (prop === 'hospital_source' && value === 'osm') return t('history.searchSource');
+  if (prop === 'hospital_emergency' && typeof value === 'boolean') return value ? t('hospital.emergencyRoom') : t('history.emergencyUnknown');
+  if (prop === 'country_code' && typeof value === 'string' && /^[A-Z]{2}$/.test(value)) return countryName(value, getLocale());
   if (prop === 'media_id') return t('history.aPicture');
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
@@ -429,7 +442,7 @@ export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, Sb
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
 // A location's place on the map (3.4) says where its address is, so it's kept as the address is.
-const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'latitude', 'longitude', 'map_name', 'contact_phone', 'contact_email', 'phone', 'email']);
+const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'latitude', 'longitude', 'map_name', 'contact_phone', 'contact_email', 'phone', 'email', 'hospital_address', 'hospital_phone', 'hospital_latitude', 'hospital_longitude']);
 const isPrivate = (change: FieldChange): boolean => change.private === true || (change.key === undefined && PRIVATE_PROPS.has(change.prop));
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');

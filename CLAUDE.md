@@ -160,7 +160,9 @@
   4.2, means everyone), calls and cast times on the `callsheet` record, and a person's `contact_on_sheet`. Built in
   4.3: sun times per location (src/core/model/sunTimes.ts), in the location's `time_zone` or the zone tzf-rs finds.
   Built in 4.4: the forecast per location (src-tauri/src/weather.rs, src/features/callsheets/forecast.ts), cached in
-  `lookups` and in memory, renewed with If-Modified-Since; Settings → App, Weather units.
+  `lookups` and in memory, renewed with If-Modified-Since; Settings → App, Weather units. Built in 4.5: Find nearest
+  hospital (src-tauri/src/hospital.rs, sharing geocode.rs's queue), a safety box per location, the emergency number
+  from src/core/model/emergencyNumbers.ts by the location's `country_code`.
   - Include call times, scenes, cast with character and HMU times, crew by department, locations with map and parking,
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's

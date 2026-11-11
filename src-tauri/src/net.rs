@@ -17,8 +17,9 @@ pub(crate) const USER_AGENT: &str = concat!(
 );
 
 /// Every host the app may reach, and the rule each follows:
-/// - `nominatim.openstreetmap.org`: the address search (3.4), only when the person presses Search, at most one request
-///   a second (geocode.rs), every answer cached in the project (`lookups`).
+/// - `nominatim.openstreetmap.org`: the address search (3.4), only when the person presses Search, and the nearest
+///   hospital (4.5, hospital.rs), only when the person presses Find nearest hospital; at most one request a second
+///   for both together (geocode.rs), every answer cached in the project (`lookups`).
 /// - `api.met.no`: the weather (4.4, weather.rs), MET Norway's Locationforecast, only when a call sheet is opened on a
 ///   day or its Refresh is pressed, coordinates cut to 4 decimals, never again for a place before the answer's
 ///   `Expires` (the page keeps the answer in the project, `lookups`); a 403 or 429 means stop, never retried. Credit

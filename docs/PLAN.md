@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (4.0 #120 and 4.4 #124 wait for Kevin's Settings baselines; 4.1 to 4.4 built, stacked) |
+| Last updated | Nov 10, 2026 (4.0 #120 and 4.4 #124 wait for Kevin's Settings baselines; 4.1 to 4.5 built, stacked) |
 
 | Phase | State |
 |---|---|
@@ -43,7 +43,7 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 | 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | #122 | Built Nov 10, stacked on 4.1; three review rounds |
 | 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | #123 | Built Nov 10, stacked on 4.2; three review rounds; tzf-rs in Rust (Kevin, Nov 10); high latitudes show merged golden and blue stretches |
 | 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | #124 | Built Nov 10, stacked on 4.3; two review rounds; If-Modified-Since on renewals; waits for Kevin's Settings baselines (Weather units) |
-| 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | | Not started |
+| 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | #125 | Built Nov 10, stacked on 4.4; three review rounds; boxes 10 km then 50 km (not 25/75), real hospitals only |
 | 4.6 The PDF | The call sheet as a PDF (pdf-lib, already in the build), Letter or A4 (decision 8), in the app's look, every word translated; the map as address, coordinates, link and QR (decision 4), directions in the app chosen in Settings | | Not started |
 | 4.7 Issuing | Issue: the PDF kept as sent, the version and issue time in its header ("Revised" from version 2), the day's scenes' shot numbers locked in the same step (Phase 4 notes); "Changed since issued" after (a new forecast doesn't count); re-issue as version 2, 3… (decision 5) | | Not started |
 | 4.8 Call sheet checks | src/core/checks: a location missing its address, contact or parking note; a department missing that a scene needs (sound on dialogue scenes); HMU too short before a cast member's call; a golden-hour scene (DAWN, DUSK, MAGIC HOUR) scheduled at midday; an exterior on a day with rain forecast. Shown on the call sheet, as 3.9b's gear check is | | Not started |

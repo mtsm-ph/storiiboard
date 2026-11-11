@@ -1,0 +1,214 @@
+[
+ {
+  "place_id": 900000,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000000,
+  "lat": "-13.5236",
+  "lon": "-71.9632",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Hospital Regional del Cusco",
+  "display_name": "Hospital Regional del Cusco, Avenida de la Cultura, Wanchaq, Cusco, 08002, Peru",
+  "address": {
+   "amenity": "Hospital Regional del Cusco",
+   "country": "Peru",
+   "country_code": "pe",
+   "road": "Avenida de la Cultura",
+   "city": "Cusco",
+   "postcode": "08002"
+  },
+  "extratags": {
+   "emergency": "yes",
+   "phone": "+51 84 233 331",
+   "healthcare": "hospital"
+  }
+ },
+ {
+  "place_id": 900001,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000001,
+  "lat": "-13.5201",
+  "lon": "-71.9741",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Clínica Pardo",
+  "display_name": "Clínica Pardo, Avenida de la Cultura, San Sebastián, Cusco, 08002, Peru",
+  "address": {
+   "amenity": "Clínica Pardo",
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "healthcare": "hospital"
+  }
+ },
+ {
+  "place_id": 900002,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000002,
+  "lat": "-13.5290",
+  "lon": "-71.9570",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Hospital Antonio Lorena",
+  "display_name": "Hospital Antonio Lorena, Avenida Antonio Lorena, Santiago, Cusco, 08003, Peru",
+  "address": {
+   "amenity": "Hospital Antonio Lorena",
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "emergency": "no",
+   "contact:phone": "+51 84 111 222"
+  }
+ },
+ {
+  "place_id": 900003,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000003,
+  "lat": "-13.5400",
+  "lon": "-71.9600",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Clínica Paredes",
+  "display_name": "Clínica Paredes, Calle Lucrepata, San Blas, Cusco, 08001, Peru",
+  "address": {
+   "amenity": "Clínica Paredes",
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "emergency": "yes"
+  }
+ },
+ {
+  "place_id": 900004,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000004,
+  "lat": "-13.5150",
+  "lon": "-71.9900",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Hospital EsSalud Adolfo Guevara Velasco",
+  "display_name": "Hospital EsSalud Adolfo Guevara Velasco, Avenida Collasuyo, Cusco, 08001, Peru",
+  "address": {
+   "amenity": "Hospital EsSalud Adolfo Guevara Velasco",
+   "country": "Peru",
+   "country_code": "pe",
+   "house_number": "845",
+   "road": "Avenida Collasuyo",
+   "town": "Cusco"
+  },
+  "extratags": {
+   "emergency": "yes",
+   "phone": "+51 84 223 691"
+  }
+ },
+ {
+  "place_id": 900005,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000005,
+  "lat": "-13.4500",
+  "lon": "-72.0500",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Posta Médica de Saylla",
+  "display_name": "Posta Médica de Saylla, Carretera Cusco, Saylla, Cusco, 08000, Peru",
+  "address": {
+   "amenity": "Posta Médica de Saylla",
+   "country": "Peru",
+   "country_code": "pe"
+  }
+ },
+ {
+  "place_id": 900006,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "way",
+  "osm_id": 7000006,
+  "lat": "95",
+  "lon": "0",
+  "category": "amenity",
+  "type": "hospital",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "amenity",
+  "name": "Nowhere",
+  "display_name": "Nowhere, Peru",
+  "address": {
+   "amenity": "Nowhere",
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "emergency": "yes"
+  }
+ },
+ {
+  "place_id": 900007,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "node",
+  "osm_id": 7000007,
+  "lat": "-13.5168",
+  "lon": "-71.9790",
+  "category": "amenity",
+  "type": "veterinary",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "veterinary",
+  "name": "VCA Animal Hospital",
+  "display_name": "VCA Animal Hospital, Cusco, Peru",
+  "address": {
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "emergency": "yes"
+  }
+ },
+ {
+  "place_id": 900008,
+  "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+  "osm_type": "node",
+  "osm_id": 7000008,
+  "lat": "-13.5170",
+  "lon": "-71.9785",
+  "category": "highway",
+  "type": "bus_stop",
+  "place_rank": 30,
+  "importance": 0.0001,
+  "addresstype": "bus_stop",
+  "name": "Hospital Regional (parada)",
+  "display_name": "Hospital Regional (parada), Cusco, Peru",
+  "address": {
+   "country": "Peru",
+   "country_code": "pe"
+  },
+  "extratags": {
+   "emergency": "yes"
+  }
+ }
+]

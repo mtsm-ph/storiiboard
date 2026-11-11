@@ -37,6 +37,11 @@ export interface LocationFields {
   notes: string;
   /** An IANA zone chosen by hand (4.3), or '' for none, or for a value this computer doesn't know. */
   time_zone: string;
+  /** ISO 3166-1 alpha-2, upper case (4.5), or '' for not set (or a value that isn't one). */
+  country_code: string;
+  hospital_name: string;
+  hospital_address: string;
+  hospital_phone: string;
 }
 
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -53,6 +58,54 @@ export function locationFields(props: Props): LocationFields {
     power: text(props.power),
     notes: text(props.notes),
     time_zone: isTimeZone(props.time_zone) ? props.time_zone : '',
+    country_code: countryCodeOf(props.country_code),
+    hospital_name: text(props.hospital_name),
+    hospital_address: text(props.hospital_address),
+    hospital_phone: text(props.hospital_phone),
+  };
+}
+
+/** A country code (4.5) as stored: two letters, upper case; anything else reads as none. */
+export function countryCodeOf(value: JsonValue | undefined): string {
+  return typeof value === 'string' && /^[A-Z]{2}$/.test(value) ? value : '';
+}
+
+/** The props that hold a location's nearest hospital (4.5); Clear hospital takes all of them off. */
+export const HOSPITAL_PROPS = [
+  'hospital_name',
+  'hospital_address',
+  'hospital_phone',
+  'hospital_latitude',
+  'hospital_longitude',
+  'hospital_emergency',
+  'hospital_source',
+] as const;
+
+/** A location's hospital as kept on it (4.5); null while it has no name, address or phone, so no hospital. */
+export interface KeptHospital {
+  name: string;
+  address: string;
+  phone: string;
+  /** Where it is, when it came from a search; null for one typed by hand. */
+  place: { latitude: number; longitude: number } | null;
+  /** OpenStreetMap says it has an emergency department; false is unknown, never "none". */
+  emergency: boolean;
+  /** It came from the OpenStreetMap search (the call sheet then credits it). */
+  fromSearch: boolean;
+}
+
+export function keptHospital(props: Props): KeptHospital | null {
+  const name = text(props.hospital_name).trim();
+  if (name === '' && text(props.hospital_address).trim() === '' && text(props.hospital_phone).trim() === '') return null;
+  const { hospital_latitude: lat, hospital_longitude: lon } = props;
+  const placed = typeof lat === 'number' && typeof lon === 'number' && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  return {
+    name,
+    address: text(props.hospital_address),
+    phone: text(props.hospital_phone),
+    place: placed ? { latitude: lat, longitude: lon } : null,
+    emergency: props.hospital_emergency === true,
+    fromSearch: props.hospital_source === 'osm',
   };
 }
 

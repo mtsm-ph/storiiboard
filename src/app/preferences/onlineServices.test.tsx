@@ -26,7 +26,7 @@ describe('Online services', () => {
   it('lists the service with what it is for, when, its server and its state', () => {
     const html = render(nominatim({}));
     expect(html).toContain(t('services.nominatim.name'));
-    expect(html).toContain('Only when you press Search address.');
+    expect(html).toContain('Only when you press Search address or Find nearest hospital.');
     expect(html).toContain('https://nominatim.openstreetmap.org');
     expect(html).toContain('>On<');
     expect(html).toContain(t('services.listNote'));

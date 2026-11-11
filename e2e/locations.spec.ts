@@ -38,13 +38,13 @@ const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(
 test('a scene’s location shows with its scene, and its details are edited once, each one edit', async ({ page }) => {
   const locations = tile(page);
   // At its size in Production's layout (a column), the list sits above the editor, and the fields have room.
-  const name = locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Name' });
+  const name = locations.locator('[data-location-editor]').getByRole('textbox', { name: 'Name', exact: true });
   await expect(name).toBeVisible();
   expect((await name.boundingBox())?.width ?? 0).toBeGreaterThan(160);
   await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button')).toHaveText([/Diner.*TBD · 1 scene/]);
   const editor = locations.locator('[data-location-editor]');
   await expect(editor.getByText('SC 01')).toBeVisible();
-  await editor.getByRole('textbox', { name: 'Address' }).fill('12 Route 9, Bey County');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('12 Route 9, Bey County');
   await editor.getByRole('textbox', { name: 'Parking' }).click();
   await editor.getByRole('textbox', { name: 'Parking' }).fill('Lot behind the diner');
   await editor.getByRole('radio', { name: 'Confirmed' }).click();
@@ -54,10 +54,10 @@ test('a scene’s location shows with its scene, and its details are edited once
   await editor.getByRole('radio', { name: 'Confirmed' }).focus();
   await page.keyboard.press(await undoKey(page));
   await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button')).toHaveText([/Diner.*TBD · 1 scene/]);
-  await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('12 Route 9, Bey County');
+  await expect(editor.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue('12 Route 9, Bey County');
   // A new one, named straight away.
   await locations.getByRole('button', { name: '+ New location' }).click();
-  await expect(editor.getByRole('textbox', { name: 'Name' })).toBeFocused();
+  await expect(editor.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
   await page.keyboard.type('Barn');
   await page.keyboard.press('Enter');
   await expect(locations.getByRole('list', { name: 'Locations' }).getByRole('button')).toHaveText([/Barn.*0 scenes/, /Diner/]);
@@ -92,11 +92,11 @@ test('one name per place: a trashed location holds its name, and the Trash won�
   await locations.getByRole('button', { name: 'Delete location' }).click();
   // A new one can't take the trashed one's name.
   await locations.getByRole('button', { name: '+ New location' }).click();
-  await expect(editor.getByRole('textbox', { name: 'Name' })).toBeFocused();
+  await expect(editor.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
   await page.keyboard.type('diner');
   await page.keyboard.press('Enter');
   await expect(page.getByText('A location in the Trash is called “diner”.', { exact: false })).toBeVisible();
-  await expect(editor.getByRole('textbox', { name: 'Name' })).toHaveValue('');
+  await expect(editor.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('');
   // "Diner" typed on a scene brings the trashed one back rather than make a second: still one.
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
   await board(page).locator('[data-shot-id]').first().click();
@@ -154,7 +154,7 @@ test('Search address looks up only when pressed, puts a place on the map in one 
   const editor = tile(page).locator('[data-location-editor]');
   const search = editor.getByRole('button', { name: 'Search address' });
   const status = editor.locator('[data-address-search] [role="status"]');
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
   // Typing looks nothing up.
   await expect(editor.getByRole('list', { name: 'Places found' })).toHaveCount(0);
   await search.click();
@@ -172,7 +172,7 @@ test('Search address looks up only when pressed, puts a place on the map in one 
   await expect(editor.getByText('-13.51677, -71.97878')).toBeVisible();
   await expect(found).toHaveCount(0);
   await expect(search).toBeFocused();
-  await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('Plaza de Armas, Cusco');
+  await expect(editor.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue('Plaza de Armas, Cusco');
   // Open map (3.12) shows the pin on OpenStreetMap, in a new tab here (the browser, on the desktop); answered here.
   await page.context().route('https://www.openstreetmap.org/**', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: 'ok' }));
   const mapTab = page.waitForEvent('popup');
@@ -194,22 +194,22 @@ test('Search address looks up only when pressed, puts a place on the map in one 
   await expect(editor.getByText('On the map')).toHaveCount(0);
 
   // Places found for words since changed are never put on the location; a new address takes the old pin off.
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Cusco');
   await search.click();
   await found.first().click();
   await expect(editor.getByText('On the map')).toBeVisible();
   await search.click();
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Lima');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Plaza de Armas, Lima');
   await found.first().click();
   await expect(status).toHaveText('The address or name changed since that search. Search again for it.');
   await expect(search).toBeFocused();
   await expect(editor.getByText('On the map')).toHaveCount(0);
 
   // Nothing found, and no connection, each said in words.
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Nowhere at all');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Nowhere at all');
   await search.click();
   await expect(status).toHaveText('Nothing found for “Nowhere at all”. Try the street and town, or fewer words.');
-  await editor.getByRole('textbox', { name: 'Address' }).fill('offline');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('offline');
   await search.click();
   await expect(status).toHaveText('Storiiboard couldn\'t reach the service. Check the connection and try again.');
 });
@@ -226,7 +226,7 @@ test('a location’s time zone is chosen from the zones, kept across a reload, a
   await zone.selectOption('Europe/Madrid');
   await expect(zone).toHaveValue('Europe/Madrid');
   // A new address leaves a zone chosen by hand as it is.
-  await editor.getByRole('textbox', { name: 'Address' }).fill('Calle Mayor, Madrid');
+  await editor.getByRole('textbox', { name: 'Address', exact: true }).fill('Calle Mayor, Madrid');
   await editor.getByRole('textbox', { name: 'Parking' }).click();
   await expect(zone).toHaveValue('Europe/Madrid');
 
@@ -242,7 +242,7 @@ test('a location’s time zone is chosen from the zones, kept across a reload, a
   // The address was the last edit, so the first ⌘Z takes it back (the zone stays); the next takes the zone back.
   await zone.focus();
   await page.keyboard.press(await undoKey(page));
-  await expect(editor.getByRole('textbox', { name: 'Address' })).toHaveValue('');
+  await expect(editor.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue('');
   await expect(zone).toHaveValue('Europe/Madrid');
   await zone.focus();
   await page.keyboard.press(await undoKey(page));
