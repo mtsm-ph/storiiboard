@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
@@ -559,4 +560,100 @@ test('Export PDF writes the day’s sheet: its words, the directions link for th
 
   const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
   expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+});
+
+test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet changed, and one ⌘Z takes an issue back (4.7)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await setUp(page);
+  await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
+  const issue = sheet(page).locator('[data-issue-button]');
+  const status = sheet(page).locator('[data-issue-status]');
+  await expect(issue).toHaveText('Issue');
+  await expect(sheet(page).locator('[data-issued-versions]')).toHaveCount(0);
+
+  // The scene isn't locked until the sheet is issued.
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  const lock = page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: 'Lock shot numbers for SC 01' });
+  await expect(lock).toHaveAttribute('aria-pressed', 'false');
+  await sidebar(page).getByRole('button', { name: /^Production/ }).click();
+
+  await issue.click();
+  await expect(status).toHaveText('Issued · v1');
+  await expect(issue).toBeDisabled();
+  await expect(sheet(page).locator('[data-issue-reason]')).toHaveText('Nothing has changed since version 1');
+  const rows = sheet(page).locator('[data-issue-row]');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(/^v1 · Issued \w{3}, \w{3} \d{1,2} \d\d:\d\d \S+/);
+
+  // The scene is locked, in the Scenes tile.
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await expect(lock).toHaveAttribute('aria-pressed', 'true');
+  await sidebar(page).getByRole('button', { name: /^Production/ }).click();
+
+  // The issued PDF as sent: version 1, not "Revised", and the call as it was.
+  const first = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Save a copy of version 1' }).click();
+  const v1 = await first;
+  expect(v1.suggestedFilename()).toBe('Bey County — Call sheet — Day 1 — 2030-11-16.pdf');
+  const v1Bytes = readFileSync(await v1.path());
+  const v1Text = await pdfText(await v1.path());
+  expect(v1Text).toMatch(/Version 1 · Issued \w{3}, \w{3} \d{1,2} \d\d:\d\d \S+/);
+  expect(v1Text).not.toContain('Revised');
+  expect(v1Text).not.toContain('09:15');
+  // What was saved is what was stored: its SHA-256 is the media record's `file`.
+  const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  await expect(sheet(page).locator('[data-issue-row="1"]')).toHaveAttribute('data-issue-file', sha(v1Bytes));
+
+  // A call changed: the sheet says so, and the button offers the next version.
+  await sheet(page).getByLabel('Call, Ana Ruiz', { exact: true }).fill('09:15');
+  await sheet(page).getByLabel('Call, Ana Ruiz', { exact: true }).blur();
+  await expect(status).toHaveText('▲ Changed since issued (v1)');
+  await expect(issue).toHaveText('Issue version 2');
+  await expect(issue).toBeEnabled();
+
+  // Version 1 stays as it was sent, byte for byte, whatever the sheet says now.
+  const again = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Save a copy of version 1' }).click();
+  expect(readFileSync(await (await again).path()).equals(v1Bytes)).toBe(true);
+
+  await issue.click();
+  await expect(status).toHaveText('Issued · v2');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(/^v2 · Issued /);
+  const second = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Save a copy of version 2' }).click();
+  const v2 = await second;
+  expect(v2.suggestedFilename()).toBe('Bey County — Call sheet — Day 1 — 2030-11-16 v2.pdf');
+  const v2Text = await pdfText(await v2.path());
+  expect(v2Text).toContain('Revised');
+  expect(v2Text).toMatch(/Version 2 · Issued /);
+  expect(v2Text).toContain('09:15');
+  await expect(sheet(page).locator('[data-issue-row="2"]')).toHaveAttribute('data-issue-file', sha(readFileSync(await v2.path())));
+
+  // History: one line for the whole issue.
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.locator('[data-tile="history"]').click();
+  await expect(page.getByRole('region', { name: 'History', exact: true })).toContainText('Issued the call sheet for Sat, Nov 16 (version 2)');
+
+  // One ⌘Z takes version 2 off; the warning comes back, and the next number is 2 again.
+  await sheet(page).getByLabel('Shoot day').focus();
+  await page.keyboard.press(await undoKey(page));
+  await expect(rows).toHaveCount(1);
+  await expect(status).toHaveText('▲ Changed since issued (v1)');
+  await expect(issue).toHaveText('Issue version 2');
+
+  // ⌘⇧Z brings version 2 back, with its stored PDF.
+  await page.keyboard.press(`${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+Shift+z`);
+  await expect(rows).toHaveCount(2);
+  await expect(status).toHaveText('Issued · v2');
+  const third = page.waitForEvent('download');
+  await sheet(page).getByRole('button', { name: 'Save a copy of version 2' }).click();
+  expect(sha(readFileSync(await (await third).path()))).toBe(sha(readFileSync(await v2.path())));
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+  expect(errors).toEqual([]);
 });

@@ -9,7 +9,7 @@ import { dayWeather, type WeatherUnits } from '../../core/net/weather';
 import type { DirectionsApp } from '../../core/storage/settings';
 import { chooseExportFile } from '../../core/storage/exportFiles';
 import { fontBytes, replacedWarning } from '../export/pdfStoryboardFormat';
-import type { PdfForecast } from './callSheetPdf';
+import type { CallSheetPdf, PdfForecast } from './callSheetPdf';
 import { callSheetFileName } from './callSheetName';
 import { findForecast } from './forecast';
 
@@ -45,10 +45,28 @@ export interface ExportCallSheetOptions {
 }
 
 /** The sheet as the project is now: read again after the edits queued ahead have landed. */
-const sheetNow = (o: ExportCallSheetOptions): CallSheet | null => callSheet(projectStore.getState().records, o.projectId, o.dayId, undefined, o.zones);
+export const sheetNow = (o: ExportCallSheetOptions): CallSheet | null => callSheet(projectStore.getState().records, o.projectId, o.dayId, undefined, o.zones);
 
 /** A place whose time zone hasn't come back yet has no sun or forecast to print; the sheet would go out without them. */
-const stillFindingZone = (sheet: CallSheet): boolean => sheet.locations.some((l) => l.place !== null && l.zone === null);
+export const stillFindingZone = (sheet: CallSheet): boolean => sheet.locations.some((l) => l.place !== null && l.zone === null);
+
+/**
+ * The sheet as a PDF with the forecast it already holds and the bundled fonts. `issue` is the version and time an issued
+ * sheet prints in its header (4.7); a sheet being exported has none.
+ */
+export async function makeCallSheetPdf(sheet: CallSheet, options: ExportCallSheetOptions, issue?: { version: number; issuedAt: Date }): Promise<CallSheetPdf> {
+  const [{ callSheetPdf }, forecasts, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
+    import('./callSheetPdf'),
+    heldForecasts(sheet),
+    fontBytes(() => import('../export/fonts/InterTight-Regular.ttf?url')),
+    fontBytes(() => import('../export/fonts/InterTight-SemiBold.ttf?url')),
+    fontBytes(() => import('../export/fonts/InterTight-Bold.ttf?url')),
+    fontBytes(() => import('../export/fonts/JetBrainsMono-Regular.ttf?url')),
+    fontBytes(() => import('../export/fonts/JetBrainsMono-Bold.ttf?url')),
+  ]);
+  const { projectName, paper, app, units } = options;
+  return callSheetPdf({ sheet, projectName, paper, app, units, forecasts, fonts: { sans, sansSemiBold, sansBold, mono, monoBold }, ...(issue ? { issue } : {}) });
+}
 
 export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promise<void> {
   const before = sheetNow(options);
@@ -71,18 +89,8 @@ export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promi
       showNotice(new Error(t('callSheet.pdf.zonePending')));
       return;
     }
-    const [{ callSheetPdf }, forecasts, sans, sansSemiBold, sansBold, mono, monoBold] = await Promise.all([
-      import('./callSheetPdf'),
-      heldForecasts(sheet),
-      fontBytes(() => import('../export/fonts/InterTight-Regular.ttf?url')),
-      fontBytes(() => import('../export/fonts/InterTight-SemiBold.ttf?url')),
-      fontBytes(() => import('../export/fonts/InterTight-Bold.ttf?url')),
-      fontBytes(() => import('../export/fonts/JetBrainsMono-Regular.ttf?url')),
-      fontBytes(() => import('../export/fonts/JetBrainsMono-Bold.ttf?url')),
-    ]);
-    const { projectName, paper, app, units } = options;
-    const pdf = await callSheetPdf({ sheet, projectName, paper, app, units, forecasts, fonts: { sans, sansSemiBold, sansBold, mono, monoBold } });
-    await target.write(callSheetFileName(sheet.title || projectName, sheet.day.number, sheet.day.fields.date), pdf.bytes);
+    const pdf = await makeCallSheetPdf(sheet, options);
+    await target.write(callSheetFileName(sheet.title || options.projectName, sheet.day.number, sheet.day.fields.date), pdf.bytes);
     const said = t('export.done', { what: t('callSheet.pdf.what'), label });
     if (pdf.replaced) showNotice(new Error(t('export.doneWarning', { said, warning: replacedWarning() })));
     else showInfo(said);
