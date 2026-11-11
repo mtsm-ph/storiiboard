@@ -202,6 +202,8 @@
   - A deck is a board with ordered page frames: 16:9, 9:16 and 4:5 (social), A4 and Letter (a treatment).
   - Pictures are stored as frames' are: at most 2560 px, with a pointer to the original for full-quality export;
     never the original embedded. The canvas draws small previews when zoomed out, the full picture only up close.
+  - Board content is never themed (5.1a): a missing colour is ink, and the board's canvas is paper in light and dark;
+    only the app around it follows the theme. So a board looks and prints the same everywhere.
   - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
   - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
     never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.
