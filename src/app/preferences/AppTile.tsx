@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getLocale, isLocaleId, LOCALES, setLocale, t } from '../../core/i18n';
-import { isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
+import { isDirectionsApp, isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
+import { setDirectionsApp, useDirectionsApp } from '../directionsApp';
 import { setWeekStartChoice, useWeekStartChoice } from '../weekStart';
 import { setWeatherUnitsChoice, useWeatherUnitsChoice } from '../weatherUnits';
 import { Select } from '../../ui/fields';
@@ -15,6 +16,7 @@ export function AppTile() {
   const [language, setLanguage] = useState(getLocale);
   const weekStart = useWeekStartChoice();
   const weatherUnits = useWeatherUnitsChoice();
+  const directions = useDirectionsApp();
   return (
     <>
     <div className="flex max-w-[440px] flex-col gap-2 p-4">
@@ -61,6 +63,19 @@ export function AppTile() {
         <option value="metric">{t('app.weatherUnits.metric')}</option>
         <option value="us">{t('app.weatherUnits.us')}</option>
       </Select>
+      <Select
+        label={t('app.directionsApp')}
+        value={directions}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (isDirectionsApp(next)) setDirectionsApp(next);
+        }}
+      >
+        <option value="google">{t('app.directionsApp.google')}</option>
+        <option value="apple">{t('app.directionsApp.apple')}</option>
+        <option value="osm">{t('app.directionsApp.osm')}</option>
+      </Select>
+      <p className="text-[12px] text-text-muted">{t('app.directionsAppNote')}</p>
     </div>
     <CompanyProfilesPanel />
     </>

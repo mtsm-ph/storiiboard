@@ -29,7 +29,7 @@ export function replacedWarning(): string {
   return t('export.pdf.replaced');
 }
 
-async function fontBytes(load: () => Promise<{ default: string }>): Promise<Uint8Array> {
+export async function fontBytes(load: () => Promise<{ default: string }>): Promise<Uint8Array> {
   const { default: url } = await load();
   return new Uint8Array(await (await fetch(url)).arrayBuffer());
 }

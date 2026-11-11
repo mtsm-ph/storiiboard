@@ -26,6 +26,7 @@
     "konva": "10.9.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "5.7.284",
+    "qrcode-generator": "2.0.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-konva": "19.3.2",

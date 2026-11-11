@@ -1,14 +1,20 @@
 import { useState } from 'react';
+import { useDirectionsApp } from '../../app/directionsApp';
+import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
+import { isPaperChoice } from '../../core/storage/settings';
 import { projectStore, useProject } from '../../app/projectStore';
 import { useZonesAt } from '../../app/timeZone';
+import { useWeatherUnits } from '../../app/weatherUnits';
 import { t } from '../../core/i18n';
 import { callSheet, defaultSheetDay } from '../../core/model/callsheet';
 import { mapPlace, projectLocations } from '../../core/model/location';
 import type { SbdRecord } from '../../core/model/record';
 import { dayLabel, projectShootDays } from '../../core/model/shootDay';
 import type { Change } from '../../core/ops/ops';
+import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } from '../schedule/dayEdits';
+import { exportCallSheetPdf } from './exportCallSheet';
 import { callsheetNoteChange, departmentCallChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
 import { CastSection, CrewSection, DaySection, LocationsSection, NotesSection, PeopleSection, ScenesSection } from './sections';
 
@@ -28,6 +34,10 @@ export function CallSheetTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
+  const paper = usePaper();
+  const paperChoice = usePaperChoice();
+  const app = useDirectionsApp();
+  const units = useWeatherUnits();
   // Each location's zone from its place on the map (4.3), asked of Rust once per place; before it answers, the
   // sheet shows no sun and no "Times in" line (a guess could be the wrong solar day).
   const points = (project ? projectLocations(records, project.projectId) : []).flatMap(({ record }) => {
@@ -47,19 +57,45 @@ export function CallSheetTile() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-call-sheet="">
-      <Select
-        label={t('callSheet.pick')}
-        value={dayId}
-        onChange={(event) => {
-          setChosen(event.currentTarget.value);
-        }}
-      >
-        {days.map((day) => (
-          <option key={day.record.id} value={day.record.id}>
-            {dayLabel(day)}
-          </option>
-        ))}
-      </Select>
+      <div className="flex flex-wrap items-end gap-2">
+        <span className="min-w-0 flex-1">
+          <Select
+            label={t('callSheet.pick')}
+            value={dayId}
+            onChange={(event) => {
+              setChosen(event.currentTarget.value);
+            }}
+          >
+            {days.map((day) => (
+              <option key={day.record.id} value={day.record.id}>
+                {dayLabel(day)}
+              </option>
+            ))}
+          </Select>
+        </span>
+        <span className="w-44">
+          <Select
+            label={t('callSheet.paper')}
+            value={paperChoice}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              if (isPaperChoice(next)) setPaperChoice(next);
+            }}
+          >
+            {/* First, so the choice can go back to following the computer; it says what that is now. */}
+            <option value="region">{t('callSheet.paper.region', { paper: t(paper === 'letter' ? 'callSheet.paper.letter' : 'callSheet.paper.a4') })}</option>
+            <option value="letter">{t('callSheet.paper.letter')}</option>
+            <option value="a4">{t('callSheet.paper.a4')}</option>
+          </Select>
+        </span>
+        <Button
+          onClick={() => {
+            void exportCallSheetPdf({ projectId, dayId, zones, projectName: project.name, paper, app, units });
+          }}
+        >
+          {t('callSheet.exportPdf')}
+        </Button>
+      </div>
       <DaySection sheet={sheet} projectName={project.name} />
       <LocationsSection sheet={sheet} />
       <ScenesSection sheet={sheet} />

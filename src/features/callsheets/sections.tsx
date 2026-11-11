@@ -1,5 +1,8 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
+import { useDirectionsApp } from '../../app/directionsApp';
+import { showInfo } from '../../app/notice';
 import { list, t, tn } from '../../core/i18n';
+import { directionsLink } from '../../core/model/directions';
 import { dayDateFull, type CallSheet, type CallSheetNotes, type SheetContact, type SheetLocation, type SheetZone } from '../../core/model/callsheet';
 import type { SunBand, SunRange } from '../../core/model/sunTimes';
 import { DEPARTMENT_LABELS, type Department } from '../../core/model/department';
@@ -169,6 +172,39 @@ function Time({ label, time }: { label: string; time: string }) {
   );
 }
 
+/** Copy map link (4.6): the same directions link the PDF prints and puts in its QR code, in the app Settings names. */
+function CopyMapLink({ location }: { location: SheetLocation }) {
+  const app = useDirectionsApp();
+  const link = directionsLink(app, location.fields, location.place);
+  if (link === null) return null;
+  const name = location.fields.name || t('trash.unnamedLocation');
+  return (
+    <div>
+      <Button
+        aria-label={t('callSheet.copyMapLinkFor', { location: name })}
+        onClick={() => {
+          // A webview without clipboard access shows the link to copy by hand.
+          const clipboard = (navigator as Partial<Navigator>).clipboard;
+          if (!clipboard) {
+            showInfo(t('location.linkNotCopied', { link }));
+            return;
+          }
+          void clipboard.writeText(link).then(
+            () => {
+              showInfo(t('location.linkCopied'));
+            },
+            () => {
+              showInfo(t('location.linkNotCopied', { link }));
+            },
+          );
+        }}
+      >
+        {t('location.copyMapLink')}
+      </Button>
+    </div>
+  );
+}
+
 /** The live locations the day's frames are shot at; a field not filled in is left out, except the address. */
 export function LocationsSection({ sheet }: { sheet: CallSheet }) {
   return (
@@ -212,6 +248,7 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
                       </span>
                     </p>
                   ))}
+                <CopyMapLink location={location} />
                 <SunBlock location={location} />
                 <WeatherBlock location={location} date={sheet.day.fields.date} callTime={sheet.day.fields.callTime} />
                 <SafetyBox location={location} />

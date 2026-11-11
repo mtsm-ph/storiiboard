@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useDirectionsApp } from '../../app/directionsApp';
 import { showInfo, showNotice } from '../../app/notice';
 import { openLink } from '../../app/opener';
 import { useZonesAt } from '../../app/timeZone';
@@ -27,6 +28,7 @@ import { AddressSearch } from './AddressSearch';
 import { HospitalFinder } from './HospitalFinder';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { locationFieldRecords } from '../../core/model/location';
+import { directionsLink } from '../../core/model/directions';
 import { CustomFields } from '../storyboard/InspectorView';
 import { setCustomField } from '../storyboard/board';
 
@@ -250,6 +252,9 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
   const zones = fields.time_zone === '' || ALL_ZONES.includes(fields.time_zone) ? ALL_ZONES : [...ALL_ZONES, fields.time_zone].sort();
   /** The link from what's in the fields now: the place on the map once one is picked. */
   const currentLink = () => mapLink({ address: typed('address'), name: typed('name') }, place);
+  // Copy map link gives directions in the app chosen in Settings (4.6), as the call sheet's button and QR code do.
+  const directionsApp = useDirectionsApp();
+  const copyLink = () => directionsLink(directionsApp, { address: typed('address'), name: typed('name') }, place);
   const sorted = [...scenes].sort((a, b) => compareSceneNumbers(sceneFields(a.props).number, sceneFields(b.props).number));
   return (
     <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-location-editor="">
@@ -326,7 +331,7 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         </Button>
         <Button
           onClick={() => {
-            const link = currentLink();
+            const link = copyLink();
             if (!link) {
               showInfo(t('location.nothingToMap'));
               return;

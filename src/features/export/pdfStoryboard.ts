@@ -72,8 +72,8 @@ export const PAGE = { width: 792, height: 612 };
 export const MARGIN = 36;
 const GAP = 12;
 const COLUMNS = 3;
-const INK = rgb(0x16 / 255, 0x15 / 255, 0x0f / 255);
-const MUTED = rgb(0x5e / 255, 0x5a / 255, 0x52 / 255);
+export const INK = rgb(0x16 / 255, 0x15 / 255, 0x0f / 255);
+export const MUTED = rgb(0x5e / 255, 0x5a / 255, 0x52 / 255);
 /** The kit's 1.5px rules. */
 const RULE = 1.5;
 /** Where the header's rule sits: everything on the page is drawn under it, but a top-corner watermark. */
@@ -189,7 +189,7 @@ export function localDate(date: Date): string {
  * Tight and JetBrains Mono don't cover) becomes one ?. Left as they were, they printed as blank boxes and came out
  * of the text layer as \0. `replaced` says whether any did, so the export can say so.
  */
-function printer() {
+export function printer() {
   const sets = new Map<PDFFont, Set<number>>();
   const state = { replaced: false };
   const printable = (font: PDFFont, text: string): string => {
