@@ -69,6 +69,12 @@ export function useFirstDay(): number {
   return firstDayOf(choice, region, typeof navigator === 'undefined' ? 'en-US' : navigator.language);
 }
 
+/** The computer's region as a locale (`es-MX`), else the browser's language: where the forecast's units come from too. */
+export function useRegionLocale(): string {
+  const region = useStore(store, (s) => s.region);
+  return region?.locale ?? (typeof navigator === 'undefined' ? 'en-US' : navigator.language);
+}
+
 export const useWeekStartChoice = (): WeekStartChoice => useStore(store, (s) => s.choice);
 
 export function setWeekStartChoice(choice: WeekStartChoice): void {

@@ -12,6 +12,7 @@ import { Select, TextArea } from '../../ui/fields';
 import { DepartmentTag } from '../../ui/tags';
 import type { CallsheetNote, PersonTime } from './callsheetEdits';
 import { TimeInput } from './TimeInput';
+import { WeatherBlock } from './WeatherBlock';
 
 // The call sheet's sections (4.1), one small component each, so a later milestone adds a section without reshaping
 // the others. They only draw what callSheet() worked out; what a person edits here is who is on the day, the times,
@@ -211,6 +212,7 @@ export function LocationsSection({ sheet }: { sheet: CallSheet }) {
                     </p>
                   ))}
                 <SunBlock location={location} />
+                <WeatherBlock location={location} date={sheet.day.fields.date} callTime={sheet.day.fields.callTime} />
               </li>
             );
           })}

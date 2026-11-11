@@ -38,10 +38,16 @@ struct Service {
 
 /// Every service, and the only servers the switch may point it at. A new service also needs its words and its browser
 /// entry in src/app/servicesStatus.ts (`SERVICE_WORDS`, `BROWSER_SERVICES`); a test below checks the id is there.
-const REGISTRY: &[Service] = &[Service {
-    id: "nominatim",
-    servers: &["https://nominatim.openstreetmap.org"],
-}];
+const REGISTRY: &[Service] = &[
+    Service {
+        id: "nominatim",
+        servers: &["https://nominatim.openstreetmap.org"],
+    },
+    Service {
+        id: "met-norway",
+        servers: &["https://api.met.no/weatherapi/locationforecast/2.0"],
+    },
+];
 
 /// Where the switch file is: this repo's `main`. The host is on net.rs's `HOSTS`.
 const SWITCH_URL: &str = "https://raw.githubusercontent.com/mtsm-ph/storiiboard/main/services.json";
@@ -596,7 +602,8 @@ mod tests {
         for service in REGISTRY {
             assert!(
                 page.contains(&format!("id: '{}'", service.id))
-                    && page.contains(&format!("{}: {{ name", service.id)),
+                    && (page.contains(&format!("{}: {{ name", service.id))
+                        || page.contains(&format!("'{}': {{ name", service.id))),
                 "{} needs SERVICE_WORDS and BROWSER_SERVICES in src/app/servicesStatus.ts",
                 service.id
             );

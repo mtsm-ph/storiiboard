@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { getLocale, isLocaleId, LOCALES, setLocale, t } from '../../core/i18n';
-import { isWeekStartChoice, saveSettings } from '../../core/storage/settings';
+import { isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
 import { setWeekStartChoice, useWeekStartChoice } from '../weekStart';
+import { setWeatherUnitsChoice, useWeatherUnitsChoice } from '../weatherUnits';
 import { Select } from '../../ui/fields';
 import { CompanyProfilesPanel } from '../company/CompanyProfilesPanel';
 
 // Settings → App: what belongs to the person rather than the project. The language changes every screen at once, and
 // the next export; a project opened on another computer shows there in that person's own language. And the company
 // profiles saved on this computer, to attach to projects (3.2). And where the Calendar's week starts (3.17): as this
-// computer's region says, or Sunday or Monday, in every language.
+// computer's region says, or Sunday or Monday, in every language. And the forecast's units (4.4).
 
 export function AppTile() {
   const [language, setLanguage] = useState(getLocale);
   const weekStart = useWeekStartChoice();
+  const weatherUnits = useWeatherUnitsChoice();
   return (
     <>
     <div className="flex max-w-[440px] flex-col gap-2 p-4">
@@ -46,6 +48,18 @@ export function AppTile() {
         <option value="region">{t('app.weekStart.region')}</option>
         <option value="sunday">{t('app.weekStart.sunday')}</option>
         <option value="monday">{t('app.weekStart.monday')}</option>
+      </Select>
+      <Select
+        label={t('app.weatherUnits')}
+        value={weatherUnits}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (isWeatherUnitsChoice(next)) setWeatherUnitsChoice(next);
+        }}
+      >
+        <option value="region">{t('app.weatherUnits.region')}</option>
+        <option value="metric">{t('app.weatherUnits.metric')}</option>
+        <option value="us">{t('app.weatherUnits.us')}</option>
       </Select>
     </div>
     <CompanyProfilesPanel />

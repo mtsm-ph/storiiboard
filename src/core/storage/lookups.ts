@@ -5,8 +5,8 @@ import { UUID_V4 } from './slateNumbers';
 // Cached network lookups (schema 11, 3.4, docs/SBD_FORMAT.md): one row per kind of lookup and what was asked, with the
 // answer and when it was fetched. Asked again, the row is replaced. Written outside the edit log, as read state is.
 
-/** The kinds of lookup: the address search now; weather and the nearest hospital come with Phase 4. */
-export type LookupKind = 'address_search';
+/** The kinds of lookup: the address search (3.4) and the forecast (4.4); the nearest hospital comes with 4.5. */
+export type LookupKind = 'address_search' | 'weather';
 
 export interface Lookup {
   result: JsonValue;

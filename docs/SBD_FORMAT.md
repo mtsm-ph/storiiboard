@@ -361,13 +361,29 @@ Additive (approved Nov 9). Every lookup the app makes on the network is kept in 
 | Column | Type | Notes |
 |---|---|---|
 | id, created_at, updated_at | | As every table |
-| kind | text | `address_search` now; weather and the nearest hospital come with Phase 4 |
+| kind | text | `address_search` (3.4) or `weather` (4.4); the nearest hospital comes with 4.5. No schema change: the column takes any kind |
 | query_key | text | What was asked, as the lookup keys it. For `address_search`: the language and the words, in one case and spacing (`en\|plaza de armas, cusco`), since Nominatim names places in the language asked |
-| query | text | The words as asked |
-| result | text | The answer as JSON. For `address_search`: a list of `{ "name", "latitude", "longitude" }`, at most five, in the service's order |
+| query | text | The words as asked. For `weather`: the same as `query_key` |
+| result | text | The answer as JSON. For `address_search`: a list of `{ "name", "latitude", "longitude" }`, at most five, in the service's order. For `weather`: `{ "expires", "last_modified", "forecast": [...] }` (below) |
 | fetched_at | text | When the answer came from the network (ISO 8601) |
 
 - Unique on (`kind`, `query_key`): asking again (Search again) replaces the row.
+
+`weather` (4.4)
+
+- `query_key`: the place's `latitude,longitude` rounded to 4 decimals with all four shown (`-13.5168,-71.9788`), as MET
+  Norway's terms ask coordinates to be cut.
+- `result`: MET Norway's Locationforecast reduced in Rust (src-tauri/src/weather.rs), in MET's own metric values:
+  `expires` (ISO 8601 UTC: the answer's `Expires`, counted from its `Date` header when it has one so a wrong local
+  clock doesn't matter, else one hour after it was fetched), `last_modified` (ISO or null; sent back as
+  `If-Modified-Since` when an expired forecast is renewed, and a 304 keeps the entries and takes the new `expires`), and
+  `forecast`, a list in time order of `{ "time" (UTC, as 2026-11-17T12:00:00Z), "temperature" (°C or null), "wind" (m/s or
+  null), "rain1h" and "rain6h" (mm over the hour and over the six hours after `time`, or null), "symbol1h" and
+  "symbol6h" (MET symbol codes such as lightrain or partlycloudy_day, or null) }`. An entry covers the time up to the
+  next one, by the span that fits; the page prorates each span to the day in the location's time zone.
+- `fetched_at` is when the answer came from the network. The app asks again for the place only once `expires` has
+  passed; a day's weather is worked out from the entries in the location's time zone, and units are converted for
+  display only. The forecast is never part of the `callsheet` record (4.7's "Changed since issued" ignores it).
 - Not an op: a cache isn't a step in History and isn't undone. Writing one counts as a change for the 5-minute backups.
 - Read back, every answer is checked again; one that can't be read counts as none, and the app asks the network.
 - A JSON export carries the table, and an import brings it back.

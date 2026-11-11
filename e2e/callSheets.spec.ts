@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { closeSettings, openSettings } from './settings';
 
 // The call sheet (4.1) in the memory build: a project with a scene at a location, a character cast, a crew member and
 // a shoot day with the scene's frames; the Production workspace's Call sheet tile shows the day, the location, the
@@ -309,4 +310,69 @@ test('sun times: a note without a place, then sunrise and sunset in the location
 
   const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
   expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+});
+
+test.describe('the forecast (4.4)', () => {
+  // The region decides the units: this browser's is en-US, so °F, mph and inches until Settings says otherwise.
+  test('a location without a place has a note; with one, the recorded forecast, its credit, Refresh, and units that can be switched', async ({ page }) => {
+    // The page's clock is set to Nov 16, 2026 (a day before the recorded forecast's days), so the test means the same on
+    // any date: 2026-11-17 is a day to come, not one gone by, and the recorded answer's hour of life is counted from it.
+    await page.clock.install({ time: new Date('2026-11-16T15:00:00Z') });
+    await setUp(page);
+    expect(await page.evaluate(() => new Date().toISOString().slice(0, 10))).toBe('2026-11-16');
+    const locations = page.getByRole('region', { name: 'Locations', exact: true });
+    const editor = locations.locator('[data-location-editor]');
+    const weather = sheet(page).locator('[data-sheet-location] [data-weather]');
+    const fact = (kind: string) => weather.locator(`[data-weather-fact="${kind}"]`);
+
+    // No place on the map: the note, and no forecast asked or shown.
+    await expect(sheet(page).locator('[data-weather-note]')).toHaveText('Pick the address on the map for the forecast');
+    await expect(weather).toHaveCount(0);
+
+    await editor.getByRole('textbox', { name: 'Address' }).fill('Plaza de Armas, Cusco');
+    await editor.getByRole('button', { name: 'Search address' }).click();
+    await editor.getByRole('list', { name: 'Places found' }).getByRole('button').first().click();
+    await expect(editor.getByText('On the map')).toBeVisible();
+
+    // The day (2030) is beyond what the recorded forecast reaches, and the credit and the fetch time show.
+    await expect(weather.locator('[data-weather-beyond]')).toHaveText('No forecast yet: it reaches as far as Thu, Nov 19');
+    await expect(weather.locator('[data-weather-fetched]')).toHaveText(/^Forecast fetched \d\d:\d\d · Data from MET Norway$/);
+
+    // A day the forecast covers (the memory build asks nothing online: it reads the recorded answer).
+    const days = page.getByRole('region', { name: 'Shoot days', exact: true });
+    const day = days.locator('[data-day-editor]');
+    await day.getByLabel('Date').fill('2026-11-17');
+    await day.getByLabel('Date').blur();
+    await expect(sheet(page)).toContainText('Tuesday, November 17, 2026');
+    await expect(fact('high')).toHaveText('65°F');
+    await expect(fact('low')).toHaveText('48°F');
+    await expect(fact('wind')).toHaveText('10 mph');
+    await expect(fact('precipitation')).toHaveText('0.26 in');
+    // The call is 07:00 in New York: 12Z, the start of the span that says fair.
+    await expect(weather).toContainText('Conditions at 07:00');
+    await expect(fact('conditions')).toHaveText('Fair');
+    await expect(weather.locator('[data-weather-fetched]')).toContainText('Data from MET Norway');
+
+    // Refresh within the expiry reads what is held and says until when it is good.
+    await weather.getByRole('button', { name: 'Refresh forecast' }).click();
+    await expect(weather.locator('[data-weather-up-to-date]')).toHaveText(/^Up to date until \d\d:\d\d$/);
+
+    const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+    expect((await new AxeBuilder({ page }).include('[aria-label="Call sheet"]').withTags(tags).analyze()).violations).toEqual([]);
+
+    // Settings → App → Weather units: Metric reads °C, km/h and mm, and By this computer's region brings the US back.
+    const app = await openSettings(page, 'App');
+    const units = app.getByLabel('Weather units');
+    await expect(units).toHaveValue('region');
+    await units.selectOption('metric');
+    await closeSettings(page);
+    await expect(fact('high')).toHaveText('18°C');
+    await expect(fact('low')).toHaveText('9°C');
+    await expect(fact('wind')).toHaveText('16 km/h');
+    await expect(fact('precipitation')).toHaveText('6.5 mm');
+    await openSettings(page, 'App');
+    await page.getByRole('dialog', { name: 'Settings' }).getByLabel('Weather units').selectOption('region');
+    await closeSettings(page);
+    await expect(fact('high')).toHaveText('65°F');
+  });
 });
