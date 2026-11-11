@@ -60,6 +60,20 @@ export interface CanvasItem extends Geometry {
   keepRatio?: boolean;
   /** Whether the "+" handles and ⌘⌥ + an arrow make a connected copy of it (5.2: a sticky, a shape, a text box); the host does it. */
   quick?: boolean;
+  /**
+   * A section (5.3): a frame drawn under the connectors and the other items that holds what lies wholly inside it. It is
+   * picked by its name tab or its edge band, never by its middle (a click there starts a marquee), and moves with its
+   * contents. It is always upright.
+   */
+  section?: SectionLook;
+}
+
+/** What makes an item a section: the name tab above its top left corner, and how the host draws it. */
+export interface SectionLook {
+  /** The tab's box relative to the section's top left corner (above it, so negative y); part of the hit area. */
+  tab: Rect;
+  /** Draws the tab in the section's own coordinates (0, 0 is its top left corner); the host hides the name while it is typed. */
+  drawTab?: (context: { colours: CanvasColours; zoom: number }) => ReactNode;
 }
 
 /** The view: the world point at the middle of the canvas and the zoom (1 is 100%), so it survives a resize. */
@@ -70,7 +84,7 @@ export interface Viewport {
 }
 
 /** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card). */
-export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link';
+export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link' | 'section';
 
 /** The Connector tool (5.2) draws a line between items; it places nothing by itself. */
 export type Tool = 'select' | 'hand' | 'connector' | PlaceTool;
@@ -117,6 +131,11 @@ export interface ConnectDrop {
 
 export type ReorderMode = 'forward' | 'backward' | 'front' | 'back';
 
+/** Align to the selection's bounds (5.3), distribute along an axis, and tidy into a row, a column or a grid. */
+export type AlignMode = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+export type Axis = 'horizontal' | 'vertical';
+export type TidyMode = 'row' | 'column' | 'grid';
+
 /** What a key or the context menu asks the host to do to the selection (the host knows its records). */
 export type CanvasCommand =
   | { kind: 'copy' }
@@ -124,7 +143,11 @@ export type CanvasCommand =
   | { kind: 'paste'; at: Point | null }
   | { kind: 'duplicate' }
   | { kind: 'delete' }
-  | { kind: ReorderMode };
+  | { kind: ReorderMode }
+  | { kind: 'align'; mode: AlignMode }
+  | { kind: 'distribute'; axis: Axis }
+  | { kind: 'tidy'; mode: TidyMode }
+  | { kind: 'sectionAround' };
 
 /** An item's new geometry after a finished gesture. */
 export interface GeometryChange extends Geometry {

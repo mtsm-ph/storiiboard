@@ -4,7 +4,7 @@ import { t } from '../../core/i18n';
 import type { CanvasItem, DrawContext } from '../../ui/canvas/types';
 import type { CardInfo } from './cards';
 import { cssFamily, fontsStore } from './fonts';
-import { BOARD_INK, BOARD_PAPER, BOARD_WARNING, DEFAULT_FONT_FAMILY, LINE_HEIGHT, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
+import { BOARD_INK, BOARD_PAPER, BOARD_WARNING, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
 import { linkLabel } from './links';
 import { PictureNode } from './PictureNode';
 import { fontStyleOf } from './textFit';
@@ -106,6 +106,32 @@ function linkCard(fields: ItemFields, { width, height, colours }: DrawContext): 
   );
 }
 
+/** A section: a tinted box with the board's ink outline, drawn under everything else on the board. */
+function sectionBox(fields: ItemFields, { width, height, colours }: DrawContext): ReactNode {
+  return <Rect width={width} height={height} fill={fields.color ?? SECTION_COLOURS[0]} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />;
+}
+
+/** A section's name above its top left corner, in Inter Tight bold; "Section" when it has none. */
+function sectionName(fields: ItemFields, width: number, colours: DrawContext['colours']): ReactNode {
+  return (
+    <Text
+      y={-SECTION_TAB_HEIGHT}
+      width={width}
+      height={SECTION_TAB_HEIGHT}
+      verticalAlign="middle"
+      paddingLeft={4}
+      text={sectionTitle(fields.name)}
+      fontFamily={cssFamily(DEFAULT_FONT_FAMILY, fontsStore.getState(), { weight: 700, italic: false })}
+      fontStyle="bold"
+      fontSize={SECTION_NAME_SIZE}
+      wrap="none"
+      ellipsis
+      fill={colours.ink}
+      listening={false}
+    />
+  );
+}
+
 /**
  * Gives each item its drawing. The item being edited in place is drawn without its text: the editor over it shows it.
  * The fonts version keys the text, so it is drawn again once a font it waited for has loaded.
@@ -123,7 +149,12 @@ export function withDrawing(
     const hidden = item.id === editingId;
     return {
       ...item,
+      // A section's name is drawn by the canvas beside it (outside its box, so the handles don't take it in); not while it is typed.
+      ...(fields.kind === 'section' && item.section
+        ? { section: { ...item.section, drawTab: ({ colours }: { colours: DrawContext['colours'] }) => <Group key={fontsVersion}>{!hidden && sectionName(fields, item.section?.tab.width ?? item.width, colours)}</Group> } }
+        : {}),
       draw: (context) => {
+        if (fields.kind === 'section') return sectionBox(fields, context);
         if (fields.kind === 'text') {
           return (
             <Group key={fontsVersion}>

@@ -40,6 +40,8 @@ interface MoodboardState {
   clipSource: { projectId: string; path: string } | null;
   editing: Editing | null;
   linkAsk: LinkAsk | null;
+  /** What the last layout command did, in words, for the board's live region (5.3). */
+  announcement: string;
   openBoard: (boardId: string | null) => void;
   select: (boardId: string, ids: readonly string[]) => void;
   setViewport: (boardId: string, view: Viewport) => void;
@@ -48,6 +50,7 @@ interface MoodboardState {
   startEditing: (editing: Editing) => void;
   stopEditing: () => void;
   askLink: (ask: LinkAsk | null) => void;
+  announce: (text: string) => void;
 }
 
 export const moodboardStore = createStore<MoodboardState>()((set) => ({
@@ -60,11 +63,12 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   clipSource: null,
   editing: null,
   linkAsk: null,
+  announcement: '',
   openBoard: (openBoardId) => {
-    set({ openBoardId, tool: 'select', editing: null, linkAsk: null });
+    set({ openBoardId, tool: 'select', editing: null, linkAsk: null, announcement: '' });
   },
   select: (boardId, ids) => {
-    set((s) => ({ selections: { ...s.selections, [boardId]: ids } }));
+    set((s) => ({ selections: { ...s.selections, [boardId]: ids }, announcement: '' }));
   },
   setViewport: (boardId, view) => {
     set((s) => ({ viewports: { ...s.viewports, [boardId]: view } }));
@@ -83,6 +87,13 @@ export const moodboardStore = createStore<MoodboardState>()((set) => ({
   },
   askLink: (linkAsk) => {
     set({ linkAsk, tool: 'select' });
+  },
+  // Cleared first and set on the next tick, so the same words said twice are read out twice.
+  announce: (announcement) => {
+    set({ announcement: '' });
+    setTimeout(() => {
+      set({ announcement });
+    }, 0);
   },
 }));
 

@@ -148,7 +148,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const board = record.parentId ? records[record.parentId] : undefined;
       const fields = itemFields(record.props);
       const kind = fields ? KIND_LABEL[fields.kind]() : isConnector(record) ? t('moodboard.item.connector') : t('trash.boardItemUnknown');
-      return [plain(t('trash.itemOnBoard', { item: kind, board: board ? boardTitle(board) : t('moodboard.untitled') }))];
+      const where = board ? boardTitle(board) : t('moodboard.untitled');
+      // A section is named: "Section 'Act One' on Camera board" (5.3).
+      if (fields?.kind === 'section' && fields.name.trim() !== '') return [plain(t('trash.sectionOnBoard', { name: fields.name.trim(), board: where }))];
+      return [plain(t('trash.itemOnBoard', { item: kind, board: where }))];
     }
     case 'gear': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('gear.unnamed');

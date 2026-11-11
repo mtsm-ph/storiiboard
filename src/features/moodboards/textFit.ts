@@ -1,6 +1,6 @@
 import Konva from 'konva';
 import { cssFamily, fontsStore } from './fonts';
-import { estimateTextHeight, LINE_HEIGHT, type MeasureText, type TextBox } from './items';
+import { estimateTextHeight, LINE_HEIGHT, SECTION_NAME_SIZE, setNameMeasurer, type MeasureText, type TextBox } from './items';
 
 // How tall a text box is for its text (5.1a): measured the way it is drawn, by Konva's own Text with the font the box is
 // drawn in (a family this computer lacks is measured in Inter Tight, as it is shown). Used when an edit is written, so
@@ -27,3 +27,15 @@ export const measureText: MeasureText = (box: TextBox) => {
     return estimateTextHeight(box);
   }
 };
+
+// A section's name tab is as wide as its name in Inter Tight bold, measured the way it is drawn (drawing.tsx).
+setNameMeasurer((text) => {
+  try {
+    const node = new Konva.Text({ text, fontFamily: cssFamily('Inter Tight', fontsStore.getState(), { weight: 700, italic: false }), fontStyle: 'bold', fontSize: SECTION_NAME_SIZE });
+    const width = node.getTextWidth();
+    node.destroy();
+    return Number.isFinite(width) && width > 0 ? width : text.length * SECTION_NAME_SIZE * 0.6;
+  } catch {
+    return text.length * SECTION_NAME_SIZE * 0.6;
+  }
+});

@@ -4,7 +4,7 @@ import { fromFile, type PictureFile } from '../../app/pictures';
 import { projectStore } from '../../app/projectStore';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { rememberVideoFile, videoFileKept } from '../../app/videoFiles';
-import { localizeError, t } from '../../core/i18n';
+import { localizeError, t, tn } from '../../core/i18n';
 import type { Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
@@ -19,10 +19,11 @@ import { isConnector } from './connectorFields';
 import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, grownQuickSeed, labelChanges, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
 import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
 import { boardsOf, boardTitle, newBoard, openDepartmentBoard, renameBoard, trashBoardChanges } from './boards';
-import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, geometryChanges, nudgeChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
+import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
 import { fontReady } from './fonts';
 import { mediaChildOf, shaOfClip } from './itemMedia';
 import { cardUrl, pastedAddress } from './links';
+import { arrangeChanges, createSectionChanges, moveChanges, nudgeMoveChanges, sectionAroundChanges, type Arrange } from './sections';
 import { moodboardStore } from './moodboardStore';
 import { measureText } from './textFit';
 
@@ -119,6 +120,12 @@ export async function placeItem(boardId: string, geometry: Geometry, tool: Place
   }
   let ids: string[] = [];
   const written = await projectStore.getState().applyWith((records) => {
+    // A section goes in the sections' order, under the sections it is drawn round (5.3).
+    if (tool === 'section') {
+      const section = createSectionChanges(records, boardId, geometry);
+      ids = [section.id];
+      return { changes: section.changes };
+    }
     const made = createItems(records, boardId, [{ ...geometry, kind: tool }]);
     ids = made.ids;
     return { changes: made.changes };
@@ -199,12 +206,13 @@ export async function changeStyle(boardId: string, patch: StylePatch): Promise<v
 }
 
 export async function changeGeometry(changes: readonly GeometryChange[]): Promise<void> {
-  await projectStore.getState().applyWith((records) => ({ changes: geometryChanges(records, changes, measureText) }));
+  // A section that moved takes what it holds along, and the free ends of connectors inside it (5.3).
+  await projectStore.getState().applyWith((records) => ({ changes: moveChanges(records, changes, measureText) }));
 }
 
 /** An arrow key's nudge: worked out from the records as they are when the write's turn comes. */
 export async function nudge(ids: readonly string[], dx: number, dy: number): Promise<void> {
-  await projectStore.getState().applyWith((records) => ({ changes: nudgeChanges(records, ids, dx, dy) }));
+  await projectStore.getState().applyWith((records) => ({ changes: nudgeMoveChanges(records, ids, dx, dy, measureText) }));
 }
 
 export async function reorder(boardId: string, mode: ReorderMode): Promise<void> {
@@ -216,6 +224,7 @@ export async function reorder(boardId: string, mode: ReorderMode): Promise<void>
 function wordsOf(item: ClipItem): string {
   if (item.kind === 'text' || item.kind === 'sticky') return item.text;
   if (item.kind === 'link') return item.url;
+  if (item.kind === 'section') return item.name;
   const name = item.media?.props.source_name;
   return typeof name === 'string' ? name : '';
 }
@@ -484,4 +493,51 @@ export async function quickCreate(boardId: string, itemId: string, side: Side): 
   if (!written || !result) return;
   select(boardId, [result.itemId]);
   if (result.edit) editItem(boardId, result.itemId);
+}
+
+/** The selected items a layout command covers: live items of the board that this version shows (connectors follow their items). */
+const layoutSelection = (records: Records, boardId: string): string[] =>
+  liveSelection(records, boardId).filter((id) => itemFields(records[id]?.props ?? {}) !== null);
+
+const SIDE_WORD = {
+  left: () => t('moodboard.side.left'),
+  center: () => t('moodboard.side.center'),
+  right: () => t('moodboard.side.right'),
+  top: () => t('moodboard.side.top'),
+  middle: () => t('moodboard.side.middle'),
+  bottom: () => t('moodboard.side.bottom'),
+} as const;
+
+/**
+ * Align, distribute or tidy the selected items (5.3): one op group, said aloud for a screen reader ("Aligned 3 items left")
+ * once written. Nothing happens with fewer than two items (three to distribute), or when none would move.
+ */
+export async function arrangeSelection(boardId: string, command: Arrange): Promise<void> {
+  const covered = { n: 0 };
+  const written = await projectStore.getState().applyWith((records) => {
+    const ids = layoutSelection(records, boardId);
+    covered.n = ids.length;
+    return { changes: arrangeChanges(records, boardId, ids, command, measureText) };
+  });
+  if (!written) return;
+  const n = covered.n;
+  moodboardStore.getState().announce(
+    command.kind === 'align'
+      ? tn('moodboard.aligned', n, { side: SIDE_WORD[command.mode]() })
+      : command.kind === 'distribute'
+        ? tn('moodboard.distributed', n, { axis: command.axis === 'horizontal' ? t('moodboard.axis.horizontal') : t('moodboard.axis.vertical') })
+        : tn('moodboard.tidied', n, { as: command.mode === 'row' ? t('moodboard.as.row') : command.mode === 'column' ? t('moodboard.as.column') : t('moodboard.as.grid') }),
+  );
+}
+
+/** ⌘⌥G: a section round the selected items, in one op group; the section is selected. */
+export async function sectionAroundSelection(boardId: string): Promise<void> {
+  let id: string | null = null;
+  const written = await projectStore.getState().applyWith((records) => {
+    const made = sectionAroundChanges(records, boardId, layoutSelection(records, boardId));
+    id = made?.id ?? null;
+    return { changes: made?.changes ?? [] };
+  });
+  const made = id as string | null;
+  if (written && made) select(boardId, [made]);
 }

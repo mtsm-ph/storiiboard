@@ -10,6 +10,7 @@ import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { boardTitle } from '../moodboards/boards';
 import { connectorFields, isConnector } from '../moodboards/connectorFields';
+import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
@@ -456,6 +457,7 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   font_italic: 'history.field.fontStyle',
   font_size: 'history.field.fontSize',
   align: 'history.field.alignment',
+  name: 'history.field.sectionName',
 });
 
 /** A connector's props by the words a person uses (5.2). */
@@ -470,6 +472,9 @@ const CONNECTOR_FIELD: Readonly<Record<string, string>> = labels({
   to: 'history.field.connectorEnd',
 });
 
+/** Tidy up's steps by what they made (5.3). */
+const TIDIED = { row: 'history.boardItemsTidiedRow', column: 'history.boardItemsTidiedColumn', grid: 'history.boardItemsTidiedGrid' } as const;
+
 /** What a board item is called in a line: "a rectangle", "a text box" (5.1a). */
 const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   rect: 'history.aRectangle',
@@ -481,6 +486,7 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   picture: 'history.aPicture',
   video: 'history.aVideoCard',
   link: 'history.aLinkCard',
+  section: 'history.aSection',
 };
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
@@ -824,15 +830,29 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   }
   // A board's items moved, resized or turned by one gesture (5.0): one line for the group, named by what it did.
   if (updates.length > 0 && updates.every((op) => op.before?.type === 'board_item' && op.after)) {
-    const props = new Set(updates.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+    // The connectors that went with a moved section (their free ends) are not the news: the items are.
+    const moved = updates.filter((op) => !isConnector(op.after ?? undefined));
+    const mine = moved.length > 0 ? moved : updates;
+    const props = new Set(mine.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
     const only = (allowed: readonly string[]) => [...props].every((prop) => allowed.includes(prop));
-    const things = itemsCount(updates.map((op) => record(op)), new Set(updates.map((op) => op.recordId)).size);
+    const things = itemsCount(mine.map((op) => record(op)), new Set(mine.map((op) => op.recordId)).size);
+    // Align, distribute and Tidy up (5.3): the group covers every item the command did, so the step can be told from a drag.
+    const rows = mine.flatMap((op) => (op.before && op.after ? [{ id: op.recordId, before: op.before.props, after: op.after.props, op }] : []));
+    const covered = coveredRows(rows);
+    const arranged = arrangedAs(covered);
+    if (arranged) {
+      // Counted by the items the command covered, not those a moved section carried.
+      const named = itemsCount(covered.map((row) => record(row.op)), new Set(covered.map((row) => row.id)).size);
+      if (arranged === 'align') return [t('history.boardItemsAligned', { things: named })];
+      if (arranged === 'distribute') return [t('history.boardItemsDistributed', { things: named })];
+      return [t(TIDIED[arranged], { things: named })];
+    }
     if (props.size > 0 && only(['x', 'y'])) return [t('history.boardItemsMoved', { things })];
     if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.boardItemsRotated', { things })];
     if ((props.has('width') || props.has('height')) && only(['x', 'y', 'width', 'height'])) return [t('history.boardItemsResized', { things })];
     // Text typed into a box (its height follows it), or a style set on several items at once (5.1a).
     if (props.has('text') && only(['text', 'height', 'x', 'y'])) return [t('history.boardTextEdited', { things })];
-    if (updates.length > 1 && !props.has('text')) return [t('history.boardItemsChanged', { things })];
+    if (mine.length > 1 && !props.has('text')) return [t('history.boardItemsChanged', { things })];
   }
   if (updates.length === 0 && lostUpdates.length > 0) return [t('history.lostChanged', { items: items(new Set(lostUpdates.map((op) => op.recordId)).size), tag })];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
