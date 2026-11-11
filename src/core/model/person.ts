@@ -24,6 +24,8 @@ export interface PersonFields {
   notes: string;
   /** Full view (3.6c) as set on the person; null when it never was, and it follows their role (personFullView). */
   fullView: boolean | null;
+  /** Whether phone and email print on call sheets (4.2) as set on the person; null when it never was (contactOnSheet). */
+  contactOnSheet: boolean | null;
 }
 
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -43,7 +45,22 @@ export function personFields(props: Props): PersonFields {
     email: text(props.email),
     notes: text(props.notes),
     fullView: typeof props.full_view === 'boolean' ? props.full_view : null,
+    contactOnSheet: typeof props.contact_on_sheet === 'boolean' ? props.contact_on_sheet : null,
   };
+}
+
+/** Someone who only plays a part: in the Cast department alone, or in none with the cast role. */
+export function isCastOnly(fields: Pick<PersonFields, 'departments' | 'role'>): boolean {
+  const [only] = fields.departments;
+  return fields.departments.length === 0 ? fields.role === 'cast' : fields.departments.length === 1 && only === 'cast';
+}
+
+/**
+ * Whether a person's phone and email print on call sheets (4.2): as set on them, else off for someone who's only cast
+ * and on for everyone else. Those are private, so cast start from not sharing.
+ */
+export function contactOnSheet(fields: Pick<PersonFields, 'departments' | 'role' | 'contactOnSheet'>): boolean {
+  return fields.contactOnSheet ?? !isCastOnly(fields);
 }
 
 /** The live people in the project, by name (an unnamed one last). */

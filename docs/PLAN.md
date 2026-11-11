@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (4.0 #120 waits for Kevin's baselines; 4.1 built, stacked on it) |
+| Last updated | Nov 10, 2026 (4.0 #120 waits for Kevin's baselines; 4.1 and 4.2 built, stacked on it) |
 
 | Phase | State |
 |---|---|
@@ -40,7 +40,7 @@ for Kevin. The gate: a call sheet used on a real shoot day.
 |---|---|---|---|
 | 4.0 Service switch | A JSON file in this repo, read through net.rs at most once a day just before an online service is used: a service turned off (with a message where it's used) or moved to another server on the code's list, never a new host; the last copy, then the code's defaults, when unreadable. Settings lists every online service, what for and when; the README's section for service operators. Tests use a fixture (decision 0) | #120 | Built Nov 10; two review rounds; waits for Kevin to compare the Settings baselines (the new tab) and say merge |
 | 4.1 The call sheet | A Call sheets tile in Production: pick a shoot day, see its call sheet built live from the project: the day (number, date, crew call, wrap), its locations, its scenes in order (heading, pages, characters and who plays them), crew by department; notes of its own (general, safety); a `callsheet` record per day holding only what it adds | #121 | Built Nov 10, stacked on 4.0; two review rounds; notes private in History |
-| 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | | Not started |
+| 4.2 Who and when | Who's on the day (decision 9); crew call per department and per person where it differs; cast call, HMU ready and on-set times (decision 6); contacts only for the people on it | #122 | Built Nov 10, stacked on 4.1; three review rounds |
 | 4.3 Sun times | Sunrise, sunset, golden and blue hour for each location, offline, from its place on the map and the date (decision 3), in the location's time zone (decision 7) | | Not started |
 | 4.4 Weather | The day's forecast at each location from MET Norway (decision 1), through net.rs, only when a call sheet is opened or refreshed, cached in `lookups` with when it was fetched, never asked again before `Expires`; units by region with a Settings override; the fetch time on the sheet; not yet available beyond the forecast's range; credited | | Not started |
 | 4.5 Nearest hospital | Find nearest hospital on a location (decision 2): Nominatim, up to five by straight-line distance, emergency departments first, a note on the others; one picked is kept on the location, editable by hand, and printed on every call sheet there; the emergency number by country | | Not started |

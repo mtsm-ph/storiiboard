@@ -92,6 +92,10 @@ const FIELD: Readonly<Record<string, string>> = labels({
   currency: 'history.field.currency',
   gear_ids: 'history.field.gearIds',
   full_view: 'history.field.fullView',
+  contact_on_sheet: 'history.field.contactOnSheet',
+  people_ids: 'history.field.peopleIds',
+  department_calls: 'history.field.departmentCalls',
+  person_times: 'history.field.personTimes',
   characters: 'history.field.characters',
   character_ids: 'history.field.characters',
   text: 'history.field.text',
@@ -235,6 +239,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
+  // The people on a shoot day (4.2), kept by id (some may since be in the Trash): a step names who, this just says it changed.
+  if (prop === 'people_ids' && Array.isArray(value)) return value.length === 0 ? '—' : t('history.changed');
   // A scene's characters (3.13), kept by id: said as how many.
   if (prop === 'character_ids' && Array.isArray(value)) return tn('count.characters', value.filter((id) => typeof id === 'string').length);
   // A frame's gear or a day's list (3.9b), kept by item id: said as how many.
@@ -328,6 +334,7 @@ function clientValue(change: FieldChange & { key: string }, value: JsonValue | u
 export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[] {
   const changes = changedProps(before, after).flatMap((prop): FieldChange[] => {
     const byId = prop === 'deliverables';
+    if (after.type === 'callsheet' && SHEET_TIMES.has(prop)) return sheetTimeChanges(prop, before.props[prop], after.props[prop]);
     if (!BY_ENTRY.has(prop) && !byId) return [{ prop, before: before.props[prop], after: after.props[prop] }];
     const was = byId ? deliverablesById(before.props) : entriesOf(before.props, prop);
     const now = byId ? deliverablesById(after.props) : entriesOf(after.props, prop);
@@ -337,11 +344,55 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     // A checklist that changed with no item changed (reordered, or an entry without an id): the list as a whole.
     return byId && entries.length === 0 ? [{ prop, before: before.props[prop], after: after.props[prop] }] : entries;
   });
-  if (after.type === 'callsheet') return changes.map((change) => ({ ...change, sheet: true as const, private: true as const }));
+  // The notes' text is never shown (they may hold a gate code or an allergy); call times are, before and after.
+  if (after.type === 'callsheet') {
+    return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
+  }
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
 
-/** A call sheet's two notes by the names its tile gives them (4.1). */
+/** A call sheet's two notes: private, said only as set, changed or removed. */
+const SHEET_NOTES: ReadonlySet<string> = new Set(['notes', 'safety_notes']);
+/** The props holding a call sheet's times (4.2): department calls, and people's call, HMU ready and on set. */
+const SHEET_TIMES: ReadonlySet<string> = new Set(['department_calls', 'person_times']);
+const SHEET_PERSON_TIMES = ['call', 'hmu_ready', 'on_set'] as const;
+const timeText = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
+
+/**
+ * A call sheet's times one by one: a department's call is the entry named by the department; a person's times are
+ * three entries named `<person id>:call`, `:hmu_ready` and `:on_set`. A time not set reads as '' (shown `—`).
+ */
+function sheetTimeChanges(prop: string, was: JsonValue | undefined, now: JsonValue | undefined): FieldChange[] {
+  const before = isObject(was) ? was : {};
+  const after = isObject(now) ? now : {};
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+  if (prop === 'department_calls') {
+    return keys.filter((key) => timeText(before[key]) !== timeText(after[key])).map((key) => ({ prop, key, before: timeText(before[key]), after: timeText(after[key]) }));
+  }
+  return keys.flatMap((id) => {
+    const a = isObject(before[id]) ? before[id] : {};
+    const b = isObject(after[id]) ? after[id] : {};
+    return SHEET_PERSON_TIMES.filter((field) => timeText(a[field]) !== timeText(b[field])).map((field) => ({ prop, key: `${id}:${field}`, before: timeText(a[field]), after: timeText(b[field]) }));
+  });
+}
+
+/** The name of a person a step names, from the records it carries (`around`); "a person" when it can't say. */
+function personNameIn(around: ReadonlyMap<string, SbdRecord> | undefined, id: string): string {
+  const name = around?.get(id)?.props.name;
+  return typeof name === 'string' && name !== '' ? name : t('history.aPerson');
+}
+
+const SHEET_TIME_LINE = { call: 'history.callOfPerson', hmu_ready: 'history.hmuReadyOfPerson', on_set: 'history.onSetOfPerson' } as const;
+
+/** A call sheet's time as a field name: "Camera’s call", "Ana Ruiz’s call", "Ana Ruiz’s HMU ready". */
+function sheetTimeLabel(change: FieldChange & { key: string }, around?: ReadonlyMap<string, SbdRecord>): string {
+  if (change.prop === 'department_calls') return t('history.callOfDepartment', { department: departmentName(change.key) });
+  const [id = '', field = 'call'] = change.key.split(':');
+  const key = Object.hasOwn(SHEET_TIME_LINE, field) ? SHEET_TIME_LINE[field as keyof typeof SHEET_TIME_LINE] : SHEET_TIME_LINE.call;
+  return t(key, { name: personNameIn(around, id) });
+}
+
+/** A call sheet's names for its two notes (4.1). */
 const CALLSHEET_FIELD: Readonly<Record<string, string>> = labels({
   notes: 'history.field.callsheetNotes',
   safety_notes: 'history.field.callsheetSafety',
@@ -356,8 +407,10 @@ const isSceneApproval = (change: FieldChange): change is FieldChange & { key: st
   change.prop === 'department_approvals' && change.key !== undefined;
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
-export const changeLabel = (change: FieldChange): string =>
-  change.sheet === true && change.key === undefined && Object.hasOwn(CALLSHEET_FIELD, change.prop)
+export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
+  change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
+    ? sheetTimeLabel({ ...change, key: change.key }, around)
+    : change.sheet === true && change.key === undefined && Object.hasOwn(CALLSHEET_FIELD, change.prop)
     ? (CALLSHEET_FIELD[change.prop] ?? change.prop)
     : isStatus(change) || isSceneApproval(change)
     ? departmentName(change.key)
@@ -501,6 +554,25 @@ const LOST: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
  */
 const purged = (op: LoggedOp) => op.kind !== 'purge' && op.before === null && op.after === null;
 
+const idsOf = (value: JsonValue | undefined): string[] | null => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : null);
+
+/** The ids a change to a day's `people_ids` added and took off; `before` is null for a day that had no list. */
+export function peopleDiff(before: JsonValue | undefined, after: JsonValue | undefined): { before: string[] | null; added: string[]; removed: string[] } {
+  const was = idsOf(before);
+  const now = idsOf(after) ?? [];
+  return { before: was, added: now.filter((id) => !(was ?? []).includes(id)), removed: (was ?? []).filter((id) => !now.includes(id)) };
+}
+
+/** A step that changed who is on a day: "Added Ana Ruiz to Mon, Nov 16", "Took Ana Ruiz off …", "Added everyone to …". */
+function peopleLine(change: FieldChange, day: Part, around: ReadonlyMap<string, SbdRecord>): Part[] {
+  const { before, added, removed } = peopleDiff(change.before, change.after);
+  const person = added.length === 1 && removed.length === 0 ? added[0] : removed.length === 1 && added.length === 0 ? removed[0] : undefined;
+  // A day with no list (before 4.2) gets everyone at once; so does an add of several.
+  if (before === null || (added.length > 1 && removed.length === 0)) return line('history.addedEveryoneToDay', { day });
+  if (person !== undefined) return line(added.length === 1 ? 'history.addedToDay' : 'history.tookOffDay', { day }, { name: personNameIn(around, person) });
+  return line('history.peopleChangedDay', { day });
+}
+
 /**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then.
@@ -632,6 +704,8 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         return line(only.before === undefined ? 'history.fieldAdded' : 'history.fieldRemoved', { who }, { field: only.key, tag });
       }
       if (changes.length === 1 && only?.prop === 'media_id') return line('history.whoDid', { who }, { what: pictureChange(only), tag });
+      // Who's on a shoot day (4.2): the person added or taken off, by name as the step left it (`around`).
+      if (changes.length === 1 && only?.prop === 'people_ids' && op.after.type === 'shoot_day') return [...peopleLine(only, nameOf(op.after), around), tag];
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
@@ -639,9 +713,9 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
           const named = around.get(v);
           return named ? nameOf(named) : t(only.prop === 'cast_id' ? 'history.aPerson' : only.prop === 'shoot_day_id' ? 'history.aShootDay' : 'history.aLocation');
         };
-        return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only) }), tag];
+        return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only, around) }), tag];
       }
-      return line('history.whoDid', { who }, { what: [...new Set(changes.map(changeLabel))].join(', '), tag });
+      return line('history.whoDid', { who }, { what: [...new Set(changes.map((c) => changeLabel(c, around)))].join(', '), tag });
     }
   }
   // Frames moved into one shoot day, or out of every day, together (3.7: a scene's frames added at once).

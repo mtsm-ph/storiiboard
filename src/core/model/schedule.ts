@@ -1,5 +1,5 @@
 import { frameLocationId, locationFields, type LocationStatus } from './location';
-import { projectPeople } from './person';
+import { projectPeople, personFields, type PersonFields } from './person';
 import { isObject } from './departmentStatus';
 import type { Props, SbdRecord } from './record';
 import { dayFrames } from './shootDay';
@@ -9,8 +9,9 @@ import { dayFrames } from './shootDay';
 // (CLAUDE.md: rollups are computed).
 //
 // Crew confirmed (docs/PHASE3_DECISIONS.md 10): set on the desktop for now, per person per day, in the day's `crew`
-// prop, `{ "<person id>": "confirmed" }`; anyone not there is pending. Until call sheets (Phase 4) say who's called,
-// a day's crew is everyone in Cast and crew. Phase 9's web availability arrives as suggestions over the same prop.
+// prop, `{ "<person id>": "confirmed" }`; anyone not there is pending. Who's called on a day (4.2) is its `people_ids`;
+// a day without the prop (made before 4.2) reads as everyone in Cast and crew. Phase 9's web availability arrives as
+// suggestions over the same prop.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -44,10 +45,36 @@ export function confirmedCrew(dayProps: Props): Set<string> {
   return new Set(Object.entries(crew).filter(([, status]) => status === 'confirmed').map(([id]) => id));
 }
 
-/** A day's crew (everyone live in Cast and crew, until call sheets choose), and how many of them have confirmed. */
+/**
+ * The person ids a day was told it has (`people_ids`, 4.2), each once, in the order added; null when the prop is
+ * missing (a day made before 4.2: everyone) or odd (not a list of text: read as missing and never written over).
+ */
+export function dayPeopleIds(props: Props): string[] | null {
+  const ids = props.people_ids;
+  if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) return null;
+  return [...new Set(ids)];
+}
+
+/** Whether someone has chosen who's on the day: its `people_ids` is a list (an empty one is nobody). */
+export const dayPeopleChosen = (day: Pick<SbdRecord, 'props'>): boolean => dayPeopleIds(day.props) !== null;
+
+/**
+ * The live people on a day, in the order they were added: everyone live in Cast and crew while nobody has chosen. An
+ * id of someone in the Trash or gone is skipped here, and stays in the list for a restore to bring back.
+ */
+export function dayPeople(records: Records, projectId: string, day: Pick<SbdRecord, 'props'>): { record: SbdRecord; fields: PersonFields }[] {
+  const ids = dayPeopleIds(day.props);
+  if (ids === null) return projectPeople(records, projectId);
+  return ids.flatMap((id) => {
+    const record = records[id];
+    return record?.type === 'person' && record.trashedAt === null && record.parentId === projectId ? [{ record, fields: personFields(record.props) }] : [];
+  });
+}
+
+/** A day's crew (the people on it, 4.2), and how many of them have confirmed. */
 export function dayCrew(records: Records, projectId: string, day: SbdRecord): { people: number; confirmed: number } {
   const confirmed = confirmedCrew(day.props);
-  const people = projectPeople(records, projectId);
+  const people = dayPeople(records, projectId, day);
   return { people: people.length, confirmed: people.filter((p) => confirmed.has(p.record.id)).length };
 }
 

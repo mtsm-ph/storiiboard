@@ -39,6 +39,9 @@ test('a shoot day on the month, picked to narrow the schedule, with its scenes a
   await editor(page).getByLabel('Date').fill('2026-11-16');
   await editor(page).getByLabel('Date').blur();
   await editor(page).getByRole('button', { name: 'Add all 2 from SC 01 to Day 1 · Mon, Nov 16' }).click();
+  // A new day starts with nobody on it (4.2): the person goes on the day from its call sheet.
+  await expect(editor(page)).toContainText('Nobody on this day yet. Add people on its call sheet.');
+  await page.getByRole('region', { name: 'Call sheet', exact: true }).getByRole('button', { name: 'Add everyone' }).click();
   const confirm = editor(page).getByRole('button', { name: 'Confirmed, Sam Ortiz' });
   await expect(confirm).toHaveAttribute('aria-pressed', 'false');
   await confirm.click();

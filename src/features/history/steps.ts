@@ -2,8 +2,10 @@ import type { SbdRecord } from '../../core/model/record';
 import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
-import { byStep, describeGroup, lineText, type Line } from './summary';
+import { byStep, describeGroup, lineText, peopleDiff, type Line } from './summary';
 import { t } from '../../core/i18n';
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** Steps shown at a time; older ones load on asking (Show older steps), so a long project opens its History at once. */
 export const PAGE = 100;
@@ -91,7 +93,13 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         op.after?.props.shoot_day_id,
       ]),
     );
-    for (const id of places) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
+    // The people added to or taken off a shoot day (4.2), and those a call sheet's times name: by name as they were then.
+    const people = ops.flatMap((op) => {
+      const diff = peopleDiff(op.before?.props.people_ids, op.after?.props.people_ids);
+      const timed = [op.before, op.after].flatMap((r) => (r?.type === 'callsheet' && isObject(r.props.person_times) ? Object.keys(r.props.person_times) : []));
+      return [...diff.added, ...diff.removed, ...timed];
+    });
+    for (const id of new Set([...places, ...people])) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
   }
   const found = await recordsBefore(file, asks);
   const around = new Map<string, Map<string, SbdRecord>>();

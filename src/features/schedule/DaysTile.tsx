@@ -22,12 +22,11 @@ import { Select, TextArea, TextField } from '../../ui/fields';
 import { StatusGlyph } from '../../ui/tags';
 import { headingOf } from '../storyboard/ScenesView';
 import { dayChange, newDay, scheduleFrames, setupMinutesChange, trashDay, type DayField } from './dayEdits';
-import { confirmedCrew, crewChange } from '../../core/model/schedule';
+import { confirmedCrew, crewChange, dayPeople, dayPeopleChosen } from '../../core/model/schedule';
 import { gearFields, gearIdsOf, moneyLabel, projectCurrency, projectGear } from '../../core/model/gear';
 import { gearNotOnDay } from '../../core/checks';
 import { GearPicker } from '../gear/GearPicker';
 import { gearListChange } from '../gear/gearEdits';
-import { projectPeople } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
 
 // The Days tile (3.7), in the Production workspace: the shoot's days, each with its date, call and wrap, the frames shot
@@ -291,7 +290,8 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
     const item = records[id];
     return (item && gearFields(item.props).name) || t('gear.unnamed');
   };
-  const people = projectPeople(records, projectId);
+  // Only the people on the day (4.2): everyone in Cast and crew while nobody has chosen.
+  const people = dayPeople(records, projectId, day.record);
   const confirmed = confirmedCrew(day.record.props);
   const framesId = useId();
   const needId = useId();
@@ -355,14 +355,14 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
         }}
       />
 
-      {/* Who's confirmed for the day (3.8, docs/PHASE3_DECISIONS.md 10): everyone in Cast and crew until call sheets say
-          who's called; names and titles only, never contacts. */}
+      {/* Who's confirmed for the day (3.8, docs/PHASE3_DECISIONS.md 10): the people on the day, chosen on its call sheet
+          (4.2); names and titles only, never contacts. */}
       <section aria-labelledby={crewId} className="flex flex-col">
         <h3 id={crewId} className="sb-label border-b-[1.5px] border-text pb-1">
           {tn('days.crew', people.filter((p) => confirmed.has(p.record.id)).length, { people: people.length })}
         </h3>
         {people.length === 0 ? (
-          <p className="py-2 text-[13px] text-text-muted">{t('days.noCrew')}</p>
+          <p className="py-2 text-[13px] text-text-muted">{dayPeopleChosen(day.record) ? t('days.nobodyYet') : t('days.noCrew')}</p>
         ) : (
           <ul aria-labelledby={crewId}>
             {people.map(({ record, fields }) => {

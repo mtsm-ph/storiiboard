@@ -62,6 +62,16 @@ export function personFullViewChange(records: Records, id: string, on: boolean):
   return [{ kind: 'update', id, set: { full_view: on } }];
 }
 
+/**
+ * Whether their phone and email print on call sheets (4.2), set on the person from then on; the default (off for cast,
+ * on for crew) is only what's shown until it is. Nothing when it's already so.
+ */
+export function personContactOnSheetChange(records: Records, id: string, on: boolean): Change[] {
+  const person = live(records, id);
+  if (!person || person.props.contact_on_sheet === on) return [];
+  return [{ kind: 'update', id, set: { contact_on_sheet: on } }];
+}
+
 /** A person to the Trash. */
 export function trashPerson(records: Records, id: string): Change[] {
   return live(records, id) ? [{ kind: 'trash', id }] : [];

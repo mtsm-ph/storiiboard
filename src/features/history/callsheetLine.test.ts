@@ -47,7 +47,7 @@ describe('History for a call sheet’s notes', () => {
     expect(lineText(describeEdit([op('update', before, after)], none, around))).toBe('Call sheet · Mon, Nov 16: general notes changed → changed');
     const safety = record('cs', 'callsheet', 'd', { notes: 'Park behind', safety_notes: 'Hard hats' });
     expect(lineText(describeEdit([op('update', before, safety)], none, around))).toBe('Call sheet · Mon, Nov 16: safety notes — → not shown');
-    expect(fieldChanges(before, safety).map(changeLabel)).toEqual(['safety notes']);
+    expect(fieldChanges(before, safety).map((change) => changeLabel(change))).toEqual(['safety notes']);
   });
 
   it('reads a call sheet made with its first note as that note being set', () => {
