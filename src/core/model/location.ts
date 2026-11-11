@@ -167,8 +167,14 @@ export function mapPlace(props: Props): Place | null {
   return placeFrom({ name: props.map_name, latitude: props.latitude, longitude: props.longitude });
 }
 
-/** The props that hold a location's place on the map. */
-export const MAP_PLACE_PROPS = ['latitude', 'longitude', 'map_name'] as const;
+/**
+ * The props that hold a location's place on the map; `map_moved` (4.9) says the pin was dragged to where the crew
+ * should go, so a new address, a new pick or Clear takes it off with the rest.
+ */
+export const MAP_PLACE_PROPS = ['latitude', 'longitude', 'map_name', 'map_moved'] as const;
+
+/** Whether the pin was placed by hand (4.9): dragged or moved from the keyboard, not as the address search gave it. */
+export const pinPlacedByHand = (props: Props): boolean => mapPlace(props) !== null && props.map_moved === true;
 
 /**
  * The props a new address takes off (3.4), for every writer (the Locations tile; suggestions, MCP and imports later):

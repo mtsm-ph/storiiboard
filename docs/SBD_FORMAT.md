@@ -539,6 +539,13 @@ WGS 84) and `map_name` (the place's name as the map service wrote it) on the loc
 none count: a latitude outside ±90, a longitude outside ±180, or a missing name reads as no place. `address` stays as
 typed (an empty one takes `map_name`). Like the address, they're private in History: named, never shown.
 
+4.9, also no table change (additive, like `full_view`; an older version keeps it as it is): `map_moved` on a location is
+`true` when the pin on its map was dragged, or moved from the keyboard, to where the crew should go (an entrance, a
+basecamp), so the sheet can say "Pin placed by hand". The move sets `latitude`, `longitude` and `map_moved` in one op and
+leaves `map_name`. Missing, or anything but `true`, reads as not moved. A new address, a new pick from the address search
+and Clear place all take it off with the place. The map's tiles are not in the file: they are kept on the computer, in its
+cache folder.
+
 4.3, also no table change (additive, like `full_view`): `time_zone` on a location is an IANA zone id (`America/New_York`)
 chosen by hand. Missing, empty or a name the reader doesn't know reads as unset, and the call sheet then uses the zone
 looked up offline from the place on the map (`latitude`, `longitude`), else the reading computer's. A new address that

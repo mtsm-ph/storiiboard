@@ -19,6 +19,7 @@ mod region;
 mod sbd;
 mod services;
 mod synced;
+mod tiles;
 mod timezone;
 mod video;
 mod weather;
@@ -108,6 +109,11 @@ pub fn run() {
             open::open_pdf,
             region::region_week,
             timezone::time_zone_at,
+            tiles::map_tile,
+            tiles::map_tiles_info,
+            tiles::map_tiles_clear,
+            tiles::map_tile_provider,
+            tiles::map_tile_provider_set,
         ])
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.

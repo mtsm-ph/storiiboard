@@ -37,6 +37,11 @@ Storiiboard asks these online services for things, and nothing else, only when a
   a call sheet is opened on a day or its Refresh is pressed, for a place with coordinates cut to 4 decimals, never
   again for that place before the answer's `Expires`, and every answer is cached in the project. Data from MET
   Norway, CC BY 4.0.
+- **OpenStreetMap tiles** (tile.openstreetmap.org): the map on a location. Only the tiles of the map being viewed, never
+  more than 2 requests at a time, never a bulk or offline download, zoom 0 to 19. Each tile is kept on the computer for
+  as long as the response's cache headers say (7 days when it has none), then renewed with `If-None-Match` and
+  `If-Modified-Since`. The map always shows "© OpenStreetMap contributors". A person can point the app at a tile
+  server of their own in Settings instead, and then OpenStreetMap's isn't contacted for tiles.
 - **The service list** (raw.githubusercontent.com): `services.json` in this repository, read at most once a day and
   only just before one of the services above is used.
 

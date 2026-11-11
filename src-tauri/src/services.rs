@@ -47,6 +47,10 @@ const REGISTRY: &[Service] = &[
         id: "met-norway",
         servers: &["https://api.met.no/weatherapi/locationforecast/2.0"],
     },
+    Service {
+        id: "osm-tiles",
+        servers: &["https://tile.openstreetmap.org"],
+    },
 ];
 
 /// Where the switch file is: this repo's `main`. The host is on net.rs's `HOSTS`.

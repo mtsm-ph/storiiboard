@@ -37,6 +37,7 @@ describe('Online services', () => {
     expect(BROWSER_SERVICES.map((s) => [s.id, s.state])).toEqual([
       ['nominatim', 'unchecked'],
       ['met-norway', 'unchecked'],
+      ['osm-tiles', 'unchecked'],
     ]);
   });
 
@@ -76,11 +77,23 @@ describe('Online services', () => {
     expect(html).toContain('The forecast for each location on a call sheet.');
     expect(html).toContain('Only when a call sheet is opened or refreshed, and never again for a place before the forecast says it’s out of date.');
     expect(html).toContain('https://api.met.no/weatherapi/locationforecast/2.0');
-    expect(html.match(/data-service="/g)).toHaveLength(2);
+    expect(html.match(/data-service="/g)).toHaveLength(3);
     setLocale('es');
     const spanish = renderToString(<OnlineServicesView services={BROWSER_SERVICES} />).replaceAll('<!-- -->', '');
     expect(spanish).toContain('Clima (MET Norway)');
     expect(spanish).toContain('El pronóstico de cada locación en una hoja de llamado.');
     expect(es['services.metNorway.when']).toContain('nunca otra vez');
+  });
+
+  it('lists the map tiles, with what they are for and when, and the tile server, in English and Spanish', () => {
+    const html = renderToString(<OnlineServicesView services={BROWSER_SERVICES} />).replaceAll('<!-- -->', '');
+    expect(html).toContain('Map tiles (OpenStreetMap)');
+    expect(html).toContain('The map on a location.');
+    expect(html).toContain('Only the tiles of the map being viewed, kept on this computer for a week or as long as OpenStreetMap says.');
+    expect(html).toContain('https://tile.openstreetmap.org');
+    setLocale('es');
+    const spanish = renderToString(<OnlineServicesView services={BROWSER_SERVICES} />).replaceAll('<!-- -->', '');
+    expect(spanish).toContain('Mosaicos del mapa (OpenStreetMap)');
+    expect(es['services.osmTiles.purpose']).toBe('El mapa de una locación.');
   });
 });

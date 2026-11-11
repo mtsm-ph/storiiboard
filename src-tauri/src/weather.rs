@@ -198,7 +198,7 @@ fn iso(seconds: i64) -> String {
 }
 
 /// An HTTP date (`Tue, 17 Nov 2026 12:30:00 GMT`, the one form HTTP/1.1 requires) as unix seconds; none for any other.
-fn http_date(text: &str) -> Option<i64> {
+pub(crate) fn http_date(text: &str) -> Option<i64> {
     let words: Vec<&str> = text.split_whitespace().collect();
     let [_, day, month, year, time, "GMT"] = words.as_slice() else {
         return None;

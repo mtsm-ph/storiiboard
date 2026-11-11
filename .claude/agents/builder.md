@@ -18,6 +18,8 @@ Rules:
 - Never delete anything outside the repo's build output (node_modules, dist, src-tauri/target, test-results,
   playwright-report). No git worktrees or directory junctions.
 - Never regenerate screenshot baselines (`--update-snapshots`) unless the brief says so.
+- Scratch files (probes, logs, throwaway tests) never go inside the repo: use test-results/ (build output Playwright
+  clears) or your system's temp folder (Kevin, Nov 10).
 - No secrets in code, no personal data in logs, every visible word through t() or tn() with en and es.
 - Never run prettier --write; match the file's own style (single quotes, about 120 columns).
 - Playwright's exit code can hide failures when piped: read the passed and failed counts.
