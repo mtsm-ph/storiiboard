@@ -254,7 +254,7 @@ test('a place shows its map (a grid here), with the credit; the pin moved from t
   const tileRequests: string[] = [];
   const consoleErrors: string[] = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+    if (message.type() === 'error') consoleErrors.push(`${message.text()} (${message.location().url})`);
   });
   page.on('request', (request) => {
     if (request.url().includes('tile.openstreetmap.org')) tileRequests.push(request.url());

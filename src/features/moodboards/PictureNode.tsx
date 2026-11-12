@@ -6,7 +6,7 @@ import { projectStore } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import type { CanvasColours } from '../../ui/canvas/types';
 import { cropBox, DEFAULT_CROP, type Crop } from '../../core/media/crop';
-import { decodedPicture, levelFor, loadPicture, useDecodedGeneration, type PictureLevel } from '../../core/media/decoded';
+import { decodedPicture, levelFor, loadPicture, onFullDropped, useDecodedGeneration, type PictureLevel } from '../../core/media/decoded';
 
 // A stored picture on the canvas (5.1b): the thumbnail until the item is drawn larger than 640 device pixels on its
 // long edge (and always for one out of view), then the stored picture. The thumbnail stays up while the large one loads, so zooming never flashes empty.
@@ -28,8 +28,9 @@ const RETRY_MS = 3000;
 
 /**
  * What the picture shows now: undefined while the first read is on its way, null when the file doesn't hold it. A read
- * that failed is not "gone": it is tried again after a moment. A full picture the cache let go of while it is shown is
- * read again, without waiting for a change of zoom.
+ * that failed is not "gone": it is tried again after a moment. A full picture the cache lets go of while it is wanted is
+ * read again, without waiting for a change of zoom: the cache tells this node (onFullDropped), since the canvas keeps what it
+ * drew and doesn't draw a node again by itself.
  */
 function usePicture(sha256: string | null, wanted: PictureLevel): { image: HTMLImageElement | null | undefined; level: PictureLevel } {
   const file = projectStore.getState().project?.file;
@@ -39,6 +40,13 @@ function usePicture(sha256: string | null, wanted: PictureLevel): { image: HTMLI
   // Forgotten pictures (Empty Trash, Clean up) are read again, or found gone.
   const forgotten = useDecodedGeneration();
   const missingFull = file !== undefined && sha256 !== null && wanted === 'original' && decodedPicture(file, sha256, 'original') === undefined;
+  // Told when the cache lets this picture's full size go, so the node draws again and asks for it.
+  useEffect(() => {
+    if (sha256 === null || wanted !== 'original') return;
+    return onFullDropped(sha256, () => {
+      setTick((n) => n + 1);
+    });
+  }, [sha256, wanted]);
   useEffect(() => {
     if (!file || sha256 === null) return;
     let live = true;

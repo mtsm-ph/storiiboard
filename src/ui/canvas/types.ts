@@ -40,7 +40,10 @@ export interface CanvasColours {
 
 export interface DrawContext extends Size {
   colours: CanvasColours;
-  /** The view's zoom, so an item can draw more detail up close (a picture's full size). */
+  /**
+   * The zoom the item is drawn for, so it can draw more detail up close (a picture's full size). It follows the view's zoom a
+   * moment after a wheel or pinch stops, not step by step.
+   */
   zoom: number;
   /** Whether the item meets the view; one drawn only because it is selected is out of it. */
   inView: boolean;
@@ -54,7 +57,12 @@ export interface CanvasItem extends Geometry {
   id: string;
   /** What a person calls it, for the live region: "Rectangle". */
   label: string;
-  /** Draws the item in its own box, 0 to width by 0 to height. Without one, a rectangle in the raised surface. */
+  /**
+   * Draws the item in its own box, 0 to width by 0 to height. Without one, a rectangle in the raised surface. It must give the
+   * same drawing for the same item object and the same context: the canvas keeps what it drew (5.7) and calls this again only
+   * for a new item object or a changed context, so whatever the drawing reads has to be in the item (a host makes a new item
+   * object when it changes).
+   */
   draw?: (context: DrawContext) => ReactNode;
   /** Whether Enter or a double-click edits it in place (text and sticky notes); the host does the editing. */
   editable?: boolean;

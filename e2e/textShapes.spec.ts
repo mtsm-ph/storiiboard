@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
   errors.length = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?files=memory');

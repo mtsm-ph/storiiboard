@@ -147,7 +147,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
       ),
     // fontsStatus and systemFonts decide which family a text is drawn in, so they redraw it too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, records, liveCards, fieldValues, numbers, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
+    [items, records, liveCards, fieldValues, numbers, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos, locale],
   );
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id) || links.some((link) => link.id === id)), [stored, items, links]);

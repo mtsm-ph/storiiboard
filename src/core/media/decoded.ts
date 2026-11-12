@@ -26,7 +26,11 @@ export function levelFor(width: number, height: number, zoom: number, pixelRatio
 /** A map that keeps at most `max` entries: reading or writing an entry makes it the newest, and the oldest are dropped. */
 export class BoundedCache<V> {
   private readonly entries = new Map<string, V>();
-  constructor(private readonly max: number) {}
+  constructor(
+    private readonly max: number,
+    /** Told the key of each entry let go because the cache is full (not one deleted). */
+    private readonly onDrop?: (key: string) => void,
+  ) {}
 
   get size(): number {
     return this.entries.size;
@@ -51,6 +55,7 @@ export class BoundedCache<V> {
       const oldest = this.entries.keys().next();
       if (oldest.done) break;
       this.entries.delete(oldest.value);
+      this.onDrop?.(oldest.value);
     }
   }
 
@@ -74,10 +79,30 @@ let decoded: Decoded | null = null;
 /** Counts forgettings; a load that began before one doesn't put its picture in the cache. */
 let epoch = 0;
 
+const dropListeners = new Map<string, Set<() => void>>();
+
+function droppedFull(sha256: string): void {
+  for (const listener of [...(dropListeners.get(sha256) ?? [])]) listener();
+}
+
+/**
+ * Calls `listener` when the cache lets go of this stored picture's full size to make room. A drawing that shows it and doesn't
+ * draw again by itself (the canvas keeps what it drew) is told, and asks for it again. Returns how to stop listening.
+ */
+export function onFullDropped(sha256: string, listener: () => void): () => void {
+  const set = dropListeners.get(sha256) ?? new Set<() => void>();
+  set.add(listener);
+  dropListeners.set(sha256, set);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0) dropListeners.delete(sha256);
+  };
+}
+
 function cachesFor(file: ProjectFile): Decoded {
   // Another project: nothing of the last one's is shown in it.
   if (decoded?.file !== file) {
-    decoded = { file, thumbnails: new BoundedCache(MAX_THUMBNAILS), fulls: new BoundedCache(MAX_FULL_PICTURES), loading: new Map() };
+    decoded = { file, thumbnails: new BoundedCache(MAX_THUMBNAILS), fulls: new BoundedCache(MAX_FULL_PICTURES, droppedFull), loading: new Map() };
   }
   return decoded;
 }

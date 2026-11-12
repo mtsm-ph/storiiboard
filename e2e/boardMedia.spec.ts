@@ -21,7 +21,8 @@ test.beforeEach(async ({ page }) => {
   errors.length = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    // The address that failed rides along: "Failed to load resource" alone doesn't say which one was refused.
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?files=memory');
@@ -139,6 +140,46 @@ test('zooming in past 640 screen pixels draws the stored picture; zooming out go
   await expect.poll(async () => Object.values(await levels(page))).toEqual(['original']);
   for (let i = 0; i < 3; i += 1) await page.keyboard.press('-');
   await expect.poll(async () => Object.values(await levels(page))).toEqual(['thumbnail']);
+});
+
+test('zooming out from 400% over 40 pictures does not ask the ones coming into view for their full size (5.7)', async ({ page }) => {
+  await openCamera(page);
+  await dropFiles(
+    page,
+    Array.from({ length: 40 }, (_, i) => jpeg(`p${String(i)}.jpg`)),
+    -300,
+    0,
+  );
+  await expect.poll(async () => (await data(page)).length, { timeout: 30_000 }).toBe(40);
+  await expect.poll(async () => Object.keys(await levels(page)).length).toBeGreaterThan(0);
+  // In close on the first: 6 steps of 125% from 100% is 381%.
+  const [first] = await data(page);
+  const at = await world(page, (first?.x ?? 0) + (first?.width ?? 0) / 2, (first?.y ?? 0) + (first?.height ?? 0) / 2);
+  await page.mouse.click(at.x, at.y);
+  await canvas(page).focus();
+  await page.keyboard.press('Shift+Digit0');
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('=');
+  await expect.poll(async () => Object.values(await levels(page)).filter((l) => l === 'original').length).toBeGreaterThanOrEqual(1);
+  // Held still long enough for the pictures to be drawn for this zoom.
+  await page.waitForTimeout(300);
+  // Ctrl + wheel out, one step a frame for a second, then the levels at once: before the zoom has settled.
+  const original = await page.evaluate(async () => {
+    const element = document.querySelector('[data-canvas]');
+    if (!element) throw new Error('no canvas');
+    const rect = element.getBoundingClientRect();
+    for (let frame = 0; frame < 60; frame += 1) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      element.dispatchEvent(new WheelEvent('wheel', { deltaY: 15, ctrlKey: true, bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const levels = JSON.parse(document.querySelector('[data-picture-levels]')?.getAttribute('data-picture-levels') ?? '{}') as Record<string, string>;
+    return { original: Object.values(levels).filter((l) => l === 'original').length, zoom: Number(element.getAttribute('data-zoom')) };
+  });
+  expect(original.zoom).toBeLessThan(0.5);
+  // The pictures that were in view at 381% may still be at full size; none that came into view since asked for it.
+  expect(original.original).toBeLessThanOrEqual(2);
+  // And once the zoom settles every one is the thumbnail it is drawn as.
+  await expect.poll(async () => Object.values(await levels(page)).filter((l) => l === 'original').length).toBe(0);
 });
 
 test('pastes a picture at the pointer; three files dropped at once land side by side and one ⌘Z takes them all back', async ({ page }) => {

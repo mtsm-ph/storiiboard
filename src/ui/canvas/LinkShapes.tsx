@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Group, Line, Path as KonvaPath, Rect, Text } from 'react-konva';
 import type { CanvasColours, CanvasLink, Point, Rect as WorldRect } from './types';
 import { headDirections, headPoints, headSize, trimmed, type Path } from './routing';
@@ -42,7 +43,8 @@ interface LinkShapeProps {
   draft?: boolean;
 }
 
-export function LinkShape({ resolved, colours, selected, hideText, handles, zoom, draft = false }: LinkShapeProps) {
+// Memoised (5.7): a pan or a marquee leaves every connector as it was.
+export const LinkShape = memo(function LinkShape({ resolved, colours, selected, hideText, handles, zoom, draft = false }: LinkShapeProps) {
   const { link, path, patch } = resolved;
   const stroke = link.color ?? colours.ink;
   const points = path.points;
@@ -83,4 +85,4 @@ export function LinkShape({ resolved, colours, selected, hideText, handles, zoom
         )}
     </Group>
   );
-}
+});

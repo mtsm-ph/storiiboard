@@ -16,7 +16,7 @@ test.beforeEach(async ({ page, context, browserName }) => {
   errors.length = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   if (browserName === 'chromium') await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.emulateMedia({ reducedMotion: 'reduce' });
