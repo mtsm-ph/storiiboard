@@ -204,6 +204,27 @@ for (const language of ['en', 'es'] as const) {
         await page.keyboard.press(`Alt+${String(n)}`);
         await audit(page, `workspace ${String(n)}`, problems, { tabs: 12, from: '[data-dock-root]' });
       }
+      // The Moodboard with a board open (5.0): the canvas with a rectangle on it, its minimap, and its menu.
+      await page.keyboard.press('Alt+6');
+      const moodboard = page.getByRole('region', { name: t('tile.moodboard.title'), exact: true });
+      await moodboard.locator('[data-department-board="camera"]').click();
+      const canvas = moodboard.getByRole('application');
+      await expect(canvas).toBeVisible();
+      await canvas.focus();
+      await page.keyboard.press('r');
+      await page.keyboard.press('Enter');
+      await expect(moodboard.getByRole('status')).not.toHaveText('');
+      await moodboard.getByRole('button', { name: t('canvas.minimap'), exact: true }).click();
+      await audit(page, 'Moodboard, a board with a rectangle selected', problems, { tabs: 0 });
+      await canvas.focus();
+      await page.keyboard.press('Shift+F10');
+      await expect(canvas.getByRole('group', { name: t('canvas.menu') })).toBeVisible();
+      await audit(page, 'Moodboard, the context menu', problems, { tabs: 0 });
+      await page.keyboard.press('Escape');
+      // Escape clears the selection, so Tab leaves the canvas and the walk reaches the zoom buttons, Fit all and Minimap.
+      await page.keyboard.press('Escape');
+      await expect(moodboard.getByRole('status')).toHaveText('');
+      await audit(page, 'Moodboard, the tools and the canvas buttons', problems, { tabs: 18, from: 'section[data-stack-id]:has([role="application"])' });
       await page.keyboard.press('Alt+1');
 
       // The menus, open.

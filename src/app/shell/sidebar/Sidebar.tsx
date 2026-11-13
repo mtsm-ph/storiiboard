@@ -10,9 +10,13 @@ import { departmentWorkspaceId, sectionId, workspaceById, type Workspace, type W
 import { closeDepartmentWorkspace, useWorkspaceState } from '../workspaceStore';
 import type { Department } from '../../../core/model/department';
 import { onNavKeyDown } from './navKeys';
+import { BoardList } from './BoardList';
 import { SceneList } from './SceneList';
 import { addSceneChange, sceneEntries } from './scenes';
 import { deleteScene, focusSceneAfterDelete } from '../../../features/storyboard/deleteScene';
+import { boardsOf, boardTitle } from '../../../features/moodboards/boards';
+import { deleteBoard } from '../../../features/moodboards/boardActions';
+import { moodboardStore, useMoodboard } from '../../../features/moodboards/moodboardStore';
 import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 import { IconButton } from '../../../ui/Button';
 import { SidebarGlyph } from '../../../ui/glyphs';
@@ -51,6 +55,8 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     return typeof title === 'string' && title !== '' ? title : (s.project?.name ?? null);
   });
   const scenes = project ? sceneEntries(records, project.projectId) : [];
+  const boards = project ? boardsOf(records, project.projectId).map((b) => ({ id: b.id, title: boardTitle(b) })) : [];
+  const openBoardId = useMoodboard((s) => s.openBoardId);
   // Archived projects leave the switcher; the Projects screen's Archived list still has them.
   const recent = useRecent(recentStore, (s) => s.entries)
     .filter((entry) => entry.state !== 'archived')
@@ -208,6 +214,27 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                     void deleteScene(id).then(({ written, next }) => {
                       // Focus stays in the sidebar: on the scene that took its place, or its section.
                       if (written) focusSceneAfterDelete(next, 'data-sidebar-scene', () => document.getElementById(sectionId('storyboard')));
+                    });
+                  }}
+                />
+              )}
+              {workspace.id === 'moodboard' && (
+                <BoardList
+                  boards={boards}
+                  openBoardId={openBoardId}
+                  canAdd={project !== null}
+                  onSelect={(id) => {
+                    moodboardStore.getState().openBoard(id);
+                    onSelect('moodboard');
+                  }}
+                  onAdd={() => {
+                    moodboardStore.getState().openBoard(null);
+                    onSelect('moodboard');
+                  }}
+                  onDelete={(id) => {
+                    void deleteBoard(id).then(({ written, next }) => {
+                      // Focus stays in the sidebar: on the board that took its place, or its section.
+                      if (written) focusSceneAfterDelete(next, 'data-sidebar-board', () => document.getElementById(sectionId('moodboard')));
                     });
                   }}
                 />

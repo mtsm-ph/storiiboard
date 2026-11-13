@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); building from 5.0. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
+| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); 5.0 built (#136, waiting for Kevin's baseline comparison), 5.1 building. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -38,7 +38,7 @@ a real pitch.
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 5.0 The canvas core | react-konva canvas shared with Phase 6 (decision 11): pan, zoom (wheel, pinch, keys), a minimap, selection (click, shift, marquee), move, resize, rotate, z order, copy and paste, delete to the Trash; every change an op (decision 1); the Moodboard section lists boards (decision 2): a department's board is created the first time it's opened, + makes more | | Not started |
+| 5.0 The canvas core | react-konva canvas shared with Phase 6 (decision 11): pan, zoom (wheel, pinch, keys), a minimap, selection (click, shift, marquee), move, resize, rotate, z order, copy and paste, delete to the Trash; every change an op (decision 1); the Moodboard section lists boards (decision 2): a department's board is created the first time it's opened, + makes more | #136 | Built Nov 11, stacked on #135; two review rounds; rectangles as the one item; changes all 60 baselines (Moodboard no longer "coming"; "By this computer's region"), waiting for Kevin |
 | 5.1 Items | Text boxes in the bundled fonts and this computer's, listed through font-kit (decision 7: Adobe Fonts checked on a Mac and on Windows; a font this computer lacks shows its fallback and says which), sticky notes, shapes in any colour; pictures dropped or pasted, stored as frames' are, at most 2560 px with a pointer to the original, never the original embedded (decision 4); video cards with a still (decision 5); links | | Not started |
 | 5.2 Connectors | Straight, bent or curved, arrowheads and labels, snapping to items and moving with them; quick-create a connected item | | Not started |
 | 5.3 Sections and layout | Sections that group items and move with their contents; Tidy up (rows, columns, grid), align and distribute, snap guides | | Not started |

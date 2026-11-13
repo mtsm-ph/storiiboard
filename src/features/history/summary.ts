@@ -8,6 +8,7 @@ import { attachmentFields } from '../../core/model/attachment';
 import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
+import { boardTitle } from '../moodboards/boards';
 import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -134,6 +135,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   email: 'history.field.email',
   role: 'history.field.role',
   power: 'history.field.power',
+  rotation: 'history.field.rotation',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -317,6 +319,8 @@ export interface FieldChange {
   private?: true;
   /** A call sheet's note (4.1): `notes` there is the General notes, not the plain "notes" other records have. */
   sheet?: true;
+  /** A board item's (5.0): its x and y are one position and its width and height one size, which a video's width isn't. */
+  item?: true;
 }
 
 const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
@@ -364,6 +368,7 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
+  if (after.type === 'board_item') return changes.map((change) => ({ ...change, item: true as const }));
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
 
@@ -422,9 +427,19 @@ const isStatus = (change: FieldChange): change is FieldChange & { key: string } 
 const isSceneApproval = (change: FieldChange): change is FieldChange & { key: string } =>
   change.prop === 'department_approvals' && change.key !== undefined;
 
+/** A board item's props by the words a person uses (5.0). */
+const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
+  x: 'history.field.position',
+  y: 'history.field.position',
+  width: 'history.field.boardSize',
+  height: 'history.field.boardSize',
+});
+
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
-  change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
+  change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
+    ? (BOARD_ITEM_FIELD[change.prop] ?? change.prop)
+    : change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
     ? sheetTimeLabel({ ...change, key: change.key }, around)
     : change.sheet === true && change.key === undefined && Object.hasOwn(CALLSHEET_FIELD, change.prop)
     ? (CALLSHEET_FIELD[change.prop] ?? change.prop)
@@ -507,6 +522,10 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       const day = record.parentId ? around.get(record.parentId) : undefined;
       return day ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') }) : t('history.aCallsheet');
     }
+    case 'board':
+      return boardTitle(record);
+    case 'board_item':
+      return t('history.aRectangle');
     case 'project':
       return t('history.theProject');
     case 'media': {
@@ -534,6 +553,8 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   person: 'count.people',
   shoot_day: 'count.shootDays',
   gear_item: 'count.gearItems',
+  board: 'count.boards',
+  board_item: 'count.rectangles',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -543,10 +564,10 @@ const count = (type: SbdRecord['type'], n: number): string => {
 };
 
 /** What a step did to one record of a kind, each sentence whole so a language can agree its words with the noun. */
-const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day' | 'gear_item', MessageKey>>>> = {
-  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person', shoot_day: 'history.added.shootDay', gear_item: 'history.added.gearItem' },
-  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person', shoot_day: 'history.deleted.shootDay', gear_item: 'history.deleted.gearItem' },
-  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person', shoot_day: 'history.restored.shootDay', gear_item: 'history.restored.gearItem' },
+const ONE: Readonly<Record<'create' | 'trash' | 'restore', Readonly<Record<'scene' | 'shot' | 'location' | 'character' | 'person' | 'shoot_day' | 'gear_item' | 'board' | 'board_item', MessageKey>>>> = {
+  create: { scene: 'history.added.scene', shot: 'history.added.shot', location: 'history.added.location', character: 'history.added.character', person: 'history.added.person', shoot_day: 'history.added.shootDay', gear_item: 'history.added.gearItem', board: 'history.added.board', board_item: 'history.added.boardItem' },
+  trash: { scene: 'history.deleted.scene', shot: 'history.deleted.shot', location: 'history.deleted.location', character: 'history.deleted.character', person: 'history.deleted.person', shoot_day: 'history.deleted.shootDay', gear_item: 'history.deleted.gearItem', board: 'history.deleted.board', board_item: 'history.deleted.boardItem' },
+  restore: { scene: 'history.restored.scene', shot: 'history.restored.shot', location: 'history.restored.location', character: 'history.restored.character', person: 'history.restored.person', shoot_day: 'history.restored.shootDay', gear_item: 'history.restored.gearItem', board: 'history.restored.board', board_item: 'history.restored.boardItem' },
 };
 const MANY: Readonly<Record<'create' | 'trash' | 'restore', MessageKey>> = {
   create: 'history.addedCount',
@@ -666,7 +687,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item'] as const) {
+    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item', 'board', 'board_item'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       if (type === 'media') {
@@ -713,11 +734,22 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   const moves = of('move');
   const moved = moves[0];
   if (moved) {
+    // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
+    if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: tn('count.rectangles', new Set(moves.map((op) => op.recordId)).size) })];
     if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];
     return purged(moved) ? [t('history.movedLost')] : line('history.moved', { name: nameOf(record(moved)) });
   }
   const updates = ops.filter((op) => op.kind === 'update' && op.before && op.after);
   const lostUpdates = ops.filter((op) => op.kind === 'update' && purged(op));
+  // A board's items moved, resized or turned by one gesture (5.0): one line for the group, named by what it did.
+  if (updates.length > 0 && updates.every((op) => op.before?.type === 'board_item' && op.after)) {
+    const props = new Set(updates.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+    const only = (allowed: readonly string[]) => [...props].every((prop) => allowed.includes(prop));
+    const things = tn('count.rectangles', new Set(updates.map((op) => op.recordId)).size);
+    if (props.size > 0 && only(['x', 'y'])) return [t('history.boardItemsMoved', { things })];
+    if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.boardItemsRotated', { things })];
+    if ((props.has('width') || props.has('height')) && only(['x', 'y', 'width', 'height'])) return [t('history.boardItemsResized', { things })];
+  }
   if (updates.length === 0 && lostUpdates.length > 0) return [t('history.lostChanged', { items: items(new Set(lostUpdates.map((op) => op.recordId)).size), tag })];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
     const op = updates[0];

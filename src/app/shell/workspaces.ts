@@ -172,9 +172,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     get label() {
       return t('workspace.moodboard');
     },
-    get phase() {
-      return t('phase.number', { phase: 5 });
-    },
+    phase: null,
     order: ['moodboard'],
     defaultLayout: () => layout(stack(['moodboard'])),
   },
