@@ -9,17 +9,21 @@ test.beforeEach(async ({ page }) => {
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const section = (page: Page, name: string) => sidebar(page).getByRole('button', { name: new RegExp(`^${name}`) });
 
-test('lists the six sections in order, each showing its phase until it is built, and opens one per click', async ({ page }) => {
+test('lists the six sections in order, only Setup still showing its phase, and opens one per click', async ({ page }) => {
   const sections = sidebar(page).locator('[id^="section-"]');
   await expect(sections).toHaveText([
-    'StoryboardPhase 1',
-    'AssetsPhase 3',
-    'TeamPhase 3',
+    'Storyboard',
+    'Assets',
+    'Team',
     'SetupPhase 6',
-    'ProductionPhases 3–4',
-    // Built in 5.0: no phase, and not muted.
+    'Production',
     'Moodboard',
   ]);
+  // Only Setup is still to come (Phase 6; Kevin, Nov 11): it alone is muted. The built sections read as live.
+  await expect(section(page, 'Setup')).toHaveClass(/text-text-muted/);
+  for (const built of ['Assets', 'Team', 'Production', 'Moodboard']) {
+    await expect(section(page, built)).not.toHaveClass(/text-text-muted/);
+  }
   // Settings is a window of the app's own (polish B), behind the gear at the sidebar's foot (polish C).
   await expect(gear(page)).toBeVisible();
   await expect(section(page, 'Storyboard')).toHaveAttribute('aria-current', 'page');

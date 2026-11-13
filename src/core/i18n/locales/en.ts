@@ -299,7 +299,6 @@ export const en = {
   'workspace.production': 'Production',
   'workspace.moodboard': 'Moodboard',
   'phase.number': 'Phase {phase}',
-  'phase.range': 'Phases {from}–{to}',
   // src/app/shell/docking/Dock.tsx
   'dock.zone.left': 'Split left',
   'dock.zone.right': 'Split right',

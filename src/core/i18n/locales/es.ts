@@ -300,7 +300,6 @@ export const es: Messages = {
   'workspace.production': 'Producción',
   'workspace.moodboard': 'Moodboard',
   'phase.number': 'Fase {phase}',
-  'phase.range': 'Fases {from}–{to}',
   // src/app/shell/docking/Dock.tsx
   'dock.zone.left': 'Dividir a la izquierda',
   'dock.zone.right': 'Dividir a la derecha',
