@@ -1,4 +1,4 @@
-import type { CanvasCommand, Point, Side, Tool } from './types';
+import type { AlignMode, CanvasCommand, Point, Side, Tool } from './types';
 
 // The canvas's keys as pure functions, so the table is tested without a browser.
 
@@ -18,6 +18,8 @@ export const isCommand = (event: Pick<KeyLike, 'metaKey' | 'ctrlKey'>, mac: bool
 /** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse), L (link), C (connector); read from the letter typed, so it follows the keyboard's layout. */
 export function toolForKey(event: KeyLike): Tool | null {
   if (event.altKey || event.metaKey || event.ctrlKey) return null;
+  // Shift+S is the Section tool (5.3), since S alone is the sticky.
+  if (event.shiftKey && event.key.toLowerCase() === 's') return 'section';
   switch (event.key.toLowerCase()) {
     case 'v':
       return 'select';
@@ -88,4 +90,33 @@ const ARROW_SIDE: Readonly<Record<string, Side>> = { ArrowUp: 'top', ArrowRight:
 export function quickSideFor(event: KeyLike, mac: boolean): Side | null {
   const chord = mac ? event.metaKey && event.altKey && !event.ctrlKey && !event.shiftKey : event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey;
   return chord ? (ARROW_SIDE[event.key] ?? null) : null;
+}
+
+const ALIGN_KEY: Readonly<Record<string, AlignMode>> = { a: 'left', h: 'center', d: 'right', w: 'top', v: 'middle', s: 'bottom' };
+
+/**
+ * The letter a layout key stands for. On a Mac Option changes what is typed, so the key's place names it; on Windows and
+ * Linux Alt leaves the letter alone, so the letter typed is read, and a layout that moves the keys still matches the
+ * letters the menu shows.
+ */
+const letterOf = (event: KeyLike, mac: boolean): string => (mac ? (event.code.startsWith('Key') ? event.code.slice(3) : '') : event.key).toLowerCase();
+
+/**
+ * The layout keys (5.3): Alt+A, H, D, W, V, S align to the left, centre, right, top, middle and bottom; Alt+Shift+H and V
+ * distribute across and down; Alt+Shift+T tidies into a grid; ⌘⌥G (Ctrl+Alt+G elsewhere) draws a section round the selection.
+ */
+export function arrangeForKey(event: KeyLike, mac: boolean): CanvasCommand | null {
+  const letter = letterOf(event, mac);
+  if (event.altKey && letter === 'g' && !event.shiftKey) {
+    return (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) ? { kind: 'sectionAround' } : null;
+  }
+  if (!event.altKey || event.metaKey || event.ctrlKey) return null;
+  if (event.shiftKey) {
+    if (letter === 'h') return { kind: 'distribute', axis: 'horizontal' };
+    if (letter === 'v') return { kind: 'distribute', axis: 'vertical' };
+    if (letter === 't') return { kind: 'tidy', mode: 'grid' };
+    return null;
+  }
+  const mode = ALIGN_KEY[letter];
+  return mode ? { kind: 'align', mode } : null;
 }

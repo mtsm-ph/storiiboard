@@ -14,9 +14,11 @@ interface TextEditorProps {
   onEnd: (text: string) => void;
   /** What a screen reader hears for the field, where it isn't a text box or a sticky note (a connector's label). */
   ariaLabel?: string;
+  /** One line only, as a section's name is: Enter ends the edit, and nothing wraps. */
+  singleLine?: boolean;
 }
 
-export function TextEditor({ fields, text, zoom, onEnd, ariaLabel }: TextEditorProps) {
+export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = false }: TextEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const ended = useRef(false);
   const sticky = fields.kind === 'sticky';
@@ -27,8 +29,8 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel }: TextEditorP
     if (!element) return;
     element.focus({ preventScroll: true });
     element.setSelectionRange(element.value.length, element.value.length);
-    fit(element, sticky);
-  }, [sticky]);
+    fit(element, sticky || singleLine);
+  }, [sticky, singleLine]);
 
   const end = (element: HTMLTextAreaElement, refocus: boolean) => {
     if (ended.current) return;
@@ -46,14 +48,14 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel }: TextEditorP
       defaultValue={text}
       spellCheck={false}
       onInput={(event) => {
-        fit(event.currentTarget, sticky);
+        fit(event.currentTarget, sticky || singleLine);
       }}
       onKeyDown={(event) => {
         // Escape or Enter while an input method is composing belongs to the composition.
         // keyCode 229 is what some browsers send for a key during composition, without isComposing.
         // eslint-disable-next-line @typescript-eslint/no-deprecated
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' || (singleLine && event.key === 'Enter')) {
           event.preventDefault();
           event.stopPropagation();
           end(event.currentTarget, true);
@@ -76,10 +78,10 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel }: TextEditorP
         fontStyle: fields.fontItalic ? 'italic' : 'normal',
         lineHeight: LINE_HEIGHT,
         textAlign: fields.align,
-        padding: sticky ? STICKY_PADDING * zoom : 0,
+        padding: sticky ? STICKY_PADDING * zoom : singleLine ? `${String(2.4 * zoom)}px ${String(4 * zoom)}px` : 0,
         color: sticky ? STICKY_INK : (fields.color ?? BOARD_INK),
         background: sticky ? (fields.color ?? STICKY_COLOURS[0]) : 'transparent',
-        whiteSpace: 'pre-wrap',
+        whiteSpace: singleLine ? 'pre' : 'pre-wrap',
         overflowWrap: 'break-word',
       }}
     />

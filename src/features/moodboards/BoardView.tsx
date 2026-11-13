@@ -20,6 +20,7 @@ import { boardFields, boardTitle } from './boards';
 import {
   addBoardFiles,
   addBoardPictures,
+  arrangeSelection,
   openCard,
   pasteFromSystem,
   changeGeometry,
@@ -37,6 +38,7 @@ import {
   pasteClipboard,
   renameBoardTo,
   reorder,
+  sectionAroundSelection,
 } from './boardActions';
 import { cardInfo, originalOf } from './cards';
 import { markSystemClipboard } from './clipboardMarker';
@@ -48,7 +50,7 @@ import { withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
 import { useDrawnLevels } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
-import { BOARD_COLOURS, canvasItems, isMediaKind, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, type ItemFields } from './items';
+import { BOARD_COLOURS, BOARD_INK, canvasItems, isMediaKind, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
@@ -69,6 +71,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const clipConnectors = useMoodboard((s) => s.clipConnectors);
   const editing = useMoodboard((s) => s.editing);
   const linkAsk = useMoodboard((s) => s.linkAsk);
+  const announcement = useMoodboard((s) => s.announcement);
   const workspaceId = useWorkspaceId();
   const missingVideos = useMissingVideos();
   const levels = useDrawnLevels();
@@ -225,6 +228,14 @@ export function BoardView({ board }: { board: SbdRecord }) {
       case 'delete':
         void deleteSelection(board.id);
         break;
+      case 'align':
+      case 'distribute':
+      case 'tidy':
+        void arrangeSelection(board.id, command);
+        break;
+      case 'sectionAround':
+        void sectionAroundSelection(board.id);
+        break;
       default:
         void reorder(board.id, command.kind);
     }
@@ -287,6 +298,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
         onChange={(patch) => {
           void changeStyle(board.id, patch);
         }}
+        onArrange={run}
       >
         {strip}
       </PropertiesStrip>
@@ -342,6 +354,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
           editing={mine?.id ?? null}
           renderEditor={(item, zoom) => {
             const fields = fieldsOf(item.id);
+            // A section's name: one line in Inter Tight bold, on its tab.
+            if (fields?.kind === 'section') {
+              const named = itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: SECTION_NAME_SIZE, fontWeight: 700, color: BOARD_INK }));
+              return named ? <TextEditor key={item.id} fields={named} text={fields.name} zoom={zoom} singleLine ariaLabel={t('moodboard.section.editName')} onEnd={(text) => void finishEditing(text)} /> : null;
+            }
             if (fields) return <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} onEnd={(text) => void finishEditing(text)} />;
             // A connector's label: centred, small, in ink as it is drawn, over its paper patch.
             const connector = records[item.id] ? connectorFields(records[item.id]?.props ?? {}) : null;
@@ -352,6 +369,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
           }}
           onCommand={run}
           canPaste={clipboard.length > 0 || clipConnectors.length > 0}
+          announcement={announcement}
           fixedColours={BOARD_COLOURS}
         />
       </div>

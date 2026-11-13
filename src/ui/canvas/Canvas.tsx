@@ -1,15 +1,17 @@
 import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Circle, Group, Layer, Rect, Stage, Transformer } from 'react-konva';
+import { Circle, Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
-import { boundsOf, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
-import { commandForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
+import { boundsOf, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
+import { arrangeForKey, commandForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
 import { LABEL_FONT_SIZE, LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
+import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
+import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { labelBox, pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd, type Anchor, type Path } from './routing';
 import { isAttached, isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type CanvasLink, type ConnectDrop, type Geometry, type GeometryChange, type LinkEnd, type PlaceTool, type Point, type Rect as WorldRect, type Side, type Size, type Tool, type Viewport } from './types';
 import { useCanvasColours } from './useCanvasColours';
@@ -28,7 +30,6 @@ const ARROW_PAN = 48;
 const ARROW_PAN_LONG = 192;
 const ZOOM_STEP = 1.25;
 const MENU_WIDTH = 212;
-const MENU_HEIGHT = 330;
 const WHEEL_ZOOM = 0.004;
 const DRAG_THRESHOLD = 3;
 const BUTTON = 'sb-label flex h-7 items-center justify-center px-2.5 focus-visible:-outline-offset-4';
@@ -41,6 +42,8 @@ const QUICK_OFFSET = 13;
 const QUICK_SIZE = 12;
 /** How near (screen pixels) the pointer must be to a selected connector's end to take it. */
 const END_GRAB = 9;
+/** A section's name is typed in room for this many world units at least, however short the name was. */
+const EDITING_NAME_WIDTH = 180;
 const QUICK_LABEL: Readonly<Record<Side, () => string>> = {
   top: () => t('canvas.quick.top'),
   right: () => t('canvas.quick.right'),
@@ -50,9 +53,10 @@ const QUICK_LABEL: Readonly<Record<Side, () => string>> = {
 
 type Gesture =
   | { kind: 'pan'; last: Point }
-  | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; moved: boolean; collapseTo: string | null }
+  // `origins` is everything that moves (a section's contents too); `lead` the ones picked, which snap, and `targets` the lines they snap to.
+  | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; lead: string[]; targets: WorldRect[] | null; moved: boolean; collapseTo: string | null }
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
-  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; moved: boolean }
+  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; targets: WorldRect[] | null; moved: boolean }
   // A connector drawn (the tool, or a "+" handle) or one of its ends dragged: `fixed` stays, the other end follows the pointer.
   | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null };
 
@@ -109,6 +113,8 @@ export interface CanvasProps {
   onQuickCreate?: (id: string, side: Side) => void;
   /** Whether Paste has something to paste (the host keeps the clipboard). */
   canPaste: boolean;
+  /** What the last layout command did, in words ("Aligned 3 items left"): read out in place of the selection until that changes. */
+  announcement?: string;
   /**
    * Fixed colours for the world, the items' defaults, the selection and the handles, in place of the theme's: a host
    * whose content is never themed (a board) gives its own paper and ink. The controls around the canvas still follow the theme.
@@ -134,6 +140,22 @@ const linkHit = (r: ResolvedLink, p: Point, zoom: number): boolean =>
   (r.patch !== null && p.x >= r.patch.x && p.x <= r.patch.x + r.patch.width && p.y >= r.patch.y && p.y <= r.patch.y + r.patch.height);
 const pathBoundsOf = (r: ResolvedLink): WorldRect => pathBounds(r.path);
 const boxesOf = (items: readonly CanvasItem[]) => items.map((item) => ({ id: item.id, box: item }));
+
+/** The geometry alone of an item, as a gesture keeps it. */
+const geometryOf = (item: Geometry): Geometry => ({ x: item.x, y: item.y, width: item.width, height: item.height, rotation: item.rotation });
+
+/** What moves when these are picked: they, and what each picked section holds (once, whoever else picked it). */
+function movingWith(ids: readonly string[], all: readonly CanvasItem[]): Map<string, Geometry> {
+  const picked = new Set(ids);
+  const moving = new Map<string, Geometry>();
+  for (const item of all) if (picked.has(item.id)) moving.set(item.id, geometryOf(item));
+  for (const item of all) {
+    if (!item.section || !picked.has(item.id)) continue;
+    const inside = new Set(sectionContents(item, all));
+    for (const other of all) if (inside.has(other.id) && !moving.has(other.id)) moving.set(other.id, geometryOf(other));
+  }
+  return moving;
+}
 
 const isMac = () => typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
 
@@ -167,6 +189,7 @@ export function Canvas({
   onQuickCreate,
   onCommand,
   canPaste,
+  announcement = '',
   fixedColours,
 }: CanvasProps) {
   const themed = useCanvasColours();
@@ -206,11 +229,16 @@ export function Canvas({
   const [menu, setMenu] = useState<{ at: Point; world: Point } | null>(null);
   const [minimap, setMinimap] = useState(false);
   const [connecting, setConnecting] = useState<ConnectDraft | null>(null);
+  // The snap guides of a move or a drawing, for as long as the gesture lasts (5.3).
+  const [guides, setGuides] = useState<readonly Guide[]>([]);
   // Where the items being resized or turned by the handles are right now, so the connectors follow before the gesture ends.
   const [transforming, setTransforming] = useState<{ key: string; live: ReadonlyMap<string, Geometry> } | null>(null);
   const describedBy = useId();
 
   const shown = useMemo(() => items.map((item) => ({ ...item, ...(draft?.get(item.id) ?? item) })), [items, draft]);
+  // Sections are drawn under the connectors and the other items; each group keeps the board's order among itself (5.3).
+  const sectionsShown = useMemo(() => drawOrder(shown.filter((item) => item.section)), [shown]);
+  const itemsShown = useMemo(() => shown.filter((item) => !item.section), [shown]);
   // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
   // The handles' live geometry counts only for the selection it was made on.
   const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
@@ -218,8 +246,22 @@ export function Canvas({
   const [routes] = useState(() => new Map<string, { key: string; path: Path }>());
   const resolved = useMemo((): ResolvedLink[] => {
     const boxes = new Map(shown.map((item) => [item.id, liveBoxes?.get(item.id) ?? item]));
+    // A dragged section carries the free ends of connectors inside it: shown moving with it (the smallest section wins).
+    const carried = draft
+      ? items
+          .flatMap((item) => {
+            const to = item.section ? draft.get(item.id) : undefined;
+            return to && to.width === item.width && to.height === item.height && (to.x !== item.x || to.y !== item.y) ? [{ box: item, dx: to.x - item.x, dy: to.y - item.y }] : [];
+          })
+          .sort((p, q) => p.box.width * p.box.height - q.box.width * q.box.height)
+      : [];
+    const follow = (end: LinkEnd): LinkEnd => {
+      if (isAttached(end)) return end;
+      const by = carried.find(({ box }) => end.x >= box.x && end.x <= box.x + box.width && end.y >= box.y && end.y <= box.y + box.height);
+      return by ? { x: tidy(end.x + by.dx), y: tidy(end.y + by.dy) } : end;
+    };
     return links.flatMap((original) => {
-      const link = connecting?.id === original.id ? { ...original, from: connecting.from, to: connecting.to } : original;
+      const link = connecting?.id === original.id ? { ...original, from: connecting.from, to: connecting.to } : { ...original, from: follow(original.from), to: follow(original.to) };
       const a = anchorOf(boxes, link.from);
       const b = anchorOf(boxes, link.to);
       if (!a || !b) return [];
@@ -232,7 +274,7 @@ export function Canvas({
       const typing = editing === link.id;
       return [{ link, path, middle, patch: link.text !== '' || typing ? labelBox(link.text, middle, LABEL_FONT_SIZE, typing ? 120 : 0) : null }];
     });
-  }, [links, shown, connecting, editing, liveBoxes, routes]);
+  }, [links, items, draft, shown, connecting, editing, liveBoxes, routes]);
   // A connector being drawn is shown with the others, lighter.
   const drawing = useMemo((): ResolvedLink | null => {
     if (!connecting || connecting.id !== null) return null;
@@ -247,7 +289,12 @@ export function Canvas({
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
   const pickedSet = new Set(selection);
-  const drawn = shown.filter((item) => pickedSet.has(item.id) || rectsMeet(boundsOf(item), world));
+  // A section's name tab counts as part of it, or its name would vanish while the section's corner is just off the view.
+  const reach = (item: CanvasItem): WorldRect => {
+    const tab = tabRect(item);
+    return (tab ? unionBounds([boundsOf(item), tab]) : null) ?? boundsOf(item);
+  };
+  const drawn = shown.filter((item) => pickedSet.has(item.id) || rectsMeet(reach(item), world));
   const handleIds = tool === 'select' ? selection.filter((id) => drawn.some((item) => item.id === id)) : [];
   const handleKey = handleIds.join('|');
   // Konva turns a group resized from the side handles into a skew once the items are turned differently: with mixed
@@ -260,10 +307,10 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
-  const latest = useRef({ items, shown, resolved, selection, tool, viewport, size, draft, onViewportChange });
+  const latest = useRef({ items, shown, sectionsShown, itemsShown, resolved, selection, tool, viewport, size, draft, onViewportChange });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, resolved, selection, tool, viewport, size, draft, onViewportChange };
+    latest.current = { items, shown, sectionsShown, itemsShown, resolved, selection, tool, viewport, size, draft, onViewportChange };
   });
 
   // The canvas follows the tile's size.
@@ -459,8 +506,40 @@ export function Canvas({
     setPreview(null);
     setConnecting(null);
     setTransforming(null);
+    setGuides([]);
     // Only a drag that began its own hold lets it go: a pending write's hold is not this gesture's to drop.
     if (g?.kind === 'move' && g.moved) setDraft(null);
+  };
+
+  /** The lines moving things snap to: the items in view (sections too) that are not themselves moving or carried. */
+  const snapTargets = (moving: ReadonlySet<string>): WorldRect[] => {
+    const { shown: all, viewport: now, size: box } = latest.current;
+    const seen = visibleWorld(now, box);
+    return all.filter((item) => !moving.has(item.id)).map(boundsOf).filter((b) => rectsMeet(b, seen));
+  };
+
+  /** How far a move has gone and the guides it snaps to; Ctrl (⌘ on a Mac) held turns snapping off. */
+  const movement = (g: Extract<Gesture, { kind: 'move' }>, world: Point, off: boolean): { dx: number; dy: number; guides: Guide[] } => {
+    const dx = tidy(world.x - g.start.x);
+    const dy = tidy(world.y - g.start.y);
+    if (off || g.lead.length === 0) return { dx, dy, guides: [] };
+    g.targets ??= snapTargets(new Set(g.origins.keys()));
+    const lead = g.lead.flatMap((id) => {
+      const o = g.origins.get(id);
+      return o ? [boundsOf({ ...o, x: o.x + dx, y: o.y + dy })] : [];
+    });
+    const snap = snapMove(unionBounds(lead), dx, dy, g.targets, latest.current.viewport.zoom, off);
+    return { dx: tidy(snap.dx), dy: tidy(snap.dy), guides: snap.guides };
+  };
+
+  /** The rectangle a drawing drag makes, its corners snapped to other items' lines unless snapping is off. */
+  const drawnRect = (g: Extract<Gesture, { kind: 'draw' }>, world: Point, off: boolean): { rect: WorldRect; guides: Guide[] } => {
+    if (off) return { rect: rectFromCorners(g.start, world), guides: [] };
+    g.targets ??= snapTargets(new Set());
+    const zoom = latest.current.viewport.zoom;
+    const a = snapPoint(g.start, g.targets, zoom);
+    const b = snapPoint(world, g.targets, zoom);
+    return { rect: rectFromCorners({ x: tidy(a.point.x), y: tidy(a.point.y) }, { x: tidy(b.point.x), y: tidy(b.point.y) }), guides: mergeGuides([...a.guides, ...b.guides]) };
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -481,10 +560,10 @@ export function Canvas({
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const world = worldOf(screen);
-    const { shown: all, selection: picked, tool: current, resolved: lines, viewport: now } = latest.current;
+    const { shown: all, itemsShown: plain, sectionsShown: sections, selection: picked, tool: current, resolved: lines, viewport: now } = latest.current;
     if (current === 'connector') {
-      // Drag from an item (or empty space) to an item (or empty space): the first end snaps as the second does.
-      const start = snapEnd(boxesOf(all), world, now.zoom);
+      // Drag from an item (or empty space) to an item (or empty space): the first end snaps as the second does. A section is no end.
+      const start = snapEnd(boxesOf(plain), world, now.zoom);
       gesture.current = { kind: 'connect', id: null, fixed: start.end, moving: 'to', screen, moved: false, quick: null, quickSide: null };
       return;
     }
@@ -504,17 +583,21 @@ export function Canvas({
       }
     }
     if (isPlaceTool(current)) {
-      gesture.current = { kind: 'draw', tool: current, start: world, screen, moved: false };
+      gesture.current = { kind: 'draw', tool: current, start: world, screen, targets: null, moved: false };
       return;
     }
-    const top = topmostAt(all, world);
+    // The topmost item; else a connector near the pointer; else a section, but only by its name or its edge band, so a
+    // click on its empty middle starts a marquee and what is inside stays easy to pick.
+    const item = topmostAt(plain, world);
+    const line = item ? undefined : [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
+    const top = item ?? (line ? undefined : topmostSectionAt(sections, world, now.zoom));
     if (top) {
       if (event.shiftKey) {
         // Shift adds or removes; a removed item isn't dragged.
         const next = picked.includes(top.id) ? picked.filter((id) => id !== top.id) : [...picked, top.id];
         onSelectionChange(next);
         if (!next.includes(top.id)) return;
-        gesture.current = { kind: 'move', start: world, screen, origins: new Map(all.filter((i) => next.includes(i.id)).map((i) => [i.id, i as Geometry])), moved: false, collapseTo: null };
+        gesture.current = { kind: 'move', start: world, screen, origins: movingWith(next, all), lead: next, targets: null, moved: false, collapseTo: null };
         return;
       }
       const inSelection = picked.includes(top.id);
@@ -524,15 +607,15 @@ export function Canvas({
         kind: 'move',
         start: world,
         screen,
-        origins: new Map(all.filter((i) => ids.includes(i.id)).map((i) => [i.id, i as Geometry])),
+        origins: movingWith(ids, all),
+        lead: ids,
+        targets: null,
         moved: false,
         // A click on one of several selected, without a drag, selects just that one.
         collapseTo: inSelection && picked.length > 1 ? top.id : null,
       };
       return;
     }
-    // No item: a connector near the pointer is picked (the topmost of them).
-    const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
     if (line) {
       onSelectionChange(event.shiftKey ? (picked.includes(line.link.id) ? picked.filter((id) => id !== line.link.id) : [...picked, line.link.id]) : [line.link.id]);
       return;
@@ -556,14 +639,19 @@ export function Canvas({
     if (!g.moved && g.kind === 'move') generation.current += 1;
     g.moved = true;
     if (g.kind === 'connect') {
-      const snap = snapEnd(boxesOf(latest.current.shown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
+      const snap = snapEnd(boxesOf(latest.current.itemsShown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
       setConnecting({ id: g.id, from: g.moving === 'to' ? g.fixed : snap.end, to: g.moving === 'to' ? snap.end : g.fixed, mark: snap.mark });
       return;
     }
+    const off = event.ctrlKey || event.metaKey;
     if (g.kind === 'move') {
-      const dx = tidy(world.x - g.start.x);
-      const dy = tidy(world.y - g.start.y);
+      const { dx, dy, guides: aligned } = movement(g, world, off);
+      setGuides(aligned);
       setDraft(new Map([...g.origins].map(([id, o]) => [id, { ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) }])));
+    } else if (g.kind === 'draw') {
+      const made = drawnRect(g, world, off);
+      setGuides(made.guides);
+      setPreview({ kind: 'draw', rect: made.rect });
     } else {
       setPreview({ kind: g.kind, rect: rectFromCorners(g.start, world) });
     }
@@ -573,6 +661,7 @@ export function Canvas({
     const g = gesture.current;
     gesture.current = null;
     setPanning(false);
+    setGuides([]);
     if (!g || g.kind === 'pan') return;
     const world = worldOf(local(event));
     if (g.kind === 'connect') {
@@ -586,25 +675,25 @@ export function Canvas({
         // A press on a selected connector's end that doesn't drag is an ordinary click there: the item or connector under
         // it is picked, or nothing is.
         if (g.id !== null) {
-          const { shown: all, resolved: lines, viewport: now } = latest.current;
-          const top = topmostAt(all, world);
+          const { itemsShown: plain, resolved: lines, viewport: now } = latest.current;
+          const top = topmostAt(plain, world);
           const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
           onSelectionChange(top ? [top.id] : line ? [line.link.id] : []);
         }
         return;
       }
-      const snap = snapEnd(boxesOf(latest.current.shown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
+      const snap = snapEnd(boxesOf(latest.current.itemsShown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
       void onConnect?.({ id: g.id, from: g.moving === 'to' ? g.fixed : snap.end, to: g.moving === 'to' ? snap.end : g.fixed });
       if (g.id === null) onToolChange('select');
       return;
     }
+    const off = event.ctrlKey || event.metaKey;
     if (g.kind === 'move') {
       if (!g.moved) {
         if (g.collapseTo) onSelectionChange([g.collapseTo]);
         return;
       }
-      const dx = tidy(world.x - g.start.x);
-      const dy = tidy(world.y - g.start.y);
+      const { dx, dy } = movement(g, world, off);
       commit([...g.origins].map(([id, o]) => ({ id, ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) })));
     } else if (g.kind === 'marquee') {
       setPreview(null);
@@ -612,12 +701,13 @@ export function Canvas({
       const box = rectFromCorners(g.start, world);
       const touched = [
         ...latest.current.resolved.filter((r) => pathTouchesRect(r.path, box)).map((r) => r.link.id),
-        ...latest.current.shown.filter((item) => marqueeTouches(item, box)).map((item) => item.id),
+        // A section is picked by a marquee only when it holds the whole of it: one drawn inside a section picks what is inside.
+        ...latest.current.shown.filter((item) => (item.section ? marqueeHolds(item, box) : marqueeTouches(item, box))).map((item) => item.id),
       ];
       onSelectionChange([...new Set([...g.base, ...touched])]);
     } else {
       setPreview(null);
-      const box = rectFromCorners(g.start, world);
+      const box = g.moved ? drawnRect(g, world, off).rect : rectFromCorners(g.start, world);
       // Only a click (under 3 px) places the standard rectangle; any drag draws what was dragged, at least 8 a side.
       void onCreate(
         g.moved
@@ -632,7 +722,8 @@ export function Canvas({
   // The menu stays inside the canvas, whichever way it was opened.
   const openMenu = (screen: Point, worldPoint = worldOf(screen)) => {
     const { size: box } = latest.current;
-    setMenu({ at: { x: Math.max(0, Math.min(screen.x, box.width - MENU_WIDTH)), y: Math.max(0, Math.min(screen.y, box.height - MENU_HEIGHT)) }, world: worldPoint });
+    // The menu moves up by its own measured height when it would run off the bottom (CanvasMenu).
+    setMenu({ at: { x: Math.max(0, Math.min(screen.x, box.width - MENU_WIDTH)), y: Math.max(0, Math.min(screen.y, box.height - 40)) }, world: worldPoint });
   };
 
   const closeMenu = useCallback(() => {
@@ -647,9 +738,20 @@ export function Canvas({
     if (command.kind === 'copy' || command.kind === 'cut') onSystemCopy?.(null, null);
   };
 
+  /** The menu's Select contents: what the picked sections hold becomes the selection. */
+  const selectContents = () => {
+    const { shown: all, selection: picked } = latest.current;
+    const inside = new Set<string>();
+    for (const item of all) {
+      if (!item.section || !picked.includes(item.id)) continue;
+      for (const id of sectionContents(item, all)) inside.add(id);
+    }
+    if (inside.size > 0) onSelectionChange([...inside]);
+  };
+
   const cycle = (direction: 1 | -1) => {
-    // Connectors draw under the items, so they come first, back to front like the rest.
-    const ids = [...latest.current.resolved.map((r) => r.link.id), ...latest.current.items.map((i) => i.id)];
+    // Sections draw first, then the connectors, then the items: Tab goes back to front like the rest.
+    const ids = [...latest.current.sectionsShown.map((i) => i.id), ...latest.current.resolved.map((r) => r.link.id), ...latest.current.itemsShown.map((i) => i.id)];
     if (ids.length === 0) return;
     const picked = ids.map((id, i) => (latest.current.selection.includes(id) ? i : -1)).filter((i) => i >= 0);
     const from = direction === 1 ? Math.max(...picked) : Math.min(...picked);
@@ -711,7 +813,14 @@ export function Canvas({
     }
     if (isCommand(event, mac) && event.key.toLowerCase() === 'a' && !event.shiftKey) {
       event.preventDefault();
-      onSelectionChange([...latest.current.resolved.map((r) => r.link.id), ...latest.current.items.map((i) => i.id)]);
+      onSelectionChange([...latest.current.sectionsShown.map((i) => i.id), ...latest.current.resolved.map((r) => r.link.id), ...latest.current.itemsShown.map((i) => i.id)]);
+      return;
+    }
+    // The layout keys (5.3) need a selection to act on: with none, they are the page's again.
+    const arrange = arrangeForKey(event, mac);
+    if (arrange && picked.length > 0) {
+      event.preventDefault();
+      if (!event.repeat) onCommand(arrange);
       return;
     }
     const command = commandForKey(event, mac, pointer.current ? worldOf(pointer.current) : null);
@@ -831,9 +940,14 @@ export function Canvas({
   const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : tool === 'connector' ? 'crosshair' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
   // The item being typed into, or a connector's label (its patch, as wide as the words need and no less than 120).
   const editingLine = editing ? resolved.find((r) => r.link.id === editing) : undefined;
+  const editingBox = editing ? shown.find((i) => i.id === editing) : undefined;
+  // A section's name is typed on its tab, above its corner, not over the whole section.
+  const editingTab = editingBox ? tabRect(editingBox) : null;
   const editingItem: CanvasItem | undefined = editing
-    ? (shown.find((i) => i.id === editing) ??
-      (editingLine?.patch ? { id: editingLine.link.id, label: editingLine.link.label, ...editingLine.patch, rotation: 0, editable: true } : undefined))
+    ? (editingBox && editingTab
+        ? { ...editingBox, ...editingTab, width: Math.max(editingTab.width, EDITING_NAME_WIDTH), rotation: 0 }
+        : editingBox) ??
+      (editingLine?.patch ? { id: editingLine.link.id, label: editingLine.link.label, ...editingLine.patch, rotation: 0, editable: true } : undefined)
     : undefined;
   const percent = Math.round(view.zoom * 100);
   // One item that can be copied with a connector selected, at rest: its four "+" handles show.
@@ -853,10 +967,43 @@ export function Canvas({
         : tn('canvas.itemsSelected', selection.length);
   const data = useMemo(() => JSON.stringify(items.map(({ id, x, y, width, height, rotation }) => ({ id, x, y, width, height, rotation }))), [items]);
   const chosen = useMemo(() => JSON.stringify(selection), [selection]);
+  // The snap guides showing right now, as plain data for the end-to-end tests.
+  const guideData = useMemo(() => JSON.stringify(guides.map((g) => ({ axis: g.axis, at: tidy(g.at), from: tidy(g.from), to: tidy(g.to) }))), [guides]);
   // The connectors' paths, as plain data for the end-to-end tests (the canvas is pixels).
   const lineData = useMemo(
     () => JSON.stringify(resolved.map((r) => ({ id: r.link.id, kind: r.path.kind, points: r.path.points.map((p) => ({ x: tidy(p.x), y: tidy(p.y) })) }))),
     [resolved],
+  );
+
+  /** One item's group (its handles' node), and a section's name tab beside it, drawn in the world. */
+  const renderItem = (item: CanvasItem) => (
+    <Group key={item.id}>
+      <Group
+        ref={(node) => {
+          if (node) nodes.current.set(item.id, node);
+          else nodes.current.delete(item.id);
+        }}
+        x={item.x + item.width / 2}
+        y={item.y + item.height / 2}
+        offsetX={item.width / 2}
+        offsetY={item.height / 2}
+        width={item.width}
+        height={item.height}
+        rotation={item.rotation}
+        listening={false}
+      >
+        {item.draw ? (
+          item.draw({ width: item.width, height: item.height, colours, zoom: view.zoom, inView: rectsMeet(boundsOf(item), world) })
+        ) : (
+          <Rect width={item.width} height={item.height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />
+        )}
+      </Group>
+      {item.section?.drawTab && (
+        <Group x={item.x} y={item.y} listening={false}>
+          {item.section.drawTab({ colours, zoom: view.zoom })}
+        </Group>
+      )}
+    </Group>
   );
 
   return (
@@ -876,6 +1023,7 @@ export function Canvas({
       data-items={data}
       data-selection={chosen}
       data-links={lineData}
+      data-guides={guideData}
       data-tool={tool}
       style={{ cursor, ...(fixedColours ? { background: fixedColours.paper, outlineColor: fixedColours.ink } : {}) }}
       className="relative h-full min-h-60 w-full touch-none overflow-hidden bg-surface select-none focus-visible:-outline-offset-4"
@@ -890,13 +1038,18 @@ export function Canvas({
       onDoubleClick={(event) => {
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
         const at = worldOf(local(event));
-        const top = topmostAt(latest.current.shown, at);
+        const { itemsShown: plain, sectionsShown: sections, viewport: now } = latest.current;
+        const top = topmostAt(plain, at);
         if (top?.editable) onEdit?.(top.id);
         else if (top?.openable) onOpen?.(top.id);
         else if (!top) {
-          // A connector's label is typed in place.
-          const line = [...latest.current.resolved].reverse().find((r) => linkHit(r, at, latest.current.viewport.zoom));
+          // A connector's label is typed in place; a section's name is typed where it is picked (its tab or its edge).
+          const line = [...latest.current.resolved].reverse().find((r) => linkHit(r, at, now.zoom));
           if (line) onEdit?.(line.link.id);
+          else {
+            const section = topmostSectionAt(sections, at, now.zoom);
+            if (section) onEdit?.(section.id);
+          }
         }
       }}
       onCopy={(event) => {
@@ -947,7 +1100,8 @@ export function Canvas({
         // at the top left.
         if (event.button !== 2 && !event.ctrlKey) return;
         const screen = local(event);
-        const top = topmostAt(latest.current.shown, worldOf(screen));
+        const there = worldOf(screen);
+        const top = topmostAt(latest.current.itemsShown, there) ?? topmostSectionAt(latest.current.sectionsShown, there, latest.current.viewport.zoom);
         if (top && !latest.current.selection.includes(top.id)) onSelectionChange([top.id]);
         openMenu(screen);
       }}
@@ -956,10 +1110,11 @@ export function Canvas({
         {t('canvas.keys')}
       </p>
       <p role="status" className="sr-only">
-        {live}
+        {announcement !== '' ? announcement : live}
       </p>
       <Stage ref={stage} width={size.width} height={size.height} listening>
         <Layer x={size.width / 2 - view.cx * view.zoom} y={size.height / 2 - view.cy * view.zoom} scaleX={view.zoom} scaleY={view.zoom}>
+          {drawn.filter((item) => item.section).map(renderItem)}
           {resolved.map((r) => (
             <LinkShape
               key={r.link.id}
@@ -971,29 +1126,7 @@ export function Canvas({
               zoom={view.zoom}
             />
           ))}
-          {drawn.map((item) => (
-            <Group
-              key={item.id}
-              ref={(node) => {
-                if (node) nodes.current.set(item.id, node);
-                else nodes.current.delete(item.id);
-              }}
-              x={item.x + item.width / 2}
-              y={item.y + item.height / 2}
-              offsetX={item.width / 2}
-              offsetY={item.height / 2}
-              width={item.width}
-              height={item.height}
-              rotation={item.rotation}
-              listening={false}
-            >
-              {item.draw ? (
-                item.draw({ width: item.width, height: item.height, colours, zoom: view.zoom, inView: rectsMeet(boundsOf(item), world) })
-              ) : (
-                <Rect width={item.width} height={item.height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />
-              )}
-            </Group>
-          ))}
+          {drawn.filter((item) => !item.section).map(renderItem)}
           {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
           {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
           {preview && (
@@ -1009,6 +1142,17 @@ export function Canvas({
               listening={false}
             />
           )}
+          {guides.map((guide) => (
+            <Line
+              key={`${guide.axis}${String(guide.at)}`}
+              points={guide.axis === 'x' ? [guide.at, guide.from, guide.at, guide.to] : [guide.from, guide.at, guide.to, guide.at]}
+              stroke={colours.ink}
+              strokeWidth={1}
+              strokeScaleEnabled={false}
+              dash={[4, 3]}
+              listening={false}
+            />
+          ))}
           <Transformer
             ref={transformer}
             flipEnabled={false}
@@ -1024,6 +1168,8 @@ export function Canvas({
             borderStroke={colours.ink}
             borderStrokeWidth={1.5}
             rotateAnchorOffset={24}
+            // A section is always upright.
+            rotateEnabled={!handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
             boundBoxFunc={(was, next) => (next.width < MIN_SIZE * view.zoom || next.height < MIN_SIZE * view.zoom ? was : next)}
@@ -1113,9 +1259,13 @@ export function Canvas({
         <CanvasMenu
           at={menu.at}
           hasSelection={selection.length > 0}
+          items={selection.filter((id) => items.some((item) => item.id === id)).length}
+          hasSection={selection.some((id) => shown.some((item) => item.id === id && item.section))}
+          canvasHeight={size.height}
           canPaste={canPaste}
           mac={isMac()}
           onCommand={runCommand}
+          onSelectContents={selectContents}
           onClose={closeMenu}
         />
       )}

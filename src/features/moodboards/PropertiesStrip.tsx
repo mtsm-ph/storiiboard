@@ -4,7 +4,8 @@ import { cx } from '../../ui/cx';
 import { Select } from '../../ui/fields';
 import { ColourControl } from './ColourControl';
 import { availability, familiesOf, useFonts, type FontFamilyEntry } from './fonts';
-import { ALIGNS, BOARD_INK, BOARD_RAISED, isShapeKind, isTextKind, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
+import type { AlignMode, CanvasCommand, TidyMode } from '../../ui/canvas/types';
+import { ALIGNS, BOARD_INK, BOARD_RAISED, isShapeKind, isTextKind, SECTION_COLOURS, sectionColourName, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
 
 // What the selected items share, under the tools (5.1a): fill and stroke for shapes, colour for text, the sticky colours,
 // and font family, style, size and alignment for text boxes and sticky notes. A change applies to every selected item it
@@ -59,14 +60,74 @@ interface PropertiesStripProps {
   onChange: (patch: StylePatch) => void;
   /** What a picture, video card or link adds (CardProperties). */
   children?: ReactNode;
+  /** Align, distribute and tidy the selected items (5.3); the Arrange group shows with two or more. */
+  onArrange?: (command: CanvasCommand) => void;
 }
 
-export function PropertiesStrip({ fields, selectionKey, onChange, children }: PropertiesStripProps) {
+const ALIGN_BUTTONS: readonly { mode: AlignMode; label: () => string; name: () => string }[] = [
+  { mode: 'left', label: () => t('canvas.align.short.left'), name: () => t('canvas.align.left') },
+  { mode: 'center', label: () => t('canvas.align.short.center'), name: () => t('canvas.align.center') },
+  { mode: 'right', label: () => t('canvas.align.short.right'), name: () => t('canvas.align.right') },
+  { mode: 'top', label: () => t('canvas.align.short.top'), name: () => t('canvas.align.top') },
+  { mode: 'middle', label: () => t('canvas.align.short.middle'), name: () => t('canvas.align.middle') },
+  { mode: 'bottom', label: () => t('canvas.align.short.bottom'), name: () => t('canvas.align.bottom') },
+];
+
+const TIDY_BUTTONS: readonly { mode: TidyMode; label: () => string; name: () => string }[] = [
+  { mode: 'row', label: () => t('canvas.tidy.short.row'), name: () => t('canvas.tidy.row') },
+  { mode: 'column', label: () => t('canvas.tidy.short.column'), name: () => t('canvas.tidy.column') },
+  { mode: 'grid', label: () => t('canvas.tidy.short.grid'), name: () => t('canvas.tidy.grid') },
+];
+
+const ARRANGE_BUTTON = 'sb-label flex h-8 items-center border border-text px-2.5 text-text hover:bg-surface-raised focus-visible:-outline-offset-4 disabled:text-text-muted disabled:hover:bg-transparent';
+
+/** A labelled run of joined buttons in the Arrange group. */
+function Run({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-[5px]">
+      <span className="sb-label">{label}</span>
+      <div className="flex [&>button+button]:-ml-px">{children}</div>
+    </div>
+  );
+}
+
+/** Layout of two or more selected items (5.3): align to their bounds, distribute with equal gaps, tidy into a row, column or grid. */
+function Arrange({ count, onArrange }: { count: number; onArrange: (command: CanvasCommand) => void }) {
+  return (
+    <div role="group" aria-label={t('canvas.arrange')} className="flex items-end gap-3">
+      <Run label={t('canvas.arrange.align')}>
+        {ALIGN_BUTTONS.map(({ mode, label, name }) => (
+          <button key={mode} type="button" aria-label={name()} onClick={() => { onArrange({ kind: 'align', mode }); }} className={ARRANGE_BUTTON}>
+            {label()}
+          </button>
+        ))}
+      </Run>
+      <Run label={t('canvas.arrange.distribute')}>
+        <button type="button" aria-label={t('canvas.distribute.across')} disabled={count < 3} onClick={() => { onArrange({ kind: 'distribute', axis: 'horizontal' }); }} className={ARRANGE_BUTTON}>
+          {t('canvas.distribute.short.horizontal')}
+        </button>
+        <button type="button" aria-label={t('canvas.distribute.down')} disabled={count < 3} onClick={() => { onArrange({ kind: 'distribute', axis: 'vertical' }); }} className={ARRANGE_BUTTON}>
+          {t('canvas.distribute.short.vertical')}
+        </button>
+      </Run>
+      <Run label={t('canvas.arrange.tidy')}>
+        {TIDY_BUTTONS.map(({ mode, label, name }) => (
+          <button key={mode} type="button" aria-label={name()} onClick={() => { onArrange({ kind: 'tidy', mode }); }} className={ARRANGE_BUTTON}>
+            {label()}
+          </button>
+        ))}
+      </Run>
+    </div>
+  );
+}
+
+export function PropertiesStrip({ fields, selectionKey, onChange, children, onArrange }: PropertiesStripProps) {
   const system = useFonts((s) => s.system);
   const status = useFonts((s) => s.status);
   const shapes = fields.filter((f) => isShapeKind(f.kind));
   const texts = fields.filter((f) => f.kind === 'text');
   const stickies = fields.filter((f) => f.kind === 'sticky');
+  const sections = fields.filter((f) => f.kind === 'section');
   const lettered = fields.filter((f) => isTextKind(f.kind));
   const first = lettered[0];
   const families = useMemo(() => familiesOf(system), [system]);
@@ -101,6 +162,18 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children }: Pr
           nameOf={stickyColourName}
           custom={false}
           onChange={(stickyColor) => { onChange({ stickyColor }); }}
+        />
+      )}
+      {sections[0] && (
+        <ColourControl
+          label={t('moodboard.sectionColour')}
+          value={sections[0].color ?? SECTION_COLOURS[0]}
+          unset={SECTION_COLOURS[0]}
+          mixed={!same(sections, (f) => f.color)}
+          swatches={SECTION_COLOURS}
+          nameOf={sectionColourName}
+          custom={false}
+          onChange={(sectionColor) => { onChange({ sectionColor }); }}
         />
       )}
       {first && (
@@ -193,6 +266,7 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children }: Pr
           </div>
         </>
       )}
+      {onArrange && fields.length >= 2 && <Arrange count={fields.length} onArrange={onArrange} />}
     </div>
   );
 }

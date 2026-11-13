@@ -739,7 +739,7 @@ were always in the list, so there is no migration and no schema number (additive
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
 `board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
-- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2). An item whose `kind` this version doesn't know is
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2) or `section` (5.3). An item whose `kind` this version doesn't know is
   kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
@@ -816,6 +816,27 @@ were always in the list, so there is no migration and no schema number (additive
   - Quick-create (the "+" handles beside one selected sticky note, shape or text box, or ⌘⌥ + an arrow, Ctrl+Shift on Windows):
     one op group makes a copy of the item's kind and style (text empty) 80 units beyond the chosen side, aligned to it and
     turned as it is, and a connector from the original's side to the copy's facing side.
+- A `section` item (5.3) is a frame that groups what lies inside it: `x`, `y`, `width`, `height` like any item and no
+  rotation (always upright; a stored `rotation` reads as 0), `name` (text, may be empty or missing: it then shows "Section"),
+  and `color`, one of six light tints `#E4E8D2`, `#DCE6EE`, `#EEDDD2`, `#E6DDEE`, `#F2E7C9`, `#D6EADF` (missing, or any
+  colour outside the six, reads as the first; each passes AA, 4.5 to 1, with ink `#16150F`; fixed, never themed).
+  - **What a section holds is worked out, never stored.** It holds the items, and the other sections, whose upright
+    rectangle (rotation included) lies wholly inside its box, found again each time it is needed (when a gesture starts, a
+    nudge or a layout command is written, a count is announced). Items keep the board as their parent; no record changes
+    when something is put in a section or taken out of one, and nothing in the file lists a section's contents.
+  - Moving a section (a drag, an arrow-key nudge, Align or Tidy up) moves what it holds in the same op group, by the same
+    distance, and the free ends (`{ x, y }`) of connectors that lie inside its box. An attached end follows its item as in
+    5.2. Resizing a section moves nothing else. Items already moving with the selection are not moved twice.
+  - Draw order: sections first, then connectors, then every other item. Among sections, one wholly inside another is always
+    drawn above it, and otherwise the sibling order decides. A section is under what it holds, and its z-order commands
+    (forward, backward, front, back) move it among the sections only. A section drawn round other sections is also given a
+    sort key before the first of them.
+  - The name is drawn above the section's top left corner, 16 world units in Inter Tight bold, and is part of its hit area.
+  - Delete trashes the section only; its contents stay where they are. Copy, paste and duplicate of a section alone copy
+    only the section; with its contents selected as well they come too. The Trash lists it as "Section 'Act One' on Camera
+    board" ("Section on Camera board" without a name).
+  - Layout commands change `x` and `y` only (Align, Distribute, Tidy up). The group holds a row for every item the command
+    covered, moved or not, which is how History says "Aligned 3 items".
 - A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
   (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
   Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
@@ -1238,3 +1259,5 @@ change and no schema number; an older version keeps an item of a kind it doesn't
 under a picture or video item: additive, no table change, no migration and no schema_version change.
 5.2 adds the `connector` kind to `board_item` (with `from`, `to`, `route`, `start_head`, `end_head`, `color`, `width` and `label`): additive, no
 table change, no migration and no schema_version change; an older version keeps a connector and doesn't show it.
+5.3 adds the `section` kind to `board_item` (with `name` and `color`; its contents are worked out, not stored): additive, no table
+change, no migration and no schema_version change; an older version keeps a section and doesn't show it.

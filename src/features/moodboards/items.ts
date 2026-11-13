@@ -1,9 +1,10 @@
-import { t } from '../../core/i18n';
+import { t, tn } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
-import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode } from '../../ui/canvas/types';
+import { sectionContents } from '../../ui/canvas/sections';
+import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode, SectionLook } from '../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../ui/canvas/zOrder';
 import { cardUrl, linkLabel } from './links';
 import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './itemMedia';
@@ -22,8 +23,8 @@ export type ShapeKind = (typeof SHAPE_KINDS)[number];
 /** 5.1b: a picture (with its `media` child), a video card (with its video `media`) and a link card. */
 export const MEDIA_KINDS = ['picture', 'video', 'link'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
-export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind;
-const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS];
+export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind | 'section';
+const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS, 'section'];
 export const isShapeKind = (kind: ItemKind): kind is ShapeKind => (SHAPE_KINDS as readonly string[]).includes(kind);
 export const isMediaKind = (kind: ItemKind): kind is MediaKind => (MEDIA_KINDS as readonly string[]).includes(kind);
 
@@ -32,6 +33,8 @@ export const ALIGNS: readonly Align[] = ['left', 'center', 'right'];
 
 /** The six sticky colours, each light enough for ink text to pass AA (4.5:1; tested). Fixed: board content isn't themed. */
 export const STICKY_COLOURS = ['#FFE97A', '#FFC9A8', '#FFB8C8', '#BFE8B0', '#B5DDF5', '#D9C8F0'] as const;
+/** The six section tints (5.3), light enough for ink to pass AA (4.5:1; tested) and not to be taken for a sticky. Fixed: board content isn't themed. */
+export const SECTION_COLOURS = ['#E4E8D2', '#DCE6EE', '#EEDDD2', '#E6DDEE', '#F2E7C9', '#D6EADF'] as const;
 /** The ink on a sticky note, whatever the theme (the brand's ink). */
 export const STICKY_INK = '#16150F';
 // Board content is never themed (M5): the board's own paper, ink and raised surface are fixed, the light theme's, in
@@ -70,6 +73,8 @@ export interface ItemFields extends Geometry {
   /** A link card's address (http or https) and the title a person typed for it; '' for none. */
   url: string;
   title: string;
+  /** A section's name (5.3); may be empty, and the section then shows "Section". */
+  name: string;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -107,17 +112,23 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
   const height = num(props.height);
   if (x === null || y === null || width === null || height === null) return null;
   const sticky = kind === 'sticky';
+  const section = kind === 'section';
   return {
     kind,
     x,
     y,
     width: atLeastMinimum(width),
     height: atLeastMinimum(height),
-    rotation: num(props.rotation) ?? 0,
+    // A section is always upright.
+    rotation: section ? 0 : (num(props.rotation) ?? 0),
     fill: hexColour(props.fill),
     stroke: hexColour(props.stroke),
     // A sticky colour outside the six reads as the first.
-    color: sticky ? (STICKY_COLOURS.find((c) => c === hexColour(props.color)) ?? STICKY_COLOURS[0]) : hexColour(props.color),
+    color: sticky
+      ? (STICKY_COLOURS.find((c) => c === hexColour(props.color)) ?? STICKY_COLOURS[0])
+      : section
+        ? (SECTION_COLOURS.find((c) => c === hexColour(props.color)) ?? SECTION_COLOURS[0])
+        : hexColour(props.color),
     text: typeof props.text === 'string' ? props.text : '',
     fontFamily: typeof props.font_family === 'string' && props.font_family.trim() !== '' ? props.font_family : DEFAULT_FONT_FAMILY,
     fontWeight: cleanWeight(props.font_weight),
@@ -126,6 +137,7 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     align: ALIGNS.find((a) => a === props.align) ?? 'left',
     url: kind === 'link' && typeof props.url === 'string' ? props.url : '',
     title: kind === 'link' && typeof props.title === 'string' ? props.title : '',
+    name: section && typeof props.name === 'string' ? props.name : '',
   };
 }
 
@@ -140,6 +152,13 @@ export function itemsOf(records: Records, boardId: string, withTrashed = false):
 export function stickyColourName(hex: string): string {
   const names = [t('moodboard.sticky.yellow'), t('moodboard.sticky.peach'), t('moodboard.sticky.pink'), t('moodboard.sticky.green'), t('moodboard.sticky.blue'), t('moodboard.sticky.lilac')];
   const at = STICKY_COLOURS.findIndex((c) => c === hex);
+  return names[at] ?? hex;
+}
+
+/** A section tint by its name, in the language in use. */
+export function sectionColourName(hex: string): string {
+  const names = [t('moodboard.section.sage'), t('moodboard.section.blue'), t('moodboard.section.clay'), t('moodboard.section.lilac'), t('moodboard.section.sand'), t('moodboard.section.mint')];
+  const at = SECTION_COLOURS.findIndex((c) => c === hex);
   return names[at] ?? hex;
 }
 
@@ -162,6 +181,7 @@ export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = {
   picture: () => t('moodboard.item.picture'),
   video: () => t('moodboard.item.video'),
   link: () => t('moodboard.item.link'),
+  section: () => t('moodboard.item.section'),
 };
 
 export const isTextKind = (kind: ItemKind): kind is 'text' | 'sticky' => kind === 'text' || kind === 'sticky';
@@ -181,29 +201,57 @@ export function announcedAs(records: Records, id: string, fields: ItemFields): s
   return KIND_LABEL[fields.kind]();
 }
 
+/** A section's name is set in this size, in Inter Tight, above its top left corner (5.3). */
+export const SECTION_NAME_SIZE = 16;
+export const SECTION_TAB_HEIGHT = 24;
+
+/** Measures a section's name in Inter Tight bold at its size; set by textFit.ts, which has Konva to measure with. */
+let nameWidth: ((text: string) => number) | null = null;
+export const setNameMeasurer = (measure: ((text: string) => number) | null): void => {
+  nameWidth = measure;
+};
+
+/** What a section is called where it shows: its name, or "Section" when it has none. */
+export const sectionTitle = (name: string): string => (name.trim() === '' ? t('moodboard.item.section') : name);
+
+/** The name tab above a section's corner, relative to it: as wide as its name needs (an estimate, no wider than the section). */
+export function sectionTab(fields: Pick<ItemFields, 'name' | 'width'>): SectionLook['tab'] {
+  const title = sectionTitle(fields.name);
+  // Measured in the face it is drawn in where the page can (textFit.ts); an estimate where it can't.
+  const wanted = Math.ceil((nameWidth?.(title) ?? title.length * SECTION_NAME_SIZE * 0.6) + 16);
+  return { x: 0, y: -SECTION_TAB_HEIGHT, width: Math.min(fields.width, Math.max(72, wanted)), height: SECTION_TAB_HEIGHT };
+}
+
 /** What the canvas draws, back to front (without drawing: src/features/moodboards/drawing.tsx adds that). */
 export function canvasItems(records: Records, boardId: string): CanvasItem[] {
-  return itemsOf(records, boardId).flatMap((record) => {
+  const live = itemsOf(records, boardId).flatMap((record) => {
     const fields = itemFields(record.props);
-    return fields
-      ? [
-          {
-            id: record.id,
-            x: fields.x,
-            y: fields.y,
-            width: fields.width,
-            height: fields.height,
-            rotation: fields.rotation,
-            label: announcedAs(records, record.id, fields),
-            editable: isTextKind(fields.kind),
-            openable: fields.kind === 'video' || fields.kind === 'link',
-            // A picture or video keeps its shape when resized.
-            keepRatio: fields.kind === 'picture' || fields.kind === 'video',
-            // A sticky, shape or text box can be copied with a connector (5.2).
-            quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
-          },
-        ]
-      : [];
+    return fields ? [{ id: record.id, ...fields }] : [];
+  });
+  return live.map((fields): CanvasItem => {
+    const { id } = fields;
+    return {
+      id,
+      x: fields.x,
+      y: fields.y,
+      width: fields.width,
+      height: fields.height,
+      rotation: fields.rotation,
+      // A section is announced with its name and how many items it holds (5.3).
+      label:
+        fields.kind === 'section'
+          ? fields.name.trim() === ''
+            ? tn('moodboard.announce.sectionUnnamed', sectionContents(fields, live).length)
+            : tn('moodboard.announce.section', sectionContents(fields, live).length, { name: fields.name.trim() })
+          : announcedAs(records, id, fields),
+      editable: isTextKind(fields.kind) || fields.kind === 'section',
+      openable: fields.kind === 'video' || fields.kind === 'link',
+      // A picture or video keeps its shape when resized.
+      keepRatio: fields.kind === 'picture' || fields.kind === 'video',
+      // A sticky, shape or text box can be copied with a connector (5.2).
+      quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
+      ...(fields.kind === 'section' ? { section: { tab: sectionTab(fields) } } : {}),
+    };
   });
 }
 
@@ -262,6 +310,12 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
     return props;
   }
   if (seed.kind === 'picture' || seed.kind === 'video') return props;
+  if (seed.kind === 'section') {
+    props.rotation = 0;
+    props.name = seed.name ?? '';
+    props.color = seed.color ?? SECTION_COLOURS[0];
+    return props;
+  }
   if (seed.kind === 'link') {
     props.url = seed.url ?? '';
     if (seed.title) props.title = seed.title;
@@ -329,6 +383,8 @@ export function geometryChanges(records: Records, changes: readonly GeometryChan
         next = { ...c, ...keepTop(c, height), height };
       }
     }
+    // A section is always upright.
+    if (now?.kind === 'section') next = { ...next, rotation: 0 };
     const set = geometryProps(next);
     if (now && Object.entries(set).every(([key, value]) => now[key as keyof typeof now] === value)) return [];
     return [{ kind: 'update', id: c.id, set }];
@@ -347,11 +403,30 @@ export function nudgeChanges(records: Records, ids: readonly string[], dx: numbe
   });
 }
 
-/** A reorder of the selected items: `move`s for them alone, to keys that give the new order. */
+/**
+ * A reorder of the selected items: `move`s for them alone, to keys that give the new order. Sections are drawn under
+ * everything else (5.3), so they are reordered among sections only, and the other items among themselves: a section sent
+ * to the front is the front of the sections.
+ */
 export function reorderChanges(records: Records, boardId: string, selected: readonly string[], mode: ReorderMode): Change[] {
   const live = itemsOf(records, boardId);
-  const liveIds = live.map((r) => r.id);
-  const chosen = new Set(selected.filter((id) => liveIds.includes(id)));
+  const sections = live.filter((r) => itemFields(r.props)?.kind === 'section').map((r) => r.id);
+  const others = live.filter((r) => itemFields(r.props)?.kind !== 'section').map((r) => r.id);
+  let now = records;
+  const out: Change[] = [];
+  for (const ids of [sections, others]) {
+    const chosen = new Set(selected.filter((id) => ids.includes(id)));
+    if (chosen.size === 0) continue;
+    const moves = reorderAmong(now, boardId, ids, chosen, mode);
+    out.push(...moves);
+    // The second group is worked out against the keys the first one gave.
+    now = { ...now, ...Object.fromEntries(moves.flatMap((m) => (m.kind === 'move' && now[m.id] ? [[m.id, { ...(now[m.id] as SbdRecord), sortKey: m.sortKey }]] : []))) };
+  }
+  return out;
+}
+
+/** One group of items (back to front) reordered: the chosen ones among them go forward, backward, to the front or to the back. */
+function reorderAmong(records: Records, boardId: string, liveIds: readonly string[], chosen: ReadonlySet<string>, mode: ReorderMode): Change[] {
   const nextLive = reordered(liveIds, chosen, mode);
   // Already where it was asked to go among the items that show: nothing to write, whatever the Trash holds.
   if (nextLive.every((id, i) => id === liveIds[i])) return [];
@@ -429,6 +504,8 @@ export interface StylePatch {
   textColor?: string;
   /** Sticky notes. */
   stickyColor?: string;
+  /** Sections (5.3): one of the six tints. */
+  sectionColor?: string;
   /** Text boxes and sticky notes. */
   fontFamily?: string;
   fontWeight?: number;
@@ -452,6 +529,9 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
     if (isShapeKind(now.kind)) {
       wanted.fill = patch.fill;
       wanted.stroke = patch.stroke;
+    } else if (now.kind === 'section') {
+      // Only the six tints are sections' colours.
+      wanted.color = SECTION_COLOURS.find((c) => c === patch.sectionColor);
     } else {
       wanted.color = now.kind === 'text' ? patch.textColor : patch.stickyColor;
       wanted.font_family = patch.fontFamily;
@@ -494,6 +574,11 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
 export function textEditChanges(records: Records, id: string, text: string, measure: MeasureText = estimateTextHeight): Change[] {
   const record = records[id];
   const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
+  // A section's name is one line: line breaks typed into it become spaces.
+  if (now?.kind === 'section') {
+    const name = text.replace(/\s*\n\s*/g, ' ');
+    return name === now.name ? [] : [{ kind: 'update', id, set: { name } }];
+  }
   if (!now || !isTextKind(now.kind)) return [];
   const set: Record<string, string | number> = {};
   if (text !== now.text) set.text = text;

@@ -3,11 +3,11 @@ import { t } from '../../core/i18n';
 import { cx } from '../cx';
 import type { Tool } from './types';
 
-// The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L), Connector (C)
+// The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L), Connector (C), Section (Shift+S)
 // and Shapes (O draws an ellipse; the button opens the four shapes), as labelled buttons in mono uppercase. The pressed one is an ink fill, as selection is everywhere (DESIGN.md). Anything the host adds
 // (a way back to the picker, a board's name) goes in `children`, at the left.
 
-const TOOLS: readonly { tool: Tool; key: string; label: () => string }[] = [
+const TOOLS: readonly { tool: Tool; key: string; aria?: string; label: () => string }[] = [
   { tool: 'select', key: 'V', label: () => t('canvas.tool.select') },
   { tool: 'hand', key: 'H', label: () => t('canvas.tool.hand') },
   { tool: 'rect', key: 'R', label: () => t('canvas.tool.rect') },
@@ -15,6 +15,7 @@ const TOOLS: readonly { tool: Tool; key: string; label: () => string }[] = [
   { tool: 'sticky', key: 'S', label: () => t('canvas.tool.sticky') },
   { tool: 'link', key: 'L', label: () => t('canvas.tool.link') },
   { tool: 'connector', key: 'C', label: () => t('canvas.tool.connector') },
+  { tool: 'section', key: '⇧S', aria: 'Shift+S', label: () => t('canvas.tool.section') },
 ];
 
 const SHAPES: readonly { tool: Tool; label: () => string }[] = [
@@ -108,14 +109,14 @@ export function ToolStrip({ tool, onTool, children }: ToolStripProps) {
     <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">
       {children}
       <div role="group" aria-label={t('canvas.tools')} className="ml-auto flex">
-        {TOOLS.map(({ tool: id, key, label }, i) => {
+        {TOOLS.map(({ tool: id, key, aria, label }, i) => {
           const on = id === tool;
           return (
             <button
               key={id}
               type="button"
               aria-pressed={on}
-              aria-keyshortcuts={key}
+              aria-keyshortcuts={aria ?? key}
               onClick={() => {
                 onTool(id);
               }}

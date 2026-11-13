@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandForKey, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
+import { arrangeForKey, commandForKey, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 
 const key = (k: string, rest: Partial<KeyLike> = {}): KeyLike => ({ key: k, code: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...rest });
 
@@ -53,5 +53,43 @@ describe('the canvas keys', () => {
     expect(zoomShortcut(key('@', { code: 'Digit2', shiftKey: true }))).toBe('selection');
     expect(zoomShortcut(key('1', { code: 'Digit1' }))).toBeNull();
     expect([zoomStepFor(key('+')), zoomStepFor(key('=')), zoomStepFor(key('-')), zoomStepFor(key('a'))]).toEqual([1, 1, -1, 0]);
+  });
+
+  it('reads Shift+S as the Section tool, leaving S the sticky (5.3)', () => {
+    expect(toolForKey(key('S', { shiftKey: true }))).toBe('section');
+    expect(toolForKey(key('s'))).toBe('sticky');
+    expect(toolForKey(key('S', { shiftKey: true, metaKey: true }))).toBeNull();
+  });
+
+  it('reads the layout keys by the key’s place, as Option changes what a Mac types (5.3)', () => {
+    const alt = (code: string, rest: Partial<KeyLike> = {}) => arrangeForKey(key('¯', { code, altKey: true, ...rest }), true);
+    // On Windows and Linux the letter typed counts, so a layout that moves the keys still matches the menu’s letters.
+    expect(arrangeForKey(key('a', { code: 'KeyQ', altKey: true }), false)).toEqual({ kind: 'align', mode: 'left' });
+    expect(arrangeForKey(key('H', { code: 'KeyJ', altKey: true, shiftKey: true }), false)).toEqual({ kind: 'distribute', axis: 'horizontal' });
+    expect(arrangeForKey(key('q', { code: 'KeyA', altKey: true }), false)).toBeNull();
+    expect(['KeyA', 'KeyH', 'KeyD', 'KeyW', 'KeyV', 'KeyS'].map((code) => alt(code))).toEqual([
+      { kind: 'align', mode: 'left' },
+      { kind: 'align', mode: 'center' },
+      { kind: 'align', mode: 'right' },
+      { kind: 'align', mode: 'top' },
+      { kind: 'align', mode: 'middle' },
+      { kind: 'align', mode: 'bottom' },
+    ]);
+    expect(alt('KeyH', { shiftKey: true })).toEqual({ kind: 'distribute', axis: 'horizontal' });
+    expect(alt('KeyV', { shiftKey: true })).toEqual({ kind: 'distribute', axis: 'vertical' });
+    expect(alt('KeyT', { shiftKey: true })).toEqual({ kind: 'tidy', mode: 'grid' });
+    // Shift on the others, a missing Alt, or ⌘ or Ctrl with it, is something else.
+    expect(alt('KeyA', { shiftKey: true })).toBeNull();
+    expect(alt('KeyT')).toBeNull();
+    expect(alt('KeyA', { metaKey: true })).toBeNull();
+    expect(arrangeForKey(key('a', { code: 'KeyA' }), false)).toBeNull();
+  });
+
+  it('reads ⌘⌥G (Ctrl+Alt+G on Windows) as a section round the selection (5.3)', () => {
+    expect(arrangeForKey(key('©', { code: 'KeyG', metaKey: true, altKey: true }), true)).toEqual({ kind: 'sectionAround' });
+    expect(arrangeForKey(key('g', { code: 'KeyG', ctrlKey: true, altKey: true }), false)).toEqual({ kind: 'sectionAround' });
+    expect(arrangeForKey(key('g', { code: 'KeyG', ctrlKey: true, altKey: true }), true)).toBeNull();
+    expect(arrangeForKey(key('g', { code: 'KeyG', metaKey: true }), true)).toBeNull();
+    expect(arrangeForKey(key('g', { code: 'KeyG', ctrlKey: true, altKey: true, shiftKey: true }), false)).toBeNull();
   });
 });
