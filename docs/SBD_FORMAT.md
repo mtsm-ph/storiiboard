@@ -729,7 +729,10 @@ A `board` record (under the project) is one moodboard; its `board_item` records 
 were always in the list, so there is no migration and no schema number (additive, approved with Phase 5 decision 1).
 
 `board` props:
-- `kind`: `moodboard` (5.5 adds `deck`). Anything else reads as a moodboard.
+- `kind`: `moodboard`, or `deck` (5.5): a board of ordered page frames, presented page by page. Anything else reads as a moodboard.
+  A deck also has `page_format` (`16:9`, `9:16`, `4:5`, `a4` or `letter`; the format "Add page" begins with; a missing or odd value
+  reads as `16:9`) and, for `a4` and `letter`, `page_orientation` (`portrait` or `landscape`; missing reads as portrait). A deck has no
+  `department` and a name; it lists in the Moodboard section with the boards, marked as a deck.
 - `scene_ids`, `character_ids`, `location_ids` (5.4): lists of record ids, the scenes, characters and locations the board is about
   ("Linked to: SC 04, MAYA, Rooftop" in the board's strip). Missing or empty is none; an emptied list is taken off the record.
   Additive: no migration, no schema_version change. A linked record in the Trash is not shown, but its id stays in the list,
@@ -744,7 +747,7 @@ were always in the list, so there is no migration and no schema number (additive
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
 `board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
-- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2), `section` (5.3) or `shot_card`, `scene_card`, `palette_card` or `brand_card` (5.4). An item whose `kind` this version doesn't know is
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b), `connector` (5.2), `section` (5.3), `shot_card`, `scene_card`, `palette_card` or `brand_card` (5.4), or `page` or `field_card` (5.5). An item whose `kind` this version doesn't know is
   kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
@@ -858,6 +861,29 @@ were always in the list, so there is no migration and no schema number (additive
   card; into another project a card naming a frame or scene is left out (with the notice of 5.1b), since its record is not there.
   Double-click or Enter on a shot or scene card selects the frame or scene in the Storyboard (one in the Trash opens the Trash
   tile filtered to it instead). The Trash lists a card as "Shot card 4A on Camera board" and History as "Added shot card 4A".
+- A **page** (5.5) is a frame of a deck, like a section but with a format: `x`, `y`, `width`, `height` like any item, always upright
+  (`rotation` is 0), and
+  - `format`: `16:9` (1920 × 1080), `9:16` (1080 × 1920), `4:5` (1080 × 1350), `a4` (1240 × 1754) or `letter` (1275 × 1650), in world
+    units, portrait; an odd or missing value reads as `16:9`. `orientation` (`portrait` or `landscape`, for `a4` and `letter` only; the size
+    is swapped for landscape). The size is written when the page is made; resizing keeps the format's ratio and rewrites `width` and `height`.
+  - `name`: may be empty. `background`: `#RRGGBB`, default `#FFFFFF`; board content, never themed.
+  - **Page order is the pages' sibling order** (`sort_key` among the pages only); a page's number is its place in it. Z order commands
+    leave pages alone.
+  - **What a page holds is worked out, never stored**, as for a section: the live items wholly inside its box. Moving a page moves them
+    in the same op group (and the free ends of connectors inside it). An item inside no page is working space: it is never printed
+    or presented.
+  - Pages are drawn with the sections, under the connectors and the items; a section wholly inside a page is drawn above it. The page's
+    number and name are drawn above its top left corner. Pages exist only on a deck.
+  - Add page puts a page of the deck's format 200 units right of the last page (level with it); Duplicate page copies the page and
+    what it holds (connectors among them) in one op group; Delete page trashes the page alone and what it held stays as working
+    space; reordering is one `move`. The Trash lists a page as "Page 3 'The look' on Pitch deck" and History as "page 'The look'".
+- A **field card** (5.5) shows one field of the project as it is now, like the live cards of 5.4: `field` (`title`, `logline`, `format`,
+  `runtime`, `company`, `dates`, `cast` or `crew`) and the text style of a text box (`font_family`, `font_weight`, `font_italic`,
+  `font_size`, `color`, `align`), no `text`. `title` is the project's `title`; `logline`, `format` and `runtime` are the project's
+  production details; `company` the attached company's name; `dates` the first and last shoot day (or "Dates to come"); `cast`
+  each character and who plays them; `crew` the people outside Cast by department in call-sheet order, name and role. Never a phone,
+  an email, an address or a note: decks go to clients. A field with nothing to show draws its name muted on screen and nothing in a
+  presentation. Edits to the project change the card with no op on the card.
 - A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
   (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
   Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
@@ -1285,3 +1311,6 @@ change, no migration and no schema_version change; an older version keeps a sect
 5.4 adds the live card kinds `shot_card`, `scene_card`, `palette_card` and `brand_card` to `board_item` (with `shot_id` or `scene_id`), the
 board props `scene_ids`, `character_ids` and `location_ids`, and the project's `company` value gains `brand_colors` and `brand_fonts`: additive, no table
 change, no migration and no schema_version change; an older version keeps a card and doesn't show it, and ignores the rest.
+5.5 adds the board `kind` `deck` (with `page_format` and `page_orientation`) and the `board_item` kinds `page` (with `format`, `orientation`, `name` and `background`;
+its contents are worked out, not stored) and `field_card` (with `field` and a text box's style): additive, no table change, no migration and
+no schema_version change; an older version keeps a deck as a board and a page or field card as an item it doesn't show.

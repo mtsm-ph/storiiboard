@@ -5,6 +5,8 @@ import { t } from '../../../core/i18n';
 export interface BoardEntry {
   id: string;
   title: string;
+  /** A deck (5.5) is marked as one. */
+  deck?: boolean;
 }
 
 interface BoardListProps {
@@ -53,6 +55,7 @@ export function BoardList({ boards, openBoardId, canAdd, onSelect, onAdd, onDele
               <span data-user-text="" className={cx('truncate', current && 'font-bold')}>
                 {board.title}
               </span>
+              {board.deck === true && <span className="sb-label ml-auto font-normal">{t('deck.tag')}</span>}
             </button>
           </li>
         );

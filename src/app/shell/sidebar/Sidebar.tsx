@@ -55,7 +55,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
     return typeof title === 'string' && title !== '' ? title : (s.project?.name ?? null);
   });
   const scenes = project ? sceneEntries(records, project.projectId) : [];
-  const boards = project ? boardsOf(records, project.projectId).map((b) => ({ id: b.id, title: boardTitle(b) })) : [];
+  const boards = project ? boardsOf(records, project.projectId).map((b) => ({ id: b.id, title: boardTitle(b), deck: b.props.kind === 'deck' })) : [];
   const openBoardId = useMoodboard((s) => s.openBoardId);
   // Archived projects leave the switcher; the Projects screen's Archived list still has them.
   const recent = useRecent(recentStore, (s) => s.entries)

@@ -98,18 +98,24 @@ function ShapesButton({ tool, onTool }: { tool: Tool; onTool: (tool: Tool) => vo
   );
 }
 
+/** A deck's board adds the Page tool (5.5). */
+const PAGE_TOOL = { tool: 'page', key: 'P', label: () => t('canvas.tool.page') } as const;
+
 interface ToolStripProps {
   tool: Tool;
   onTool: (tool: Tool) => void;
   children?: ReactNode;
+  /** Whether the Page tool is offered (a deck's board). */
+  pages?: boolean;
 }
 
-export function ToolStrip({ tool, onTool, children }: ToolStripProps) {
+export function ToolStrip({ tool, onTool, children, pages = false }: ToolStripProps) {
+  const tools: readonly { tool: Tool; key: string; aria?: string; label: () => string }[] = pages ? [...TOOLS, PAGE_TOOL] : TOOLS;
   return (
     <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">
       {children}
       <div role="group" aria-label={t('canvas.tools')} className="ml-auto flex">
-        {TOOLS.map(({ tool: id, key, aria, label }, i) => {
+        {tools.map(({ tool: id, key, aria, label }, i) => {
           const on = id === tool;
           return (
             <button

@@ -37,6 +37,9 @@ export function toolForKey(event: KeyLike): Tool | null {
       return 'link';
     case 'c':
       return 'connector';
+    // The Page tool (5.5), which only a deck's board offers; the host ignores it elsewhere.
+    case 'p':
+      return 'page';
     default:
       return null;
   }

@@ -3,7 +3,10 @@ import { useProject } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { Button } from '../../ui/Button';
-import { TextField } from '../../ui/fields';
+import { Select, TextField } from '../../ui/fields';
+import { createDeck } from './deckActions';
+import { DECK_TEMPLATE_LABEL, DECK_TEMPLATES, isDeckTemplate, type DeckTemplate } from './deckTemplates';
+import { isPageFormat, isPaper, PAGE_FORMAT_LABEL, PAGE_FORMATS, type PageFormat, type PageOrientation } from './pageFormats';
 import { boardFields, boardsOf, boardTitle, departmentBoard, departmentsWithoutBoard } from './boards';
 import { createBoard, openDepartment } from './boardActions';
 import { moodboardStore } from './moodboardStore';
@@ -15,6 +18,16 @@ export function BoardPicker({ projectId }: { projectId: string }) {
   const records = useProject((s) => s.records);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
+  // New deck (5.5): a name, a template and, for Blank, a page format.
+  const [deckNaming, setDeckNaming] = useState(false);
+  const [deckName, setDeckName] = useState('');
+  const [template, setTemplate] = useState<DeckTemplate>('treatment');
+  const [format, setFormat] = useState<PageFormat>('16:9');
+  const [orientation, setOrientation] = useState<PageOrientation>('portrait');
+  const deckField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (deckNaming) deckField.current?.focus();
+  }, [deckNaming]);
   const nameField = useRef<HTMLInputElement>(null);
   // The field takes focus as it appears, so a name can be typed at once.
   useEffect(() => {
@@ -49,6 +62,7 @@ export function BoardPicker({ projectId }: { projectId: string }) {
                 >
                   <span data-user-text="" className="truncate">{boardTitle(board)}</span>
                   {boardFields(board.props).department !== null && <span className={tagClass}>{t('moodboard.departmentBoard')}</span>}
+                  {boardFields(board.props).kind === 'deck' && <span className={tagClass}>{t('deck.tag')}</span>}
                 </button>
               </li>
             ))}
@@ -82,7 +96,103 @@ export function BoardPicker({ projectId }: { projectId: string }) {
           </ul>
         </section>
       )}
-      <div className="p-3">
+      <div className="flex flex-col gap-3 p-3">
+        {deckNaming ? (
+          <form
+            data-new-deck-form=""
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (deckName.trim() === '') return;
+              void createDeck(deckName, template, format, isPaper(format) ? orientation : 'portrait').then(() => {
+                setDeckNaming(false);
+                setDeckName('');
+              });
+            }}
+          >
+            <div className="min-w-48 flex-1">
+              <TextField
+                label={t('deck.name')}
+                value={deckName}
+                maxLength={80}
+                ref={deckField}
+                onChange={(event) => {
+                  setDeckName(event.currentTarget.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.stopPropagation();
+                    setDeckNaming(false);
+                  }
+                }}
+              />
+            </div>
+            <Select
+              label={t('deck.template')}
+              value={template}
+              onChange={(event) => {
+                if (isDeckTemplate(event.target.value)) setTemplate(event.target.value);
+              }}
+            >
+              {DECK_TEMPLATES.map((id) => (
+                <option key={id} value={id}>
+                  {DECK_TEMPLATE_LABEL[id]}
+                </option>
+              ))}
+            </Select>
+            {template === 'blank' && (
+              <>
+                <Select
+                  label={t('deck.pageFormat')}
+                  value={format}
+                  onChange={(event) => {
+                    if (isPageFormat(event.target.value)) setFormat(event.target.value);
+                  }}
+                >
+                  {PAGE_FORMATS.map((id) => (
+                    <option key={id} value={id}>
+                      {PAGE_FORMAT_LABEL[id]}
+                    </option>
+                  ))}
+                </Select>
+                {isPaper(format) && (
+                  <Select
+                    label={t('deck.orientation')}
+                    value={orientation}
+                    onChange={(event) => {
+                      setOrientation(event.target.value === 'landscape' ? 'landscape' : 'portrait');
+                    }}
+                  >
+                    <option value="portrait">{t('deck.orientation.portrait')}</option>
+                    <option value="landscape">{t('deck.orientation.landscape')}</option>
+                  </Select>
+                )}
+              </>
+            )}
+            <Button type="submit" variant="primary" disabled={deckName.trim() === ''}>
+              {t('deck.create')}
+            </Button>
+            <Button
+              onClick={() => {
+                setDeckNaming(false);
+                setDeckName('');
+              }}
+            >
+              {t('moodboard.cancel')}
+            </Button>
+          </form>
+        ) : (
+          <div>
+            <Button
+              data-new-deck=""
+              onClick={() => {
+                setDeckNaming(true);
+              }}
+            >
+              {t('deck.new')}
+            </Button>
+          </div>
+        )}
         {naming ? (
           <form
             className="flex items-end gap-2"

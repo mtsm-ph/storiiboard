@@ -3,9 +3,10 @@ import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { Select } from '../../ui/fields';
 import { ColourControl } from './ColourControl';
+import { DEFAULT_PAGE_BACKGROUND } from './pageFormats';
 import { availability, familiesOf, useFonts, type FontFamilyEntry } from './fonts';
 import type { AlignMode, CanvasCommand, TidyMode } from '../../ui/canvas/types';
-import { ALIGNS, BOARD_INK, BOARD_RAISED, isShapeKind, isTextKind, SECTION_COLOURS, sectionColourName, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
+import { ALIGNS, BOARD_INK, BOARD_RAISED, hasTextStyle, isShapeKind, SECTION_COLOURS, sectionColourName, STICKY_COLOURS, stickyColourName, type Align, type ItemFields, type StylePatch } from './items';
 
 // What the selected items share, under the tools (5.1a): fill and stroke for shapes, colour for text, the sticky colours,
 // and font family, style, size and alignment for text boxes and sticky notes. A change applies to every selected item it
@@ -125,10 +126,11 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children, onAr
   const system = useFonts((s) => s.system);
   const status = useFonts((s) => s.status);
   const shapes = fields.filter((f) => isShapeKind(f.kind));
-  const texts = fields.filter((f) => f.kind === 'text');
+  const texts = fields.filter((f) => f.kind === 'text' || f.kind === 'field_card');
+  const pages = fields.filter((f) => f.kind === 'page');
   const stickies = fields.filter((f) => f.kind === 'sticky');
   const sections = fields.filter((f) => f.kind === 'section');
-  const lettered = fields.filter((f) => isTextKind(f.kind));
+  const lettered = fields.filter((f) => hasTextStyle(f.kind));
   const first = lettered[0];
   const families = useMemo(() => familiesOf(system), [system]);
   // The band is always there at one height, empty with nothing selected, so the canvas below never changes size.
@@ -163,6 +165,9 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children, onAr
           custom={false}
           onChange={(stickyColor) => { onChange({ stickyColor }); }}
         />
+      )}
+      {pages[0] && (
+        <ColourControl label={t('deck.pageBackground')} value={pages[0].background} unset={DEFAULT_PAGE_BACKGROUND} mixed={!same(pages, (f) => f.background)} onChange={(pageBackground) => { onChange({ pageBackground }); }} />
       )}
       {sections[0] && (
         <ColourControl

@@ -60,6 +60,8 @@ export const PLACED_SIZE: Readonly<Record<PlaceTool, { width: number; height: nu
   sticky: { width: 200, height: 200 },
   link: { width: 280, height: 88 },
   section: { width: 480, height: 320 },
+  // A page takes its deck's format (5.5); only its corner is the click's.
+  page: { width: 1920, height: 1080 },
 };
 
 /** The default item for a tool, centred on a world point. */

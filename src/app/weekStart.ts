@@ -75,6 +75,11 @@ export function useRegionLocale(): string {
   return region?.locale ?? (typeof navigator === 'undefined' ? 'en-US' : navigator.language);
 }
 
+/** The same region, read outside a component (a deck made from a template picks its paper by it). */
+export function regionLocaleNow(): string {
+  return store.getState().region?.locale ?? (typeof navigator === 'undefined' ? 'en-US' : navigator.language);
+}
+
 export const useWeekStartChoice = (): WeekStartChoice => useStore(store, (s) => s.choice);
 
 export function setWeekStartChoice(choice: WeekStartChoice): void {

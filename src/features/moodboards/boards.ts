@@ -4,6 +4,7 @@ import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import { sceneFields, sceneLabel } from '../../core/model/storyboard';
+import { isPaper, type PageFormat, type PageOrientation } from './pageFormats';
 
 // Boards (5.0, docs/SBD_FORMAT.md, Boards): a `board` record under the project. A department's board has
 // `department` and no name, and reads as its department's label in the language in use; a free board has a name. At
@@ -13,14 +14,15 @@ import { sceneFields, sceneLabel } from '../../core/model/storyboard';
 type Records = Readonly<Record<string, SbdRecord>>;
 
 export interface BoardFields {
-  kind: 'moodboard';
+  /** A deck (5.5) is a board of ordered page frames; anything else reads as a moodboard. */
+  kind: 'moodboard' | 'deck';
   department: Department | null;
   name: string | null;
 }
 
 export function boardFields(props: SbdRecord['props']): BoardFields {
   return {
-    kind: 'moodboard',
+    kind: props.kind === 'deck' ? 'deck' : 'moodboard',
     department: isDepartment(props.department) ? props.department : null,
     name: typeof props.name === 'string' && props.name.trim() !== '' ? props.name : null,
   };
@@ -117,6 +119,27 @@ export function newBoard(records: Records, projectId: string, name: string): Ope
         record: { id, type: 'board', parentId: projectId, sortKey: nextBoardKey(records, projectId), props: { kind: 'moodboard', department: null, name: name.trim() } },
       },
     ],
+  };
+}
+
+/**
+ * A deck (5.5): a board with `kind: 'deck'` and the page format "Add page" begins with. Its pages are board items, made by
+ * the caller in the same op group.
+ */
+export function deckBoardChange(records: Records, projectId: string, name: string, format: PageFormat, orientation: PageOrientation = 'portrait'): { id: string; change: Change } {
+  const id = crypto.randomUUID();
+  return {
+    id,
+    change: {
+      kind: 'create',
+      record: {
+        id,
+        type: 'board',
+        parentId: projectId,
+        sortKey: nextBoardKey(records, projectId),
+        props: { kind: 'deck', department: null, name: name.trim(), page_format: format, ...(isPaper(format) ? { page_orientation: orientation } : {}) },
+      },
+    },
   };
 }
 

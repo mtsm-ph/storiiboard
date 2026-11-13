@@ -9,7 +9,7 @@ import type { AlignMode, Axis, Geometry, GeometryChange, TidyMode } from '../../
 import { unionBounds } from '../../ui/canvas/viewport';
 import { connectorFields, endProps } from './connectorFields';
 import { connectorsOf } from './connectors';
-import { estimateTextHeight, geometryChanges, itemFields, itemsOf, propsFor, SECTION_TAB_HEIGHT, type ItemFields, type MeasureText } from './items';
+import { estimateTextHeight, geometryChanges, isFrameKind, itemFields, itemsOf, propsFor, SECTION_TAB_HEIGHT, type ItemFields, type MeasureText } from './items';
 import { isAttached } from '../../ui/canvas/types';
 
 // Sections on a board (5.3, docs/SBD_FORMAT.md, Boards). What a section holds is worked out each time from where things are,
@@ -34,7 +34,7 @@ function boxesOf(records: Records, boardId: string): Boxed[] {
 /** The ids a section holds right now: the live items and sections wholly inside it, itself left out. */
 export function contentsOf(records: Records, boardId: string, sectionId: string): string[] {
   const all = boxesOf(records, boardId);
-  const section = all.find((item) => item.id === sectionId && item.kind === 'section');
+  const section = all.find((item) => item.id === sectionId && isFrameKind(item.kind));
   return section ? sectionContents(section, all) : [];
 }
 
@@ -88,7 +88,8 @@ export function moveChanges(records: Records, changes: readonly GeometryChange[]
   for (const c of changes) {
     const record = records[c.id];
     const now = record?.type === 'board_item' && record.trashedAt === null && record.parentId ? itemFields(record.props) : null;
-    if (!record?.parentId || now?.kind !== 'section') continue;
+    // A page (5.5) carries what it holds as a section does.
+    if (!record?.parentId || !now || !isFrameKind(now.kind)) continue;
     if (c.width !== now.width || c.height !== now.height) continue;
     const dx = tidy(c.x - now.x);
     const dy = tidy(c.y - now.y);

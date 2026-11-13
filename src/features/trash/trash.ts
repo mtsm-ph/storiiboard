@@ -10,6 +10,8 @@ import { boardTitle, restoreBoardChanges } from '../moodboards/boards';
 import { connectorsToRestore, trashedWithItem } from '../moodboards/connectors';
 import { isConnector } from '../moodboards/connectorFields';
 import { isLiveKind, itemFields, KIND_LABEL } from '../moodboards/items';
+import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
+import { pageNumberOf } from '../moodboards/pages';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
@@ -142,7 +144,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       return [plain(name), plain(fields ? t('trash.attachmentKind', { kind: ATTACHMENT_KIND_LABEL[fields.kind] }) : '')];
     }
     case 'board':
-      return [plain(boardTitle(record))];
+      // A deck says so (5.5), as a department's board does not need to.
+      return record.props.kind === 'deck' ? [plain(boardTitle(record)), plain(t('trash.deckTag'))] : [plain(boardTitle(record))];
     case 'boardItem': {
       // "Rectangle on Camera board": what it is, and the board it was on (as that board is called now).
       const board = record.parentId ? records[record.parentId] : undefined;
@@ -162,6 +165,12 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
               : '';
         if (name !== '') return [plain(t('trash.liveCardOnBoard', { item: KIND_LABEL[fields.kind](), name, board: where }))];
       }
+      // A deck's page: "Page 3 'The look' on Pitch deck"; a field card by its field (5.5).
+      if (fields?.kind === 'page') {
+        const number = pageNumberOf(records, record);
+        return [plain(fields.name.trim() === '' ? t('trash.pageOnDeckUnnamed', { number, board: where }) : t('trash.pageOnDeck', { number, name: fields.name.trim(), board: where }))];
+      }
+      if (fields?.kind === 'field_card' && fields.field !== '') return [plain(t('trash.fieldCardOnDeck', { field: DECK_FIELD_LABEL[fields.field], board: where }))];
       // A section is named: "Section 'Act One' on Camera board" (5.3).
       if (fields?.kind === 'section' && fields.name.trim() !== '') return [plain(t('trash.sectionOnBoard', { name: fields.name.trim(), board: where }))];
       return [plain(t('trash.itemOnBoard', { item: kind, board: where }))];
