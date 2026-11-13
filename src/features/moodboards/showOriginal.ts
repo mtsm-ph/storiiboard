@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { originalShown } from '../../app/opener';
 
 // Show in Finder / Show in Explorer for a board picture (5.9; Kevin, Nov 11): the words by the computer the app runs on,
@@ -25,15 +25,16 @@ export function showOriginalKey(platform: Platform): 'moodboard.showInFinder' | 
  */
 export function useOriginalShown(recordId: string | null, sha256: string | null): [boolean, () => void] {
   const [found, setFound] = useState<{ recordId: string; exists: boolean } | null>(null);
+  // Bumped by every ask and by `forget`, so an answer older than either is dropped.
+  const latest = useRef(0);
   useEffect(() => {
     if (recordId === null || sha256 === null) return;
     let live = true;
-    let latest = 0;
     const ask = () => {
-      latest += 1;
-      const mine = latest;
+      latest.current += 1;
+      const mine = latest.current;
       void originalShown(recordId, sha256).then((exists) => {
-        if (live && mine === latest) setFound({ recordId, exists });
+        if (live && mine === latest.current) setFound({ recordId, exists });
       });
     };
     ask();
@@ -45,6 +46,7 @@ export function useOriginalShown(recordId: string | null, sha256: string | null)
   }, [recordId, sha256]);
   const exists = recordId !== null && found?.recordId === recordId && found.exists;
   const forget = () => {
+    latest.current += 1;
     setFound(recordId === null ? null : { recordId, exists: false });
   };
   return [exists, forget];

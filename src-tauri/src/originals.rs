@@ -185,7 +185,7 @@ fn check_hash(sha256: &str) -> Result<(), String> {
 
 /// The pointer of one `media` record, for showing its original (src-tauri/src/open.rs): the record the page's board item
 /// holds, not every record of the same picture (another board's, a frame's, a trashed one's, a pasted copy of the same
-/// bytes). It must be an image record whose `file` is this hash and whose `source_path` is set; else none. A query only.
+/// bytes), and not one in the Trash. It must be an image record whose `file` is this hash and whose `source_path` is set; else none. A query only.
 pub(crate) fn record_pointer(
     file: &SbdFile,
     record_id: &str,
@@ -194,7 +194,7 @@ pub(crate) fn record_pointer(
     check_hash(sha256)?;
     let rows = file.query(
         "SELECT json_extract(props, '$.source_path') AS path FROM records
-          WHERE id = ? AND type = 'media' AND json_extract(props, '$.kind') = 'image'
+          WHERE id = ? AND type = 'media' AND trashed_at IS NULL AND json_extract(props, '$.kind') = 'image'
             AND json_extract(props, '$.file') = ?",
         &[
             Json::String(record_id.to_owned()),
@@ -330,15 +330,43 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
     Ok(Some(bytes))
 }
 
+/// Whether a file's name ends as a picture's does (for showing, where its bytes are not read), in any letter case.
+fn picture_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "jpg"
+                    | "jpeg"
+                    | "png"
+                    | "gif"
+                    | "webp"
+                    | "bmp"
+                    | "tif"
+                    | "tiff"
+                    | "heic"
+                    | "heif"
+                    | "avif"
+            )
+        })
+}
+
 /// The path of the first pointer that is a plain file, for showing it in its folder (src-tauri/src/open.rs). The path rules
 /// and the plain-file check of reading, from the disk's metadata alone: the file is never opened or read, so showing an
-/// online-only file (OneDrive, Dropbox, iCloud) downloads nothing and a Mac asks for no folder access. It is only revealed,
-/// so what is in it doesn't matter. `Ok(None)`: none is there; `Err`: refused.
+/// online-only file (OneDrive, Dropbox, iCloud) is not downloaded by it. Only metadata is read; whether macOS prompts for a
+/// protected folder is checked by hand. With no content check, only a picture's name is let through (`picture_name`), so a
+/// project that records a program's path can't have it selected. `Ok(None)`: none is there; `Err`: refused.
 pub(crate) fn existing_path(pointers: &Pointers) -> Result<Option<PathBuf>, String> {
     let mut refused = None;
     for stored in &pointers.stored {
-        let looked = resolve(&pointers.folder, stored)
-            .and_then(|path| plain_file_meta(&path).map(|found| found.map(|_| path)));
+        let looked = resolve(&pointers.folder, stored).and_then(|path| {
+            // The stored name's last part, as `resolve` stops at the first part that isn't there.
+            if !picture_name(Path::new(stored.rsplit(['/', '\\']).next().unwrap_or(""))) {
+                return Err("That file isn't a picture.".to_owned());
+            }
+            plain_file_meta(&path).map(|found| found.map(|_| path))
+        });
         match looked {
             Ok(Some(path)) => return Ok(Some(path)),
             Ok(None) => {}

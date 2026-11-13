@@ -54,8 +54,9 @@ export async function openPdf(sha256: string, name: string): Promise<void> {
 /**
  * What a development build opened with `?files=memory` (no Rust there) uses to stand in for the computer's disk, so an
  * end-to-end test can say "this picture's original exists" and see which hash the reveal was asked for: set
- * `window.__sbdDevOriginals` once the page has loaded. As in Rust, the picture's own `media` record must be an image of that
- * hash; and the test opts in per hash, so no picture shows the action by accident. Not in a release build.
+ * `window.__sbdDevOriginals` once the page has loaded. Like Rust's, the lookup wants the picture's own `media` record to be an
+ * image of that hash, but not more: memory-build pictures have no `source_path`, so the stand-in can show the action where
+ * Rust wouldn't. The test opts in per hash, so no picture shows it by accident. Not in a release build.
  */
 export interface DevOriginals {
   /** The hashes whose original "exists". */

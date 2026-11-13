@@ -8,8 +8,9 @@
 //! - `original_shown` and `reveal_original` (5.9; Kevin, Nov 11) show a board picture's recorded original in its folder,
 //!   selected, in Finder or Explorer: the opener's reveal only, never an open, and only when the file exists. The page
 //!   names the picture's media record and its SHA-256; the path comes from that record in the open .sbd
-//!   (src-tauri/src/originals.rs, with its path rules), the file is looked at by its metadata alone (never opened or read,
-//!   so an online-only file isn't downloaded), and no error here holds a path or a file name.
+//!   (src-tauri/src/originals.rs, with its path rules), the file is looked at by its metadata and name alone (never
+//!   opened or read, so an online-only file isn't downloaded; whether macOS prompts for a protected folder is checked by
+//!   hand), only a picture's name is let through, and no error here holds a path or a file name.
 
 use std::{
     fs,
@@ -368,7 +369,7 @@ mod tests {
     fn project_with(dir: &Path, records: &[(&str, Json)]) -> SbdFile {
         let mut file = SbdFile::create(&dir.join("Bey County.sbd")).unwrap();
         let mut statements = vec![Statement {
-            sql: "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT NOT NULL, props TEXT NOT NULL)".into(),
+            sql: "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT NOT NULL, props TEXT NOT NULL, trashed_at TEXT)".into(),
             params: vec![],
         }];
         for (id, props) in records {
@@ -436,10 +437,18 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_is_not_a_picture_is_shown_since_it_is_never_opened() {
-        let dir = temp_dir("document");
-        fs::write(dir.join("still.jpg"), b"MZ\x90\x00 not a picture at all").unwrap();
-        assert!(shown(&project(&dir, "still.jpg")).is_ok());
+    fn only_a_pictures_name_is_shown_whatever_the_case_and_nothing_is_read() {
+        for name in ["setup.exe", "README", "still.jpg.exe"] {
+            let own = temp_dir("name");
+            fs::write(own.join(name), JPEG).unwrap();
+            assert!(looked_at(&project(&own, name)).is_err(), "{name}");
+        }
+        // Not a picture inside, and shown all the same: it is only revealed, never opened.
+        for name in ["STILL.JPG", "ref.HEIC", "a.tiff"] {
+            let own = temp_dir("name");
+            fs::write(own.join(name), b"MZ\x90\x00 not a picture at all").unwrap();
+            assert!(shown(&project(&own, name)).is_ok(), "{name}");
+        }
     }
 
     #[test]
@@ -517,10 +526,31 @@ mod tests {
                     "m4",
                     serde_json::json!({ "kind": "video", "file": SHA, "source_path": "a.jpg" }),
                 ),
+                (
+                    "m5",
+                    serde_json::json!({ "kind": "image", "file": SHA, "source_path": "a.jpg" }),
+                ),
+                (
+                    "m6",
+                    serde_json::json!({ "kind": "image", "file": SHA, "source_path": "a.jpg" }),
+                ),
             ],
         );
+        // A record of another type with an image's props, and one in the Trash.
+        let mut file = file;
+        file.tx(&[
+            Statement {
+                sql: "UPDATE records SET type = 'board_item' WHERE id = 'm5'".into(),
+                params: vec![],
+            },
+            Statement {
+                sql: "UPDATE records SET trashed_at = '2026-01-01' WHERE id = 'm6'".into(),
+                params: vec![],
+            },
+        ])
+        .unwrap();
         assert!(original_to_show(originals::record_pointer(&file, "m1", SHA).unwrap()).is_ok());
-        for id in ["m2", "m3", "m4", "nothing"] {
+        for id in ["m2", "m3", "m4", "m5", "m6", "nothing"] {
             let found = originals::record_pointer(&file, id, SHA).unwrap();
             assert_eq!(original_to_show(found).unwrap_err(), ORIGINAL_GONE, "{id}");
         }
