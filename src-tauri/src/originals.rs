@@ -241,7 +241,14 @@ fn read_head(file: &mut fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(got)
 }
 
-fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
+/// A stored path checked as far as showing or reading needs: resolved, looked at without following a link, a plain file,
+/// opened, looked at again, and its first bytes a picture. `limit` is the largest size allowed (reading has one; showing
+/// has none). `Ok(None)`: the file isn't there. Returns the path, the open file and its first bytes.
+fn open_checked(
+    folder: &Path,
+    stored: &str,
+    limit: Option<u64>,
+) -> Result<Option<(PathBuf, fs::File, Vec<u8>)>, String> {
     let path = resolve(folder, stored)?;
     // Looked at without following a link, before it is opened: opening a pipe or a device can block for good, and a
     // link or a junction may lead anywhere.
@@ -255,7 +262,8 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
     if !meta.is_file() {
         return Err("That isn't a plain file.".into());
     }
-    if meta.len() > MAX_BYTES {
+    let too_large = |len: u64| limit.is_some_and(|most| len > most);
+    if too_large(meta.len()) {
         return Err("That picture is too large to print from its original.".into());
     }
     let mut opened = match fs::File::open(&path) {
@@ -264,7 +272,7 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
     };
     // And again once it is open: what was looked at may have been swapped for something else meanwhile.
     let opened_meta = opened.metadata().map_err(|e| e.to_string())?;
-    if !opened_meta.is_file() || opened_meta.len() > MAX_BYTES {
+    if !opened_meta.is_file() || too_large(opened_meta.len()) {
         return Err("That isn't a plain file.".into());
     }
     let mut head = [0u8; 32];
@@ -272,16 +280,37 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
     if !looks_like_picture(&head[..got]) {
         return Err("That file isn't a picture.".into());
     }
-    let mut bytes = head[..got].to_vec();
+    Ok(Some((path, opened, head[..got].to_vec())))
+}
+
+fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
+    let Some((_, opened, mut bytes)) = open_checked(folder, stored, Some(MAX_BYTES))? else {
+        return Ok(None);
+    };
+    let got = bytes.len() as u64;
     // `take`, so a file that grew after the check still can't pass the limit.
     opened
-        .take(MAX_BYTES + 1 - got as u64)
+        .take(MAX_BYTES + 1 - got)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("That picture is too large to print from its original.".into());
     }
     Ok(Some(bytes))
+}
+
+/// The path of the first pointer that gives a picture, for showing it in its folder (src-tauri/src/open.rs): the same
+/// refusals as reading, except the size limit, and nothing but the first bytes read. `Ok(None)`: none is there.
+pub(crate) fn existing_path(pointers: &Pointers) -> Result<Option<PathBuf>, String> {
+    let mut refused = None;
+    for stored in &pointers.stored {
+        match open_checked(&pointers.folder, stored, None) {
+            Ok(Some((path, _, _))) => return Ok(Some(path)),
+            Ok(None) => {}
+            Err(reason) => refused = Some(reason),
+        }
+    }
+    refused.map_or(Ok(None), Err)
 }
 
 /// The original of a picture, raw (an ArrayBuffer on the page); empty when the project has none to read, which the page

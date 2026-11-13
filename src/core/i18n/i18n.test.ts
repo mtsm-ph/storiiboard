@@ -186,6 +186,9 @@ describe('errors raised below the UI', () => {
       "That isn't a plain file.",
       'That picture is too large to print from its original.',
       "That file isn't a picture.",
+      // Show in Finder / Explorer (src-tauri/src/open.rs): the page catches it and says the same in the app's language
+      // (moodboard.originalGone).
+      "That picture's original isn't where it was.",
       // A service id the code doesn't list: a bug in the app, never something a person did.
       "Storiiboard doesn't know that service.",
     ]);

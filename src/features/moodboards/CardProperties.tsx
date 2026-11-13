@@ -1,4 +1,5 @@
 import { showNotice } from '../../app/notice';
+import { revealOriginal } from '../../app/opener';
 import { t } from '../../core/i18n';
 import { Button } from '../../ui/Button';
 import { TextField } from '../../ui/fields';
@@ -6,10 +7,11 @@ import { relinkVideo } from '../video/relink';
 import { changeLink } from './boardActions';
 import type { CardInfo } from './cards';
 import { cardUrl } from './links';
+import { platformOf, showOriginalKey, showsOriginalAction, useOriginalShown } from './showOriginal';
 import type { ItemFields } from './items';
 
-// What the properties strip shows for one selected picture, video card or link (5.1b): a picture's original and Show
-// original, a video's file (with Relink when it's missing), a link's address and title, both editable.
+// What the properties strip shows for one selected picture, video card or link (5.1b): a picture's original and, when
+// the file is there, Show in Finder or Explorer (5.9), a video's file (with Relink when it's missing), a link's address and title, both editable.
 
 interface Props {
   id: string;
@@ -20,18 +22,7 @@ interface Props {
 }
 
 export function CardProperties({ id, fields, card, original }: Props) {
-  if (fields.kind === 'picture') {
-    return (
-      <>
-        <div className="flex min-w-40 max-w-80 flex-col gap-[5px]">
-          <span className="sb-label">{t('moodboard.original')}</span>
-          <span data-picture-original="" data-user-text="" className="flex h-8 items-center truncate font-mono text-[13px]" title={original?.path}>
-            {original && original.path !== '' ? original.name || original.path : t('moodboard.pastedPicture')}
-          </span>
-        </div>
-      </>
-    );
-  }
+  if (fields.kind === 'picture') return <PictureFields original={original} />;
   if (fields.kind === 'video') {
     return (
       <>
@@ -101,6 +92,37 @@ function LinkFields({ id, fields }: { id: string; fields: ItemFields }) {
           }}
         />
       </div>
+    </>
+  );
+}
+
+/** A picture's original, and the action that shows it in its folder: there only while the file is. */
+function PictureFields({ original }: { original: Props['original'] }) {
+  const recorded = original !== null && original.path !== '';
+  // Rust looks the picture's record up itself: a pasted picture has no original recorded, and is told no.
+  const [exists, forget] = useOriginalShown(original?.sha256 ?? null);
+  const shows = showsOriginalAction({ selected: 1, kind: 'picture', exists });
+  return (
+    <>
+      <div className="flex min-w-40 max-w-80 flex-col gap-[5px]">
+        <span className="sb-label">{t('moodboard.original')}</span>
+        <span data-picture-original="" data-user-text="" className="flex h-8 items-center truncate font-mono text-[13px]" title={original?.path}>
+          {recorded ? original.name || original.path : t('moodboard.pastedPicture')}
+        </span>
+      </div>
+      {shows && original && (
+        <Button
+          data-show-original=""
+          onClick={() => {
+            revealOriginal(original.sha256).catch((error: unknown) => {
+              showNotice(error);
+              forget();
+            });
+          }}
+        >
+          {t(showOriginalKey(platformOf(navigator.userAgent)))}
+        </Button>
+      )}
     </>
   );
 }

@@ -18,11 +18,15 @@ use serde_json::Value as Json;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::sbd::OpenFiles;
+use crate::{
+    originals::{self, Pointers},
+    sbd::OpenFiles,
+};
 
 const NOT_A_LINK: &str = "Storiiboard opens only web links (http or https).";
 const NOT_A_PDF: &str = "That attachment isn't a PDF, so Storiiboard won't open it.";
 const PDF_GONE: &str = "That PDF isn't in this project any more.";
+const ORIGINAL_GONE: &str = "That picture's original isn't where it was.";
 const COULD_NOT_OPEN: &str = "Storiiboard couldn't open it. Save a copy and open that instead.";
 
 /// The longest link opened: longer is no address a person typed.
@@ -265,9 +269,171 @@ pub async fn open_pdf(
         .map_err(|_| COULD_NOT_OPEN.to_owned())
 }
 
+/// The path to show for a picture's pointers: the first that is a plain picture file now, with every refusal of reading
+/// it, so one message whatever the reason. Everything before the plugin call, so the tests can reach it.
+fn original_to_show(found: Option<Pointers>) -> Result<PathBuf, String> {
+    match found.map(|found| originals::existing_path(&found)) {
+        Some(Ok(Some(path))) => Ok(path),
+        _ => Err(ORIGINAL_GONE.to_owned()),
+    }
+}
+
+/// Whether the picture's recorded original can be shown in its folder now (false for anything else, a refusal included).
+#[tauri::command]
+pub async fn original_shown(
+    files: State<'_, OpenFiles>,
+    handle: u32,
+    sha256: String,
+) -> Result<bool, String> {
+    // Only the lookup under the lock; the disk is asked once it is let go, off the main thread.
+    let Ok(found) = files.with(handle, |file| originals::pointers(file, &sha256)) else {
+        return Ok(false);
+    };
+    tauri::async_runtime::spawn_blocking(move || original_to_show(found).is_ok())
+        .await
+        .map_err(|_| COULD_NOT_OPEN.to_owned())
+}
+
+/// Shows the picture's recorded original in its folder, selected: the opener's reveal, never an open.
+#[tauri::command]
+pub async fn reveal_original(
+    app: AppHandle,
+    files: State<'_, OpenFiles>,
+    handle: u32,
+    sha256: String,
+) -> Result<(), String> {
+    let found = files
+        .with(handle, |file| originals::pointers(file, &sha256))
+        .map_err(|_| ORIGINAL_GONE.to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = original_to_show(found)?;
+        app.opener()
+            .reveal_item_in_dir(path)
+            .map_err(|_| ORIGINAL_GONE.to_owned())
+    })
+    .await
+    .map_err(|_| COULD_NOT_OPEN.to_owned())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sbd::{SbdFile, Statement};
+
+    const SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const JPEG: &[u8] = &[
+        0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 2, 3,
+    ];
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "sbd-show-{tag}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A project in `dir` whose one picture record points at `stored` (none: no record at all).
+    fn project(dir: &Path, stored: Option<&str>) -> SbdFile {
+        let mut file = SbdFile::create(&dir.join("Bey County.sbd")).unwrap();
+        let mut statements = vec![Statement {
+            sql: "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT NOT NULL, props TEXT NOT NULL)".into(),
+            params: vec![],
+        }];
+        if let Some(stored) = stored {
+            let props = serde_json::json!({ "kind": "image", "file": SHA, "source_path": stored })
+                .to_string();
+            statements.push(Statement {
+                sql: "INSERT INTO records (id, type, props) VALUES ('m1', 'media', ?)".into(),
+                params: vec![Json::String(props)],
+            });
+        }
+        file.tx(&statements).unwrap();
+        file
+    }
+
+    fn shown(file: &SbdFile) -> Result<PathBuf, String> {
+        original_to_show(originals::pointers(file, SHA).unwrap())
+    }
+
+    #[test]
+    fn a_real_picture_file_is_found_and_a_missing_one_is_refused() {
+        let dir = temp_dir("real");
+        fs::create_dir_all(dir.join("refs")).unwrap();
+        fs::write(dir.join("refs").join("still.jpg"), JPEG).unwrap();
+        let found = shown(&project(&dir, Some("refs/still.jpg"))).unwrap();
+        assert!(found.ends_with("still.jpg"));
+        let absolute = temp_dir("absolute").join("still.jpg");
+        fs::write(&absolute, JPEG).unwrap();
+        let elsewhere = temp_dir("absolute-project");
+        assert_eq!(
+            shown(&project(&elsewhere, Some(absolute.to_str().unwrap()))).unwrap(),
+            absolute
+        );
+        // Gone: refused with the constant message, which names no path.
+        let error = shown(&project(&temp_dir("gone"), Some("refs/gone.jpg"))).unwrap_err();
+        assert_eq!(error, ORIGINAL_GONE);
+    }
+
+    #[test]
+    fn a_file_over_the_reading_limit_is_still_shown() {
+        let dir = temp_dir("large");
+        let mut head = JPEG.to_vec();
+        head.resize(64, 0);
+        let path = dir.join("huge.jpg");
+        fs::write(&path, head).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(201 * 1024 * 1024)
+            .unwrap();
+        assert!(shown(&project(&dir, Some("huge.jpg"))).is_ok());
+    }
+
+    #[test]
+    fn a_directory_a_climbing_path_an_extended_path_and_a_non_picture_are_refused() {
+        let dir = temp_dir("directory");
+        fs::create_dir_all(dir.join("still.jpg")).unwrap();
+        assert!(shown(&project(&dir, Some("still.jpg"))).is_err());
+        let inner = temp_dir("climb").join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(inner.parent().unwrap().join("secret.jpg"), JPEG).unwrap();
+        assert!(shown(&project(&inner, Some("../secret.jpg"))).is_err());
+        assert!(shown(&project(
+            &temp_dir("extended"),
+            Some(r"\\?\C:\Footage\still.jpg")
+        ))
+        .is_err());
+        let document = temp_dir("document");
+        fs::write(
+            document.join("still.jpg"),
+            b"MZ\x90\x00 not a picture at all",
+        )
+        .unwrap();
+        assert!(shown(&project(&document, Some("still.jpg"))).is_err());
+    }
+
+    #[test]
+    fn a_picture_the_project_has_no_record_of_is_refused() {
+        let dir = temp_dir("norecord");
+        fs::write(dir.join("still.jpg"), JPEG).unwrap();
+        assert_eq!(shown(&project(&dir, None)).unwrap_err(), ORIGINAL_GONE);
+        assert_eq!(original_to_show(None).unwrap_err(), ORIGINAL_GONE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_picture_is_refused() {
+        let dir = temp_dir("link");
+        fs::write(dir.join("real.jpg"), JPEG).unwrap();
+        std::os::unix::fs::symlink(dir.join("real.jpg"), dir.join("link.jpg")).unwrap();
+        assert!(shown(&project(&dir, Some("link.jpg"))).is_err());
+    }
 
     #[test]
     fn opens_only_web_links() {

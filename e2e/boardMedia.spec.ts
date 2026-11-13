@@ -215,6 +215,72 @@ test('deletes a picture and brings it back with ⌘Z', async ({ page }) => {
   await expect.poll(async () => Object.values(await levels(page))).toEqual(['thumbnail']);
 });
 
+// Show in Finder / Explorer (5.9). The memory build has no Rust and no disk: window.__sbdDevOriginals (src/app/opener.ts) says
+// which pictures' originals "exist" and records the hashes the reveal was asked for. `*` is every picture's.
+interface DevOriginals {
+  shown: string[];
+  revealed: string[];
+  failing?: boolean;
+}
+const standIn = (page: Page, value: DevOriginals) =>
+  page.evaluate((value) => {
+    (window as unknown as { __sbdDevOriginals: DevOriginals }).__sbdDevOriginals = value;
+  }, value);
+const revealed = (page: Page) => page.evaluate(() => (window as unknown as { __sbdDevOriginals: DevOriginals }).__sbdDevOriginals.revealed);
+const showOriginal = (page: Page) => properties(page).getByRole('button', { name: /^(Show in Explorer|Show in Finder|Show in folder)$/ });
+
+test('Show in folder is a button for a picture whose original exists, pressed from the keyboard, and asks for that picture by its hash', async ({ page }) => {
+  await standIn(page, { shown: ['*'], revealed: [] });
+  await openCamera(page);
+  await dropFiles(page, [jpeg()], -300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(1);
+  await expect(showOriginal(page)).toBeVisible();
+  await showOriginal(page).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await revealed(page)).length).toBe(1);
+  const [first] = await revealed(page);
+  expect(first).toMatch(/^[0-9a-f]{64}$/);
+
+  // Another picture, selected on its own: its own hash. Two items selected: no action at all.
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  const photo = { name: 'photo-a.jpg', type: 'image/jpeg', data: [...readFileSync(fileURLToPath(new URL('./fixtures/images/photo-a.jpg', import.meta.url)))] };
+  await dropFiles(page, [photo], 300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(2);
+  await expect(showOriginal(page)).toBeVisible();
+  await showOriginal(page).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await revealed(page)).length).toBe(2);
+  expect((await revealed(page))[1]).not.toBe(first);
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+a`);
+  await expect(showOriginal(page)).toHaveCount(0);
+});
+
+test('a picture whose original is not recorded or is not there shows no such action, and a video card none either', async ({ page }) => {
+  await standIn(page, { shown: [], revealed: [] });
+  await openCamera(page);
+  await dropFiles(page, [jpeg()], -300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(1);
+  await expect(properties(page).locator('[data-picture-original]')).toHaveText('Pasted, no original file');
+  await expect(showOriginal(page)).toHaveCount(0);
+  await standIn(page, { shown: ['*'], revealed: [] });
+  await dropFiles(page, [clip()], 300, 0);
+  await expect.poll(async () => (await data(page)).map((i) => i.kind)).toEqual(['picture', 'video']);
+  await expect(properties(page).getByRole('button', { name: /^Show in / })).toHaveCount(0);
+});
+
+test('a reveal that fails says so and the action goes', async ({ page }) => {
+  await standIn(page, { shown: ['*'], revealed: [], failing: true });
+  await openCamera(page);
+  await dropFiles(page, [jpeg()]);
+  await expect(showOriginal(page)).toBeVisible();
+  await showOriginal(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('alert').getByText("That picture's original isn't where it was.")).toBeVisible();
+  await expect(showOriginal(page)).toHaveCount(0);
+});
+
 test('a video card opens the Player on a double-click and plays; in and out are for storyboard frames', async ({ page }) => {
   await openCamera(page);
   await dropFiles(page, [clip()], -200, -100);
