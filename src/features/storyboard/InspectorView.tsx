@@ -158,6 +158,8 @@ export interface InspectorViewProps {
   seen?: readonly string[];
   /** The scene's palette editor (polish PP), under the scene's own section. */
   palette?: ReactNode;
+  /** The boards linked to the scene (5.4); left out, so nothing shows, when none is. */
+  boards?: ReactNode;
   /** A department status edit (polish 6), worked out from the frame as it is when the edit lands. */
   onDepartmentStatus?: (edit: (now: DepartmentStatuses) => DepartmentStatuses | null) => void;
   /** The scene's department approvals (3.6b), in a section of their own after the scene's. */
@@ -530,6 +532,7 @@ export function InspectorView({
   onDepartmentStatus,
   seen = NOTHING_SEEN,
   palette,
+  boards,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -973,6 +976,8 @@ export function InspectorView({
       {approvals && <Section title={t('sceneApproval.title', { scene: sceneLabel(s.number) })}>{approvals}</Section>}
 
       {palette && <Section title={t('palette.title')}>{palette}</Section>}
+
+      {boards && <Section title={t('moodboard.links.boardsLinked')}>{boards}</Section>}
 
       <Section title={t('inspectorView.links')}>
         <ul className="flex flex-col gap-1.5 text-[13px]">

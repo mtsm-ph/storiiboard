@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { fromFile, choosePictures, onWindowDrop } from '../../app/pictures';
 import { useProject } from '../../app/projectStore';
@@ -16,7 +16,13 @@ import type { CanvasCommand, Point } from '../../ui/canvas/types';
 import { toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useMissingVideos } from '../video/videoStatus';
-import { boardFields, boardTitle } from './boards';
+import { boardFields, boardTitle, linkedLine } from './boards';
+import { AddFromStoryboard } from './AddFromStoryboard';
+import { BoardLinksDialog } from './BoardLinksDialog';
+import { LiveProperties } from './LiveProperties';
+import { openLiveCard } from './liveActions';
+import { isLiveKind, liveCardData, liveLabel, projectIdOf, type LiveCardData } from './liveCards';
+
 import {
   addBoardFiles,
   addBoardPictures,
@@ -54,6 +60,7 @@ import { BOARD_COLOURS, BOARD_INK, canvasItems, isMediaKind, isTextKind, itemFie
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
+import { useLocale } from '../../ui/useLocale';
 
 // One open board: the tool strip (a way back to the picker, the board's name, the tools) and the canvas core with the
 // board's items. Everything the canvas reports becomes an edit in boardActions.ts; selection, tool and view stay in the
@@ -63,6 +70,7 @@ import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
 const REPORTED = new Set<string>();
 
 export function BoardView({ board }: { board: SbdRecord }) {
+  const locale = useLocale();
   const records = useProject((s) => s.records);
   const stored = useMoodboard((s) => s.selections[board.id]);
   const viewports = useMoodboard((s) => s.viewports);
@@ -90,6 +98,16 @@ export function BoardView({ board }: { board: SbdRecord }) {
     const { x, y, width, height, rotation } = mine.draft;
     return [...placed, { id: mine.id, x, y, width, height, rotation, label: KIND_LABEL[mine.draft.kind](), editable: true }];
   }, [placed, mine, draftFields]);
+  // What each live card shows, read from the project as it is now (5.4): nothing is stored on the card but which record it names.
+  const liveCards = useMemo(() => {
+    const out = new Map<string, LiveCardData>();
+    for (const record of itemsOf(records, board.id)) {
+      const fields = itemFields(record.props);
+      if (fields && isLiveKind(fields.kind)) out.set(record.id, liveCardData(records, projectIdOf(records, record.id), { kind: fields.kind, shotId: fields.shotId, sceneId: fields.sceneId }, locale));
+    }
+    return out;
+  }, [records, board.id, locale]);
+  const liveOf = (id: string): LiveCardData | null => liveCards.get(id) ?? null;
   const fieldsOf = (id: string): ItemFields | null => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {}));
   const drawn = useMemo(
     () =>
@@ -100,12 +118,13 @@ export function BoardView({ board }: { board: SbdRecord }) {
           const fields = itemFields(records[id]?.props ?? {});
           return fields ? cardInfo(records, id, fields, missingVideos) : null;
         },
+        (id) => liveOf(id),
         mine?.id ?? null,
         fontsVersion,
       ),
     // fontsStatus and systemFonts decide which family a text is drawn in, so they redraw it too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, records, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
+    [items, records, liveCards, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
   );
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id) || links.some((link) => link.id === id)), [stored, items, links]);
@@ -127,6 +146,22 @@ export function BoardView({ board }: { board: SbdRecord }) {
     [records, board.id],
   );
 
+  // What the live cards show, as plain data too (5.4): the strokes are left out.
+  const liveData = useMemo(
+    () =>
+      JSON.stringify(
+        [...liveCards].map(([id, data]) => {
+          const { kind, ...rest } = data;
+          const plain: Record<string, unknown> = { id, kind, ...rest, label: liveLabel(data) };
+          delete plain.strokes;
+          // The company's name only: its address, phone and email are private and never needed here.
+          if (data.kind === 'brand_card') plain.company = data.company ? { name: data.company.name } : null;
+          return plain;
+        }),
+      ),
+    [liveCards],
+  );
+
   // The connectors' props as plain data, for the end-to-end tests.
   const connectorData = useMemo(
     () => JSON.stringify(connectorsOf(records, board.id).flatMap((r) => { const f = connectorFields(r.props); return f ? [{ id: r.id, ...f }] : []; })),
@@ -138,7 +173,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
     void loadSystemFonts();
   }, []);
   // Video and link cards are set in JetBrains Mono: loaded once a board has one, and drawn again when it is.
-  const hasCards = useMemo(() => itemsOf(records, board.id).some((r) => r.props.kind === 'video' || r.props.kind === 'link'), [records, board.id]);
+  const hasCards = useMemo(() => itemsOf(records, board.id).some((r) => r.props.kind === 'video' || r.props.kind === 'link' || (typeof r.props.kind === 'string' && isLiveKind(r.props.kind))), [records, board.id]);
   useEffect(() => {
     // The faces the cards are set in: mono regular for the length, mono bold for the file name, Inter Tight bold for a link.
     if (hasCards) for (const [family, weight] of [['JetBrains Mono', 400], ['JetBrains Mono', 700], ['Inter Tight', 700]] as const) void ensureFont(family, weight, false);
@@ -172,15 +207,19 @@ export function BoardView({ board }: { board: SbdRecord }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.id]);
   const used = useMemo(() => {
-    const seen = new Map<string, ItemFields>();
+    const seen = new Map<string, { fontFamily: string; fontWeight: number; fontItalic: boolean }>();
     for (const item of items) {
       const fields = fieldsOf(item.id);
       if (fields && isTextKind(fields.kind)) seen.set([fields.fontFamily, String(fields.fontWeight), String(fields.fontItalic)].join('|'), fields);
     }
+    // The brand kit's fonts are set in their own faces (5.4), so they are loaded, and named when this computer lacks one.
+    for (const data of liveCards.values()) {
+      if (data.kind === 'brand_card') for (const family of data.fonts) seen.set([family, '400', 'false'].join('|'), { fontFamily: family, fontWeight: 400, fontItalic: false });
+    }
     return [...seen.values()];
     // fieldsOf reads records and the draft, which items follow.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, records, draftFields]);
+  }, [items, records, draftFields, liveCards]);
   useEffect(() => {
     if (fontsStatus !== 'ready') return;
     for (const fields of used) void ensureFont(fields.fontFamily, fields.fontWeight, fields.fontItalic);
@@ -195,8 +234,15 @@ export function BoardView({ board }: { board: SbdRecord }) {
     }
   }, [used, fontsStatus, systemFonts, brokenFonts, board.id]);
   const title = boardTitle(board);
+  const linked = linkedLine(records, board);
+  const [picking, setPicking] = useState(false);
+  const [linking, setLinking] = useState(false);
   const free = boardFields(board.props).name !== null;
 
+  const showTrash = () => {
+    const { layouts, change } = layoutStore.getState();
+    change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'trash'));
+  };
   const showPlayer = () => {
     const { layouts, change } = layoutStore.getState();
     change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'player'));
@@ -204,9 +250,12 @@ export function BoardView({ board }: { board: SbdRecord }) {
   // One picture, video card or link selected: what the strip adds for it.
   const only = selection.length === 1 ? selection[0] : undefined;
   const onlyFields = only ? itemFields(records[only]?.props ?? {}) : null;
+  const onlyLive = only ? liveOf(only) : null;
   const strip =
     only && onlyFields && isMediaKind(onlyFields.kind) ? (
       <CardProperties id={only} fields={onlyFields} card={cardInfo(records, only, onlyFields, missingVideos)} original={originalOf(records, only)} />
+    ) : only && onlyFields && onlyLive ? (
+      <LiveProperties boardId={board.id} id={only} data={onlyLive} showTrash={showTrash} />
     ) : selectedConnectors.length > 0 ? (
       <ConnectorProperties boardId={board.id} fields={selectedConnectors} selectionKey={selection.join('|')} />
     ) : null;
@@ -290,6 +339,34 @@ export function BoardView({ board }: { board: SbdRecord }) {
         >
           {t('moodboard.chooseVideo')}
         </button>
+        <button
+          type="button"
+          data-board-add-live=""
+          onClick={() => {
+            setPicking(true);
+          }}
+          className="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4"
+        >
+          {t('moodboard.live.addFromStoryboard')}
+        </button>
+        {/* The scenes, characters and locations this board is about (5.4): read the other way in the places that list a scene's boards. */}
+        <span data-board-links="" className="flex min-w-0 items-center gap-2 text-[12px]">
+          {linked !== '' && (
+            <span data-user-text="" className="truncate">
+              {t('moodboard.links.linkedTo', { names: linked })}
+            </span>
+          )}
+          <button
+            type="button"
+            data-board-links-edit=""
+            onClick={() => {
+              setLinking(true);
+            }}
+            className="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4"
+          >
+            {linked === '' ? t('moodboard.links.add') : t('moodboard.links.edit')}
+          </button>
+        </span>
       </ToolStrip>
       {/* A band of one height above the canvas, empty when nothing is selected: the canvas never changes size under a gesture, and nothing on it is covered. */}
       <PropertiesStrip
@@ -308,6 +385,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
         className="min-h-0 flex-1"
         data-board-data={data}
       data-board-connectors={connectorData}
+        data-board-live={liveData}
         data-picture-levels={JSON.stringify(levels)}
         // Marks the canvas as the board's own for pictures dropped or pasted, so the storyboard's listeners leave them.
         data-moodboard-canvas=""
@@ -347,7 +425,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
             editItem(board.id, id);
           }}
           onOpen={(id) => {
-            void openCard(board.id, id, showPlayer);
+            if (liveCards.has(id)) openLiveCard(board.id, id, showTrash);
+            else void openCard(board.id, id, showPlayer);
           }}
           onPasteData={(data, at) => pasteFromSystem(board.id, data, at)}
           onSystemCopy={markSystemClipboard}
@@ -373,6 +452,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
           fixedColours={BOARD_COLOURS}
         />
       </div>
+      {picking && <AddFromStoryboard boardId={board.id} onClose={() => { setPicking(false); }} />}
+      {linking && <BoardLinksDialog boardId={board.id} onClose={() => { setLinking(false); }} />}
       {linkAsk?.boardId === board.id && (
         <LinkDialog
           ask={linkAsk}

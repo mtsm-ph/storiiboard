@@ -7,6 +7,8 @@ import { cssFamily, fontsStore } from './fonts';
 import { BOARD_INK, BOARD_PAPER, BOARD_WARNING, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
 import { linkLabel } from './links';
 import { PictureNode } from './PictureNode';
+import { drawLive } from './liveDraw';
+import { isLiveKind, type LiveCardData } from './liveCards';
 import { fontStyleOf } from './textFit';
 
 // How each kind of board item is drawn, in its own box (0 to width by 0 to height). Colours a person gave an item are
@@ -140,6 +142,7 @@ export function withDrawing(
   items: readonly CanvasItem[],
   fieldsOf: (id: string) => ItemFields | null,
   cardOf: (id: string) => CardInfo | null,
+  liveOf: (id: string) => LiveCardData | null,
   editingId: string | null,
   fontsVersion: number,
 ): CanvasItem[] {
@@ -172,6 +175,10 @@ export function withDrawing(
               </Group>
             </Group>
           );
+        }
+        if (isLiveKind(fields.kind)) {
+          const live = liveOf(item.id);
+          return <Group key={fontsVersion}>{live && drawLive(item.id, live, context)}</Group>;
         }
         if (fields.kind === 'picture') return picture(item.id, cardOf(item.id), context);
         if (fields.kind === 'video') return <Group key={fontsVersion}>{videoCard(item.id, cardOf(item.id), context)}</Group>;

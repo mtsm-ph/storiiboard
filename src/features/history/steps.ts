@@ -91,6 +91,11 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         op.after?.props.cast_id,
         op.before?.props.shoot_day_id,
         op.after?.props.shoot_day_id,
+        // A live card on a board (5.4) is named by the frame or scene it shows, as it was then.
+        op.before?.props.shot_id,
+        op.after?.props.shot_id,
+        op.before?.props.scene_id,
+        op.after?.props.scene_id,
       ]),
     );
     // The people added to or taken off a shoot day (4.2), and those a call sheet's times name: by name as they were then.

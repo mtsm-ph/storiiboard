@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { emptyTrashConfirmed } from '../../app/deleteForGood';
 import { switchedMessage } from '../../app/forGood';
@@ -6,6 +6,7 @@ import { showInfo, showNotice } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
+import { trashFocus, useTrashAsk } from './trashFocus';
 import { oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
@@ -31,6 +32,22 @@ export function TrashTile() {
   const records = useProject((s) => s.records);
   const [kind, setKind] = useState<TrashKind | ''>('');
   const [chosenScene, setSceneId] = useState('');
+  // A live card on a board that names a frame or scene in the Trash opens this tile on it (5.4): each request applied once.
+  const asked = useTrashAsk();
+  const projectId = project?.projectId ?? null;
+  const [appliedAsk, setAppliedAsk] = useState<typeof asked>(null);
+  if (asked && asked !== appliedAsk) {
+    setAppliedAsk(asked);
+    // A request for another project (a switch in between) is dropped.
+    if (asked.projectId === projectId) {
+      setKind(asked.kind);
+      setSceneId(asked.sceneId ?? '');
+    }
+  }
+  // Taken once: the store forgets it, so a tile opened later never re-applies it.
+  useEffect(() => {
+    if (asked) trashFocus.getState().take(projectId);
+  }, [asked, projectId]);
   const list = useRef<HTMLTableSectionElement>(null);
   const empty = useRef<HTMLParagraphElement>(null);
   // One restore at a time: a double click, or a click on the row that slid under the pointer, never restores a second.

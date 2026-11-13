@@ -15,6 +15,7 @@ import type { PreparedFile } from '../video/linkVideos';
 import { makeCopy } from '../video/playbackCopies';
 import { playCard } from '../video/playerSource';
 import { clipText, clipTaken, decidePasteOf } from './clipboardMarker';
+import { isLiveKind } from './liveCards';
 import { isConnector } from './connectorFields';
 import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, grownQuickSeed, labelChanges, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
 import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
@@ -276,19 +277,27 @@ export async function pasteClipboard(
   const elsewhere = clip === clipboard && clipSource !== null && (clipSource.projectId !== project.projectId || clipSource.path !== project.file.path);
   let ids: string[] = [];
   let videos: { from: string; to: string }[] = [];
-  const outcome = { left: 'none' as 'none' | 'elsewhere' | 'gone' };
+  const outcome = { left: 'none' as 'none' | 'elsewhere' | 'gone', cards: false };
   const written = await store.getState().applyWith(async () => {
     const shas = [...new Set(clip.flatMap((item) => (item.media ? [shaOfClip(item.media)] : [])).filter((sha): sha is string => sha !== null))];
     const rows = elsewhere || shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
     const stored = new Set(rows.map((row) => String(row.sha256)));
     const keptAt = clip.flatMap((item, i) => {
-      if (!item.media) return [i];
+      // A card from the storyboard names a frame or scene of the project it was copied in: not pasted into another (the brand kit reads the project it is in).
+      if (!item.media) {
+        if (elsewhere && isLiveKind(item.kind) && item.kind !== 'brand_card') {
+          outcome.cards = true;
+          return [];
+        }
+        return [i];
+      }
       const sha = shaOfClip(item.media);
       // A video card with no poster pastes without one; anything else needs its stored picture.
       return !elsewhere && (sha === null ? item.kind === 'video' : stored.has(sha)) ? [i] : [];
     });
     const allowed = keptAt.map((i) => clip[i] as ClipItem);
-    if (allowed.length < clip.length) outcome.left = elsewhere ? 'elsewhere' : 'gone';
+    // Pictures and video cards left out say so in their sentence, cards from the storyboard in theirs.
+    if (clip.some((item, i) => item.media && !keptAt.includes(i))) outcome.left = elsewhere ? 'elsewhere' : 'gone';
     if (allowed.length === 0 && connectors.length === 0) return { changes: [] };
     const now = store.getState().records;
     const made = pasteChanges(now, boardId, allowed, at);
@@ -302,8 +311,8 @@ export async function pasteClipboard(
     videos = made.videos;
     return { changes: [...made.changes, ...joined.changes] };
   });
-  if (outcome.left === 'elsewhere') showNotice(t('moodboard.pasteElsewhere'));
-  else if (outcome.left === 'gone') showNotice(t('moodboard.pasteGone'));
+  const sentences = [outcome.left === 'elsewhere' ? t('moodboard.pasteElsewhere') : outcome.left === 'gone' ? t('moodboard.pasteGone') : '', outcome.cards ? t('moodboard.pasteElsewhereCards') : ''].filter((s) => s !== '');
+  if (sentences.length > 0) showNotice(sentences.join(' '));
   if (!written) return;
   // The browser build plays the file it was handed: a pasted card plays it too.
   for (const { from, to } of videos) rememberVideoFile(to, videoFileKept(from) ?? undefined);

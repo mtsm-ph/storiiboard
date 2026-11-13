@@ -18,6 +18,9 @@ export interface CompanyProfile {
   website: string;
   /** The logo, made small (PNG, at most LOGO_EDGE on its long edge) as a data URL; null for none. */
   logo: string | null;
+  /** The brand kit (5.4): up to MAX_BRAND_COLORS colours as `#RRGGBB`, and up to MAX_BRAND_FONTS font family names. */
+  brandColors: string[];
+  brandFonts: string[];
 }
 
 /** The fields a profile and its copy share, in the order a form shows them. */
@@ -38,6 +41,12 @@ export const MAX_COMPANIES = 20;
 /** Text fields are cut to this many characters. */
 export const MAX_COMPANY_TEXT = 300;
 
+/** The brand kit's limits (5.4). */
+export const MAX_BRAND_COLORS = 8;
+export const MAX_BRAND_FONTS = 3;
+/** A font family name is cut to this many characters. */
+export const MAX_FONT_NAME = 100;
+
 /** The company attached to a project, as its record holds it. */
 export interface ProjectCompany {
   /** The profile it was copied from, on whichever computer that was. */
@@ -51,12 +60,37 @@ export interface ProjectCompany {
   logoId: string | null;
   /** The logo as it was copied, to tell whether the profile's has changed since. */
   logoSource: string | null;
+  /** The brand kit as copied (5.4); empty for a copy from before it. */
+  brandColors: string[];
+  brandFonts: string[];
 }
 
 // Cut by characters as people count them, as the profile's text is cleaned when saved, so it reads back the same.
 const text = (value: unknown, max = MAX_COMPANY_TEXT): string => (typeof value === 'string' ? Array.from(value).slice(0, max).join('') : '');
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isLogo = (value: unknown): value is string => typeof value === 'string' && value.startsWith('data:image/png;base64,') && value.length <= MAX_LOGO_CHARS;
+
+/** Brand colours as kept (5.4): `#RRGGBB` only, upper case, each once, at most MAX_BRAND_COLORS; anything else is left out. */
+export function cleanBrandColors(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const hex = typeof item === 'string' && /^#[0-9a-f]{6}$/i.test(item.trim()) ? item.trim().toUpperCase() : null;
+    if (hex && !out.includes(hex)) out.push(hex);
+  }
+  return out.slice(0, MAX_BRAND_COLORS);
+}
+
+/** Brand fonts as kept (5.4): family names, trimmed, each once, at most MAX_BRAND_FONTS. */
+export function cleanBrandFonts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const name = text(item, MAX_FONT_NAME).trim();
+    if (name !== '' && !out.includes(name)) out.push(name);
+  }
+  return out.slice(0, MAX_BRAND_FONTS);
+}
 
 /** A profile as saved, or null if it isn't one. */
 export function companyProfileOf(value: unknown): CompanyProfile | null {
@@ -69,6 +103,8 @@ export function companyProfileOf(value: unknown): CompanyProfile | null {
     email: text(value.email),
     website: text(value.website),
     logo: isLogo(value.logo) ? value.logo : null,
+    brandColors: cleanBrandColors(value.brandColors),
+    brandFonts: cleanBrandFonts(value.brandFonts),
   };
 }
 
@@ -109,6 +145,8 @@ export function projectCompany(props: Props | undefined): ProjectCompany | null 
     website: text(stored.website),
     logoId: typeof stored.logo_id === 'string' ? stored.logo_id : null,
     logoSource: typeof stored.logo_source === 'string' ? stored.logo_source : null,
+    brandColors: cleanBrandColors(stored.brand_colors),
+    brandFonts: cleanBrandFonts(stored.brand_fonts),
   };
 }
 
@@ -129,10 +167,18 @@ export function companyProp(stored: JsonValue | undefined, profile: CompanyProfi
     logo_id: logoId,
     // Only with a logo in the project: a copy that has none reads as differing from a profile that has one.
     logo_source: logoId === null ? null : logoMark(profile.logo),
+    // The brand kit (5.4), copied as the other details are; the copy is the project's own until Update from profile.
+    brand_colors: [...profile.brandColors],
+    brand_fonts: [...profile.brandFonts],
   };
 }
 
 /** Whether the profile has changed since it was copied into the project (Update from profile has something to do). */
 export function profileChanged(copy: ProjectCompany, profile: CompanyProfile): boolean {
-  return COMPANY_FIELDS.some((field) => copy[field] !== profile[field]) || copy.logoSource !== logoMark(profile.logo);
+  return (
+    COMPANY_FIELDS.some((field) => copy[field] !== profile[field]) ||
+    copy.logoSource !== logoMark(profile.logo) ||
+    JSON.stringify(copy.brandColors) !== JSON.stringify(profile.brandColors) ||
+    JSON.stringify(copy.brandFonts) !== JSON.stringify(profile.brandFonts)
+  );
 }

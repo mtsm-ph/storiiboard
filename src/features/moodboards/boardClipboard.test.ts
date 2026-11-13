@@ -121,6 +121,26 @@ describe('copying pictures and video cards', () => {
     expect(await readOriginal(second.file, image(3).original.sha256)).toBeNull();
   });
 
+  it('leaves live cards that name a frame or scene out of a paste into another project, with their own notice, while the brand kit and the other kinds paste (5.4)', async () => {
+    const box = { x: 0, y: 0, width: 100, height: 60, rotation: 0 };
+    const made = createItems(records(), boardId, [
+      { ...box, kind: 'shot_card', shotId: 'a-frame' },
+      { ...box, kind: 'scene_card', sceneId: 'a-scene' },
+      { ...box, kind: 'palette_card', sceneId: 'a-scene' },
+      { ...box, kind: 'brand_card' },
+      sticky,
+    ]);
+    await store.getState().apply(made.changes);
+    const pasted = await copyThenPaste(made.ids, { store: secondStore, board: secondBoard });
+    expect(pasted.map((r) => itemFields(r.props)?.kind)).toEqual(['brand_card', 'sticky']);
+    expect(noticeStore.getState().message).toBe('Cards from the storyboard paste within their own project.');
+    // Within its own project they all paste.
+    noticeStore.setState({ message: null });
+    const same = await copyThenPaste(made.ids, { store, board: boardId });
+    expect(same.map((r) => itemFields(r.props)?.kind)).toEqual(['shot_card', 'scene_card', 'palette_card', 'brand_card', 'sticky', 'shot_card', 'scene_card', 'palette_card', 'brand_card', 'sticky']);
+    expect(noticeStore.getState().message).toBeNull();
+  });
+
   it('leaves a picture out when its stored picture is gone when the paste’s turn comes (an Empty Trash queued ahead of it)', async () => {
     await dropPicture(3);
     const [picture] = items();

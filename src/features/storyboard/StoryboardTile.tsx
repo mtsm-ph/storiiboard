@@ -26,6 +26,7 @@ import { pictureView } from './framePictures';
 import { openSketch } from './sketch/sketchStore';
 import { stableStrokesByShot } from './sketch/strokes';
 import { FocusContext, usePerspective } from '../department/perspective';
+import { AddToBoardMenu, type BoardMenuAsk } from './AddToBoardMenu';
 import { ProjectPictures } from './ProjectPictures';
 import { headingOf } from './ScenesView';
 import { selectionStore, useSelection } from './selection';
@@ -113,6 +114,8 @@ export function StoryboardTile() {
   const { aspectRatio } = projectStoryboard(records[projectId]?.props);
   const [view, setView] = useState<BoardView>(savedView);
   const [dropHover, setDropHover] = useState<DropHover>(null);
+  // The context menu on a frame or a scene's heading: Add to board… (5.4).
+  const [boardMenu, setBoardMenu] = useState<BoardMenuAsk | null>(null);
   const busy = usePicturesBusy();
   useBoardDrops(project !== null, setDropHover);
 
@@ -321,6 +324,9 @@ export function StoryboardTile() {
           selectedNoteId={selectedNoteId}
           locationNames={locations(records, projectId).map((l) => l.name)}
           onSketch={openSketch}
+          onContextMenu={(target, from, at) => {
+            setBoardMenu({ target: target.kind === 'shot' ? { kind: 'shot_card', shotId: target.id } : { kind: 'scene_card', sceneId: target.id }, from, at });
+          }}
           onSetLocation={(sceneId, name) => {
             void applyWith((now) => ({ changes: setSceneLocation(now, projectId, sceneId, name) }));
           }}
@@ -364,6 +370,14 @@ export function StoryboardTile() {
               .catch(showNotice);
           }}
         />
+        {boardMenu && (
+          <AddToBoardMenu
+            ask={boardMenu}
+            onClose={() => {
+              setBoardMenu(null);
+            }}
+          />
+        )}
       </FocusContext>
     </ProjectPictures>
   );

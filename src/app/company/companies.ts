@@ -1,7 +1,7 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { cleanProfileText, loadSettings, saveSettings } from '../../core/storage/settings';
-import { COMPANY_FIELDS, LOGO_EDGE, MAX_ALL_LOGOS_CHARS, MAX_COMPANIES, MAX_COMPANY_TEXT, MAX_LOGO_CHARS, type CompanyProfile } from '../../core/model/company';
+import { cleanBrandColors, cleanBrandFonts, COMPANY_FIELDS, LOGO_EDGE, MAX_ALL_LOGOS_CHARS, MAX_COMPANIES, MAX_COMPANY_TEXT, MAX_LOGO_CHARS, type CompanyProfile } from '../../core/model/company';
 
 // The company profiles saved on this computer (3.2), in the app's settings: the person's, never the project's, so
 // they're not ops and don't undo. A project gets a copy when one is attached to it (companyEdits.ts).
@@ -16,6 +16,8 @@ export function useCompanies(): CompanyProfile[] {
 function cleaned(profile: CompanyProfile): CompanyProfile {
   const next = { ...profile };
   for (const field of COMPANY_FIELDS) next[field] = cleanProfileText(profile[field], MAX_COMPANY_TEXT);
+  next.brandColors = cleanBrandColors(profile.brandColors);
+  next.brandFonts = cleanBrandFonts(profile.brandFonts);
   return next;
 }
 
@@ -40,7 +42,7 @@ function store(companies: CompanyProfile[]): CompanyProblem | null {
 export function addCompany(): CompanyProblem | null {
   const { companies } = companiesStore.getState();
   if (companies.length >= MAX_COMPANIES) return 'notSaved';
-  return store([...companies, { id: crypto.randomUUID(), name: '', address: '', phone: '', email: '', website: '', logo: null }]);
+  return store([...companies, { id: crypto.randomUUID(), name: '', address: '', phone: '', email: '', website: '', logo: null, brandColors: [], brandFonts: [] }]);
 }
 
 /** Saves a change to a profile; a problem when it couldn't be saved. */

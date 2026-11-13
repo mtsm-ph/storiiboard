@@ -11,6 +11,7 @@ import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './i
 import { mediaFields } from '../../core/media/store';
 import { videoFields } from '../../core/media/video';
 import { connectorsAttachedTo } from './connectorFields';
+import { isLiveKind, liveCardData, liveLabel, LIVE_KINDS, projectIdOf, type LiveKind } from './liveCards';
 
 // A board's items (docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 had one kind, a rectangle;
 // 5.1a adds fill and stroke to the shapes (rectangle, ellipse, triangle, diamond), text boxes and sticky notes. Z order
@@ -23,8 +24,9 @@ export type ShapeKind = (typeof SHAPE_KINDS)[number];
 /** 5.1b: a picture (with its `media` child), a video card (with its video `media`) and a link card. */
 export const MEDIA_KINDS = ['picture', 'video', 'link'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
-export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind | 'section';
-const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS, 'section'];
+export type ItemKind = ShapeKind | 'text' | 'sticky' | MediaKind | 'section' | LiveKind;
+const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky', ...MEDIA_KINDS, 'section', ...LIVE_KINDS];
+export { isLiveKind, type LiveKind };
 export const isShapeKind = (kind: ItemKind): kind is ShapeKind => (SHAPE_KINDS as readonly string[]).includes(kind);
 export const isMediaKind = (kind: ItemKind): kind is MediaKind => (MEDIA_KINDS as readonly string[]).includes(kind);
 
@@ -42,6 +44,8 @@ export const STICKY_INK = '#16150F';
 export const BOARD_PAPER = '#EEE9DF';
 export const BOARD_INK = '#16150F';
 export const BOARD_RAISED = '#C9C1B1';
+/** The muted ink (the brand's muted text), for a card's second line, fixed like the rest of a board's content. */
+export const BOARD_MUTED = '#5E5A52';
 /** Truffle, the warning colour (paper text on it), fixed like the rest of a board's content. */
 export const BOARD_WARNING = '#A35139';
 /** What the canvas draws a board in: fixed, so a board looks the same in light and dark and prints as seen. */
@@ -75,6 +79,9 @@ export interface ItemFields extends Geometry {
   title: string;
   /** A section's name (5.3); may be empty, and the section then shows "Section". */
   name: string;
+  /** The frame a shot card shows, and the scene a scene or palette card shows (5.4); '' for any other kind. */
+  shotId: string;
+  sceneId: string;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -138,6 +145,8 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     url: kind === 'link' && typeof props.url === 'string' ? props.url : '',
     title: kind === 'link' && typeof props.title === 'string' ? props.title : '',
     name: section && typeof props.name === 'string' ? props.name : '',
+    shotId: kind === 'shot_card' && typeof props.shot_id === 'string' ? props.shot_id : '',
+    sceneId: (kind === 'scene_card' || kind === 'palette_card') && typeof props.scene_id === 'string' ? props.scene_id : '',
   };
 }
 
@@ -182,12 +191,17 @@ export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = {
   video: () => t('moodboard.item.video'),
   link: () => t('moodboard.item.link'),
   section: () => t('moodboard.item.section'),
+  shot_card: () => t('moodboard.item.shot_card'),
+  scene_card: () => t('moodboard.item.scene_card'),
+  palette_card: () => t('moodboard.item.palette_card'),
+  brand_card: () => t('moodboard.item.brand_card'),
 };
 
 export const isTextKind = (kind: ItemKind): kind is 'text' | 'sticky' => kind === 'text' || kind === 'sticky';
 
 /** What a screen reader hears for an item: a card by its own name, "Link: Look book", "Video: A001.MP4", "Picture: IMG_4012.JPG". */
 export function announcedAs(records: Records, id: string, fields: ItemFields): string {
+  if (isLiveKind(fields.kind)) return liveLabel(liveCardData(records, projectIdOf(records, id), { kind: fields.kind, shotId: fields.shotId, sceneId: fields.sceneId }));
   const named = (key: 'moodboard.announce.picture' | 'moodboard.announce.video' | 'moodboard.announce.link', name: string) => (name.trim() === '' ? KIND_LABEL[fields.kind]() : t(key, { name }));
   if (fields.kind === 'link') return named('moodboard.announce.link', linkLabel(fields.url, fields.title));
   if (fields.kind === 'picture') {
@@ -245,9 +259,10 @@ export function canvasItems(records: Records, boardId: string): CanvasItem[] {
             : tn('moodboard.announce.section', sectionContents(fields, live).length, { name: fields.name.trim() })
           : announcedAs(records, id, fields),
       editable: isTextKind(fields.kind) || fields.kind === 'section',
-      openable: fields.kind === 'video' || fields.kind === 'link',
-      // A picture or video keeps its shape when resized.
-      keepRatio: fields.kind === 'picture' || fields.kind === 'video',
+      // A shot or scene card jumps back to the storyboard, a palette card opens its editor, the brand kit's Settings (5.4).
+      openable: fields.kind === 'video' || fields.kind === 'link' || isLiveKind(fields.kind),
+      // A picture, video or live card keeps its shape when resized.
+      keepRatio: fields.kind === 'picture' || fields.kind === 'video' || isLiveKind(fields.kind),
       // A sticky, shape or text box can be copied with a connector (5.2).
       quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
       ...(fields.kind === 'section' ? { section: { tab: sectionTab(fields) } } : {}),
@@ -310,6 +325,10 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
     return props;
   }
   if (seed.kind === 'picture' || seed.kind === 'video') return props;
+  // A live card names its record and nothing else (5.4): what it draws is read from the project each time.
+  if (seed.kind === 'shot_card') return { ...props, shot_id: seed.shotId ?? '' };
+  if (seed.kind === 'scene_card' || seed.kind === 'palette_card') return { ...props, scene_id: seed.sceneId ?? '' };
+  if (seed.kind === 'brand_card') return props;
   if (seed.kind === 'section') {
     props.rotation = 0;
     props.name = seed.name ?? '';
@@ -523,8 +542,8 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
   return ids.flatMap((id): Change[] => {
     const record = records[id];
     const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
-    // Pictures, video cards and links have no style to set here (a link's words are linkChanges).
-    if (!now || isMediaKind(now.kind)) return [];
+    // Pictures, video cards and links have no style to set here (a link's words are linkChanges); nor have live cards.
+    if (!now || isMediaKind(now.kind) || isLiveKind(now.kind)) return [];
     const wanted: Record<string, string | number | boolean | undefined> = {};
     if (isShapeKind(now.kind)) {
       wanted.fill = patch.fill;
