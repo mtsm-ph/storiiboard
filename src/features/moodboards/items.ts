@@ -2,32 +2,115 @@ import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
-import { atLeastMinimum, pasted, tidy } from '../../ui/canvas/placement';
-import type { CanvasItem, Geometry, GeometryChange, ReorderMode } from '../../ui/canvas/types';
+import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
+import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode } from '../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../ui/canvas/zOrder';
 
-// A board's items (5.0, docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 has one kind, a
-// rectangle. Z order is the sibling order: the first is at the back, and bringing to the front is a `move` to the last key.
+// A board's items (docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 had one kind, a rectangle;
+// 5.1a adds fill and stroke to the shapes (rectangle, ellipse, triangle, diamond), text boxes and sticky notes. Z order
+// is the sibling order: the first is at the back, and bringing to the front is a `move` to the last key.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type ItemKind = 'rect';
+export const SHAPE_KINDS = ['rect', 'ellipse', 'triangle', 'diamond'] as const;
+export type ShapeKind = (typeof SHAPE_KINDS)[number];
+export type ItemKind = ShapeKind | 'text' | 'sticky';
+const KINDS: readonly string[] = [...SHAPE_KINDS, 'text', 'sticky'];
+export const isShapeKind = (kind: ItemKind): kind is ShapeKind => kind !== 'text' && kind !== 'sticky';
+
+export type Align = 'left' | 'center' | 'right';
+export const ALIGNS: readonly Align[] = ['left', 'center', 'right'];
+
+/** The six sticky colours, each light enough for ink text to pass AA (4.5:1; tested). Fixed: board content isn't themed. */
+export const STICKY_COLOURS = ['#FFE97A', '#FFC9A8', '#FFB8C8', '#BFE8B0', '#B5DDF5', '#D9C8F0'] as const;
+/** The ink on a sticky note, whatever the theme (the brand's ink). */
+export const STICKY_INK = '#16150F';
+// Board content is never themed (M5): the board's own paper, ink and raised surface are fixed, the light theme's, in
+// both themes. A text box with no `color` is ink; an unfilled shape is the raised surface with an ink outline.
+export const BOARD_PAPER = '#EEE9DF';
+export const BOARD_INK = '#16150F';
+export const BOARD_RAISED = '#C9C1B1';
+/** What the canvas draws a board in: fixed, so a board looks the same in light and dark and prints as seen. */
+export const BOARD_COLOURS: CanvasColours = { ink: BOARD_INK, paper: BOARD_PAPER, raised: BOARD_RAISED };
+/** Swatches for shapes and text: the brand's inks and papers, then a few hues for a board's own use. */
+export const SWATCHES: readonly string[] = ['#16150F', '#5E5A52', '#C9C1B1', '#EEE9DF', '#FFFFFF', '#DF5E27', '#FFB162', '#A35139', '#2F6B4F', '#2C5F8A', '#6B4C9A', '#C23B5A'];
+export const DEFAULT_FONT_FAMILY = 'Inter Tight';
+export const DEFAULT_FONT_SIZE = 24;
+export const DEFAULT_STICKY_FONT_SIZE = 20;
+/** Konva's line height and the editor's, so the text drawn and the text typed take the same room. */
+export const LINE_HEIGHT = 1.2;
+/** A sticky note's padding in world units. */
+export const STICKY_PADDING = 12;
 
 export interface ItemFields extends Geometry {
   kind: ItemKind;
+  /** Shapes: `#RRGGBB`, or null for the board's raised colour (5.0's unfilled rectangle). */
+  fill: string | null;
+  /** Shapes: `#RRGGBB`, or null for the board's ink outline. */
+  stroke: string | null;
+  /** A text box's colour (null: the board's ink) or a sticky note's (null: the first sticky colour). */
+  color: string | null;
+  text: string;
+  fontFamily: string;
+  fontWeight: number;
+  fontItalic: boolean;
+  fontSize: number;
+  align: Align;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 
+/** A colour as stored: `#RRGGBB`, upper case; anything else is nothing. */
+export function hexColour(value: unknown): string | null {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : null;
+}
+
+/** What a person typed into a hex field: with or without the #, three or six digits; null when it isn't a colour. */
+export function parseHex(input: string): string | null {
+  const text = input.trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(text)) return `#${text.replace(/./g, '$&$&')}`.toUpperCase();
+  return hexColour(`#${text}`);
+}
+
+/** A font weight as CSS has it, 100 to 900 in steps of 100. */
+export const cleanWeight = (value: unknown): number => {
+  const n = num(value);
+  return n === null ? 400 : Math.min(900, Math.max(100, Math.floor((n + 50) / 100) * 100));
+};
+
+export const cleanSize = (value: unknown, fallback: number): number => {
+  const n = num(value);
+  return n === null || n <= 0 ? fallback : Math.min(1000, Math.max(4, n));
+};
+
 /** An item's props, or null when they aren't an item this version knows (a kind from a later version stays in the file, unseen). */
 export function itemFields(props: SbdRecord['props']): ItemFields | null {
-  if (props.kind !== 'rect') return null;
+  const kind = typeof props.kind === 'string' && KINDS.includes(props.kind) ? (props.kind as ItemKind) : null;
+  if (kind === null) return null;
   const x = num(props.x);
   const y = num(props.y);
   const width = num(props.width);
   const height = num(props.height);
   if (x === null || y === null || width === null || height === null) return null;
-  return { kind: 'rect', x, y, width: atLeastMinimum(width), height: atLeastMinimum(height), rotation: num(props.rotation) ?? 0 };
+  const sticky = kind === 'sticky';
+  return {
+    kind,
+    x,
+    y,
+    width: atLeastMinimum(width),
+    height: atLeastMinimum(height),
+    rotation: num(props.rotation) ?? 0,
+    fill: hexColour(props.fill),
+    stroke: hexColour(props.stroke),
+    // A sticky colour outside the six reads as the first.
+    color: sticky ? (STICKY_COLOURS.find((c) => c === hexColour(props.color)) ?? STICKY_COLOURS[0]) : hexColour(props.color),
+    text: typeof props.text === 'string' ? props.text : '',
+    fontFamily: typeof props.font_family === 'string' && props.font_family.trim() !== '' ? props.font_family : DEFAULT_FONT_FAMILY,
+    fontWeight: cleanWeight(props.font_weight),
+    fontItalic: props.font_italic === true,
+    fontSize: cleanSize(props.font_size, sticky ? DEFAULT_STICKY_FONT_SIZE : DEFAULT_FONT_SIZE),
+    align: ALIGNS.find((a) => a === props.align) ?? 'left',
+  };
 }
 
 /** The board's live items, back to front. */
@@ -37,46 +120,155 @@ export function itemsOf(records: Records, boardId: string, withTrashed = false):
     .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
 }
 
-export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = { rect: () => t('moodboard.item.rect') };
+/** A sticky colour by its name, in the language in use. */
+export function stickyColourName(hex: string): string {
+  const names = [t('moodboard.sticky.yellow'), t('moodboard.sticky.peach'), t('moodboard.sticky.pink'), t('moodboard.sticky.green'), t('moodboard.sticky.blue'), t('moodboard.sticky.lilac')];
+  const at = STICKY_COLOURS.findIndex((c) => c === hex);
+  return names[at] ?? hex;
+}
 
-/** What the canvas draws, back to front. */
+/** A text box's position after its height changes: the top edge of the box, as it is turned, stays where it was. */
+export function keepTop(g: Geometry, height: number): { x: number; y: number } {
+  const turn = (g.rotation * Math.PI) / 180;
+  const half = (height - g.height) / 2;
+  const cx = g.x + g.width / 2 - Math.sin(turn) * half;
+  const cy = g.y + g.height / 2 + Math.cos(turn) * half;
+  return { x: tidy(cx - g.width / 2), y: tidy(cy - height / 2) };
+}
+
+export const KIND_LABEL: Readonly<Record<ItemKind, () => string>> = {
+  rect: () => t('moodboard.item.rect'),
+  ellipse: () => t('moodboard.item.ellipse'),
+  triangle: () => t('moodboard.item.triangle'),
+  diamond: () => t('moodboard.item.diamond'),
+  text: () => t('moodboard.item.text'),
+  sticky: () => t('moodboard.item.sticky'),
+};
+
+export const isTextKind = (kind: ItemKind): kind is 'text' | 'sticky' => kind === 'text' || kind === 'sticky';
+
+/** What the canvas draws, back to front (without drawing: src/features/moodboards/drawing.tsx adds that). */
 export function canvasItems(records: Records, boardId: string): CanvasItem[] {
   return itemsOf(records, boardId).flatMap((record) => {
     const fields = itemFields(record.props);
-    return fields ? [{ id: record.id, x: fields.x, y: fields.y, width: fields.width, height: fields.height, rotation: fields.rotation, label: KIND_LABEL[fields.kind]() }] : [];
+    return fields
+      ? [{ id: record.id, x: fields.x, y: fields.y, width: fields.width, height: fields.height, rotation: fields.rotation, label: KIND_LABEL[fields.kind](), editable: isTextKind(fields.kind) }]
+      : [];
   });
 }
 
 const geometryProps = (g: Geometry) => ({ x: g.x, y: g.y, width: g.width, height: g.height, rotation: g.rotation });
 
+/**
+ * A text box as it is measured: how tall it is for its text, font and width. The page measures with Konva
+ * (src/features/moodboards/textFit.ts); tests and anywhere without a canvas use the estimate below.
+ */
+export interface TextBox {
+  text: string;
+  fontFamily: string;
+  fontWeight: number;
+  fontItalic: boolean;
+  fontSize: number;
+  align: Align;
+  width: number;
+}
+export type MeasureText = (box: TextBox) => number;
+
+/** Without a canvas: an average glyph is about 0.55 of the size wide; lines break at spaces. Never less than one line. */
+export const estimateTextHeight: MeasureText = (box) => {
+  const perLine = Math.max(1, Math.floor(box.width / (box.fontSize * 0.55)));
+  let lines = 0;
+  for (const paragraph of box.text.split('\n')) {
+    let used = 0;
+    let count = 1;
+    for (const word of paragraph.split(' ')) {
+      const need = word.length + (used > 0 ? 1 : 0);
+      if (used + need > perLine && used > 0) {
+        count += 1;
+        used = word.length;
+      } else used += need;
+    }
+    lines += count;
+  }
+  return tidy(Math.max(1, lines) * box.fontSize * LINE_HEIGHT);
+};
+
 const lastKey = (records: Records, boardId: string): string | null => itemsOf(records, boardId, true).at(-1)?.sortKey ?? null;
 
-/** Rectangles made at the front, in order, each after the last. */
-export function createRects(records: Records, boardId: string, geometries: readonly Geometry[]): { ids: string[]; changes: Change[] } {
+/** An item to make: its place and kind, and whatever style it begins with (the rest is the kind's default). */
+export type ItemSeed = Geometry & { kind: ItemKind } & Partial<Omit<ItemFields, keyof Geometry | 'kind'>>;
+
+/** The props written for a new item: its kind's own, nothing it doesn't use. */
+export function propsFor(seed: ItemSeed): Record<string, string | number | boolean> {
+  const props: Record<string, string | number | boolean> = { kind: seed.kind, ...geometryProps(seed) };
+  if (isShapeKind(seed.kind)) {
+    if (seed.fill) props.fill = seed.fill;
+    if (seed.stroke) props.stroke = seed.stroke;
+    return props;
+  }
+  props.text = seed.text ?? '';
+  props.font_family = seed.fontFamily ?? DEFAULT_FONT_FAMILY;
+  props.font_weight = seed.fontWeight ?? 400;
+  props.font_italic = seed.fontItalic ?? false;
+  props.font_size = seed.fontSize ?? (seed.kind === 'sticky' ? DEFAULT_STICKY_FONT_SIZE : DEFAULT_FONT_SIZE);
+  props.align = seed.align ?? 'left';
+  if (seed.kind === 'sticky') props.color = seed.color ?? STICKY_COLOURS[0];
+  else if (seed.color) props.color = seed.color;
+  return props;
+}
+
+/** Items made at the front, in order, each after the last. A given id is used for the first (an item typed into before it existed). */
+export function createItems(records: Records, boardId: string, seeds: readonly ItemSeed[], firstId?: string): { ids: string[]; changes: Change[] } {
   let previous = lastKey(records, boardId);
   const ids: string[] = [];
   const changes: Change[] = [];
-  for (const g of geometries) {
-    const id = crypto.randomUUID();
+  for (const seed of seeds) {
+    const id = ids.length === 0 && firstId ? firstId : crypto.randomUUID();
     const sortKey = keyBetween(previous, null);
     previous = sortKey;
     ids.push(id);
-    changes.push({ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: { kind: 'rect', ...geometryProps(g) } } });
+    changes.push({ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: propsFor(seed) } });
   }
   return { ids, changes };
 }
 
+/** Rectangles made at the front, in order, each after the last. */
+export function createRects(records: Records, boardId: string, geometries: readonly Geometry[]): { ids: string[]; changes: Change[] } {
+  return createItems(records, boardId, geometries.map((g) => ({ ...g, kind: 'rect' as const })));
+}
+
+const boxOf = (fields: ItemFields, width = fields.width, text = fields.text): TextBox => ({
+  text,
+  fontFamily: fields.fontFamily,
+  fontWeight: fields.fontWeight,
+  fontItalic: fields.fontItalic,
+  fontSize: fields.fontSize,
+  align: fields.align,
+  width,
+});
+
 /**
  * A finished move, resize or rotate: one update per item that changed, all one op group. An item whose props already
- * equal the new ones is left out, so the canvas never writes an empty step.
+ * equal the new ones is left out, so the canvas never writes an empty step. A text box's height follows its text: when
+ * its width changed it is worked out again for the new width.
  */
-export function geometryChanges(records: Records, changes: readonly GeometryChange[]): Change[] {
+export function geometryChanges(records: Records, changes: readonly GeometryChange[], measure: MeasureText = estimateTextHeight): Change[] {
   return changes.flatMap((c): Change[] => {
     const record = records[c.id];
     if (record?.type !== 'board_item' || record.trashedAt !== null) return [];
-    const set = geometryProps(c);
     // Against the item as it reads (a missing rotation is 0), so a drag back to where it began writes nothing.
     const now = itemFields(record.props);
+    let next = c;
+    if (now?.kind === 'text') {
+      if (c.width === now.width && c.height !== now.height) {
+        // A text box is as tall as its text: stretching it by the top or bottom handle snaps back.
+        next = { ...c, x: now.x, y: now.y, height: now.height };
+      } else if (c.width !== now.width) {
+        const height = Math.max(MIN_SIZE, measure(boxOf(now, c.width)));
+        next = { ...c, ...keepTop(c, height), height };
+      }
+    }
+    const set = geometryProps(next);
     if (now && Object.entries(set).every(([key, value]) => now[key as keyof typeof now] === value)) return [];
     return [{ kind: 'update', id: c.id, set }];
   });
@@ -130,10 +322,8 @@ export function trashItemsChanges(records: Records, ids: readonly string[]): Cha
   return ids.filter((id) => records[id]?.type === 'board_item' && records[id].trashedAt === null).map((id): Change => ({ kind: 'trash', id }));
 }
 
-/** What Copy keeps: the selected items' kind and geometry, back to front. */
-export interface ClipItem extends Geometry {
-  kind: ItemKind;
-}
+/** What Copy keeps: the selected items, kind, geometry and style, back to front. */
+export type ClipItem = ItemFields;
 
 export function clipOf(records: Records, boardId: string, selected: readonly string[]): ClipItem[] {
   return itemsOf(records, boardId).flatMap((record) => {
@@ -144,5 +334,95 @@ export function clipOf(records: Records, boardId: string, selected: readonly str
 
 /** Pasted at the pointer or offset 16 units from the originals, at the front. */
 export function pasteChanges(records: Records, boardId: string, clip: readonly ClipItem[], at: { x: number; y: number } | null): { ids: string[]; changes: Change[] } {
-  return createRects(records, boardId, pasted(clip, at));
+  return createItems(records, boardId, pasted(clip, at));
+}
+
+/** A property change from the properties strip: what each kind takes of it is decided in `styleChanges`. */
+export interface StylePatch {
+  /** Shapes. */
+  fill?: string;
+  stroke?: string;
+  /** Text boxes. */
+  textColor?: string;
+  /** Sticky notes. */
+  stickyColor?: string;
+  /** Text boxes and sticky notes. */
+  fontFamily?: string;
+  fontWeight?: number;
+  fontItalic?: boolean;
+  fontSize?: number;
+  align?: Align;
+}
+
+/**
+ * A style change on several items: one update per item that has something to change, all one op group. Shapes take
+ * fill and stroke; text boxes the text colour; stickies their colour; both the font and alignment. A text box whose
+ * font or size changed gets its height worked out again.
+ */
+export function styleChanges(records: Records, ids: readonly string[], patch: StylePatch, measure: MeasureText = estimateTextHeight): Change[] {
+  return ids.flatMap((id): Change[] => {
+    const record = records[id];
+    const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
+    if (!now) return [];
+    const wanted: Record<string, string | number | boolean | undefined> = {};
+    if (isShapeKind(now.kind)) {
+      wanted.fill = patch.fill;
+      wanted.stroke = patch.stroke;
+    } else {
+      wanted.color = now.kind === 'text' ? patch.textColor : patch.stickyColor;
+      wanted.font_family = patch.fontFamily;
+      wanted.font_weight = patch.fontWeight;
+      wanted.font_italic = patch.fontItalic;
+      wanted.font_size = patch.fontSize === undefined ? undefined : cleanSize(patch.fontSize, now.fontSize);
+      wanted.align = patch.align;
+    }
+    const current: Record<string, unknown> = {
+      fill: now.fill,
+      stroke: now.stroke,
+      color: now.color,
+      font_family: now.fontFamily,
+      font_weight: now.fontWeight,
+      font_italic: now.fontItalic,
+      font_size: now.fontSize,
+      align: now.align,
+    };
+    const set: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(wanted)) {
+      if (value !== undefined && current[key] !== value) set[key] = value;
+    }
+    if (Object.keys(set).length === 0) return [];
+    if (now.kind === 'text' && ('font_family' in set || 'font_weight' in set || 'font_italic' in set || 'font_size' in set)) {
+      const after: ItemFields = {
+        ...now,
+        fontFamily: typeof set.font_family === 'string' ? set.font_family : now.fontFamily,
+        fontWeight: typeof set.font_weight === 'number' ? set.font_weight : now.fontWeight,
+        fontItalic: typeof set.font_italic === 'boolean' ? set.font_italic : now.fontItalic,
+        fontSize: typeof set.font_size === 'number' ? set.font_size : now.fontSize,
+      };
+      const height = Math.max(MIN_SIZE, measure(boxOf(after)));
+      if (height !== now.height) Object.assign(set, { height, ...keepTop(now, height) });
+    }
+    return [{ kind: 'update', id, set }];
+  });
+}
+
+/** Editing in place ended on an item that exists: its text (and a text box's height with it), if either changed. */
+export function textEditChanges(records: Records, id: string, text: string, measure: MeasureText = estimateTextHeight): Change[] {
+  const record = records[id];
+  const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
+  if (!now || !isTextKind(now.kind)) return [];
+  const set: Record<string, string | number> = {};
+  if (text !== now.text) set.text = text;
+  if (now.kind === 'text') {
+    const height = Math.max(MIN_SIZE, measure(boxOf(now, now.width, text)));
+    if (height !== now.height) Object.assign(set, { height, ...keepTop(now, height) });
+  }
+  return Object.keys(set).length === 0 ? [] : [{ kind: 'update', id, set }];
+}
+
+/** A new text box or sticky note with what was typed in it: a text box's height is its text's. */
+export function seedWithText(seed: ItemSeed, text: string, measure: MeasureText = estimateTextHeight): ItemSeed {
+  if (seed.kind !== 'text') return { ...seed, text };
+  const fields = itemFields(propsFor({ ...seed, text }));
+  return { ...seed, text, height: fields ? Math.max(MIN_SIZE, measure(boxOf(fields))) : seed.height };
 }

@@ -9,6 +9,11 @@ describe('the canvas keys', () => {
     expect(toolForKey(key('r', { ctrlKey: true }))).toBeNull();
   });
 
+  it('reads T, S and O as the text, sticky and ellipse tools', () => {
+    expect([toolForKey(key('t')), toolForKey(key('S')), toolForKey(key('o'))]).toEqual(['text', 'sticky', 'ellipse']);
+    expect(toolForKey(key('s', { metaKey: true }))).toBeNull();
+  });
+
   it('maps the edit commands with ⌘ on a Mac and Ctrl elsewhere', () => {
     expect(commandForKey(key('c', { metaKey: true }), true, null)).toEqual({ kind: 'copy' });
     expect(commandForKey(key('c', { ctrlKey: true }), true, null)).toBeNull();

@@ -738,20 +738,46 @@ were always in the list, so there is no migration and no schema number (additive
   board is not offered.
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
-`board_item` props (5.0 has one kind, a rectangle):
-- `kind`: `rect`. An item whose `kind` this version doesn't know is kept and not shown.
+`board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text` or `sticky`. An item whose `kind` this version doesn't know is
+  kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
 - `width`, `height`: world units, never below 8. Anything smaller reads as 8.
 - `rotation`: degrees, clockwise, round the item's centre; 0 up to but not including 360. Missing reads as 0.
-- A rectangle has no colour prop in 5.0; it draws in the theme's raised surface with an ink 1.5px outline. 5.1 adds colour.
+- A shape (`rect`, `ellipse`, `triangle`, `diamond`; 5.1a) has optional `fill` and `stroke`, each a `#RRGGBB` string
+  (read in either case, kept upper case; anything else reads as not set). Colours are stored as seen, not as theme
+  tokens: board content is the person's, so it doesn't follow the theme and prints as seen. A shape without `fill` draws in
+  the board's raised colour `#C9C1B1` and one without `stroke` with the board's ink `#16150F` 1.5px outline, as a 5.0
+  rectangle always did (in the light theme; from 5.1a these are fixed, in both themes).
+- **A missing colour reads as ink; board content is never themed.** A text box with no `color` is ink `#16150F`, on
+  screen and in print, in light and dark. The board's canvas is always the paper `#EEE9DF` in both themes, so ink stays
+  readable on it; only the controls around the canvas follow the theme. Anything that draws a board (the PDF of 5.6, a deck)
+  resolves a missing colour the same way: ink for text and outlines, paper for the page, `#C9C1B1` for an unfilled shape.
+  A shape's hit area is its bounding box.
+- A `text` item (5.1a) has `text` (the words, with a newline character for new lines), `font_family` (a family name; default `Inter Tight`),
+  `font_weight` (100 to 900, rounded to the nearest 100; default 400), `font_italic` (boolean; default false), `font_size` (world
+  units, 4 to 1000; default 24), `color` (`#RRGGBB`; missing reads as ink `#16150F`) and `align` (`left`,
+  `center` or `right`; default `left`). The box's `width` wraps the text; its `height` is what the text takes at that width
+  and is written again whenever the text, font, size or width changes.
+- A `sticky` item (5.1a) is a square note with `text`, the same font props (default size 20), `align`, and `color`: its
+  background, one of six fixed colours `#FFE97A`, `#FFC9A8`, `#FFB8C8`, `#BFE8B0`, `#B5DDF5`, `#D9C8F0` (missing, or any colour outside the six, reads as
+  the first). Its text is always ink (`#16150F`), whatever the theme; each colour passes AA (4.5 to 1) with that ink.
+- A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
+  (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
+  Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
+  a font this computer lacks draws it in Inter Tight and says so once; the name stays stored, so the right font shows
+  again on a computer that has it. The font's OpenType `fsType` bits are read when its bytes are loaded and kept in memory
+  for the PDF rule of 5.6 (a font whose bits forbid embedding is never embedded); they are not stored in the project.
 - **Z order is the sibling order** (decision 1's "z order"): the items' `sort_key`s, back to front, as for every record's
   ordered children (src/core/ops/order.ts). Bringing an item to the front is a `move` op to a key after the last item's;
   a reorder of several items writes those items' rows only. The first is at the back. Siblings in the Trash, and items
   of a kind this version doesn't show, keep their keys and are never moved or tied: a new key is made between them and
   the neighbours, so no two siblings share one. A reorder that changes nothing among the items that show writes nothing.
 
-Edits are ops like any other. One gesture is one op group: a drag, a resize, a rotate or a reorder of several items is
+Edits are ops like any other. Typing into a text box or sticky note in place is one op group, written when editing ends
+(Escape, or a click outside), never one per keystroke; a new text box left empty writes nothing at all. A property
+change on several selected items is one group. One gesture is one op group: a drag, a resize, a rotate or a reorder of several items is
 one group, written when the gesture ends; a nudge by an arrow key is one group per key press; a paste is one group.
 Selection, tool and each board's view (zoom 10% to 800%, and where it is looking) are view state, kept in memory for the
 session: never an op, never in the project.
@@ -1153,3 +1179,5 @@ merge a database, so two guards sit around every open project:
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.
 Boards (5.0) are the `board` and `board_item` record types and their props (see Boards); they need no table change either.
+5.1a adds item kinds and props to `board_item` (shapes with `fill` and `stroke`, `text` and `sticky` items): additive, no table
+change and no schema number; an older version keeps an item of a kind it doesn't know and doesn't show it.

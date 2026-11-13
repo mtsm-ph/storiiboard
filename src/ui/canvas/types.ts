@@ -48,6 +48,8 @@ export interface CanvasItem extends Geometry {
   label: string;
   /** Draws the item in its own box, 0 to width by 0 to height. Without one, a rectangle in the raised surface. */
   draw?: (context: DrawContext) => ReactNode;
+  /** Whether Enter or a double-click edits it in place (text and sticky notes); the host does the editing. */
+  editable?: boolean;
 }
 
 /** The view: the world point at the middle of the canvas and the zoom (1 is 100%), so it survives a resize. */
@@ -57,7 +59,12 @@ export interface Viewport {
   zoom: number;
 }
 
-export type Tool = 'select' | 'hand' | 'rect';
+/** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes). */
+export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky';
+
+export type Tool = 'select' | 'hand' | PlaceTool;
+
+export const isPlaceTool = (tool: Tool): tool is PlaceTool => tool !== 'select' && tool !== 'hand';
 
 export type ReorderMode = 'forward' | 'backward' | 'front' | 'back';
 

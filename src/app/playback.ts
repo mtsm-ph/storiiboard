@@ -46,7 +46,7 @@ export interface CopiesInfo {
 }
 
 /** The licences that ship beside the app, as the bundle names them (src-tauri/src/licences.rs). */
-export const LICENCES = ['ffmpeg-LICENSE.txt', 'ffmpeg-LICENSE.md', 'zimg-LICENSE.txt', 'dav1d-LICENSE.txt', 'ffmpeg-SOURCE.txt'] as const;
+export const LICENCES = ['ffmpeg-LICENSE.txt', 'ffmpeg-LICENSE.md', 'zimg-LICENSE.txt', 'dav1d-LICENSE.txt', 'ffmpeg-SOURCE.txt', 'fonts-archivo-OFL.txt', 'fonts-bodonimoda-OFL.txt', 'fonts-intertight-OFL.txt', 'fonts-jetbrainsmono-OFL.txt', 'fonts-jost-OFL.txt', 'fonts-outfit-OFL.txt'] as const;
 export type LicenceName = (typeof LICENCES)[number];
 
 export interface PlaybackDriver {

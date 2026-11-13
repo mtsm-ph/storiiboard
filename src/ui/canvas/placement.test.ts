@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_SIZE, NEW_HEIGHT, NEW_WIDTH, PASTE_OFFSET, atLeastMinimum, moved, normalisedRotation, nudgeFor, pasted, placedAt } from './placement';
+import { PLACED_SIZE, MIN_SIZE, NEW_HEIGHT, NEW_WIDTH, PASTE_OFFSET, atLeastMinimum, moved, normalisedRotation, nudgeFor, pasted, placedAt } from './placement';
 import type { Geometry } from './types';
 
 const g = (x: number, y: number, rotation = 0): Geometry => ({ x, y, width: 100, height: 50, rotation });
+
+describe('what each tool places', () => {
+  it('puts a sticky note down square and a text box wide, each centred on the click', () => {
+    expect(placedAt({ x: 0, y: 0 }, 'sticky')).toMatchObject({ x: -100, y: -100, width: 200, height: 200 });
+    expect(placedAt({ x: 0, y: 0 }, 'text').width).toBe(PLACED_SIZE.text.width);
+    expect(placedAt({ x: 0, y: 0 })).toMatchObject({ width: NEW_WIDTH, height: NEW_HEIGHT });
+    expect(placedAt({ x: 0, y: 0 }, 'ellipse')).toMatchObject({ width: NEW_WIDTH, height: NEW_HEIGHT });
+  });
+});
 
 describe('nudges, pastes and placements', () => {
   it('nudges 1 unit, Shift 10, and ignores other keys', () => {

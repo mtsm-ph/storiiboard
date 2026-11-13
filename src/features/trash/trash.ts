@@ -144,7 +144,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'boardItem': {
       // "Rectangle on Camera board": what it is, and the board it was on (as that board is called now).
       const board = record.parentId ? records[record.parentId] : undefined;
-      const kind = itemFields(record.props) ? KIND_LABEL.rect() : t('trash.boardItemUnknown');
+      const fields = itemFields(record.props);
+      const kind = fields ? KIND_LABEL[fields.kind]() : t('trash.boardItemUnknown');
       return [plain(t('trash.itemOnBoard', { item: kind, board: board ? boardTitle(board) : t('moodboard.untitled') }))];
     }
     case 'gear': {

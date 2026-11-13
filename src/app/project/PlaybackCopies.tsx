@@ -265,6 +265,12 @@ const LICENCE_LABEL = labels<LicenceName>({
   'zimg-LICENSE.txt': 'licences.zimg',
   'dav1d-LICENSE.txt': 'licences.dav1d',
   'ffmpeg-SOURCE.txt': 'licences.sources',
+  'fonts-archivo-OFL.txt': 'licences.fontArchivo',
+  'fonts-bodonimoda-OFL.txt': 'licences.fontBodoniModa',
+  'fonts-intertight-OFL.txt': 'licences.fontInterTight',
+  'fonts-jetbrainsmono-OFL.txt': 'licences.fontJetbrainsMono',
+  'fonts-jost-OFL.txt': 'licences.fontJost',
+  'fonts-outfit-OFL.txt': 'licences.fontOutfit',
 });
 
 /** The licences, one at a time, as they ship: plain text, scrollable, in mono. */
