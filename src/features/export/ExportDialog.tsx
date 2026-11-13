@@ -4,7 +4,7 @@ import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
 import { sceneLabel } from '../../core/model/storyboard';
-import { chooseExportFile, chooseExportFolder } from '../../core/storage/exportFiles';
+import { chooseExportFile, chooseExportFolder, type ExportTarget } from '../../core/storage/exportFiles';
 import { Button } from '../../ui/Button';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { NoticeBar } from '../../app/NoticeBar';
@@ -12,8 +12,10 @@ import { Select, Toggle } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { board } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
-import { closeExportDialog, useExportDialog } from './exportStore';
-import { FORMATS } from './registry';
+import { boardTitle } from '../moodboards/boards';
+import { isDeck, pagesOf } from '../moodboards/pages';
+import { closeExportDialog, useExportDeck, useExportDialog } from './exportStore';
+import { DECK_FORMATS, FORMATS } from './registry';
 import type { ExportScope } from './scope';
 import { POSITION_LABEL, readWatermark } from './watermark';
 import { WatermarkDialog } from './WatermarkDialog';
@@ -60,7 +62,13 @@ function failureMessage(error: unknown, written: number, total: number, label: s
 function ExportDialog() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [formatId, setFormatId] = useState(FORMATS[0]?.id ?? '');
+  // From a deck's Export button (5.6a) the dialog is for that deck: its own formats, no scenes.
+  const deckId = useExportDeck();
+  const deckBoard = deckId ? records[deckId] : undefined;
+  const deck = deckBoard !== undefined && isDeck(deckBoard) && deckBoard.trashedAt === null ? deckBoard : null;
+  const formats = deckId ? DECK_FORMATS : FORMATS;
+  const [formatId, setFormatId] = useState(formats[0]?.id ?? '');
+  const [pixelRatio, setPixelRatio] = useState<'1' | '2'>('1');
   const [sceneId, setSceneId] = useState('');
   // Remembered on this computer, as last chosen (polish PP).
   const [scenePalettes, setScenePalettes] = useState(() => loadSettings().pdfScenePalettes);
@@ -85,12 +93,17 @@ function ExportDialog() {
   const projectId = project?.projectId ?? null;
   const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
   if (!project) return null;
-  const format = FORMATS.find((f) => f.id === formatId) ?? FORMATS[0];
+  const format = formats.find((f) => f.id === formatId) ?? formats[0];
   const whole = format?.wholeProject === true;
   const scene = whole ? null : (scenes.find((s) => s.record.id === sceneId) ?? null);
   const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
   const props = records[project.projectId]?.props;
-  const title = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
+  const projectTitle = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
+  // A deck's files are named for the deck.
+  const title = deck ? boardTitle(deck) : projectTitle;
+  const pageCount = deck ? pagesOf(records, deck.id).length : 0;
+  // A deck with no pages has nothing to print: the formats are off, with the reason said.
+  const noPages = deckId !== null && pageCount === 0;
   const watermark = readWatermark(props);
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
@@ -111,6 +124,7 @@ function ExportDialog() {
     let written = 0;
     let total = 0;
     let label = '';
+    let opened: ExportTarget | null = null;
     // The button goes disabled from the first click, while the Save or folder dialog is still coming up.
     setRunning(CHOOSING);
     setFailed(null);
@@ -118,12 +132,32 @@ function ExportDialog() {
       const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
       if (!chosen || controller.signal.aborted) return;
       label = chosen.label;
-      const target = {
-        label: chosen.label,
+      opened = chosen;
+      let staged = 0;
+      const target: ExportTarget = {
+        // As the folder is named once it is made ("Pitch 2" where "Pitch" was taken).
+        get label() {
+          return chosen.label;
+        },
         write: async (file: string, bytes: Uint8Array) => {
           await chosen.write(file, bytes);
           written += 1;
         },
+        // A set that appears whole (5.6a): counted as written only once it has its names.
+        ...(chosen.stage && chosen.commit
+          ? {
+              stage: async (file: string, bytes: Uint8Array) => {
+                await chosen.stage?.(file, bytes);
+                staged += 1;
+              },
+              commit: async () => {
+                await chosen.commit?.();
+                written += staged;
+                staged = 0;
+              },
+              abandon: () => chosen.abandon?.() ?? Promise.resolve(),
+            }
+          : {}),
       };
       setRunning(t('export.exporting'));
       const { what, warning } = await format.run({
@@ -131,6 +165,8 @@ function ExportDialog() {
         projectId: project.projectId,
         title,
         scope,
+        ...(deckId ? { deckId } : {}),
+        pixelRatio: pixelRatio === '2' ? 2 : 1,
         file: project.file,
         target,
         progress: (done, of, doing) => {
@@ -146,6 +182,8 @@ function ExportDialog() {
       if (warning) showNotice(t('export.doneWarning', { said, warning }));
       else showInfo(said);
     } catch (error) {
+      // A set that was being made is taken away again: the files this run made and the folder it made for them.
+      await opened?.abandon?.().catch(() => undefined);
       if (controller.signal.aborted) {
         showInfo(
           written === 0 ? t('export.stoppedNothing') : t('export.stoppedPartway', { written, total, label }),
@@ -163,7 +201,7 @@ function ExportDialog() {
       {/* The kit's segmented control, square and ink-filled, rather than the webview's round radio dots. */}
       <SegmentedControl
         label={t('exportDialog.format')}
-        options={FORMATS.map((f) => ({ value: f.id, label: f.label, hint: f.description }))}
+        options={formats.map((f) => ({ value: f.id, label: f.label, hint: f.description }))}
         value={format?.id ?? ''}
         onChange={setFormatId}
       />
@@ -179,7 +217,19 @@ function ExportDialog() {
           }}
         />
       )}
-      {!whole && (
+      {format?.options?.pixelRatio && (
+        <SegmentedControl
+          label={t('export.deck.pixelRatio')}
+          options={[
+            { value: '1', label: t('export.deck.pixelRatio.1') },
+            { value: '2', label: t('export.deck.pixelRatio.2') },
+          ]}
+          value={pixelRatio}
+          disabled={running !== null}
+          onChange={setPixelRatio}
+        />
+      )}
+      {!whole && !deckId && (
       <Select
         label={t('exportDialog.scenes')}
         value={sceneId}
@@ -195,8 +245,17 @@ function ExportDialog() {
         ))}
       </Select>
       )}
-      {whole ? (
+      {noPages ? (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {t('export.deck.noPages')}
+        </p>
+      ) : whole ? (
         <p className="text-[13px]">{format.wholeNote ?? t('export.wholeProject')}</p>
+      ) : deckId ? (
+        <p className="text-[13px]">
+          <Trans k={pluralKey('export.deck.pagesNoWorking', pageCount)} parts={{ count: <span className="font-mono">{String(pageCount)}</span> }} />{' '}
+          {carries ? t('export.watermark', { text: watermark.text, position: POSITION_LABEL[watermark.position].toLowerCase() }) : t('export.noWatermark')}
+        </p>
       ) : (
         <p className="text-[13px]">
           <Trans k={pluralKey('export.framesNoTrash', frames)} parts={{ count: <span className="font-mono">{String(frames)}</span> }} />{' '}
@@ -215,7 +274,7 @@ function ExportDialog() {
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
-        <Button variant="primary" disabled={running !== null || (frames === 0 && !whole)} onClick={() => void run()}>
+        <Button variant="primary" disabled={running !== null || noPages || (frames === 0 && !whole && !deckId)} onClick={() => void run()}>
           {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>

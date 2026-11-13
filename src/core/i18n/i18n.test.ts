@@ -175,6 +175,17 @@ describe('errors raised below the UI', () => {
       '"X" isn\'t an app data file.',
       'The backup copy has already ended.',
       "Couldn't set the project's journal mode (got X).",
+      // Why a picture's original file wasn't read for a deck's PDF (src-tauri/src/originals.rs): the page catches each and prints the
+      // copy kept in the project, which the export's notice says. They are never shown as they are.
+      "That picture's path isn't a plain file path.",
+      "That picture's path is on a network share the project isn't on.",
+      "That picture's path leaves the project's folder.",
+      "That picture's path goes through a link.",
+      "That picture can't be looked at.",
+      "That isn't a picture's hash.",
+      "That isn't a plain file.",
+      'That picture is too large to print from its original.',
+      "That file isn't a picture.",
       // A service id the code doesn't list: a bug in the app, never something a person did.
       "Storiiboard doesn't know that service.",
     ]);

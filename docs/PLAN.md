@@ -7,7 +7,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); 5.0 built (#136, waiting for Kevin's baseline comparison), 5.1a (#137), 5.1b (#138), 5.2 (#139), 5.3 (#140), 5.4 (#141) and 5.5 (#142) built, 5.6 next. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
+| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); 5.0 built (#136, waiting for Kevin's baseline comparison), 5.1a (#137), 5.1b (#138), 5.2 (#139), 5.3 (#140), 5.4 (#141), 5.5 (#142) and 5.6a (#143) built, 5.6b next. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
@@ -44,7 +44,7 @@ a real pitch.
 | 5.3 Sections and layout | Sections that group items and move with their contents; Tidy up (rows, columns, grid), align and distribute, snap guides | #140 | Built Nov 11, stacked on #139; one review round; section contents worked out, never stored; Alt (Option) keys |
 | 5.4 Live cards | Shots and scenes from the storyboard as live cards (decision 6) that jump back to the board; scene palettes; brand-kit cards from the company profile (colours, fonts, logo); links of a board to scenes, characters and locations | #141 | Built Nov 11, stacked on #140; two review rounds; brand colours and fonts on company profiles; a context menu on frames and scene headings (Add to board...); palette hex copied from the strip |
 | 5.5 Decks | Page frames on a board (decision 3: 16:9, 9:16 and 4:5 for social decks, A4 and Letter for a treatment), ordered; Present; four templates filled from the project (decision 8) | #142 | Built Nov 11, stacked on #141; two review rounds; live field cards (names and roles only, never contact details); Present over the window, nothing reaches the project while it's up |
-| 5.6 Export | Deck PDF (pdf-lib: text as text in its font, embedded only where its `fsType` bits allow, else the fallback and the export says so; pictures at full quality from their originals) and PNG per page (Konva); scene palettes from a moodboard, swatches as a PNG strip and Adobe .ase (decision 9) | | Not started |
+| 5.6 Export | Deck PDF (pdf-lib: text as text in its font, embedded only where its `fsType` bits allow, else the fallback and the export says so; pictures at full quality from their originals) and PNG per page (Konva); scene palettes from a moodboard, swatches as a PNG strip and Adobe .ase (decision 9) | #143 (5.6a) | 5.6a built Nov 11 (deck PDF and PNGs), stacked on #142; two review rounds; originals read through Rust (src-tauri/src/originals.rs) and checked against the stored copy; variable fonts that can't print a weight use Inter Tight (static instances wait for Kevin). 5.6b (palettes from a board, swatches) next |
 | 5.7 Performance | The 500-item board (decision 12): drawing only what's in view, small previews when zoomed out and the full picture only up close (decision 4), a test like Q2's | | Not started |
 | Phase 5 gate | A checkpoint and Kevin's checklist: a deck built in under an hour | | Not started |
 

@@ -31,6 +31,7 @@ import { isPresentKey } from './presentKey';
 import { Menu, MenuGroup, MenuItem } from '../../ui/Menu';
 import { openLiveCard } from './liveActions';
 import { isLiveKind, liveCardData, liveLabel, projectIdOf, type LiveCardData } from './liveCards';
+import { openExportDialog } from '../export/exportStore';
 
 import {
   addBoardFiles,
@@ -433,6 +434,17 @@ export function BoardView({ board }: { board: SbdRecord }) {
               className="sb-label h-7 border border-text bg-accent px-2.5 text-accent-contrast disabled:border-dashed disabled:border-text-muted disabled:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
             >
               {t('deck.present')}
+            </button>
+            {/* Export (5.6a): the app's export dialog with this deck's two formats, a PDF and a PNG for each page. */}
+            <button
+              type="button"
+              data-deck-export=""
+              onClick={() => {
+                openExportDialog('export', board.id);
+              }}
+              className="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4"
+            >
+              {t('deck.export')}
             </button>
             {pageCount === 0 && <span className="text-[12px] text-text-muted">{t('deck.present.noPages')}</span>}
             <div className="flex h-7">

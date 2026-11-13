@@ -97,6 +97,8 @@ export function PictureNode({
   const ratio = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
   const { image, level } = usePicture(sha256, levelFor(width, height, zoom, ratio, inView));
   const shown = image ?? null;
+  // Which stored picture this is, on the node itself, so a PDF export can draw its original instead of what the canvas holds (5.6a).
+  const marked = { name: 'sb-picture', sbSha: sha256 ?? '' };
   useEffect(() => {
     report(id, shown ? level : null);
     return () => {
@@ -107,7 +109,7 @@ export function PictureNode({
     const box = cropBox(fit.crop ?? DEFAULT_CROP, shown.naturalWidth / shown.naturalHeight, width / height);
     return (
       <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
-        <KonvaImage image={shown} x={(box.left / 100) * width} y={(box.top / 100) * height} width={(box.width / 100) * width} height={(box.height / 100) * height} listening={false} />
+        <KonvaImage image={shown} x={(box.left / 100) * width} y={(box.top / 100) * height} width={(box.width / 100) * width} height={(box.height / 100) * height} listening={false} {...marked} />
       </Group>
     );
   }
@@ -115,9 +117,9 @@ export function PictureNode({
     const scale = Math.min(width / shown.naturalWidth, height / shown.naturalHeight);
     const w = shown.naturalWidth * scale;
     const h = shown.naturalHeight * scale;
-    return <KonvaImage image={shown} x={(width - w) / 2} y={(height - h) / 2} width={w} height={h} listening={false} />;
+    return <KonvaImage image={shown} x={(width - w) / 2} y={(height - h) / 2} width={w} height={h} listening={false} {...marked} />;
   }
-  if (shown) return <KonvaImage image={shown} width={width} height={height} listening={false} />;
+  if (shown) return <KonvaImage image={shown} width={width} height={height} listening={false} {...marked} />;
   return (
     <>
       <Rect width={width} height={height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} dash={image === null ? [6, 4] : []} />

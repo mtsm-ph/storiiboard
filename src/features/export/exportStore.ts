@@ -6,17 +6,21 @@ import { projectStore } from '../../app/projectStore';
 
 export type ExportDialogKind = 'export' | 'watermark';
 
-export const exportStore = createStore<{ open: ExportDialogKind | null }>()(() => ({ open: null }));
+export const exportStore = createStore<{ open: ExportDialogKind | null; deckId: string | null }>()(() => ({ open: null, deckId: null }));
 
-export const openExportDialog = (kind: ExportDialogKind): void => {
-  exportStore.setState({ open: kind });
+/** Opens a dialog; Export from a deck's own button (5.6a) names the deck, and then offers only what exports a deck. */
+export const openExportDialog = (kind: ExportDialogKind, deckId: string | null = null): void => {
+  exportStore.setState({ open: kind, deckId });
 };
 
 export const closeExportDialog = (): void => {
-  exportStore.setState({ open: null });
+  exportStore.setState({ open: null, deckId: null });
 };
 
 export const useExportDialog = (): ExportDialogKind | null => useStore(exportStore, (s) => s.open);
+
+/** The deck the open Export dialog is for, or null for Export Project's. */
+export const useExportDeck = (): string | null => useStore(exportStore, (s) => s.deckId);
 
 // A dialog belongs to the project it was opened for. Another one opened in place (a double-clicked .sbd, or the
 // project closed under it) closes it, rather than bringing up the same dialog for a project nobody opened it for,

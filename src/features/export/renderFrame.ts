@@ -79,7 +79,7 @@ export function watermarkSize(measure: (font: string) => number, width: number, 
 }
 
 /** Where the watermark goes, inside a margin of 3% of the frame's short edge. */
-function drawWatermark(ctx: Canvas2D, watermark: Watermark, width: number, height: number) {
+export function drawWatermark(ctx: Canvas2D, watermark: Watermark, width: number, height: number) {
   const margin = Math.round(Math.min(width, height) * 0.03);
   const size = watermarkSize(
     (font) => {

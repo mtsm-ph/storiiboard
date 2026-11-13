@@ -13,6 +13,7 @@ mod lock;
 mod net;
 mod open;
 mod opened;
+mod originals;
 mod os;
 mod pictures;
 mod playback;
@@ -77,6 +78,7 @@ pub fn run() {
             synced::projects_folder_for_new,
             pictures::pictures_choose,
             pictures::pictures_read,
+            originals::picture_original,
             video::video_probe,
             video::video_still,
             video::video_status,

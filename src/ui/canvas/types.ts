@@ -46,6 +46,8 @@ export interface DrawContext extends Size {
   inView: boolean;
   /** Drawn for a presentation (5.5): what is only there to be edited on screen (a placeholder) is left out. */
   present?: boolean;
+  /** Drawn to be exported (5.6a): pictures at their stored size, and a page without the outline the screen gives it. */
+  print?: boolean;
 }
 
 export interface CanvasItem extends Geometry {
