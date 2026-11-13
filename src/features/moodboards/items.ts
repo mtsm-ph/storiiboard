@@ -9,6 +9,7 @@ import { cardUrl, linkLabel } from './links';
 import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './itemMedia';
 import { mediaFields } from '../../core/media/store';
 import { videoFields } from '../../core/media/video';
+import { connectorsAttachedTo } from './connectorFields';
 
 // A board's items (docs/SBD_FORMAT.md, Boards): `board_item` records under their board. 5.0 had one kind, a rectangle;
 // 5.1a adds fill and stroke to the shapes (rectangle, ellipse, triangle, diamond), text boxes and sticky notes. Z order
@@ -198,6 +199,8 @@ export function canvasItems(records: Records, boardId: string): CanvasItem[] {
             openable: fields.kind === 'video' || fields.kind === 'link',
             // A picture or video keeps its shape when resized.
             keepRatio: fields.kind === 'picture' || fields.kind === 'video',
+            // A sticky, shape or text box can be copied with a connector (5.2).
+            quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
           },
         ]
       : [];
@@ -240,7 +243,12 @@ export const estimateTextHeight: MeasureText = (box) => {
   return tidy(Math.max(1, lines) * box.fontSize * LINE_HEIGHT);
 };
 
-const lastKey = (records: Records, boardId: string): string | null => itemsOf(records, boardId, true).at(-1)?.sortKey ?? null;
+// Every sibling holds a key: the Trash's, the kinds this version doesn't show and the connectors (which sit at the back) too,
+// so a new item never ties with one of them.
+const lastKey = (records: Records, boardId: string): string | null =>
+  Object.values(records)
+    .filter((r) => r.type === 'board_item' && r.parentId === boardId)
+    .reduce<string | null>((last, r) => (last === null || r.sortKey > last ? r.sortKey : last), null);
 
 /** An item to make: its place and kind, and whatever style it begins with (the rest is the kind's default). */
 export type ItemSeed = Geometry & { kind: ItemKind } & Partial<Omit<ItemFields, keyof Geometry | 'kind'>>;
@@ -370,9 +378,11 @@ export function reorderChanges(records: Records, boardId: string, selected: read
   return [...keys].map(([id, sortKey]): Change => ({ kind: 'move', id, parentId: boardId, sortKey }));
 }
 
-/** The items to the Trash, in one group. */
+/** The items to the Trash, in one group, and the connectors attached to them with them (5.2). */
 export function trashItemsChanges(records: Records, ids: readonly string[]): Change[] {
-  return ids.filter((id) => records[id]?.type === 'board_item' && records[id].trashedAt === null).map((id): Change => ({ kind: 'trash', id }));
+  const live = ids.filter((id) => records[id]?.type === 'board_item' && records[id].trashedAt === null);
+  const also = connectorsAttachedTo(records, live).filter((r) => !live.includes(r.id));
+  return [...live, ...also.map((r) => r.id)].map((id): Change => ({ kind: 'trash', id }));
 }
 
 /** What Copy keeps: the selected items, kind, geometry and style, back to front; a picture or video card's media too. */

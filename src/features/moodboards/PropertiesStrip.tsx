@@ -71,7 +71,7 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children }: Pr
   const first = lettered[0];
   const families = useMemo(() => familiesOf(system), [system]);
   // The band is always there at one height, empty with nothing selected, so the canvas below never changes size.
-  if (fields.length === 0) return <div className={BAND} />;
+  if (fields.length === 0 && !children) return <div className={BAND} />;
 
   const missing = first && availability(first.fontFamily, { status, system }) === 'missing';
   const entry = first ? families.find((f) => f.name === first.fontFamily) : undefined;

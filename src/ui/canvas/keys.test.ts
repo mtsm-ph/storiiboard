@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandForKey, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
+import { commandForKey, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 
 const key = (k: string, rest: Partial<KeyLike> = {}): KeyLike => ({ key: k, code: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...rest });
 
@@ -17,6 +17,17 @@ describe('the canvas keys', () => {
   it('reads L as the link tool (5.1b)', () => {
     expect(toolForKey(key('l'))).toBe('link');
     expect(toolForKey(key('L', { ctrlKey: true }))).toBeNull();
+  });
+
+  it('reads C as the connector tool and ⌘⌥ or Ctrl+Shift with an arrow as a connected copy (5.2)', () => {
+    expect(toolForKey(key('c'))).toBe('connector');
+    expect(toolForKey(key('c', { metaKey: true }))).toBeNull();
+    expect(quickSideFor(key('ArrowDown', { metaKey: true, altKey: true }), true)).toBe('bottom');
+    expect(quickSideFor(key('ArrowRight', { ctrlKey: true, shiftKey: true }), false)).toBe('right');
+    expect(quickSideFor(key('ArrowRight', { ctrlKey: true, altKey: true }), false)).toBeNull();
+    expect(quickSideFor(key('ArrowUp', { ctrlKey: true, shiftKey: true }), true)).toBeNull();
+    expect(quickSideFor(key('ArrowLeft', { metaKey: true }), true)).toBeNull();
+    expect(quickSideFor(key('a', { metaKey: true, altKey: true }), true)).toBeNull();
   });
 
   it('maps the edit commands with ⌘ on a Mac and Ctrl elsewhere', () => {

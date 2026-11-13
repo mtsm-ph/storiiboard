@@ -8,13 +8,15 @@ import { localizeError, t } from '../../core/i18n';
 import type { Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
-import type { Geometry, GeometryChange, PlaceTool, Point, ReorderMode } from '../../ui/canvas/types';
+import type { ConnectDrop, Geometry, GeometryChange, PlaceTool, Point, ReorderMode, Side } from '../../ui/canvas/types';
 import { prepare, reason, toAdded, type AddedFile } from '../storyboard/addPictures';
 import { picturesBusy } from '../storyboard/picturesBusy';
 import type { PreparedFile } from '../video/linkVideos';
 import { makeCopy } from '../video/playbackCopies';
 import { playCard } from '../video/playerSource';
 import { clipText, clipTaken, decidePasteOf } from './clipboardMarker';
+import { isConnector } from './connectorFields';
+import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, grownQuickSeed, labelChanges, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
 import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
 import { boardsOf, boardTitle, newBoard, openDepartmentBoard, renameBoard, trashBoardChanges } from './boards';
 import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, geometryChanges, nudgeChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
@@ -139,20 +141,36 @@ export async function finishEditing(text: string): Promise<void> {
   if (!editing) return;
   // First, so Escape and the blur it causes can't write twice.
   moodboardStore.getState().stopEditing();
-  const { boardId, id, draft } = editing;
+  const { boardId, id, draft, join } = editing;
   if (draft) {
-    if (draft.kind === 'text' && text.trim() === '') return;
+    if (draft.kind === 'text' && text.trim() === '') {
+      // A quick-created box left empty is dropped with its connector; the item it came from is selected again.
+      if (join) select(boardId, [join.item]);
+      return;
+    }
     // The font is loaded inside the edit's turn in the queue (not before it), so the step keeps its place among later ones.
     const seed = draft;
     const written = await projectStore.getState().applyWith(async () => {
       await fontReady(seed.fontFamily ?? DEFAULT_FONT_FAMILY, seed.fontWeight ?? 400, seed.fontItalic ?? false);
       // The records as they are after the wait, not as they were when the turn began.
-      return { changes: createItems(projectStore.getState().records, boardId, [seedWithText(seed, text, measureText)], id).changes };
+      const now = projectStore.getState().records;
+      const written = seedWithText(seed, text, measureText);
+      const placed = join ? grownQuickSeed(seed, written, join.side) : written;
+      const made = createItems(now, boardId, [placed], id).changes;
+      // A text box made with a connector (quick-create) is written with it, in the one group, if the item is still there.
+      const source = join ? now[join.item] : undefined;
+      const joined =
+        join && source?.type === 'board_item' && source.trashedAt === null
+          ? createConnectors(now, boardId, [{ from: { item: join.item, side: join.side }, to: { item: id, side: OPPOSITE[join.side] } }]).changes
+          : [];
+      return { changes: [...made, ...joined] };
     });
     if (written) select(boardId, [id]);
     return;
   }
   await projectStore.getState().applyWith(async (records) => {
+    // A connector's label: the words alone, no font to wait for.
+    if (isConnector(records[id])) return { changes: labelChanges(projectStore.getState().records, id, text) };
     const fields = itemFields(records[id]?.props ?? {});
     if (fields) await fontReady(fields.fontFamily, fields.fontWeight, fields.fontItalic);
     return { changes: textEditChanges(projectStore.getState().records, id, text, measureText) };
@@ -208,11 +226,13 @@ function wordsOf(item: ClipItem): string {
  */
 export function copySelection(boardId: string): number {
   const { project, records } = projectStore.getState();
-  const clip = clipOf(records, boardId, liveSelection(records, boardId));
-  if (clip.length === 0) return 0;
-  moodboardStore.getState().copy(clip, project ? { projectId: project.projectId, path: project.file.path } : null);
-  clipTaken(clipText(clip.map(wordsOf)));
-  return clip.length;
+  const selected = liveSelection(records, boardId);
+  const clip = clipOf(records, boardId, selected);
+  const connectors = clipConnectorsOf(records, boardId, selected);
+  if (clip.length === 0 && connectors.length === 0) return 0;
+  moodboardStore.getState().copy(clip, project ? { projectId: project.projectId, path: project.file.path } : null, connectors);
+  clipTaken(clipText([...clip.map(wordsOf), ...connectors.map((c) => c.label)]));
+  return clip.length + connectors.length;
 }
 
 export async function deleteSelection(boardId: string): Promise<void> {
@@ -237,8 +257,9 @@ export async function pasteClipboard(
   at: { x: number; y: number } | null,
   clip = moodboardStore.getState().clipboard,
   store: typeof projectStore = projectStore,
+  connectors: readonly ClipConnector[] = clip === moodboardStore.getState().clipboard ? moodboardStore.getState().clipConnectors : [],
 ): Promise<void> {
-  if (clip.length === 0) return;
+  if (clip.length === 0 && connectors.length === 0) return;
   const { project } = store.getState();
   if (!project) return;
   const { clipSource, clipboard } = moodboardStore.getState();
@@ -251,18 +272,26 @@ export async function pasteClipboard(
     const shas = [...new Set(clip.flatMap((item) => (item.media ? [shaOfClip(item.media)] : [])).filter((sha): sha is string => sha !== null))];
     const rows = elsewhere || shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
     const stored = new Set(rows.map((row) => String(row.sha256)));
-    const allowed = clip.filter((item) => {
-      if (!item.media) return true;
+    const keptAt = clip.flatMap((item, i) => {
+      if (!item.media) return [i];
       const sha = shaOfClip(item.media);
       // A video card with no poster pastes without one; anything else needs its stored picture.
-      return !elsewhere && (sha === null ? item.kind === 'video' : stored.has(sha));
+      return !elsewhere && (sha === null ? item.kind === 'video' : stored.has(sha)) ? [i] : [];
     });
+    const allowed = keptAt.map((i) => clip[i] as ClipItem);
     if (allowed.length < clip.length) outcome.left = elsewhere ? 'elsewhere' : 'gone';
-    if (allowed.length === 0) return { changes: [] };
-    const made = pasteChanges(store.getState().records, boardId, allowed, at);
-    ids = made.ids;
+    if (allowed.length === 0 && connectors.length === 0) return { changes: [] };
+    const now = store.getState().records;
+    const made = pasteChanges(now, boardId, allowed, at);
+    // Each connector joins the copies of its items; one whose item was left out keeps that end where it was.
+    const newIds = clip.map((_, i) => {
+      const k = keptAt.indexOf(i);
+      return k >= 0 ? (made.ids[k] ?? null) : null;
+    });
+    const joined = pasteConnectorChanges(now, boardId, connectors, newIds, pasteDelta(allowed, connectors, at));
+    ids = [...made.ids, ...joined.ids];
     videos = made.videos;
-    return { changes: made.changes };
+    return { changes: [...made.changes, ...joined.changes] };
   });
   if (outcome.left === 'elsewhere') showNotice(t('moodboard.pasteElsewhere'));
   else if (outcome.left === 'gone') showNotice(t('moodboard.pasteGone'));
@@ -275,7 +304,8 @@ export async function pasteClipboard(
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
 export async function duplicateSelection(boardId: string): Promise<void> {
   const { records } = projectStore.getState();
-  await pasteClipboard(boardId, null, clipOf(records, boardId, liveSelection(records, boardId)));
+  const selected = liveSelection(records, boardId);
+  await pasteClipboard(boardId, null, clipOf(records, boardId, selected), projectStore, clipConnectorsOf(records, boardId, selected));
 }
 
 /** A link card with its address (http or https only) and the title typed for it; false when the address isn't one. */
@@ -365,7 +395,7 @@ export const addBoardPictures = (boardId: string, files: readonly PictureFile[],
  * anything else is left for the items copied inside the app.
  */
 export function pasteFromSystem(boardId: string, data: DataTransfer, at: Point | null): boolean {
-  const decision = decidePasteOf(data, moodboardStore.getState().clipboard.length > 0);
+  const decision = decidePasteOf(data, moodboardStore.getState().clipboard.length > 0 || moodboardStore.getState().clipConnectors.length > 0);
   // The items copied in the app; or text that isn't the board's and isn't an address, which pastes nothing.
   if (decision === 'items') return false;
   if (decision === 'nothing') return true;
@@ -406,4 +436,52 @@ export async function openCard(boardId: string, id: string, showPlayer: () => vo
     playCard(video.id, id);
     showPlayer();
   }
+}
+
+/**
+ * A connector drawn, or one end of one dragged (5.2): one op group. A new connector is selected once made, as a shape is.
+ * Nothing is written for a connector joined to one item at both ends or whose item is gone.
+ */
+export async function connect(boardId: string, drop: ConnectDrop): Promise<void> {
+  let id: string | null = null;
+  const written = await projectStore.getState().applyWith((records) => {
+    const made = connectChanges(records, boardId, drop);
+    id = made.id;
+    return { changes: made.changes };
+  });
+  const made = id as string | null;
+  if (written && made) select(boardId, [made]);
+}
+
+/** A change in the properties strip, applied to the selected connectors it fits in one op group. */
+export async function changeConnector(boardId: string, patch: ConnectorPatch): Promise<void> {
+  const ids = liveSelection(projectStore.getState().records, boardId);
+  await projectStore.getState().applyWith((records) => ({ changes: connectorStyleChanges(records, ids, patch) }));
+}
+
+/**
+ * The "+" handle, or ⌘⌥ + an arrow (5.2): a copy of the item's kind and style 80 units beyond one side with a connector
+ * from the side to the copy, one op group. The copy is selected, and its text typed into at once when it has text.
+ */
+export async function quickCreate(boardId: string, itemId: string, side: Side): Promise<void> {
+  const original = itemFields(projectStore.getState().records[itemId]?.props ?? {});
+  // A text box is typed into before it exists, as a new one is: left empty it leaves nothing behind, connector included.
+  if (original?.kind === 'text') {
+    const seed = quickSeedOf(projectStore.getState().records, boardId, itemId, side, measureText);
+    if (!seed) return;
+    select(boardId, []);
+    moodboardStore.getState().startEditing({ boardId, id: crypto.randomUUID(), draft: seed, join: { item: itemId, side } });
+    return;
+  }
+  let made: ReturnType<typeof quickCreateChanges> = null;
+  const written = await projectStore.getState().applyWith(async (records) => {
+    const fields = itemFields(records[itemId]?.props ?? {});
+    if (fields && isTextKind(fields.kind)) await fontReady(fields.fontFamily, fields.fontWeight, fields.fontItalic);
+    made = quickCreateChanges(projectStore.getState().records, boardId, itemId, side, measureText);
+    return { changes: made?.changes ?? [] };
+  });
+  const result = made as ReturnType<typeof quickCreateChanges>;
+  if (!written || !result) return;
+  select(boardId, [result.itemId]);
+  if (result.edit) editItem(boardId, result.itemId);
 }

@@ -3,7 +3,7 @@ import { t } from '../../core/i18n';
 import { cx } from '../cx';
 import type { Tool } from './types';
 
-// The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L)
+// The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L), Connector (C)
 // and Shapes (O draws an ellipse; the button opens the four shapes), as labelled buttons in mono uppercase. The pressed one is an ink fill, as selection is everywhere (DESIGN.md). Anything the host adds
 // (a way back to the picker, a board's name) goes in `children`, at the left.
 
@@ -14,6 +14,7 @@ const TOOLS: readonly { tool: Tool; key: string; label: () => string }[] = [
   { tool: 'text', key: 'T', label: () => t('canvas.tool.text') },
   { tool: 'sticky', key: 'S', label: () => t('canvas.tool.sticky') },
   { tool: 'link', key: 'L', label: () => t('canvas.tool.link') },
+  { tool: 'connector', key: 'C', label: () => t('canvas.tool.connector') },
 ];
 
 const SHAPES: readonly { tool: Tool; label: () => string }[] = [

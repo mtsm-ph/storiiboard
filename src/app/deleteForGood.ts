@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand';
 import { trashedRoots } from '../core/ops/ops';
+import { connectorsAttachedToAny } from '../features/moodboards/connectorFields';
 import { emptyTrashMessage, oldCompanyLogos, rowsGone, trashItems } from '../features/trash/trash';
 import { forGood, type ForGood } from './forGood';
 import type { ProjectState } from './projectStore';
@@ -28,7 +29,11 @@ export function emptyTrashConfirmed(
     () => ask(emptyTrashMessage(records, rows.length, hidden, slateUnknown, oldCompanyLogos(records, project.projectId))),
     () => store.getState().project === project,
     async () => {
-      const done = await store.getState().emptyTrash(confirmed);
+      const done = await store.getState().emptyTrash(confirmed, (all, purged) =>
+        // A board's connectors joined to an item that is deleted go with it, live ones too, or they would hang from nothing.
+        // Worked out inside the edit's turn, so an item restored while the confirm was up keeps its connectors.
+        connectorsAttachedToAny(all, purged).map((r) => r.id),
+      );
       // Rows as the Trash listed them (a frame's sketch and picture go with it, unlisted).
       return done ? { items: rowsGone(store.getState().records, rows), freed: done.freed } : null;
     },

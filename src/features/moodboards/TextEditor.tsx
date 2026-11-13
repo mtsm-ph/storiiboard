@@ -12,9 +12,11 @@ interface TextEditorProps {
   text: string;
   zoom: number;
   onEnd: (text: string) => void;
+  /** What a screen reader hears for the field, where it isn't a text box or a sticky note (a connector's label). */
+  ariaLabel?: string;
 }
 
-export function TextEditor({ fields, text, zoom, onEnd }: TextEditorProps) {
+export function TextEditor({ fields, text, zoom, onEnd, ariaLabel }: TextEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const ended = useRef(false);
   const sticky = fields.kind === 'sticky';
@@ -40,7 +42,7 @@ export function TextEditor({ fields, text, zoom, onEnd }: TextEditorProps) {
   return (
     <textarea
       ref={field}
-      aria-label={sticky ? t('moodboard.editSticky') : t('moodboard.editText')}
+      aria-label={ariaLabel ?? (sticky ? t('moodboard.editSticky') : t('moodboard.editText'))}
       defaultValue={text}
       spellCheck={false}
       onInput={(event) => {

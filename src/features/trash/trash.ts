@@ -7,6 +7,8 @@ import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard
 import type { Change } from '../../core/ops/ops';
 import { restoredScene } from '../storyboard/board';
 import { boardTitle, restoreBoardChanges } from '../moodboards/boards';
+import { connectorsToRestore, trashedWithItem } from '../moodboards/connectors';
+import { isConnector } from '../moodboards/connectorFields';
 import { itemFields, KIND_LABEL } from '../moodboards/items';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
@@ -145,7 +147,7 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       // "Rectangle on Camera board": what it is, and the board it was on (as that board is called now).
       const board = record.parentId ? records[record.parentId] : undefined;
       const fields = itemFields(record.props);
-      const kind = fields ? KIND_LABEL[fields.kind]() : t('trash.boardItemUnknown');
+      const kind = fields ? KIND_LABEL[fields.kind]() : isConnector(record) ? t('moodboard.item.connector') : t('trash.boardItemUnknown');
       return [plain(t('trash.itemOnBoard', { item: kind, board: board ? boardTitle(board) : t('moodboard.untitled') }))];
     }
     case 'gear': {
@@ -217,6 +219,8 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     // A company's replaced logo (3.2) belongs to the company's copy, which undo puts back: restored alone, it would be
     // a picture nothing shows. Empty Trash still clears it.
     if (isCompanyLogo(record)) continue;
+    // A connector that went to the Trash with one of its items (5.2) comes back with it; the Trash lists the item.
+    if (trashedWithItem(records, record)) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
@@ -279,12 +283,16 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       // With the items that went to the Trash with it, not ones deleted before.
       return restoreBoardChanges(records, id);
     case 'board_item': {
+      // An item comes back with the connectors trashed with it whose other end is live, free or coming back too (5.2); a
+      // connector deleted on its own comes back alone, and stays hidden while one of its items is in the Trash.
+      const connectors = connectorsToRestore(records, id).map((connector): Change => ({ kind: 'restore', id: connector }));
       // An item whose board is in the Trash brings the board back whole, or it would come back onto nothing.
       if (parent?.type === 'board' && parent.trashedAt !== null) {
         const board = restoreBoardChanges(records, parent.id);
-        return board.some((c) => c.kind === 'restore' && c.id === id) ? board : [...board, { kind: 'restore', id }];
+        const have = (restoring: string) => board.some((c) => c.kind === 'restore' && c.id === restoring);
+        return [...board, ...(have(id) ? [] : [{ kind: 'restore' as const, id }]), ...connectors.filter((c) => c.kind === 'restore' && !have(c.id))];
       }
-      return [{ kind: 'restore', id }];
+      return [{ kind: 'restore', id }, ...connectors];
     }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.

@@ -9,6 +9,7 @@ import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
 import { boardTitle } from '../moodboards/boards';
+import { connectorFields, isConnector } from '../moodboards/connectorFields';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { ROLE_LABELS } from '../../core/model/role';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
@@ -217,6 +218,10 @@ const CHOICE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   move: MOVE_LABEL,
   stage: PROJECT_STAGE_LABEL,
   role: ROLE_LABELS,
+  // A connector's route and arrowheads (5.2).
+  route: labels({ straight: 'history.route.straight', elbow: 'history.route.elbow', curved: 'history.route.curved' }),
+  start_head: labels({ none: 'history.head.none', arrow: 'history.head.arrow' }),
+  end_head: labels({ none: 'history.head.none', arrow: 'history.head.arrow' }),
 };
 /** Support, height and move read in lower case; the inspector's menus start them with a capital. */
 const CAPITALISED = new Set(['support', 'height', 'move']);
@@ -269,6 +274,10 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'hospital_source' && value === 'osm') return t('history.searchSource');
   if (prop === 'hospital_emergency' && typeof value === 'boolean') return value ? t('hospital.emergencyRoom') : t('history.emergencyUnknown');
   if (prop === 'country_code' && typeof value === 'string' && /^[A-Z]{2}$/.test(value)) return countryName(value, getLocale());
+  // A connector's ends (5.2): an item, or a point; the id means nothing to a person.
+  if ((prop === 'from' || prop === 'to') && isObject(value) && (typeof value.item === 'string' || (typeof value.x === 'number' && typeof value.y === 'number'))) {
+    return typeof value.item === 'string' ? t('history.anItem') : t('moodboard.connector.point');
+  }
   if (prop === 'media_id') return t('history.aPicture');
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
@@ -322,6 +331,8 @@ export interface FieldChange {
   sheet?: true;
   /** A board item's (5.0): its x and y are one position and its width and height one size, which a video's width isn't. */
   item?: true;
+  /** A connector's (5.2): its width is a line's, not a size, and its route and heads have words of their own. */
+  connector?: true;
 }
 
 const entriesOf = (props: Props, prop: string): Readonly<Record<string, JsonValue>> => {
@@ -369,7 +380,9 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
-  if (after.type === 'board_item') return changes.map((change) => ({ ...change, item: true as const }));
+  if (after.type === 'board_item') {
+    return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
+  }
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
 }
 
@@ -445,6 +458,18 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   align: 'history.field.alignment',
 });
 
+/** A connector's props by the words a person uses (5.2). */
+const CONNECTOR_FIELD: Readonly<Record<string, string>> = labels({
+  route: 'history.field.route',
+  start_head: 'history.field.startHead',
+  end_head: 'history.field.endHead',
+  label: 'history.field.label',
+  width: 'history.field.lineWidth',
+  color: 'history.field.colour',
+  from: 'history.field.connectorStart',
+  to: 'history.field.connectorEnd',
+});
+
 /** What a board item is called in a line: "a rectangle", "a text box" (5.1a). */
 const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   rect: 'history.aRectangle',
@@ -460,7 +485,9 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
-  change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
+  change.connector === true && Object.hasOwn(CONNECTOR_FIELD, change.prop)
+    ? (CONNECTOR_FIELD[change.prop] ?? change.prop)
+    : change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
     ? (BOARD_ITEM_FIELD[change.prop] ?? change.prop)
     : change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
     ? sheetTimeLabel({ ...change, key: change.key }, around)
@@ -549,6 +576,7 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       return boardTitle(record);
     case 'board_item': {
       const kind = itemFields(record.props)?.kind;
+      if (!kind && isConnector(record)) return t('history.aConnector');
       return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
     }
     case 'project':
@@ -752,6 +780,20 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         if (kind === 'create') return line('history.sketchedOn', { frame });
         return line(kind === 'trash' ? 'history.erasedOn' : 'history.restoredStrokesOn', { frame }, { strokes: tn('count.strokes', found.length) });
       }
+      if (type === 'board_item') {
+        // Connectors (5.2): one drawn between two items is "Connected 2 items"; made with a copy of an item (quick-create)
+        // it is named with the item; trashed or restored with their items, they are not counted again.
+        const joins = found.filter((op) => isConnector(record(op)));
+        const others = found.filter((op) => !isConnector(record(op)));
+        const only = joins[0];
+        if (kind === 'create' && joins.length === 1 && only && others.length === 0) {
+          const ends = connectorFields(record(only)?.props ?? {});
+          return ends && 'item' in ends.from && 'item' in ends.to ? [t('history.connected')] : [...line('history.added.boardItem', { name: nameOf(record(only)) }), tag];
+        }
+        const copy = others[0];
+        if (kind === 'create' && joins.length === 1 && copy && others.length === 1) return [...line('history.addedWithConnector', { name: nameOf(record(copy)) }), tag];
+        if (joins.length > 0 && others.length > 0) found.splice(0, found.length, ...others);
+      }
       const first = found[0];
       if (found.length > 1 || !first) return [t(MANY[kind], { things: type === 'board_item' ? itemsCount(found.map((op) => record(op)), found.length) : count(type, found.length) })];
       if (type === 'board_item') return [...line(ONE[kind][type], { name: nameOf(record(first)) }), tag];
@@ -772,6 +814,14 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   }
   const updates = ops.filter((op) => op.kind === 'update' && op.before && op.after);
   const lostUpdates = ops.filter((op) => op.kind === 'update' && purged(op));
+  // A connector's label typed, its ends moved, or its look changed (5.2).
+  if (updates.length > 0 && updates.every((op) => isConnector(op.after ?? undefined))) {
+    const props = new Set(updates.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+    const only = (allowed: readonly string[]) => [...props].every((prop) => allowed.includes(prop));
+    if (props.size > 0 && only(['label'])) return [t('history.connectorLabelChanged')];
+    if (props.size > 0 && only(['from', 'to'])) return [t('history.connectorReconnected')];
+    if (props.size > 0) return [t('history.connectorChanged')];
+  }
   // A board's items moved, resized or turned by one gesture (5.0): one line for the group, named by what it did.
   if (updates.length > 0 && updates.every((op) => op.before?.type === 'board_item' && op.after)) {
     const props = new Set(updates.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
