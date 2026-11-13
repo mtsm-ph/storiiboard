@@ -1,15 +1,12 @@
 import { readFileSync } from 'node:fs';
-import fontkit from '@pdf-lib/fontkit';
 import { describe, expect, it, vi } from 'vitest';
 import { isTaggedP3 } from '../../core/media/image';
 import type { ExportTarget } from '../../core/storage/exportFiles';
 import type { ProjectFile } from '../../core/storage/driver';
-import { VARIABLE_DEFAULT_WEIGHT } from './deckFonts';
 import { aspectMatches, ASPECT_TOLERANCE, meanAbsDifference, TRANSPARENT_LONG_EDGE } from './deckPictures';
 import { writePagePngs } from './deckPng';
 
-// The rest of 5.6a's review: Stop before the PDF is written, a PNG set that appears whole or not at all, the bundled variable fonts'
-// default weights, and the checks on an original picture. What needs a canvas is in e2e/deckExport.spec.ts.
+// The rest of 5.6a's review: Stop before the PDF is written, a PNG set that appears whole or not at all, and the checks on an original picture. What needs a canvas is in e2e/deckExport.spec.ts.
 
 vi.mock('../moodboards/deckPrint', () => ({
   printPages: () => [{ id: 'p', number: 1, name: '', format: '16:9', orientation: 'portrait', background: '#FFFFFF', width: 1920, height: 1080, page: {}, items: [], links: [], pictures: [], faces: [] }],
@@ -122,33 +119,6 @@ describe('a set of PNGs on a target that stages them', () => {
     const broken: ExportTarget = { ...target, commit: () => Promise.reject(new Error('disk full')) };
     await expect(writePagePngs({ count: 2, name: (i) => `P${String(i)}.png`, render: () => Promise.resolve(new Uint8Array([1])), target: broken, signal: new AbortController().signal, progress: () => undefined })).rejects.toThrow('disk full');
     expect(log).toEqual(['stage P0.png', 'stage P1.png', 'abandon']);
-  });
-});
-
-describe('the bundled variable fonts', () => {
-  const root = new URL('../../ui/fonts/', import.meta.url);
-  const axes = (path: string) => {
-    const font = fontkit.create(new Uint8Array(readFileSync(new URL(path, root)))) as unknown as { variationAxes: Record<string, { min: number; default: number; max: number }> };
-    return font.variationAxes;
-  };
-
-  it('embed as their default instance, whose weight is what deckFonts says: Archivo 600, Bodoni Moda 400, Jost 400, Outfit 100', () => {
-    expect(VARIABLE_DEFAULT_WEIGHT).toEqual({ Archivo: 600, 'Bodoni Moda': 400, Jost: 400, Outfit: 100 });
-    const files: [string, string][] = [
-      ['Archivo', 'archivo/Archivo[wdth,wght].ttf'],
-      ['Archivo', 'archivo/Archivo-Italic[wdth,wght].ttf'],
-      ['Bodoni Moda', 'bodonimoda/BodoniModa[opsz,wght].ttf'],
-      ['Bodoni Moda', 'bodonimoda/BodoniModa-Italic[opsz,wght].ttf'],
-      ['Jost', 'jost/Jost[wght].ttf'],
-      ['Jost', 'jost/Jost-Italic[wght].ttf'],
-      ['Outfit', 'outfit/Outfit[wght].ttf'],
-    ];
-    for (const [family, path] of files) expect(axes(path).wght?.default, path).toBe(VARIABLE_DEFAULT_WEIGHT[family]);
-    // The other axes, recorded: width 100 (Archivo), optical size 11 (Bodoni Moda).
-    expect(axes('archivo/Archivo[wdth,wght].ttf').wdth?.default).toBe(100);
-    expect(axes('bodonimoda/BodoniModa[opsz,wght].ttf').opsz?.default).toBe(11);
-    // Outfit's default is its lightest weight, so every other weight of it is a substitution.
-    expect(axes('outfit/Outfit[wght].ttf').wght).toMatchObject({ min: 100, default: 100, max: 900 });
   });
 });
 

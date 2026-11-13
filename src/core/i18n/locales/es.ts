@@ -2666,7 +2666,6 @@ export const es: Messages = {
   'export.deck.unprintable.one': 'No se pudo imprimir {count} imagen.',
   'export.deck.unprintable.other': 'No se pudieron imprimir {count} imágenes.',
   'export.deck.fontGlyphs': '{name}: algunos caracteres que no tiene se imprimen como cuadros vacíos.',
-  'export.deck.fontWeight': 'Todavía no se puede imprimir {name} {weights}; se usó {fallback}.',
   'deck.export': 'Exportar',
   'moodboard.pasteDeckOnly': 'Las páginas solo se pegan en una presentación.',
 };
