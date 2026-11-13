@@ -7,6 +7,7 @@ import { CanvasMenu } from './CanvasMenu';
 import { boundsOf, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
 import { commandForKey, isCommand, toolForKey, zoomShortcut, zoomStepFor } from './keys';
 import { Minimap } from './Minimap';
+import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
 import { isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type Geometry, type GeometryChange, type PlaceTool, type Point, type Rect as WorldRect, type Size, type Tool, type Viewport } from './types';
 import { useCanvasColours } from './useCanvasColours';
@@ -63,6 +64,19 @@ export interface CanvasProps {
   editing?: string | null;
   /** The editor for the item being edited, given the zoom; it fills the item's box on screen, turned as the item is. */
   renderEditor?: (item: CanvasItem, zoom: number) => ReactNode;
+  /** Enter or a double-click on an openable item (a video card, a link card): the host opens it. */
+  onOpen?: (id: string) => void;
+  /**
+   * Something pasted into the focused canvas (⌘V): the system clipboard's data, and where the pointer is in world units
+   * (null when it's off the canvas). True when the host took it (a picture, an address); otherwise the canvas pastes
+   * the items it copied.
+   */
+  onPasteData?: (data: DataTransfer, at: Point | null) => boolean;
+  /**
+   * The items were copied or cut: the host marks the system clipboard as the app's own (so a stale address or picture
+   * there can't win over them), in the copy event's data when there is one, else best effort with none.
+   */
+  onSystemCopy?: (data: DataTransfer | null, native: Event | null) => void;
   onCommand: (command: CanvasCommand) => void;
   /** Whether Paste has something to paste (the host keeps the clipboard). */
   canPaste: boolean;
@@ -97,6 +111,9 @@ export function Canvas({
   onEdit,
   editing = null,
   renderEditor,
+  onOpen,
+  onPasteData,
+  onSystemCopy,
   onCommand,
   canPaste,
   fixedColours,
@@ -114,6 +131,21 @@ export function Canvas({
   const pointer = useRef<Point | null>(null);
   // Counts the commits and the moves begun, so only the latest gesture's finished write clears the drawing's hold.
   const generation = useRef(0);
+  const pasteTurn = useRef(0);
+  const pasteArmed = useRef(0);
+  const pasteFallen = useRef(false);
+  const canPasteRef = useRef(canPaste);
+  const fallenTimer = useRef<number | undefined>(undefined);
+  /** A paste the key made itself drops the paste event that may follow it, for a moment or until the key is let go. */
+  const holdFallen = (on: boolean) => {
+    window.clearTimeout(fallenTimer.current);
+    pasteFallen.current = on;
+    if (on) {
+      fallenTimer.current = window.setTimeout(() => {
+        pasteFallen.current = false;
+      }, 300);
+    }
+  };
   const [size, setSize] = useState<Size>({ width: 640, height: 400 });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -138,10 +170,13 @@ export function Canvas({
   // unevenly would skew them, and on release the saved rotation would change.
   const turned = handleIds.map((id) => shown.find((item) => item.id === id)?.rotation ?? 0);
   const mixed = handleIds.length > 1 && (new Set(turned).size > 1 || turned.some((r) => r % 90 !== 0));
+  // Pictures and video cards keep their shape: corners only.
+  const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const latest = useRef({ items, shown, selection, tool, viewport, size, draft, onViewportChange });
   useLayoutEffect(() => {
+    canPasteRef.current = canPaste;
     latest.current = { items, shown, selection, tool, viewport, size, draft, onViewportChange };
   });
 
@@ -236,6 +271,19 @@ export function Canvas({
       element.removeEventListener('gesturestart', onPinchStart);
       element.removeEventListener('gesturechange', onPinch);
       element.removeEventListener('gestureend', onPinchEnd);
+    };
+  }, []);
+
+  // WebKit fires paste, copy and cut events on a plain focused element only if it is told they are welcome.
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    const welcome = (event: Event) => {
+      if (event.target === element) event.preventDefault();
+    };
+    for (const name of ['beforepaste', 'beforecopy', 'beforecut']) element.addEventListener(name, welcome);
+    return () => {
+      for (const name of ['beforepaste', 'beforecopy', 'beforecut']) element.removeEventListener(name, welcome);
     };
   }, []);
 
@@ -432,6 +480,8 @@ export function Canvas({
   const runCommand = (command: CanvasCommand) => {
     // A paste from the menu lands where the menu was opened.
     onCommand(command.kind === 'paste' && command.at === null && menu ? { kind: 'paste', at: menu.world } : command);
+    // Copy and cut from the menu mark the system clipboard too (no copy event comes from a click, so by the clipboard API).
+    if (command.kind === 'copy' || command.kind === 'cut') onSystemCopy?.(null, null);
   };
 
   const cycle = (direction: 1 | -1) => {
@@ -490,11 +540,53 @@ export function Canvas({
       return;
     }
     const command = commandForKey(event, mac, pointer.current ? worldOf(pointer.current) : null);
+    // Paste is left to the browser first: its paste event carries the system clipboard (a picture, an address), which the
+    // host may take (onPasteData); if not, the paste event pastes the items copied inside the app. A webview that fires
+    // no paste event on a plain focused element (WebKit) gets the in-app paste a moment after the key instead. One paste
+    // per key press, and none for a held key.
+    if (command?.kind === 'paste') {
+      if (event.repeat) {
+        event.preventDefault();
+        return;
+      }
+      const step = pasteStep();
+      if (step === 'event') return;
+      const at = pointer.current ? worldOf(pointer.current) : null;
+      if (step === 'now') {
+        // No paste event has ever come in this webview: paste the items now. (If one does come, the flag below drops it.)
+        holdFallen(canPasteRef.current);
+        onCommand({ kind: 'paste', at });
+        return;
+      }
+      const turn = ++pasteTurn.current;
+      pasteArmed.current = turn;
+      pasteFallen.current = false;
+      window.setTimeout(() => {
+        if (pasteArmed.current !== turn) return;
+        pasteArmed.current = 0;
+        waitFoundNoEvent();
+        // Only a fallback that pasted something may drop a late event.
+        holdFallen(canPasteRef.current);
+        onCommand({ kind: 'paste', at });
+      }, PASTE_WAIT);
+      return;
+    }
+    // Copy and cut set the in-app clip at once, whether or not the webview fires its copy event, and let that event
+    // through to mark the system clipboard.
+    if ((command?.kind === 'copy' || command?.kind === 'cut') && picked.length > 0) {
+      if (event.repeat && command.kind === 'cut') {
+        event.preventDefault();
+        return;
+      }
+      onCommand(command);
+      onSystemCopy?.(null, null);
+      return;
+    }
     if (command) {
       event.preventDefault();
-      // A held key would delete or paste again and again.
-      if (event.repeat && (command.kind === 'delete' || command.kind === 'paste' || command.kind === 'duplicate' || command.kind === 'cut')) return;
-      if (command.kind === 'paste' || picked.length > 0) onCommand(command);
+      // A held key would delete or duplicate again and again.
+      if (event.repeat && (command.kind === 'delete' || command.kind === 'duplicate' || command.kind === 'cut')) return;
+      if (picked.length > 0) onCommand(command);
       return;
     }
     const zoomKey = zoomShortcut(event);
@@ -529,6 +621,15 @@ export function Canvas({
         void onCreate(placedAt({ x: view.cx, y: view.cy }, placing), placing);
         onToolChange('select');
         return;
+      }
+      // Enter on one selected video or link card opens it.
+      if (event.key === 'Enter' && onOpen && picked.length === 1) {
+        const only = latest.current.items.find((i) => i.id === picked[0]);
+        if (only?.openable) {
+          event.preventDefault();
+          onOpen(only.id);
+          return;
+        }
       }
       // Enter on one selected text or sticky item edits it in place.
       if (event.key === 'Enter' && onEdit && picked.length === 1) {
@@ -587,11 +688,42 @@ export function Canvas({
       }}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
-        if (!onEdit || event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement)) return;
+        if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
         const top = topmostAt(latest.current.shown, worldOf(local(event)));
-        if (top?.editable) onEdit(top.id);
+        if (top?.editable) onEdit?.(top.id);
+        else if (top?.openable) onOpen?.(top.id);
+      }}
+      onCopy={(event) => {
+        if (event.target !== event.currentTarget || selection.length === 0) return;
+        event.preventDefault();
+        onSystemCopy?.(event.clipboardData, event.nativeEvent);
+      }}
+      onCut={(event) => {
+        if (event.target !== event.currentTarget || selection.length === 0) return;
+        event.preventDefault();
+        onSystemCopy?.(event.clipboardData, event.nativeEvent);
+      }}
+      onPaste={(event) => {
+        // Pasting into the text editor over the canvas is the editor's.
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        // An event comes in this webview: the key never needs to wait or paste on its own again.
+        pasteEventSeen();
+        pasteArmed.current = 0;
+        // The key's own fallback already pasted: this late event must not paste again.
+        if (pasteFallen.current) {
+          pasteFallen.current = false;
+          return;
+        }
+        // Stops the storyboard's own paste listener on the document (a picture pasted here is for the board).
+        event.stopPropagation();
+        const at = pointer.current ? worldOf(pointer.current) : null;
+        if (onPasteData?.(event.clipboardData, at)) return;
+        onCommand({ kind: 'paste', at });
       }}
       onKeyUp={(event) => {
+        // The key press is over: a paste event from somewhere else is its own.
+        if (event.key.toLowerCase() === 'v') holdFallen(false);
         if (event.key === ' ') {
           space.current = false;
           setSpaceHeld(false);
@@ -639,7 +771,7 @@ export function Canvas({
               listening={false}
             >
               {item.draw ? (
-                item.draw({ width: item.width, height: item.height, colours })
+                item.draw({ width: item.width, height: item.height, colours, zoom: view.zoom, inView: rectsMeet(boundsOf(item), world) })
               ) : (
                 <Rect width={item.width} height={item.height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />
               )}
@@ -662,8 +794,8 @@ export function Canvas({
             ref={transformer}
             flipEnabled={false}
             // Shift keeps the proportions (Konva's own rule when this is off), and snaps a turn to 15 degrees.
-            keepRatio={mixed}
-            enabledAnchors={mixed ? CORNERS : ALL_ANCHORS}
+            keepRatio={mixed || locked}
+            enabledAnchors={mixed || locked ? CORNERS : ALL_ANCHORS}
             ignoreStroke
             anchorSize={8}
             anchorCornerRadius={0}

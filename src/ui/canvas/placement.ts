@@ -58,6 +58,7 @@ export const PLACED_SIZE: Readonly<Record<PlaceTool, { width: number; height: nu
   diamond: { width: NEW_WIDTH, height: NEW_HEIGHT },
   text: { width: 240, height: 29 },
   sticky: { width: 200, height: 200 },
+  link: { width: 280, height: 88 },
 };
 
 /** The default item for a tool, centred on a world point. */

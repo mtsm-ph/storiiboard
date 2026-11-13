@@ -23,9 +23,9 @@ export { usePicturesBusy } from './picturesBusy';
 /** A file to add: a picture to store, or a video to link. */
 export type AddedFile = { kind: 'picture'; file: PictureFile } | { kind: 'video'; file: VideoFile };
 
-const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
+export const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-async function prepare(added: AddedFile, handle: number | undefined): Promise<PreparedFile> {
+export async function prepare(added: AddedFile, handle: number | undefined): Promise<PreparedFile> {
   if (added.kind === 'video') return { kind: 'video', video: await prepareVideo(added.file, handle) };
   const { file } = added;
   const blob = await file.read();
@@ -89,16 +89,17 @@ export async function addFiles(files: readonly AddedFile[], target: PictureTarge
 }
 
 /** Files as a drop, a paste or the Choose picture dialog hands them over: a video by its name goes in as a video. */
-export function addPictures(files: readonly PictureFile[], target: PictureTarget): Promise<void> {
-  return addFiles(
-    files.map((file): AddedFile =>
-      isVideoName(file.name)
-        ? {
-            kind: 'video',
-            file: { name: file.name, ...(file.path ? { path: file.path } : {}), ...(file.file ? { file: file.file, size: file.file.size } : {}) },
-          }
-        : { kind: 'picture', file },
-    ),
-    target,
+export function toAdded(files: readonly PictureFile[]): AddedFile[] {
+  return files.map((file): AddedFile =>
+    isVideoName(file.name)
+      ? {
+          kind: 'video',
+          file: { name: file.name, ...(file.path ? { path: file.path } : {}), ...(file.file ? { file: file.file, size: file.file.size } : {}) },
+        }
+      : { kind: 'picture', file },
   );
+}
+
+export function addPictures(files: readonly PictureFile[], target: PictureTarget): Promise<void> {
+  return addFiles(toAdded(files), target);
 }

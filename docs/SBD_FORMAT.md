@@ -739,7 +739,7 @@ were always in the list, so there is no migration and no schema number (additive
 - Boards sort among the project's boards by `sort_key`, in the order they were made.
 
 `board_item` props (5.0 had one kind, a rectangle; 5.1a added shapes in colour, text boxes and sticky notes):
-- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text` or `sticky`. An item whose `kind` this version doesn't know is
+- `kind`: `rect`, `ellipse`, `triangle`, `diamond`, `text`, `sticky` (5.1a), `picture`, `video` or `link` (5.1b). An item whose `kind` this version doesn't know is
   kept and not shown.
 - `x`, `y`: the item's top left corner before rotation, in world units. World units are abstract: nothing in the file
   assumes pixels, so Phase 6's plans can give them a scale in metres.
@@ -763,6 +763,27 @@ were always in the list, so there is no migration and no schema number (additive
 - A `sticky` item (5.1a) is a square note with `text`, the same font props (default size 20), `align`, and `color`: its
   background, one of six fixed colours `#FFE97A`, `#FFC9A8`, `#FFB8C8`, `#BFE8B0`, `#B5DDF5`, `#D9C8F0` (missing, or any colour outside the six, reads as
   the first). Its text is always ink (`#16150F`), whatever the theme; each colour passes AA (4.5 to 1) with that ink.
+- A `picture` item (5.1b) has only geometry; its picture is its `media` child, a record of kind `image` under the item
+  (as a frame's picture is its shot's child), with the props of any stored picture: `file` (the SHA-256 of the stored
+  picture in `media_files`, at most 2560 px on the long edge, with its 640 px thumbnail in `thumbnails`), `mime`, `width`,
+  `height`, `color_space`, and `source_name` and `source_path` (a pointer to the original, relative to the .sbd's folder
+  when it is inside it, absolute otherwise; a pasted picture has neither). **The original is never embedded.** Placed, the
+  item's long edge is 400 world units and its shorter edge keeps the picture's aspect. Several files dropped together land
+  side by side, left to right, 16 units apart, from the drop point, in one op group. Copy, paste and duplicate make a new
+  item and a new `media` record with the same `file`: the bytes are stored once. The copy lives inside the app and carries no bytes: pictures and video cards paste only into the project they were
+  copied in (into another they are left out, with a notice, and the other kinds paste), and one whose stored picture has
+  since been deleted for good is left out too.
+- A `video` item (5.1b) has only geometry; its video is its `media` child of kind `video` (the props of a linked video,
+  see Videos: `source_name`, `source_path`, `source_size`, `duration_frames`, `fps`, `width`, `height` and the rest),
+  which keeps the file where it is, never copied in, with a `poster` (an image `media` record under the video, the first
+  frame, from the frames' pipeline). The card draws the poster, the file name and the length as timecode; its playback
+  copy is made as a frame's video's is. A card's video is its own record, not one shared with a frame's.
+- A `link` item (5.1b) has `url` (http or https only; an address of any other scheme is not a link card) and an optional
+  `title` the person types. The card shows the title, else the address's host and path. Nothing is fetched: no title or
+  preview is ever read from the page.
+- Trashing a picture, video or link item trashes the item only; its `media` child stays under it, so Restore brings the
+  item back whole. Empty Trash deletes the item with everything under it, and the stored picture bytes with them unless
+  another record (a frame's picture, another item) or an older step of one still names the same `file`.
 - A font is named, never stored: `font_family`, `font_weight` and `font_italic` are all a board keeps. The bundled fonts
   (Inter Tight, JetBrains Mono, Archivo, Bodoni Moda, Jost, Outfit) come first, then this computer's, listed through
   Rust (font-kit; CoreText on macOS, DirectWrite on Windows, so Adobe Fonts that are activated appear). A board that names
@@ -1181,3 +1202,5 @@ number.
 Boards (5.0) are the `board` and `board_item` record types and their props (see Boards); they need no table change either.
 5.1a adds item kinds and props to `board_item` (shapes with `fill` and `stroke`, `text` and `sticky` items): additive, no table
 change and no schema number; an older version keeps an item of a kind it doesn't know and doesn't show it.
+5.1b adds the `picture`, `video` and `link` kinds to `board_item` (with `url` and `title` on a link) and `media` records
+under a picture or video item: additive, no table change, no migration and no schema_version change.

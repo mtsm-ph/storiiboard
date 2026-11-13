@@ -15,6 +15,8 @@ export type PlayerStatus =
   | { kind: 'noProject' }
   | { kind: 'noFrame' }
   | { kind: 'noVideo' }
+  /** The board card being played is gone (deleted, or its video). */
+  | { kind: 'noCard' }
   | { kind: 'missing' }
   | { kind: 'none' }
   | { kind: 'queued' }
@@ -44,6 +46,8 @@ export interface PlayerViewProps {
   onPlayPause?: () => void;
   onStep?: (delta: number) => void;
   onSeek?: (frame: number) => void;
+  /** Playing a board's video card, not a frame's clip: no in and out, no grab, and a line saying why. */
+  cardOnly?: boolean;
   onSetIn?: () => void;
   onSetOut?: () => void;
   onMakeCopy?: () => void;
@@ -112,11 +116,13 @@ function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
     return;
   }
   if (event.repeat || event.shiftKey) return;
+  // A board card's video has no frame to set an in or out on or to grab a still into.
+  const cardOnly = props.cardOnly === true;
   // By its key only where the layout types no Latin letter there (Cyrillic, Greek): a Dvorak's KeyI is "c".
   const byKey = !/^[a-z]$/.test(key);
-  if (key === 'i' || (byKey && event.code === 'KeyI')) act(props.onSetIn);
-  else if (key === 'o' || (byKey && event.code === 'KeyO')) act(props.onSetOut);
-  else if (key === 'g' || (byKey && event.code === 'KeyG')) act(props.grabbing ? undefined : props.onGrabStill);
+  if (key === 'i' || (byKey && event.code === 'KeyI')) act(cardOnly ? undefined : props.onSetIn);
+  else if (key === 'o' || (byKey && event.code === 'KeyO')) act(cardOnly ? undefined : props.onSetOut);
+  else if (key === 'g' || (byKey && event.code === 'KeyG')) act(props.grabbing || cardOnly ? undefined : props.onGrabStill);
   // Space on a button presses the button; anywhere else in the Player, it plays or pauses.
   else if (key === ' ' && target.tagName !== 'BUTTON') act(props.onPlayPause);
 }
@@ -198,15 +204,15 @@ export function PlayerView(props: PlayerViewProps) {
             <Button aria-label={t('player.nextFrame')} onClick={() => props.onStep?.(1)}>
               .
             </Button>
-            <Button onClick={props.onSetIn}>{t('player.setIn')}</Button>
-            <Button onClick={props.onSetOut}>{t('player.setOut')}</Button>
-            {props.onGrabStill && (
+            {!props.cardOnly && <Button onClick={props.onSetIn}>{t('player.setIn')}</Button>}
+            {!props.cardOnly && <Button onClick={props.onSetOut}>{t('player.setOut')}</Button>}
+            {props.onGrabStill && !props.cardOnly && (
               // Not disabled while it works: a disabled button would drop focus, and with it the Player's keys.
               <Button data-grab-still="" aria-disabled={props.grabbing === true} onClick={props.grabbing ? undefined : props.onGrabStill}>
                 {props.grabbing ? t('player.grabbing') : t('player.grabStill')}
               </Button>
             )}
-            {props.onGrabStill && (
+            {props.onGrabStill && !props.cardOnly && (
               <span aria-live="polite" className="sr-only">
                 {props.grabSaid}
               </span>
@@ -216,9 +222,14 @@ export function PlayerView(props: PlayerViewProps) {
               {tc(frame)}
             </span>
           </div>
-          <p className="font-mono text-[11px] text-text-muted">
+          {props.cardOnly && (
+            <p data-player-card-only="" className="text-[11px] text-text-muted">
+              {t('player.cardOnly')}
+            </p>
+          )}
+          {!props.cardOnly && <p className="font-mono text-[11px] text-text-muted">
             {t('player.inOut', { in: tc(video.inFrame), out: tc(video.outFrame), frames: tn('count.frames', video.outFrame - video.inFrame + 1) })}
-          </p>
+          </p>}
           {props.framing && <FramingControls framing={framing} imageAspect={props.framing.imageAspect} frameAspect={props.framing.frameAspect} />}
           <p id={helpId} className="text-[11px] text-text-muted">
             {t('player.keys')}
@@ -288,6 +299,7 @@ function PlayerScreen({
       <div role="status" data-player-state="" className="flex flex-col gap-1.5">
         {status.kind === 'noProject' && <p className="text-[12px] text-text-muted">{t('player.noProject')}</p>}
         {status.kind === 'noFrame' && <p className="text-[12px] text-text-muted">{t('player.noFrame')}</p>}
+        {status.kind === 'noCard' && <p className="text-[12px] text-text-muted">{t('player.cardGone')}</p>}
         {status.kind === 'noVideo' && <p className="text-[12px] text-text-muted">{t('player.noVideo')}</p>}
         {status.kind === 'missing' && (
           <p className="inline-block self-start bg-warning px-[7px] py-1 text-[12px] text-paper-fixed">{t('player.missing')}</p>

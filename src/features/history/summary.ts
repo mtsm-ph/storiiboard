@@ -453,6 +453,9 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
   diamond: 'history.aDiamond',
   text: 'history.aTextBox',
   sticky: 'history.aSticky',
+  picture: 'history.aPicture',
+  video: 'history.aVideoCard',
+  link: 'history.aLinkCard',
 };
 
 /** A field's name in a line: a custom field by its own name, a department's status by the department's. */
@@ -715,6 +718,8 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item', 'board', 'board_item'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
+      // A picture or video card's media is written with its item (5.1b): the item is the news, named by its kind.
+      if (type === 'media' && of(kind, 'board_item').length > 0) continue;
       if (type === 'media') {
         // A PDF or a link attached (3.11): named by its own name, wherever it's attached.
         const first = found[0];
@@ -749,6 +754,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
       }
       const first = found[0];
       if (found.length > 1 || !first) return [t(MANY[kind], { things: type === 'board_item' ? itemsCount(found.map((op) => record(op)), found.length) : count(type, found.length) })];
+      if (type === 'board_item') return [...line(ONE[kind][type], { name: nameOf(record(first)) }), tag];
       return type === 'note' ? [t(A_NOTE[kind])] : line(ONE[kind][type], { name: nameOf(record(first)) });
     }
     // Checked before the moves and updates below: a delete renumbers the frames after it in the same step, and once

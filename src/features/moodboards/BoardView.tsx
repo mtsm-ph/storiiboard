@@ -1,14 +1,26 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { showInfo } from '../../app/notice';
+import { fromFile, choosePictures, onWindowDrop } from '../../app/pictures';
 import { useProject } from '../../app/projectStore';
+import { isTauriApp } from '../../app/fileAccess';
+import { openTile } from '../../app/shell/docking/layout';
+import { layoutsOf, layoutStore } from '../../app/shell/docking/layoutStore';
+import { useWorkspaceId } from '../../app/shell/workspaceContext';
+import { videoDriver } from '../../app/video';
 import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import { Canvas } from '../../ui/canvas/Canvas';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
-import type { CanvasCommand } from '../../ui/canvas/types';
+import type { CanvasCommand, Point } from '../../ui/canvas/types';
+import { toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
+import { useMissingVideos } from '../video/videoStatus';
 import { boardFields, boardTitle } from './boards';
 import {
+  addBoardFiles,
+  addBoardPictures,
+  openCard,
+  pasteFromSystem,
   changeGeometry,
   copySelection,
   cutSelection,
@@ -23,9 +35,14 @@ import {
   renameBoardTo,
   reorder,
 } from './boardActions';
+import { cardInfo, originalOf } from './cards';
+import { markSystemClipboard } from './clipboardMarker';
+import { CardProperties } from './CardProperties';
 import { withDrawing } from './drawing';
+import { LinkDialog } from './LinkDialog';
+import { useDrawnLevels } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
-import { BOARD_COLOURS, canvasItems, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, type ItemFields } from './items';
+import { BOARD_COLOURS, canvasItems, isMediaKind, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
@@ -44,6 +61,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const tool = useMoodboard((s) => s.tool);
   const clipboard = useMoodboard((s) => s.clipboard);
   const editing = useMoodboard((s) => s.editing);
+  const linkAsk = useMoodboard((s) => s.linkAsk);
+  const workspaceId = useWorkspaceId();
+  const missingVideos = useMissingVideos();
+  const levels = useDrawnLevels();
+  const wrapper = useRef<HTMLDivElement>(null);
   const fontsVersion = useFonts((s) => s.version);
   const fontsStatus = useFonts((s) => s.status);
   const systemFonts = useFonts((s) => s.system);
@@ -59,10 +81,20 @@ export function BoardView({ board }: { board: SbdRecord }) {
   }, [placed, mine, draftFields]);
   const fieldsOf = (id: string): ItemFields | null => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {}));
   const drawn = useMemo(
-    () => withDrawing(items, (id) => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {})), mine?.id ?? null, fontsVersion),
+    () =>
+      withDrawing(
+        items,
+        (id) => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {})),
+        (id) => {
+          const fields = itemFields(records[id]?.props ?? {});
+          return fields ? cardInfo(records, id, fields, missingVideos) : null;
+        },
+        mine?.id ?? null,
+        fontsVersion,
+      ),
     // fontsStatus and systemFonts decide which family a text is drawn in, so they redraw it too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, records, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts],
+    [items, records, mine, draftFields, fontsVersion, fontsStatus, systemFonts, brokenFonts, missingVideos],
   );
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id)), [stored, items]);
@@ -82,6 +114,40 @@ export function BoardView({ board }: { board: SbdRecord }) {
   useEffect(() => {
     void loadSystemFonts();
   }, []);
+  // Video and link cards are set in JetBrains Mono: loaded once a board has one, and drawn again when it is.
+  const hasCards = useMemo(() => itemsOf(records, board.id).some((r) => r.props.kind === 'video' || r.props.kind === 'link'), [records, board.id]);
+  useEffect(() => {
+    // The faces the cards are set in: mono regular for the length, mono bold for the file name, Inter Tight bold for a link.
+    if (hasCards) for (const [family, weight] of [['JetBrains Mono', 400], ['JetBrains Mono', 700], ['Inter Tight', 700]] as const) void ensureFont(family, weight, false);
+  }, [hasCards]);
+
+  // Files dropped on the canvas. In the browser build the page's own drag events carry them; in the desktop app Tauri
+  // catches the drop and Rust reports the point (src/app/pictures.ts). Either way they land from the drop point.
+  const worldAt = (client: { x: number; y: number }): Point | null => {
+    const frame = wrapper.current?.querySelector<HTMLElement>('[data-canvas]');
+    if (!frame) return null;
+    const box = frame.getBoundingClientRect();
+    const view = viewportOf(moodboardStore.getState().viewports, board.id);
+    return toWorld(view, { width: Math.max(80, Math.round(frame.clientWidth)), height: Math.max(80, Math.round(frame.clientHeight)) }, { x: client.x - box.left, y: client.y - box.top });
+  };
+  useEffect(() => {
+    if (!isTauriApp) return;
+    let live = true;
+    let stop: (() => void) | null = null;
+    void onWindowDrop((files, at) => {
+      const over = document.elementFromPoint(at.x, at.y);
+      if (over && wrapper.current?.contains(over)) void addBoardPictures(board.id, files, worldAt(at));
+    }).then((unlisten) => {
+      if (live) stop = unlisten;
+      else unlisten();
+    });
+    return () => {
+      live = false;
+      stop?.();
+    };
+    // worldAt reads the refs and the store as they are when a drop lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.id]);
   const used = useMemo(() => {
     const seen = new Map<string, ItemFields>();
     for (const item of items) {
@@ -107,6 +173,18 @@ export function BoardView({ board }: { board: SbdRecord }) {
   }, [used, fontsStatus, systemFonts, brokenFonts, board.id]);
   const title = boardTitle(board);
   const free = boardFields(board.props).name !== null;
+
+  const showPlayer = () => {
+    const { layouts, change } = layoutStore.getState();
+    change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'player'));
+  };
+  // One picture, video card or link selected: what the strip adds for it.
+  const only = selection.length === 1 ? selection[0] : undefined;
+  const onlyFields = only ? itemFields(records[only]?.props ?? {}) : null;
+  const strip =
+    only && onlyFields && isMediaKind(onlyFields.kind) ? (
+      <CardProperties id={only} fields={onlyFields} card={cardInfo(records, only, onlyFields, missingVideos)} original={originalOf(records, only)} />
+    ) : null;
 
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
@@ -159,6 +237,26 @@ export function BoardView({ board }: { board: SbdRecord }) {
             {title}
           </span>
         )}
+        <button
+          type="button"
+          data-board-picture=""
+          onClick={() => {
+            void choosePictures(true).then((files) => addBoardPictures(board.id, files, null));
+          }}
+          className="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4"
+        >
+          {t('moodboard.picture')}
+        </button>
+        <button
+          type="button"
+          data-board-video=""
+          onClick={() => {
+            void videoDriver.choose(true).then((videos) => addBoardFiles(board.id, videos.map((file) => ({ kind: 'video' as const, file })), null));
+          }}
+          className="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4"
+        >
+          {t('moodboard.chooseVideo')}
+        </button>
       </ToolStrip>
       {/* A band of one height above the canvas, empty when nothing is selected: the canvas never changes size under a gesture, and nothing on it is covered. */}
       <PropertiesStrip
@@ -167,8 +265,28 @@ export function BoardView({ board }: { board: SbdRecord }) {
         onChange={(patch) => {
           void changeStyle(board.id, patch);
         }}
-      />
-      <div className="min-h-0 flex-1" data-board-data={data}>
+      >
+        {strip}
+      </PropertiesStrip>
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes files dropped on the board; the canvas inside is the control */}
+      <div
+        ref={wrapper}
+        className="min-h-0 flex-1"
+        data-board-data={data}
+        data-picture-levels={JSON.stringify(levels)}
+        // Marks the canvas as the board's own for pictures dropped or pasted, so the storyboard's listeners leave them.
+        data-moodboard-canvas=""
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return;
+          event.preventDefault();
+          void addBoardPictures(board.id, [...event.dataTransfer.files].map(fromFile), worldAt({ x: event.clientX, y: event.clientY }));
+        }}
+      >
         <Canvas
           label={t('moodboard.canvasLabel', { name: title })}
           items={drawn}
@@ -188,6 +306,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
           onEdit={(id) => {
             editItem(board.id, id);
           }}
+          onOpen={(id) => {
+            void openCard(board.id, id, showPlayer);
+          }}
+          onPasteData={(data, at) => pasteFromSystem(board.id, data, at)}
+          onSystemCopy={markSystemClipboard}
           editing={mine?.id ?? null}
           renderEditor={(item, zoom) => {
             const fields = fieldsOf(item.id);
@@ -198,6 +321,14 @@ export function BoardView({ board }: { board: SbdRecord }) {
           fixedColours={BOARD_COLOURS}
         />
       </div>
+      {linkAsk?.boardId === board.id && (
+        <LinkDialog
+          ask={linkAsk}
+          onClose={() => {
+            moodboardStore.getState().askLink(null);
+          }}
+        />
+      )}
     </div>
   );
 }

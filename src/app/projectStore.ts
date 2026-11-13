@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
+import { forgetDecoded } from '../core/media/decoded';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
 import { apply, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
@@ -208,6 +209,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           if (before && before !== project) {
             // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
             await before.close().catch(() => undefined);
+            forgetDecoded();
             await releaseImageUrls(before.file);
           }
         }),
@@ -217,6 +219,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           try {
             if (project) {
               await project.close();
+              forgetDecoded();
               await releaseImageUrls(project.file);
             }
           } finally {
@@ -316,6 +319,8 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           if (!done) return null;
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          // After the URLs, so a picture read again finds the file without it.
+          forgetDecoded(done.pictures);
           set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return done.touched;
         });
@@ -348,6 +353,8 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           const done = await cleanUpPictures(project.file, only);
           result = { removed: done.removed, freed: done.freed };
           await forgetImageUrls(project.file, done.pictures);
+          // After the URLs, so a picture read again finds the file without it.
+          forgetDecoded(done.pictures);
           if (done.removed > 0) set((s) => ({ deletedForGood: s.deletedForGood + 1 }));
           return null;
         });
