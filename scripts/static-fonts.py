@@ -29,20 +29,26 @@ def odd_glyphs(font):
 def pad(font):
     # Every glyph padded to 4 bytes: fontkit's subsetter (pdf-lib) copies glyphs as they are, then writes short loca
     # offsets (halved) when the subset is small. An odd-length glyph shifted every glyph after it, and most of Inter
-    # Tight printed as blanks or other letters. The test 'has even-length glyphs' holds this.
+    # Tight printed as blanks or other letters. The table test in src/features/export/deckFontFiles.test.ts holds this.
     font['glyf'].padding = 4
 
 
 for source, base, instances in NOT_PUBLISHED:
     for weight, style in instances:
         out = f'{FOLDER}/{base}-{style}.ttf'
-        static = instantiateVariableFont(TTFont(source), {'wght': weight}, updateFontNames=True)
+        if os.path.exists(out):
+            have = TTFont(out, recalcTimestamp=False, recalcBBoxes=False)
+            if have['OS/2'].usWeightClass == weight and 'fvar' not in have:
+                print('kept', out)
+                continue
+        static = instantiateVariableFont(TTFont(source, recalcTimestamp=False, recalcBBoxes=False), {'wght': weight}, updateFontNames=True)
         pad(static)
         static.save(out)
         print('generated', out, static['OS/2'].usWeightClass, 'fvar' in static)
 
 for path in sorted(glob.glob(f'{FOLDER}/*.ttf')):
-    font = TTFont(path)
+    # No timestamp or box recalculated on save: padding is the only change a file gets.
+    font = TTFont(path, recalcTimestamp=False, recalcBBoxes=False)
     odd = odd_glyphs(font)
     if odd == 0:
         status = 'ok'

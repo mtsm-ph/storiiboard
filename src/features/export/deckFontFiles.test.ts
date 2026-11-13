@@ -20,9 +20,15 @@ const ROOT = new URL('../../../', import.meta.url);
 interface Parsed {
   familyName: string;
   postscriptName: string;
-  'OS/2': { usWeightClass: number };
+  unitsPerEm: number;
+  name: { records: Record<string, Record<string, string> | undefined> };
+  'OS/2': { usWeightClass: number; usWidthClass: number };
   directory: { tables: Record<string, unknown> };
   loca: { offsets: number[] };
+  variationAxes: Record<string, { min: number; default: number; max: number }>;
+  getVariation: (settings: Record<string, number>) => Parsed;
+  glyphsForString: (text: string) => { advanceWidth: number }[];
+  hasGlyphForCodePoint: (codePoint: number) => boolean;
 }
 const parse = (bytes: Uint8Array) => fontkit.create(bytes) as unknown as Parsed;
 
@@ -39,6 +45,20 @@ afterAll(() => {
   vi.stubGlobal('fetch', realFetch);
 });
 
+/** The variable files the canvas draws from (src/ui/fonts), by family: upright, then italic. */
+const VARIABLE: Readonly<Record<string, readonly [string, string]>> = {
+  'Inter Tight': ['intertight/InterTight[wght].ttf', 'intertight/InterTight-Italic[wght].ttf'],
+  'JetBrains Mono': ['jetbrainsmono/JetBrainsMono[wght].ttf', 'jetbrainsmono/JetBrainsMono-Italic[wght].ttf'],
+  Archivo: ['archivo/Archivo[wdth,wght].ttf', 'archivo/Archivo-Italic[wdth,wght].ttf'],
+  'Bodoni Moda': ['bodonimoda/BodoniModa[opsz,wght].ttf', 'bodonimoda/BodoniModa-Italic[opsz,wght].ttf'],
+  Jost: ['jost/Jost[wght].ttf', 'jost/Jost-Italic[wght].ttf'],
+  Outfit: ['outfit/Outfit[wght].ttf', 'outfit/Outfit[wght].ttf'],
+};
+const variable = (family: string, italic: boolean): Parsed => {
+  const path = VARIABLE[family]?.[italic ? 1 : 0] ?? '';
+  return parse(new Uint8Array(readFileSync(new URL(`../../ui/fonts/${path}`, import.meta.url))));
+};
+
 const weightsOf = ([low, high]: readonly [number, number]) => Array.from({ length: (high - low) / 100 + 1 }, (_, i) => low + i * 100);
 
 describe('the static files of every bundled family', () => {
@@ -54,8 +74,12 @@ describe('the static files of every bundled family', () => {
     expect(file, `${family} ${String(weight)} has no file`).not.toBeNull();
     if (!file) return;
     const font = parse(file.bytes);
-    // The name table says the family (Jost's own says "Jost*"; the style may follow it).
-    expect(font.familyName.replace('*', '').startsWith(family), font.familyName).toBe(true);
+    // The name table says exactly the family: the preferred family (name ID 16), else the family (ID 1), which for a style-linked
+    // file is the family alone. The one spelling allowed besides is Jost's own, "Jost*".
+    const named = font.name.records.preferredFamily?.en ?? font.name.records.fontFamily?.en;
+    expect(named, font.postscriptName).toBe(family === 'Jost' ? 'Jost*' : family);
+    // Normal width: no condensed or expanded file stands in for the family.
+    expect(font['OS/2'].usWidthClass).toBe(5);
     expect(font['OS/2'].usWeightClass).toBe(weight);
     expect(/Italic$/.test(font.postscriptName), font.postscriptName).toBe(italic);
     // A static file: no variation table. Even-length glyphs, which pdf-lib's subsetter needs.
@@ -66,6 +90,41 @@ describe('the static files of every bundled family', () => {
     // The bold is never made; the slant only where the family has no italic.
     expect(file.synthBold).toBe(false);
     expect(file.synthItalic).toBe(false);
+  });
+
+  // The PDF prints with the same widths the canvas laid the text out in: a static file's advances match the variable file's at that weight.
+  const SAMPLE = 'The quick brown fox jumps over the lazy dog 0123456789 ÁÉÍÓÚÑÜáéíóúñü';
+  it.each(cases)('$family $weight (italic: $italic) has the advance widths of the variable font the canvas draws, within 0.1%', async ({ family, weight, italic }) => {
+    const file = await deckFontLoader(family, weight, italic);
+    if (!file) throw new Error(`${family} ${String(weight)} has no file`);
+    const fixed = parse(file.bytes);
+    // Archivo at the width the canvas draws (wdth 100); Bodoni Moda at its default optical size, which the statics are.
+    const settings: Record<string, number> = { wght: weight, ...(family === 'Archivo' ? { wdth: 100 } : {}) };
+    const drawn = variable(family, italic).getVariation(settings);
+    // The glyphs' own advances, with no kerning: fontkit's kerning of a variable font is not reliable (for Outfit it reads 0.1 to
+    // 0.35% off a static file at weights 200 to 900, where Chromium's canvas measures static and variable within 0.005%), so what
+    // is compared is what it gets right.
+    const em = (font: Parsed) => font.glyphsForString(SAMPLE).reduce((sum, glyph) => sum + glyph.advanceWidth, 0) / font.unitsPerEm;
+    const staticWidth = em(fixed);
+    const canvasWidth = em(drawn);
+    expect(Math.abs(staticWidth / canvasWidth - 1), `${family} ${String(weight)}: static ${String(staticWidth)} em, variable ${String(canvasWidth)} em`).toBeLessThanOrEqual(0.001);
+  });
+
+  it('keeps the two defaults the parity above rests on: Bodoni Moda’s optical size 11 and Archivo’s width 100', () => {
+    expect(variable('Bodoni Moda', false).variationAxes.opsz?.default).toBe(11);
+    expect(variable('Bodoni Moda', true).variationAxes.opsz?.default).toBe(11);
+    expect(variable('Archivo', false).variationAxes.wdth?.default).toBe(100);
+    expect(variable('Archivo', true).variationAxes.wdth?.default).toBe(100);
+  });
+
+  // The storyboard PDF prints the status shapes in JetBrains Mono Regular, and Spanish in Inter Tight and JetBrains Mono.
+  it('has the status shapes ■ □ ◩ in JetBrains Mono, and Spanish’s letters in Inter Tight and JetBrains Mono', async () => {
+    const mono = parse((await deckFontLoader('JetBrains Mono', 400, false))?.bytes ?? new Uint8Array());
+    const sans = parse((await deckFontLoader('Inter Tight', 400, false))?.bytes ?? new Uint8Array());
+    for (const shape of [0x25a0, 0x25a1, 0x25e9]) expect(mono.hasGlyphForCodePoint(shape), shape.toString(16)).toBe(true);
+    for (const [name, font] of [['JetBrains Mono', mono], ['Inter Tight', sans]] as const) {
+      for (const letter of 'ÁÉÍÓÚÑÜáéíóúñü¿¡') expect(font.hasGlyphForCodePoint(letter.codePointAt(0) ?? 0), `${name} ${letter}`).toBe(true);
+    }
   });
 
   it('has Outfit’s slant made from its upright file, as it has no italic', async () => {
@@ -135,11 +194,14 @@ describe('a deck page set in several bundled families', () => {
 
 describe('the README of the static fonts', () => {
   const readme = readFileSync(new URL('README.md', FOLDER), 'utf8');
-  const listed = new Map([...readme.matchAll(/^\| (\S+\.ttf) \| ([0-9a-f]{64}) \|$/gm)].map((m) => [m[1] ?? '', m[2] ?? '']));
+  const rows = [...readme.matchAll(/^\| (\S+\.ttf) \| ([0-9a-f]{64}) \|$/gm)];
+  const listed = new Map(rows.map((m) => [m[1] ?? '', m[2] ?? '']));
   const files = readdirSync(FOLDER).filter((name) => name.endsWith('.ttf'));
 
   it('lists every font file in the folder once, and no file that is not there', () => {
     expect(files.length).toBeGreaterThan(0);
+    // A file named twice is a duplicate row, which the Map would hide.
+    expect(rows.length).toBe(listed.size);
     expect([...listed.keys()].sort()).toEqual([...files].sort());
   });
 

@@ -3,14 +3,14 @@ a storyboard's and a call sheet's PDF take their fonts from here; the canvas dra
 src/ui/fonts and is not touched by these. The files load only when a PDF is exported, and pdf-lib embeds just the
 characters used.
 
-Every file is the font publisher's own static TTF, unchanged (the Jost files only renamed, below), under the SIL Open
-Font License 1.1 (the OFL-*.txt beside them; each copyright line is the one in src/ui/fonts/<family>/OFL.txt). Each
+Every file is the font publisher's own static TTF, byte for byte (checked against the downloads; only the Jost files
+are renamed, below), under the SIL Open Font License 1.1 (the OFL-*.txt beside them). Each
 family has every weight its board range offers (`BUNDLED` in src/features/moodboards/fonts.ts), upright, and italic
 where the family has one (Outfit has none: its slant is made when a PDF is written). Names are `<Family>-<Style>.ttf`,
 the 400 weight being `Regular` and `Italic`.
 
 - **Padded or generated: none.** Every publisher's file already has even-length glyphs, which pdf-lib's subsetter
-  needs (every glyph padded to 4 bytes; the test 'has even-length glyphs' holds it), and every weight is published, so
+  needs (every glyph padded to 4 bytes; the table test in src/features/export/deckFontFiles.test.ts holds it), and every weight is published, so
   nothing was padded or made with fontTools. `scripts/static-fonts.py` (fontTools 4.68.0 when this was written) does
   both when a file needs it, lists what it did, and changes nothing in a file that is right; its `NOT_PUBLISHED` list
   is empty. A file it makes or pads must be named here with why.
@@ -20,8 +20,18 @@ the 400 weight being `Regular` and `Italic`.
   where the canvas drew it at a larger one: slightly wider, with less contrast. The publisher has no other size to
   take.
 - Archivo is the normal width (wdth 100) only, as the canvas draws it.
-- Every file is checked by a test (src/features/export/deckFontFiles.test.ts): its family and weight, no `fvar`, even
-  glyphs, embedding allowed, and the SHA-256 below, so a file can't change unnoticed. A file added here is listed here.
+- Every file is checked by a test (src/features/export/deckFontFiles.test.ts): its exact family name (name ID 16, else
+  ID 1; Jost's own is spelled `Jost*`), normal width (OS/2 usWidthClass 5), weight, no `fvar`, even glyphs, embedding
+  allowed, its advance widths against the variable font the canvas draws, and the SHA-256 below, so a file can't
+  change unnoticed. A file added here is listed here.
+- The licence texts. Outfit's, Archivo's and Inter Tight's are byte for byte the ones in src/ui/fonts/<family>/OFL.txt.
+  The copyright holder and year are the same for all six. Three differ in wording only: Jost's (the publisher's own file
+  is kept) has `(https://github.com/indestructible-type/Jost)` in its copyright line where the variable fonts' has
+  `(https://github.com/indestructible-type)`, and a shorter introduction ("This license is available with a FAQ at:
+  https://scripts.sil.org/OFL") and the licence headed "SIL OPEN FONT LICENSE" with "Version 1.1 - 26 February 2007" under it; Bodoni
+  Moda's (the publisher's is kept) gives the FAQ address as scripts.sil.org/OFL where the variable fonts' gives
+  openfontlicense.org; JetBrains Mono's differs from the publisher's v2.304 file in line breaks and a trailing space (the
+  one already here is kept).
 
 ## Sources
 
@@ -39,11 +49,23 @@ The file is at `<path>/<publisher's name>` in that repository.
 
 - Inter Tight: the publisher's own repository for Google Fonts' release (the repository the Google Fonts copy in
   ofl/intertight is built from); google/fonts holds only its variable files.
-- Jost: the publisher names its weights 100 Hairline, 200 Thin, 400 Book, 600 Semi, 800 Heavy. The files are renamed to
-  the CSS weights' usual names, nothing else changed: Jost-Thin.ttf is `Jost-100-Hairline.ttf`, ExtraLight is
-  `Jost-200-Thin`, Light `Jost-300-Light`, Regular `Jost-400-Book`, Medium `Jost-500-Medium`, SemiBold `Jost-600-Semi`,
-  Bold `Jost-700-Bold`, ExtraBold `Jost-800-Heavy`, Black `Jost-900-Black`, and the same with `Italic` for the italics.
-  Each file's own weight (OS/2 usWeightClass) is what the test reads.
+- Renamed files: only Jost's. The other five families' files keep the publisher's names exactly (Bodoni Moda's repository
+  has one optical size, with no size in its names). The publisher names Jost's weights 100 Hairline, 200 Thin, 400 Book,
+  600 Semi and 800 Heavy; the files are renamed to the CSS weights' usual names, with nothing else changed. Each file's
+  own weight (OS/2 usWeightClass) is what the test reads. The path is `fonts/ttf/` in the repository above.
+
+| Our file | Publisher's file |
+| --- | --- |
+| Jost-Thin.ttf, Jost-ThinItalic.ttf | Jost-100-Hairline.ttf, Jost-100-HairlineItalic.ttf |
+| Jost-ExtraLight.ttf, Jost-ExtraLightItalic.ttf | Jost-200-Thin.ttf, Jost-200-ThinItalic.ttf |
+| Jost-Light.ttf, Jost-LightItalic.ttf | Jost-300-Light.ttf, Jost-300-LightItalic.ttf |
+| Jost-Regular.ttf, Jost-Italic.ttf | Jost-400-Book.ttf, Jost-400-BookItalic.ttf |
+| Jost-Medium.ttf, Jost-MediumItalic.ttf | Jost-500-Medium.ttf, Jost-500-MediumItalic.ttf |
+| Jost-SemiBold.ttf, Jost-SemiBoldItalic.ttf | Jost-600-Semi.ttf, Jost-600-SemiItalic.ttf |
+| Jost-Bold.ttf, Jost-BoldItalic.ttf | Jost-700-Bold.ttf, Jost-700-BoldItalic.ttf |
+| Jost-ExtraBold.ttf, Jost-ExtraBoldItalic.ttf | Jost-800-Heavy.ttf, Jost-800-HeavyItalic.ttf |
+| Jost-Black.ttf, Jost-BlackItalic.ttf | Jost-900-Black.ttf, Jost-900-BlackItalic.ttf |
+
 - Inter Tight and JetBrains Mono replace the five instances made from the variable fonts in 1.25 (Inter Tight 400, 600,
   700; JetBrains Mono 400, 700) with the publisher's files of the same weights.
 
