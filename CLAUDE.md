@@ -329,7 +329,9 @@
   else, executables above all.
   - Show in Finder / Show in Explorer (Kevin, Nov 11): the one other thing, through the opener's reveal only. It shows
     a board picture's recorded original in its folder, selected; it never opens the file, and only when the file
-    exists. Rust finds the path from the picture's record in the open .sbd; the page never names one.
+    exists. Rust finds the path from the picture's own record in the open .sbd (src-tauri/src/open.rs, built in 5.9:
+    not in the Trash, a picture's file name, checked by metadata alone so nothing is read or downloaded); the page
+    never names one.
 
 ## Code style
 - TypeScript strict; no `any`.
