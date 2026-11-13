@@ -1,7 +1,7 @@
 ---
 name: builder
 description: Writes Storiiboard code and tests from a complete brief the main session gives it, runs the checks the brief names and fixes what they catch. Never commits, pushes or merges.
-model: claude-sonnet-5-5
+model: claude-opus-5-5
 effort: medium
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
