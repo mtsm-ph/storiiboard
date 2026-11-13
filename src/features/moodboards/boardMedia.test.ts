@@ -250,6 +250,18 @@ describe('what size is drawn', () => {
     expect(cache.has('p0')).toBe(true);
     expect(cache.has('new')).toBe(true);
   });
+
+  it('tells the one that wants a picture when the cache lets it go to make room, and not when it is deleted', () => {
+    const dropped: string[] = [];
+    const cache = new BoundedCache<number>(2, (key) => dropped.push(key));
+    cache.set('a', 1);
+    cache.set('b', 2);
+    cache.delete('a');
+    expect(dropped).toEqual([]);
+    cache.set('c', 3);
+    cache.set('d', 4);
+    expect(dropped).toEqual(['b']);
+  });
 });
 
 describe('video cards', () => {

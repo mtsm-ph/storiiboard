@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundsOf, cornersOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
+import { boundsFor, boundsOf, cornersOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
 import type { Geometry } from './types';
 
 const box = (rotation = 0): Geometry => ({ x: 0, y: 0, width: 100, height: 20, rotation });
@@ -60,5 +60,36 @@ describe('hit tests on rotated rectangles', () => {
 
   it('makes a rectangle from two corners dragged any way', () => {
     expect(rectFromCorners({ x: 10, y: 50 }, { x: 4, y: 20 })).toEqual({ x: 4, y: 20, width: 6, height: 30 });
+  });
+});
+
+describe('the bounds the canvas keeps (5.7)', () => {
+  // A small deterministic generator, so a failure can be replayed.
+  const random = (seed: number) => () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+
+  it('are the bounds worked out in full, for any item, turned or not', () => {
+    const next = random(7);
+    for (let i = 0; i < 200; i += 1) {
+      const item: Geometry = { x: next() * 4000 - 2000, y: next() * 4000 - 2000, width: 8 + next() * 600, height: 8 + next() * 600, rotation: Math.floor(next() * 24) * 15 };
+      expect(boundsFor(item)).toEqual(boundsOf(item));
+    }
+  });
+
+  it('are worked out once for an item, however often they are asked for', () => {
+    const item = box(30);
+    expect(boundsFor(item)).toBe(boundsFor(item));
+  });
+
+  it('follow an item whose numbers change, so nothing is ever drawn from an old place', () => {
+    const item = box(0);
+    const first = boundsFor(item);
+    item.x = 500;
+    item.rotation = 90;
+    const second = boundsFor(item);
+    expect(second).not.toBe(first);
+    expect(second).toEqual(boundsOf(item));
   });
 });

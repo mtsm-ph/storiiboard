@@ -27,6 +27,21 @@ export function boundsOf(g: Geometry): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
+const known = new WeakMap<object, { key: string; bounds: Rect }>();
+
+/**
+ * `boundsOf` for an item the canvas keeps (5.7): worked out once per item and place, however many frames ask. An item that
+ * moves is a new object in the canvas's list, and one edited in place is told by its numbers, so nothing here goes stale.
+ */
+export function boundsFor(g: Geometry): Rect {
+  const key = `${String(g.x)} ${String(g.y)} ${String(g.width)} ${String(g.height)} ${String(g.rotation)}`;
+  const have = known.get(g);
+  if (have?.key === key) return have.bounds;
+  const bounds = boundsOf(g);
+  known.set(g, { key, bounds });
+  return bounds;
+}
+
 /** Whether a point is inside the item: the point is turned back by the item's rotation and tested against the box. */
 export function hitsPoint(g: Geometry, point: Point): boolean {
   const c = centreOf(g);

@@ -347,6 +347,64 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 11: Phase 5 built, at the gate)
+
+- Phase 5 is built and reviewed, every milestone under Kevin's Nov 10 answers, as a stack of PRs each based on the one
+  before: #135 (the answers and Windows 10, docs; base `v2`) ← #136 (5.0 canvas core and boards) ← #137 (5.1a text,
+  stickies, shapes, fonts) ← #138 (5.1b pictures, video cards, links) ← #139 (5.2 connectors) ← #140 (5.3 sections,
+  align, tidy, snap) ← #141 (5.4 live cards, brand kit, a board's links) ← #142 (5.5 decks, Present, templates) ← #143
+  (5.6a deck PDF and PNGs) ← #144 (5.6b palettes from a board, swatches .png/.ase) ← #145 (5.7 performance).
+- **Merging:** `gh pr merge` on PRs Kevin hadn't named was refused by the classifier, so none of #135–#145 is merged.
+  Merge in order, base first, as Phase 4's were (each branch holds the ones below it; `git merge-tree` shows each
+  merged tree equals its head tree). **#136 changes all 60 screenshot baselines** (Moodboard no longer "coming";
+  "Week starts on" now says "By this computer's region"): Kevin compares and says merge; nothing above it changes a
+  baseline.
+- Checkpoints: 5.1a (all green after moving font-kit out of Cargo's Windows-only section), 5.2, 5.6a, and the gate
+  checkpoint `checkpoint/phase5-gate` on #145's branch (see the report).
+- Builders stalled twice (5.4, 5.6a) waiting on a test run the shell had moved to the background after 180 s; the main
+  session stopped them and ran the checks itself. Briefs since say to keep long commands in the foreground; a line
+  for builder.md waits for Kevin.
+- Leftovers in test-results/ (build output; deleting was refused): the builders' scratch scripts and logs,
+  clipBytes.ts.leftover, probe*/.
+
+### Phase 5 gate: Kevin's checklist (riskiest first)
+
+1. On both computers, from the `checkpoint/phase5-gate` installers: build a real pitch deck in under an hour (the
+   gate): New deck → Pitch or Lookbook, then edit, Present, Export as PDF; open the PDF in Preview and Acrobat.
+2. Fonts: Adobe Fonts you've activated appear under "On this computer" (relaunch after activating), on the Mac and
+   on Windows; a brand font in the PDF (selectable text); a font whose licence forbids embedding falls back and the
+   export says so.
+3. Pictures: drop photos (iPhone P3 ones too) on a board; export the deck: pictures print from their originals and
+   their colours match; move an original away and export again: the notice counts the stored copy. A project in
+   OneDrive: originals still print.
+4. Clipboard on the Mac app (WebKit): ⌘C/⌘V on a board, a screenshot pasted onto a board, ⌘C on the board then ⌘V in
+   TextEdit gives the items' words.
+5. Performance: the 500-item board on your Mac and a mid Windows laptop (`SB_PERF=1 npx playwright test
+   e2e/perf.spec.ts --project=chromium`, and by feel in the app): pan, zoom, drag smooth.
+6. Live cards: a shot card follows the frame's lens and size; double-click jumps back; a trashed frame reads "In the
+   Trash".
+7. Connectors, sections, align and tidy, snap guides; quick-create with ⌘⌥→ (Ctrl+Shift+→ on Windows). On Windows
+   with two keyboard layouts installed, Alt+Shift+H/V/T don't switch the input language.
+8. Swatches: a .ase opens in Illustrator, InDesign or Photoshop; the Project data (JSON) export now saves on desktop
+   (it was refused there since Phase 2).
+9. Present on a second screen, F for full screen; nothing you press while presenting changes the project.
+10. Windows 10 (item 11 of Phase 4's list) with a board open.
+
+### Waiting for Kevin (Phase 5)
+
+- Merge #135–#145 (and #136's baselines).
+- Board content is never themed (decided by default, 5.1a): a missing colour is ink and the board's canvas is paper
+  in light and dark.
+- "Show original" (reveal a picture's original in Finder/Explorer) was left out of 5.1b: CLAUDE.md allows opening only
+  http(s) links and files the app wrote itself.
+- Static instances of the variable bundled fonts (fonttools at build time), so Outfit and Archivo print at every
+  weight; today a weight more than 100 from their default prints in Inter Tight, with a notice.
+- History doesn't name the board a palette was made from (a stored label would be a format change); a notice does.
+- A palette card's hex is copied from a strip button, not by clicking a swatch on the canvas.
+- The Vite dev-server socket flake: a narrow filter for `ws://localhost:1421` in a shared console helper, or live
+  with it (console errors are never filtered without Kevin).
+- A line for .claude/agents/builder.md: long commands run in the foreground, and the report is sent when checks end.
+
 ### Next session: start here (Nov 10, night: Phase 4 merged, Phase 5 under way)
 
 - Phase 4 merged into `v2` (Nov 10, after Kevin allowed `gh pr merge`): #120 to #133 in order, then the docs PR #134,

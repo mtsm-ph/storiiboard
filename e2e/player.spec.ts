@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { answerAsk } from './ask';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
@@ -30,6 +30,57 @@ const player = (page: Page) => page.getByRole('group', { name: 'Player', exact: 
 const timecode = (page: Page) => player(page).locator('[data-player-timecode]');
 const range = (page: Page) => inspector(page).locator('[data-video-details]');
 const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
+
+interface Presented {
+  frame: number;
+  /** Frames the page was not told of since the report before: 0 when it saw every one. */
+  missed: number;
+}
+
+/**
+ * The frames the preview presents over two seconds of play, as the webview reports them, and how many frames each report
+ * came late by: the webview's own count of frames presented where it gives one, else the time since the last report. The
+ * first report has nothing before it and counts as on time.
+ */
+const presentedFrames = (clip: Locator) =>
+  clip.evaluate(
+    (video: HTMLVideoElement) =>
+      new Promise<Presented[]>((resolve) => {
+        const frameMs = 1001000 / 24000;
+        const seen: Presented[] = [];
+        const until = performance.now() + 2000;
+        let before: { now: number; presented: number | null } | null = null;
+        const next: VideoFrameRequestCallback = (now, metadata) => {
+          const presented = typeof metadata.presentedFrames === 'number' ? metadata.presentedFrames : null;
+          const missed =
+            before === null ? 0 : presented !== null && before.presented !== null ? presented - before.presented - 1 : Math.round((now - before.now) / frameMs) - 1;
+          seen.push({ frame: Math.round((metadata.mediaTime * 24000) / 1001), missed: Math.max(0, missed) });
+          before = { now, presented };
+          if (performance.now() < until) video.requestVideoFrameCallback(next);
+          else resolve(seen);
+        };
+        video.requestVideoFrameCallback(next);
+      }),
+  );
+
+/**
+ * Every frame shown is inside the clip, from `from` to `to`. The clip turns on the callback that reports its out frame, so
+ * a frame past it can only have been shown while the page was too busy to be told: the frames past the out point, one run of
+ * them up to the turn, are allowed as many as the page missed in that run. A page under load, as a suite running in parallel
+ * is, does this; a count with no slack failed on it (21 where 20).
+ */
+function expectInside(seen: Presented[], from: number, to: number) {
+  expect(Math.min(...seen.map((s) => s.frame))).toBeGreaterThanOrEqual(from);
+  let allowed = 0;
+  for (const { frame, missed } of seen) {
+    if (frame <= to) {
+      allowed = 0;
+      continue;
+    }
+    allowed += missed;
+    expect(frame - to, `frame ${String(frame)} reported after ${String(missed)} missed (${String(allowed)} allowed in this run)`).toBeLessThanOrEqual(allowed);
+  }
+}
 
 async function linkAndOpen(page: Page) {
   const chooser = page.waitForEvent('filechooser');
@@ -316,27 +367,13 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001))).toBe(10);
   expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
 
-  /** The frames the preview presents over two seconds of play, as the webview reports them. */
-  const presented = () =>
-    clip.evaluate(
-      (video: HTMLVideoElement) =>
-        new Promise<number[]>((resolve) => {
-          const seen: number[] = [];
-          const until = performance.now() + 2000;
-          const next: VideoFrameRequestCallback = (_now, metadata) => {
-            seen.push(Math.round((metadata.mediaTime * 24000) / 1001));
-            if (performance.now() < until) video.requestVideoFrameCallback(next);
-            else resolve(seen);
-          };
-          video.requestVideoFrameCallback(next);
-        }),
-    );
+  const presented = () => presentedFrames(clip);
   await preview.getByRole('button', { name: 'Play clip' }).click();
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   // Four times round an 11-frame clip: never a frame outside it, and back at its start more than once.
-  const frames = await presented();
-  expect(Math.min(...frames)).toBeGreaterThanOrEqual(10);
-  expect(Math.max(...frames)).toBeLessThanOrEqual(20);
+  const seen = await presented();
+  expectInside(seen, 10, 20);
+  const frames = seen.map((s) => s.frame);
   expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
   await preview.getByRole('button', { name: 'Pause clip' }).click();
   await expect(preview.getByRole('button', { name: 'Play clip' })).toBeVisible();
@@ -349,9 +386,7 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await page.keyboard.press('i');
   await expect(player(page)).toContainText('In 00:00:01:13 · Out 00:00:01:23 · 11 frames');
   await preview.getByRole('button', { name: 'Play clip' }).click();
-  const last = await presented();
-  expect(Math.min(...last)).toBeGreaterThanOrEqual(37);
-  expect(Math.max(...last)).toBeLessThanOrEqual(47);
+  expectInside(await presented(), 37, 47);
   // Still playing (or turning at the in point), not stopped at the take's end.
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   await preview.getByRole('button', { name: 'Pause clip' }).click();
@@ -361,6 +396,34 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await page.keyboard.press('o');
   await expect(player(page)).toContainText('· 1 frame');
   await expect(preview.getByRole('button', { name: 'Play clip' })).toBeDisabled();
+});
+
+test('a page too busy to see every frame shows a frame or two past the out point, never more than it was late by (2.8)', async ({ page }) => {
+  await linkAndOpen(page);
+  await player(page).getByRole('slider', { name: 'Playhead' }).focus();
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('i');
+  await page.keyboard.press('Shift+Period');
+  await page.keyboard.press('o');
+  await expect(player(page)).toContainText('In 00:00:00:10 · Out 00:00:00:20 · 11 frames');
+  const preview = inspector(page).locator('[data-clip-preview]');
+  const clip = preview.locator('video');
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  // The page stalls for 90 ms (two frames and a bit) every quarter second: the picture goes on in the compositor meanwhile,
+  // so the turn at the out frame can come a frame or two late. That is how a loaded machine behaves, made certain.
+  await page.evaluate(() => {
+    setInterval(() => {
+      const from = performance.now();
+      while (performance.now() - from < 90);
+    }, 250);
+  });
+  await preview.getByRole('button', { name: 'Play clip' }).click();
+  const seen = await presentedFrames(clip);
+  expect(seen.some((s) => s.missed >= 1)).toBe(true);
+  expectInside(seen, 10, 20);
+  // And it still goes round: back at its start more than once.
+  const frames = seen.map((s) => s.frame);
+  expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
 });
 
 test('Save clip as file says it needs the desktop app in the browser build (2.8b)', async ({ page }) => {

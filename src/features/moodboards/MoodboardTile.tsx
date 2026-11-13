@@ -12,6 +12,7 @@ export function MoodboardTile() {
   const openId = useMoodboard((s) => s.openBoardId);
   const open = useProject((s) => (openId ? s.records[openId] : undefined));
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('moodboard.noProjectOpen')}</p>;
-  if (open?.type === 'board' && open.trashedAt === null && open.parentId === project.projectId) return <BoardView board={open} />;
+  // Keyed by the board: another board starts with nothing kept from this one (the canvas's drawn shapes, routes and zoom).
+  if (open?.type === 'board' && open.trashedAt === null && open.parentId === project.projectId) return <BoardView key={open.id} board={open} />;
   return <BoardPicker projectId={project.projectId} />;
 }

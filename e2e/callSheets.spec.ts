@@ -567,7 +567,7 @@ test('Export PDF writes the day’s sheet: its words, the directions link for th
 test('the location block shows its place on a map (the browser grid, with its credit), and Export PDF holds the map frame and credit (4.10)', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   await setUp(page);
   await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
@@ -730,7 +730,7 @@ test(`the map picture is composed from the frame’s tiles on a canvas into one 
 test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet changed, and one ⌘Z takes an issue back (4.7)', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   await setUp(page);
   await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
@@ -829,7 +829,7 @@ test('Issue keeps the PDF as sent, locks the day’s scenes, says when the sheet
 test('the Checks strip says what is likely wrong, links to it, and Issue with problems asks once (4.8)', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`);
   });
   await setUp(page);
   await sheet(page).getByRole('button', { name: 'Add everyone' }).click();

@@ -1,18 +1,21 @@
 import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Circle, Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
+import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
-import { boundsOf, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
+import { boundsFor, boundsOf, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
 import { arrangeForKey, commandForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
-import { LABEL_FONT_SIZE, LinkShape, type ResolvedLink } from './LinkShapes';
+import { ItemNodes, type RegisterNode } from './ItemNodes';
+import { createZoomSettle } from './zoomSettle';
+import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
+import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
-import { labelBox, pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd, type Anchor, type Path } from './routing';
+import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
 import { isAttached, isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type CanvasLink, type ConnectDrop, type Geometry, type GeometryChange, type LinkEnd, type PlaceTool, type Point, type Rect as WorldRect, type Side, type Size, type Tool, type Viewport } from './types';
 import { useCanvasColours } from './useCanvasColours';
 import { centreOn, fitBounds, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
@@ -31,6 +34,10 @@ const ARROW_PAN_LONG = 192;
 const ZOOM_STEP = 1.25;
 const MENU_WIDTH = 212;
 const WHEEL_ZOOM = 0.004;
+/** How long the zoom holds still before the items are drawn for it (pictures change size with it). */
+const ZOOM_SETTLE = 150;
+/** A zoom that follows a wheel or pinch this soon is theirs: it settles; any other zoom is a jump. */
+const WHEEL_WINDOW = 250;
 const DRAG_THRESHOLD = 3;
 const BUTTON = 'sb-label flex h-7 items-center justify-center px-2.5 focus-visible:-outline-offset-4';
 const ZOOM_BUTTON = cx(BUTTON, 'text-text hover:bg-surface-raised');
@@ -121,17 +128,6 @@ export interface CanvasProps {
    */
   fixedColours?: CanvasColours;
 }
-
-/** An end as the router takes it: the item's box and side, or the free point; null when the item isn't there. */
-function anchorOf(boxes: ReadonlyMap<string, Geometry>, end: LinkEnd): Anchor | null {
-  if (!isAttached(end)) return { point: { x: end.x, y: end.y } };
-  const box = boxes.get(end.item);
-  return box ? { box, side: end.side } : null;
-}
-
-/** The numbers a path depends on at one end. */
-const anchorKey = (a: Anchor): number[] =>
-  'point' in a ? [a.point.x, a.point.y] : [a.box.x, a.box.y, a.box.width, a.box.height, a.box.rotation, ['top', 'right', 'bottom', 'left', 'auto'].indexOf(a.side)];
 
 /** The items as boxes for snapping, back to front. */
 /** Whether a point picks a connector: within 6 screen px of its line (and half its width), or on its label's patch. */
@@ -235,46 +231,29 @@ export function Canvas({
   const [transforming, setTransforming] = useState<{ key: string; live: ReadonlyMap<string, Geometry> } | null>(null);
   const describedBy = useId();
 
-  const shown = useMemo(() => items.map((item) => ({ ...item, ...(draft?.get(item.id) ?? item) })), [items, draft]);
+  // Only an item the gesture moves is a new object: the others stay the items they were, so what is drawn for them is kept (5.7).
+  const shown = useMemo(
+    () =>
+      draft
+        ? items.map((item) => {
+            const moved = draft.get(item.id);
+            return moved ? { ...item, ...moved } : item;
+          })
+        : items,
+    [items, draft],
+  );
   // Sections are drawn under the connectors and the other items; each group keeps the board's order among itself (5.3).
   const sectionsShown = useMemo(() => drawOrder(shown.filter((item) => item.section)), [shown]);
   const itemsShown = useMemo(() => shown.filter((item) => !item.section), [shown]);
   // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
   // The handles' live geometry counts only for the selection it was made on.
   const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
-  // A cache the render fills as it goes: it only saves routing again, never changes what is drawn.
-  const [routes] = useState(() => new Map<string, { key: string; path: Path }>());
-  const resolved = useMemo((): ResolvedLink[] => {
-    const boxes = new Map(shown.map((item) => [item.id, liveBoxes?.get(item.id) ?? item]));
-    // A dragged section carries the free ends of connectors inside it: shown moving with it (the smallest section wins).
-    const carried = draft
-      ? items
-          .flatMap((item) => {
-            const to = item.section ? draft.get(item.id) : undefined;
-            return to && to.width === item.width && to.height === item.height && (to.x !== item.x || to.y !== item.y) ? [{ box: item, dx: to.x - item.x, dy: to.y - item.y }] : [];
-          })
-          .sort((p, q) => p.box.width * p.box.height - q.box.width * q.box.height)
-      : [];
-    const follow = (end: LinkEnd): LinkEnd => {
-      if (isAttached(end)) return end;
-      const by = carried.find(({ box }) => end.x >= box.x && end.x <= box.x + box.width && end.y >= box.y && end.y <= box.y + box.height);
-      return by ? { x: tidy(end.x + by.dx), y: tidy(end.y + by.dy) } : end;
-    };
-    return links.flatMap((original) => {
-      const link = connecting?.id === original.id ? { ...original, from: connecting.from, to: connecting.to } : { ...original, from: follow(original.from), to: follow(original.to) };
-      const a = anchorOf(boxes, link.from);
-      const b = anchorOf(boxes, link.to);
-      if (!a || !b) return [];
-      // Routed again only when the numbers it depends on changed (a move elsewhere on the board leaves it as it was).
-      const key = JSON.stringify([link.route, link.width, anchorKey(a), anchorKey(b)]);
-      const cached = routes.get(link.id);
-      const path = cached?.key === key ? cached.path : routeBetween(a, b, link.route);
-      if (cached?.key !== key) routes.set(link.id, { key, path });
-      const middle = pathMiddle(path);
-      const typing = editing === link.id;
-      return [{ link, path, middle, patch: link.text !== '' || typing ? labelBox(link.text, middle, LABEL_FONT_SIZE, typing ? 120 : 0) : null }];
-    });
-  }, [links, items, draft, shown, connecting, editing, liveBoxes, routes]);
+  // A cache the render fills as it goes: it only saves routing and making shapes again, never changes what is drawn.
+  const [routes] = useState(() => new Map<string, RouteEntry>());
+  const resolved = useMemo(
+    (): ResolvedLink[] => resolveLinks({ links, items, shown, draft, connecting, editing, liveBoxes, routes }),
+    [links, items, draft, shown, connecting, editing, liveBoxes, routes],
+  );
   // A connector being drawn is shown with the others, lighter.
   const drawing = useMemo((): ResolvedLink | null => {
     if (!connecting || connecting.id !== null) return null;
@@ -286,15 +265,53 @@ export function Canvas({
     return { link: { id: '', label: '', from: connecting.from, to: connecting.to, route: 'straight', startHead: 'none', endHead: 'arrow', color: null, width: 1.5, text: '' }, path, middle: pathMiddle(path), patch: null };
   }, [connecting, shown]);
   const view = viewport;
+  // What the items are drawn for: the zoom once a wheel or pinch has held still for a moment. A picture changes size by the zoom
+  // (the stored one up close), and during a zoom that would redraw every item on every wheel step; the level already drawn
+  // stays until the zoom settles (5.7, decision 4). Any other jump (Fit, Reset, the keys) is applied at once. Items that come
+  // into view meanwhile are drawn at the smaller of this and the live zoom (ItemNodes), so a zoom out never asks them for full size.
+  const [drawZoom, setDrawZoom] = useState(viewport.zoom);
+  const wheeledAt = useRef(-Infinity);
+  useEffect(() => {
+    const settle = createZoomSettle(
+      ZOOM_SETTLE,
+      (zoom) => {
+        setDrawZoom(zoom);
+      },
+      () => gesture.current !== null,
+    );
+    settle.follow(viewport.zoom, performance.now() - wheeledAt.current < WHEEL_WINDOW);
+    return settle.cancel;
+  }, [viewport.zoom]);
+  // The screen's pixel ratio (a picture picks its size by it): kept, and read again when the window moves to another screen.
+  const [ratio, setRatio] = useState(() => window.devicePixelRatio);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(`(resolution: ${String(ratio)}dppx)`);
+    const changed = () => {
+      setRatio(window.devicePixelRatio);
+    };
+    query.addEventListener('change', changed);
+    return () => {
+      query.removeEventListener('change', changed);
+    };
+  }, [ratio]);
+  const register: RegisterNode = useCallback((id, node) => {
+    if (node) nodes.current.set(id, node);
+    else nodes.current.delete(id);
+  }, []);
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
   const pickedSet = new Set(selection);
   // A section's name tab counts as part of it, or its name would vanish while the section's corner is just off the view.
   const reach = (item: CanvasItem): WorldRect => {
     const tab = tabRect(item);
-    return (tab ? unionBounds([boundsOf(item), tab]) : null) ?? boundsOf(item);
+    return (tab ? unionBounds([boundsFor(item), tab]) : null) ?? boundsFor(item);
   };
   const drawn = shown.filter((item) => pickedSet.has(item.id) || rectsMeet(reach(item), world));
+  // A picked item out of the view is still drawn (its handles need the node), but not as in view: its picture stays small.
+  const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
+  const drawnSections = drawn.filter((item) => item.section);
+  const drawnPlain = drawn.filter((item) => !item.section);
   const handleIds = tool === 'select' ? selection.filter((id) => drawn.some((item) => item.id === id)) : [];
   const handleKey = handleIds.join('|');
   // Konva turns a group resized from the side handles into a skew once the items are turned differently: with mixed
@@ -373,6 +390,7 @@ export function Canvas({
       const lines = event.deltaMode === 1 ? 16 : 1;
       if (event.ctrlKey || event.metaKey) {
         if (pinching) return;
+        wheeledAt.current = performance.now();
         change(zoomAround(view, box, view.zoom * Math.exp(-event.deltaY * lines * WHEEL_ZOOM), at(event)));
       } else if (event.shiftKey && event.deltaX === 0) {
         change(panBy(view, -event.deltaY * lines, 0));
@@ -388,6 +406,7 @@ export function Canvas({
     const onPinch = (event: Event) => {
       event.preventDefault();
       const pinch = event as PinchEvent;
+      wheeledAt.current = performance.now();
       const { viewport: view, size: box, onViewportChange: change } = latest.current;
       change(zoomAround(view, box, startZoom * pinch.scale, at(pinch)));
     };
@@ -975,37 +994,6 @@ export function Canvas({
     [resolved],
   );
 
-  /** One item's group (its handles' node), and a section's name tab beside it, drawn in the world. */
-  const renderItem = (item: CanvasItem) => (
-    <Group key={item.id}>
-      <Group
-        ref={(node) => {
-          if (node) nodes.current.set(item.id, node);
-          else nodes.current.delete(item.id);
-        }}
-        x={item.x + item.width / 2}
-        y={item.y + item.height / 2}
-        offsetX={item.width / 2}
-        offsetY={item.height / 2}
-        width={item.width}
-        height={item.height}
-        rotation={item.rotation}
-        listening={false}
-      >
-        {item.draw ? (
-          item.draw({ width: item.width, height: item.height, colours, zoom: view.zoom, inView: rectsMeet(boundsOf(item), world) })
-        ) : (
-          <Rect width={item.width} height={item.height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />
-        )}
-      </Group>
-      {item.section?.drawTab && (
-        <Group x={item.x} y={item.y} listening={false}>
-          {item.section.drawTab({ colours, zoom: view.zoom })}
-        </Group>
-      )}
-    </Group>
-  );
-
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- an application region: it takes the canvas's own keys and pointer
     <div
@@ -1114,7 +1102,7 @@ export function Canvas({
       </p>
       <Stage ref={stage} width={size.width} height={size.height} listening>
         <Layer x={size.width / 2 - view.cx * view.zoom} y={size.height / 2 - view.cy * view.zoom} scaleX={view.zoom} scaleY={view.zoom}>
-          {drawn.filter((item) => item.section).map(renderItem)}
+          <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} register={register} />
           {resolved.map((r) => (
             <LinkShape
               key={r.link.id}
@@ -1123,10 +1111,10 @@ export function Canvas({
               selected={pickedSet.has(r.link.id)}
               hideText={editing === r.link.id}
               handles={selection.length === 1 && selection[0] === r.link.id && tool === 'select'}
-              zoom={view.zoom}
+              zoom={pickedSet.has(r.link.id) ? view.zoom : 1}
             />
           ))}
-          {drawn.filter((item) => !item.section).map(renderItem)}
+          <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} register={register} />
           {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
           {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
           {preview && (
