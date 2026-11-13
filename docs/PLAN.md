@@ -21,11 +21,38 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 3 · Production data | Built (Nov 9), follow-ups merged (Nov 10); the gate is Kevin's |
 | 4 · Call sheets | **Built** and merged (Nov 10, #120 to #134); the gate is Kevin's |
 | 5 · Canvas flow (moodboards and decks) | **Built** (Nov 11): #136 to #145 stacked, waiting to merge (#136's baselines need Kevin); the gate is Kevin's |
-| 6 · Bird's-eye view | Not started |
+| 6 · Bird's-eye view | Planned (Nov 13): the milestones below and `docs/PHASE6_DECISIONS.md` wait for Kevin's answers; nothing built |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
+
+### Phase 6 milestones
+
+Plan written Nov 13, 2026, from "Phase 6 notes" (Kevin, Nov 3) and CLAUDE.md's bird's-eye rules: a top-down plan in
+real units per scene setup, on Phase 5's canvas core, in the Setup section. **Nothing is built until Kevin answers**
+`docs/PHASE6_DECISIONS.md` (16 questions, each with a recommendation); the milestones below assume the
+recommendations and change with his answers. Then as Phases 4 and 5 were: built by the builder from briefs, one PR per
+milestone into `v2`, reviewed until nothing high or medium is left. No new dependency is planned. The schema change
+(decision 16: props only, one version) waits for his approval. The gate: a gaffer plans a real setup with it.
+
+| Milestone | Scope | PR | State |
+|---|---|---|---|
+| 6.0 Setups | `setup` records under a scene, lettered; frames join one from the board or the Setup section (`setup_id`; Shoot days' totals already count them); the Setup section goes live and lists setups by scene; the Trash and History (decision 3) | | Not started |
+| 6.1 Bodies and lenses | Camera bodies in Gear with the sensor size of the recording mode, from a table with sources, and A/B letters (decision 4); lenses in Gear with focal range and squeeze; a frame picks its lens, `lens_mm` kept inside the range (decision 5); the schema version (decision 16) | | Not started |
+| 6.2 The plan in real units | The canvas core given a scale in metres: grid, rulers, a scale bar, lengths typed in metres or feet (decision 7); a plan per setup over the scene's room (decision 2); walls drawn point to point with typed lengths, doors and windows that sit in a wall; paper in both themes (decision 13) | | Not started |
+| 6.3 The library | The 68 plan icons as items with real sizes, by department: set pieces, grip, sound, production (decision 8); the Library tile, drag or keyboard to place | | Not started |
+| 6.4 Cameras | A camera with its body and its frames; the field of view drawn from the picked frame's lens, sensor width and squeeze, live (decision 6); the Frames tile under the plan; camera height kept (decision 11); the lens check in src/core/checks | | Not started |
+| 6.5 Lights, flags and diffusion | Fixtures with a beam cone and height, flags and frames at real sizes, each optionally the `gear_item` it is, so the day's gear check covers the plan (decision 8) | | Not started |
+| 6.6 Cast and moves | A mark per character with numbered positions and paths; camera moves and dolly track with real lengths (decision 9) | | Not started |
+| 6.7 Layers | The Layers tile: show, hide, dim and lock per department; a person starts on their own (decision 10) | | Not started |
+| 6.8 Underlay and measure | A floor plan or photo underneath, set to scale by two points; the measure tool (decision 12) | | Not started |
+| 6.9 Export | A setup's plan as PDF and PNG: to scale, with scale bar, legend, frames and lenses (decision 14) | | Not started |
+| 6.10 Performance | 300 items at 60 fps, measured (decision 15) | | Not started |
+| Phase 6 gate | A checkpoint and Kevin's checklist: a gaffer plans a real setup | | Not started |
+
+Not in Phase 6: the 3D set and Blender (Phase 10, which reads these plans and their heights), the plan on the web
+(Phase 9), plans read by the MCP (Phase 7), the plan on the call sheet (a later follow-up).
 
 ### Phase 5 milestones
 
