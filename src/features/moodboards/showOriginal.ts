@@ -19,26 +19,21 @@ export function showOriginalKey(platform: Platform): 'moodboard.showInFinder' | 
 }
 
 /**
- * Whether the action shows: one picture selected (not a video card or a link) and Rust (or the development stand-in) saying
- * its recorded original is there, which it never does for a picture with none recorded or a missing file, nor in a browser
- * build. Otherwise no action at all, never a disabled one.
- */
-export function showsOriginalAction(state: { selected: number; kind: string; exists: boolean }): boolean {
-  return state.selected === 1 && state.kind === 'picture' && state.exists;
-}
-
-/**
  * Whether this picture's original can be shown, asked when the picture becomes the selection and again when the window
- * regains focus (the file may have come or gone meanwhile), never on every draw. `forget` is for a reveal that failed.
+ * regains focus (the file may have come or gone meanwhile), never on every draw. Only the latest ask sets the state, so a
+ * slow answer for an earlier ask can't overwrite a newer one. `forget` is for a reveal that failed.
  */
-export function useOriginalShown(sha256: string | null): [boolean, () => void] {
-  const [found, setFound] = useState<{ sha256: string; exists: boolean } | null>(null);
+export function useOriginalShown(recordId: string | null, sha256: string | null): [boolean, () => void] {
+  const [found, setFound] = useState<{ recordId: string; exists: boolean } | null>(null);
   useEffect(() => {
-    if (sha256 === null) return;
+    if (recordId === null || sha256 === null) return;
     let live = true;
+    let latest = 0;
     const ask = () => {
-      void originalShown(sha256).then((exists) => {
-        if (live) setFound({ sha256, exists });
+      latest += 1;
+      const mine = latest;
+      void originalShown(recordId, sha256).then((exists) => {
+        if (live && mine === latest) setFound({ recordId, exists });
       });
     };
     ask();
@@ -47,10 +42,10 @@ export function useOriginalShown(sha256: string | null): [boolean, () => void] {
       live = false;
       window.removeEventListener('focus', ask);
     };
-  }, [sha256]);
-  const exists = sha256 !== null && found?.sha256 === sha256 && found.exists;
+  }, [recordId, sha256]);
+  const exists = recordId !== null && found?.recordId === recordId && found.exists;
   const forget = () => {
-    setFound(sha256 === null ? null : { sha256, exists: false });
+    setFound(recordId === null ? null : { recordId, exists: false });
   };
   return [exists, forget];
 }

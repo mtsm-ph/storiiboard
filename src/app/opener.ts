@@ -54,11 +54,14 @@ export async function openPdf(sha256: string, name: string): Promise<void> {
 /**
  * What a development build opened with `?files=memory` (no Rust there) uses to stand in for the computer's disk, so an
  * end-to-end test can say "this picture's original exists" and see which hash the reveal was asked for: set
- * `window.__sbdDevOriginals` before the page loads. Dropped from a release build with the rest of the memory driver.
+ * `window.__sbdDevOriginals` once the page has loaded. As in Rust, the picture's own `media` record must be an image of that
+ * hash; and the test opts in per hash, so no picture shows the action by accident. Not in a release build.
  */
 export interface DevOriginals {
-  /** The hashes whose original "exists"; `*` stands for every picture's. */
+  /** The hashes whose original "exists". */
   shown: string[];
+  /** The hashes `originalShown` was asked about, in order: how a test learns a dropped picture's stored hash. */
+  asked: string[];
   /** The hashes the reveal was asked for, in order. */
   revealed: string[];
   /** The next reveal fails, as if the file went between the two calls. */
@@ -70,27 +73,38 @@ const devOriginals = (): DevOriginals | undefined =>
     ? (window as unknown as { __sbdDevOriginals?: DevOriginals }).__sbdDevOriginals
     : undefined;
 
-/** Whether this picture's recorded original can be shown in its folder now (Rust looks at the disk). */
-export async function originalShown(sha256: string): Promise<boolean> {
+/** Whether the stand-in has this record's picture, as Rust's lookup of the record would. */
+const devHas = (dev: DevOriginals | undefined, recordId: string, sha256: string): boolean => {
+  const props = projectStore.getState().records[recordId]?.props;
+  return dev !== undefined && props?.kind === 'image' && props.file === sha256 && dev.shown.includes(sha256);
+};
+
+/**
+ * Whether this picture's recorded original can be shown in its folder now (Rust looks at the disk). `recordId` is the
+ * picture's own `media` record: the path comes from that record alone, never from the page.
+ */
+export async function originalShown(recordId: string, sha256: string): Promise<boolean> {
   const file = projectStore.getState().project?.file;
   if (!file) return false;
   if (isTauriApp && file.nativeHandle !== undefined) {
     try {
-      return await invoke<boolean>('original_shown', { handle: file.nativeHandle, sha256 });
+      return await invoke<boolean>('original_shown', { handle: file.nativeHandle, recordId, sha256 });
     } catch {
       return false;
     }
   }
-  return devOriginals()?.shown.some((hash) => hash === sha256 || hash === '*') ?? false;
+  const dev = devOriginals();
+  dev?.asked.push(sha256);
+  return devHas(dev, recordId, sha256);
 }
 
 /** Shows the picture's recorded original in its folder, selected; throws when it can't (the file went, or was refused). */
-export async function revealOriginal(sha256: string): Promise<void> {
+export async function revealOriginal(recordId: string, sha256: string): Promise<void> {
   const file = projectStore.getState().project?.file;
   if (!file) throw new Error(t('moodboard.originalGone'));
   if (isTauriApp && file.nativeHandle !== undefined) {
     try {
-      await invoke('reveal_original', { handle: file.nativeHandle, sha256 });
+      await invoke('reveal_original', { handle: file.nativeHandle, recordId, sha256 });
     } catch {
       throw new Error(t('moodboard.originalGone'));
     }
@@ -99,7 +113,7 @@ export async function revealOriginal(sha256: string): Promise<void> {
   const dev = devOriginals();
   if (!dev) throw new Error(t('moodboard.originalGone'));
   dev.revealed.push(sha256);
-  if (dev.failing || !dev.shown.some((hash) => hash === sha256 || hash === '*')) {
+  if (dev.failing || !devHas(dev, recordId, sha256)) {
     dev.shown = dev.shown.filter((hash) => hash !== sha256);
     throw new Error(t('moodboard.originalGone'));
   }

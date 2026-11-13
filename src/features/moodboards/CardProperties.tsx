@@ -7,7 +7,7 @@ import { relinkVideo } from '../video/relink';
 import { changeLink } from './boardActions';
 import type { CardInfo } from './cards';
 import { cardUrl } from './links';
-import { platformOf, showOriginalKey, showsOriginalAction, useOriginalShown } from './showOriginal';
+import { platformOf, showOriginalKey, useOriginalShown } from './showOriginal';
 import type { ItemFields } from './items';
 
 // What the properties strip shows for one selected picture, video card or link (5.1b): a picture's original and, when
@@ -18,7 +18,7 @@ interface Props {
   fields: ItemFields;
   card: CardInfo | null;
   /** The picture's original, from its media record. */
-  original: { name: string; path: string; sha256: string } | null;
+  original: { name: string; path: string; sha256: string; recordId: string } | null;
 }
 
 export function CardProperties({ id, fields, card, original }: Props) {
@@ -100,8 +100,7 @@ function LinkFields({ id, fields }: { id: string; fields: ItemFields }) {
 function PictureFields({ original }: { original: Props['original'] }) {
   const recorded = original !== null && original.path !== '';
   // Rust looks the picture's record up itself: a pasted picture has no original recorded, and is told no.
-  const [exists, forget] = useOriginalShown(original?.sha256 ?? null);
-  const shows = showsOriginalAction({ selected: 1, kind: 'picture', exists });
+  const [exists, forget] = useOriginalShown(original?.recordId ?? null, original?.sha256 ?? null);
   return (
     <>
       <div className="flex min-w-40 max-w-80 flex-col gap-[5px]">
@@ -110,11 +109,14 @@ function PictureFields({ original }: { original: Props['original'] }) {
           {recorded ? original.name || original.path : t('moodboard.pastedPicture')}
         </span>
       </div>
-      {shows && original && (
+      {exists && original && (
         <Button
           data-show-original=""
-          onClick={() => {
-            revealOriginal(original.sha256).catch((error: unknown) => {
+          onClick={(event) => {
+            // The button goes with a failed reveal: focus moves to the board first, not to the top of the page.
+            const button = event.currentTarget;
+            revealOriginal(original.recordId, original.sha256).catch((error: unknown) => {
+              button.closest('[role="region"]')?.querySelector<HTMLElement>('[data-moodboard-canvas] [role="application"]')?.focus();
               showNotice(error);
               forget();
             });
