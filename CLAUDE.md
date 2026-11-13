@@ -6,7 +6,8 @@
 - Core: fast storyboarding. Every shot links to its scene, location, shoot day, people and gear.
 - Production flows out of the storyboard: schedule, call sheets, gear lists, bird's-eye plans.
 - Three surfaces:
-  - Desktop app (Tauri): where production decisions are made; works offline.
+  - Desktop app (Tauri): where production decisions are made; works offline. Windows 10 22H2 and 11 (x64), macOS 13
+    or later on Apple silicon (Kevin, Nov 10; CI runs only Windows Server, so Windows 10 is a by-hand pass).
   - Web companion: cast, crew and clients view, comment, suggest, mark availability.
   - MCP server: AI assistants read the project and propose changes.
 - First user is Kevin Matos, a working DP. Build for real shoots, not demos.
@@ -34,7 +35,7 @@
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
 - PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
-  offline (Kevin, Nov 10; src-tauri/src/timezone.rs). Maps: react-konva, tiles fetched through Rust and cached on disk. 3D (Phase 10): three.js
+  offline (Kevin, Nov 10; src-tauri/src/timezone.rs). This computer's fonts for boards: font-kit in Rust (Kevin, Nov 10). Maps: react-konva, tiles fetched through Rust and cached on disk. 3D (Phase 10): three.js
   through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
@@ -195,7 +196,15 @@
     or OpenStreetMap. A link only; the app never contacts Google.
 - Location map (4.9): drawn with react-konva from tiles fetched through Rust; the pin can be dragged to where the crew
   should go (an entrance, a basecamp), which saves the location's place.
-- Moodboards: one per department; they link to scenes, characters and locations.
+- Moodboards and decks (Phase 5; docs/PHASE5_DECISIONS.md, Kevin, Nov 10): one canvas core, shared with Phase 6's
+  plans. Many boards; each item is a `board_item` record under its `board`, every change an op. A department's board
+  is created the first time it's opened, never ahead. Boards link to scenes, characters and locations.
+  - A deck is a board with ordered page frames: 16:9, 9:16 and 4:5 (social), A4 and Letter (a treatment).
+  - Pictures are stored as frames' are: at most 2560 px, with a pointer to the original for full-quality export;
+    never the original embedded. The canvas draws small previews when zoomed out, the full picture only up close.
+  - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
+  - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
+    never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.
 - Cloud links: one shared link per project; list, download and relink media.
 - Missing media: flag it clearly and offer relink. Device-wide file search is a later phase.
 - Script import: Fountain, Final Draft (.fdx) and PDF.

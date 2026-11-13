@@ -15,6 +15,14 @@ gear lists and bird's-eye plans come out of the storyboard.
 Storiiboard is early and in active development. Files and features change from week to week, and it isn't ready for
 real productions yet. [docs/PLAN.md](docs/PLAN.md) has the current phase and what's next.
 
+## Supported systems
+
+- **Windows 10 (22H2) and Windows 11**, 64-bit (x64). Windows 11 on Arm runs the x64 build; Windows 10 on Arm and
+  S mode can't. The app runs in Microsoft's WebView2, which the installer downloads when it's missing, so a PC without
+  it needs the internet during the install. Windows N editions need Microsoft's Media Feature Pack to play and copy
+  videos.
+- **macOS 13 Ventura or later**, on Apple silicon.
+
 ## Running it
 
 You need Node 22.18 or later and Rust (stable).
