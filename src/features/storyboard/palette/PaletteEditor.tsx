@@ -5,6 +5,8 @@ import { DEFAULT_PALETTE_SIZE, MAX_PALETTE, movedColor, normalHex, removedColor,
 import { Button, IconButton } from '../../../ui/Button';
 import { Select, TextField } from '../../../ui/fields';
 import { LockGlyph } from '../../../ui/glyphs';
+import { Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
+import { useGenerating } from './actions';
 import { stopEyedropper, type AddOutcome } from './Eyedropper';
 
 // A scene's palette in the inspector (polish PP): its colours as swatches, the one picked shown by its hex. Click a
@@ -13,6 +15,7 @@ import { stopEyedropper, type AddOutcome } from './Eyedropper';
 // the frames' pictures, again around locked colours. Every change is an edit.
 
 interface PaletteEditorProps {
+  sceneId: string;
   /** "SC 04", for the toolbar's name. */
   scene: string;
   palette: Palette | null;
@@ -28,11 +31,16 @@ interface PaletteEditorProps {
   onPick: () => void;
   /** Adds a colour typed as hex: the eyedropper's keyboard way. Resolves to what happened. */
   onAddHex: (hex: string) => Promise<AddOutcome>;
+  /** The moodboards linked to this scene (5.6b), which the palette can be made from. */
+  boards: readonly { id: string; name: string }[];
+  onFromBoard: (boardId: string) => Promise<unknown>;
+  /** Opens Export for the palette's swatches (5.6b). */
+  onExport: () => void;
 }
 
 const SHORTCUTS = 'Enter ArrowLeft ArrowRight Home End L Delete Backspace Control+ArrowLeft Control+ArrowRight Meta+ArrowLeft Meta+ArrowRight';
 
-export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit, onCopy, picking, onPick, onAddHex }: PaletteEditorProps) {
+export function PaletteEditor({ sceneId, scene, palette, canGenerate, onGenerate, onEdit, onCopy, picking, onPick, onAddHex, boards, onFromBoard, onExport }: PaletteEditorProps) {
   const [typed, setTyped] = useState('');
   const [typedProblem, setTypedProblem] = useState<string | null>(null);
   const problemId = useId();
@@ -65,7 +73,8 @@ export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit,
   const colors = palette?.colors ?? [];
   // The picked colour by its hex, which stays with it when it moves; a palette lists each colour once.
   const [pickedHex, setPickedHex] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Any run for this scene, Generate or from a board, from anywhere.
+  const busy = useGenerating(sceneId);
   const bar = useRef<HTMLDivElement>(null);
   const generateButton = useRef<HTMLButtonElement>(null);
   const found = colors.findIndex((c) => c.hex === pickedHex);
@@ -140,10 +149,7 @@ export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit,
   const generate = () => {
     // aria-disabled while it runs, not disabled, so the button keeps focus for a keyboard user.
     if (busy || !canGenerate) return;
-    setBusy(true);
-    void onGenerate().finally(() => {
-      setBusy(false);
-    });
+    void onGenerate();
   };
 
   return (
@@ -257,6 +263,32 @@ export function PaletteEditor({ scene, palette, canGenerate, onGenerate, onEdit,
           {busy ? t('palette.generating') : colors.length > 0 ? t('palette.regenerate') : t('palette.generate')}
         </Button>
       </div>
+      {(boards.length > 0 || colors.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {boards.length > 0 && (
+            <Menu label={t('palette.fromBoard')} buttonClassName="sb-label h-7 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4" panelClassName="w-52">
+              {(close) => (
+                <MenuGroup>
+                  {boards.map((board) => (
+                    <MenuItem
+                      key={board.id}
+                      aria-disabled={busy || undefined}
+                      onClick={() => {
+                        close();
+                        if (!busy) void onFromBoard(board.id);
+                      }}
+                    >
+                      <span data-user-text="">{board.name}</span>
+                      {busy ? ` ${t('palette.generating')}` : ''}
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+              )}
+            </Menu>
+          )}
+          {colors.length > 0 && <Button onClick={onExport}>{t('palette.exportSwatches')}</Button>}
+        </div>
+      )}
     </div>
   );
 }

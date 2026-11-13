@@ -1761,6 +1761,18 @@ export const en = {
   // src/features/storyboard/palette/actions.ts
   'palette.allLocked': 'Every colour is locked. Raise the count, or unlock some, to get new ones.',
   'palette.nothingNew': 'These frames have no other colours to offer. Lock the ones you like, or add pictures.',
+  // src/features/moodboards/boardPalette.ts and src/features/storyboard/palette/PaletteEditor.tsx (5.6b: a palette from a board)
+  'palette.fromBoard': 'From a board',
+  'palette.board.make': 'Make palette from this board',
+  'export.swatches.cantDraw': 'This computer can’t draw the swatches.',
+  'palette.board.madeDepartment': 'Made {scene}’s palette from the {board} board.',
+  'palette.board.kindDepartment': '{name} (department)',
+  'palette.board.kindFree': '{name} (board)',
+  'palette.board.made': 'Made {scene}’s palette from {board}.',
+  'palette.board.noPictures': '{board} has no pictures, video posters or shot cards to read, so there’s no palette to make.',
+  'palette.board.unreadable': 'None of {board}’s pictures could be read, so there’s no palette to make.',
+  'palette.board.nothingNew': '{board} has no other colours to offer. Lock the ones you like, or add pictures.',
+  'palette.exportSwatches': 'Export swatches…',
   // src/features/history/summary.ts
   'history.field.palette': 'palette',
   'history.paletteLocked': '{hex} (locked)',
@@ -2630,6 +2642,14 @@ export const en = {
   'export.deck.pixelRatio': 'Size',
   'export.deck.pixelRatio.1': '1× (the page’s own size)',
   'export.deck.pixelRatio.2': '2× (double)',
+  // src/features/export/swatchesPng.ts, swatchesAse.ts (5.6b: a palette's or the brand kit's swatches)
+  'export.swatches.what': 'palette',
+  'export.swatches.png.label': 'Swatches as PNG',
+  'export.swatches.png.description': 'One row of equal swatches in order, each with its hex below, on paper.',
+  'export.swatches.ase.label': 'Swatches as .ase',
+  'export.swatches.ase.description': 'An Adobe Swatch Exchange file for Photoshop, Illustrator and InDesign, each swatch named by its hex.',
+  'export.swatches.none': 'There are no colours to export yet.',
+  'export.swatches.cantSave': 'This computer couldn’t save the swatches as a picture.',
   'export.deck.pageFile': '{deck} {number} {name}',
   'export.deck.pageFileUnnamed': '{deck} {number}',
   'export.deck.cantSave': 'This computer couldn’t save page {number} as a PNG.',

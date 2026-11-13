@@ -14,12 +14,13 @@ import { board } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { boardTitle } from '../moodboards/boards';
 import { isDeck, pagesOf } from '../moodboards/pages';
-import { closeExportDialog, useExportDeck, useExportDialog } from './exportStore';
-import { DECK_FORMATS, FORMATS } from './registry';
+import { closeExportDialog, useExportDeck, useExportDialog, useExportSwatches } from './exportStore';
+import { DECK_FORMATS, FORMATS, SWATCH_FORMATS } from './registry';
+import { swatchSet } from './swatchSet';
 import type { ExportScope } from './scope';
 import { POSITION_LABEL, readWatermark } from './watermark';
 import { WatermarkDialog } from './WatermarkDialog';
-import { localizeError, pluralKey, t } from '../../core/i18n';
+import { localizeError, pluralKey, t, tn } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 
 // Export Project (1.24, the project menu): a format from the registry, the whole project or one scene, then where it
@@ -66,7 +67,9 @@ function ExportDialog() {
   const deckId = useExportDeck();
   const deckBoard = deckId ? records[deckId] : undefined;
   const deck = deckBoard !== undefined && isDeck(deckBoard) && deckBoard.trashedAt === null ? deckBoard : null;
-  const formats = deckId ? DECK_FORMATS : FORMATS;
+  // From a palette's or the brand kit's Export swatches (5.6b) it is for those colours: the PNG strip and the .ase.
+  const swatches = useExportSwatches();
+  const formats = swatches ? SWATCH_FORMATS : deckId ? DECK_FORMATS : FORMATS;
   const [formatId, setFormatId] = useState(formats[0]?.id ?? '');
   const [pixelRatio, setPixelRatio] = useState<'1' | '2'>('1');
   const [sceneId, setSceneId] = useState('');
@@ -99,11 +102,13 @@ function ExportDialog() {
   const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
   const props = records[project.projectId]?.props;
   const projectTitle = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
-  // A deck's files are named for the deck.
-  const title = deck ? boardTitle(deck) : projectTitle;
+  const colours = swatches ? swatchSet(records, project.projectId, swatches) : null;
+  // A deck's files are named for the deck, a palette's for its scene and the brand kit's for its company.
+  const title = swatches ? (colours?.name ?? projectTitle) : deck ? boardTitle(deck) : projectTitle;
   const pageCount = deck ? pagesOf(records, deck.id).length : 0;
   // A deck with no pages has nothing to print: the formats are off, with the reason said.
   const noPages = deckId !== null && pageCount === 0;
+  const noColours = swatches !== null && (colours?.hexes.length ?? 0) === 0;
   const watermark = readWatermark(props);
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
@@ -166,6 +171,7 @@ function ExportDialog() {
         title,
         scope,
         ...(deckId ? { deckId } : {}),
+        ...(swatches ? { swatches } : {}),
         pixelRatio: pixelRatio === '2' ? 2 : 1,
         file: project.file,
         target,
@@ -229,7 +235,7 @@ function ExportDialog() {
           onChange={setPixelRatio}
         />
       )}
-      {!whole && !deckId && (
+      {!whole && !deckId && !swatches && (
       <Select
         label={t('exportDialog.scenes')}
         value={sceneId}
@@ -245,7 +251,13 @@ function ExportDialog() {
         ))}
       </Select>
       )}
-      {noPages ? (
+      {noColours ? (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
+          {t('export.swatches.none')}
+        </p>
+      ) : swatches ? (
+        <p className="text-[13px]">{tn('count.colors', colours?.hexes.length ?? 0)}</p>
+      ) : noPages ? (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
           {t('export.deck.noPages')}
         </p>
@@ -274,7 +286,7 @@ function ExportDialog() {
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
-        <Button variant="primary" disabled={running !== null || noPages || (frames === 0 && !whole && !deckId)} onClick={() => void run()}>
+        <Button variant="primary" disabled={running !== null || noPages || noColours || (frames === 0 && !whole && !deckId && !swatches)} onClick={() => void run()}>
           {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>

@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// What an export may write: the file extensions of its formats.
-const EXTENSIONS: &[&str] = &["csv", "png", "pdf", "mp4"];
+const EXTENSIONS: &[&str] = &["csv", "png", "pdf", "mp4", "json", "ase"];
 
 /// The places chosen this session: whole files from the Save dialog, and folders made for a set of files.
 #[derive(Default)]
@@ -806,6 +806,17 @@ mod tests {
         assert!(plain_part("Bey County SC 04 frames"));
         assert!(plain_name("SC012A_12AA.png"));
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn every_format_the_app_exports_has_its_extension() {
+        // Swatches (5.6b) and the project's data as JSON were refused on the desktop for want of these.
+        assert!(plain_name("SC 04 palette.ase"));
+        assert!(plain_name("Bey County project data.json"));
+        // The refusals stay: the project itself and its lock file are never an export.
+        assert!(!plain_name("Bey County.sbd"));
+        assert!(!plain_name("Bey County.sbd.lock"));
+        assert!(!plain_name("evil.exe"));
     }
 
     #[test]

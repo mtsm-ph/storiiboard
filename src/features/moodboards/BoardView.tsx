@@ -20,6 +20,7 @@ import { useMissingVideos } from '../video/videoStatus';
 import { boardFields, boardTitle, linkedLine } from './boards';
 import { AddFromStoryboard } from './AddFromStoryboard';
 import { BoardLinksDialog } from './BoardLinksDialog';
+import { BoardPaletteButton } from './BoardPaletteButton';
 import { LiveProperties } from './LiveProperties';
 import { addFieldCard, openFieldCard } from './deckActions';
 import { fieldValue, type FieldValue } from './deckFields';
@@ -485,6 +486,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
           >
             {linked === '' ? t('moodboard.links.add') : t('moodboard.links.edit')}
           </button>
+          {!deck && <BoardPaletteButton boardId={board.id} />}
         </span>
       </ToolStrip>
       {/* A band of one height above the canvas, empty when nothing is selected: the canvas never changes size under a gesture, and nothing on it is covered. */}
