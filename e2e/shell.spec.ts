@@ -25,6 +25,27 @@ test('app shell loads with its heading and bundled fonts', async ({ page, baseUR
   expect(external).toEqual([]);
 });
 
+// Vite's client connects to its server even with hot reload off, and that connection's refusals were console errors
+// other tests caught now and then (Kevin, Nov 11). The test server serves the client without it (vite.config.ts).
+test("the test server's page opens no socket", async ({ page }) => {
+  const sockets: string[] = [];
+  page.on('websocket', (socket) => sockets.push(socket.url()));
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+  // The styles arrive through the same client: the page is still dressed without its socket.
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toHaveCSS('display', 'flex');
+  await page.reload();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+  expect(sockets).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 // The accent belongs to the theme and the logo's orange to the brand (DESIGN.md, Colour), so a project theme can
 // change one without the other.
 for (const colorScheme of ['light', 'dark'] as const) {

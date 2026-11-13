@@ -308,7 +308,7 @@ describe('an issued sheet (4.7)', () => {
     for (const paper of ['letter', 'a4'] as const) {
       const { bytes } = await callSheetPdf(input(project({ long: true }), { paper, issue: { version: 3, issuedAt } }));
       const items = await pageItems(bytes, 1);
-      expect(items.map((i) => i.str).join(' ')).toContain('Revisada');
+      expect(items.map((i) => i.str).join(' ')).toContain('Actualizada');
       expect(items.map((i) => i.str).join(' ')).toContain('Versión 3');
     }
   });

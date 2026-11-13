@@ -178,7 +178,7 @@ describe('the header’s issue line', () => {
   it('says it in Spanish', () => {
     setLocale('es');
     expect(issueStamp(1, when, 'America/New_York')).toMatch(/^Versión 1 · Emitida sáb,? 16 nov,? 18:04/);
-    expect(issueStamp(2, when, 'America/New_York')).toMatch(/^Revisada · Versión 2 · Emitida /);
+    expect(issueStamp(2, when, 'America/New_York')).toMatch(/^Actualizada · Versión 2 · Emitida /);
   });
 
   it('uses this computer’s zone when the sheet has none', () => {
