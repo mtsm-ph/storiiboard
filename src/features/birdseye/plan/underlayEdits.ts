@@ -1,4 +1,5 @@
 import { isPictureType, typeOf } from '../../../app/pictures';
+import { t } from '../../../core/i18n';
 import { imageStatements, mediaFields, mediaProps } from '../../../core/media/store';
 import { lastKeyUnder, scaledUnderlay, underlayFields, type Point, type ShownItem } from '../../../core/model/plan';
 import type { Props, SbdRecord } from '../../../core/model/record';
@@ -132,6 +133,18 @@ export function underlayName(records: Records, underlayId: string): string | nul
   const media = fields.mediaId === null ? undefined : records[fields.mediaId];
   const name = media?.type === 'media' ? mediaFields(media.props)?.sourceName : undefined;
   return name !== undefined && name !== '' ? name : null;
+}
+
+/**
+ * What Set scale's hint calls an underlay among the room's (`underlays`, back to front): its name or its picture's file
+ * name, else its number. Two from the same picture share a name, so a name another underlay has too carries the number
+ * (6.9 review, L5): "plan.jpg (2)".
+ */
+export function underlayHintName(records: Records, underlays: readonly SbdRecord[], underlayId: string): string {
+  const number = underlays.findIndex((r) => r.id === underlayId) + 1;
+  const name = underlayName(records, underlayId);
+  if (name === null) return t('plan.underlay.numbered', { number });
+  return underlays.some((r) => r.id !== underlayId && underlayName(records, r.id) === name) ? t('plan.underlay.nameNumbered', { name, number }) : name;
 }
 
 /** Whether any of the room's underlays is still to be set to scale: the Plan tile's quiet note. */

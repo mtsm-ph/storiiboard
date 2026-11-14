@@ -66,11 +66,13 @@ import {
   drawWalls,
   duplicatePlanSelection,
   flipDoors,
+  markPlanClipboard,
   newRoom,
   nextPosition,
   nudgePlan,
   placeMark,
   pastePlan,
+  planClipHere,
   placeIcon,
   placeOpening,
   renameRoom,
@@ -87,10 +89,10 @@ import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, MEASURE_TOOL, PLAN_CANVAS_TOOLS, PLAN_TOOLS, PLAN_ZOOM, planScale, SCALE_TOOL, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
-import { roomUnderlays, scaleTarget, underlayAt, underlayName, underlayPictures, unscaledIn } from './underlayEdits';
+import { roomUnderlays, scaleTarget, underlayAt, underlayHintName, underlayPictures, unscaledIn } from './underlayEdits';
 import { blockingLooks } from './markLooks';
 import { choosePlanTool, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
-import { pasteIsPicture, planClipMarker } from './planClipboard';
+import { pasteIsPicture } from './planClipboard';
 import { openPlanExport } from '../../export/exportStore';
 import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
@@ -668,6 +670,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const viewports = usePlan((s) => s.viewports);
   const tool = usePlan((s) => s.tool);
   const clipboard = usePlan((s) => s.clipboard);
+  // The opening the clipboard was copied in: only there does the menu offer Paste (6.9 review, L1).
+  const clipFrom = usePlan((s) => s.clipFrom);
   // Read once per change of the records, and kept as they were while the plan's own records are (an edit elsewhere in
   // the project rebuilds nothing, and the canvas keeps what it drew for each wall).
   const [keepShown] = useState(shownItemsKeeper);
@@ -726,8 +730,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const scaling = usePlan((s) => s.scaling);
   // The underlay Set scale's first click landed on (6.9 review, L2), so the hint names it until the second.
   const scaleFirst = usePlan((s) => s.scaleFirst);
-  /** What the hint calls an underlay among several: its name or its picture's file name, else its number back to front. */
-  const nameOf = (id: string): string => underlayName(records, id) ?? t('plan.underlay.numbered', { number: underlays.findIndex((r) => r.id === id) + 1 });
+  /** What the hint calls an underlay among several, numbered when another has its name (L5). */
+  const nameOf = (id: string): string => underlayHintName(records, underlays, id);
   /**
    * Set scale (6.9): two clicks on the selected underlay, else the room's frontmost, or whichever is topmost under the
    * first click (L2); its row drawn first when hidden (L4); the plan takes the focus for them.
@@ -965,14 +969,6 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         data-picture-levels={pictureLevels}
         // Marks the plan as taking its own drops and pastes, so the storyboard's listeners leave them (useBoardDrops.ts).
         data-plan-drops=""
-        onPointerDownCapture={(event) => {
-          // Set scale's first click among several underlays (L2): the one it lands on is named in the hint. The canvas
-          // takes the click as ever; the underlay scaled is worked out again from the points it hands back. '' is a first
-          // click on none, so the second never takes its place.
-          if (!scalingNow || scaleFirst !== null || event.button !== 0 || underlays.length < 2) return;
-          const at = dropAt({ x: event.clientX, y: event.clientY });
-          if (at) planStore.getState().setScaleFirst(underlayAt(projectStore.getState().records, room.id, at, planStore.getState().scaling) ?? '');
-        }}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('Files')) return;
           event.preventDefault();
@@ -1076,13 +1072,23 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             // A picture pasted onto the plan is an underlay (6.9), unless the clipboard is the plan's own copy, told by the
             // mark its Copy and Cut put there (6.9 review, M2: planClipboard.ts), not by focus history: then the plan's
             // own items paste, as they always have.
-            if (!pasteIsPicture(transfer, planStore.getState().clipboard.length > 0)) return false;
+            // Items copied in another opening paste nothing here (L1), so they never keep a picture from being an underlay.
+            if (!pasteIsPicture(transfer, planClipHere())) return false;
             addPictures([...transfer.files].map(fromFile), null);
             return true;
           }}
-          onSystemCopy={planClipMarker.markSystemClipboard}
+          onSystemCopy={markPlanClipboard}
+          onPathDraft={(run) => {
+            // Set scale's first point among several underlays (L2), read from the run itself (6.9 review, L4): the one it
+            // lands on is named in the hint until the second, and Backspace taking the point off takes the name off too. A
+            // pan, the minimap or the zoom buttons add no point, so they never name one. The underlay scaled is worked out
+            // again from the points the run hands back. '' is a first point on none, so the hint never names a wrong one.
+            const first = run?.tool === SCALE_TOOL ? run.points[0] : undefined;
+            const picked = first ? (underlayAt(projectStore.getState().records, room.id, { x: toMetres(first.x), y: toMetres(first.y) }, planStore.getState().scaling) ?? '') : null;
+            if (planStore.getState().scaleFirst !== picked) planStore.getState().setScaleFirst(picked);
+          }}
           onCommand={run}
-          canPaste={clipboard.length > 0}
+          canPaste={clipboard.length > 0 && clipFrom === openingKey(madeIn)}
           fixedColours={PAPER_COLOURS}
           tools={PLAN_CANVAS_TOOLS}
           scale={scale}

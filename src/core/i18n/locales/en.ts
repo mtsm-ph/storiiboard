@@ -3498,7 +3498,7 @@ export const en = {
   'layers.scaleOf': 'Set the underlay’s scale',
   'selection.underlayNote': 'X and Y are its middle. Its width and depth follow each other, so the picture keeps its shape.',
   // 6.9 review: pastes, files that aren't pictures, several pictures, the lock said, and Set scale's clicks
-  'plan.pasteElsewhere': 'What was copied on a plan pastes within its own project.',
+  'plan.pasteElsewhere': 'Copy it again: what was copied on a plan pastes only into the project as it was open then.',
   'plan.underlay.pasteGone': 'An underlay wasn’t pasted: its picture has been deleted for good.',
   'plan.underlay.notPicture': 'Only a picture can be an underlay.',
   'plan.underlay.oneAtATime.one': '1 of {count} added: an underlay is one picture at a time.',
@@ -3510,6 +3510,7 @@ export const en = {
   'plan.underlay.scaleHintMany': 'Click two points on {name} (a first click on another picture scales that one), then type the real distance between them. Escape stops.',
   'plan.underlay.scaleHintOn': 'Scaling {name}: click the second point, then type the real distance. Escape stops.',
   'plan.underlay.numbered': 'underlay {number}',
+  'plan.underlay.nameNumbered': '{name} ({number})',
   'selection.measureNote': 'X and Y are the measure’s start: a new length or rotation keeps it there.',
   'selection.measures.one': '{count} measure',
   'selection.measures.other': '{count} measures',

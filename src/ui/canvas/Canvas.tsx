@@ -143,9 +143,17 @@ export interface CanvasProps {
   onPasteData?: (data: DataTransfer, at: Point | null) => boolean;
   /**
    * The items were copied or cut: the host marks the system clipboard as the app's own (so a stale address or picture
-   * there can't win over them), in the copy event's data when there is one, else best effort with none.
+   * there can't win over them), in the copy event's data when there is one, else best effort with none. False: the copy
+   * took nothing (6.9 review, L8), and the copy event is left alone, so the system clipboard keeps what it held.
    */
-  onSystemCopy?: (data: DataTransfer | null, native: Event | null) => void;
+  // `unknown`, so a host that marks and returns nothing (a board's marker) passes as it is; only `false` counts.
+  onSystemCopy?: (data: DataTransfer | null, native: Event | null) => unknown;
+  /**
+   * The point-to-point run as it is now (6.9 review, L4), null when there is none: its tool and fixed points, in world
+   * units. Told on every change, so a host reads a run's first point from the run itself, never from a pointer press
+   * (a pan, the minimap and the zoom buttons press too, and Backspace can take the point off again).
+   */
+  onPathDraft?: (run: PathDraft | null) => void;
   onCommand: (command: CanvasCommand) => void;
   /** The connectors (5.2), back to front: drawn under the items, picked within 6 px of their path, each end following its item live. */
   links?: readonly CanvasLink[];
@@ -242,6 +250,7 @@ export function Canvas({
   onOpen,
   onPasteData,
   onSystemCopy,
+  onPathDraft,
   links = [],
   onConnect,
   onQuickCreate,
@@ -304,8 +313,10 @@ export function Canvas({
   const [path, setPathState] = useState<PathDraft | null>(null);
   const pathRef = useRef<PathDraft | null>(null);
   const setPath = (next: PathDraft | null) => {
+    const was = pathRef.current;
     pathRef.current = next;
     setPathState(next);
+    if (next !== was) onPathDraft?.(next);
   };
   // When a double-click's second press finished a run, so the dblclick right after it isn't taken as another.
   const doubleFinished = useRef<number | null>(null);
@@ -1335,13 +1346,11 @@ export function Canvas({
       }}
       onCopy={(event) => {
         if (event.target !== event.currentTarget || selection.length === 0) return;
-        event.preventDefault();
-        onSystemCopy?.(event.clipboardData, event.nativeEvent);
+        if (onSystemCopy?.(event.clipboardData, event.nativeEvent) !== false) event.preventDefault();
       }}
       onCut={(event) => {
         if (event.target !== event.currentTarget || selection.length === 0) return;
-        event.preventDefault();
-        onSystemCopy?.(event.clipboardData, event.nativeEvent);
+        if (onSystemCopy?.(event.clipboardData, event.nativeEvent) !== false) event.preventDefault();
       }}
       onPaste={(event) => {
         // Pasting into the text editor over the canvas is the editor's.

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { noticeStore } from '../../../app/notice';
 import { setPlanUnitsChoice } from '../../../app/planUnits';
-import { createProjectStore } from '../../../app/projectStore';
+import { createProjectStore, projectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { readOriginal, type PreparedImage } from '../../../core/media/store';
 import { MEASURE_THICKNESS, measureFields, planItemLayer, scaledUnderlay, sceneRoomId, shownItems, startRoomChanges, underlayFields, wallEnds, type Point } from '../../../core/model/plan';
@@ -20,7 +20,7 @@ import { lineText } from '../../history/summary';
 import { CLIP_TYPE as BOARD_CLIP_TYPE } from '../../moodboards/clipboardMarker';
 import { restoreChanges, trashItems } from '../../trash/trash';
 import { layersStore, layerStatesNow, setLayerLocked, showAllLayers, soloLayer } from './layersStore';
-import { addUnderlay as addUnderlayAction, pastePlan, setUnderlayScale } from './planActions';
+import { addUnderlay as addUnderlayAction, copyPlanSelection, markPlanClipboard, pastePlan, planClipHere, setUnderlayScale } from './planActions';
 import { pasteIsPicture, PLAN_CLIP_TEXT, PLAN_CLIP_TYPE, planClipMarker } from './planClipboard';
 import { openingKey, showPlan } from './shownPlan';
 import {
@@ -31,6 +31,8 @@ import {
   measureItem,
   measurePatchChanges,
   measurePatchRefused,
+  openingSpotInWall,
+  placeOpeningChanges,
   planClipOf,
   planGeometryChanges,
   planItemsBuilder,
@@ -41,7 +43,7 @@ import {
 } from './planItems';
 import { planScale, SCALE_TOOL, toCanvas } from './planScale';
 import { planStore } from './planStore';
-import { addUnderlayChanges, scaleTarget, setScaleChanges, underlayAt, underlayFileKind, underlayName, underlayPictures, underlaySize, unscaledIn } from './underlayEdits';
+import { addUnderlayChanges, roomUnderlays, scaleTarget, setScaleChanges, underlayAt, underlayFileKind, underlayHintName, underlayName, underlayPictures, underlaySize, unscaledIn } from './underlayEdits';
 
 // The room's underlays and measures (6.9, docs/PHASE6_DECISIONS.md 12): the set-scale maths, the underlay drawn beneath
 // everything, dimmed and locked by its own row until it is unlocked, its picture stored as a board's, a room copy giving
@@ -522,7 +524,7 @@ describe('the review’s fixes (6.9 review)', () => {
       expect(countItems(store.getState())).toBe(before.here);
       expect(await ops(other.file)).toBe(opsBefore.there);
       expect(await ops(project.file)).toBe(opsBefore.here);
-      expect(noticeNow()).toBe('What was copied on a plan pastes within its own project.');
+      expect(noticeNow()).toBe('Copy it again: what was copied on a plan pastes only into the project as it was open then.');
       expect(openingKey(other)).not.toBe(openingKey(project));
     } finally {
       await there.getState().close();
@@ -552,8 +554,12 @@ describe('the review’s fixes (6.9 review)', () => {
     const { token } = planClipMarker.lastCopy();
     planClipMarker.blurred();
     // The copy replaced the screenshot that was there: what comes back is the plan's mark, and the plan's items paste.
-    expect(pasteIsPicture(transfer(token, PLAN_CLIP_TEXT, 0), true)).toBe(false);
-    expect(pasteIsPicture(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe(false);
+    // Asked of the marker itself (L7): with no files `pasteIsPicture` is false before the marker is asked at all.
+    expect(planClipMarker.decidePasteOf(transfer(token, PLAN_CLIP_TEXT, 0), true)).toBe('items');
+    expect(planClipMarker.decidePasteOf(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe('items');
+    // The plan's token wins even with a file alongside it; a token not the plan's, with the same file, is a picture.
+    expect(pasteIsPicture(transfer(token, PLAN_CLIP_TEXT, 1), true)).toBe(false);
+    expect(pasteIsPicture(transfer('another token', '', 1), true)).toBe(true);
     // The write not known (no copy event, as the canvas menu's Copy): fresh items still win over a stale picture.
     planClipMarker.clipTaken(PLAN_CLIP_TEXT);
     expect(pasteIsPicture(transfer('', '', 1), true)).toBe(false);
@@ -593,7 +599,10 @@ describe('the review’s fixes (6.9 review)', () => {
       expect(written).toEqual([PLAN_CLIP_TEXT]);
       expect(planClipMarker.lastCopy().write).toBe('ok');
       planClipMarker.blurred();
-      expect(pasteIsPicture(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe(false);
+      // Asked of the marker (L7): the plan's words came back, and they are the plan's items, though the items aren't fresh.
+      expect(planClipMarker.decidePasteOf(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe('items');
+      // Written and not fresh: a picture on the clipboard is newer than the plan's words, so it is an underlay.
+      expect(pasteIsPicture(transfer('', '', 1), true)).toBe(true);
     } finally {
       vi.unstubAllGlobals();
       vi.useRealTimers();
@@ -726,5 +735,93 @@ describe('the review’s fixes (6.9 review)', () => {
       'Se copiaron 2 elementos de la planta de otro emplazamiento',
     ]);
     setLocale('en');
+  });
+});
+
+// 6.9 review, the lows left: a clip from another opening neither offers Paste nor holds back a picture (L1); two
+// underlays from one picture told apart in Set scale's hint (L5); a copy that takes nothing leaves the system clipboard
+// alone (L8).
+describe('the review’s lows (6.9 review)', () => {
+  it('has a clip to paste only in the opening it was copied in', async () => {
+    const { sceneId, view } = await scene();
+    const wallId = drawWallsChanges(records(), sceneId, [
+      { x: -100, y: 300 },
+      { x: 100, y: 300 },
+    ]);
+    await store.getState().apply(wallId.changes);
+    const clip = planClipOf(records(), wallId.ids, view);
+    expect(clip.length).toBe(1);
+    planStore.getState().copy(clip, openingKey(project));
+    expect(planClipHere(project)).toBe(true);
+    // Another opening (here another file; a reopen of this one is told apart the same way, by the opening): nothing it
+    // would paste, so no Paste, and a picture is an underlay.
+    const again = await createProject(folder.path('Reopened.sbd'), { driver: nodeDriver, backups: false });
+    try {
+      expect(openingKey(again)).not.toBe(openingKey(project));
+      expect(planClipHere(again)).toBe(false);
+      planClipMarker.reset();
+      const picture = { getData: () => '', files: { length: 1 } } as unknown as DataTransfer;
+      expect(pasteIsPicture(picture, planClipHere(again))).toBe(true);
+    } finally {
+      await again.close();
+    }
+    planStore.getState().copy([], '');
+    expect(planClipHere(project)).toBe(false);
+  });
+
+  it('numbers two underlays from one picture in the hint, and leaves a name of its own as it is', async () => {
+    const { sceneId, roomId } = await scene();
+    const a = await addUnderlay(sceneId, 3);
+    const b = await addUnderlay(sceneId, 3);
+    const c = await addUnderlay(sceneId, 5);
+    const underlays = roomUnderlays(records(), roomId);
+    expect(underlays.map((r) => r.id)).toEqual([a, b, c]);
+    expect(underlayHintName(records(), underlays, a)).toBe('plan-3.jpg (1)');
+    expect(underlayHintName(records(), underlays, b)).toBe('plan-3.jpg (2)');
+    expect(underlayHintName(records(), underlays, c)).toBe('plan-5.jpg');
+    setLocale('es');
+    expect(underlayHintName(records(), underlays, b)).toBe('plan-3.jpg (2)');
+    setLocale('en');
+  });
+
+  it('marks the system clipboard only when the copy took something: a lone door copies nothing, and marks nothing', async () => {
+    const { sceneId, setupId, view } = await scene();
+    const walls = drawWallsChanges(records(), sceneId, [
+      { x: 0, y: 0 },
+      { x: 500, y: 0 },
+    ]);
+    await store.getState().apply(walls.changes);
+    const wallId = walls.ids[0] ?? '';
+    const spot = openingSpotInWall(shownItems(records(), sceneId, setupId), wallId, 'door');
+    if (!spot) throw new Error('no spot');
+    await store.getState().apply(placeOpeningChanges(records(), spot, 'door', 'door', view));
+    // Copy reads the open project's store, the app's.
+    const was = projectStore.getState();
+    projectStore.setState({ project, records: records() });
+    try {
+      const key = `setup:${setupId}`;
+      const marked = () => {
+        const set: Record<string, string> = {};
+        const took = markPlanClipboard({ setData: (type: string, value: string) => void (set[type] = value) } as unknown as DataTransfer, null);
+        return { took, set };
+      };
+      // The wall copied (its door goes with it): the clipboard gets the plan's token.
+      planStore.getState().select(key, [wallId]);
+      expect(copyPlanSelection(view)).toBe(2);
+      const first = marked();
+      expect(first.took).toBe(true);
+      expect(first.set[PLAN_CLIP_TYPE]).toBe(planClipMarker.lastCopy().token);
+      // The door alone: said, nothing taken, and the clipboard left as it is (not marked with the wall's token again).
+      planStore.getState().select(key, ['door']);
+      expect(copyPlanSelection(view)).toBe(0);
+      expect(noticeStore.getState().message).toContain('is copied with its wall');
+      const second = marked();
+      expect(second.took).toBe(false);
+      expect(second.set).toEqual({});
+      // The key's own fallback, with no copy event, marks nothing either.
+      expect(markPlanClipboard(null, null)).toBe(false);
+    } finally {
+      projectStore.setState({ project: was.project, records: was.records });
+    }
   });
 });

@@ -398,3 +398,129 @@ test('with the Storyboard open beside the plan, a drop on a frame is its picture
   await expect(frames).toHaveCount(1);
   await expect(board.locator('img[data-frame-image]')).toHaveCount(1);
 });
+
+// 6.9 review, the lows left: Set scale's hint read from the run's own first point and numbered names (L4, L5), nothing
+// snapping onto an underlay's lines (L6), and the plan's mark on the system clipboard deciding a paste (L7).
+
+/** A picture dropped on the plan at a world point (cm), as a drag from the desktop is in the browser build. */
+async function dropPicture(page: Page, name: string, x: number, y: number) {
+  const { readFileSync } = await import('node:fs');
+  const at = await screen(page, x, y);
+  await holder(page).dispatchEvent('drop', { dataTransfer: await files(page, [{ name, type: 'image/jpeg', data: [...readFileSync(imagePath)] }]), clientX: at.x, clientY: at.y });
+}
+
+test('Set scale’s hint names the underlay its first point is on, numbered when two share a picture; a pan names none, and Backspace takes the name off', async ({ page }) => {
+  await startRoom(page);
+  // Two underlays from one picture, 10 m by 7.5 m, side by side: the first's left part is under it alone.
+  await canvas(page).focus();
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('-');
+  await dropPicture(page, 'plan.jpg', -400, 0);
+  await expect.poll(async () => (await ofKind(page, 'underlay')).length).toBe(1);
+  await dropPicture(page, 'plan.jpg', 400, 0);
+  await expect.poll(async () => (await ofKind(page, 'underlay')).length).toBe(2);
+  const [back, front] = await ofKind(page, 'underlay');
+  if (!back || !front) throw new Error('two underlays');
+  // A point on the first and on no other, in canvas units.
+  const onBack = { x: (back.x + Math.min(back.width, front.x - back.x) / 2) * 100, y: 0 };
+
+  const hint = planTile(page).locator('[data-scale-hint]');
+  await planTile(page).locator('[data-underlay-scale-now]').click();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:scale');
+  // Started for the frontmost, the second: its name carries its number, as the first's would.
+  await expect(hint).toContainText('Click two points on plan.jpg (2)');
+  // A space-drag pan pressed over the first adds no point, so it names nothing.
+  const from = await screen(page, onBack.x, onBack.y);
+  await page.keyboard.down(' ');
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 30, from.y + 10, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up(' ');
+  await expect(hint).toContainText('Click two points on plan.jpg (2)');
+  // The run's first point on the first underlay: named, numbered.
+  await clickAt(page, onBack.x, onBack.y);
+  await expect(hint).toContainText('Scaling plan.jpg (1)');
+  // Backspace takes the point off, and the name with it.
+  await page.keyboard.press('Backspace');
+  await expect(hint).toContainText('Click two points on plan.jpg (2)');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:scale');
+  await page.keyboard.press('Escape');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+});
+
+test('an icon moved to within a few pixels of an underlay’s middle line or edge stays where it was put, never snapped onto it', async ({ page }) => {
+  await startRoom(page);
+  // An underlay 10 m by 7.5 m whose middle line, x = 2.2 m, and left edge, x = -2.8 m, are off the 50 cm grid.
+  await dropPicture(page, 'plan.jpg', 220, 0);
+  await expect.poll(() => kinds(page)).toEqual(['underlay']);
+  const under = await one(page, 'underlay');
+  const middle = under.x + under.width / 2;
+  // A sofa, 2 m by 0.9 m, in the middle of the view.
+  const sofa = libraryTile(page).locator('[data-library-icon="set-art/sofa"]');
+  await sofa.scrollIntoViewIfNeeded();
+  await sofa.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['icon', 'underlay']);
+
+  /** The sofa dragged by its middle so its middle lands at `x` (metres): 3 cm, 3 px at 100%, off an underlay line. */
+  const dragSofaTo = async (x: number) => {
+    const was = await one(page, 'icon');
+    const start = await screen(page, (was.x + was.width / 2) * 100, (was.y + was.height / 2) * 100);
+    const end = await screen(page, x * 100, (was.y + was.height / 2) * 100);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(end.x, end.y, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => Math.abs((await one(page, 'icon')).x + was.width / 2 - x)).toBeLessThan(0.011);
+  };
+  // Within 6 px of the middle line: an item's middle line would have pulled it on; the underlay's doesn't.
+  await dragSofaTo(middle + 0.03);
+  const moved = await one(page, 'icon');
+  expect(Math.abs(moved.x + moved.width / 2 - middle)).toBeGreaterThan(0.02);
+  // Its left edge 3 px inside the underlay's: not pulled onto it either.
+  await dragSofaTo(under.x + 0.03 + moved.width / 2);
+  expect(Math.abs((await one(page, 'icon')).x - under.x)).toBeGreaterThan(0.02);
+});
+
+test('Copy marks the system clipboard as the plan’s; a pasted picture is an underlay, and a paste carrying the mark is the copied wall', async ({ page }) => {
+  await startRoom(page);
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -200, -200);
+  await clickAt(page, 200, -200);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['wall']);
+  const wall = await one(page, 'wall');
+  await expect.poll(() => selection(page)).toEqual([wall.id]);
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+c`);
+  // The copy event, as the system sends it: the plan's token goes into its data.
+  const token = await page.evaluate(() => {
+    const target = document.querySelector('[aria-label="Set plan"] [data-canvas]');
+    if (!target) throw new Error('no canvas');
+    const dt = new DataTransfer();
+    target.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+    return dt.getData('application/x-storiiboard-plan');
+  });
+  expect(token).not.toBe('');
+
+  /** A paste on the plan carrying `token` and `jpeg`'s files, as ⌘V would with them on the clipboard. */
+  const pasteOnPlan = async (withToken: string, pictures: { name: string; type: string; data: number[] }[]) => {
+    await canvas(page).focus();
+    const transfer = await files(page, pictures);
+    await page.evaluate(
+      ({ data, mark }) => {
+        if (mark !== '') data.setData('application/x-storiiboard-plan', mark);
+        document.activeElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { data: transfer, mark: withToken },
+    );
+  };
+  const { readFileSync } = await import('node:fs');
+  // Only a picture on the clipboard (copied since): an underlay, and no second wall.
+  await pasteOnPlan('', [{ name: 'screenshot.jpg', type: 'image/jpeg', data: [...readFileSync(imagePath)] }]);
+  await expect.poll(() => kinds(page)).toEqual(['underlay', 'wall']);
+  // The plan's mark and no files: the copied wall again.
+  await pasteOnPlan(token, []);
+  await expect.poll(() => kinds(page)).toEqual(['underlay', 'wall', 'wall']);
+});

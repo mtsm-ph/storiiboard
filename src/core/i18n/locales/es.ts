@@ -3497,7 +3497,7 @@ export const es: Messages = {
   'layers.scaleOf': 'Fijar la escala de la imagen de fondo',
   'selection.underlayNote': 'X e Y son su centro. Su ancho y su fondo se siguen el uno al otro, así la imagen conserva su forma.',
   // 6.9 review: pastes, files that aren't pictures, several pictures, the lock said, and Set scale's clicks
-  'plan.pasteElsewhere': 'Lo que se copió en una planta se pega solo dentro de su propio proyecto.',
+  'plan.pasteElsewhere': 'Cópialo de nuevo: lo que se copió en una planta solo se pega en el proyecto tal como estaba abierto entonces.',
   'plan.underlay.pasteGone': 'No se pegó una imagen de fondo: su imagen se eliminó para siempre.',
   'plan.underlay.notPicture': 'Solo una imagen puede ser imagen de fondo.',
   'plan.underlay.oneAtATime.one': 'Se agregó 1 de {count}: una imagen de fondo es una sola imagen a la vez.',
@@ -3509,6 +3509,7 @@ export const es: Messages = {
   'plan.underlay.scaleHintMany': 'Haz clic en dos puntos de {name} (un primer clic en otra imagen fija la escala de esa) y escribe la distancia real entre ellos. Escape lo detiene.',
   'plan.underlay.scaleHintOn': 'Escala de {name}: haz clic en el segundo punto y escribe la distancia real. Escape lo detiene.',
   'plan.underlay.numbered': 'imagen de fondo {number}',
+  'plan.underlay.nameNumbered': '{name} ({number})',
   'selection.measureNote': 'X e Y son el inicio de la medida: un nuevo largo o rotación lo deja ahí.',
   'selection.measures.one': '{count} medida',
   'selection.measures.other': '{count} medidas',

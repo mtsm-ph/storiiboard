@@ -219,6 +219,9 @@ export async function deletePlanSelection(view: PlanView): Promise<void> {
 /** A door or window selected without its wall is copied only with it: the words for it, or none. */
 const leftOutWords = (records: Records, ids: readonly string[]): string[] => (openingsLeftOut(records, ids) ? [t('plan.openingCopiedWithWall')] : []);
 
+/** Whether the last Copy or Cut on a plan took anything (a lone door takes nothing: it is copied only with its wall). */
+let lastCopyTook = false;
+
 /**
  * Copy: the items kept inside the app with the opening of the project they were copied in (6.9 review, M1), and the
  * system clipboard marked as the plan's (M2: planClipboard.ts), so a picture copied before can't win over them.
@@ -228,11 +231,33 @@ export function copyPlanSelection(view: PlanView): number {
   const ids = planSelection(records, view);
   const clip = planClipOf(records, ids, view);
   for (const words of leftOutWords(records, ids)) showInfo(words);
+  lastCopyTook = clip.length > 0;
   if (clip.length > 0) {
     planStore.getState().copy(clip, openingKey(project));
     planClipMarker.clipTaken(PLAN_CLIP_TEXT);
   }
   return clip.length;
+}
+
+/**
+ * The canvas's copy event or its copy key (6.9 review, L8): the system clipboard is marked only when the copy took
+ * something. A copy that took nothing leaves the system clipboard as it was (false: the canvas leaves the event alone),
+ * so the token of the items copied before never lands on it again over what was copied since.
+ */
+export function markPlanClipboard(data: DataTransfer | null, native: Event | null): boolean {
+  if (!lastCopyTook) return false;
+  planClipMarker.markSystemClipboard(data, native);
+  return true;
+}
+
+/**
+ * Whether the plan has items copied that would paste here (6.9 review, L1): copied in this opening of the project. A
+ * clip from another opening (a backup, an opened version, a switch) pastes nothing, so it neither offers Paste nor stops
+ * a picture on the system clipboard from becoming an underlay.
+ */
+export function planClipHere(project = projectStore.getState().project): boolean {
+  const { clipboard, clipFrom } = planStore.getState();
+  return clipboard.length > 0 && clipFrom === openingKey(project);
 }
 
 export async function cutPlanSelection(view: PlanView): Promise<void> {
