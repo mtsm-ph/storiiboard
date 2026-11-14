@@ -94,6 +94,7 @@ import { blockingLooks } from './markLooks';
 import { choosePlanTool, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { pasteIsPicture } from './planClipboard';
 import { openPlanExport } from '../../export/exportStore';
+import type { PlanTarget } from '../../export/planExport';
 import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
@@ -274,10 +275,13 @@ const MENU_BUTTON = 'sb-label flex h-7 items-center gap-1.5 border border-text p
  * window for it with that format picked, where the paper, the underlay and the grid are chosen.
  */
 function PlanExportMenu({ view }: { view: PlanView }) {
+  // Every entry is for what the tile shows (6.10 review): the setup, or the scene when it shows none. Each format works
+  // out its own plans from it, so switching formats in the window prints what that format names.
+  const target: PlanTarget = view.setupId === null ? { kind: 'scene', sceneId: view.sceneId } : { kind: 'setup', sceneId: view.sceneId, setupId: view.setupId };
   const choices = [
-    { id: 'plan-setup-pdf', words: t('plan.export.setupPdf'), target: { kind: 'setup', sceneId: view.sceneId, setupId: view.setupId } as const },
-    { id: 'plan-setup-png', words: t('plan.export.setupPng'), target: { kind: 'setup', sceneId: view.sceneId, setupId: view.setupId } as const },
-    { id: 'plan-scene-pdf', words: t('plan.export.scenePdf'), target: { kind: 'scene', sceneId: view.sceneId } as const },
+    { id: 'plan-setup-pdf', words: t('plan.export.setupPdf') },
+    { id: 'plan-setup-png', words: t('plan.export.setupPng') },
+    { id: 'plan-scene-pdf', words: t('plan.export.scenePdf') },
   ];
   return (
     <Menu label={t('plan.export.menu')} buttonClassName={MENU_BUTTON}>
@@ -289,7 +293,7 @@ function PlanExportMenu({ view }: { view: PlanView }) {
               data-plan-export={choice.id}
               onClick={() => {
                 close();
-                openPlanExport(choice.target, choice.id);
+                openPlanExport(target, choice.id);
               }}
             >
               {choice.words}

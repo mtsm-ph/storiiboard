@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Download, type Page } from '@playwright/test';
-import { PDFDocument } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
@@ -240,4 +241,235 @@ test('the Export menu and the Export window pass axe', async ({ page }) => {
   await expect(dialog(page)).toBeVisible();
   const window = await new AxeBuilder({ page }).include('dialog[open]').analyze();
   expect(window.violations).toEqual([]);
+});
+
+// 6.10's review: what the PDF and the PNG hold of the plan's own drawing, read from the files themselves (the unit tests
+// read a stand-in for PageStage; these read what PageStage drew): the wall measured in page 1's content stream, the
+// cone's transparency in its graphics states, the camera's own label as text, the PNG decoded and looked at, a real
+// underlay printed dimmed (and not at all with the switch off), and every entry's count and name against what it wrote.
+
+type Point = { x: number; y: number };
+type Matrix = [number, number, number, number, number, number];
+const mul = (first: Matrix, second: Matrix): Matrix => {
+  const [a1, b1, c1, d1, e1, f1] = first;
+  const [a2, b2, c2, d2, e2, f2] = second;
+  return [a1 * a2 + b1 * c2, a1 * b2 + b1 * d2, c1 * a2 + d1 * c2, c1 * b2 + d1 * d2, e1 * a2 + f1 * c2 + e2, e1 * b2 + f1 * d2 + f2];
+};
+
+/** Page 1's content, its streams in order, decoded. */
+function pageContent(doc: PDFDocument): string {
+  const node = doc.getPages()[0]?.node;
+  const contents = node?.Contents();
+  const refs = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+  return refs
+    .map((ref) => doc.context.lookup(ref))
+    .flatMap((stream) => (stream instanceof PDFRawStream ? [new TextDecoder('latin1').decode(decodePDFRawStream(stream).decode())] : []))
+    .join('\n');
+}
+
+/** Page 1's graphics states by name, each with its non-stroking alpha (ca). */
+function graphicsStates(doc: PDFDocument): Map<string, number> {
+  const out = new Map<string, number>();
+  const states = doc.getPages()[0]?.node.Resources()?.lookup(PDFName.of('ExtGState'), PDFDict);
+  for (const [name, ref] of states?.entries() ?? []) {
+    const ca = doc.context.lookup(ref, PDFDict).get(PDFName.of('ca'));
+    if (ca) out.set(name.asString(), Number(String(ca)));
+  }
+  return out;
+}
+
+/** Page 1's Image XObjects' names. */
+function pageImages(doc: PDFDocument): string[] {
+  const xobjects = doc.getPages()[0]?.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
+  return (xobjects?.entries() ?? []).flatMap(([name, ref]) => {
+    const object = doc.context.lookup(ref);
+    return object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image') ? [name.asString()] : [];
+  });
+}
+
+/**
+ * Page 1's content stream walked as a reader draws it: q, Q, cm and gs followed, every filled path's points in PDF points,
+ * and each XObject drawn with the fill alpha it was drawn at.
+ */
+function walk(doc: PDFDocument): { filled: Point[][]; drawn: { name: string; alpha: number }[] } {
+  const alphas = graphicsStates(doc);
+  const stack: { m: Matrix; alpha: number }[] = [{ m: [1, 0, 0, 1, 0, 0], alpha: 1 }];
+  const filled: Point[][] = [];
+  const drawn: { name: string; alpha: number }[] = [];
+  let operands: string[] = [];
+  let path: Point[] = [];
+  for (const token of pageContent(doc).split(/\s+/)) {
+    const top = stack[stack.length - 1] ?? { m: [1, 0, 0, 1, 0, 0] as Matrix, alpha: 1 };
+    if (/^-?[\d.]+$/.test(token) || token.startsWith('/')) {
+      operands.push(token);
+      continue;
+    }
+    const n = operands.map(Number);
+    if (token === 'q') stack.push({ ...top });
+    else if (token === 'Q') stack.pop();
+    else if (token === 'cm') top.m = mul(n.slice(-6) as Matrix, top.m);
+    else if (token === 'gs') top.alpha = alphas.get(operands[operands.length - 1] ?? '') ?? top.alpha;
+    else if (token === 'm' || token === 'l') {
+      const [x = 0, y = 0] = n.slice(-2);
+      path.push({ x: top.m[0] * x + top.m[2] * y + top.m[4], y: top.m[1] * x + top.m[3] * y + top.m[5] });
+    } else if (token === 'f' || token === 'B' || token === 'f*') {
+      filled.push(path);
+      path = [];
+    } else if (token === 'S' || token === 'n') path = [];
+    else if (token === 'Do') drawn.push({ name: operands[operands.length - 1] ?? '', alpha: top.alpha });
+    operands = [];
+  }
+  return { filled, drawn };
+}
+
+const longestSide = (points: readonly Point[]) => Math.max(...points.map((p, i) => Math.hypot(p.x - (points[(i + 1) % points.length]?.x ?? p.x), p.y - (points[(i + 1) % points.length]?.y ?? p.y))));
+
+/** The Gear tile's FX3, in full frame, so the camera has a body, and 1A on a 35 mm lens. */
+async function bodyAndLens(page: Page) {
+  await toSection(page, 'Production');
+  const gear = page.getByRole('region', { name: 'Gear', exact: true });
+  const editor = gear.locator('[data-gear-editor]');
+  await gear.getByRole('button', { name: '+ New item' }).click();
+  await expect(editor.getByLabel('Name')).toBeFocused();
+  await page.keyboard.type('FX3');
+  await page.keyboard.press('Enter');
+  await editor.getByRole('radio', { name: 'Camera body', exact: true }).click();
+  await editor.getByLabel('Camera and recording mode').selectOption({ label: 'Sony FX3: Full frame 16:9, 35.6 × 20 mm' });
+  await toSection(page, 'Storyboard');
+  await storyboard(page).locator('[data-shot-id]').first().click();
+  const lens = page.getByRole('region', { name: 'Frame inspector', exact: true }).getByRole('textbox', { name: 'Lens (mm)', exact: true });
+  await lens.fill('35');
+  await lens.press('Enter');
+  await expect(lens).toHaveValue('35');
+}
+
+/** Each text item of page 1, as a reader finds it. */
+async function pdfItems(bytes: Uint8Array): Promise<string[]> {
+  const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+  const content = await (await pdf.getPage(1)).getTextContent();
+  await pdf.destroy();
+  return content.items.map((item) => ('str' in item ? item.str.trim() : '')).filter((s) => s !== '');
+}
+
+test('prints the plan’s own drawing: the wall to scale, the cone’s transparency, the camera’s label, and the PNG looks the same', async ({ page }) => {
+  await bodyAndLens(page);
+  await furnishedSetup(page);
+  // A second 4 m wall 3 m below the first, so the room is too tall for 1:25 and prints at 1:50.
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  for (const x of [-200, 200]) {
+    const at = await screen(page, x, 200);
+    await page.mouse.click(at.x, at.y);
+  }
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await planData(page)).filter((item) => item.kind === 'wall').map((w) => w.width)).toEqual([4, 4]);
+
+  await fromPlan(page, 'plan-setup-pdf');
+  await dialog(page).getByRole('combobox', { name: 'Paper' }).selectOption('a4');
+  const bytes = await bytesOf(await save(page));
+  const doc = await PDFDocument.load(bytes);
+  const [text] = await pdfTexts(bytes);
+  expect(text).toContain('Scale 1:50');
+  expect(text).toContain('Print at actual size (100%)');
+  const { filled } = walk(doc);
+  // The 4.00 m wall at 1:50: 80 mm of paper, 226.77 pt, a filled four-point path.
+  const walls = filled.filter((p) => p.length === 4).map(longestSide);
+  expect(walls.some((length) => Math.abs(length - (4000 / 50) * (72 / 25.4)) < 0.1)).toBe(true);
+  // The camera's cone, drawn past its box by PageStage itself, at its 8%.
+  expect([...graphicsStates(doc).values()].some((ca) => Math.abs(ca - 0.08) < 1e-6)).toBe(true);
+  // The frame's lens in the Frames block, and the label only the plan draws, beside the camera: one run of its own.
+  expect(text).toMatch(/1A( · \w+)? · 35 mm · 53\.9°/);
+  expect(await pdfItems(bytes)).toContain('A · 35 mm · 53.9°');
+
+  // The PNG, decoded in the page: ink along the wall's middle, paper in the margin.
+  const wall = filled.find((p) => p.length === 4 && Math.abs(longestSide(p) - (4000 / 50) * (72 / 25.4)) < 0.1) ?? [];
+  await fromPlan(page, 'plan-setup-png');
+  const picture = await bytesOf(await save(page));
+  const height = 595.28;
+  const px = 200 / 72;
+  const xs = wall.map((p) => p.x);
+  const ys = wall.map((p) => p.y);
+  const row = (height - (Math.min(...ys) + Math.max(...ys)) / 2) * px;
+  const along = Array.from({ length: 9 }, (_, i) => (Math.min(...xs) + ((i + 1) / 10) * (Math.max(...xs) - Math.min(...xs))) * px);
+  const samples = await page.evaluate(
+    async ({ data, points }) => {
+      const bitmap = await createImageBitmap(new Blob([new Uint8Array(data)], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return [];
+      ctx.drawImage(bitmap, 0, 0);
+      return points.map(([x, y]) => Array.from(ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data.slice(0, 3)));
+    },
+    { data: Array.from(picture), points: [...along.map((x): [number, number] => [x, row]), [10, 10] as [number, number], [2300, 1640] as [number, number]] },
+  );
+  const ink = samples.slice(0, along.length);
+  const paper = samples.slice(along.length);
+  for (const rgb of ink) expect(Math.max(...rgb)).toBeLessThan(80);
+  for (const rgb of paper) expect(Math.min(...rgb)).toBeGreaterThan(245);
+});
+
+test('prints a real underlay dimmed from its picture, and none with the Underlay switch off', async ({ page }) => {
+  await furnishedSetup(page);
+  await planTile(page).getByRole('button', { name: /^Room: / }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Add underlay…' }).or(page.locator('[data-add-underlay]')).first().click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect.poll(async () => (await planData(page)).filter((item) => item.kind === 'underlay').length).toBe(1);
+
+  await fromPlan(page, 'plan-setup-pdf');
+  const withIt = await PDFDocument.load(await bytesOf(await save(page)));
+  const images = pageImages(withIt);
+  expect(images).toHaveLength(1);
+  // Drawn once, at the dimming's alpha (the canvas's DIM_OPACITY, 0.45).
+  expect(walk(withIt).drawn.filter((d) => images.includes(d.name)).map((d) => Math.round(d.alpha * 1000) / 1000)).toEqual([0.45]);
+
+  await fromPlan(page, 'plan-setup-pdf');
+  await dialog(page).getByRole('switch', { name: 'Underlay' }).click();
+  const without = await PDFDocument.load(await bytesOf(await save(page)));
+  expect(pageImages(without)).toEqual([]);
+  expect(walk(without).drawn).toEqual([]);
+});
+
+test('every entry’s count is the pages it writes and its name the file it saves, whichever format is picked', async ({ page }) => {
+  await furnishedSetup(page);
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+
+  /** Picks a format in the open window, reads its count, saves, and checks the pages and the name against the notice. */
+  async function check(format: string, pages: number | null) {
+    await dialog(page).getByRole('radio', { name: format }).click();
+    const said = Number(/(\d+) plans? to print/.exec((await dialog(page).textContent()) ?? '')?.[1] ?? NaN);
+    const download = await save(page);
+    const name = download.suggestedFilename();
+    await expect(page.getByRole('status').getByText(new RegExp(`to “${name.replace(/[.()]/g, '\\$&')}”\\.`)).last()).toBeVisible();
+    const bytes = await bytesOf(download);
+    if (name.endsWith('.png')) expect(said).toBe(1);
+    else expect((await PDFDocument.load(bytes)).getPageCount()).toBe(said);
+    if (pages !== null) expect(said).toBe(pages);
+    return { name, bytes };
+  }
+
+  // From each of the Plan tile's entries, every plan format.
+  for (const entry of ['plan-setup-pdf', 'plan-setup-png', 'plan-scene-pdf'] as const) {
+    await fromPlan(page, entry);
+    const setup = await check('Setup plan (PDF)', 1);
+    expect(setup.name).toMatch(/^Bey County SC001 Setup [12] plan\.pdf$/);
+    const shown = /Setup (\d)/.exec(setup.name)?.[1] ?? '';
+    expect((await pdfTexts(setup.bytes))[0]).toContain(`Setup ${shown}`);
+    await fromPlan(page, entry);
+    expect((await check('Setup plan (PNG)', 1)).name).toBe(`Bey County SC001 Setup ${shown} plan.png`);
+    await fromPlan(page, entry);
+    expect((await check('Scene plans (PDF)', 2)).name).toBe('Bey County SC001 plans.pdf');
+  }
+
+  // From Export Project: the scene packet, for the whole project and for the scene.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  expect((await check('Scene plans (PDF)', 2)).name).toBe('Bey County plans.pdf');
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  await dialog(page).getByRole('radio', { name: 'Scene plans (PDF)' }).click();
+  await dialog(page).getByRole('combobox', { name: /^Scenes/ }).selectOption({ index: 1 });
+  expect((await check('Scene plans (PDF)', 2)).name).toBe('Bey County SC001 plans.pdf');
 });

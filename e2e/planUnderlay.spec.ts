@@ -112,6 +112,10 @@ async function addUnderlayFromMenu(page: Page) {
 }
 
 test('an underlay set to scale by two clicks and "4m", a wall traced over it and measured, through the layers, another scene, undo and a reload', async ({ page }) => {
+  // About a hundred steps and a reload: 8.3 to 8.4 s alone (Nov 14, five runs), 20.9 s in the full suite on twelve
+  // workers (Nov 14), and over 30 s when it started in the first wave (6.9's probe). The time is the steps' and the
+  // loads', not the app's.
+  test.setTimeout(60_000);
   await startRoom(page);
   await addUnderlayFromMenu(page);
   const added = await one(page, 'underlay');

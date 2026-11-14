@@ -11,7 +11,8 @@ import { apply, displayOps, followed, IDENTITY, type DisplayOp, type Matrix, typ
 import type { PrintPage } from './deckPdfWriter';
 import { deckFontLoader } from './deckFonts';
 import { snapshot } from './deckRender';
-import { FACE_FONTS, fontMeasure, HEADER_HEIGHT, SHEET, LEGEND_TITLE, PAGE_MARGIN, type Measure, type PlanArea, type PlanFace, type PlanPage } from './planPages';
+import { FACE_FONTS, FOOT_BAND, fontMeasure, HEADER_HEIGHT, SHEET, LEGEND_TITLE, PAGE_MARGIN, type Measure, type PlanArea, type PlanFace, type PlanPage } from './planPages';
+import { t } from '../../core/i18n';
 
 // A plan's page drawn (6.10): the plan through the canvas's own renderer (PageStage) with the plan's own drawings, the
 // same ones the screen draws, in print mode, read back from Konva as vector display operations (deckDisplay.ts); then the
@@ -98,12 +99,19 @@ export async function bundledMeasure(): Promise<Measure> {
   return fontMeasure(files);
 }
 
-/** The underlays' pictures a page draws, loaded at their stored size first, so the stage has them when it is drawn. */
-export async function preparePlanPictures(file: ProjectFile, shas: readonly string[]): Promise<void> {
+/**
+ * The underlays' pictures a page draws, loaded at their stored size first, so the stage has them when it is drawn. Says
+ * how many could be read at neither size: the canvas draws those as a placeholder, which the export counts with the
+ * pictures it couldn't print (6.10 review), as the deck export does.
+ */
+export async function preparePlanPictures(file: ProjectFile, shas: readonly string[]): Promise<number> {
+  let unreadable = 0;
   for (const sha of shas) {
-    await loadPicture(file, sha, 'thumbnail');
-    await loadPicture(file, sha, 'original');
+    const small = await loadPicture(file, sha, 'thumbnail');
+    const full = await loadPicture(file, sha, 'original');
+    if (small.status !== 'ok' && full.status !== 'ok') unreadable += 1;
   }
+  return unreadable;
 }
 
 /** The plan area's drawing: the canvas's own, in print mode, in points from the box's top left corner. */
@@ -112,7 +120,7 @@ export async function planDrawing(area: PlanArea): Promise<DisplayOp[]> {
   const root = createRoot(host);
   const page: CanvasItem = { id: 'sb-plan-page', ...area.world, rotation: 0, label: '', draw: () => null };
   flushSync(() => {
-    root.render(<PageStage page={page} items={area.items} links={[]} size={{ width: area.box.width, height: area.box.height }} colours={PRINT_COLOURS} print drawZoom={printZoom(area.pointsPerUnit)} />);
+    root.render(<PageStage page={page} items={area.items} links={[]} size={{ width: area.drawing.width, height: area.drawing.height }} colours={PRINT_COLOURS} print drawZoom={printZoom(area.pointsPerUnit)} />);
   });
   const find = () => Konva.stages.find((stage) => host.contains(stage.container()));
   const wanted = area.items.length + 1;
@@ -123,7 +131,7 @@ export async function planDrawing(area: PlanArea): Promise<DisplayOp[]> {
   }
   const stage = find();
   try {
-    if (!stage) throw new Error('This computer can’t draw the plan for export.');
+    if (!stage) throw new Error(t('export.plan.cantDraw'));
     const layer = stage.getLayers()[0];
     const node = layer ? snapshot(layer) : null;
     return printWeights(node ? displayOps(node) : []);
@@ -194,7 +202,7 @@ function headerOps(page: PlanPage, measure: Measure): DisplayOp[] {
   return ops;
 }
 
-/** The light grid inside the plan box (decision 14 brief): hairlines at every step, through the world origin, as the screen's. */
+/** The light grid over the drawing (decision 14 brief): hairlines at every step, through the world origin, as the screen's. */
 function gridOps(area: PlanArea): DisplayOp[] {
   if (area.grid === null) return [];
   const step = area.grid;
@@ -202,43 +210,54 @@ function gridOps(area: PlanArea): DisplayOp[] {
   const ops: DisplayOp[] = [];
   for (let x = Math.ceil(area.world.x / step) * step; x <= area.world.x + area.world.width; x += step) {
     const at = (x - area.world.x) * ppu;
-    ops.push(line([[at, 0], [at, area.box.height]], RAISED, HAIRLINE));
+    ops.push(line([[at, 0], [at, area.drawing.height]], RAISED, HAIRLINE));
   }
   for (let y = Math.ceil(area.world.y / step) * step; y <= area.world.y + area.world.height; y += step) {
     const at = (y - area.world.y) * ppu;
-    ops.push(line([[0, at], [area.box.width, at]], RAISED, HAIRLINE));
+    ops.push(line([[0, at], [area.drawing.width, at]], RAISED, HAIRLINE));
   }
   return ops;
 }
 
-/** The scale in words over a bar of a round length, in the plan box's bottom left corner, on a white patch. */
-function scaleBarOps(area: PlanArea, words: string, measure: Measure): DisplayOp[] {
+/** Where the plan box's foot band is on the page, points: under the drawing, inside the box (FOOT_BAND tall). */
+export const footBand = (area: PlanArea): Rect => ({ x: area.box.x, y: area.drawing.y + area.drawing.height, width: area.box.width, height: FOOT_BAND });
+
+/**
+ * The foot band (6.10 review): under a rule, the scale in words and "Print at actual size (100%)" over a bar of a round
+ * length at its left, and the note, when there is one ("No room drawn"), at its right. It is a strip of its own, so
+ * nothing on it ever covers the plan, whatever the scale.
+ */
+function footOps(area: PlanArea, words: PlanPageWords, measure: Measure): DisplayOp[] {
+  const band = footBand(area);
   const length = area.bar.length * area.pointsPerUnit;
-  const wordsWidth = measure(words, 'mono', 7.5);
-  const endLabel = area.bar.label;
-  const patch: Rect = { x: 6, y: area.box.height - 6 - 34, width: Math.max(length + measure(endLabel, 'mono', 7) / 2, wordsWidth) + 14, height: 34 };
-  const x0 = patch.x + 7;
-  const barY = patch.y + 16;
-  return [
-    box(patch, WHITE, null),
-    ...text(x0, patch.y + 10, words, 'mono', 7.5),
+  const x0 = band.x + 8;
+  const barY = band.y + 19;
+  const ops: DisplayOp[] = [
+    line([[band.x, band.y], [band.x + band.width, band.y]], INK, BOX_RULE),
+    ...text(x0, band.y + 12, words.scale, 'mono', 7.5),
+    ...text(x0 + measure(words.scale, 'mono', 7.5) + 10, band.y + 12, words.actualSize, 'sans', 7),
     box({ x: x0, y: barY, width: length / 2, height: 3.5 }, INK, INK, KIT_LINE),
     box({ x: x0 + length / 2, y: barY, width: length / 2, height: 3.5 }, WHITE, INK, KIT_LINE),
-    ...text(x0, barY + 12, '0', 'mono', 7, 'center'),
-    ...text(x0 + length, barY + 12, endLabel, 'mono', 7, 'center'),
+    ...text(x0, barY + 13, '0', 'mono', 7, 'center'),
+    ...text(x0 + length, barY + 13, area.bar.label, 'mono', 7, 'center'),
   ];
+  if (area.noRoom) ops.push(...text(band.x + band.width - 8, band.y + 12, words.noRoom, 'sans', 8, 'right'));
+  return ops;
 }
 
-/** The plan box: the grid, the drawing, clipped to the box; its outline; the scale; "No room drawn" where there is none. */
-function planBoxOps(area: PlanArea, drawing: readonly DisplayOp[], words: { scale: string; noRoom: string }, measure: Measure): DisplayOp[] {
-  const { box: b } = area;
-  const ops: DisplayOp[] = [{ op: 'save' }, { op: 'concat', m: [1, 0, 0, 1, b.x, b.y] }, { op: 'clip', x: 0, y: 0, width: b.width, height: b.height }, ...gridOps(area), ...drawing];
-  if (area.noRoom) {
-    const w = measure(words.noRoom, 'sans', 8);
-    ops.push(box({ x: 6, y: 6, width: w + 12, height: 16 }, WHITE, null), ...text(12, 17, words.noRoom, 'sans', 8));
-  }
-  ops.push(...scaleBarOps(area, words.scale, measure), { op: 'restore' }, box(b, null, INK));
-  return ops;
+/** The plan box: the grid and the drawing, clipped to the drawing's area; the foot band under it; the box's outline. */
+function planBoxOps(area: PlanArea, drawing: readonly DisplayOp[], words: PlanPageWords, measure: Measure): DisplayOp[] {
+  const d = area.drawing;
+  return [
+    { op: 'save' },
+    { op: 'concat', m: [1, 0, 0, 1, d.x, d.y] },
+    { op: 'clip', x: 0, y: 0, width: d.width, height: d.height },
+    ...gridOps(area),
+    ...drawing,
+    { op: 'restore' },
+    ...footOps(area, words, measure),
+    box(area.box, null, INK),
+  ];
 }
 
 /** The legend's box with its title band, and its rows. */
@@ -251,6 +270,8 @@ function legendOps(page: PlanPage, title: string): DisplayOp[] {
 
 export interface PlanPageWords {
   scale: string;
+  /** "Print at actual size (100%)", next to the scale: a viewer's fit-to-page would print the plan off its scale. */
+  actualSize: string;
   noRoom: string;
   legend: string;
 }
@@ -265,5 +286,5 @@ export function planPrintPage(page: PlanPage, drawing: readonly DisplayOp[] | nu
 
 /** Where a world point of a plan page lands on the page, points (for the tests: a wall's ends on paper). */
 export function onPage(area: PlanArea, x: number, y: number): { x: number; y: number } {
-  return apply([area.pointsPerUnit, 0, 0, area.pointsPerUnit, area.box.x - area.world.x * area.pointsPerUnit, area.box.y - area.world.y * area.pointsPerUnit], x, y);
+  return apply([area.pointsPerUnit, 0, 0, area.pointsPerUnit, area.drawing.x - area.world.x * area.pointsPerUnit, area.drawing.y - area.world.y * area.pointsPerUnit], x, y);
 }

@@ -1,4 +1,5 @@
-import fontkit from '@pdf-lib/fontkit';
+import type * as Fontkit from '@pdf-lib/fontkit';
+import type { Font } from '@pdf-lib/fontkit';
 import { formatDate, t, tn } from '../../core/i18n';
 import { focalLabel, frameLens, isPrime } from '../../core/model/cameraGear';
 import { sheetFrames } from '../../core/model/callsheet';
@@ -67,6 +68,13 @@ export const LEGEND_PAD = 8;
 export const WIDE_PLAN = 2.2;
 /** The room round the extent, world units (cm): what the edge of the drawing never touches. */
 export const EXTENT_MARGIN = 50;
+/**
+ * The least room round the extent on paper, points, whatever the scale (6.10 review): 50 cm of the room is 28 pt at 1:50
+ * but under 3 pt at 1:500, so a margin in world units alone let the drawing run to the box's edge on a large plan.
+ */
+export const PAPER_MARGIN = 12;
+/** The plan box's foot band, points: the scale in words, the bar and any note, under a rule, never over the drawing. */
+export const FOOT_BAND = 44;
 /** The smallest type on the page, points. */
 export const MIN_TYPE = 7;
 
@@ -97,14 +105,24 @@ export const FEET_SCALES: readonly PlanPrintScale[] = (
 export const pointsPerUnit = (ratio: number): number => (10 / ratio) * PT_PER_MM;
 
 /**
- * The largest scale from the unit's list at which `extent` (world units) fits `area` (points); the smallest scale on the
- * list when none does (a lot drawn larger than 1:1000 allows is printed at 1:1000, its edges cut by the plan's box).
+ * The largest scale from the unit's list at which `extent` (world units) fits `area` (points) with `margin` points (at
+ * that scale's points per unit) on every side; the smallest scale on the list when none does (a lot drawn larger than
+ * 1:1000 allows is printed at 1:1000, its edges cut by the plan's box, and the export says so: `scaleFits`).
  */
-export function chooseScale(extent: Size, area: Size, unit: PlanUnit): PlanPrintScale {
+export function chooseScale(extent: Size, area: Size, unit: PlanUnit, margin: (ppu: number) => number = () => 0): PlanPrintScale {
   const list = unit === 'metres' ? METRIC_SCALES : FEET_SCALES;
-  const fits = list.find((scale) => extent.width * pointsPerUnit(scale.ratio) <= area.width + 1e-6 && extent.height * pointsPerUnit(scale.ratio) <= area.height + 1e-6);
-  return fits ?? (list[list.length - 1] as PlanPrintScale);
+  return list.find((scale) => scaleFits(extent, area, scale, margin)) ?? (list[list.length - 1] as PlanPrintScale);
 }
+
+/** Whether `extent` (world units) fits `area` (points) at a scale, with `margin` points round it. */
+export function scaleFits(extent: Size, area: Size, scale: PlanPrintScale, margin: (ppu: number) => number = () => 0): boolean {
+  const ppu = pointsPerUnit(scale.ratio);
+  const room = 2 * margin(ppu);
+  return extent.width * ppu + room <= area.width + 1e-6 && extent.height * ppu + room <= area.height + 1e-6;
+}
+
+/** The margin round a plan's extent on paper at `ppu` points per unit: EXTENT_MARGIN of the room, never under PAPER_MARGIN. */
+export const marginOnPaper = (ppu: number): number => Math.max(PAPER_MARGIN, EXTENT_MARGIN * ppu);
 
 /** "Scale 1:50", or "Scale 1/4" = 1'-0"". */
 export const scaleWords = (scale: PlanPrintScale): string => t('export.plan.scale', { scale: scale.label });
@@ -114,10 +132,13 @@ export function planExtent(items: readonly CanvasItem[]): Rect | null {
   return unionBounds(items.map((item) => fitBoundsOf(item)));
 }
 
-/** The extent with its margin; a view with nothing drawn shows 5 m round the origin. */
+/** What a view with nothing drawn shows: 4 m round the origin (5 m with its margin, as before the margin went on paper). */
+const EMPTY_EXTENT: Rect = { x: -200, y: -200, width: 400, height: 400 };
+
+/** The extent with its margin in world units (the plan's shape, for whether its legend goes along its foot); a view with nothing drawn shows 5 m round the origin. */
 export function paddedExtent(extent: Rect | null): Rect {
-  if (!extent) return { x: -250, y: -250, width: 500, height: 500 };
-  return { x: extent.x - EXTENT_MARGIN, y: extent.y - EXTENT_MARGIN, width: extent.width + 2 * EXTENT_MARGIN, height: extent.height + 2 * EXTENT_MARGIN };
+  const e = extent ?? EMPTY_EXTENT;
+  return { x: e.x - EXTENT_MARGIN, y: e.y - EXTENT_MARGIN, width: e.width + 2 * EXTENT_MARGIN, height: e.height + 2 * EXTENT_MARGIN };
 }
 
 // The words.
@@ -141,10 +162,13 @@ export type Measure = (text: string, face: PlanFace, size: number) => number;
 /**
  * Text measured with the very font files the PDF embeds, as pdf-lib measures them (each glyph's advance, no kerning), so a
  * line's runs sit where the PDF sets them: a run in one face ends exactly where the next begins. A face with no file
- * falls back to an estimate (a mono advance of 0.6 em).
+ * falls back to an estimate (a mono advance of 0.6 em). fontkit is loaded here, when a plan is printed, and never with
+ * the export registry, which the app loads at start (6.10 review: exportLazy.test.ts).
  */
-export function fontMeasure(files: Partial<Readonly<Record<PlanFace, Uint8Array>>>): Measure {
-  const fonts = new Map<PlanFace, ReturnType<typeof fontkit.create>>();
+export async function fontMeasure(files: Partial<Readonly<Record<PlanFace, Uint8Array>>>): Promise<Measure> {
+  // Its build's one export is its default, which its types leave out (they name `create` alone).
+  const fontkit = ((await import('@pdf-lib/fontkit')) as unknown as { default: typeof Fontkit }).default;
+  const fonts = new Map<PlanFace, Font>();
   for (const [face, bytes] of Object.entries(files) as [PlanFace, Uint8Array | undefined][]) if (bytes) fonts.set(face, fontkit.create(bytes));
   return (text, face, size) => {
     const font = fonts.get(face);
@@ -381,11 +405,17 @@ export function flowRows(rows: readonly LegendRow[], columns: readonly Rect[]): 
     while (at < rows.length) {
       const row = rows[at] as LegendRow;
       const before = into.length === 0 ? 0 : row.before;
-      // A row kept with the next one goes only where the next fits too (a heading with its first line).
+      // A row kept with the next one goes only where the next fits too (a heading with its first line), and on down a
+      // chain of them: "FRAMES", then a camera's subheading, then its first frame, so no heading ends a column alone.
+      // A chain taller than a whole column can't be kept together: then only the next row is.
       let need = before + row.height;
-      if (row.keepWithNext) {
+      for (let k = at; (rows[k] as LegendRow).keepWithNext && k + 1 < rows.length; k += 1) {
+        const next = rows[k + 1] as LegendRow;
+        need += next.before + next.height;
+      }
+      if (need > column.height + 1e-6 && row.keepWithNext) {
         const next = rows[at + 1];
-        if (next) need += next.before + next.height;
+        need = before + row.height + (next ? next.before + next.height : 0);
       }
       // An empty column always takes a row, so a row taller than any column still prints (and the flow always ends).
       if (used + need > column.height + 1e-6 && into.length > 0) break;
@@ -425,9 +455,11 @@ export interface PlanHeader {
 }
 
 export interface PlanArea {
-  /** The plan's box on the page, points. */
+  /** The plan's box on the page, points: the drawing over its foot band. */
   box: Rect;
-  /** What of the room it shows: the box's size at the scale, centred on the extent, world units. */
+  /** Where the drawing is on the page, points: the box above its foot band (FOOT_BAND), so nothing on the band covers the plan. */
+  drawing: Rect;
+  /** What of the room it shows: the drawing's size at the scale, centred on the extent, world units. */
   world: Rect;
   scale: PlanPrintScale;
   pointsPerUnit: number;
@@ -439,6 +471,8 @@ export interface PlanArea {
   grid: number | null;
   /** A view whose scene has no room drawn (its items print, with the note). */
   noRoom: boolean;
+  /** The extent is larger than the page at the smallest scale: its edges are cut by the box, and the export says so. */
+  cut: boolean;
 }
 
 export interface PlanPage {
@@ -448,7 +482,12 @@ export interface PlanPage {
   plan: PlanArea | null;
   /** The legend's box and the rows it holds on this page (the whole content area on a legend's own page). */
   legend: { box: Rect; rows: readonly PlacedRow[] };
+  /** The view's legend ran past MAX_LEGEND_PAGES pages of its own: what is left isn't printed, and the export says so. */
+  legendCut: boolean;
 }
+
+/** How many pages of its own a view's legend may run on to; past it the export stops and warns, never silently. */
+export const MAX_LEGEND_PAGES = 50;
 
 export interface PlanPrintOptions {
   paper: Paper;
@@ -463,6 +502,8 @@ export interface PlanPrintOptions {
   /** Each sun path's location's zone where it has none of its own, by sun id (as the plan reads them); none known: "No time zone". */
   zones: ReadonlyMap<string, string | null>;
   measure: Measure;
+  /** How many pages of its own a legend may run on to (MAX_LEGEND_PAGES; fewer in a test). */
+  maxLegendPages?: number;
 }
 
 /** The least spacing a grid prints at, mm: closer than this, its step is widened (2, 5, 10…). */
@@ -557,21 +598,24 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
   const size = LANDSCAPE[options.paper];
   const content = contentOf(size);
   const items = printItems(records, view, options.unit, options.zones, options.underlay);
-  const extent = paddedExtent(planExtent(items));
-  const wide = extent.width / extent.height > WIDE_PLAN;
+  const drawn = planExtent(items) ?? EMPTY_EXTENT;
+  const padded = paddedExtent(drawn);
+  const wide = padded.width / padded.height > WIDE_PLAN;
   const planBox: Rect = wide
     ? { x: content.x, y: content.y, width: content.width, height: content.height - LEGEND_BAND_HEIGHT - BOX_GAP }
     : { x: content.x, y: content.y, width: content.width - LEGEND_WIDTH - BOX_GAP, height: content.height };
   const legendBox: Rect = wide
     ? { x: content.x, y: planBox.y + planBox.height + BOX_GAP, width: content.width, height: LEGEND_BAND_HEIGHT }
     : { x: planBox.x + planBox.width + BOX_GAP, y: content.y, width: LEGEND_WIDTH, height: content.height };
-  const scale = chooseScale(extent, planBox, options.unit);
+  // The drawing takes the box above its foot band; the extent is fitted into that, with its margin on paper.
+  const drawing: Rect = { x: planBox.x, y: planBox.y, width: planBox.width, height: planBox.height - FOOT_BAND };
+  const scale = chooseScale(drawn, drawing, options.unit, marginOnPaper);
   const ppu = pointsPerUnit(scale.ratio);
   const world = {
-    width: planBox.width / ppu,
-    height: planBox.height / ppu,
-    x: extent.x + extent.width / 2 - planBox.width / ppu / 2,
-    y: extent.y + extent.height / 2 - planBox.height / ppu / 2,
+    width: drawing.width / ppu,
+    height: drawing.height / ppu,
+    x: drawn.x + drawn.width / 2 - drawing.width / ppu / 2,
+    y: drawn.y + drawn.height / 2 - drawing.height / ppu / 2,
   };
   const header = planHeader(records, projectId, view, options.title, options.now);
   const entries = [...legendEntries(records, view.sceneId, view.setupId, options.unit), ...frameEntries(records, projectId, view.setupId)];
@@ -584,6 +628,7 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
       header,
       plan: {
         box: planBox,
+        drawing,
         world,
         scale,
         pointsPerUnit: ppu,
@@ -591,18 +636,26 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
         bar: scaleBar(options.unit, ppu, planBox.width),
         grid: options.grid ? gridStep(options.unit, ppu) : null,
         noRoom: sceneRoomId(records, records[view.sceneId]) === null,
+        cut: !scaleFits(drawn, drawing, scale, marginOnPaper),
       },
       legend: { box: legendBox, rows: first.placed.flat() },
+      legendCut: false,
     },
   ];
   let rest = first.rest;
   const what = header.setup === null ? sceneLabel(sceneFields(records[view.sceneId]?.props ?? {}).number) : `${sceneLabel(sceneFields(records[view.sceneId]?.props ?? {}).number)} · ${header.setup}`;
   // Whatever didn't fit goes on, page after page, in columns across the whole content area: never shrunk, never cut.
-  for (let guard = 0; rest.length > 0 && guard < 50; guard += 1) {
+  // A legend longer than MAX_LEGEND_PAGES pages (thousands of lines) stops there, marked, so the export warns.
+  const most = options.maxLegendPages ?? MAX_LEGEND_PAGES;
+  for (let guard = 0; rest.length > 0 && guard < most; guard += 1) {
     const flowed = flowRows(rest, columnsIn(content));
     if (flowed.rest.length === rest.length) break;
-    pages.push({ paper: options.paper, size, header: { ...header, continued: t('export.plan.legendContinued', { what }) }, plan: null, legend: { box: content, rows: flowed.placed.flat() } });
+    pages.push({ paper: options.paper, size, header: { ...header, continued: t('export.plan.legendContinued', { what }) }, plan: null, legend: { box: content, rows: flowed.placed.flat() }, legendCut: false });
     rest = flowed.rest;
+  }
+  if (rest.length > 0) {
+    const last = pages[pages.length - 1] as PlanPage;
+    pages[pages.length - 1] = { ...last, legendCut: true };
   }
   return pages;
 }
@@ -615,22 +668,28 @@ export function planPages(records: Records, projectId: string, views: readonly P
 
 // The packets.
 
-/** A scene's packet (decision 14): a page per live setup in setup order; a scene with no setup, one of its room and blocking. */
+/**
+ * Whether a scene has a plan to print (6.10 review, one rule everywhere): a room, or an item drawn for the scene or any of
+ * its setups. A scene with neither is left out of every plan export (a setup's, the scene's, a day's and the whole
+ * project's), so forty scenes with three plans aren't forty blank pages; with nothing left, the export says so.
+ */
+export function sceneHasPlan(records: Records, sceneId: string): boolean {
+  const scene = records[sceneId];
+  if (!scene || scene.trashedAt !== null) return false;
+  if (sceneRoomId(records, scene) !== null || shownItems(records, sceneId, null).length > 0) return true;
+  return sceneSetups(records, sceneId).some((setup) => shownItems(records, sceneId, setup.record.id).length > 0);
+}
+
+/** A scene's packet (decision 14): a page per live setup in setup order; a scene with no setup, one of its room and blocking; none for a scene with no plan. */
 export function scenePlanViews(records: Records, sceneId: string): PlanView[] {
+  if (!sceneHasPlan(records, sceneId)) return [];
   const setups = sceneSetups(records, sceneId);
   return setups.length === 0 ? [{ sceneId, setupId: null }] : setups.map((setup) => ({ sceneId, setupId: setup.record.id }));
 }
 
-/**
- * Every scene's packet in scene order (Export Project's whole project). A scene with no setup and nothing drawn has no
- * plan to print and is left out, so forty scenes with three plans aren't forty pages.
- */
+/** Every scene's packet in scene order (Export Project's whole project), the scenes with no plan left out. */
 export function projectPlanViews(records: Records, projectId: string): PlanView[] {
-  return board(records, projectId).flatMap((scene) => {
-    const id = scene.record.id;
-    if (sceneSetups(records, id).length === 0 && shownItems(records, id, null).length === 0) return [];
-    return scenePlanViews(records, id);
-  });
+  return board(records, projectId).flatMap((scene) => scenePlanViews(records, scene.record.id));
 }
 
 /**
@@ -641,7 +700,7 @@ export function dayPlanViews(records: Records, projectId: string, dayId: string)
   const frames = sheetFrames(records, projectId, dayId);
   const inDay = new Set(frames.flatMap(({ shot }) => frameSetupId(records, shot) ?? []));
   return scenesOfFrames(frames).flatMap((scene) =>
-    sceneSetups(records, scene.id)
+    (sceneHasPlan(records, scene.id) ? sceneSetups(records, scene.id) : [])
       .filter((setup) => inDay.has(setup.record.id))
       .map((setup): PlanView => ({ sceneId: scene.id, setupId: setup.record.id, dayId })),
   );

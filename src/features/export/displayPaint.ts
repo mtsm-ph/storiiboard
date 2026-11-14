@@ -22,9 +22,10 @@ const cssFont = (op: Extract<DisplayOp, { op: 'text' }>) => `${op.italic ? 'ital
 
 /**
  * Paints `ops` onto `ctx`, the page's units mapped by `base` (a page in points at 200 dpi: a scale of 200 / 72).
- * `picture` gives a picture's pixels by its hash; one it can't is left out.
+ * `picture` gives a picture's pixels by its hash; one it can't is left out, and counted.
  */
-export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, picture: (sha256: string) => CanvasImageSource | null): void {
+export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, picture: (sha256: string) => CanvasImageSource | null): { unprintable: number } {
+  let unprintable = 0;
   const stack: Matrix[] = [IDENTITY];
   const now = () => stack[stack.length - 1] ?? IDENTITY;
   const place = () => {
@@ -32,6 +33,8 @@ export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, pict
     ctx.setTransform(a, b, c, d, e, f);
   };
   ctx.save();
+  // Runs are placed by unkerned advances (planPages' fontMeasure, as pdf-lib sets them): kerned here, they would touch.
+  ctx.fontKerning = 'none';
   place();
   for (const op of ops) {
     switch (op.op) {
@@ -100,6 +103,7 @@ export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, pict
       case 'image': {
         const source = op.sha256 === '' ? null : picture(op.sha256);
         if (source) ctx.drawImage(source, 0, 0, op.width, op.height);
+        else unprintable += 1;
         break;
       }
       case 'link':
@@ -111,4 +115,5 @@ export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, pict
     ctx.restore();
   }
   ctx.restore();
+  return { unprintable };
 }

@@ -16,7 +16,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { boardTitle } from '../moodboards/boards';
 import { isDeck, pagesOf } from '../moodboards/pages';
 import { closeExportDialog, useExportDeck, useExportDialog, useExportFormatId, useExportPlan, useExportSwatches } from './exportStore';
-import { planViewCount } from './planExport';
+import { planExportName } from './planExport';
 import { DAY_PLAN_FORMATS, DECK_FORMATS, FORMATS, PLAN_FORMATS, SWATCH_FORMATS } from './registry';
 import { swatchSet } from './swatchSet';
 import type { ExportScope } from './scope';
@@ -105,11 +105,16 @@ function ExportDialog() {
   // main thread, which Stop and Escape had to wait behind. The dialog is modal, so the records hold still meanwhile.
   const projectId = project?.projectId ?? null;
   const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
-  if (!project) return null;
   const format = formats.find((f) => f.id === formatId) ?? formats[0];
   const whole = format?.wholeProject === true;
   const scene = whole ? null : (scenes.find((s) => s.record.id === sceneId) ?? null);
-  const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
+  const scopeSceneId = scene?.record.id ?? null;
+  const scope: ExportScope = useMemo(() => (scopeSceneId === null ? { kind: 'project' } : { kind: 'scene', sceneId: scopeSceneId }), [scopeSceneId]);
+  const plans = format?.options?.plan === true;
+  // How many plans the export would print (6.10), from the format's own list, the one its run prints: once per change to
+  // what it depends on, not on every progress tick. None is said, and nothing is written.
+  const planCount = useMemo(() => (plans && format.planViews && projectId !== null ? format.planViews(records, projectId, plan ?? undefined, scope).length : 0), [plans, format, records, projectId, plan, scope]);
+  if (!project) return null;
   const props = records[project.projectId]?.props;
   const projectTitle = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
   const colours = swatches ? swatchSet(records, project.projectId, swatches) : null;
@@ -122,9 +127,6 @@ function ExportDialog() {
   const watermark = readWatermark(props);
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
-  const plans = format?.options?.plan === true;
-  // How many plans the export would print; none is said, and nothing is written (6.10).
-  const planCount = plans ? planViewCount(records, project.projectId, plan ?? undefined, scope) : 0;
   const noPlans = plans && planCount === 0;
 
   const stop = () => {
@@ -135,7 +137,8 @@ function ExportDialog() {
   const run = async () => {
     if (!format || busy.current) return;
     busy.current = true;
-    const name = plan && format.planName ? format.planName(title, records, plan) : format.name(title, scene?.fields.number ?? null);
+    // A plan's file is named as its run names it (planExportName), so the Save dialog offers the name that is written.
+    const name = plans ? planExportName(format, { title, records, scope, ...(plan ? { plan } : {}) }) : format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
     // Files actually written, not frames drawn: the PDF draws every frame before it writes its one file, so a PDF
@@ -266,6 +269,9 @@ function ExportDialog() {
             <option value="letter">{t('callSheet.paper.letter')}</option>
             <option value="a4">{t('callSheet.paper.a4')}</option>
           </Select>
+          <p className="-mt-2 text-[12px] text-text-muted" data-plan-paper-note="">
+            {t('export.plan.paperNote')}
+          </p>
           <Toggle label={t('export.plan.underlay')} checked={planUnderlay} disabled={running !== null} onChange={setPlanUnderlay} />
           <Toggle label={t('export.plan.grid')} checked={planGrid} disabled={running !== null} onChange={setPlanGrid} />
         </>

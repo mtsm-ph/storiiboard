@@ -20,7 +20,7 @@ import type { PrintPage } from './deckPdfWriter';
 import { paintOps } from './displayPaint';
 import { paddedScene, safeName } from './names';
 import { writingStatus } from './pdfStoryboardFormat';
-import { dayPlanViews, planPages, projectPlanViews, scaleWords, scenePlanViews, type PlanPage, type PlanView } from './planPages';
+import { dayPlanViews, planPages, projectPlanViews, sceneHasPlan, scaleWords, scenePlanViews, type PlanPage, type PlanView } from './planPages';
 import { bundledMeasure, planDrawing, planPrintPage, preparePlanFonts, preparePlanPictures } from './planRender';
 import type { ExportContext, ExportFormat, ExportResult } from './registry';
 import type { ExportScope } from './scope';
@@ -38,13 +38,24 @@ export type PlanTarget = { kind: 'setup'; sceneId: string; setupId: string | nul
 /** The PNG's resolution (decision 14 brief). */
 export const PNG_DPI = 200;
 
-/** The views a plan export prints, in order: from its target, else (Export Project) the scene in scope or every scene. */
-export function planViewsFor(records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope): PlanView[] {
-  if (target?.kind === 'setup') return records[target.sceneId]?.trashedAt === null ? [{ sceneId: target.sceneId, setupId: target.setupId }] : [];
-  if (target?.kind === 'scene') return records[target.sceneId]?.trashedAt === null ? scenePlanViews(records, target.sceneId) : [];
+/** Setup plan (PDF, PNG): the setup shown, or a scene shown with no setup; nothing for a scene with no plan (sceneHasPlan). */
+export function setupPlanViews(records: Records, target: PlanTarget | undefined): PlanView[] {
+  if (!target || target.kind === 'day') return [];
+  const setupId = target.kind === 'setup' ? target.setupId : null;
+  if (!sceneHasPlan(records, target.sceneId)) return [];
+  if (setupId !== null && !sceneSetups(records, target.sceneId).some((s) => s.record.id === setupId)) return [];
+  return [{ sceneId: target.sceneId, setupId }];
+}
+
+/** Scene plans (PDF): the scene of the setup or scene shown, else (Export Project) the scene in scope or every scene. */
+export function scenePacketViews(records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope): PlanView[] {
   if (target?.kind === 'day') return dayPlanViews(records, projectId, target.dayId);
+  if (target) return scenePlanViews(records, target.sceneId);
   return scope.kind === 'scene' ? scenePlanViews(records, scope.sceneId) : projectPlanViews(records, projectId);
 }
+
+/** Shoot day plans (PDF): the day's. */
+export const dayPacketViews = (records: Records, projectId: string, target: PlanTarget | undefined): PlanView[] => (target?.kind === 'day' ? dayPlanViews(records, projectId, target.dayId) : []);
 
 /** Each sun path's zone, looked up as the Plan tile looks it up: by Rust on the desktop; the browser build has none ("No time zone"). */
 async function zonesFor(records: Records, views: readonly PlanView[]): Promise<Map<string, string | null>> {
@@ -66,6 +77,8 @@ const underlayShas = (records: Records, views: readonly PlanView[]): string[] =>
 interface Made {
   pages: PlanPage[];
   draw: (index: number) => Promise<PrintPage>;
+  /** Underlay pictures read at neither size, drawn as a placeholder: pictures the export couldn't print. */
+  unreadable: number;
 }
 
 /** The pages laid out, and a way to draw each as the writer takes it. */
@@ -75,7 +88,7 @@ async function makePages(context: ExportContext, views: readonly PlanView[]): Pr
   const measure = await bundledMeasure();
   const zones = await zonesFor(records, views);
   const underlay = context.planUnderlay ?? true;
-  if (underlay) await preparePlanPictures(file, underlayShas(records, views));
+  const unreadable = underlay ? await preparePlanPictures(file, underlayShas(records, views)) : 0;
   const pages = planPages(records, projectId, views, {
     paper: context.paper ?? paperNow(),
     unit: planUnitNow(),
@@ -88,26 +101,44 @@ async function makePages(context: ExportContext, views: readonly PlanView[]): Pr
   });
   return {
     pages,
+    unreadable,
     draw: async (index) => {
       const page = pages[index];
-      if (!page) throw new Error(t('export.cantDraw'));
+      if (!page) throw new Error(t('export.plan.cantDraw'));
       const drawing = page.plan ? await planDrawing(page.plan) : null;
-      return planPrintPage(page, drawing, { scale: page.plan ? scaleWords(page.plan.scale) : '', noRoom: t('export.plan.noRoom'), legend: t('legend.title') }, measure);
+      const words = { scale: page.plan ? scaleWords(page.plan.scale) : '', actualSize: t('export.plan.actualSize'), noRoom: t('export.plan.noRoom'), legend: t('legend.title') };
+      return planPrintPage(page, drawing, words, measure);
     },
   };
 }
 
-/** The views, or the reason there is nothing to print. */
-function viewsOrRefuse(context: ExportContext): PlanView[] {
-  const views = planViewsFor(context.records, context.projectId, context.plan, context.scope);
+/** The views a format prints for an export, or the reason there is nothing to print: the very list the dialog counted. */
+function viewsOrRefuse(format: ExportFormat, context: ExportContext): readonly PlanView[] {
+  const views = format.planViews?.(context.records, context.projectId, context.plan, context.scope) ?? [];
   if (views.length === 0) throw new Error(t('export.plan.nothing'));
   return views;
 }
 
-/** The pages as one PDF, written to the target under `name`. */
-async function writePlanPdf(context: ExportContext, name: string): Promise<ExportResult> {
-  const views = viewsOrRefuse(context);
-  const { pages, draw } = await makePages(context, views);
+/** What a plan's pages went out short of, in words (6.10 review): a plan cut by the box at the smallest scale, a legend cut short. */
+export function planPageWarnings(pages: readonly PlanPage[]): string[] {
+  const out: string[] = [];
+  for (const label of new Set(pages.flatMap((page) => (page.plan?.cut ? [page.plan.scale.label] : [])))) out.push(t('export.plan.cut', { scale: label }));
+  if (pages.some((page) => page.legendCut)) out.push(t('export.plan.legendCut'));
+  return out;
+}
+
+/** The file's name for an export: the plan target's when it has one, else Export Project's for the scope. The dialog shows this very name. */
+export function planExportName(format: ExportFormat, context: Pick<ExportContext, 'title' | 'records' | 'plan' | 'scope'>): string {
+  if (context.plan && format.planName) return format.planName(context.title, context.records, context.plan);
+  const scene = context.scope.kind === 'scene' ? sceneFields(context.records[context.scope.sceneId]?.props ?? {}).number : null;
+  return format.name(context.title, scene);
+}
+
+/** The pages as one PDF, written to the target under the format's name. */
+async function writePlanPdf(format: ExportFormat, context: ExportContext): Promise<ExportResult> {
+  const name = planExportName(format, context);
+  const views = viewsOrRefuse(format, context);
+  const { pages, draw, unreadable } = await makePages(context, views);
   context.progress(0, pages.length);
   // pdf-lib loads only when a plan is exported, as for the deck's PDF.
   const { writeDeckPdf } = await import('./deckPdfWriter');
@@ -126,25 +157,25 @@ async function writePlanPdf(context: ExportContext, name: string): Promise<Expor
   // A Stop pressed while the PDF was put together: nothing goes to disk.
   context.signal.throwIfAborted();
   await context.target.write(name, pdf.bytes);
-  const warnings = deckPdfWarnings(pdf.fontNotes, pdf.storedCopies, pdf.unprintable);
+  const warnings = [...planPageWarnings(pages), ...deckPdfWarnings(pdf.fontNotes, pdf.storedCopies, pdf.unprintable + unreadable)];
   const what = tn('count.pages', pages.length);
   return warnings.length === 0 ? { what } : { what, warning: warnings.join(' ') };
 }
 
-/** A page painted at PNG_DPI on white, as PNG bytes; its pictures at the size the project stores them. */
-export async function paintPage(page: PrintPage, file: ProjectFile): Promise<Uint8Array> {
+/** A page painted at PNG_DPI on white, as PNG bytes, and how many of its pictures couldn't be painted; its pictures at the size the project stores them. */
+export async function paintPage(page: PrintPage, file: ProjectFile): Promise<{ bytes: Uint8Array; unprintable: number }> {
   const scale = PNG_DPI / 72;
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(page.width * scale);
   canvas.height = Math.round(page.height * scale);
   const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
-  if (!ctx) throw new Error(t('export.cantDraw'));
+  if (!ctx) throw new Error(t('export.plan.cantDraw'));
   ctx.fillStyle = page.background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  paintOps(ctx, page.ops, [scale, 0, 0, scale, 0, 0], (sha) => decodedPicture(file, sha, 'original') ?? decodedPicture(file, sha, 'thumbnail') ?? null);
+  const { unprintable } = paintOps(ctx, page.ops, [scale, 0, 0, scale, 0, 0], (sha) => decodedPicture(file, sha, 'original') ?? decodedPicture(file, sha, 'thumbnail') ?? null);
   const blob = await canvasBlob(canvas, 'image/png');
-  if (!blob) throw new Error(t('export.cantDraw'));
-  return new Uint8Array(await blob.arrayBuffer());
+  if (!blob) throw new Error(t('export.plan.cantDraw'));
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), unprintable };
 }
 
 // The names (decision 14 brief): "Bey County SC004 Setup 2 plan.pdf", "Bey County SC004 plans.pdf", "Bey County Day 2
@@ -166,10 +197,9 @@ export function planFileName(title: string, records: Records, target: PlanTarget
   return named(setup ? `${scene} ${t('setup.label', { number: setup.number })}` : scene, t('export.plan.fileWord'), extension);
 }
 
-/** Export Project's name for the scene packet: the scene's, or the project's for every scene. */
-function packetName(title: string, records: Records, scope: ExportScope): string {
-  return scope.kind === 'scene' ? planFileName(title, records, { kind: 'scene', sceneId: scope.sceneId }, 'pdf') : named(title, t('export.plan.packetWord'), 'pdf');
-}
+/** A setup's file is named for the setup shown; a scene shown with no setup, for the scene ("Bey County SC004 plan.pdf"). */
+const setupFileName = (title: string, records: Records, target: PlanTarget, extension: 'pdf' | 'png'): string =>
+  target.kind === 'day' ? named(title, t('export.plan.fileWord'), extension) : planFileName(title, records, { kind: 'setup', sceneId: target.sceneId, setupId: target.kind === 'setup' ? target.setupId : null }, extension);
 
 export const planSetupPdf: ExportFormat = {
   id: 'plan-setup-pdf',
@@ -183,8 +213,9 @@ export const planSetupPdf: ExportFormat = {
   plans: 'view',
   options: { plan: true },
   name: (title) => named(title, t('export.plan.fileWord'), 'pdf'),
-  planName: (title, records, target) => planFileName(title, records, target.kind === 'scene' ? { kind: 'setup', sceneId: target.sceneId, setupId: null } : target, 'pdf'),
-  run: (context) => writePlanPdf(context, context.plan ? planFileName(context.title, context.records, context.plan, 'pdf') : named(context.title, t('export.plan.fileWord'), 'pdf')),
+  planName: (title, records, target) => setupFileName(title, records, target, 'pdf'),
+  planViews: (records, _projectId, target) => setupPlanViews(records, target),
+  run: (context) => writePlanPdf(planSetupPdf, context),
 };
 
 export const planSetupPng: ExportFormat = {
@@ -199,19 +230,25 @@ export const planSetupPng: ExportFormat = {
   plans: 'view',
   options: { plan: true },
   name: (title) => named(title, t('export.plan.fileWord'), 'png'),
-  planName: (title, records, target) => planFileName(title, records, target, 'png'),
+  planName: (title, records, target) => setupFileName(title, records, target, 'png'),
+  planViews: (records, _projectId, target) => setupPlanViews(records, target),
   run: async (context): Promise<ExportResult> => {
-    const views = viewsOrRefuse(context).slice(0, 1);
-    const { pages, draw } = await makePages(context, views);
+    const name = planExportName(planSetupPng, context);
+    const views = viewsOrRefuse(planSetupPng, context).slice(0, 1);
+    const { pages, draw, unreadable } = await makePages(context, views);
+    // The picture is the plan's page alone: a legend that runs on is in the PDF, and the page says so, not "Page 1 of 3".
+    const first = pages[0];
+    if (first && pages.length > 1) pages[0] = { ...first, header: { ...first.header, page: t('export.plan.pngPage', { pages: pages.length }) } };
     context.progress(0, 1);
     const printed = await draw(0);
     context.signal.throwIfAborted();
-    const bytes = await paintPage(printed, context.file);
+    const painted = await paintPage(printed, context.file);
     context.signal.throwIfAborted();
-    await context.target.write(context.plan ? planFileName(context.title, context.records, context.plan, 'png') : named(context.title, t('export.plan.fileWord'), 'png'), bytes);
+    await context.target.write(name, painted.bytes);
     context.progress(1, 1);
-    // A legend too long for the one page goes on in the PDF; the picture says so rather than cutting it short silently.
-    return pages.length > 1 ? { what: t('export.plan.png.what'), warning: t('export.plan.png.legendGoesOn') } : { what: t('export.plan.png.what') };
+    const missing = painted.unprintable + unreadable;
+    const warnings = [...(pages.length > 1 ? [t('export.plan.png.legendGoesOn')] : []), ...planPageWarnings(pages.slice(0, 1)), ...(missing > 0 ? [tn('export.deck.unprintable', missing)] : [])];
+    return warnings.length === 0 ? { what: t('export.plan.png.what') } : { what: t('export.plan.png.what'), warning: warnings.join(' ') };
   },
 };
 
@@ -227,11 +264,8 @@ export const planScenePdf: ExportFormat = {
   options: { plan: true },
   name: (title, sceneNumber) => (sceneNumber === null ? named(title, t('export.plan.packetWord'), 'pdf') : named(`${title} SC${paddedScene(sceneNumber)}`, t('export.plan.packetWord'), 'pdf')),
   planName: (title, records, target) => planFileName(title, records, target.kind === 'setup' ? { kind: 'scene', sceneId: target.sceneId } : target, 'pdf'),
-  run: (context) => {
-    const target: PlanTarget | undefined = context.plan?.kind === 'setup' ? { kind: 'scene', sceneId: context.plan.sceneId } : context.plan;
-    const name = target ? planFileName(context.title, context.records, target, 'pdf') : packetName(context.title, context.records, context.scope);
-    return writePlanPdf({ ...context, ...(target ? { plan: target } : {}) }, name);
-  },
+  planViews: (records, projectId, target, scope) => scenePacketViews(records, projectId, target, scope),
+  run: (context) => writePlanPdf(planScenePdf, context),
 };
 
 export const planDayPdf: ExportFormat = {
@@ -247,9 +281,6 @@ export const planDayPdf: ExportFormat = {
   options: { plan: true },
   name: (title) => named(title, t('export.plan.packetWord'), 'pdf'),
   planName: (title, records, target) => planFileName(title, records, target, 'pdf'),
-  run: (context) => writePlanPdf(context, context.plan ? planFileName(context.title, context.records, context.plan, 'pdf') : named(context.title, t('export.plan.packetWord'), 'pdf')),
+  planViews: (records, projectId, target) => dayPacketViews(records, projectId, target),
+  run: (context) => writePlanPdf(planDayPdf, context),
 };
-
-/** How many pages' worth of views an export would print, for the dialog: none says there is nothing to print. */
-export const planViewCount = (records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope): number => planViewsFor(records, projectId, target, scope).length;
-

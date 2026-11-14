@@ -219,18 +219,27 @@ const ARITY: Readonly<Record<string, number>> = { M: 2, L: 2, H: 1, V: 1, C: 6, 
  */
 export function parsePathData(data: string): Segment[] {
   const out: Segment[] = [];
-  const tokens = data.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) ?? [];
+  // Numbers as SVG writes them: a sign of either kind, an exponent in either case ("1E-3"); "e" and "E" are no command.
+  const tokens = data.match(/[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?|[a-df-zA-DF-Z]/g) ?? [];
   let at = 0;
   let current: [number, number] = [0, 0];
   let start: [number, number] = [0, 0];
   // The last cubic's or quadratic's second control point, for S and T, which mirror it.
   let lastCubic: [number, number] | null = null;
   let lastQuad: [number, number] | null = null;
+  const isNumber = (token: string | undefined) => token !== undefined && /^[+-]?[\d.]/.test(token);
   const read = (count: number): number[] | null => {
-    const values = tokens.slice(at, at + count).map(Number);
-    if (values.length < count || values.some((v) => Number.isNaN(v))) return null;
+    const values = tokens.slice(at, at + count);
+    if (values.length < count || !values.every(isNumber)) return null;
     at += count;
-    return values;
+    return values.map(Number);
+  };
+  // An arc's flags are one digit each and may run into what follows ("a5 5 0 105 5" is 1, 0, 5): split off before reading.
+  const splitFlags = () => {
+    for (const k of [at + 3, at + 4]) {
+      const token = tokens[k];
+      if (token !== undefined && /^[01]./.test(token)) tokens.splice(k, 1, token.charAt(0), token.slice(1));
+    }
   };
   const cubic = (c: Cubic) => {
     out.push({ c });
@@ -252,6 +261,7 @@ export function parsePathData(data: string): Segment[] {
     // A command may repeat its numbers: more pairs after M are lines.
     let again = upper;
     do {
+      if (again === 'A') splitFlags();
       const v = read(arity);
       if (!v) return out;
       const [ox, oy] = relative ? current : [0, 0];
@@ -290,9 +300,21 @@ export function parsePathData(data: string): Segment[] {
       lastCubic = nextCubic;
       lastQuad = nextQuad;
       again = again === 'M' ? 'L' : again;
-    } while (at < tokens.length && /^-?[\d.]/.test(tokens[at] ?? ''));
+    } while (at < tokens.length && isNumber(tokens[at]));
   }
   return out;
+}
+
+/**
+ * The turn a Konva Wedge's arc makes, radians (positive is clockwise on the page, whose y runs down). Konva hands its
+ * `clockwise` to the canvas's arc() as `anticlockwise` (Wedge.js: arc(0, 0, r, 0, angle, clockwise)), so a wedge with it
+ * set goes the other way round, the long way: from 0 back through 360° less its angle, and at a full 360° (start and
+ * end the same point, the canvas draws no arc) nothing. Without it, its angle clockwise, as the plan's beams are.
+ */
+export function wedgeTurn(degrees: number, clockwise: boolean): number {
+  const angle = (Math.min(360, Math.max(0, degrees)) * Math.PI) / 180;
+  if (!clockwise) return angle;
+  return angle <= 0 || angle >= 2 * Math.PI ? 0 : -(2 * Math.PI - angle);
 }
 
 function shapeOp(node: PrintNode, path: Segment[]): DisplayOp {
@@ -395,10 +417,9 @@ function ownOps(node: PrintNode): DisplayOp[] {
       return [...rings, shapeOp(node, ellipse(rx, ry))];
     }
     case 'wedge': {
-      // As Konva draws one: from its middle, an arc from 0° clockwise through its angle (its turn is the node's), back to the middle.
+      // As Konva draws one: from its middle, an arc from 0° through its angle (its turn is the node's), back to the middle.
       const r = num(a.radius, 0);
-      const turn = (Math.min(360, Math.max(0, num(a.angle, 0))) * Math.PI) / 180 * (a.clockwise === true ? -1 : 1);
-      const arc = ellipseCubics(0, 0, r, r, 0, 0, turn).map((c): Segment => ({ c }));
+      const arc = ellipseCubics(0, 0, r, r, 0, 0, wedgeTurn(num(a.angle, 0), a.clockwise === true)).map((c): Segment => ({ c }));
       return [shapeOp(node, [{ m: [r, 0] }, ...arc, { l: [0, 0] }, { z: true }])];
     }
     case 'glyph': {

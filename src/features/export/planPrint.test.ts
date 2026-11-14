@@ -16,24 +16,32 @@ import type { CanvasItem } from '../../ui/canvas/types';
 import { iconShapesOf } from '../birdseye/plan/iconDraw';
 import { setLayerShow, showAllLayers } from '../birdseye/plan/layersStore';
 import { drawWallsChanges, placeIconChanges } from '../birdseye/plan/planItems';
-import { arcCubics, displayOps, parsePathData, parsePaint, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
+import { arcCubics, displayOps, parsePathData, parsePaint, wedgeTurn, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
+import { paintOps } from './displayPaint';
+import { planDayPdf, planExportName, planPageWarnings, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
 import { writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
 import {
   chooseScale,
   dayPlanViews,
+  flowRows,
   fontMeasure,
   LANDSCAPE,
+  LEGEND_STYLE,
+  PAPER_MARGIN,
+  planExtent,
+  projectPlanViews,
   planPages,
   pointsPerUnit,
   PT_PER_MM,
   scenePlanViews,
   wrapEntry,
+  type LegendRow,
   type PlanArea,
   type PlanPage,
   type PlanPrintOptions,
   type PlanView,
 } from './planPages';
-import { HALO_POINTS, HAIRLINE, KIT_LINE, planPrintPage, printWeights, printZoom, PRINT_COLOURS } from './planRender';
+import { footBand, HALO_POINTS, HAIRLINE, KIT_LINE, onPage, planPrintPage, printWeights, printZoom, PRINT_COLOURS } from './planRender';
 
 // Plans on paper (6.10): the scale chosen, a wall measured on the page, the page's words and legend, packets' order, and
 // the print path's six gaps (arcs and quadratics, rgba paint, icon text, weights, drawings past an item's box, label
@@ -43,7 +51,7 @@ import { HALO_POINTS, HAIRLINE, KIT_LINE, planPrintPage, printWeights, printZoom
 
 const font = (name: string) => new Uint8Array(readFileSync(new URL(`./fonts/${name}.ttf`, import.meta.url)));
 const FILES = { sans: font('InterTight-Regular'), sansBold: font('InterTight-Bold'), mono: font('JetBrainsMono-Regular'), monoBold: font('JetBrainsMono-Bold') };
-const measure = fontMeasure(FILES);
+const measure = await fontMeasure(FILES);
 const fonts: FontLoader = (family, weight) => {
   const bytes = family === 'Inter Tight' ? (weight >= 600 ? FILES.sansBold : FILES.sans) : family === 'JetBrains Mono' ? (weight >= 600 ? FILES.monoBold : FILES.mono) : null;
   return Promise.resolve(bytes ? { key: `${family}|${String(weight >= 600)}`, bytes, synthBold: false, synthItalic: false } : null);
@@ -198,7 +206,7 @@ function stageOf(area: PlanArea): PrintNode {
 }
 
 /** A plan page's display list, as planRender makes it (its drawing through printWeights). */
-const printed = (page: PlanPage): PrintPage => planPrintPage(page, page.plan ? printWeights(displayOps(stageOf(page.plan))) : null, { scale: page.plan ? `Scale ${page.plan.scale.label}` : '', noRoom: 'No room drawn', legend: 'Legend' }, measure);
+const printed = (page: PlanPage): PrintPage => planPrintPage(page, page.plan ? printWeights(displayOps(stageOf(page.plan))) : null, { scale: page.plan ? `Scale ${page.plan.scale.label}` : '', actualSize: 'Print at actual size (100%)', noRoom: 'No room drawn', legend: 'Legend' }, measure);
 
 /** Every filled path's points on the page (points), with its fill, from a display list. */
 function pagePaths(ops: readonly DisplayOp[]): { fill: string | null; points: { x: number; y: number }[] }[] {
@@ -448,7 +456,7 @@ describe('a setup’s page (6.10)', () => {
 });
 
 describe('packets (6.10)', () => {
-  it('prints a scene’s setups in setup order, and a scene with none as one page of its room', async () => {
+  it('prints a scene’s setups in setup order, a scene with none as one page of its room, and a scene with no plan not at all', async () => {
     const { sceneId, setupId, otherId } = await furnished();
     expect(scenePlanViews(records(), sceneId)).toEqual([
       { sceneId, setupId },
@@ -456,9 +464,12 @@ describe('packets (6.10)', () => {
     ]);
     const pages = planPages(records(), project.projectId, scenePlanViews(records(), sceneId), options());
     expect(pages.map((pg) => pg.header.setup)).toEqual(['Setup 1', 'Setup 2 · Window side']);
+    // A scene with no room and nothing drawn has no plan (6.10 review: one rule everywhere); with its room started, one page.
     await apply([{ kind: 'create', record: { id: 'bare', type: 'scene', parentId: project.projectId, sortKey: '2', props: { number: '5' } } }]);
+    expect(scenePlanViews(records(), 'bare')).toEqual([]);
+    await apply(startRoomChanges(records(), project.projectId, 'bare'));
     const bare = planPages(records(), project.projectId, scenePlanViews(records(), 'bare'), options());
-    expect(bare.map((pg) => [pg.header.setup, pg.plan?.noRoom])).toEqual([[null, true]]);
+    expect(bare.map((pg) => [pg.header.setup, pg.plan?.noRoom])).toEqual([[null, false]]);
   });
 
   it('prints a day’s setups with a frame to shoot, in the call sheet’s scene order, each page naming the day', async () => {
@@ -476,7 +487,13 @@ describe('packets (6.10)', () => {
       { kind: 'update', id: 'f2', set: { shoot_day_id: day } },
       // A frame of Setup 2 on the day, but in hand: not shot, so not printed.
       { kind: 'create', record: { id: 'f3', type: 'shot', parentId: sceneId, sortKey: 'c', props: { number: '1C', setup_id: otherId, shoot_day_id: day, status: 'have' } } },
+      // A scene after SC 04 with a setup and a frame on the day but no plan at all: left out, as everywhere.
+      { kind: 'create', record: { id: 'empty', type: 'scene', parentId: p, sortKey: '3', props: { number: '9' } } },
+      { kind: 'create', record: { id: 'emptySetup', type: 'setup', parentId: 'empty', sortKey: 'a', props: { name: '' } } },
+      { kind: 'create', record: { id: 'e1', type: 'shot', parentId: 'empty', sortKey: 'a', props: { number: '9A', setup_id: 'emptySetup', shoot_day_id: day } } },
     ]);
+    // SC 2 has its room started, so it has a plan to print.
+    await apply(startRoomChanges(records(), p, first));
     const views = dayPlanViews(records(), p, day);
     expect(views).toEqual<PlanView[]>([
       { sceneId: first, setupId: firstSetup, dayId: day },
@@ -487,6 +504,59 @@ describe('packets (6.10)', () => {
     expect(dayPlanViews(records(), p, 'none')).toEqual([]);
   });
 });
+
+/** An SVG arc's centre, radii and angles from its endpoints, as SVG 1.1 appendix F.6.5 and F.6.6 define them. */
+function svgArc(x1: number, y1: number, rx0: number, ry0: number, degrees: number, large: boolean, sweep: boolean, x2: number, y2: number) {
+  const phi = (degrees * Math.PI) / 180;
+  const [c, s] = [Math.cos(phi), Math.sin(phi)];
+  const x1p = (c * (x1 - x2)) / 2 + (s * (y1 - y2)) / 2;
+  const y1p = (-s * (x1 - x2)) / 2 + (c * (y1 - y2)) / 2;
+  // F.6.6: radii too small are scaled up by the square root of lambda.
+  const lambda = (x1p * x1p) / (rx0 * rx0) + (y1p * y1p) / (ry0 * ry0);
+  const rx = lambda > 1 ? Math.sqrt(lambda) * rx0 : rx0;
+  const ry = lambda > 1 ? Math.sqrt(lambda) * ry0 : ry0;
+  const root = Math.sqrt(Math.max(0, (rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p) / (rx * rx * y1p * y1p + ry * ry * x1p * x1p)));
+  const sign = large === sweep ? -1 : 1;
+  const cxp = (sign * root * rx * y1p) / ry;
+  const cyp = (sign * root * -ry * x1p) / rx;
+  const cx = c * cxp - s * cyp + (x1 + x2) / 2;
+  const cy = s * cxp + c * cyp + (y1 + y2) / 2;
+  const angle = (ux: number, uy: number, vx: number, vy: number) => Math.sign(ux * vy - uy * vx || 1) * Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy)))));
+  const theta = angle(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+  let delta = angle((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry) % (2 * Math.PI);
+  if (!sweep && delta > 0) delta -= 2 * Math.PI;
+  if (sweep && delta < 0) delta += 2 * Math.PI;
+  return { cx, cy, rx, ry, phi, theta, delta };
+}
+
+/** A path's one arc, read as cubics, keeps to the ellipse SVG defines, the right way round, from its start to its end. */
+function expectSvgArc(data: string, arc: Parameters<typeof svgArc>) {
+  const want = svgArc(...arc);
+  const cubics = parsePathData(data).flatMap((seg) => ('c' in seg ? [seg.c] : []));
+  expect(cubics.length).toBeGreaterThan(0);
+  let from = { x: arc[0], y: arc[1] };
+  const turned = (x: number, y: number) => {
+    const dx = x - want.cx;
+    const dy = y - want.cy;
+    return { u: (Math.cos(want.phi) * dx + Math.sin(want.phi) * dy) / want.rx, v: (-Math.sin(want.phi) * dx + Math.cos(want.phi) * dy) / want.ry };
+  };
+  for (const c of cubics) {
+    for (let k = 0; k <= 20; k += 1) {
+      const t = k / 20;
+      const u = 1 - t;
+      const x = u * u * u * from.x + 3 * u * u * t * c[0] + 3 * u * t * t * c[2] + t * t * t * c[4];
+      const y = u * u * u * from.y + 3 * u * u * t * c[1] + 3 * u * t * t * c[3] + t * t * t * c[5];
+      const p = turned(x, y);
+      expect(Math.abs(Math.hypot(p.u, p.v) - 1)).toBeLessThan(0.001);
+      // On the arc's own stretch of the ellipse, not the other one.
+      const along = (((Math.atan2(p.v, p.u) - want.theta) * Math.sign(want.delta)) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      expect(Math.min(along, 2 * Math.PI - along) < 1e-6 || along <= Math.abs(want.delta) + 1e-6).toBe(true);
+    }
+    from = { x: c[4], y: c[5] };
+  }
+  expect(from.x).toBeCloseTo(arc[7], 9);
+  expect(from.y).toBeCloseTo(arc[8], 9);
+}
 
 describe('the print path’s gaps (6.10)', () => {
   it('turns arcs into cubics that keep to the circle, within 0.01 of its radius', () => {
@@ -501,7 +571,7 @@ describe('the print path’s gaps (6.10)', () => {
         const u = 1 - t;
         const x = u * u * u * from.x + 3 * u * u * t * c[0] + 3 * u * t * t * c[2] + t * t * t * c[4];
         const y = u * u * u * from.y + 3 * u * u * t * c[1] + 3 * u * t * t * c[3] + t * t * t * c[5];
-        expect(Math.abs(Math.hypot(x - 16, y - 16) - r)).toBeLessThan(0.01 * r);
+        expect(Math.abs(Math.hypot(x - 16, y - 16) - r)).toBeLessThan(0.001 * r);
       }
       from = { x: c[4], y: c[5] };
     }
@@ -511,6 +581,11 @@ describe('the print path’s gaps (6.10)', () => {
     const quad = parsePathData('M0 0 Q10 10 20 0').find((s): s is { c: readonly [number, number, number, number, number, number] } => 'c' in s);
     expect(quad?.c.map((v) => Math.round(v * 1000) / 1000)).toEqual([6.667, 6.667, 13.333, 6.667, 20, 0]);
     expect(arcCubics(0, 0, 0, 5, 0, false, true, 10, 0)).toBe('line');
+    // The large arc the other way round, a turned ellipse, and radii too small for their ends (grown until they reach), each
+    // against the arc SVG defines (F.6.5), within 0.001 of its radius.
+    expectSvgArc('M0 0 A 5 5 0 1 0 8 0', [0, 0, 5, 5, 0, true, false, 8, 0]);
+    expectSvgArc('M0 0 A 5 3 30 0 1 6 2', [0, 0, 5, 3, 30, false, true, 6, 2]);
+    expectSvgArc('M0 0 A 1 1 0 0 1 20 0', [0, 0, 1, 1, 0, false, true, 20, 0]);
   });
 
   it('carries rgba paint and opacity through to the PDF as transparency', async () => {
@@ -585,3 +660,320 @@ describe('the print path’s gaps (6.10)', () => {
   });
 });
 
+// 6.10's review: the scale bar and notes in a band of their own, a plan too large for the page said so, the legend's
+// headings kept with what follows, a legend too long said so, each format's plans and names from one function, one rule
+// for an empty scene, a wedge turned the other way, the path tokenizer, and the PNG's painter.
+
+/** A setup whose room is `widthM` by `heightM` (two walls), a flag at its bottom-left corner. */
+async function sized(widthM: number, heightM: number) {
+  const p = project.projectId;
+  const sceneId = crypto.randomUUID();
+  const setupId = crypto.randomUUID();
+  await apply([
+    { kind: 'create', record: { id: sceneId, type: 'scene', parentId: p, sortKey: '1', props: { number: '7', name: 'Lot', int_ext: 'EXT', day_night: 'DAY' } } },
+    { kind: 'create', record: { id: setupId, type: 'setup', parentId: sceneId, sortKey: 'a', props: { name: '' } } },
+  ]);
+  await apply(startRoomChanges(records(), p, sceneId));
+  const w = (widthM * 100) / 2;
+  const h = (heightM * 100) / 2;
+  await apply(drawWallsChanges(records(), sceneId, [{ x: -w, y: -h }, { x: w, y: -h }]).changes);
+  await apply(drawWallsChanges(records(), sceneId, [{ x: -w, y: h }, { x: w, y: h }]).changes);
+  const corner = crypto.randomUUID();
+  await apply(placeIconChanges(records(), { sceneId, setupId }, 'grip/flag', { x: -widthM / 2, y: heightM / 2 }, corner));
+  return { sceneId, setupId, corner };
+}
+
+const textsOf = (ops: readonly DisplayOp[]) => ops.flatMap((op) => (op.op === 'text' ? op.lines.map((l) => l.text) : []));
+
+describe('the plan box’s foot band (6.10 review)', () => {
+  it('keeps the extent’s bottom-left corner clear of the band, with 12 pt of paper round it, at 1:100 and at 1:500', async () => {
+    for (const [width, height, label] of [
+      [18, 10, '1:100'],
+      [90, 50, '1:500'],
+    ] as const) {
+      const { sceneId, setupId, corner } = await sized(width, height);
+      const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+      const area = page?.plan;
+      if (!area) throw new Error('no plan');
+      expect(area.scale.label).toBe(label);
+      expect(area.cut).toBe(false);
+      const band = footBand(area);
+      // The band is the box's foot, under the drawing.
+      expect(band.y).toBeCloseTo(area.drawing.y + area.drawing.height, 9);
+      expect(band.y + band.height).toBeCloseTo(area.box.y + area.box.height, 9);
+      const extent = planExtent(area.items);
+      if (!extent) throw new Error('no extent');
+      const bottomLeft = onPage(area, extent.x, extent.y + extent.height);
+      expect(bottomLeft.y).toBeLessThanOrEqual(band.y - PAPER_MARGIN + 1e-6);
+      expect(bottomLeft.x).toBeGreaterThanOrEqual(area.box.x + PAPER_MARGIN - 1e-6);
+      // The flag in that corner is drawn above the band.
+      const flag = area.items.find((item) => item.id === corner);
+      if (!flag) throw new Error('no flag');
+      expect(onPage(area, flag.x, flag.y + flag.height).y).toBeLessThan(band.y);
+      // The scale's words and "Print at actual size (100%)" are on the band, under the plan.
+      const ops = printed(page).ops;
+      expect(textsOf(ops)).toContain(`Scale ${label}`);
+      expect(textsOf(ops)).toContain('Print at actual size (100%)');
+    }
+  });
+
+  it('says so when a plan is larger than the page at 1:1000, and prints its edges cut', async () => {
+    const { sceneId, setupId } = await sized(400, 300);
+    const pages = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    expect(pages[0]?.plan?.scale.label).toBe('1:1000');
+    expect(pages[0]?.plan?.cut).toBe(true);
+    expect(planPageWarnings(pages)).toEqual(['This plan is larger than the page at 1:1000: its edges are cut.']);
+    const { sceneId: s2, setupId: u2 } = await sized(18, 10);
+    expect(planPageWarnings(planPages(records(), project.projectId, [{ sceneId: s2, setupId: u2 }], options()))).toEqual([]);
+  });
+
+  it('prints "No room drawn" on the band, not over the plan', async () => {
+    const sceneId = crypto.randomUUID();
+    const setupId = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: sceneId, type: 'scene', parentId: project.projectId, sortKey: '1', props: { number: '8' } } },
+      { kind: 'create', record: { id: setupId, type: 'setup', parentId: sceneId, sortKey: 'a', props: { name: '' } } },
+    ]);
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'camera/camera', { x: 0, y: 0 }));
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    if (!page?.plan) throw new Error('no plan');
+    expect(page.plan.noRoom).toBe(true);
+    const band = footBand(page.plan);
+    // Where each text sits on the page: the note's baseline is inside the band.
+    const stack: Matrix[] = [IDENTITY];
+    let noteAt: number | null = null;
+    for (const op of printed(page).ops) {
+      const m = stack[stack.length - 1] ?? IDENTITY;
+      if (op.op === 'save') stack.push(m);
+      else if (op.op === 'restore') stack.pop();
+      else if (op.op === 'concat') stack[stack.length - 1] = mul(op.m, m);
+      else if (op.op === 'text' && op.lines[0]?.text === 'No room drawn') noteAt = m[3] * op.lines[0].baseline + m[5];
+    }
+    expect(noteAt).not.toBeNull();
+    expect(noteAt ?? 0).toBeGreaterThan(band.y);
+    expect(noteAt ?? 0).toBeLessThan(band.y + band.height);
+  });
+});
+
+describe('the legend’s flow (6.10 review)', () => {
+  const row = (kind: LegendRow['kind'], keepWithNext: boolean, text: string): LegendRow => ({ kind, size: LEGEND_STYLE[kind].size, height: LEGEND_STYLE[kind].row, before: LEGEND_STYLE[kind].before, pieces: [{ text, face: 'mono', x: 0 }], keepWithNext });
+
+  it('never leaves a heading alone at a column’s foot when its subheading and first line don’t fit under it', () => {
+    // Three lines (31.5 pt), then FRAMES, a camera and its first frame: FRAMES and the camera fit the 65 pt column, the frame doesn't.
+    const rows = [row('line', false, 'one'), row('line', false, 'two'), row('line', false, 'three'), row('heading', true, 'FRAMES'), row('subheading', true, 'A · FX3'), row('line', false, '1A · 35 mm')];
+    const columns = [
+      { x: 0, y: 0, width: 180, height: 65 },
+      { x: 200, y: 0, width: 180, height: 65 },
+    ];
+    const { placed, rest } = flowRows(rows, columns);
+    expect(rest).toEqual([]);
+    expect(placed.map((column) => column.map((r) => r.pieces[0]?.text))).toEqual([
+      ['one', 'two', 'three'],
+      ['FRAMES', 'A · FX3', '1A · 35 mm'],
+    ]);
+  });
+
+  it('stops a legend too long to print whole, and says so', async () => {
+    const { sceneId, setupId } = await furnished();
+    const changes: Change[] = [];
+    for (let i = 0; i < 70; i += 1) changes.push(...placeIconChanges(records(), { sceneId, setupId }, 'set-art/chair', { x: (i % 10) * 0.5, y: 2 }, `chair${String(i)}`));
+    await apply(changes);
+    await apply(Array.from({ length: 70 }, (_, i): Change => ({ kind: 'update', id: `chair${String(i)}`, set: { name: `Chair number ${String(i)} by the long counter` } })));
+    const whole = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    expect(whole.some((pg) => pg.legendCut)).toBe(false);
+    expect(planPageWarnings(whole)).toEqual([]);
+    // With no pages of its own allowed, what the plan's page can't hold is left out, never silently.
+    const short = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ maxLegendPages: 0 }));
+    expect(short).toHaveLength(1);
+    expect(short[0]?.legendCut).toBe(true);
+    expect(planPageWarnings(short)).toEqual(['The legend is too long to print whole.']);
+  });
+});
+
+describe('each plan format’s plans and name, from one function (6.10 review)', () => {
+  const count = (format: typeof planSetupPdf, target: PlanTarget | undefined, scope: { kind: 'project' } | { kind: 'scene'; sceneId: string } = { kind: 'project' }) =>
+    (format.planViews?.(records(), project.projectId, target, scope) ?? []).length;
+  const name = (format: typeof planSetupPdf, target: PlanTarget | undefined, scope: { kind: 'project' } | { kind: 'scene'; sceneId: string } = { kind: 'project' }) =>
+    planExportName(format, { title: 'Bey County', records: records(), scope, ...(target ? { plan: target } : {}) });
+
+  it('prints and names what each format says for the setup shown, whichever entry the window was opened from', async () => {
+    const { sceneId, setupId, otherId } = await furnished();
+    const shown: PlanTarget = { kind: 'setup', sceneId, setupId: otherId };
+    expect(planSetupPdf.planViews?.(records(), project.projectId, shown, { kind: 'project' })).toEqual([{ sceneId, setupId: otherId }]);
+    expect(name(planSetupPdf, shown)).toBe('Bey County SC004 Setup 2 plan.pdf');
+    expect(count(planSetupPng, shown)).toBe(1);
+    expect(name(planSetupPng, shown)).toBe('Bey County SC004 Setup 2 plan.png');
+    // Scene plans from the same setup: the whole scene, a page per setup.
+    expect(planScenePdf.planViews?.(records(), project.projectId, shown, { kind: 'project' })).toEqual([
+      { sceneId, setupId },
+      { sceneId, setupId: otherId },
+    ]);
+    expect(name(planScenePdf, shown)).toBe('Bey County SC004 plans.pdf');
+    // A scene shown with no setup: its room, named for the scene.
+    const scene: PlanTarget = { kind: 'scene', sceneId };
+    expect(planSetupPdf.planViews?.(records(), project.projectId, scene, { kind: 'project' })).toEqual([{ sceneId, setupId: null }]);
+    expect(name(planSetupPdf, scene)).toBe('Bey County SC004 plan.pdf');
+    expect(count(planScenePdf, scene)).toBe(2);
+    // Export Project: the scene in scope, or every scene with a plan.
+    expect(count(planScenePdf, undefined, { kind: 'scene', sceneId })).toBe(2);
+    expect(name(planScenePdf, undefined, { kind: 'scene', sceneId })).toBe('Bey County SC004 plans.pdf');
+    expect(count(planScenePdf, undefined)).toBe(2);
+    expect(name(planScenePdf, undefined)).toBe('Bey County plans.pdf');
+    // A setup that isn't the scene's (trashed, or another's) prints nothing.
+    expect(count(planSetupPdf, { kind: 'setup', sceneId, setupId: 'gone' })).toBe(0);
+  });
+
+  it('prints a day’s plans for the day, and nothing for a day with none', async () => {
+    const { sceneId, setupId } = await furnished();
+    const day = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: day, type: 'shoot_day', parentId: project.projectId, sortKey: 'a', props: { date: '2026-11-17' } } },
+      { kind: 'update', id: 'f1', set: { shoot_day_id: day } },
+    ]);
+    const target: PlanTarget = { kind: 'day', dayId: day };
+    expect(planDayPdf.planViews?.(records(), project.projectId, target, { kind: 'project' })).toEqual([{ sceneId, setupId, dayId: day }]);
+    expect(name(planDayPdf, target)).toBe('Bey County Day 1 plans.pdf');
+    expect(count(planDayPdf, { kind: 'day', dayId: 'none' })).toBe(0);
+  });
+
+  it('leaves a scene with no room and nothing drawn out of every format, so the export has nothing to print', async () => {
+    await apply([
+      { kind: 'create', record: { id: 'bare', type: 'scene', parentId: project.projectId, sortKey: '1', props: { number: '1' } } },
+      { kind: 'create', record: { id: 'bareSetup', type: 'setup', parentId: 'bare', sortKey: 'a', props: { name: '' } } },
+    ]);
+    for (const target of [{ kind: 'setup', sceneId: 'bare', setupId: 'bareSetup' }, { kind: 'scene', sceneId: 'bare' }] as const) {
+      expect(count(planSetupPdf, target)).toBe(0);
+      expect(count(planSetupPng, target)).toBe(0);
+      expect(count(planScenePdf, target)).toBe(0);
+    }
+    expect(projectPlanViews(records(), project.projectId)).toEqual([]);
+    expect(count(planScenePdf, undefined)).toBe(0);
+  });
+});
+
+describe('a wedge and the path tokenizer (6.10 review)', () => {
+  it('turns a wedge the way Konva draws it: its angle clockwise, or with `clockwise` set the long way round', () => {
+    expect(wedgeTurn(90, false)).toBeCloseTo(Math.PI / 2, 12);
+    expect(wedgeTurn(90, true)).toBeCloseTo(-1.5 * Math.PI, 12);
+    expect(wedgeTurn(360, true)).toBe(0);
+    expect(wedgeTurn(360, false)).toBeCloseTo(2 * Math.PI, 12);
+    const ends = (clockwise: boolean) => {
+      const op = displayOps({ kind: 'wedge', matrix: IDENTITY, opacity: 1, visible: true, attrs: { radius: 10, angle: 90, clockwise, fill: '#16150F' }, children: [] }).find((o) => o.op === 'shape');
+      return op?.op === 'shape' ? op.path.flatMap((seg) => ('c' in seg ? [[seg.c[4], seg.c[5]]] : [])) : [];
+    };
+    // Without it, from (10, 0) down to (0, 10) on the page; with it, up and round through (0, -10) and (-10, 0) to (0, 10).
+    expect(ends(false).map(([x, y]) => [Math.round(x ?? 0) + 0, Math.round(y ?? 0) + 0])).toEqual([[0, 10]]);
+    expect(ends(true).map(([x, y]) => [Math.round(x ?? 0) + 0, Math.round(y ?? 0) + 0])).toEqual([
+      [0, -10],
+      [-10, 0],
+      [0, 10],
+    ]);
+  });
+
+  it('reads an upper-case exponent, a leading plus and arc flags run together', () => {
+    expect(parsePathData('M1E1 0 L+5 2E-0 l1e-3 +.5')).toEqual([{ m: [10, 0] }, { l: [5, 2] }, { l: [5.001, 2.5] }]);
+    expect(parsePathData('M0 0 a5 5 0 105 5')).toEqual(parsePathData('M0 0 a5 5 0 1 0 5 5'));
+    expect(parsePathData('M0 0a5 5 0 1110 0')).toEqual(parsePathData('M0 0 a5 5 0 1 1 10 0'));
+    expect(parsePathData('M0 0 A5 5 0 0 1 10 0 5 5 0 0 1 20 0').filter((seg) => 'c' in seg).length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('the PNG’s painter (6.10 review)', () => {
+  /** A 2D context that records what is done to it, and a Path2D that records its segments. */
+  function recorder() {
+    const calls: string[] = [];
+    class RecordedPath {
+      parts: string[] = [];
+      moveTo(x: number, y: number) {
+        this.parts.push(`M${String(x)},${String(y)}`);
+      }
+      lineTo(x: number, y: number) {
+        this.parts.push(`L${String(x)},${String(y)}`);
+      }
+      bezierCurveTo(...v: number[]) {
+        this.parts.push(`C${v.join(',')}`);
+      }
+      closePath() {
+        this.parts.push('Z');
+      }
+    }
+    const state = { fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1, font: '', fontKerning: 'auto', textAlign: 'start', textBaseline: 'alphabetic', lineCap: 'butt', lineJoin: 'miter' };
+    const saved: (typeof state)[] = [];
+    const ctx = {
+      ...state,
+      save() {
+        saved.push({ ...state, globalAlpha: ctx.globalAlpha });
+        calls.push('save');
+      },
+      restore() {
+        const back = saved.pop();
+        if (back) ctx.globalAlpha = back.globalAlpha;
+        calls.push('restore');
+      },
+      setTransform(...m: number[]) {
+        calls.push(`transform ${m.map((v) => Math.round(v * 1000) / 1000).join(' ')}`);
+      },
+      beginPath() {},
+      rect() {},
+      clip() {
+        calls.push('clip');
+      },
+      setLineDash(dash: number[]) {
+        calls.push(`dash ${dash.map((v) => Math.round(v * 1000) / 1000).join(' ')}`);
+      },
+      fill(path: RecordedPath) {
+        calls.push(`fill ${ctx.fillStyle} alpha ${String(ctx.globalAlpha)} ${path.parts.join(' ')}`);
+      },
+      stroke(path: RecordedPath) {
+        calls.push(`stroke ${ctx.strokeStyle} width ${String(Math.round(ctx.lineWidth * 1000) / 1000)} ${path.parts.join(' ')}`);
+      },
+      measureText(text: string) {
+        return { width: text.length * 5 };
+      },
+      strokeText(text: string, x: number, y: number) {
+        calls.push(`strokeText ${text} ${ctx.strokeStyle} ${String(ctx.lineWidth)} at ${String(x)},${String(y)}`);
+      },
+      fillText(text: string, x: number, y: number) {
+        calls.push(`fillText ${text} ${ctx.fillStyle} ${ctx.font} kerning ${ctx.fontKerning} at ${String(x)},${String(y)}`);
+      },
+      drawImage() {
+        calls.push('drawImage');
+      },
+    };
+    return { ctx, calls, RecordedPath };
+  }
+
+  it('paints paths, transparency, fixed-width lines, halos under text and pictures, unkerned, and counts a picture it can’t paint', () => {
+    const { ctx, calls, RecordedPath } = recorder();
+    const real = (globalThis as { Path2D?: unknown }).Path2D;
+    (globalThis as { Path2D?: unknown }).Path2D = RecordedPath;
+    try {
+      const ops: DisplayOp[] = [
+        { op: 'save' },
+        { op: 'concat', m: [2, 0, 0, 2, 10, 0] },
+        { op: 'opacity', value: 0.5 },
+        { op: 'shape', path: [{ m: [0, 0] }, { l: [10, 0] }, { c: [10, 5, 5, 10, 0, 10] }, { z: true }], fill: 'rgba(22, 21, 15, 0.08)', stroke: '#16150F', strokeWidth: 0.6, fixedStroke: true, dash: [2, 1], cap: 'butt', join: 'miter' },
+        { op: 'restore' },
+        { op: 'text', lines: [{ text: 'A · 35 mm', baseline: 20 }], align: 'left', padding: 0, width: 0, family: 'JetBrains Mono', weight: 400, italic: false, size: 7, fill: '#16150F', letterSpacing: 0, stroke: { colour: '#FFFFFF', width: 1.5 } },
+        { op: 'image', sha256: 'a'.repeat(64), width: 40, height: 30 },
+        { op: 'image', sha256: 'b'.repeat(64), width: 40, height: 30 },
+      ];
+      const out = paintOps(ctx as unknown as CanvasRenderingContext2D, ops, [3, 0, 0, 3, 0, 0], (sha) => (sha.startsWith('a') ? ({} as CanvasImageSource) : null));
+      expect(out).toEqual({ unprintable: 1 });
+      expect(calls).toContain('transform 6 0 0 6 30 0');
+      // The cone's paint at its own alpha, under the node's 50%; its fixed 0.6 pt line is 0.6 pt whatever the shape's scale of 2.
+      expect(calls).toContain('fill rgba(22, 21, 15, 0.08) alpha 0.5 M0,0 L10,0 C10,5,5,10,0,10 Z');
+      expect(calls).toContain('stroke #16150F width 0.3 M0,0 L10,0 C10,5,5,10,0,10 Z');
+      expect(calls).toContain('dash 1 0.5');
+      // The halo first, then the letters over it, set with no kerning.
+      const halo = calls.indexOf('strokeText A · 35 mm #FFFFFF 1.5 at 0,20');
+      const letters = calls.indexOf('fillText A · 35 mm #16150F 400 7px "JetBrains Mono" kerning none at 0,20');
+      expect(halo).toBeGreaterThan(-1);
+      expect(letters).toBeGreaterThan(halo);
+      expect(calls.filter((c) => c === 'drawImage')).toHaveLength(1);
+      expect(calls.filter((c) => c === 'save').length).toBe(calls.filter((c) => c === 'restore').length);
+    } finally {
+      (globalThis as { Path2D?: unknown }).Path2D = real;
+    }
+  });
+});

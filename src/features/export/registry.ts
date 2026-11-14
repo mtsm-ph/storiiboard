@@ -6,6 +6,7 @@ import { deckPdf } from './deckPdf';
 import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
 import { planDayPdf, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
+import type { PlanView } from './planPages';
 import { pngFrames } from './pngFrames';
 import type { SwatchSource } from './swatchSet';
 import { swatchesAse } from './swatchesAse';
@@ -84,6 +85,11 @@ export interface ExportFormat {
   name: (title: string, sceneNumber: string | null) => string;
   /** The file's name for a plan export's target (6.10: "Bey County SC004 Setup 2 plan.pdf"). */
   planName?: (title: string, records: Readonly<Record<string, SbdRecord>>, target: PlanTarget) => string;
+  /**
+   * The plans a plan format prints, in order, for its target (or, from Export Project, its scope): one function, so what
+   * the dialog counts is what is printed (6.10 review). None says there is nothing to print.
+   */
+  planViews?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => readonly PlanView[];
   /** Resolves to what it wrote. */
   run: (context: ExportContext) => Promise<ExportResult>;
 }
