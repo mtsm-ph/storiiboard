@@ -37,5 +37,9 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     // A cold start on a runner includes Vite pre-bundling the dependencies.
     timeout: 120_000,
+    // The server's own words go into the run's log ("[WebServer] …"): three tests in Phase 6 each failed once on a
+    // refused page load (net::ERR_CONNECTION_REFUSED from port 1421), and a restart or a crash would say so here.
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });

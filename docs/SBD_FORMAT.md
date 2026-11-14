@@ -341,7 +341,8 @@ unreadable value reads as not set, as every prop does.
     stay editable.
   - A lens's `focal_min_mm` and `focal_max_mm` (6.1): mm, above 0 and up to 2000, min ≤ max, equal for a prime (only one
     of them reads as a prime of that length); `squeeze` (6.1): 1 to 2.5, 1 when absent.
-  - A light's `watts` (6.5): a number, the light's power.
+  - A light's `watts` (6.5): a number, the light's power, above 0 up to 100 000, on any item (set in the Gear tile's
+    Watts field, to a tenth; emptied, it is taken off). A light on a plan with no `watts` of its own reads it live.
 - `scene`: `room_id` (6.2): the `plan` of kind `room` the scene is set in. One reader (`sceneRoomId` in
   src/core/model/plan.ts): an id naming a room in the Trash, a plan that isn't a room, or nothing reads as no room; the
   scene keeps the id, so a restore brings the room back to it. Trashing a scene leaves its room alone (other scenes
@@ -421,14 +422,15 @@ unreadable value reads as not set, as every prop does.
     `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
     `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
-  - Reach and size (6.3 review): a wall's, icon's or camera's `x` and `y` are read only within 10 000 m (10 km) of the
-    plan's origin either way, and its `width` and `height` (a wall's length and thickness) only up to 1 000 m (1 km); a
-    door's or window's `along_m` only up to 10 000 m and its `width_m` up to 1 000 m (src/core/model/plan.ts,
-    `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308) the item isn't read and is kept unseen, as one with
-    no size is, so the canvas never works in endless units. The app never writes past them (third review round): a
-    typed field, a nudge, a drag or resize, a paste, a run of walls or a placement that would leave a wall, door,
-    window, icon or camera past them is refused whole and writes nothing (one check, `unreadableAfter` in
-    src/features/birdseye/plan/planItems.ts); a typed field says it isn't a length.
+  - Reach and size (6.3 review): a wall's, icon's, camera's, light's, flag's or diffusion frame's (6.5) `x` and `y`
+    are read only within 10 000 m (10 km) of the plan's origin either way, and its `width` and `height` (a wall's
+    length and thickness) only up to 1 000 m (1 km); a door's or window's `along_m` only up to 10 000 m and its
+    `width_m` up to 1 000 m (src/core/model/plan.ts, `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308)
+    the item isn't read and is kept unseen, as one with no size is, so the canvas never works in endless units. The
+    app never writes past them (third review round): a typed field, a nudge, a drag or resize, a paste, a run of walls
+    or a placement that would leave a wall, door, window, icon, camera, light, flag or diffusion frame past them is
+    refused whole and writes nothing (one check, `unreadableAfter` in src/features/birdseye/plan/planItems.ts); a
+    typed field says it isn't a length.
   - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
     metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
     `width_m` (6.2b): a door or window in its wall, its distance along it and its width, metres; `hinge` and `swing`
@@ -458,6 +460,28 @@ unreadable value reads as not set, as every prop does.
     check (src/core/checks/planLens.ts): a live camera with a typed `lens_mm` and a linked frame whose `lens_mm`
     differs; "Use the frame's lens" takes `lens_mm` and `lens_id` off the camera in one step.
   - A light's `beam_deg` (6.5: degrees) and `watts` (6.5).
+  - A `light` (6.5) is a light placed on a setup's own plan. `icon`: the light it was placed as (`lighting/fresnel`,
+    `led-panel`, `tube`, `cob-softbox`, `hmi-par`, `china-ball`, `practical`, `spacelight`, `rgb-gel`,
+    `window-light`; missing reads as `lighting/fresnel`; `lighting/beam-cone` is the beam's picture, never placed). Its
+    box as an icon's, at the library's size for its icon (a fresnel 0.4 × 0.4 m, a tube 1.2 × 0.1 m); `rotation` is
+    where it points, 0 up the plan, clockwise, as a camera's. `height_m` and `name` as an icon's. `beam_deg`: its beam
+    angle, above 0 up to 360, 360 meaning all round; absent (or out of range) reads as its icon's own (fresnel 40,
+    led-panel 100, tube 120, cob-softbox 90, hmi-par 30, rgb-gel 60, window-light 90; china-ball, practical and
+    spacelight 360), never written at placement. `watts`: typed on the light, above 0 up to 100 000; absent, the
+    light's wattage is its gear item's `watts`, read live, never copied; neither: unknown. The beam is drawn 4 m long
+    (a constant), never stored.
+  - A `flag` (6.5: `grip/flag`, `grip/floppy`, `grip/neg-fill`; missing `icon` reads as `grip/flag`) or `diffusion`
+    (`grip/diffusion-4x4`, `grip/bounce`, `grip/overhead-8x8`; missing reads as `grip/diffusion-4x4`) is a frame on a
+    setup's own plan, its box as an icon's. Seen from above a standing frame is a line: `width` the frame's width,
+    `height` (its depth) 0.05 m; the overhead lies flat, `width` by `height` its two sides. The Size choice writes the
+    names crews use in metres (2×3: 0.91 wide standing, 0.91 × 0.61 flat; 4×4 1.22, 6×6 1.83, 8×8 2.44, 12×12 3.66,
+    20×20 6.10 m) about its middle, one step; a typed width stays as typed. `height_m` and `name` as an icon's.
+  - `gear_id` (6.5): on a `light`, `flag` or `diffusion`, the `gear_item` it is (any of the project's). Absent, or
+    naming a gear item in the Trash or nothing, reads as none; the id stays, so a restore brings the link back. The
+    gear check (src/core/checks/gearOnDay.ts) reads it: such an item on a setup's own plan, in a setup with a "Need to
+    shoot" frame in a live shoot day, needs its gear item on that day's `gear_ids`, as a frame's `gear_ids` do; the
+    finding has no frame and names the setup. Copies (a setup started from another, a paste, a duplicate, a separate
+    copy) keep `gear_id`, `watts` and `beam_deg`.
   - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
     of the plan.
   - A mark's `character_id` (6.7): the `character` it is for.

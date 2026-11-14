@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
+import { wattsOf } from './gear';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { sceneFields, sceneLabel } from './storyboard';
 
@@ -27,8 +28,8 @@ export type PlanLevel = PlanKind;
  */
 export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3) and cameras (6.4). */
-export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera';
+/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras (6.4), lights, flags and diffusion (6.5). */
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -293,28 +294,126 @@ export function cameraFields(props: Props): CameraFields | null {
   };
 }
 
-/** Any item this version shows: a wall, a door, a window, an icon or a camera. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields;
+/** The icon a light is drawn as when it names none; a flag's and a diffusion frame's (6.5). */
+export const LIGHT_ICON = 'lighting/fresnel';
+export const FLAG_ICON = 'grip/flag';
+export const DIFFUSION_ICON = 'grip/diffusion-4x4';
+
+/** The box every light, flag and diffusion frame has (6.5), as an icon's; null when it can't be read. */
+function boxOf(props: Props): { x: number; y: number; width: number; height: number; rotation: number; heightM: number | null; name: string } | null {
+  const x = num(props.x);
+  const y = num(props.y);
+  const width = num(props.width);
+  const height = num(props.height);
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || !notHuge(height)) return null;
+  const heightM = num(props.height_m);
+  return {
+    x,
+    y,
+    width: Math.max(MIN_PLAN_SIZE, width),
+    height: Math.max(MIN_PLAN_SIZE, height),
+    rotation: normalDegrees(num(props.rotation) ?? 0),
+    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    name: text(props.name).trim(),
+  };
+}
+
+/**
+ * A light on a setup's plan (6.5, decision 8): a box as an icon's, `icon` the light it was placed as, its rotation where
+ * it points (0 up the plan, as a camera's). Its beam angle and wattage, as stored: planLight.ts reads them with their
+ * defaults (the icon's beam, the gear item's watts), live.
+ */
+export interface LightFields {
+  kind: 'light';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  /** The `gear_item` it is, as stored; null for none. */
+  gearId: string | null;
+  /** Typed on the light, above 0; null for none (its gear item's may stand in). */
+  watts: number | null;
+  /** Its beam angle, degrees above 0 up to 360 (all round); null for its icon's. */
+  beamDeg: number | null;
+}
+
+/** A light's props, or null when it isn't one that can be read. */
+export function lightFields(props: Props): LightFields | null {
+  if (props.kind !== 'light') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  const beam = num(props.beam_deg);
+  return {
+    kind: 'light',
+    icon: icon === '' ? LIGHT_ICON : icon,
+    ...box,
+    gearId: idOrNull(props.gear_id),
+    watts: wattsOf(props.watts),
+    beamDeg: beam !== null && beam > 0 && beam <= 360 ? beam : null,
+  };
+}
+
+/**
+ * A flag, bounce or diffusion frame on a setup's plan (6.5): `kind` `flag` (a flag, a floppy, a neg fill) or
+ * `diffusion` (a 4×4 of diffusion, a bounce, an overhead). Seen from above a standing frame is a line: `width` the
+ * frame's width, `height` (its depth) 5 cm; an overhead lies flat, a square.
+ */
+export interface GripFields {
+  kind: 'flag' | 'diffusion';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  gearId: string | null;
+}
+
+/** A flag's or diffusion frame's props, or null when it isn't one that can be read. */
+export function gripFields(props: Props): GripFields | null {
+  if (props.kind !== 'flag' && props.kind !== 'diffusion') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  return { kind: props.kind, icon: icon === '' ? (props.kind === 'flag' ? FLAG_ICON : DIFFUSION_ICON) : icon, ...box, gearId: idOrNull(props.gear_id) };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag or a diffusion frame. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
-export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props);
+export const shownFields = (props: Props): ShownFields | null =>
+  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
 export const isCamera = (fields: ShownFields): fields is CameraFields => fields.kind === 'camera';
+export const isLight = (fields: ShownFields): fields is LightFields => fields.kind === 'light';
+export const isGrip = (fields: ShownFields): fields is GripFields => fields.kind === 'flag' || fields.kind === 'diffusion';
 export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
 
-/** An item with a box of its own that moves, turns and resizes freely: an icon or a camera. */
-export type BoxFields = IconFields | CameraFields;
-export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props);
+/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag or a diffusion frame. */
+export type BoxFields = IconFields | CameraFields | LightFields | GripFields;
+export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props);
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
- * department's; a wall, door or window the set's (art). Null for a kind this version doesn't show.
+ * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door or window the set's (art). Null for
+ * a kind this version doesn't show.
  */
 export function planItemLayer(props: Props): PlanLayer | null {
   if (props.kind === 'icon') return iconGroup(iconIdOf(props));
   if (props.kind === 'camera') return 'camera';
+  if (props.kind === 'light') return 'lighting';
+  if (props.kind === 'flag' || props.kind === 'diffusion') return 'grip';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }

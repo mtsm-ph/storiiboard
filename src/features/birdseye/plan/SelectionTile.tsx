@@ -4,7 +4,9 @@ import { t, tn } from '../../../core/i18n';
 import { formatLength, hasGroupingComma, parseLength, type PlanUnit } from '../../../core/model/length';
 import {
   isCamera,
+  isGrip,
   isIcon,
+  isLight,
   isOpening,
   isWallFields,
   keptInWall,
@@ -33,6 +35,8 @@ import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, vi
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
 import { CameraFieldsView } from './CameraSelection';
+import { LegendView } from './LegendView';
+import { GripFieldsView, LightFieldsView } from './LightSelection';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
@@ -40,7 +44,7 @@ import { degreesText, lengthCommit, shared, TypedField } from './selectionFields
 // length.ts); one that can't be read, or doesn't fit, snaps back and says so, and nothing is saved. Several selected:
 // the fields they share, and a change goes to each. A door or window has its width, its distances from the wall's two
 // ends, and a door its hinge and swing. With a setup shown, "This setup only" moves the selection into the setup's plan
-// and back. Nothing selected: the room, its name, and how many scenes are set in it.
+// and back. Nothing selected: the room, its name, and how many scenes are set in it, then the plan's legend (6.5).
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -70,8 +74,10 @@ function SelectionContent() {
     const ids = selected.map((s) => s.id);
     const walls = selected.flatMap((s) => (isWallFields(s.fields) ? [s.fields] : []));
     const openings = selected.flatMap((s) => (isOpening(s.fields) ? [s.fields] : []));
-    const icons = selected.flatMap((s) => (isIcon(s.fields) || isCamera(s.fields) ? [s.fields] : []));
+    const icons = selected.flatMap((s) => (isIcon(s.fields) || isCamera(s.fields) || isLight(s.fields) || isGrip(s.fields) ? [s.fields] : []));
     const [camera] = selected.flatMap((s) => (isCamera(s.fields) ? [s] : []));
+    const [light] = selected.flatMap((s) => (isLight(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
+    const frames = selected.flatMap((s) => (isGrip(s.fields) ? [s.fields] : []));
     // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its already.
     const movable = ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
     return (
@@ -83,6 +89,12 @@ function SelectionContent() {
         ) : camera && selected.length === 1 && isCamera(camera.fields) ? (
           // A camera (6.4): its body, its frames, its lens, its field of view.
           <CameraFieldsView id={camera.id} fields={camera.fields} unit={unit} records={records} />
+        ) : light && selected.length === 1 ? (
+          // A light (6.5): its gear item, watts, beam and height.
+          <LightFieldsView id={light.id} fields={light.fields} unit={unit} records={records} />
+        ) : frames.length === selected.length ? (
+          // Flags and diffusion (6.5): their gear item and size.
+          <GripFieldsView ids={ids} frames={frames} unit={unit} records={records} />
         ) : icons.length === selected.length ? (
           <IconFieldsView ids={ids} icons={icons} unit={unit} records={records} />
         ) : (
@@ -117,6 +129,7 @@ function SelectionContent() {
         {tn('selection.roomScenes', scenes)}
       </p>
       <AlsoIn scenes={alsoInRoom(records, live.scene.id)} />
+      <LegendView records={records} view={live.view} unit={unit} />
     </div>
   );
 }

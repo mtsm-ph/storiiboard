@@ -134,6 +134,11 @@ export function formatMoney(amount: number, currency: string): string {
   }
 }
 
+/** A number the way the current language writes it ("4,200", "1.5"), to `digits` decimals at most. */
+export function formatNumber(value: number, digits = 1): string {
+  return new Intl.NumberFormat(current.dateTag, { maximumFractionDigits: digits }).format(value);
+}
+
 /** A date or time the way the current language writes it. */
 export function formatDate(at: Date, options: Intl.DateTimeFormatOptions): string {
   return at.toLocaleString(current.dateTag, options);

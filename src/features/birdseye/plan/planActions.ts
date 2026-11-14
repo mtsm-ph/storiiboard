@@ -16,12 +16,14 @@ import {
   unlinkFrameChanges,
   takeFrameLensChanges,
 } from '../../../core/model/planCamera';
+import { lightBeamChanges, lightWattsChanges, planGearChanges } from '../../../core/model/planLight';
 import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import {
   drawWallsChanges,
   flipDoorsChanges,
+  frameSizeChanges,
   iconPatchChanges,
   iconRefusal,
   openingPatchChanges,
@@ -37,6 +39,7 @@ import {
   shownWalls,
   trashPlanItemsChanges,
   turnChanges,
+  unreadableAfter,
   viewKey,
   wallPatchChanges,
   type IconPatch,
@@ -269,7 +272,7 @@ export async function changeIcons(ids: readonly string[], patch: IconPatch): Pro
   return projectStore.getState().applyWith((records) => ({ changes: iconPatchChanges(records, ids, patch) }));
 }
 
-/** [ and ] (6.4): the selected cameras turned, one op group. */
+/** [ and ] or comma and period (6.4, 6.5): the selected cameras and lights turned, one op group. */
 export async function turnCameras(ids: readonly string[], by: number): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: turnChanges(records, ids, by) }));
 }
@@ -286,3 +289,16 @@ export const setOnSide = (ids: readonly string[], on: boolean) => cameraEdit((r)
 export const typeCameraLens = (cameraId: string, mm: number | null) => cameraEdit((r) => cameraLensMmChanges(r, cameraId, mm));
 export const pickCameraLens = (cameraId: string, lensId: string | null) => cameraEdit((r) => pickCameraLensChanges(r, cameraId, lensId));
 export const takeFrameLens = (cameraId: string) => cameraEdit((r) => takeFrameLensChanges(r, cameraId));
+
+// A light's, flag's or diffusion frame's own edits (6.5), each one op group, worked out from the records as it lands, and
+// through the one check every plan write makes (unreadableAfter), though none moves or resizes anything.
+const plannedEdit = (build: (records: Records) => Change[]): Promise<boolean> =>
+  projectStore.getState().applyWith((records) => {
+    const changes = build(records);
+    return { changes: unreadableAfter(records, changes) ? [] : changes };
+  });
+
+export const setPlanGear = (ids: readonly string[], gearId: string | null) => plannedEdit((r) => planGearChanges(r, ids, gearId));
+export const setLightWatts = (ids: readonly string[], watts: number | null) => plannedEdit((r) => lightWattsChanges(r, ids, watts));
+export const setLightBeam = (ids: readonly string[], degrees: number) => plannedEdit((r) => lightBeamChanges(r, ids, degrees));
+export const setFrameSize = (ids: readonly string[], sizeId: string) => plannedEdit((r) => frameSizeChanges(r, ids, sizeId));

@@ -3,7 +3,7 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { CAMERA_ICON, isCamera, isIcon, isWallFields, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isWallFields, LIGHT_ICON, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import type { SbdRecord } from '../../../core/model/record';
@@ -43,9 +43,10 @@ import {
   type PlanView,
 } from './planActions';
 import { cameraLooks } from './cameraLooks';
+import { lightLooks } from './lightLooks';
 import { iconLabel } from './iconWords';
-import { iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey, wallAtPoint } from './planItems';
-import { CAMERA_TOOL, DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
+import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -403,7 +404,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // the function doesn't name.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const looks = useMemo(() => cameraLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
-  const built = useMemo(() => build(shown, unit, INK, locale, looks), [build, shown, unit, locale, looks]);
+  // Each light's beam and labels (6.5), read live as a camera's are: its watts may be its gear item's.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
+  const lights = useMemo(() => lightLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
+  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights), [build, shown, unit, locale, looks, lights]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -428,12 +432,18 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
     return JSON.stringify(
       shown.map(({ record, fields, level }) => {
         // An icon (6.3): its box, its middle and its layer, worked out from its group.
-        if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+        if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
         // A camera (6.4): an icon's, with what its cone and labels show.
         if (isCamera(fields)) {
           const look = looks.get(record.id);
           return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), cone: look?.degrees ?? null, labels: look?.lines ?? [] };
         }
+        // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
+        if (isLight(fields)) {
+          const look = lights.get(record.id);
+          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, labels: look?.lines ?? [] };
+        }
+        if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
         if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end };
@@ -442,7 +452,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         return { id: record.id, level, ...fields, ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
       }),
     );
-  }, [shown, looks]);
+  }, [shown, looks, lights, unit]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -496,15 +506,16 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           onGeometry={(changes) => changePlanGeometry(changes, view)}
           onNudge={(ids, dx, dy) => nudgePlan(ids, dx, dy, view)}
           onCreate={(geometry, used, by) => {
-            if (used === CAMERA_TOOL) {
-              // A camera (6.4) where the click was, or in the middle of the view from the keyboard: the setup's own.
-              const why = iconRefusal(records, view, CAMERA_ICON);
+            if (used === CAMERA_TOOL || used === LIGHT_TOOL) {
+              // A camera (6.4) or a fresnel (6.5) where the click was, or in the middle of the view from the keyboard: the setup's own.
+              const icon = used === CAMERA_TOOL ? CAMERA_ICON : LIGHT_ICON;
+              const why = iconRefusal(records, view, icon);
               if (why !== null) {
-                showInfo(why === 'noSetup' ? t('library.needsSetup', { what: iconLabel(CAMERA_ICON) }) : t('library.needsRoom'));
+                showInfo(why === 'noSetup' ? t('library.needsSetup', { what: iconLabel(icon) }) : t('library.needsRoom'));
                 return false;
               }
               const centre = { x: toMetres(geometry.x + geometry.width / 2), y: toMetres(geometry.y + geometry.height / 2) };
-              return placeIcon(view, CAMERA_ICON, centre, madeIn);
+              return placeIcon(view, icon, centre, madeIn);
             }
             const placing = openingKindOf(used);
             if (!placing) return undefined;
@@ -537,12 +548,12 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));
           }}
           onKey={(event) => {
-            // [ and ] turn the selected cameras 5° (Shift: 1°) the other way and clockwise (6.4); with a modifier they
+            // [ and ] turn the selected cameras and lights 5° (Shift: 1°) the other way and clockwise (6.4, 6.5); with a modifier they
             // stay the canvas's order keys. Where [ needs AltGr (Spanish, German), comma and period do the same: free on
             // the plan (they step frames only in the Player), and on those layouts with no modifier at all.
             const turn = turnFor(event);
             if (turn !== 0 && !event.altKey && !event.metaKey && !event.ctrlKey) {
-              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && item.fields.kind === 'camera'));
+              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && turnsByKey(item.fields)));
               if (cameras.length === 0) return false;
               const step = event.shiftKey ? 1 : 5;
               void turnCameras(cameras, turn * step);

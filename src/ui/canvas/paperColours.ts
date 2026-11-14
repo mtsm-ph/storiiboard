@@ -10,3 +10,9 @@ export const RAISED = '#C9C1B1';
 
 /** What a canvas whose content is never themed is drawn in (its `fixedColours`). */
 export const PAPER_COLOURS: CanvasColours = { ink: INK, paper: PAPER, raised: RAISED };
+
+/**
+ * The lighting department's fixed colour (design/tokens, `--sb-dept-lighting`, mustard): department colours are tags
+ * that never change with the theme, so a plan (never themed, decision 13) draws a light's beam in it (6.5).
+ */
+export const DEPT_LIGHTING = '#D9A23D';

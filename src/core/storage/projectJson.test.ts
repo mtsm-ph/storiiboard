@@ -327,6 +327,43 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries lights, flags and diffusion out and back: their gear item, watts, beam and height, and a gear item’s watts (6.5)', async () => {
+    const file = project.file;
+    const light = { kind: 'light', icon: 'lighting/fresnel', x: 0.5, y: 0.5, width: 0.4, height: 0.4, rotation: 135, gear_id: 'k1', watts: 650, beam_deg: 25, height_m: 2.4, name: 'Key' };
+    const flag = { kind: 'flag', icon: 'grip/floppy', x: 1, y: 1, width: 1.22, height: 0.05, rotation: 90, gear_id: 'k1', height_m: 1.8 };
+    const frame = { kind: 'diffusion', icon: 'grip/overhead-8x8', x: 2, y: 2, width: 2.44, height: 2.44, rotation: 0, name: 'Overhead' };
+    const gear = { name: 'Fresnel 1K', department: 'grip-electric', watts: 1200 };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'k1', type: 'gear_item', parentId: project.projectId, sortKey: 'a', props: gear } },
+        { kind: 'create', record: { id: 'u1', type: 'setup', parentId: 'sc4', sortKey: 'a', props: { name: '' } } },
+        { kind: 'create', record: { id: 'own', type: 'plan', parentId: 'u1', sortKey: 'a', props: { kind: 'setup', name: '' } } },
+        { kind: 'create', record: { id: 'l1', type: 'plan_item', parentId: 'own', sortKey: 'a', props: light } },
+        { kind: 'create', record: { id: 'f1', type: 'plan_item', parentId: 'own', sortKey: 'b', props: flag } },
+        { kind: 'create', record: { id: 'd1', type: 'plan_item', parentId: 'own', sortKey: 'c', props: frame } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'd1' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (lights).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('l1')?.props))).toEqual(light);
+      expect(JSON.parse(String(row('f1')?.props))).toEqual(flag);
+      expect(JSON.parse(String(row('d1')?.props))).toEqual(frame);
+      expect(JSON.parse(String(row('k1')?.props))).toEqual(gear);
+      expect(row('d1')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('carries camera bodies, lenses and a frame’s lens out and back, every Phase 6 prop as written (6.1)', async () => {
     const file = project.file;
     const body = { name: 'FX3', kind: 'camera_body', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20, camera_letter: 'A' };

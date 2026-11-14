@@ -92,13 +92,42 @@ interface ConeProps {
   length: number;
 }
 
-/** The cone and the labels, in the camera's own box; the labels kept upright whatever way it points. */
-export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
-  const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
+/**
+ * Labels under an item's middle, in mono, kept upright whatever way it is turned (a camera's, 6.4; a light's and any
+ * item's height, 6.5, decision 11): clear of its box at half its diagonal, as labelReach reckons them.
+ */
+export function UprightLabels({ width, height, zoom, rotation, colours, lines }: { width: number; height: number; zoom: number; rotation: number; colours: CanvasColours; lines: readonly string[] }) {
+  if (lines.length === 0) return null;
   const size = LABEL_PIXELS / zoom;
   // Clear of the box whichever way it is turned: half its diagonal from its middle (labelReach reads the same numbers).
   const below = Math.hypot(width, height) / 2 + LABEL_GAP_PIXELS / zoom;
   const span = Math.max(width, LABEL_SPAN_PIXELS / zoom);
+  return (
+    // Named upright: while the handles turn the item, the canvas turns this back by the live turn (UPRIGHT).
+    <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
+      {lines.map((text, i) => (
+        <Text
+          key={`${String(i)}:${text}`}
+          text={text}
+          x={-span / 2}
+          y={below + i * size * LINE_HEIGHT}
+          width={span}
+          align="center"
+          fontFamily='"JetBrains Mono"'
+          fontSize={size}
+          fill={colours.ink}
+          wrap="none"
+          ellipsis
+          listening={false}
+        />
+      ))}
+    </Group>
+  );
+}
+
+/** The cone and the labels, in the camera's own box; the labels kept upright whatever way it points. */
+export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
+  const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
   return (
     <>
       {points && (
@@ -114,25 +143,7 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
           />
         </>
       )}
-      {/* Named upright: while the handles turn the camera, the canvas turns this back by the live turn (UPRIGHT). */}
-      <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
-        {look.lines.map((text, i) => (
-          <Text
-            key={`${String(i)}:${text}`}
-            text={text}
-            x={-span / 2}
-            y={below + i * size * LINE_HEIGHT}
-            width={span}
-            align="center"
-            fontFamily='"JetBrains Mono"'
-            fontSize={size}
-            fill={colours.ink}
-            wrap="none"
-            ellipsis
-            listening={false}
-          />
-        ))}
-      </Group>
+      <UprightLabels width={width} height={height} zoom={zoom} rotation={rotation} colours={colours} lines={look.lines} />
     </>
   );
 }
@@ -146,5 +157,16 @@ export function cameraBeyond(box: { x: number; y: number; width: number; height:
   return {
     bounds: cameraReach(box, look.degrees, length, 0, labelReach(box, look.lines.length, leastZoom)),
     draw: (context) => <CameraBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} />,
+  };
+}
+
+/**
+ * Labels alone past an item's box (6.5, decision 11): an icon's, a flag's or a diffusion frame's name and height, drawn
+ * and reckoned as a camera's are, so a label on screen is never culled with its box.
+ */
+export function labelsBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, lines: readonly string[], leastZoom: number): Beyond {
+  return {
+    bounds: cameraReach(box, null, 0, 0, labelReach(box, lines.length, leastZoom)),
+    draw: (context) => <UprightLabels width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} lines={lines} />,
   };
 }

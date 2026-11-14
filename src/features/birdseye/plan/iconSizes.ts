@@ -1,9 +1,10 @@
+import { BEAM_ICON } from '../../../core/model/planLight';
 import { DOOR_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
 
 // What each library icon is when it is placed (6.3, docs/PHASE6_DECISIONS.md 8): its real default size in metres,
 // width by depth, editable once it's down. Three set-art icons are 6.2's tools instead (the Library picks the tool),
-// and the icons later milestones make live (cameras 6.4; lights, flags and diffusion 6.5; north and the sun 6.6; cast
-// marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
+// and the icons later milestones make live (cameras 6.4 and lights, flags and diffusion 6.5 are placed now; north and the
+// sun 6.6; cast marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
 // here, and nothing else does (iconSizes.test.ts).
 
 export interface IconSize {
@@ -24,6 +25,24 @@ export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
   'camera/handheld': { width: 0.6, depth: 0.6 },
   'camera/steadicam': { width: 0.7, depth: 0.7 },
   'camera/drone': { width: 0.6, depth: 0.6 },
+  // Lights (6.5): placed as `light` items, each the icon it was placed as.
+  'lighting/fresnel': { width: 0.4, depth: 0.4 },
+  'lighting/led-panel': { width: 0.7, depth: 0.4 },
+  'lighting/tube': { width: 1.2, depth: 0.1 },
+  'lighting/cob-softbox': { width: 0.9, depth: 0.9 },
+  'lighting/hmi-par': { width: 0.5, depth: 0.6 },
+  'lighting/china-ball': { width: 0.6, depth: 0.6 },
+  'lighting/practical': { width: 0.3, depth: 0.3 },
+  'lighting/spacelight': { width: 0.8, depth: 0.8 },
+  'lighting/rgb-gel': { width: 0.4, depth: 0.4 },
+  'lighting/window-light': { width: 1.2, depth: 0.3 },
+  // Flags and diffusion (6.5): a standing frame is a line from above, 5 cm deep; the overhead lies flat, a square.
+  'grip/flag': { width: 0.91, depth: 0.05 },
+  'grip/floppy': { width: 1.22, depth: 0.05 },
+  'grip/neg-fill': { width: 1.22, depth: 0.05 },
+  'grip/diffusion-4x4': { width: 1.22, depth: 0.05 },
+  'grip/bounce': { width: 1.22, depth: 0.05 },
+  'grip/overhead-8x8': { width: 2.44, depth: 2.44 },
   'set-art/table': { width: 1.5, depth: 0.8 },
   'set-art/chair': { width: 0.5, depth: 0.5 },
   'set-art/sofa': { width: 2.0, depth: 0.9 },
@@ -63,11 +82,13 @@ export const TOOL_ICONS: Readonly<Record<string, string>> = {
 };
 
 /** Whole groups and single icons a later milestone of this phase makes live. */
-const COMING_GROUPS: ReadonlySet<string> = new Set(['lighting', 'cast']);
-const COMING_ICONS: ReadonlySet<string> = new Set(['grip/flag', 'grip/floppy', 'grip/diffusion-4x4', 'grip/bounce', 'grip/overhead-8x8', 'grip/neg-fill', 'production/north', 'production/measure']);
+const COMING_GROUPS: ReadonlySet<string> = new Set(['cast']);
+const COMING_ICONS: ReadonlySet<string> = new Set(['lighting/sun-path', 'production/north', 'production/measure']);
 
 /** The field of view's picture (6.4): every camera draws its own cone, so it is never placed as an item. */
 export const FIELD_OF_VIEW_ICON = 'camera/field-of-view';
+/** The beam's picture (6.5): every light draws its own beam, so it is never placed either. */
+const SHOWN_ICONS: ReadonlySet<string> = new Set([FIELD_OF_VIEW_ICON, BEAM_ICON]);
 
 /** Icons that resize freely, their proportions never kept: a zone's outline and a note. */
 export const FREE_RESIZE: ReadonlySet<string> = new Set(['production/zone', 'production/note']);
@@ -76,7 +97,7 @@ export type IconUse = 'place' | 'tool' | 'coming' | 'shown';
 
 /** What the Library does with an icon: place it, pick its tool, say it comes later in this phase, or that each camera draws it. */
 export function iconUse(id: string): IconUse {
-  if (id === FIELD_OF_VIEW_ICON) return 'shown';
+  if (SHOWN_ICONS.has(id)) return 'shown';
   if (id in TOOL_ICONS) return 'tool';
   if (COMING_ICONS.has(id) || COMING_GROUPS.has(id.split('/')[0] ?? '')) return 'coming';
   return 'place';
