@@ -23,6 +23,9 @@ Rules:
 - No secrets in code, no personal data in logs, every visible word through t() or tn() with en and es.
 - Never run prettier --write; match the file's own style (single quotes, about 120 columns).
 - Playwright's exit code can hide failures when piped: read the passed and failed counts.
+- Long commands (the test suites, a build) run in the foreground with a timeout long enough to finish (up to 600000
+  ms), never in the background, and never two at once. Don't wait on a background task: twice a builder stalled that
+  way (Kevin, Nov 11). Send the report when the checks have ended.
 - If the same failure survives two tries, stop and report what you tried and what you saw. Don't skip or weaken a
   test to make it pass.
 - Something the brief doesn't settle and you can't settle from CLAUDE.md or the code: pick the smaller choice, keep

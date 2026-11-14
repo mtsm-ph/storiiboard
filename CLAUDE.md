@@ -39,7 +39,9 @@
   through react-three-fiber.
 - Web companion: same React code, Supabase backend, Vercel hosting.
 - Tests: Vitest (unit), Playwright (end to end). Dev builds opened with `?files=memory` keep real projects in the page
-  (sql.js, dev only, src/app/fileAccess.ts), so end-to-end tests can create, edit, reload and reopen projects.
+  (sql.js, dev only, src/app/fileAccess.ts), so end-to-end tests can create, edit, reload and reopen projects. The
+  tests' server has no hot reload and its page opens no socket (Kevin, Nov 11; `noDevSocket` in vite.config.ts), so
+  no console error is ever filtered.
 - CI (Kevin, Nov 4): every PR runs quick checks on Linux (lint, types, unit tests, Rust tests); a newer push cancels
   the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
   (e2e/smoke.spec.ts) on Linux and in WebKit on a Mac, and the Mac and Windows installers.
@@ -184,7 +186,8 @@
     nearest hospital, weather, sunrise and sunset, golden hour, gear and notes.
   - Answered Nov 9 (docs/PHASE4_DECISIONS.md): live while drafting; Issue keeps the PDF as sent and locks the day's
     shot numbers in the same step, then "Changed since issued" (a new forecast doesn't count); each issued PDF prints
-    its version and issue time, "Revised" from version 2. Calls are overrides of the day's crew call per department
+    its version and issue time, "Revised" from version 2 (in Spanish "Emitir", "Emitida" and "Actualizada", never
+    "Revisada", which reads as "checked": Kevin, Nov 11). Calls are overrides of the day's crew call per department
     and per person; cast call, HMU ready and on set. Only the people on the day ("Add everyone" for a small crew);
     phone and email print only where the person's record allows it (on by default for crew, off for cast). Times in
     the location's time zone, editable on the location. Sun: golden hour from 6° above to 4° below the horizon, blue
@@ -324,6 +327,9 @@
 - Opening outside the app (Kevin, Nov 9): only http and https links, and files the app wrote itself (a PDF goes to a
   read-only temp copy first), through src-tauri/src/open.rs. The page has no opener permission; never open anything
   else, executables above all.
+  - Show in Finder / Show in Explorer (Kevin, Nov 11): the one other thing, through the opener's reveal only. It shows
+    a board picture's recorded original in its folder, selected; it never opens the file, and only when the file
+    exists. Rust finds the path from the picture's record in the open .sbd; the page never names one.
 
 ## Code style
 - TypeScript strict; no `any`.

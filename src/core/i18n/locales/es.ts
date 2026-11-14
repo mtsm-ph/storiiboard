@@ -2081,7 +2081,7 @@ export const es: Messages = {
   'callSheet.issueOpen': 'Abrir la versión {version}',
   'callSheet.issueSaveCopy': 'Guardar una copia de la versión {version}',
   'callSheet.issue.stamp': 'Versión {version} · Emitida {when}',
-  'callSheet.issue.stampRevised': 'Revisada · Versión {version} · Emitida {when}',
+  'callSheet.issue.stampRevised': 'Actualizada · Versión {version} · Emitida {when}',
   'callSheet.issue.noDate': 'Ponle una fecha a este día antes de emitir su hoja de llamado.',
   'callSheet.issue.tooBig': 'Esta hoja de llamado pesa {size}, más de los {max} que guarda un proyecto. No se emitió nada.',
   'callSheet.issue.dropped': 'Se cambió de proyecto antes de poder emitir la hoja de llamado. No se emitió nada.',
