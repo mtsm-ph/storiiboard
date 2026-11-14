@@ -38,6 +38,8 @@ import {
 } from '../../../core/model/plan';
 import { iconHome } from '../../../core/model/planRooms';
 import type { Props, SbdRecord } from '../../../core/model/record';
+import { sceneSetups, setupLabel } from '../../../core/model/setup';
+import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import type { Change } from '../../../core/ops/ops';
 import { keyBetween } from '../../../core/ops/order';
 import { pasted } from '../../../ui/canvas/placement';
@@ -375,8 +377,48 @@ function wallFrom(start: Point, rotation: number, length: number, thickness: num
   return { ...g, rotation: normalDegrees(rotation), width: Math.max(MIN_PLAN_SIZE, Math.round(length * 10000) / 10000) };
 }
 
-/** The least length a wall can have and keep its doors and windows where they are: those the view shows (with none, every plan's). */
-export const wallNeedOf = (records: Records, wallId: string, view?: PlanViewOf | null): number => wallNeeds(openingsInView(records, wallId, view).map((o) => o.fields));
+/**
+ * The least length a wall can have from its start and keep its doors and windows where they are: every plan's (6.2b
+ * review), so a wall shortened in one scene never runs past a door only another scene's setup shows.
+ */
+export const wallNeedOf = (records: Records, wallId: string): number => wallNeeds(openingsInView(records, wallId).map((o) => o.fields));
+
+/** What holds a wall at its least length (6.2b review): the length, and where the opening that needs it shows when this view doesn't show it. */
+export interface WallNeed {
+  length: number;
+  /** Null when the view shows that opening (or none holds the wall). */
+  hidden: { kind: OpeningKind; place: string } | null;
+}
+
+/** "SC 04 · Setup 1", "SC 04": where an item of a scene's own plan shows; null for a room's (or a plan with no scene). */
+export function planPlaceName(records: Records, planId: string | null): string | null {
+  const plan = planId === null ? undefined : records[planId];
+  const kind = plan ? planFields(plan.props)?.kind : undefined;
+  const holder = plan?.parentId ? records[plan.parentId] : undefined;
+  if (kind === 'blocking' && holder?.type === 'scene') return sceneLabel(sceneFields(holder.props).number);
+  if (kind !== 'setup' || holder?.type !== 'setup' || !holder.parentId) return null;
+  const scene = records[holder.parentId];
+  if (scene?.type !== 'scene') return null;
+  const label = sceneLabel(sceneFields(scene.props).number);
+  const setup = holder.trashedAt === null ? sceneSetups(records, scene.id).find((s) => s.record.id === holder.id) : undefined;
+  return t('plan.placeSetup', { scene: label, setup: setup ? setupLabel(setup) : t('plan.trashedSetup') });
+}
+
+/** The most the walls need, and where the opening that needs it is when the view doesn't show it. */
+export function wallNeedIn(records: Records, ids: readonly string[], view?: PlanViewOf | null): WallNeed {
+  let need: WallNeed = { length: 0, hidden: null };
+  for (const id of ids) {
+    if (!liveItem(records, id)) continue;
+    const shown = new Set(view ? openingsInView(records, id, view).map((o) => o.record.id) : null);
+    for (const o of openingsInView(records, id)) {
+      const length = o.fields.along + o.fields.width / 2;
+      if (length <= need.length + 1e-9) continue;
+      const place = view && !shown.has(o.record.id) ? planPlaceName(records, o.record.parentId) : null;
+      need = { length, hidden: place === null ? null : { kind: o.fields.kind, place } };
+    }
+  }
+  return need;
+}
 
 interface Span {
   along: number;
@@ -385,40 +427,28 @@ interface Span {
 
 /**
  * A wall's new box held so its doors and windows stay in it (6.2b), and how far its start moved along it (each
- * opening's `along_m` less that keeps it where it is in the room, 6.2b review). Only a change that shortens the wall is
- * held, so a move or a turn never stretches a wall whose openings need more than it has (after a restore or an import).
- * Its direction kept, each end stops where the opening nearest it begins; turned too, the end that moved least stays
- * and the length stops at what they need.
+ * opening's `along_m` less that keeps it where it is in the room, 6.2b review). Only a change of length moves the
+ * openings or is held: a move or a turn alone carries them with the wall, and never stretches a wall whose openings
+ * need more than it has (after a restore or an import). The start's move is measured along the wall's new direction,
+ * so a turn and a resize in one change keep them in place too; each end stops where the opening nearest it begins.
  */
 function heldForOpenings(was: PlanItemFields, next: PlanGeometry, spans: readonly Span[]): { geometry: PlanGeometry; shift: number } {
-  const shrank = next.width < was.width - 1e-9;
-  if (next.rotation !== was.rotation) {
-    const need = wallNeeds(spans);
-    if (!shrank || next.width >= need - 1e-4) return { geometry: next, shift: 0 };
-    const [s0, e0] = wallEnds(was);
-    const [s1, e1] = wallEnds(next);
-    const startStays = Math.hypot(s1.x - s0.x, s1.y - s0.y) <= Math.hypot(e1.x - e0.x, e1.y - e0.y);
-    const { dir } = wallAxes(next);
-    const start = startStays ? s1 : { x: e1.x - dir.x * need, y: e1.y - dir.y * need };
-    return { geometry: wallFrom(start, next.rotation, need, next.height), shift: 0 };
-  }
   if (Math.abs(next.width - was.width) <= 1e-9) return { geometry: next, shift: 0 };
-  const { dir } = wallAxes(was);
-  const [s0, e0] = wallEnds(was);
-  const [s1, e1] = wallEnds(next);
-  const along = (a: Point, b: Point) => (b.x - a.x) * dir.x + (b.y - a.y) * dir.y;
-  const startMoved = along(s0, s1);
-  const endMoved = along(e0, e1);
-  if (!shrank || spans.length === 0) return { geometry: next, shift: startMoved };
-  // How far each end may come in: to the nearest opening's edge (never out past where it is now).
-  const startRoom = Math.max(0, Math.min(...spans.map((o) => o.along - o.width / 2)));
-  const endRoom = Math.max(0, Math.min(...spans.map((o) => was.width - o.along - o.width / 2)));
-  const startShift = Math.min(startMoved, startRoom);
-  const endShift = Math.max(endMoved, -endRoom);
-  if (startShift === startMoved && endShift === endMoved) return { geometry: next, shift: startMoved };
-  const start = { x: s1.x + dir.x * (startShift - startMoved), y: s1.y + dir.y * (startShift - startMoved) };
-  const length = was.width - startShift + endShift;
-  return { geometry: wallFrom(start, next.rotation, length, next.height), shift: startShift };
+  const { dir } = wallAxes(next);
+  const [s0] = wallEnds(was);
+  const [s1] = wallEnds(next);
+  const shift = (s1.x - s0.x) * dir.x + (s1.y - s0.y) * dir.y;
+  if (spans.length === 0) return { geometry: next, shift };
+  // Along the old start: the new end's place, and how far each end may come in, to the nearest opening's edge (never
+  // in past where it is now, for openings that already overrun it).
+  const end = shift + next.width;
+  const startLimit = Math.max(0, Math.min(...spans.map((o) => o.along - o.width / 2)));
+  const endLimit = Math.min(was.width, wallNeeds(spans));
+  const startHeld = Math.min(shift, startLimit);
+  const endHeld = Math.max(end, endLimit);
+  if (startHeld === shift && endHeld === end) return { geometry: next, shift };
+  const start = { x: s1.x + dir.x * (startHeld - shift), y: s1.y + dir.y * (startHeld - shift) };
+  return { geometry: wallFrom(start, next.rotation, endHeld - startHeld, next.height), shift: startHeld };
 }
 
 interface WallChoice {
@@ -447,21 +477,26 @@ export const shownWalls = (shown: readonly ShownItem[]): WallChoice[] => shown.f
  * another wall with no room for it, it stays on its own; null when nowhere takes it.
  */
 function landing(
-  opening: { id: string; fields: OpeningFields; wallId: string },
+  opening: { id: string; fields: OpeningFields; wallId: string; storedWidth: number },
   centre: Point,
   walls: readonly WallChoice[],
   others: (wallId: string) => readonly { along: number; width: number }[],
   step: number,
-): { wallId: string; wall: PlanItemFields; along: number } | null {
+): { wallId: string; wall: PlanItemFields; along: number; width: number } | null {
   const own = walls.find((w) => w.id === opening.wallId);
   const over = wallUnder(walls, centre, OVER_WALL);
   const tries = [...(over ? [{ wall: over, along: over.along }] : []), ...(own && over?.id !== own.id ? [{ wall: own, along: projectOnWall(own.fields, centre).along }] : [])];
   for (const { wall, along } of tries) {
-    const fit = fitAlong(wall.fields.width, opening.fields.width, onStep(along, step), others(wall.id));
-    if (fit !== null) return { wallId: wall.id, wall: wall.fields, along: fit };
+    // In its own wall it is as wide as it reads there; on another it takes the width it is stored with (6.2b review).
+    const width = wall.id === opening.wallId ? opening.fields.width : opening.storedWidth;
+    const fit = fitAlong(wall.fields.width, width, onStep(along, step), others(wall.id));
+    if (fit !== null) return { wallId: wall.id, wall: wall.fields, along: fit, width };
   }
   return null;
 }
+
+/** The width an opening is stored with, whatever its wall reads it as. */
+const storedWidthOf = (record: SbdRecord, fields: OpeningFields): number => openingFields(record.props)?.width ?? fields.width;
 
 /** The openings in a wall as the view shows them, but for the ones left out. */
 const spansIn = (shown: readonly ShownItem[], wallId: string, leaveOut: ReadonlySet<string>) =>
@@ -496,11 +531,11 @@ export function planConstrain(shown: readonly ShownItem[], unit: PlanUnit): (mov
       }
       const g = moving.get(o.record.id);
       if (!g) continue;
-      const centre = centreOfBox({ x: toMetres(g.x), y: toMetres(g.y), width: toMetres(g.width), height: toMetres(g.height), rotation: g.rotation }, o.fields);
+      const centre = centreOfBox({ x: toMetres(g.x), y: toMetres(g.y), width: toMetres(g.width), height: toMetres(g.height), rotation: g.rotation }, { ...o.fields, width: toMetres(g.width) });
       const pool = still.some((w) => w.id === wall.id) ? still : [...still, wall];
-      const landed = landing({ id: o.record.id, fields: o.fields, wallId: wall.id }, centre, pool, (wallId) => spansIn(shown, wallId, movingIds), step);
-      const placed = landed ? { wall: landed.wall, along: landed.along } : { wall: wall.fields, along: o.fields.along };
-      out.set(o.record.id, toCanvasGeometry(openingFrame(placed.wall, { ...o.fields, along: placed.along }).box));
+      const landed = landing({ id: o.record.id, fields: o.fields, wallId: wall.id, storedWidth: storedWidthOf(o.record, o.fields) }, centre, pool, (wallId) => spansIn(shown, wallId, movingIds), step);
+      const placed = landed ? { wall: landed.wall, along: landed.along, width: landed.width } : { wall: wall.fields, along: o.fields.along, width: o.fields.width };
+      out.set(o.record.id, toCanvasGeometry(openingFrame(placed.wall, { ...o.fields, along: placed.along, width: placed.width }).box));
     }
     return out;
   };
@@ -510,8 +545,8 @@ const planKindOf = (records: Records, planId: string | null): string | null => (
 
 /**
  * A finished move, resize or turn (canvas units): one update per item that changed, all one op group. A wall shortened
- * is held at the length the doors and windows its view shows need; resized from its start, every opening in it (every
- * plan's) keeps its place in the room. A door or window lands where its box was put, along a wall (onto another wall it
+ * is held at the length its doors and windows need, every plan's (6.2b review); resized from its start, every opening
+ * in it keeps its place in the room. A door or window lands where its box was put, along a wall (onto another wall it
  * moves to that wall, `wall_id` and all), and one whose wall moved with it is left to follow it. A setup's own opening
  * stays in the setup's plan whatever wall it goes to; one at the room's level dragged onto a wall that is one setup's
  * only goes into that setup's plan with it.
@@ -522,10 +557,10 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
     const opening = liveOpening(records, c.id);
     if (opening) {
       if (changed.has(opening.fields.wallId)) return [];
-      const centre = centreOfBox({ x: toMetres(c.x), y: toMetres(c.y), width: toMetres(c.width), height: toMetres(c.height), rotation: c.rotation }, opening.fields);
+      const centre = centreOfBox({ x: toMetres(c.x), y: toMetres(c.y), width: toMetres(c.width), height: toMetres(c.height), rotation: c.rotation }, { ...opening.fields, width: toMetres(c.width) });
       const pool = candidateWalls(records, opening, walls);
       const others = (wallId: string) => openingsInView(records, wallId, view).filter((o) => o.record.id !== c.id && !changed.has(o.record.id)).map((o) => o.fields);
-      const landed = landing({ id: c.id, fields: opening.fields, wallId: opening.fields.wallId }, centre, pool.some((w) => w.id === opening.fields.wallId) ? pool : [...pool, { id: opening.wall.record.id, fields: opening.wall.fields }], others, 0);
+      const landed = landing({ id: c.id, fields: opening.fields, wallId: opening.fields.wallId, storedWidth: storedWidthOf(opening.record, opening.fields) }, centre, pool.some((w) => w.id === opening.fields.wallId) ? pool : [...pool, { id: opening.wall.record.id, fields: opening.wall.fields }], others, 0);
       if (!landed || (landed.wallId === opening.fields.wallId && Math.abs(landed.along - opening.fields.along) < 1e-4)) return [];
       const set: Props = { along_m: landed.along };
       if (landed.wallId !== opening.fields.wallId) set.wall_id = landed.wallId;
@@ -546,14 +581,16 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
     }
     const live = liveItem(records, c.id);
     if (!live) return [];
-    const held = heldForOpenings(live.fields, keptWhereSame(live.fields, metresOf(c)), openingsInView(records, c.id, view).map((o) => o.fields));
+    // Held by every plan's doors and windows (6.2b review): one only another scene shows keeps its place in the room too.
+    const held = heldForOpenings(live.fields, keptWhereSame(live.fields, metresOf(c)), openingsInView(records, c.id).map((o) => o.fields));
     const next = keptWhereSame(live.fields, held.geometry);
     if (sameGeometry(live.fields, next)) return [];
     const wall: Change = { kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } };
     if (Math.abs(held.shift) < 1e-4) return [wall];
     // Its start moved along it: each opening's distance from the start changes by as much, so it stays where it was.
+    // Held at every opening, the shift never takes one below 0, so nothing is clamped (and no place is lost).
     const kept = openingsOf(records, c.id).flatMap((o): Change[] => {
-      const along = Math.max(0, Math.round((o.fields.along - held.shift) * 10000) / 10000);
+      const along = Math.round((o.fields.along - held.shift) * 10000) / 10000;
       return Math.abs(along - o.fields.along) < 1e-6 ? [] : [{ kind: 'update', id: o.record.id, set: { along_m: along } }];
     });
     return [wall, ...kept];
@@ -681,6 +718,8 @@ export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip
     if (from !== null && shown.has(from)) return from;
     const kind = planKindOf(records, from);
     const same = kind === 'room' || kind === 'blocking' || kind === 'setup' ? plans[kind] : null;
+    // A setup's own item never falls back to the room (6.2b review): planPasteInView makes the setup's plan for it.
+    if (kind === 'setup') return same?.id ?? null;
     return same?.id ?? plans.room?.id ?? null;
   };
 }
@@ -742,13 +781,15 @@ export interface WallPatch {
   name?: string;
 }
 
-/** Whether walls can be this long and keep the doors and windows the view shows (6.2b): a shorter length is refused. */
-export const wallsTakeLength = (records: Records, ids: readonly string[], length: number, view?: PlanViewOf | null): boolean =>
-  ids.every((id) => !liveItem(records, id) || length >= wallNeedOf(records, id, view) - 1e-4);
+/**
+ * Whether walls can be this long and keep their doors and windows (6.2b): every plan's, those only another scene
+ * shows too (6.2b review; wallNeedIn says where they are). A shorter length is refused.
+ */
+export const wallsTakeLength = (records: Records, ids: readonly string[], length: number): boolean => ids.every((id) => !liveItem(records, id) || length >= wallNeedOf(records, id) - 1e-4);
 
 /** A field changed on the selected walls (6.2a Selection tile): one update per wall that changes, one op group. */
-export function wallPatchChanges(records: Records, ids: readonly string[], patch: WallPatch, view?: PlanViewOf | null): Change[] {
-  if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length, view)) return [];
+export function wallPatchChanges(records: Records, ids: readonly string[], patch: WallPatch): Change[] {
+  if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length)) return [];
   return ids.flatMap((id): Change[] => {
     const live = liveItem(records, id);
     if (!live) return [];
@@ -824,8 +865,10 @@ export function openingPatchChanges(records: Records, ids: readonly string[], pa
     }
     const set: Props = {};
     const unset: string[] = [];
-    if (Math.abs(width - now.width) > 1e-6) set.width_m = Math.round(width * 10000) / 10000;
-    if (Math.abs(tidyAlong - now.along) > 1e-6) set.along_m = tidyAlong;
+    // Only an edit that moves or widens it writes its place or width (6.2b review): one read inside a wall shorter than
+    // it was kept for keeps what is stored through a name, hinge, swing or height.
+    if (patch.width !== undefined && Math.abs(width - now.width) > 1e-6) set.width_m = Math.round(width * 10000) / 10000;
+    if (moving && Math.abs(tidyAlong - now.along) > 1e-6) set.along_m = tidyAlong;
     if (now.kind === 'door' && patch.hinge !== undefined && patch.hinge !== now.hinge) set.hinge = patch.hinge;
     if (now.kind === 'door' && patch.swing !== undefined && patch.swing !== now.swing) set.swing = patch.swing;
     if (patch.heightM !== undefined && patch.heightM !== now.heightM) {
@@ -859,12 +902,18 @@ export interface OpeningSpot {
   along: number;
 }
 
+/** How far off a wall's face a door or window put by the pointer still goes into it (metres): a 10 cm wall is hard to hit. */
+const PUT_REACH = 0.15;
+
+/** Whether a wall the view shows is under the point (canvas units), as the Door and Window tools find one. */
+export const wallAtPoint = (shown: readonly ShownItem[], at: Point): boolean => wallUnder(shownWalls(shown), { x: toMetres(at.x), y: toMetres(at.y) }, PUT_REACH) !== null;
+
 /** The spot a door or window takes when put at a point: on the wall it is over, at a free place along it; null over no wall. */
 export function openingSpot(shown: readonly ShownItem[], at: Point, kind: OpeningKind, step: number): OpeningSpot | null {
   const walls = shownWalls(shown);
   const point = { x: toMetres(at.x), y: toMetres(at.y) };
-  // Over the wall itself, or a little off its face: a 10 cm wall is hard to hit at a distance.
-  const over = wallUnder(walls, point, 0.15);
+  // Over the wall itself, or a little off its face.
+  const over = wallUnder(walls, point, PUT_REACH);
   if (!over) return null;
   const along = fitAlong(over.fields.width, OPENING_WIDTH[kind], onStep(over.along, step), spansIn(shown, over.id, new Set()));
   return along === null ? null : { wallId: over.id, wall: over.fields, along };
@@ -948,8 +997,8 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
 
 /**
  * Paste or Duplicate in a view (6.3): each copy into the plan its original sits in, or the view's plan of that level
- * (pasteTarget). An icon that belongs to a setup goes into the setup shown, its plan made now when it has none, in the
- * same group; with no setup shown it is left out.
+ * (pasteTarget). An icon that belongs to a setup, or any item copied from a setup's own plan (6.2b review), goes into
+ * the setup shown, its plan made now when it has none, in the same group; with no setup shown it is left out.
  */
 export function planPasteInView(records: Records, view: PlanViewOf, clip: readonly PlanClip[], at: Point | null, newPlanId: string = crypto.randomUUID()): { ids: string[]; changes: Change[]; leftOut: number } {
   const base = pasteTarget(records, view);
@@ -962,8 +1011,10 @@ export function planPasteInView(records: Records, view: PlanViewOf, clip: readon
   const out = { count: 0 };
   const target = (item: PlanClip): string | null => {
     const from = item.planId ?? null;
-    const setupIcon = item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup';
-    if (!setupIcon || (from !== null && shown.has(from) && planKindOf(records, from) === 'setup')) return base(item);
+    const fromSetup = planKindOf(records, from) === 'setup';
+    // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown.
+    const setupLevel = fromSetup || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
+    if (!setupLevel || (from !== null && shown.has(from) && fromSetup)) return base(item);
     if (!hasSetup || view.setupId === null) {
       out.count += 1;
       return null;

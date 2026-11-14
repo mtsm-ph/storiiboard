@@ -324,8 +324,8 @@ export function shownItems(records: Records, sceneId: string, setupId: string | 
 
 /**
  * An opening as it reads in a wall of this length (6.2b review): inside it, half its width from each end, no wider than
- * the wall. A wall may be shortened past an opening that only another scene's view shows (each view checks only what it
- * shows); that opening is read inside the wall, never rewritten and never dropped.
+ * the wall. No edit shortens a wall past any of its openings (6.2b second review), but one may arrive so otherwise (an
+ * import, a History put-back); that opening is read inside the wall, never rewritten and never dropped.
  */
 export function keptInWall(o: OpeningFields, wallLength: number): OpeningFields {
   const width = Math.min(o.width, wallLength);
@@ -350,9 +350,9 @@ export interface PlanViewOf {
 
 /**
  * The openings that share a view with a wall (6.2b review): those in the wall's own plan and in the plans the view shows
- * (the scene's room, its blocking, the setup's own), read inside the wall. Every check on a wall's openings (a door put
- * in, nudged, dragged, typed; the wall's least length) sees these, exactly what the person sees, never a door that only
- * another scene's setup shows. With no view, every plan's.
+ * (the scene's room, its blocking, the setup's own), read inside the wall. Where a door goes (put in, nudged, dragged,
+ * typed) sees these, exactly what the person sees, never a door that only another scene's setup shows. With no view,
+ * every plan's: the wall's least length counts those (6.2b second review), so no door loses its place.
  */
 export function openingsInView(records: Records, wallId: string, view?: PlanViewOf | null): { record: SbdRecord; fields: OpeningFields }[] {
   const all = openingsOf(records, wallId);
@@ -369,7 +369,8 @@ export function openingsInView(records: Records, wallId: string, view?: PlanView
 export function trashedWithWall(records: Records, wall: SbdRecord): SbdRecord[] {
   if (wall.trashedAt === null) return [];
   return Object.values(records).filter(
-    (r) => r.type === 'plan_item' && r.trashedAt === wall.trashedAt && r.trashedBy === wall.trashedBy && openingFields(r.props)?.wallId === wall.id,
+    // Any item in the wall (a kind a later version writes too), as a scene leaving its room trashes them all.
+    (r) => r.type === 'plan_item' && r.id !== wall.id && r.trashedAt === wall.trashedAt && r.trashedBy === wall.trashedBy && r.props.wall_id === wall.id,
   );
 }
 
@@ -417,11 +418,26 @@ export function trashPlanChanges(records: Records, planId: string): Change[] {
   return [{ kind: 'trash', id: planId }, ...items.map((r): Change => ({ kind: 'trash', id: r.id }))];
 }
 
-/** A trashed plan and the items that went to the Trash with it, brought back; not the ones deleted before it. */
+/**
+ * A trashed plan and the items that went to the Trash with it, brought back; not the ones deleted before it. Each wall
+ * it brings back brings the doors and windows that went with that wall, whatever plan they sit in (6.2b review: a
+ * scene's own door in a room wall, trashed by Delete room, sits in the scene's setup's plan, not the room's).
+ */
 export function restorePlanChanges(records: Records, planId: string): Change[] {
   const plan = records[planId];
   if (plan?.type !== 'plan' || plan.trashedAt === null) return [];
-  return [{ kind: 'restore', id: planId }, ...trashedWithPlan(records, plan).map((r): Change => ({ kind: 'restore', id: r.id }))];
+  const items = trashedWithPlan(records, plan);
+  const ids = new Set([planId, ...items.map((r) => r.id)]);
+  const openings: SbdRecord[] = [];
+  for (const wall of items) {
+    if (wall.props.kind !== 'wall') continue;
+    for (const r of trashedWithWall(records, wall)) {
+      if (ids.has(r.id)) continue;
+      ids.add(r.id);
+      openings.push(r);
+    }
+  }
+  return [{ kind: 'restore', id: planId }, ...[...items, ...openings].map((r): Change => ({ kind: 'restore', id: r.id }))];
 }
 
 /**

@@ -24,13 +24,13 @@ import {
   type PlanItemFields,
   type Swing,
 } from '../../../core/model/plan';
-import { alsoInRoom, itemHome, itemLevel, scenesLosing, setupOnlyHeld } from '../../../core/model/planRooms';
+import { alsoInRoom, itemHome, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOthers, type PlanPlace } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, TextField, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
 import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
-import { iconCentre, openingDistances, openingPatchChanges, viewKey, wallNeedOf, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
+import { iconCentre, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
 
@@ -189,8 +189,9 @@ function SelectionContent() {
  */
 function SetupOnlySwitch({ view, ids, records }: { view: PlanView & { setupId: string }; ids: readonly string[]; records: Records }) {
   const on = ids.every((id) => itemLevel(records, view.sceneId, view.setupId, id) === 'setup');
-  const held = on ? setupOnlyHeld(records, view.sceneId, view.setupId, ids) : null;
-  const losing = on ? [] : scenesLosing(records, view.sceneId, view.setupId, ids);
+  const held = setupOnlyHeld(records, view.sceneId, view.setupId, ids);
+  const losing = on || held !== null ? [] : scenesLosing(records, view.sceneId, view.setupId, ids);
+  const others = held === 'others' ? setupOnlyOthers(records, view.sceneId, view.setupId, ids) : [];
   return (
     <div className="border-t border-border pt-3" data-setup-only={on ? 'on' : 'off'}>
       <Toggle
@@ -202,7 +203,15 @@ function SetupOnlySwitch({ view, ids, records }: { view: PlanView & { setupId: s
         }}
       />
       <p className="mt-1 text-[12px] text-text-muted" data-setup-only-why={held ?? undefined}>
-        {held === 'noRoom' ? t('selection.setupOnlyNoRoom') : held === 'wallOnly' ? t('selection.setupOnlyWallOnly') : t(on ? 'selection.setupOnlyOn' : 'selection.setupOnlyOff')}
+        {held === 'noRoom' ? (
+          t('selection.setupOnlyNoRoom')
+        ) : held === 'wallOnly' ? (
+          t('selection.setupOnlyWallOnly')
+        ) : held === 'others' ? (
+          <Trans k="selection.setupOnlyOthers" parts={{ places: <PlaceList places={others} /> }} />
+        ) : (
+          t(on ? 'selection.setupOnlyOn' : 'selection.setupOnlyOff')
+        )}
       </p>
       {losing.length > 0 && (
         <p className="mt-1 text-[12px] text-text-muted" data-setup-only-losing={losing.join(' ')}>
@@ -210,6 +219,20 @@ function SetupOnlySwitch({ view, ids, records }: { view: PlanView & { setupId: s
         </p>
       )}
     </div>
+  );
+}
+
+/** "SC 02, Setup 2": scene numbers and setup numbers in mono, joined as a list. */
+function PlaceList({ places }: { places: readonly PlanPlace[] }) {
+  return (
+    <span data-setup-only-places={places.map((p) => (p.setup === null ? p.scene : `${p.scene}:${String(p.setup)}`)).join(' ')}>
+      {places.map((place, i) => (
+        <span key={`${place.scene}:${String(place.setup)}`}>
+          {i > 0 && ', '}
+          {place.setup === null ? <span className="font-mono">{place.scene}</span> : <Trans k="setup.label" parts={{ number: <span className="font-mono">{place.setup}</span> }} />}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -234,12 +257,15 @@ function WallFields({ ids, walls, unit, records, view }: { ids: readonly string[
   const names = shared(walls.map((w) => w.name));
   const rotations = shared(walls.map((w) => degreesText(w.rotation)));
   const write = (patch: WallPatch): boolean | string => {
-    // A wall is never shorter than its doors and windows need: refused, saying how long it must be.
-    if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length, view)) {
-      const need = Math.max(...ids.map((id) => wallNeedOf(records, id, view)));
-      return t('selection.wallTooShort', { length: formatLength(need, unit) });
+    // A wall is never shorter than its doors and windows need, every plan's: refused, saying how long it must be, and
+    // where the door is when this view doesn't show it (6.2b review).
+    if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length)) {
+      const need = wallNeedIn(records, ids, view);
+      const length = formatLength(need.length, unit);
+      if (need.hidden) return t(need.hidden.kind === 'door' ? 'selection.wallTooShortDoorIn' : 'selection.wallTooShortWindowIn', { place: need.hidden.place, length });
+      return t('selection.wallTooShort', { length });
     }
-    void changeWalls(ids, patch, view);
+    void changeWalls(ids, patch);
     return true;
   };
   const length = (apply: (m: number) => WallPatch, opts: { signed?: boolean; empty?: WallPatch } = {}) => lengthCommit(unit, write, apply, opts);
@@ -292,12 +318,17 @@ function WallFields({ ids, walls, unit, records, view }: { ids: readonly string[
 
 function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readonly string[]; openings: readonly OpeningFields[]; unit: PlanUnit; records: Records; view: PlanView }) {
   const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
-  const distances = ids.flatMap((id) => {
+  // As the plan draws them: inside the wall, its width and both distances (6.2b review), with what is stored besides.
+  const read = ids.flatMap((id) => {
     const o = openingFields(records[id]?.props ?? {});
     const wall = o ? planItemFields(records[o.wallId]?.props ?? {}) : null;
-    // As the plan reads it: inside its wall.
-    return o && wall ? [openingDistances(wall, keptInWall(o, wall.width))] : [];
+    if (!o || !wall) return [];
+    const kept = keptInWall(o, wall.width);
+    return [{ stored: o, kept, distances: openingDistances(wall, kept), storedDistances: openingDistances(wall, o) }];
   });
+  const distances = read.map((r) => r.distances);
+  const [only] = read;
+  const clamped = read.length === 1 && only && (only.kept.width !== only.stored.width || only.kept.along !== only.stored.along) ? only : null;
   const kind = shared(openings.map((o) => o.kind));
   const doors = kind === 'door';
   const names = shared(openings.map((o) => o.name));
@@ -313,7 +344,7 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
   const refused = t('selection.lengthRefused');
   const keyed = (field: string) => `${ids.join(' ')}:${field}`;
   const label = ids.length === 1 ? t(kind === 'door' ? 'plan.item.door' : 'plan.item.window') : kind === 'door' ? tn('selection.doors', ids.length) : kind === 'window' ? tn('selection.windows', ids.length) : tn('selection.openings', ids.length);
-  const widthText = text(openings.map((o) => o.width));
+  const widthText = text(read.length === openings.length ? read.map((r) => r.kept.width) : openings.map((o) => o.width));
   const startText = shared(distances.map((d) => formatLength(d.fromStart, unit)));
   const endText = shared(distances.map((d) => formatLength(d.fromEnd, unit)));
   const heightText = text(openings.map((o) => o.heightM));
@@ -336,6 +367,15 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
         <TypedField key={keyed('fromEnd')} label={t('selection.fromEnd')} text={endText ?? ''} mixed={endText === null} onCommit={distance((m) => ({ fromEnd: m }))} refused={refused} />
         <TypedField key={keyed('height')} label={t('selection.height')} text={heightText ?? ''} mixed={heightText === null} onCommit={length((m) => ({ heightM: m }), { empty: { heightM: null } })} refused={refused} />
       </div>
+      {clamped && (
+        <p className="text-[12px] text-text-muted" data-opening-stored="">
+          {clamped.kept.width !== clamped.stored.width ? (
+            <Trans k="selection.storedWidth" parts={{ width: <span className="font-mono">{formatLength(clamped.stored.width, unit)}</span> }} />
+          ) : (
+            <Trans k="selection.storedPlace" parts={{ distance: <span className="font-mono">{formatLength(clamped.storedDistances.fromStart, unit)}</span> }} />
+          )}
+        </p>
+      )}
       {doors && (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3">
           <Select

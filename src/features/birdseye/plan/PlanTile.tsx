@@ -40,7 +40,7 @@ import {
   chooseRoom,
   type PlanView,
 } from './planActions';
-import { iconCentre, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey } from './planItems';
+import { iconCentre, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey, wallAtPoint } from './planItems';
 import { DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
@@ -480,9 +480,11 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
               showInfo(t('plan.selectOneWall'));
               return false;
             }
-            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 }, placing, toMetres(scale.grid.step));
+            const point = { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
+            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, point, placing, toMetres(scale.grid.step));
             if (!at) {
-              showInfo(t(by === 'key' ? 'selection.openingRefused' : 'plan.pointAtWall'));
+              // Over a wall with no room left in it: it doesn't fit (6.2b review); over none: point at one.
+              showInfo(t(by === 'key' || wallAtPoint(shown, point) ? 'selection.openingRefused' : 'plan.pointAtWall'));
               return false;
             }
             setHover(null);

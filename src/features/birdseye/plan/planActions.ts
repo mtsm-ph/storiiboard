@@ -213,9 +213,9 @@ export async function duplicatePlanSelection(view: PlanView): Promise<void> {
   await pastePlan(view, null, planClipOf(records, ids, view));
 }
 
-/** A field changed in the Selection tile, on every selected wall it fits: one op group. */
-export async function changeWalls(ids: readonly string[], patch: WallPatch, view?: PlanView): Promise<boolean> {
-  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch, view) }));
+/** A field changed in the Selection tile, on every selected wall it fits (every plan's doors counted): one op group. */
+export async function changeWalls(ids: readonly string[], patch: WallPatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch) }));
 }
 
 /** A field changed on the selected doors and windows: one op group, nothing when it doesn't fit. */
