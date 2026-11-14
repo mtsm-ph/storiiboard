@@ -17,7 +17,7 @@ import {
   trashPlanChanges,
   type PlanLevel,
 } from './plan';
-import { repointCamera } from './planBlocking';
+import { markLayer, repointCamera } from './planBlocking';
 import { withoutFrameLinks } from './planCamera';
 import type { Props, SbdRecord } from './record';
 import { sceneSetups, type Setup } from './setup';
@@ -287,9 +287,20 @@ export function iconHome(icon: string): PlanLevel {
   return 'setup';
 }
 
-/** The level an item belongs to: an icon's by its group, a camera's mark (6.7) its camera's, any other's by its kind. */
-export const itemHome = (props: Props): PlanLevel =>
-  props.kind === 'icon' ? iconHome(iconIdOf(props)) : props.kind === 'mark' && typeof props.camera_id === 'string' && props.camera_id.trim() !== '' ? 'setup' : kindHome(props.kind);
+/**
+ * The level an item belongs to: an icon's by its group, a camera's mark (6.7) its camera's (`cameraMark`: its camera
+ * link reads, homeOf works it out), any other's by its kind.
+ */
+export const itemHome = (props: Props, cameraMark = false): PlanLevel =>
+  props.kind === 'icon' ? iconHome(iconIdOf(props)) : props.kind === 'mark' && cameraMark ? 'setup' : kindHome(props.kind);
+
+/**
+ * An item's level, read from the records (6.7 review, L1): a mark is a camera's, and so the setup's, only while its
+ * camera link reads (markLayer, as its layer is); one whose camera is in the Trash or never read is cast blocking's,
+ * so "This setup only" works on it as on any mark.
+ */
+export const homeOf = (records: Readonly<Record<string, SbdRecord>>, record: SbdRecord): PlanLevel =>
+  itemHome(record.props, record.props.kind === 'mark' && markLayer(records, record) === 'camera');
 
 /**
  * "This setup only" (6.2b), on: the items moved (`move` ops) from the room or the scene's blocking into the setup's
@@ -303,8 +314,10 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
   if (setup?.type !== 'setup' || setup.trashedAt !== null || setup.parentId !== sceneId) return [];
   // A wall other places' doors sit in stays where they all see it (setupOnlyHeld says so).
   if (on && setupOnlyOthers(records, sceneId, setupId, ids).length > 0) return [];
+  // Any of the scene's blocking plans is the blocking level (6.7 review, L8: a second one only arrives by an import).
+  const blockings = new Set(plans.blockings.map((p) => p.id));
   const levelOf = (planId: string | null): PlanLevel | null =>
-    planId === null ? null : planId === plans.room?.id ? 'room' : planId === plans.blocking?.id ? 'blocking' : planId === plans.setup?.id ? 'setup' : null;
+    planId === null ? null : planId === plans.room?.id ? 'room' : blockings.has(planId) ? 'blocking' : planId === plans.setup?.id ? 'setup' : null;
   const picked = new Set(ids);
   // A wall's openings that sit with it go where it goes.
   for (const id of ids) {
@@ -350,16 +363,12 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
   };
   const lastKeys = new Map<string, string | null>();
   for (const { record } of moving) {
-    const level = on ? 'setup' : itemHome(record.props);
+    const level = on ? 'setup' : homeOf(records, record);
     if (level === 'setup' && !on) continue;
     const planId = target(level);
     if (planId === null) continue;
-    // A mark keeps its sort key (6.7): its number among its character's positions is its place in plan order, and a
-    // cheated mark is still the same position.
-    if (record.props.kind === 'mark') {
-      changes.push({ kind: 'move', id: record.id, parentId: planId, sortKey: record.sortKey });
-      continue;
-    }
+    // A mark takes a fresh key at the front of its new plan, as any item does (6.7 review): its number comes from its
+    // own `order`, untouched, so a cheated mark is still the same position.
     const previous = lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item');
     const sortKey = keyBetween(previous, null);
     lastKeys.set(planId, sortKey);
@@ -421,7 +430,7 @@ export function setupOnlyHeld(records: Records, sceneId: string, setupId: string
   const items = ids.flatMap((id) => (records[id] ? [records[id]] : []));
   if (!items.every((r) => r.parentId !== null && r.parentId === plans.setup?.id)) return setupOnlyOthers(records, sceneId, setupId, ids).length > 0 ? 'others' : null;
   if (items.some((r) => openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? ''))) return 'wallOnly';
-  if (plans.room === null && items.some((r) => itemHome(r.props) === 'room')) return 'noRoom';
+  if (plans.room === null && items.some((r) => homeOf(records, r) === 'room')) return 'noRoom';
   return null;
 }
 
@@ -437,5 +446,5 @@ export function itemLevel(records: Records, sceneId: string, setupId: string | n
   const plans = plansShown(records, sceneId, setupId);
   const parent = records[id]?.parentId ?? null;
   if (parent === null) return null;
-  return parent === plans.room?.id ? 'room' : parent === plans.blocking?.id ? 'blocking' : parent === plans.setup?.id ? 'setup' : null;
+  return parent === plans.room?.id ? 'room' : plans.blockings.some((p) => p.id === parent) ? 'blocking' : parent === plans.setup?.id ? 'setup' : null;
 }

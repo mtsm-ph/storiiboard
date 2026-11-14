@@ -1,5 +1,5 @@
-import { isCamera, isGrip, isLight, isOpening, isWallFields, MARK_ICON, PLAN_LAYERS, planItemLayer, shownItems, type GripFields, type PlanLayer } from './plan';
-import { cameraPositions, moveLength, viewBlocking } from './planBlocking';
+import { isCamera, isGrip, isLight, isOpening, isWallFields, MARK_ICON, PLAN_LAYERS, shownItems, type GripFields, type PlanLayer } from './plan';
+import { cameraPositions, itemLayer, moveLength, viewBlocking } from './planBlocking';
 import { cameraHeight, cameraTitle } from './planCamera';
 import { lightWatts } from './planLight';
 import { sceneNorth } from './planSun';
@@ -92,7 +92,8 @@ export function planLegend(
     }
     // North is the room's line (6.6), and a sun path is a drawing, not a thing on set.
     if (fields.kind === 'north' || fields.kind === 'sun') continue;
-    const layer = planItemLayer(record.props);
+    // A mark's by markLayer (6.7 review): on the camera layer only while its camera link reads.
+    const layer = itemLayer(records, record);
     if (layer === null) continue;
     let label: string;
     let height: LegendHeight | null;

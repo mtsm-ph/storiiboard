@@ -3,7 +3,7 @@ import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { characterName } from '../../../core/model/person';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, type MarkFields, type ShownItem } from '../../../core/model/plan';
 import { markOwner, moveLength, viewBlocking, type MarkOwner, type Position } from '../../../core/model/planBlocking';
-import { cameraBody, cameraCone, liveCamera } from '../../../core/model/planCamera';
+import { cameraCone, cameraShortTitle, liveCamera } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
 import { unionBounds } from '../../../ui/canvas/viewport';
 import type { PathLook } from './markDraw';
@@ -58,12 +58,9 @@ export function characterTitle(records: Records, id: string): string {
   return name === '' ? t('plan.mark.unnamedCharacter') : name;
 }
 
-/** "ANA", or a camera's letter ("A") when it has one; "Camera" otherwise. */
+/** "ANA", or a camera's letter ("A") when it has one, "Camera" otherwise; two that would read the same told apart (cameraShortTitle). */
 export function ownerTitle(records: Records, owner: MarkOwner): string {
-  if (owner.kind === 'character') return characterTitle(records, owner.id);
-  const camera = liveCamera(records, owner.id);
-  const letter = camera ? (cameraBody(records, camera.record)?.fields.letter ?? null) : null;
-  return letter ?? t('plan.mark.camera');
+  return owner.kind === 'character' ? characterTitle(records, owner.id) : cameraShortTitle(records, owner.id);
 }
 
 /** "3.20 m move". */

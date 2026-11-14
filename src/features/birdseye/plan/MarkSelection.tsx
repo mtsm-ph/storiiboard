@@ -2,7 +2,7 @@ import { useProject } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { parseDegrees, type MarkFields } from '../../../core/model/plan';
-import { cameraPositions, markOwner, moveLength, sceneCharacterIds, staleLink, viewBlocking, type OwnerChoice } from '../../../core/model/planBlocking';
+import { cameraPositions, markNotes, markOwner, moveLength, sceneCharacterIds, viewBlocking, type OwnerChoice } from '../../../core/model/planBlocking';
 import { cameraTitle, setupCameras } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
 import { Button } from '../../../ui/Button';
@@ -36,7 +36,7 @@ export function MarkFieldsView({ id, fields, unit, records, view }: { id: string
   const record = records[id];
   if (!project || !record) return null;
   const owner = markOwner(records, record);
-  const stale = staleLink(records, record);
+  const { stale, noCharacters } = markNotes(records, view, record);
   const of = viewBlocking(records, view.sceneId, view.setupId).numbers.get(id) ?? null;
   const characters = sceneCharacterIds(records, view.sceneId);
   const cameras = view.setupId === null ? [] : setupCameras(records, view.setupId);
@@ -91,17 +91,28 @@ export function MarkFieldsView({ id, fields, unit, records, view }: { id: string
           {t(stale === 'character' ? 'plan.mark.staleCharacter' : 'plan.mark.staleCamera')}
         </p>
       )}
-      {characters.length === 0 && owner === null && <p className="text-[12px] text-text-muted">{t('plan.mark.noCharacters')}</p>}
+      {noCharacters && <p className="text-[12px] text-text-muted">{t('plan.mark.noCharacters')}</p>}
       {of && (
         <div className="flex flex-wrap items-center gap-2" data-mark-position={`${String(of.number)}/${String(of.count)}`}>
           <span className="sb-label">{t('plan.mark.position')}</span>
           <span className="text-[13px]">
             <Trans k="plan.mark.positionOf" parts={{ number: <span className="font-mono">{of.number}</span>, count: <span className="font-mono">{of.count}</span> }} />
           </span>
-          <Button variant="secondary" disabled={of.number <= first} onClick={() => void movePosition(view, id, -1)}>
+          {/* At either end, disabled, the reason in its name (6.7 review): among the positions this view shows. */}
+          <Button
+            variant="secondary"
+            disabled={of.number <= first}
+            aria-label={of.number <= first ? t('plan.mark.earlierFirst') : undefined}
+            onClick={() => void movePosition(view, id, -1)}
+          >
             {t('plan.mark.earlier')}
           </Button>
-          <Button variant="secondary" disabled={of.number >= of.count} onClick={() => void movePosition(view, id, 1)}>
+          <Button
+            variant="secondary"
+            disabled={of.number >= of.count}
+            aria-label={of.number >= of.count ? t('plan.mark.laterLast') : undefined}
+            onClick={() => void movePosition(view, id, 1)}
+          >
             {t('plan.mark.later')}
           </Button>
         </div>

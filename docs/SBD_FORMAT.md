@@ -535,24 +535,39 @@ unreadable value reads as not set, as every prop does.
     `character_id` (6.7): the `character` it is for, one of its scene's (`character_ids`, as sceneCharacters reads them).
     `camera_id` (6.7): the `camera` item whose later position it is, in the same setup's plan. Its level: a character's
     mark and a plain mark sit in the scene's `blocking` plan (made in the same step when there is none), so every setup
-    of the scene shows them; "This setup only" moves one into a setup's plan (a cheated mark) and back, keeping its
-    `sort_key`. A camera's mark sits in the camera's setup plan. A link that doesn't read (a `character_id` naming a
-    character in the Trash, gone, or no longer in the scene's characters; a `camera_id` naming a camera in the Trash,
-    gone, or in another plan) reads as none: the mark is a plain mark, its props kept, so a restore brings the link
-    back. With both set, a `camera_id` that reads wins. Positions are numbered, never stored: a view's marks of one
-    character (blocking and that setup's only, together) are 1, 2, 3 in `sort_key` order (then id); a camera's own item
-    is its position 1 and its marks 2, 3… in `sort_key` order. Earlier and Later write a `sort_key` between the new
-    neighbours' (a `move` in its own plan), among that owner's positions only. Next position writes a mark 1 m to the
-    right (+x) of the owner's last position, after it in `sort_key`; a camera's at the camera's size, turned as its last
+    of the scene shows them; "This setup only" moves one into a setup's plan (a cheated mark) and back, at the front
+    of the plan it goes to (a fresh `sort_key`, as any item). A camera's mark sits in the camera's setup plan. A link
+    that doesn't read (a `character_id` naming a character in the Trash, gone, or no longer in the scene's characters;
+    a `camera_id` naming a camera in the Trash, gone, or in another plan) reads as none: the mark is a plain mark, its
+    props kept, so a restore brings the link back. With both set, a `camera_id` that reads wins.
+    `order` (6.7 review): a mark's place among its character's or its camera's positions; unique among that owner's
+    positions; the number is worked out from it and never stored. A key as `sort_key`s are (base-62 digits, never
+    ending in "0"); anything else reads as none. `sort_key` is drawing order only: Bring forward, Send back and a move
+    to another plan never touch `order`, so a position's number never changes with them. Positions are numbered, never
+    stored: a view's marks of one character (blocking and that setup's only, together) are 1, 2, 3 by `order`; a
+    camera's own item is its position 1 and its marks 2, 3… by `order`. A mark with no `order`, or two sharing one (an
+    import's), sorts after those with one, then by `created_at`, then by id. A new position's `order` comes after the
+    owner's last over all of that owner's marks in the scene (the blocking and every setup's plan, the Trash's too), so
+    two setups never make the same. Earlier and Later write an `order` between the new neighbours' among the positions
+    the view shows (below any other of that owner's between them); when those positions lack one or share one, each of
+    them is given a fresh `order` after the owner's last, in the new order. Next position writes a mark 1 m to the
+    right (+x) of the owner's last position, after it in `order`; a camera's at the camera's size, turned as its last
     position is. The path from each position to the next (a straight dashed line with an arrowhead) and a camera's move
-    length are worked out, never stored; no `path` items are written. Giving a mark to a camera moves it into the
-    camera's plan at the camera's size and turn; taking it off a camera moves it back to the blocking at a mark's size.
+    length are worked out, never stored; no `path` items are written. Giving a mark to a character or a camera makes it
+    that owner's last position (a new `order`); giving it to a camera moves it into the camera's plan at the camera's
+    size and turn; taking it off a camera moves it back to the blocking at a mark's size; a plain mark has no `order`.
     Trashing a camera trashes its marks in the same step, and restoring the camera brings those back; trashing a
     character leaves its marks, which read as plain marks. Copies: a setup started from another re-points each mark's
     `camera_id` to the camera's copy, or takes it off when its camera isn't copied; a paste or duplicate keeps
-    `character_id`, and keeps `camera_id` only when the camera is pasted with it. A room's separate copy never touches
-    marks (they aren't in the room). Its layer (6.8) is the camera department's when it has a `camera_id`, cast
-    blocking's otherwise. Reach and size as an icon's.
+    `character_id`, and keeps `camera_id` only when the camera is pasted with it (Copy and Cut of a camera take its
+    marks with it). Each keeps its `order` when its owner comes with it or is the same character, but a pasted or
+    duplicated character's mark in a view that shows that character's positions already is a new position, after the
+    last. A mark that loses its camera in a copy is a plain mark: no `order`, a tape mark's size about its middle,
+    unturned. A room's separate copy never touches marks (they aren't in the room). Its layer (6.8) is the camera
+    department's while its `camera_id` reads, cast blocking's otherwise (a camera in the Trash leaves its marks on cast
+    blocking's layer and at the blocking's level). A scene with two live `blocking` plans (only by an import or History)
+    shows the items of both; new marks go to the first by `sort_key`, then `created_at`, then id. Reach and size as an
+    icon's.
   - A camera placed as `camera/dolly-track`, `camera/slider` or `camera/jib-crane` (6.7) shows its longer side as its
     length ("3.00 m track") and resizes without keeping its proportions. Nothing is stored for it.
   - `cast/eyeline` and `cast/background` (6.7) are plain `icon` items in the scene's blocking, as every cast icon is;

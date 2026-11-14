@@ -15,6 +15,7 @@ import {
   isSun,
   keptInWall,
   lastKeyUnder,
+  markFields,
   MIN_PLAN_SIZE,
   normalDegrees,
   OPENING_WIDTH,
@@ -27,6 +28,7 @@ import {
   sceneRoomId,
   shownFields,
   shownItems,
+  shownPlanIds,
   wallBetween,
   wallEnds,
   wallProps,
@@ -56,7 +58,7 @@ import {
   type SunFields,
   type Swing,
 } from '../../../core/model/plan';
-import { cameraMarks, repointCamera } from '../../../core/model/planBlocking';
+import { cameraMarks, markLayer, orderAfterLast, repointCamera, viewBlocking, type MarkOwner } from '../../../core/model/planBlocking';
 import { CONE_LENGTH_M, isCameraIcon, isTrackIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
 import { iconHome } from '../../../core/model/planRooms';
@@ -1007,21 +1009,28 @@ export function trashPlanItemsChanges(records: Records, ids: readonly string[]):
 }
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
+/** One plan's items as it draws them: ties (an import's, or keys written before 6.7's review) by id, as plan.ts reads them. */
+const inDrawingOrder = (a: SbdRecord, b: SbdRecord) => bySortKey(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
  * Forward, back, to the front or the back: each plan's walls and icons reordered among their own plan's (a level is a
- * plan). Walls are drawn under every icon whatever their order, so an icon's order counts among the icons.
+ * plan). Walls are drawn under every icon whatever their order, so an icon's order counts among the icons. Marks are
+ * left out (6.7 review): they draw in a pass of their own, and their numbers come from their own `order`, so Bring to
+ * front never renumbers a position nor reads a mark's key. Two siblings sharing a key (existing data) never stop it:
+ * sortKeysFor writes a fresh key for the item moved.
  */
 export function reorderPlanChanges(records: Records, ids: readonly string[], mode: ReorderMode): Change[] {
   const byPlan = new Map<string, string[]>();
   for (const id of ids) {
     const live = liveBoxed(records, id);
     const planId = live?.record.parentId;
-    if (planId) byPlan.set(planId, [...(byPlan.get(planId) ?? []), id]);
+    if (planId && !isMark(live.fields)) byPlan.set(planId, [...(byPlan.get(planId) ?? []), id]);
   }
   return [...byPlan].flatMap(([planId, chosenIds]) => {
-    // Every sibling holds a key, the Trash's too, so a new key never ties with one coming back.
-    const all = Object.values(records).filter((r) => r.type === 'plan_item' && r.parentId === planId).sort(bySortKey);
+    // Every sibling but a mark holds a key, the Trash's too, so a new key never ties with one coming back.
+    const all = Object.values(records)
+      .filter((r) => r.type === 'plan_item' && r.parentId === planId && r.props.kind !== 'mark')
+      .sort(inDrawingOrder);
     const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || boxFields(r.props) !== null)).map((r) => r.id);
     const chosen = new Set(chosenIds);
     const nextLive = reordered(live, chosen, mode);
@@ -1054,15 +1063,23 @@ export interface PlanClip {
 
 /**
  * Copied walls and icons, with the doors and windows in the walls the view shows (with no view, every plan's); a door
- * or window copied without its wall isn't (it has nowhere to go).
+ * or window copied without its wall isn't (it has nowhere to go). A camera takes its later positions with it (6.7
+ * review, M3), as a wall takes its openings, so Cut and Paste never leaves a camera without its move (its marks went to
+ * the Trash with it); they follow the camera's copy when pasted, keeping their `order`.
  */
 export function planClipOf(records: Records, ids: readonly string[], view?: PlanViewOf | null): PlanClip[] {
   const walls = ids.flatMap((id) => {
     const live = liveBoxed(records, id);
     return live ? [live] : [];
   });
+  const picked = new Set(walls.map((w) => w.record.id));
+  const moves = walls.flatMap((w) => (w.fields.kind === 'camera' ? cameraMarks(records, w.record.id) : [])).filter((r) => {
+    if (picked.has(r.id)) return false;
+    picked.add(r.id);
+    return true;
+  });
   const openings = walls.flatMap((w) => (w.fields.kind === 'wall' ? openingsInView(records, w.record.id, view).map((o) => o.record) : []));
-  return [...walls.map((w) => w.record).sort(bySortKey), ...openings.sort(bySortKey)].flatMap((record) => {
+  return [...[...walls.map((w) => w.record), ...moves].sort(bySortKey), ...openings.sort(bySortKey)].flatMap((record) => {
     const fields = shownFields(record.props);
     return fields ? [{ id: record.id, props: record.props, fields, planId: record.parentId }] : [];
   });
@@ -1083,7 +1100,7 @@ export const openingsLeftOut = (records: Records, ids: readonly string[]): boole
  */
 export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip) => string | null {
   const plans = plansShown(records, view.sceneId, view.setupId);
-  const shown = new Set([plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  const shown = shownPlanIds(plans);
   return (item) => {
     const from = item.planId ?? null;
     if (from !== null && shown.has(from)) return from;
@@ -1134,8 +1151,10 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     const wall = copies.get(item.fields.wallId);
     if (wall) make(item, { ...item.props, wall_id: wall });
   }
-  // A camera's mark (6.7) follows its camera's copy when the camera is pasted with it; else it is a plain mark.
-  for (const change of changes) if (change.kind === 'create' && change.record.props?.kind === 'mark') change.record.props = repointCamera(change.record.props, copies);
+  // A camera's mark (6.7) follows its camera's copy when the camera is pasted with it, keeping its `order`; else it is a
+  // plain mark, at a tape mark's size, unturned (6.7 review, L2).
+  const plain = iconSize(MARK_ICON) ?? undefined;
+  for (const change of changes) if (change.kind === 'create' && change.record.props?.kind === 'mark') change.record.props = repointCamera(change.record.props, copies, plain);
   // Pasted at a pointer past the plan's reach, the copies would never show: nothing is pasted.
   return unreadableAfter(records, changes) ? { ids: [], changes: [] } : { ids, changes };
 }
@@ -1388,6 +1407,34 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
 }
 
 /**
+ * A pasted or duplicated character's mark (6.7 review): a new position, so when the view pasted into shows positions of
+ * that character already its `order` goes after the character's last in the scene (several in the order they had);
+ * otherwise (a scene where that character has none) it keeps its `order`. A camera's marks pasted with their camera keep
+ * theirs: the camera's copy has no other positions. Writes into the changes' new props.
+ */
+function freshPositions(records: Records, view: PlanViewOf, changes: Change[]): void {
+  const shown = new Set(viewBlocking(records, view.sceneId, view.setupId).characters.map((c) => c.owner.id));
+  const made = changes.flatMap((change) => {
+    if (change.kind !== 'create' || change.record.props?.kind !== 'mark') return [];
+    const props = change.record.props;
+    const character = props.character_id;
+    if (typeof character !== 'string' || typeof props.camera_id === 'string' || !shown.has(character)) return [];
+    return [{ props, character, order: markFields(props)?.order ?? null }];
+  });
+  // In the order they had (one without after those with one), as byPositionOrder reads positions.
+  const rank = (o: string | null) => (o === null ? 1 : 0);
+  made.sort((a, b) => rank(a.order) - rank(b.order) || (a.order !== null && b.order !== null && a.order !== b.order ? (a.order < b.order ? -1 : 1) : 0));
+  const lasts = new Map<string, string>();
+  for (const { props, character } of made) {
+    const owner: MarkOwner = { kind: 'character', id: character };
+    const was = lasts.get(character);
+    const order = was === undefined ? orderAfterLast(records, view.sceneId, owner) : keyBetween(was, null);
+    lasts.set(character, order);
+    props.order = order;
+  }
+}
+
+/**
  * Paste or Duplicate in a view (6.3): each copy into the plan its original sits in, or the view's plan of that level
  * (pasteTarget). An icon that belongs to a setup, or any item copied from a setup's own plan (6.2b review), goes into
  * the setup shown, its plan made now when it has none, in the same group; with no setup shown it is left out.
@@ -1402,7 +1449,7 @@ export function planPasteInView(
 ): { ids: string[]; changes: Change[]; leftOut: number; northKept?: number } {
   const base = pasteTarget(records, view);
   const plans = plansShown(records, view.sceneId, view.setupId);
-  const shown = new Set([plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  const shown = shownPlanIds(plans);
   const setup = view.setupId === null ? undefined : records[view.setupId];
   const hasSetup = setup?.type === 'setup' && setup.trashedAt === null && setup.parentId === view.sceneId;
   // Holders, since the target sets them as the paste reads each item.
@@ -1453,6 +1500,7 @@ export function planPasteInView(
     return newPlanId;
   };
   const pasted = planPasteChanges(records, target, clip, at);
+  freshPositions(records, view, pasted.changes);
   // Nothing pasted (refused past the plan's reach, or all left out): no setup plan made for it either.
   // How many norths were left out, only when some were (the room has its one).
   const north = out.north > 0 ? { northKept: out.north } : {};
@@ -1535,21 +1583,22 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
 /**
  * Whether the turn keys turn an item: a camera (6.4) or a light (6.5), both of which point, a flag or diffusion frame
  * (6.5 review), set at an angle to a light, and the room's north (6.6), whose turn is the room's north. Never a sun path.
+ * A mark turns only as a camera's later position whose link reads (6.7 review, L1: markLayer), which needs `records`.
  */
-export const turnsByKey = (fields: ShownFields): boolean =>
+export const turnsByKey = (fields: ShownFields, records?: Records, record?: SbdRecord): boolean =>
   fields.kind === 'camera' ||
   fields.kind === 'light' ||
   fields.kind === 'flag' ||
   fields.kind === 'diffusion' ||
   fields.kind === 'north' ||
   // A camera's later position (6.7) points, as its camera does.
-  (fields.kind === 'mark' && fields.cameraId !== null);
+  (fields.kind === 'mark' && records !== undefined && record !== undefined && markLayer(records, record) === 'camera');
 
 /** [ and ] or comma and period (6.4): each selected camera, light or frame turned by `by` degrees from where it points now, round its middle; one group. */
 export function turnChanges(records: Records, ids: readonly string[], by: number): Change[] {
   return ids.flatMap((id) => {
     const live = liveIcon(records, id);
-    return live && turnsByKey(live.fields) ? iconPatchChanges(records, [id], { rotation: normalDegrees(live.fields.rotation + by) }) : [];
+    return live && turnsByKey(live.fields, records, live.record) ? iconPatchChanges(records, [id], { rotation: normalDegrees(live.fields.rotation + by) }) : [];
   });
 }
 

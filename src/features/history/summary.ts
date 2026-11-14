@@ -599,6 +599,8 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   // A mark's (6.7).
   character_id: 'history.field.markCharacter',
   camera_id: 'history.field.markCamera',
+  // Its place among its owner's positions (6.7 review): a key, never shown as one.
+  order: 'history.field.markOrder',
 });
 
 /** "650 W" (6.5). */
@@ -694,6 +696,8 @@ const OPENING_WORDS: Readonly<Record<string, string>> = labels({
 function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): string | null {
   if (change.planItem !== true || change.key !== undefined) return null;
   if (typeof value === 'string' && (change.prop === 'hinge' || change.prop === 'swing')) return OPENING_WORDS[`${change.prop}:${value}`] ?? null;
+  // A mark's `order` (6.7 review) is a key that means nothing read aloud: only whether it has one.
+  if (change.prop === 'order') return isBlank(value) ? '—' : t('history.notShown');
   if (typeof value !== 'number') return null;
   if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
   if (change.prop === 'lens_mm') return t('history.mmValue', { mm: value });
@@ -971,15 +975,31 @@ function markLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRec
   if (marks.length === 0) return null;
   const others = items.filter((op) => !marks.includes(op));
   if (others.length > 0) {
-    // A camera to the Trash, or back, with its later positions: the camera's step.
-    const [camera] = others;
-    const kind = camera?.kind;
-    const one = camera && others.every((op) => op.recordId === camera.recordId && record(op)?.props.kind === 'camera');
-    if (!one || (kind !== 'trash' && kind !== 'restore') || !items.every((op) => op.kind === kind)) return null;
-    const props = record(camera)?.props ?? {};
-    return [t(kind === 'trash' ? 'history.iconDeleted' : 'history.iconRestored', { what: aBoxed(props, unit) })];
+    // Cameras to the Trash, or back, with their later positions: the cameras' step, the marks that went or came with
+    // them not counted as items of their own (6.7 review, L7: "Deleted 2 cameras", never "Deleted 5 plan items").
+    const kind = others[0]?.kind;
+    if ((kind !== 'trash' && kind !== 'restore') || !items.every((op) => op.kind === kind)) return null;
+    const cameras = new Set(others.flatMap((op) => (record(op)?.props.kind === 'camera' ? [op.recordId] : [])));
+    const withCamera = (op: LoggedOp) => {
+      const id = record(op)?.props.camera_id;
+      return typeof id === 'string' && cameras.has(id);
+    };
+    if (cameras.size === 0 || !marks.some(withCamera)) return null;
+    const counted = new Set(items.filter((op) => !marks.includes(op) || !withCamera(op)).map((op) => op.recordId));
+    if (counted.size === 1 && cameras.size === 1) {
+      const camera = others.find((op) => cameras.has(op.recordId));
+      return [t(kind === 'trash' ? 'history.iconDeleted' : 'history.iconRestored', { what: aBoxed((camera && record(camera)?.props) ?? {}, unit) })];
+    }
+    const onlyCameras = [...counted].every((id) => cameras.has(id));
+    if (onlyCameras) return [tn(kind === 'trash' ? 'history.camerasDeleted' : 'history.camerasRestored', counted.size)];
+    return [tn(kind === 'trash' ? 'history.planItemsDeleted' : 'history.planItemsRestored', counted.size)];
   }
-  if (new Set(marks.map((op) => op.recordId)).size !== 1) return null;
+  // Earlier or Later (6.7 review): only the marks' `order` changed. Several (positions without one, given theirs in
+  // their new order) can't say which moved: counted as a reorder.
+  const orderOnly = marks.every((op) => op.kind === 'update' && op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'order'));
+  const ids = new Set(marks.map((op) => op.recordId));
+  if (orderOnly && ids.size > 1) return [tn('history.planItemsReordered', ids.size)];
+  if (ids.size !== 1) return null;
   const first = marks[0];
   const last = marks.at(-1);
   const after = last?.after ?? null;
@@ -1005,6 +1025,11 @@ function markLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRec
   if (changed.includes('character_id') || changed.includes('camera_id')) {
     const to = markWho(after.props, around, unit);
     return to === null ? [t('history.markMadePlain')] : line('history.markGiven', { who: to });
+  }
+  if (orderOnly && changed.length > 0) {
+    const was = typeof before.props.order === 'string' ? before.props.order : null;
+    const now = typeof after.props.order === 'string' ? after.props.order : null;
+    return line(was !== null && now !== null && now < was ? 'history.positionEarlier' : 'history.positionLater', { who: who(after.props) });
   }
   if (!marks.every((op) => op.kind === 'update')) return null;
   return iconLine(marks, 1, around, unit, aMark(after.props, around, unit));

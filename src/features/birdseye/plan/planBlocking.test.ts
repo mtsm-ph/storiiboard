@@ -1,23 +1,29 @@
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { Group } from 'react-konva';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { noticeStore } from '../../../app/notice';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
-import { blockingPlanOf, markFields, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
-import { markOwner, markOwnerChanges, viewBlocking } from '../../../core/model/planBlocking';
+import { blockingPlanOf, MARK_ICON, markFields, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
+import { cameraPositions, markOwner, markOwnerChanges, PLAIN_MARK_SIZE, viewBlocking } from '../../../core/model/planBlocking';
+import { cameraTitle } from '../../../core/model/planCamera';
+import { setupOnlyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { DIM_OPACITY } from '../../../ui/canvas/ItemNodes';
 import { PAPER_COLOURS } from '../../../ui/canvas/paperColours';
+import { sortKeysFor } from '../../../ui/canvas/zOrder';
 import { restoreChanges, trashItems } from '../../trash/trash';
 import { cameraLooks } from './cameraLooks';
 import { iconNodes, iconNodesWith, type IconTexts } from './iconDraw';
+import { iconSize } from './iconSizes';
+import { iconLabel } from './iconWords';
 import { blockingLooks, characterInitial } from './markLooks';
 import { PathShape, segmentEnds } from './markDraw';
 import { markSizes, nextPosition, placeIcon, placeMark } from './planActions';
-import { cameraItem, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, trashPlanItemsChanges, turnChanges, turnsByKey, unreadableAfter } from './planItems';
+import { cameraItem, iconCentre, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, reorderPlanChanges, trashPlanItemsChanges, turnChanges, turnsByKey, unreadableAfter } from './planItems';
 import { planStore } from './planStore';
 
 // Cast blocking and camera moves on the plan (6.7): the Mark tool and Next position as one step each (the blocking
@@ -165,7 +171,7 @@ describe('a camera’s later positions (6.7)', () => {
     // Its icon in a group at the core's dim.
     const drawn = ghost?.draw?.({ width: ghost.width, height: ghost.height, zoom: 1, colours: PAPER_COLOURS, inView: true });
     expect(isValidElement(drawn) && (drawn as ReactElement<{ opacity: number }>).type === Group && (drawn as ReactElement<{ opacity: number }>).props.opacity).toBe(DIM_OPACITY);
-    expect(turnsByKey(markFields(records()[m2 ?? '']?.props ?? {}) ?? { kind: 'wall', x: 0, y: 0, width: 1, height: 1, rotation: 0, heightM: null, name: '' })).toBe(true);
+    expect(turnsByKey(markFields(records()[m2 ?? '']?.props ?? {}) ?? { kind: 'wall', x: 0, y: 0, width: 1, height: 1, rotation: 0, heightM: null, name: '' }, records(), records()[m2 ?? ''])).toBe(true);
     expect(turnChanges(records(), [m2 ?? ''], 5)).toHaveLength(1);
   });
 
@@ -386,5 +392,210 @@ describe('the letter and number inside a character’s mark (6.7)', () => {
     await store.getState().apply([{ kind: 'update', id: 'ben', set: { name: '  ' } }]);
     expect(textsOf(b1 ?? '')).toBe('?1');
     expect(characterInitial(records(), 'nobody')).toBe('?');
+  });
+});
+
+// 6.7 review: drawing order and position order kept apart, Copy and Cut of a camera with its move, a copied position
+// that loses its camera, the Library's cast mark, two cameras on one body, the Selection tile's notes.
+describe('drawing order never renumbers a position (6.7 review)', () => {
+  it('a cheated mark beside a camera survives Send backward on a light (H1 a), and Bring to front on ANA 1 changes no number', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const cam = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 4, y: 4 }, cam));
+    const [a1, a2, a3] = await anaWalks(view);
+    await store.getState().apply(setupOnlyChanges(records(), sceneId, setupId, [a1 ?? ''], true));
+    expect(records()[a1 ?? '']?.parentId).toBe(records()[cam]?.parentId);
+    const light = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'lighting/fresnel', { x: 6, y: 0 }, light));
+    expect(() => reorderPlanChanges(records(), [light], 'backward')).not.toThrow();
+    expect(reorderPlanChanges(records(), [light], 'backward').length).toBeGreaterThan(0);
+    // Even with the mark and the camera on one key, as the first 6.7 build could leave them.
+    await store.getState().apply([{ kind: 'move', id: a1 ?? '', parentId: records()[cam]?.parentId ?? '', sortKey: records()[cam]?.sortKey ?? '' }]);
+    expect(() => reorderPlanChanges(records(), [light], 'backward')).not.toThrow();
+    // Bring to front on ANA 1: marks are left out, so nothing is written and every number stays.
+    const before = [a1, a2, a3].map((id) => viewBlocking(records(), sceneId, setupId).numbers.get(id ?? '')?.number);
+    expect(reorderPlanChanges(records(), [a1 ?? ''], 'front')).toEqual([]);
+    expect(reorderPlanChanges(records(), [a2 ?? '', light], 'back').every((c) => c.kind === 'move' && c.id === light)).toBe(true);
+    expect(before).toEqual([1, 2, 3]);
+  });
+
+  it('sortKeysFor survives two siblings sharing a key: a fresh key for the one moved', () => {
+    // c moved between a and b, which share "V": no key lies between them, so it takes one after "V" (before, this threw).
+    const keys = new Map([
+      ['c', 'B'],
+      ['a', 'V'],
+      ['b', 'V'],
+    ]);
+    const made = sortKeysFor(['c', 'a', 'b'], ['a', 'c', 'b'], keys, new Set(['c']));
+    expect(made.get('c')).toBeDefined();
+    expect((made.get('c') ?? '') > 'V').toBe(true);
+  });
+});
+
+describe('Copy and Cut of a camera take its move (6.7 review, M3)', () => {
+  async function moving(view: { sceneId: string; setupId: string }) {
+    const cam = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 0 }, cam));
+    expect(await nextPosition(view, cam, project, null, store)).toBeNull();
+    const [m2] = selected(view);
+    expect(await nextPosition(view, m2 ?? '', project, null, store)).toBeNull();
+    return cam;
+  }
+  const positionsOf = (view: { sceneId: string; setupId: string }, cam: string) => cameraPositions(records(), view, cam).map((p) => p.record.id);
+
+  it('cut and paste: the pasted camera has its two later positions, numbered as they were', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const cam = await moving(view);
+    const orders = positionsOf(view, cam).slice(1).map((id) => records()[id]?.props.order);
+    const clip = planClipOf(records(), [cam], view);
+    expect(clip).toHaveLength(3);
+    await store.getState().apply(trashPlanItemsChanges(records(), [cam]));
+    const pasted = planPasteInView(records(), view, clip, null);
+    await store.getState().apply(pasted.changes);
+    const copy = pasted.ids.find((id) => records()[id]?.props.kind === 'camera') ?? '';
+    expect(positionsOf(view, copy)).toHaveLength(3);
+    expect(positionsOf(view, copy).slice(1).map((id) => records()[id]?.props.order)).toEqual(orders);
+  });
+
+  it('copy and paste: both cameras move, each with its own positions', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const cam = await moving(view);
+    // The camera and one of its marks selected together: the mark isn't pasted twice.
+    const [, m2] = positionsOf(view, cam);
+    const pasted = planPasteInView(records(), view, planClipOf(records(), [cam, m2 ?? ''], view), null);
+    expect(pasted.ids).toHaveLength(3);
+    await store.getState().apply(pasted.changes);
+    const copy = pasted.ids.find((id) => records()[id]?.props.kind === 'camera') ?? '';
+    expect(positionsOf(view, cam)).toHaveLength(3);
+    expect(positionsOf(view, copy)).toHaveLength(3);
+    expect(positionsOf(view, copy).slice(1).every((id) => !positionsOf(view, cam).includes(id))).toBe(true);
+  });
+
+  it('a camera position pasted alone is a plain mark at a tape mark’s size, unturned (L2)', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const track = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/dolly-track', { x: 0, y: 0 }, track));
+    await store.getState().apply([{ kind: 'update', id: track, set: { rotation: 90 } }]);
+    await nextPosition(view, track, project, null, store);
+    const [m2] = selected(view);
+    const pasted = planPasteInView(records(), view, planClipOf(records(), [m2 ?? ''], view), null);
+    await store.getState().apply(pasted.changes);
+    const plain = records()[pasted.ids[0] ?? '']?.props ?? {};
+    const size = iconSize(MARK_ICON);
+    expect(plain).toMatchObject({ width: size?.width, height: size?.depth, rotation: 0 });
+    expect(plain.camera_id).toBeUndefined();
+    expect(plain.order).toBeUndefined();
+    // The core's plain size is iconSizes.ts's tape mark.
+    expect(PLAIN_MARK_SIZE).toEqual(size);
+  });
+
+  it('a duplicated character’s position is a new one, after her last', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const [first] = await anaWalks(view);
+    const pasted = planPasteInView(records(), view, planClipOf(records(), [first ?? ''], view), null);
+    await store.getState().apply(pasted.changes);
+    const numbers = viewBlocking(records(), sceneId, setupId).numbers;
+    expect(numbers.get(pasted.ids[0] ?? '')).toMatchObject({ number: 4, count: 4 });
+    expect(numbers.get(first ?? '')?.number).toBe(1);
+  });
+});
+
+describe('the Library’s cast mark lands as what was dragged (6.7 review, L3)', () => {
+  it('a plain mark (and says so) with two characters unplaced; then BEN’s first; then ANA’s next with hers selected', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    select(view, []);
+    noticeStore.setState({ message: null });
+    expect(await placeIcon(view, 'cast/cast-mark', { x: 0, y: 0 }, project, store)).toBeNull();
+    const [plain] = selected(view);
+    expect(markOwner(records(), records()[plain ?? ''] as SbdRecord)).toBeNull();
+    expect(records()[plain ?? '']?.props).toMatchObject({ width: iconSize(MARK_ICON)?.width });
+    expect(noticeStore.getState().message).toBe('Placed a plain mark. Give it a character in the Selection tile.');
+    // ANA given her first: BEN is the one character left, so the next cast mark is his first position.
+    await setMarkOwnerIn(view, plain ?? '', 'ana');
+    select(view, []);
+    expect(await placeIcon(view, 'cast/cast-mark', { x: 2, y: 2 }, project, store)).toBeNull();
+    const [ben] = selected(view);
+    expect(markOwner(records(), records()[ben ?? ''] as SbdRecord)).toEqual({ kind: 'character', id: 'ben' });
+    // ANA's mark selected: her next position, where it was dropped.
+    select(view, [plain ?? '']);
+    expect(await placeIcon(view, 'cast/cast-mark', { x: 3, y: 0 }, project, store)).toBeNull();
+    const [next] = selected(view);
+    expect(viewBlocking(records(), sceneId, setupId).numbers.get(next ?? '')).toMatchObject({ owner: { kind: 'character', id: 'ana' }, number: 2 });
+    expect(iconCentre(markFields(records()[next ?? '']?.props ?? {}) ?? { x: NaN, y: NaN, width: 0, height: 0, rotation: 0 })).toEqual({ x: 3, y: 0 });
+    // The tape mark is always a plain mark.
+    select(view, [plain ?? '']);
+    expect(await placeIcon(view, 'cast/tape-mark', { x: 5, y: 5 }, project, store)).toBeNull();
+    const [tape] = selected(view);
+    expect(markOwner(records(), records()[tape ?? ''] as SbdRecord)).toBeNull();
+  });
+});
+
+describe('two cameras on one body (6.7 review, L4)', () => {
+  it('label their later positions apart: by number, or by the camera’s own name', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const [c1, c2] = [crypto.randomUUID(), crypto.randomUUID()];
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 0 }, c1));
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 3 }, c2));
+    await nextPosition(view, c1, project, null, store);
+    const [m1] = selected(view);
+    await nextPosition(view, c2, project, null, store);
+    const [m2] = selected(view);
+    const label = (id: string) => blockingLooks(records(), view, shownItems(records(), sceneId, setupId), 'metres', []).marks.get(id)?.lines[0];
+    // Both on the default body, lettered A: told apart by their place, as the Frames tile numbers them.
+    expect([label(m1 ?? ''), label(m2 ?? '')]).toEqual(['A(1) 2', 'A(2) 2']);
+    expect(cameraTitle(records(), c2, iconLabel)).toBe('A · Camera (2)');
+    await store.getState().apply([{ kind: 'update', id: c2, set: { name: 'Wide' } }]);
+    expect([label(m1 ?? ''), label(m2 ?? '')]).toEqual(['A(1) 2', 'Wide 2']);
+  });
+});
+
+describe('a path from a turned first position (6.7 review, L9)', () => {
+  it('starts at the first position’s middle in its own turned box, and points where the plan says', () => {
+    // A 40 × 20 box turned 90° about its middle, plan (100, 100); the next position 200 to its right on the plan. In the
+    // box's own frame (the canvas turns it back by 90°), the path starts at the middle (20, 10) and runs up its own y.
+    const drawn = PathShape({
+      path: { points: [{ x: 100, y: 100 }, { x: 300, y: 100 }], radii: [0, 0], fit: { x: 80, y: 80, width: 220, height: 40 } },
+      box: { x: 80, y: 90, width: 40, height: 20, rotation: 90 },
+      zoom: 1,
+      colours: PAPER_COLOURS,
+    });
+    const parts = (drawn as ReactElement<{ children: ReactNode[] }>).props.children;
+    const [line, head] = parts as ReactElement<{ points: number[] }>[];
+    const close = (got: readonly number[] | undefined, want: readonly number[]) => {
+      want.forEach((v, i) => {
+        expect(got?.[i] ?? NaN).toBeCloseTo(v, 6);
+      });
+    };
+    // The line stops at the arrowhead's back, 10 px short of the later end; the head's tip is the later middle.
+    close(line?.props.points, [20, 10, 20, -180]);
+    close(head?.props.points.slice(0, 2), [20, -190]);
+  });
+});
+
+describe('the Trash keeps a mark deleted before its camera (6.7 review, L9)', () => {
+  it('restoring the camera brings back only the marks that went with it', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const cam = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 0 }, cam));
+    await nextPosition(view, cam, project, null, store);
+    const [m2] = selected(view);
+    await nextPosition(view, m2 ?? '', project, null, store);
+    const [m3] = selected(view);
+    await store.getState().apply(trashPlanItemsChanges(records(), [m3 ?? '']));
+    await store.getState().apply(trashPlanItemsChanges(records(), [cam]));
+    // Two steps can land in one millisecond: the earlier one's time set apart, as two real deletes would be.
+    const was = records()[m3 ?? ''] as SbdRecord;
+    const apart = { ...records(), [was.id]: { ...was, trashedAt: '2000-01-01T00:00:00.000Z' } };
+    const restored = restoreChanges(apart, project.projectId, cam).flatMap((c) => (c.kind === 'restore' ? [c.id] : []));
+    expect(restored.sort()).toEqual([cam, m2 ?? ''].sort());
+    expect(restored).not.toContain(m3);
   });
 });

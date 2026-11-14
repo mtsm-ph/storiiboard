@@ -4,7 +4,7 @@ import { projectStore, type ProjectState } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
-import { markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
+import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
 import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import {
@@ -267,6 +267,7 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
   if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
   // The Library's next position (6.7) follows the one mark or camera selected: dropped, where it was dropped.
   if (icon === NEXT_POSITION_ICON) return nextFromSelection(view, madeIn, centre, store);
+  if (icon === CAST_MARK_ICON) return placeCastMark(view, centre, madeIn, store);
   const id = crypto.randomUUID();
   const refused: { why: IconRefusal | null; north: string | null } = { why: null, north: null };
   const written = await store.getState().applyWith((records) => {
@@ -281,6 +282,38 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
     return 'hasNorth';
   }
   if (written && store.getState().project === madeIn) select(view, [id]);
+  return null;
+}
+
+/**
+ * The Library's "Cast mark" (6.7 review, L3), so the figure dragged is the one that lands: with a character's mark
+ * selected, that character's next position; else, when the scene has one character with no position in the view yet,
+ * that character's first; else a plain mark (drawn as a tape mark, at its size), and the notice says to give it its
+ * character. Where it was dropped, selected; one op group, only into the project it began in.
+ */
+async function placeCastMark(view: PlanView, centre: Point, madeIn: Project, store: StoreApi<ProjectState>): Promise<PlaceOutcome> {
+  const id = crypto.randomUUID();
+  const picked = planSelection(store.getState().records, view);
+  const what: { refused: IconRefusal | null; plain: boolean } = { refused: null, plain: false };
+  const sizes = markSizes();
+  const written = await store.getState().applyWith((records) => {
+    what.refused = iconRefusal(records, view, CAST_MARK_ICON);
+    if (what.refused !== null) return { changes: [] };
+    const target = castMarkFor(records, view, picked);
+    what.plain = target === null;
+    const changes =
+      target === null
+        ? placeMarkChanges(records, view, centre, sizes.plain, null, id)
+        : target.kind === 'next'
+          ? nextPositionChanges(records, view, target.fromId, iconSize(NEXT_POSITION_ICON) ?? sizes.character, centre, id)
+          : placeMarkChanges(records, view, centre, sizes.character, target.characterId, id);
+    return { changes: unreadableAfter(records, changes) ? [] : changes };
+  });
+  if (what.refused !== null) return what.refused;
+  if (written && store.getState().project === madeIn) {
+    select(view, [id]);
+    if (what.plain) showInfo(t('plan.mark.giveCharacter'));
+  }
   return null;
 }
 

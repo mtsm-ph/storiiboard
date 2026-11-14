@@ -3,7 +3,7 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { viewBlocking } from '../../../core/model/planBlocking';
+import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
 import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
@@ -511,7 +511,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           return {
             id: record.id,
             level,
-            layer: planItemLayer(record.props),
+            // On the camera layer only while its camera link reads (6.7 review: markLayer).
+            layer: itemLayer(records, record),
             ...fields,
             centre: iconCentre(fields),
             owner: of?.owner ?? null,
@@ -670,7 +671,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             // the plan (they step frames only in the Player), and on those layouts with no modifier at all.
             const turn = turnFor(event);
             if (turn !== 0 && !event.altKey && !event.metaKey && !event.ctrlKey) {
-              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && turnsByKey(item.fields)));
+              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && turnsByKey(item.fields, records, item.record)));
               if (cameras.length === 0) return false;
               const step = event.shiftKey ? 1 : 5;
               void turnCameras(cameras, turn * step);

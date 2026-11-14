@@ -28,7 +28,7 @@ import {
   type PlanItemFields,
   type Swing,
 } from '../../../core/model/plan';
-import { alsoInRoom, itemHome, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOthers, type PlanPlace } from '../../../core/model/planRooms';
+import { alsoInRoom, homeOf, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOthers, type PlanPlace } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
@@ -88,7 +88,10 @@ function SelectionContent() {
     const [mark] = selected.flatMap((s) => (isMark(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
     // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its
     // already, and the room's north (6.6) is the room's alone.
-    const movable = !north && ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
+    const movable = !north && ids.some((id) => {
+      const record = records[id];
+      return record !== undefined && homeOf(records, record) !== 'setup';
+    });
     return (
       <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
         {walls.length === selected.length ? (

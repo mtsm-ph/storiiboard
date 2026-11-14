@@ -118,6 +118,9 @@ test('places a character’s marks with their path, reorders them, shows them in
   await selectionTile(page).getByRole('combobox', { name: 'Who' }).selectOption({ label: 'ANA' });
   await expect.poll(() => labels(page)).toEqual(['ANA 1']);
   await expect(selectionTile(page).locator('[data-mark-position]')).toHaveAttribute('data-mark-position', '1/1');
+  // At either end, Earlier and Later are disabled, saying why in their names.
+  await expect(selectionTile(page).getByRole('button', { name: 'Earlier: this is the first position' })).toBeDisabled();
+  await expect(selectionTile(page).getByRole('button', { name: 'Later: this is the last position' })).toBeDisabled();
 
   // Two next positions: the Selection tile's button, then Shift+M on the plan; each is selected.
   await selectionTile(page).getByRole('button', { name: 'Next position' }).click();
@@ -154,8 +157,8 @@ test('places a character’s marks with their path, reorders them, shows them in
   // Setup 2 shows the same marks, the same numbers.
   await setupsTile(page).locator('[data-setup-select]').nth(1).click();
   await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 2');
-  // In plan order: position 3 moved earlier sits between the other two.
-  await expect.poll(async () => (await marks(page)).map((m) => [m.id, m.number])).toEqual([
+  // By number (each mark's own order, never drawing order): position 3 moved earlier sits between the other two.
+  await expect.poll(async () => (await marks(page)).map((m) => [m.id, m.number]).sort((a, b) => Number(a[1]) - Number(b[1]))).toEqual([
     [first.id, 1],
     [third.id, 2],
     [second.id, 3],

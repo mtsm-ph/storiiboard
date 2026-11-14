@@ -413,3 +413,40 @@ describe('History for marks (6.7)', () => {
     expect(tell([op('update', mark({ character_id: 'ana' }), mark())])).toBe('Una marca quedó simple');
   });
 });
+
+// 6.7 review: cameras deleted with their later positions counted as cameras (L7); Earlier and Later as an `order` change.
+describe('History for marks, reviewed (6.7 review)', () => {
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const blk = record('blk', 'plan', 'sc4', { kind: 'blocking', name: '' });
+  const ana = record('ana', 'character', 'p', { name: 'ANA' });
+  const box = { x: 0, y: 0, width: 0.5, height: 0.5, rotation: 0 };
+  const camera = (id: string) => record(id, 'plan_item', 'own', { kind: 'camera', icon: 'camera/camera', ...box });
+  const mark = (id: string, props: Props, parentId = 'own') => record(id, 'plan_item', parentId, { kind: 'mark', icon: 'cast/next-position', ...box, ...props });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['own', own], ['blk', blk], ['ana', ana]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+  const gone = (r: SbdRecord) => op('trash', r, { ...r, trashedAt: at });
+  const back = (r: SbdRecord) => op('restore', { ...r, trashedAt: at }, r);
+  const [c1, c2] = [camera('c1'), camera('c2')];
+  const moves = [mark('m1', { camera_id: 'c1' }), mark('m2', { camera_id: 'c1' }), mark('m3', { camera_id: 'c2' })];
+
+  it('counts two cameras deleted with their moves as two cameras, never their marks', () => {
+    expect(tell([gone(c1), gone(c2), ...moves.map(gone)])).toBe('Deleted 2 cameras');
+    expect(tell([back(c1), back(c2), ...moves.map(back)])).toBe('Restored 2 cameras');
+    // With something else: counted as plan items, still without the marks that went with their camera.
+    const sofa = record('sofa', 'plan_item', 'own', { kind: 'icon', icon: 'set-art/sofa', ...box });
+    expect(tell([gone(c1), gone(sofa), ...moves.slice(0, 2).map(gone)])).toBe('Deleted 2 plan items');
+    setLocale('es');
+    expect(tell([gone(c1), gone(c2), ...moves.map(gone)])).toBe('Se eliminaron 2 cámaras');
+  });
+
+  it('says Earlier and Later from the mark’s `order`, and names the field without its key', () => {
+    const was = mark('k', { character_id: 'ana', order: 'm' }, 'blk');
+    const earlier = mark('k', { character_id: 'ana', order: 'c' }, 'blk');
+    expect(tell([op('update', was, earlier)])).toBe('Moved a position of ANA earlier');
+    expect(tell([op('update', earlier, was)])).toBe('Moved a position of ANA later');
+    const [change] = fieldChanges(was, earlier);
+    expect(change && changeLabel(change)).toBe('place among positions');
+    setLocale('es');
+    expect(tell([op('update', was, earlier)])).toBe('Se movió antes una posición de ANA');
+  });
+});

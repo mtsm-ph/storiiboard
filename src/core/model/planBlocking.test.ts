@@ -6,6 +6,8 @@ import { blockingPlanOf, markFields, setupPlanOf } from './plan';
 import {
   blockingReadingsMade,
   cameraMarks,
+  markLayer,
+  markNotes,
   markOwner,
   markOwnerChanges,
   movePositionChanges,
@@ -18,7 +20,7 @@ import {
   viewBlocking,
 } from './planBlocking';
 import { planLegend } from './planLegend';
-import { copySetupChanges, separateCopyChanges, setupOnlyChanges } from './planRooms';
+import { copySetupChanges, homeOf, separateCopyChanges, setupOnlyChanges } from './planRooms';
 import type { Props, SbdRecord } from './record';
 
 // Cast blocking and camera moves (6.7): numbering by plan order across the blocking and a setup's own marks, every
@@ -92,10 +94,11 @@ const base = (): Records =>
     record('u2', 'setup', 's1', { name: '' }, 'b'),
     record('own1', 'plan', 'u1', { kind: 'setup', name: '' }),
     record('own2', 'plan', 'u2', { kind: 'setup', name: '' }),
-    mark('a1', 'blk', 'b', { character_id: 'ana' }, 0, 0),
-    mark('b1', 'blk', 'c', { character_id: 'ben' }, 5, 5),
-    mark('a2', 'blk', 'd', { character_id: 'ana', icon: 'cast/next-position' }, 1, 0),
-    mark('a3', 'blk', 'e', { character_id: 'ana', icon: 'cast/next-position' }, 2, 0),
+    // Each character's mark has its own `order` (6.7 review), here the same as its sort key.
+    mark('a1', 'blk', 'b', { character_id: 'ana', order: 'b' }, 0, 0),
+    mark('b1', 'blk', 'c', { character_id: 'ben', order: 'c' }, 5, 5),
+    mark('a2', 'blk', 'd', { character_id: 'ana', icon: 'cast/next-position', order: 'd' }, 1, 0),
+    mark('a3', 'blk', 'e', { character_id: 'ana', icon: 'cast/next-position', order: 'e' }, 2, 0),
     camera('cam', 'own1', 'a', {}, 0, 0),
   );
 
@@ -110,9 +113,12 @@ describe('numbering a character’s positions (6.7)', () => {
     let records = base();
     expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3']);
     expect(viewBlocking(records, 's1', 'u1').numbers.get('a2')).toEqual({ owner: { kind: 'character', id: 'ana' }, number: 2, count: 3 });
-    // Position 2 made Setup 1's only (a cheated mark): it keeps its sort key, so it is still position 2 there.
+    // Position 2 made Setup 1's only (a cheated mark): a fresh key at the front of Setup 1's plan (after its camera's),
+    // its `order` untouched, so it is still position 2 there.
     const cheated = setupOnlyChanges(records, 's1', 'u1', ['a2'], true);
-    expect(cheated).toEqual([{ kind: 'move', id: 'a2', parentId: 'own1', sortKey: 'd' }]);
+    expect(cheated).toHaveLength(1);
+    expect(cheated[0]).toMatchObject({ kind: 'move', id: 'a2', parentId: 'own1' });
+    expect(cheated[0]?.kind === 'move' && cheated[0].sortKey > 'a').toBe(true);
     records = applied(records, cheated);
     expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3']);
     expect(numberOf(records, v1, 'a3')).toBe(3);
@@ -187,8 +193,10 @@ describe('Earlier and Later (6.7)', () => {
   it('reorders among that owner’s positions only, never past either end', () => {
     let records = base();
     const earlier = movePositionChanges(records, v1, 'a3', -1);
+    // Its `order` alone, between its new neighbours'; its sort key (drawing order) untouched.
     expect(earlier).toHaveLength(1);
-    expect(earlier[0]).toMatchObject({ kind: 'move', id: 'a3', parentId: 'blk' });
+    expect(earlier[0]?.kind === 'update' && Object.keys(earlier[0].set ?? {})).toEqual(['order']);
+    expect(earlier[0]).toMatchObject({ kind: 'update', id: 'a3' });
     records = applied(records, earlier);
     expect(anaIds(records, v1)).toEqual(['a1', 'a3', 'a2']);
     // BEN's mark keeps its own number; the plan's other items aren't touched.
@@ -350,5 +358,171 @@ describe('the legend’s cast section (6.7)', () => {
     // A plain mark is a tape mark in the cast group; the character's and the camera's marks aren't lines of their own.
     expect(legend.groups.find((g) => g.layer === 'cast')?.lines).toEqual([expect.objectContaining({ label: 'cast/tape-mark', count: 1 })]);
     expect(planLegend(records, 's1', 'u2', (icon) => icon).groups.find((g) => g.layer === 'camera')).toBeUndefined();
+  });
+});
+
+// 6.7 review: a mark's place among its owner's positions is its own `order`, never its sort key (drawing order).
+describe('a position’s own order (6.7 review)', () => {
+  const orders = (records: Records, owner: string) =>
+    Object.values(records)
+      .filter((r) => r.type === 'plan_item' && r.props.kind === 'mark' && r.props.character_id === owner)
+      .map((r) => markFields(r.props)?.order ?? null);
+
+  it('a cheated mark keeps its number, and Next position from another setup never ties with it (H1 b)', () => {
+    let records = base();
+    // ANA 3 made Setup 1's only: a fresh sort key in Setup 1's plan, its `order` untouched.
+    records = applied(records, setupOnlyChanges(records, 's1', 'u1', ['a3'], true));
+    expect(records.a3?.parentId).toBe('own1');
+    expect(markFields(records.a3?.props ?? {})?.order).toBe('e');
+    expect(numberOf(records, v1, 'a3')).toBe(3);
+    // Next position from Setup 2 (which shows ANA 1 and 2): after every ANA mark of the scene, Setup 1's cheated one too.
+    records = applied(records, nextPositionChanges(records, v2, 'a2', SIZE, null, 'a4'));
+    expect(markFields(records.a4?.props ?? {})?.order).toBeTruthy();
+    expect((markFields(records.a4?.props ?? {})?.order ?? '') > 'e').toBe(true);
+    expect(anaIds(records, v1).map((id) => numberOf(records, v1, id))).toEqual([1, 2, 3, 4]);
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3', 'a4']);
+    expect(anaIds(records, v2)).toEqual(['a1', 'a2', 'a4']);
+    // Every ANA `order` is its own.
+    const all = orders(records, 'ana');
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('a camera’s mark with the same sort key as another item never ties: numbers by order (H1 a)', () => {
+    // The camera and a cheated mark both "b" in Setup 1's plan, as the first 6.7 build could write them.
+    const records: Records = { ...base(), cam: camera('cam', 'own1', 'b'), a1: { ...(base().a1 as SbdRecord), parentId: 'own1' } };
+    expect(numberOf(records, v1, 'a1')).toBe(1);
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('Earlier and Later on two positions sharing an order (or none) give each a fresh one, never doing nothing (H1 c)', () => {
+    const tied: Records = {
+      ...base(),
+      a2: { ...(base().a2 as SbdRecord), props: { ...base().a2?.props, order: 'e' } },
+    };
+    // a2 and a3 share "e": told apart by when each was made, then by id (a2 first), the same every time.
+    expect(anaIds(tied, v1)).toEqual(['a1', 'a2', 'a3']);
+    const later = movePositionChanges(tied, v1, 'a2', 1);
+    expect(later.length).toBeGreaterThan(0);
+    const moved = applied(tied, later);
+    expect(anaIds(moved, v1)).toEqual(['a1', 'a3', 'a2']);
+    const all = orders(moved, 'ana');
+    expect(new Set(all).size).toBe(all.length);
+    // Back again by Earlier: a single order between its neighbours.
+    const back = movePositionChanges(moved, v1, 'a2', -1);
+    expect(back).toHaveLength(1);
+    expect(anaIds(applied(moved, back), v1)).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('a mark with no order (an import’s) sorts after those with one, then by when made, then id: never by sort key', () => {
+    const early = '2026-11-01T10:00:00.000Z';
+    const records: Records = {
+      ...base(),
+      // No order, sort keys before every other ANA mark's: still after them.
+      x1: { ...mark('x1', 'blk', '0', { character_id: 'ana' }), createdAt: at },
+      x2: { ...mark('x2', 'blk', '1', { character_id: 'ana' }), createdAt: early },
+      x0: { ...mark('x0', 'blk', '2', { character_id: 'ana' }), createdAt: at },
+    };
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3', 'x2', 'x0', 'x1']);
+    // An `order` that isn't a key reads as none.
+    expect(markFields({ kind: 'mark', ...box(0, 0), order: 'not a key!' })?.order).toBeNull();
+    expect(markFields({ kind: 'mark', ...box(0, 0), order: 'V0' })?.order).toBeNull();
+    expect(markFields({ kind: 'mark', ...box(0, 0), order: 'V' })?.order).toBe('V');
+  });
+
+  it('a setup started from another keeps a cheated character mark’s number', () => {
+    let records = base();
+    records = applied(records, setupOnlyChanges(records, 's1', 'u1', ['a2'], true));
+    delete records.own2;
+    records = applied(records, copySetupChanges(records, 'u1', 'u2', 'own2'));
+    const copy = Object.values(records).find((r) => r.parentId === 'own2' && r.props.kind === 'mark');
+    expect(copy && markFields(copy.props)?.order).toBe('d');
+    expect(numberOf(records, v2, copy?.id ?? '')).toBe(2);
+    expect(numberOf(records, v2, 'a3')).toBe(3);
+  });
+
+  it('a mark given to a camera becomes its last position; made plain, it has no order', () => {
+    let records: Records = { ...base(), m2: mark('m2', 'own1', 'b', { camera_id: 'cam', order: 'l' }, 1, 0) };
+    records = applied(records, markOwnerChanges(records, v1, ['b1'], { kind: 'camera', id: 'cam' }, SIZES));
+    expect((markFields(records.b1?.props ?? {})?.order ?? '') > 'l').toBe(true);
+    expect(viewBlocking(records, 's1', 'u1').cameras[0]?.positions.map((p) => p.record.id)).toEqual(['cam', 'm2', 'b1']);
+    // Given to ANA: her last position.
+    records = applied(records, markOwnerChanges(records, v1, ['b1'], { kind: 'character', id: 'ana' }, SIZES));
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3', 'b1']);
+    expect(records.b1?.parentId).toBe('blk');
+    // Plain: no order.
+    records = applied(records, markOwnerChanges(records, v1, ['b1'], { kind: 'plain' }, SIZES));
+    expect(records.b1?.props.order).toBeUndefined();
+  });
+
+  it('a camera mark moved off its camera takes a fresh key at the front of the blocking, never its old one', () => {
+    const records: Records = { ...base(), m2: mark('m2', 'own1', 'a', { camera_id: 'cam', order: 'V' }, 1, 0) };
+    const changes = markOwnerChanges(records, v1, ['m2'], { kind: 'character', id: 'ben' }, SIZES);
+    const move = changes.find((c) => c.kind === 'move');
+    expect(move).toMatchObject({ kind: 'move', id: 'm2', parentId: 'blk' });
+    expect(move?.kind === 'move' && move.sortKey > 'e').toBe(true);
+  });
+
+  it('a copy that loses its camera is a tape mark’s size about its middle, unturned, with no order (L2)', () => {
+    const props = { kind: 'mark', icon: 'cast/next-position', x: 0, y: 0, width: 1, height: 3, rotation: 90, camera_id: 'cam', order: 'V' };
+    expect(repointCamera(props, new Map())).toEqual({ kind: 'mark', icon: 'cast/next-position', x: 0.35, y: 1.36, width: 0.3, height: 0.28, rotation: 0 });
+    expect(repointCamera(props, new Map([['cam', 'cam2']]))).toEqual({ ...props, camera_id: 'cam2' });
+  });
+});
+
+describe('a mark’s layer and level read its camera link (6.7 review, L1)', () => {
+  it('a mark whose camera is in the Trash is cast blocking’s, with "This setup only" back to the blocking', () => {
+    const records: Records = { ...base(), m: mark('m', 'own1', 'b', { camera_id: 'cam', order: 'V' }, 1, 1) };
+    expect(markLayer(records, records.m as SbdRecord)).toBe('camera');
+    expect(homeOf(records, records.m as SbdRecord)).toBe('setup');
+    const trashed: Records = { ...records, cam: { ...(records.cam as SbdRecord), trashedAt: at } };
+    expect(markLayer(trashed, trashed.m as SbdRecord)).toBe('cast');
+    expect(homeOf(trashed, trashed.m as SbdRecord)).toBe('blocking');
+    expect(setupOnlyChanges(trashed, 's1', 'u1', ['m'], false)).toMatchObject([{ kind: 'move', id: 'm', parentId: 'blk' }]);
+    // A dead camera link and a live character: the character's, on the cast layer.
+    const both: Records = { ...trashed, m: { ...(trashed.m as SbdRecord), props: { ...trashed.m?.props, character_id: 'ana' } } };
+    expect(markOwner(both, both.m as SbdRecord)).toEqual({ kind: 'character', id: 'ana' });
+    expect(markLayer(both, both.m as SbdRecord)).toBe('cast');
+    // The legend counts it with cast blocking.
+    expect(planLegend(trashed, 's1', 'u1', (icon) => icon).groups.find((g) => g.layer === 'cast')?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'cast/tape-mark' })]));
+  });
+});
+
+describe('two blocking plans under one scene (6.7 review, L8)', () => {
+  it('shows the marks of both, numbers them together, and puts new marks in the first', () => {
+    const records: Records = {
+      ...base(),
+      blk2: { ...record('blk2', 'plan', 's1', { kind: 'blocking', name: '' }, 'blk'), createdAt: '2026-11-15T10:00:00.000Z' },
+      a9: mark('a9', 'blk2', 'a', { character_id: 'ana', order: 'c' }, 9, 9),
+    };
+    // Same sort key: the older plan first.
+    expect(blockingPlanOf(records, 's1')?.id).toBe('blk');
+    expect(anaIds(records, v1)).toEqual(['a1', 'a9', 'a2', 'a3']);
+    const made = placeMarkChanges(records, v1, { x: 0, y: 0 }, SIZE, 'ben', 'b2');
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({ kind: 'create', record: { parentId: 'blk' } });
+  });
+});
+
+describe('the Selection tile’s notes and the Trash’s timing (6.7 review, L9)', () => {
+  it('says a character no longer in the scene, and a scene with no characters yet', () => {
+    const records = base();
+    const out: Records = { ...records, s1: { ...(records.s1 as SbdRecord), props: { ...records.s1?.props, character_ids: ['ben'] } } };
+    expect(markNotes(out, v1, out.a1 as SbdRecord)).toEqual({ stale: 'character', noCharacters: false });
+    expect(markNotes(records, v1, records.a1 as SbdRecord)).toEqual({ stale: null, noCharacters: false });
+    const none: Records = { ...records, s1: { ...(records.s1 as SbdRecord), props: { ...records.s1?.props, character_ids: [] } }, t: mark('t', 'blk', 'z', {}) };
+    expect(markNotes(none, v1, none.t as SbdRecord)).toEqual({ stale: null, noCharacters: true });
+    // A stale character's mark in a scene with none says both.
+    expect(markNotes(none, v1, none.a1 as SbdRecord)).toEqual({ stale: 'character', noCharacters: true });
+  });
+
+  it('a mark trashed earlier on its own stays in the Trash when its camera, trashed later, comes back', () => {
+    const earlier = '2026-11-14T09:00:00.000Z';
+    const records: Records = {
+      ...base(),
+      cam: { ...camera('cam', 'own1', 'a'), trashedAt: at, trashedBy: 'local' },
+      m2: { ...mark('m2', 'own1', 'b', { camera_id: 'cam', order: 'V' }), trashedAt: at, trashedBy: 'local' },
+      m3: { ...mark('m3', 'own1', 'c', { camera_id: 'cam', order: 'l' }), trashedAt: earlier, trashedBy: 'local' },
+    };
+    expect(trashedWithCamera(records, records.cam as SbdRecord).map((r) => r.id)).toEqual(['m2']);
   });
 });

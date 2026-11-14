@@ -277,6 +277,25 @@ export function cameraTitle(records: Records, cameraId: string, iconName: (icon:
   return t('plan.camera.nth', { title, n: same.findIndex((c) => c.record.id === cameraId) + 1 });
 }
 
+/**
+ * A camera as its later positions' labels name it (6.7 review, L4): its letter ("A"), else "Camera". Two cameras of the
+ * setup that would read the same (two on the default body) are told apart: by the camera's own name when it has one no
+ * other of them shares, else by its place among them, as cameraTitle numbers them ("A(2)", so its positions read
+ * "A(2) 2").
+ */
+export function cameraShortTitle(records: Records, cameraId: string): string {
+  const camera = liveCamera(records, cameraId);
+  if (!camera) return t('plan.mark.camera');
+  const short = (c: { record: SbdRecord }) => cameraBody(records, c.record)?.fields.letter ?? t('plan.mark.camera');
+  const base = short(camera);
+  const setupId = cameraSetupId(records, camera.record);
+  const same = setupId === null ? [] : setupCameras(records, setupId).filter((c) => short(c) === base);
+  if (same.length < 2) return base;
+  const name = camera.fields.name;
+  if (name !== '' && same.filter((c) => c.fields.name === name).length === 1) return name;
+  return t('plan.mark.cameraNth', { letter: base, n: same.findIndex((c) => c.record.id === cameraId) + 1 });
+}
+
 // The edits.
 
 /** A camera's `shot_ids` written as given: unset when empty, and `shown_shot_id` taken off when it names a frame no longer in it. */
