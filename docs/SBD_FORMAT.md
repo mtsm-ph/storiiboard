@@ -422,13 +422,15 @@ unreadable value reads as not set, as every prop does.
     `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
     `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
-  - Reach and size (6.3 review): a wall's, icon's, camera's, light's, flag's or diffusion frame's (6.5) `x` and `y`
+  - Reach and size (6.3 review): a wall's, icon's, camera's, light's, flag's or diffusion frame's (6.5), north's or
+    sun path's (6.6) `x` and `y`
     are read only within 10 000 m (10 km) of the plan's origin either way, and its `width` and `height` (a wall's
     length and thickness) only up to 1 000 m (1 km); a door's or window's `along_m` only up to 10 000 m and its
     `width_m` up to 1 000 m (src/core/model/plan.ts, `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308)
     the item isn't read and is kept unseen, as one with no size is, so the canvas never works in endless units. The
     app never writes past them (third review round): a typed field, a nudge, a drag or resize, a paste, a run of walls
-    or a placement that would leave a wall, door, window, icon, camera, light, flag or diffusion frame past them is
+    or a placement that would leave a wall, door, window, icon, camera, light, flag, diffusion frame, north or sun path
+    past them is
     refused whole and writes nothing (one check, `unreadableAfter` in src/features/birdseye/plan/planItems.ts); a
     typed field says it isn't a length.
   - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
@@ -490,7 +492,8 @@ unreadable value reads as not set, as every prop does.
     `watts` and `beam_deg`.
   - Drawing order (6.5): walls, then doors and windows, then icons, then flags and diffusion, then lights, then
     cameras, whatever the front-to-back order: the plan items' order (`sort_key`) decides only within a kind, so a
-    light, a flag or a camera always draws above the set pieces.
+    light, a flag or a camera always draws above the set pieces. North (6.6) draws with the icons, after them; sun
+    paths last, above the cameras.
   - A flag's or diffusion frame's label (6.5 review), everywhere it is named (the legend, History, the Trash, the
     Selection tile, aloud), is its kind and size, never the icon it was placed as: "Diffusion · 8×8", "Flag · 2×3",
     or the typed width in the unit shown when it matches no size ("Bounce · 1.50 m"). Words only: nothing is stored.
@@ -498,6 +501,22 @@ unreadable value reads as not set, as every prop does.
     wall's at its middle) and listed first in the legend, under "Room", one line per height with a count.
   - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
     of the plan.
+  - A `north` (6.6) is the room's north, in the room's plan (never a scene's or a setup's: "This setup only" leaves it
+    where it is), so every scene and setup set in the room shares it. `icon` `production/north` (missing reads so),
+    its box as an icon's (placed 0.6 × 0.6 m). Its `rotation` IS the room's north, clockwise as every rotation: 0
+    means north is up the plan (−y), 90 that it points right; its place only says where its arrow is drawn. One per
+    room: the app never writes a second (placing one where the room has one selects it; a paste leaves a second out);
+    a file with more reads the first live one in plan order (`sort_key`). A room with none has no north. A room's
+    separate copy copies it; it goes to the Trash and back as any item. Its layer (6.8) is production's.
+  - A `sun` (6.6) is a sun path, in a setup's own plan. `icon` `lighting/sun-path` (missing reads so), its box as an
+    icon's (placed 0.8 × 0.8 m); its position is the middle of its drawing, and its `rotation` is never used (written
+    0; the handles never turn it). `time`: written "12:00" when placed; missing or not a 24-hour "HH:mm" reads as
+    12:00. What it draws is read live, never stored (src/core/model/planSun.ts, sunPath.ts): the setup's frames, of
+    those with a live shoot day that has a `date` and a location (the frame's `location_id`, else its scene's) with a
+    place on the map, the one with the earliest day, then board order; the location's `time_zone`, else the zone looked
+    up from its place (never this computer's); and the room's north. Lacking one, it draws nothing and says which. The
+    arc is drawn 3 m out (a constant). Copies (a setup started from another, a paste, a duplicate) keep `time`. Its
+    layer (6.8) is lighting's.
   - A mark's `character_id` (6.7): the `character` it is for.
   - An underlay's `media_id` (6.9): the picture under the plan, a `media` record stored as board pictures are.
 

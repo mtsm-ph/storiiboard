@@ -338,3 +338,30 @@ describe('History for lights, flags and diffusion (6.5)', () => {
     expect(tell([op('update', light(), light({ gear_id: 'k1' }))])).toBe('Se eligió el equipo de un Fresnel');
   });
 });
+
+// 6.6: the room's north placed and turned ("Turned the room's north to 35°"); a sun path placed and its time set.
+describe('History for north and the sun path (6.6)', () => {
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const box = { x: 0, y: 0, width: 0.6, height: 0.6, rotation: 0 };
+  const north = (props: Props = {}) => record('n', 'plan_item', 'r', { kind: 'north', icon: 'production/north', ...box, ...props });
+  const sun = (props: Props = {}) => record('s', 'plan_item', 'own', { kind: 'sun', icon: 'lighting/sun-path', ...box, width: 0.8, height: 0.8, time: '12:00', ...props });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['own', own], ['r', room]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+
+  it('says north was placed in its room and turned, a sun path placed and its time set', () => {
+    expect(tell([op('create', null, north())])).toBe('Placed the north of Diner');
+    expect(tell([op('update', north(), north({ rotation: 35 }))])).toBe('Turned the room’s north to 35°');
+    expect(tell([op('update', north(), north({ x: 1, y: 1 }))])).toBe('Moved north');
+    expect(tell([op('create', null, sun())])).toBe('Placed a sun path');
+    expect(tell([op('update', sun(), sun({ time: '14:30' }))])).toBe('Set the sun path’s time to 14:30');
+    expect(tell([op('trash', sun(), { ...sun(), trashedAt: at })])).toBe('Deleted the sun path');
+    expect(changeLabel(fieldChanges(sun(), sun({ time: '14:30' }))[0] ?? { prop: 'time', before: '', after: '' })).toBe('time');
+  });
+
+  it('says it in Spanish too', () => {
+    setLocale('es');
+    expect(tell([op('update', north(), north({ rotation: 35 }))])).toBe('Se giró el norte del espacio a 35°');
+    expect(tell([op('create', null, sun())])).toBe('Se colocó un recorrido del sol');
+    expect(tell([op('update', sun(), sun({ time: '14:30' }))])).toBe('Se puso la hora del recorrido del sol en 14:30');
+  });
+});

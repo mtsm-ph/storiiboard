@@ -18,7 +18,7 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, planFields } from '../../core/model/plan';
+import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, NORTH_ICON, planFields, SUN_ICON } from '../../core/model/plan';
 import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -552,7 +552,7 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
 });
 
 /** The plan items with a box of their own, which History reads as an icon's (6.3, 6.4, 6.5). */
-const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'flag', 'diffusion']);
+const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun']);
 
 /** What a boxed plan item is, as a step names it: "a sofa", "a camera", "a Fresnel" (its kind's own icon when it names none). */
 function aBoxed(props: Props): string {
@@ -561,7 +561,8 @@ function aBoxed(props: Props): string {
   // A flag or diffusion frame by its kind and size, never the icon it was placed as (6.5 review): "a diffusion · 8×8".
   const frame = props.kind === 'flag' || props.kind === 'diffusion' ? gripFields(props) : null;
   if (frame) return aFrame(frame, planUnitNow());
-  const fallback = props.kind === 'camera' ? CAMERA_ICON : props.kind === 'light' ? LIGHT_ICON : props.kind === 'flag' ? FLAG_ICON : DIFFUSION_ICON;
+  const fallback =
+    props.kind === 'camera' ? CAMERA_ICON : props.kind === 'light' ? LIGHT_ICON : props.kind === 'flag' ? FLAG_ICON : props.kind === 'north' ? NORTH_ICON : props.kind === 'sun' ? SUN_ICON : DIFFUSION_ICON;
   return anIcon(icon || fallback);
 }
 
@@ -591,6 +592,8 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   gear_id: 'history.field.planGear',
   watts: 'history.field.watts',
   beam_deg: 'history.field.beam',
+  // A sun path's (6.6).
+  time: 'history.field.sunTime',
 });
 
 /** "650 W" (6.5). */
@@ -909,7 +912,7 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     return say('history.openingsChanged');
   }
   // Library icons (6.3), named as what they are: "Placed a sofa in Diner"; several, or mixed with walls, counted.
-  if ([...kinds].some((kind) => BOXED_KINDS.has(kind))) return cameraLine(items, around) ?? lightLine(items) ?? iconLine(items, n, around);
+  if ([...kinds].some((kind) => BOXED_KINDS.has(kind))) return northSunLine(items, around) ?? cameraLine(items, around) ?? lightLine(items) ?? iconLine(items, n, around);
   const walls = items.filter((op) => record(op)?.props.kind === 'wall');
   const w = new Set(walls.map((op) => op.recordId)).size;
   if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
@@ -987,6 +990,35 @@ function lightLine(items: readonly LoggedOp[]): Line | null {
   if (props[0] === 'gear_id') return line(typeof value === 'string' ? 'history.planGearPicked' : 'history.planGearRemoved', { what });
   if (props[0] === 'watts') return typeof value === 'number' ? line('history.lightWattsTyped', { what, watts: { mono: wattsValue(value) } }) : line('history.lightWattsRemoved', { what });
   if (props[0] === 'beam_deg' && typeof value === 'number') return line('history.lightBeamChanged', { what, beam: { mono: beamValue(value) } });
+  return null;
+}
+
+/**
+ * The room's north's or a sun path's own step (6.6), or null for one iconLine says: north placed (in the room named) or
+ * turned, "Turned the room's north to 35°"; a sun path placed, or its time set. One item.
+ */
+function northSunLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  const [op] = items;
+  if (items.length !== 1 || !op) return null;
+  const record = op.after ?? op.before;
+  const kind = record?.props.kind;
+  if (kind !== 'north' && kind !== 'sun') return null;
+  if (op.kind === 'create' && op.after) {
+    if (kind === 'sun') return [t('history.sunPlaced')];
+    const plan = op.after.parentId ? around.get(op.after.parentId) : undefined;
+    const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
+    return fields?.kind === 'room' && fields.name !== '' ? [t('history.northPlacedIn', { room: fields.name })] : [t('history.northPlaced')];
+  }
+  if (op.kind !== 'update' || !op.before || !op.after) return null;
+  const props = changedProps(op.before, op.after);
+  const value = (prop: string) => op.after?.props[prop];
+  const rotation = value('rotation');
+  // A turn about its middle (handles or keys) may write its place too; only its rotation is the room's north.
+  if (kind === 'north' && props.includes('rotation') && props.every((prop) => prop === 'rotation' || prop === 'x' || prop === 'y') && typeof rotation === 'number') {
+    return line('history.northTurned', { degrees: { mono: t('plan.degrees', { value: String(Math.round(rotation * 100) / 100) }) } });
+  }
+  const time = value('time');
+  if (kind === 'sun' && props.length === 1 && props[0] === 'time' && typeof time === 'string') return line('history.sunTimeSet', { time: { mono: time } });
   return null;
 }
 

@@ -3,8 +3,8 @@ import { DOOR_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
 
 // What each library icon is when it is placed (6.3, docs/PHASE6_DECISIONS.md 8): its real default size in metres,
 // width by depth, editable once it's down. Three set-art icons are 6.2's tools instead (the Library picks the tool),
-// and the icons later milestones make live (cameras 6.4 and lights, flags and diffusion 6.5 are placed now; north and the
-// sun 6.6; cast marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
+// and the icons later milestones make live (cameras 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 are
+// placed now; cast marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
 // here, and nothing else does (iconSizes.test.ts).
 
 export interface IconSize {
@@ -43,6 +43,9 @@ export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
   'grip/diffusion-4x4': { width: 1.22, depth: 0.05 },
   'grip/bounce': { width: 1.22, depth: 0.05 },
   'grip/overhead-8x8': { width: 2.44, depth: 2.44 },
+  // North and the sun path (6.6): placed as `north` (in the room's plan) and `sun` (in the setup's) items.
+  'production/north': { width: 0.6, depth: 0.6 },
+  'lighting/sun-path': { width: 0.8, depth: 0.8 },
   'set-art/table': { width: 1.5, depth: 0.8 },
   'set-art/chair': { width: 0.5, depth: 0.5 },
   'set-art/sofa': { width: 2.0, depth: 0.9 },
@@ -83,7 +86,7 @@ export const TOOL_ICONS: Readonly<Record<string, string>> = {
 
 /** Whole groups and single icons a later milestone of this phase makes live. */
 const COMING_GROUPS: ReadonlySet<string> = new Set(['cast']);
-const COMING_ICONS: ReadonlySet<string> = new Set(['lighting/sun-path', 'production/north', 'production/measure']);
+const COMING_ICONS: ReadonlySet<string> = new Set(['production/measure']);
 
 /** The field of view's picture (6.4): every camera draws its own cone, so it is never placed as an item. */
 export const FIELD_OF_VIEW_ICON = 'camera/field-of-view';

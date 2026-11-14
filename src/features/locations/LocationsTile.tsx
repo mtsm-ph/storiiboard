@@ -34,6 +34,7 @@ import { locationFieldRecords } from '../../core/model/location';
 import { directionsLink } from '../../core/model/directions';
 import { CustomFields } from '../storyboard/InspectorView';
 import { setCustomField } from '../storyboard/board';
+import { useShownLocation } from './shownLocation';
 
 // The Locations tile (3.3), in the Production workspace: every place the project shoots, each with its address, its
 // contact, parking and power notes, and whether it's booked; and which scenes are set there. A location is named once
@@ -67,6 +68,13 @@ export function LocationsTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
+  // Asked to show a location from elsewhere (6.6: a sun path's "Open Locations"): picked as the person would pick it.
+  const request = useShownLocation((s) => s.request);
+  const [seenRequest, setSeenRequest] = useState(request);
+  if (request !== seenRequest) {
+    setSeenRequest(request);
+    if (request?.id) setChosen(request.id);
+  }
   const listId = useId();
   const nameField = useRef<HTMLInputElement>(null);
   const newButton = useRef<HTMLButtonElement>(null);

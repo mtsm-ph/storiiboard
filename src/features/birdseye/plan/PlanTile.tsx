@@ -3,10 +3,12 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
+import { sunReading, sunZonePoint } from '../../../core/model/planSun';
+import { useZonesAt, type ZonePoint } from '../../../app/timeZone';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -45,6 +47,7 @@ import {
 } from './planActions';
 import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
+import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
@@ -413,7 +416,18 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // Each light's beam and labels (6.5), read live as a camera's are: its watts may be its gear item's.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const lights = useMemo(() => lightLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
-  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights), [build, shown, unit, locale, looks, lights]);
+  // Each sun path's day (6.6), read live from the setup's frames, their day, their location's place and zone and the
+  // room's north. A location with a place and no zone of its own has its zone looked up (Rust; this computer's in the
+  // browser build), as a call sheet's is; while that answer is on its way the path says it has no zone.
+  const zonePoints = useMemo(
+    () => shown.flatMap((item): ZonePoint[] => (isSun(item.fields) ? [sunZonePoint(records, item.record.id)].filter((p): p is ZonePoint => p !== null) : [])),
+    [records, shown],
+  );
+  const zones = useZonesAt(zonePoints);
+  const zonesKey = JSON.stringify([...zones]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t(); the zones by value
+  const suns = useMemo(() => sunLooks(records, shown, zones, stored ?? []), [records, shown, zonesKey, stored, locale]);
+  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights, suns), [build, shown, unit, locale, looks, lights, suns]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -450,6 +464,16 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
         }
         if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
+        // The room's north (6.6): an icon's, its rotation the room's north.
+        if (isNorth(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+        // A sun path (6.6): what it says (its label, or what it lacks) and, drawn, the sun's bearing and true height at its time.
+        if (isSun(fields)) {
+          const look = suns.get(record.id);
+          const numbers = sunNumbers(sunReading(records, record.id, zones), fields.time);
+          const sun = numbers ? { bearing: numbers.at.bearing, altitude: numbers.at.altitude, up: numbers.at.up, hours: numbers.path.hours.map((h) => h.hour) } : null;
+          const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
+          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun };
+        }
         if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end, labels: heightLines(fields, unit, false) };
@@ -458,7 +482,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         return { id: record.id, level, ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
       }),
     );
-  }, [shown, looks, lights, unit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
+  }, [shown, looks, lights, suns, unit, records, zonesKey]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':

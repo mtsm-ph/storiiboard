@@ -78,9 +78,9 @@ describe('placing lights, flags and diffusion (6.5)', () => {
     expect(lightFields(records()[fresnel]?.props ?? {})).toMatchObject({ kind: 'light', icon: 'lighting/fresnel', x: 0.8, y: 1.8, width: 0.4, height: 0.4, gearId: null, watts: null, beamDeg: null });
     expect(gripFields(records()[flag]?.props ?? {})).toMatchObject({ kind: 'flag', icon: 'grip/flag', width: 0.91, height: 0.05 });
     expect(gripFields(records()[frame]?.props ?? {})).toMatchObject({ kind: 'diffusion', icon: 'grip/overhead-8x8', width: 2.44, height: 2.44 });
-    // The beam is a picture, the sun path comes later, and with only the scene shown a light has no setup to go in.
+    // The beam is a picture, and with only the scene shown a light has no setup to go in. (The sun path is placed since
+    // 6.6, as a `sun`: planSun.test.ts.)
     expect(placeIconChanges(records(), { sceneId, setupId }, 'lighting/beam-cone', { x: 0, y: 0 })).toEqual([]);
-    expect(placeIconChanges(records(), { sceneId, setupId }, 'lighting/sun-path', { x: 0, y: 0 })).toEqual([]);
     expect(placeIconChanges(records(), { sceneId, setupId: null }, 'lighting/fresnel', { x: 0, y: 0 })).toEqual([]);
   });
 

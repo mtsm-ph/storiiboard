@@ -16,3 +16,9 @@ export const PAPER_COLOURS: CanvasColours = { ink: INK, paper: PAPER, raised: RA
  * that never change with the theme, so a plan (never themed, decision 13) draws a light's beam in it (6.5).
  */
 export const DEPT_LIGHTING = '#D9A23D';
+
+/**
+ * Golden hour's fixed colour (design/tokens, `--sb-highlight`, Burning Flame): never themed, so a plan's sun path (6.6,
+ * never themed either) draws its golden-hour arc in it, as a call sheet marks golden hour.
+ */
+export const GOLDEN_HOUR = '#FFB162';

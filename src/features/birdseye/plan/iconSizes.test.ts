@@ -8,8 +8,8 @@ describe('the icon size table', () => {
   it('covers every placeable icon and no other', () => {
     const placeable = PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'place').map((icon) => icon.id);
     expect(Object.keys(ICON_SIZES).sort()).toEqual([...placeable].sort());
-    // 6.3's 29, 6.4's nine cameras, and 6.5's ten lights and six flags and frames.
-    expect(placeable).toHaveLength(54);
+    // 6.3's 29, 6.4's nine cameras, 6.5's ten lights and six flags and frames, and 6.6's north and sun path.
+    expect(placeable).toHaveLength(56);
     for (const id of placeable) {
       const size = iconSize(id);
       expect(size?.width).toBeGreaterThan(0);
@@ -27,14 +27,14 @@ describe('the icon size table', () => {
 
   it('makes wall, door and window the tools, and leaves what comes later unplaced', () => {
     expect(Object.keys(TOOL_ICONS).sort()).toEqual(['set-art/door', 'set-art/wall', 'set-art/window']);
-    for (const id of ['lighting/sun-path', 'cast/cast-mark', 'production/north', 'production/measure']) {
+    for (const id of ['cast/cast-mark', 'production/measure']) {
       expect(iconUse(id)).toBe('coming');
       expect(iconSize(id)).toBeNull();
     }
     expect(iconUse('set-art/wall')).toBe('tool');
     // 6.4: the cameras are placed; the field of view stays the cone's picture, drawn by each camera, never an item.
-    // 6.5: the lights, flags and frames are placed; the sun path (6.6), cast marks, north and the measure come later.
-    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(9);
+    // 6.5: the lights, flags and frames are placed; 6.6: north and the sun path; cast marks and the measure come later.
+    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(7);
     expect(iconUse('camera/field-of-view')).toBe('shown');
     expect(iconSize('camera/field-of-view')).toBeNull();
   });
@@ -71,6 +71,13 @@ describe('the icon size table', () => {
     expect(ICON_SIZES['grip/overhead-8x8']).toEqual({ width: 2.44, depth: 2.44 });
     expect(iconUse('lighting/beam-cone')).toBe('shown');
     expect(iconSize('lighting/beam-cone')).toBeNull();
+  });
+
+  it('places north and the sun path at the brief’s sizes (6.6)', () => {
+    expect(ICON_SIZES['production/north']).toEqual({ width: 0.6, depth: 0.6 });
+    expect(ICON_SIZES['lighting/sun-path']).toEqual({ width: 0.8, depth: 0.8 });
+    expect(iconUse('production/north')).toBe('place');
+    expect(iconUse('lighting/sun-path')).toBe('place');
   });
 
   it('lets a zone and a note resize freely, and only those', () => {

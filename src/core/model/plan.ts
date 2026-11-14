@@ -28,8 +28,11 @@ export type PlanLevel = PlanKind;
  */
 export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras (6.4), lights, flags and diffusion (6.5). */
-export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion';
+/**
+ * The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras
+ * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6).
+ */
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -386,12 +389,74 @@ export function gripFields(props: Props): GripFields | null {
   return { kind: props.kind, icon: icon === '' ? (props.kind === 'flag' ? FLAG_ICON : DIFFUSION_ICON) : icon, ...box, gearId: idOrNull(props.gear_id) };
 }
 
-/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag or a diffusion frame. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields;
+/** The icons the room's north and a setup's sun path are drawn as (6.6). */
+export const NORTH_ICON = 'production/north';
+export const SUN_ICON = 'lighting/sun-path';
+/** The time of day a new sun path shows, "HH:mm" in its location's zone. */
+export const DEFAULT_SUN_TIME = '12:00';
+
+/**
+ * The room's north (6.6): one per room, in the room's plan, so every scene and setup set there shares it. Its `rotation`
+ * IS the room's north, clockwise as every rotation is: 0 means north is up the plan, 90 that it points right. Its place
+ * only says where its arrow is drawn.
+ */
+export interface NorthFields {
+  kind: 'north';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+}
+
+/** The room's north's props, or null when it can't be read. */
+export function northFields(props: Props): NorthFields | null {
+  if (props.kind !== 'north') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  return { kind: 'north', icon: icon === '' ? NORTH_ICON : icon, ...box };
+}
+
+/**
+ * A setup's sun path (6.6): drawn round its middle from the place and date its frames are shot (sunPath.ts, read live);
+ * `time` is the time of day it marks ("HH:mm" on a 24-hour clock, in the location's zone). Its rotation is never used.
+ */
+export interface SunFields {
+  kind: 'sun';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  /** "HH:mm"; one that can't be read is the default, noon. */
+  time: string;
+}
+
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** A sun path's props, or null when it can't be read. */
+export function sunFields(props: Props): SunFields | null {
+  if (props.kind !== 'sun') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  const time = text(props.time);
+  return { kind: 'sun', icon: icon === '' ? SUN_ICON : icon, ...box, time: CLOCK.test(time) ? time : DEFAULT_SUN_TIME };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
 export const shownFields = (props: Props): ShownFields | null =>
-  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props);
+  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
@@ -399,10 +464,12 @@ export const isCamera = (fields: ShownFields): fields is CameraFields => fields.
 export const isLight = (fields: ShownFields): fields is LightFields => fields.kind === 'light';
 export const isGrip = (fields: ShownFields): fields is GripFields => fields.kind === 'flag' || fields.kind === 'diffusion';
 export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
+export const isNorth = (fields: ShownFields): fields is NorthFields => fields.kind === 'north';
+export const isSun = (fields: ShownFields): fields is SunFields => fields.kind === 'sun';
 
-/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag or a diffusion frame. */
-export type BoxFields = IconFields | CameraFields | LightFields | GripFields;
-export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props);
+/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
+export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
+export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
@@ -414,6 +481,9 @@ export function planItemLayer(props: Props): PlanLayer | null {
   if (props.kind === 'camera') return 'camera';
   if (props.kind === 'light') return 'lighting';
   if (props.kind === 'flag' || props.kind === 'diffusion') return 'grip';
+  // North and the sun path (6.6) by their icons' groups.
+  if (props.kind === 'north') return 'production';
+  if (props.kind === 'sun') return 'lighting';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }

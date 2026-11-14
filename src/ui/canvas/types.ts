@@ -95,6 +95,11 @@ export interface CanvasItem extends Geometry {
    */
   moveOnly?: boolean;
   /**
+   * Never turned by the handles (6.6: a plan's sun path, whose drawing is the compass's, not its box's): with one in the
+   * selection, the rotate handle is hidden; it still moves and resizes. Left out (a board's items), nothing changes.
+   */
+  noTurn?: boolean;
+  /**
    * What the item draws past its box (6.4: a camera's field of view and its labels), under the item, never picked and
    * never part of its handles. `bounds` (world units, absolute, the item where it is now) is how far it reaches, so the
    * canvas keeps drawing it while the item's own box is out of view; picking stays on the box. Left out (a board's

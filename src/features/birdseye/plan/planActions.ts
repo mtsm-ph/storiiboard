@@ -3,7 +3,8 @@ import { showInfo } from '../../../app/notice';
 import { projectStore, type ProjectState } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
-import { renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import {
   assignFrameChanges,
@@ -210,14 +211,17 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
 export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard): Promise<void> {
   if (clip.length === 0) return;
   let ids: string[] = [];
-  const out = { count: 0 };
+  const out = { count: 0, north: 0 };
   const written = await projectStore.getState().applyWith((records) => {
     const made = planPasteInView(records, view, clip, at);
     ids = made.ids;
     out.count = made.leftOut;
+    out.north = made.northKept ?? 0;
     return { changes: made.changes };
   });
   if (out.count > 0) showInfo(t('library.noSetup'));
+  // One north per room (6.6): a pasted north the room already has is left out, and said.
+  if (out.north > 0) showInfo(t('plan.north.notPasted'));
   if (written) select(view, ids);
 }
 
@@ -244,8 +248,11 @@ export async function flipDoors(ids: readonly string[], what: 'swing' | 'hinge')
   return projectStore.getState().applyWith((records) => ({ changes: flipDoorsChanges(records, ids, what) }));
 }
 
-/** Why a placement wrote nothing: a refusal the Library says, or the drag or key ended in another project than it began. */
-export type PlaceOutcome = IconRefusal | 'otherProject' | null;
+/**
+ * Why a placement wrote nothing: a refusal the Library says, the drag or key ended in another project than it began, or
+ * (6.6) north placed in a room that has one, which is selected instead.
+ */
+export type PlaceOutcome = IconRefusal | 'otherProject' | 'hasNorth' | null;
 
 /**
  * A library icon placed in a view (6.3), its middle at `centre` (metres): one op group, the setup's plan made in it
@@ -257,12 +264,18 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
   // Checked before the edit is queued: applyWith takes the project open when it's called as the one the edit is for.
   if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
   const id = crypto.randomUUID();
-  const refused: { why: IconRefusal | null } = { why: null };
+  const refused: { why: IconRefusal | null; north: string | null } = { why: null, north: null };
   const written = await store.getState().applyWith((records) => {
     refused.why = iconRefusal(records, view, icon);
-    return { changes: refused.why === null ? placeIconChanges(records, view, icon, centre, id) : [] };
+    // One north per room (6.6): the room's own is selected instead, and the Library says so.
+    refused.north = refused.why === null && icon === NORTH_ICON ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
+    return { changes: refused.why === null && refused.north === null ? placeIconChanges(records, view, icon, centre, id) : [] };
   });
   if (refused.why !== null) return refused.why;
+  if (refused.north !== null) {
+    if (store.getState().project === madeIn) select(view, [refused.north]);
+    return 'hasNorth';
+  }
   if (written && store.getState().project === madeIn) select(view, [id]);
   return null;
 }
@@ -302,3 +315,6 @@ export const setPlanGear = (ids: readonly string[], gearId: string | null) => pl
 export const setLightWatts = (ids: readonly string[], watts: number | null) => plannedEdit((r) => lightWattsChanges(r, ids, watts));
 export const setLightBeam = (ids: readonly string[], degrees: number) => plannedEdit((r) => lightBeamChanges(r, ids, degrees));
 export const setFrameSize = (ids: readonly string[], sizeId: string) => plannedEdit((r) => frameSizeChanges(r, ids, sizeId));
+
+/** A sun path's time of day (6.6), "HH:mm": one op group. */
+export const setSunTime = (ids: readonly string[], time: string) => plannedEdit((r) => sunTimeChanges(r, ids, time));

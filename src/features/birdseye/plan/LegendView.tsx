@@ -9,6 +9,7 @@ import { frameItemLabel, iconLabel } from './iconWords';
 import { groupName } from './library';
 import { wattsLabel } from './lightLooks';
 import type { PlanView } from './planActions';
+import { degreesText } from './selectionFields';
 
 // The plan's legend in the Selection tile while nothing is selected (6.5): planLegend's reading (src/core/model), by
 // department, numbers in mono, and the setup's total watts with the lights whose wattage is unknown.
@@ -37,11 +38,18 @@ export function LegendView({ records, view, unit }: { records: Records; view: Pl
       <h3 id={headingId} className="sb-label">
         {t('legend.title')}
       </h3>
-      {legend.room.length > 0 && (
+      {(legend.room.length > 0 || legend.north !== undefined) && (
         // The room first (6.5 review, decision 11): its walls', doors' and windows' set heights, one line per height.
         <div className="flex flex-col gap-0.5" data-legend-group="room">
           <h4 className="sb-label">{t('legend.room')}</h4>
           <ul className="flex flex-col gap-0.5 text-[13px]">
+            {legend.north !== undefined && (
+              // The room's north (6.6): "North · 35°".
+              <li data-legend-line="" data-legend-north="">
+                {t('legend.north')}
+                <span className="font-mono"> · {degreesText(legend.north)}</span>
+              </li>
+            )}
             {legend.room.map((line) => (
               <li key={`${line.kind}:${String(line.metres)}`} data-legend-line="">
                 {t(ROOM_WORDS[line.kind])}
@@ -52,7 +60,7 @@ export function LegendView({ records, view, unit }: { records: Records; view: Pl
           </ul>
         </div>
       )}
-      {legend.groups.length === 0 && legend.room.length === 0 ? (
+      {legend.groups.length === 0 && legend.room.length === 0 && legend.north === undefined ? (
         <p className="text-[12px] text-text-muted">{t('legend.empty')}</p>
       ) : (
         legend.groups.map((group) => (

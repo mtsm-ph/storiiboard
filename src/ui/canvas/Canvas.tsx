@@ -406,6 +406,8 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
   // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
   const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
+  // A plan's sun path (6.6) is never turned: no rotate handle while one is picked.
+  const noTurn = handleIds.some((id) => shown.find((item) => item.id === id)?.noTurn === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale });
@@ -1479,7 +1481,7 @@ export function Canvas({
             borderStrokeWidth={1.5}
             rotateAnchorOffset={24}
             // A section is always upright.
-            rotateEnabled={!moveOnly && !handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
+            rotateEnabled={!moveOnly && !noTurn && !handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
             // Only a side the gesture shrinks below the least size is refused: a thin item (a plan's 5 cm flag, thinner than
