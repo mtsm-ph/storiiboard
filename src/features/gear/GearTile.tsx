@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
-import { bodyFields, GEAR_KIND_LABEL, GEAR_KINDS, gearKind, lensFields, lensSpec, type GearKind } from '../../core/model/cameraGear';
+import { GEAR_KIND_LABEL, GEAR_KINDS, gearKind, lensFields, lensSpec, projectBodyFields, type GearKind } from '../../core/model/cameraGear';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
 import { CURRENCIES, currencyDigits, GEAR_SOURCE_LABEL, GEAR_SOURCES, moneyLabel, projectCurrency, projectGear, type GearFields } from '../../core/model/gear';
 import type { SbdRecord } from '../../core/model/record';
@@ -119,7 +119,7 @@ export function GearTile() {
                     <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('gear.unnamed')}</span>
                     <span className="sb-label">
                       <span className="font-mono">×{fields.quantity}</span>
-                      <KindNote props={record.props} />
+                      <KindNote records={records} projectId={projectId} id={record.id} props={record.props} />
                       {fields.source && ` · ${GEAR_SOURCE_LABEL[fields.source]}`}
                       {fields.department && ` · ${DEPARTMENT_LABELS[fields.department]}`}
                     </span>
@@ -177,11 +177,14 @@ export function GearTile() {
   );
 }
 
-/** A body's letter or a lens's range, after its quantity in the list: "· A cam", "· 24–70 mm 2×". */
-function KindNote({ props }: { props: SbdRecord['props'] }) {
+/**
+ * A body's letter or a lens's range, after its quantity in the list: "· A cam", "· 24–70 mm 2×". The letter as the
+ * project reads it (projectBodyFields), so two bodies holding the same one in the file never both show it.
+ */
+export function KindNote({ records, projectId, id, props }: { records: Records; projectId: string; id: string; props: SbdRecord['props'] }) {
   const kind = gearKind(props);
   if (kind === 'camera_body') {
-    const letter = bodyFields(props).letter;
+    const letter = projectBodyFields(records, projectId, id)?.letter ?? null;
     return (
       <>
         {` · ${GEAR_KIND_LABEL.camera_body}`}

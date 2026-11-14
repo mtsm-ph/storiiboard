@@ -141,12 +141,34 @@ describe('camera bodies', () => {
     expect(records.mini?.props.camera_letter).toBe('A');
   });
 
-  it('keeps the default body stable: the lowest letter, then the first made without one, whatever order records load in', () => {
+  it('keeps the bodies’ order stable: the lowest letter, then the first made without one, whatever order records load in', () => {
     const records = base();
-    const both = { ...records, fx3: { ...records.fx3, props: { ...records.fx3?.props, camera_letter: 'A' } } as SbdRecord };
+    // FX3 and the Mini LF both hold A in the file, and a URSA holds B: the Mini LF reads as having none, so B cam is
+    // the second body, never the Mini LF beside A.
+    const both = {
+      ...records,
+      fx3: { ...records.fx3, props: { ...records.fx3?.props, camera_letter: 'A' } } as SbdRecord,
+      ursa: record('ursa', 'gear_item', 'p', { name: 'URSA', kind: 'camera_body', camera_letter: 'B' }, 'f'),
+    };
     const reversed = Object.fromEntries(Object.entries(both).reverse());
-    expect(defaultBody(both, 'p')?.record.id).toBe('fx3');
-    expect(defaultBody(reversed, 'p')?.record.id).toBe('fx3');
+    for (const loaded of [both, reversed]) {
+      expect(defaultBody(loaded, 'p')?.record.id).toBe('fx3');
+      expect(projectBodies(loaded, 'p').map((b) => [b.record.id, b.fields.letter])).toEqual([
+        ['fx3', 'A'],
+        ['ursa', 'B'],
+        ['mini', null],
+      ]);
+    }
+    // Two bodies with the same sort key (made on two computers) and the same letter: the lower id keeps it, in either
+    // load order.
+    const twins = {
+      ...records,
+      fx3: { ...records.fx3, sortKey: 'b', props: { ...records.fx3?.props, camera_letter: 'A' } } as SbdRecord,
+      mini: { ...records.mini, sortKey: 'b' } as SbdRecord,
+    };
+    expect(defaultBody(twins, 'p')?.record.id).toBe('fx3');
+    expect(defaultBody(Object.fromEntries(Object.entries(twins).reverse()), 'p')?.record.id).toBe('fx3');
+    expect(projectBodyFields(Object.fromEntries(Object.entries(twins).reverse()), 'p', 'mini')?.letter).toBeNull();
     // No letters at all: the first made.
     const none = Object.fromEntries(
       Object.entries(records).map(([id, r]): [string, SbdRecord] => [id, r.type === 'gear_item' ? { ...r, props: Object.fromEntries(Object.entries(r.props).filter(([k]) => k !== 'camera_letter')) } : r]),
@@ -246,19 +268,40 @@ describe('a lens’s range and the frames using it', () => {
     ]);
     // Made a prime: every frame takes its one length.
     expect(framesOutsideRange(records, 'z', 24, 24)).toEqual([
-      { id: 'b', mm: 24 },
-      { id: 'c', mm: 24 },
-      { id: 'd', mm: 24 },
+      { id: 'b', mm: 24, trashed: false },
+      { id: 'c', mm: 24, trashed: false },
+      { id: 'd', mm: 24, trashed: false },
     ]);
   });
 
-  it('leaves frames in the Trash, frames of another lens and frames without a focal length as they are', () => {
+  it('sets frames in the Trash too, marked so, and leaves frames of another lens as they are', () => {
     const records = frames(
       record('t', 'shot', 'sc', { number: '1E', lens_id: 'z', lens_mm: 85 }, 't', at),
       record('o', 'shot', 'sc', { number: '1F', lens_id: 'p35', lens_mm: 85 }, 'o'),
-      record('n', 'shot', 'sc', { number: '1G', lens_id: 'z' }, 'n'),
     );
-    expect(framesOutsideRange(records, 'z', 24, 40).map((f) => f.id)).toEqual(['c', 'd']);
+    expect(framesOutsideRange(records, 'z', 24, 40)).toEqual([
+      { id: 'c', mm: 40, trashed: false },
+      { id: 'd', mm: 24, trashed: false },
+      { id: 't', mm: 40, trashed: true },
+    ]);
+    // Only one in the Trash: still set, in the same edit as the range (the Gear tile doesn't ask).
+    const onlyTrashed = frames(record('t', 'shot', 'sc', { number: '1E', lens_id: 'z', lens_mm: 85 }, 't', at));
+    expect(lensRangeChange(onlyTrashed, 'z', 18, 70)).toEqual([
+      { kind: 'update', id: 'z', set: { focal_min_mm: 18, focal_max_mm: 70 } },
+      { kind: 'update', id: 't', set: { lens_mm: 70 } },
+    ]);
+  });
+
+  it('gives a frame of the lens with no focal length the wide end, as picking the lens does', () => {
+    const records = frames(record('n', 'shot', 'sc', { number: '1G', lens_id: 'z' }, 'n'));
+    expect(framesOutsideRange(records, 'z', 18, 70)).toEqual([{ id: 'n', mm: 18, trashed: false }]);
+    expect(lensRangeChange(records, 'z', 18, 70)).toEqual([
+      { kind: 'update', id: 'z', set: { focal_min_mm: 18, focal_max_mm: 70 } },
+      { kind: 'update', id: 'n', set: { lens_mm: 18 } },
+    ]);
+    // One this version can't read (a newer one's) is never written over.
+    const odd = frames(record('n', 'shot', 'sc', { number: '1G', lens_id: 'z', lens_mm: 'wide' }, 'n'));
+    expect(framesOutsideRange(odd, 'z', 18, 70)).toEqual([]);
   });
 
   it('leaves frames whose lens is in the Trash as they are: no range change reaches them', () => {

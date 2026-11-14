@@ -77,7 +77,10 @@ export function bodyFields(props: Props): BodyFields {
 const live = (records: Records, projectId: string, kind: GearKind): SbdRecord[] =>
   Object.values(records).filter((r) => r.type === 'gear_item' && r.parentId === projectId && r.trashedAt === null && gearKind(r.props) === kind);
 
-const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
+// Then by id: two records can share a sort key (made on two computers, or imported), and the order must never depend on
+// the order records happen to load in.
+const bySortKey = (a: SbdRecord, b: SbdRecord) =>
+  a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 
 /**
  * The project's live camera bodies by letter (A first), those without one last, in the order they were made.

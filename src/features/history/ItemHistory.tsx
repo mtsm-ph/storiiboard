@@ -22,6 +22,7 @@ export function ItemHistory({
   ops,
   places,
   busy = false,
+  problem = () => null,
   onPutBack,
 }: {
   item: SbdRecord;
@@ -30,6 +31,11 @@ export function ItemHistory({
   places: (id: string) => string | null;
   /** A Restore to here is running: Put back takes no clicks until it lands (the tile ignores them too). */
   busy?: boolean;
+  /**
+   * Why an old value can't go back as the project is now (putBackProblem: a focal length outside the frame's lens's
+   * range), or null: a row it would refuse offers no Put back.
+   */
+  problem?: (recordId: string, field: FieldChange) => string | null;
   onPutBack: (recordId: string, field: FieldChange) => Promise<boolean>;
 }) {
   const table = useRef<HTMLTableElement>(null);
@@ -69,8 +75,9 @@ export function ItemHistory({
       <tbody>
         {rows.map(({ key, op, change, field }) => {
           const mono = field !== null && field.key === undefined && isMono(field.prop);
-          // Offered only where it would change something: the value already there is no step to take.
-          const offered = field !== null && canPutBack(item.type, field) && putBackChange(item, field) !== null;
+          // Offered only where it would change something (the value already there is no step to take), and the item can
+          // take it now.
+          const offered = field !== null && canPutBack(item.type, field) && putBackChange(item, field) !== null && problem(op.recordId, field) === null;
           const cell = cx('px-2 py-1.5 align-top whitespace-pre-wrap wrap-anywhere', mono && 'font-mono');
           return (
             <tr key={key} className="border-b border-border">

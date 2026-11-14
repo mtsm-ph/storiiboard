@@ -181,23 +181,27 @@ export function cameraLetterChange(records: Records, id: string, letter: string)
 }
 
 /**
- * The live frames whose lens (read through frameLens) is this one and whose focal length sits outside min–max, each
- * with the end of the range it would take: the nearer one. Frames in the Trash, and frames of a lens in the Trash, are
- * left as they are.
+ * The frames whose lens (read through frameLens) is this one and whose focal length sits outside min–max, each with
+ * the end of the range it would take: the nearer one, or the wide end for a frame with none (as pickLens gives it).
+ * Frames in the Trash are among them, marked `trashed`: one left outside would come back from the Trash outside its
+ * lens's range. Frames of a lens in the Trash are left as they are.
  */
-export function framesOutsideRange(records: Records, lensId: string, min: number, max: number): { id: string; mm: number }[] {
+export function framesOutsideRange(records: Records, lensId: string, min: number, max: number): { id: string; mm: number; trashed: boolean }[] {
   return Object.values(records).flatMap((shot) => {
-    if (shot.type !== 'shot' || shot.trashedAt !== null || frameLens(records, shot)?.record.id !== lensId) return [];
-    const mm = shot.props.lens_mm;
-    if (typeof mm !== 'number' || !Number.isFinite(mm) || (mm >= min && mm <= max)) return [];
-    return [{ id: shot.id, mm: mm < min ? min : max }];
+    if (shot.type !== 'shot' || frameLens(records, shot)?.record.id !== lensId) return [];
+    const stored = shot.props.lens_mm;
+    // A value this version can't read (a newer one's) is never written over.
+    if (stored !== undefined && (typeof stored !== 'number' || !Number.isFinite(stored))) return [];
+    const mm = stored ?? null;
+    if (mm !== null && mm >= min && mm <= max) return [];
+    return [{ id: shot.id, mm: mm === null || mm < min ? min : max, trashed: shot.trashedAt !== null }];
   });
 }
 
 /**
  * A lens's focal range in mm: from ≤ to, equal for a prime. Both ends in one edit, with every frame using the lens
- * outside the new range set to its nearer end, so a frame's `lens_mm` always sits in its lens's range and one ⌘Z
- * brings the range and the frames back together. The Gear tile asks before it when there are any.
+ * outside the new range (in the Trash too) set to its nearer end, so a frame's `lens_mm` always sits in its lens's
+ * range and one ⌘Z brings the range and the frames back together. The Gear tile asks before it when live frames change.
  */
 export function lensRangeChange(records: Records, id: string, min: number, max: number): Change[] {
   const item = liveLensItem(records, id);

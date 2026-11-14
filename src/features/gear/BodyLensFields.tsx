@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ask } from '../../app/ask';
 import { showInfo } from '../../app/notice';
 import { t, tn } from '../../core/i18n';
-import { bodyFields, focalLabel, freeLetters, isFocal, isPrime, isSensorSize, isSqueeze, lensFields, projectBodyFields, SQUEEZES } from '../../core/model/cameraGear';
+import { bodyFields, focalLabel, freeLetters, isFocal, isPrime, isSensorSize, isSqueeze, lensFields, lensSpec, projectBodyFields, SQUEEZES } from '../../core/model/cameraGear';
 import type { SbdRecord } from '../../core/model/record';
 import { cameraLabel, matchingMode, modeLabel, SENSOR_MODES, type SensorMode } from '../../core/model/sensorModes';
 import type { Change } from '../../core/ops/ops';
@@ -164,27 +164,56 @@ type LensType = 'prime' | 'zoom';
 const OTHER_SQUEEZE = 'other';
 
 /**
- * What the Gear tile asks before a range that would leave frames outside it: how many, and the focal length they'll
- * take. Null when no frame would change.
+ * What the Gear tile asks before a range that would leave frames outside it: which lens (the question can open after
+ * the editor moved on to another item), how many, how many more in the Trash, and the focal length they'll take. Null
+ * when no live frame would change: frames only in the Trash are set in the same edit without asking.
  */
-function clampQuestion(records: Records, id: string, min: number, max: number): string | null {
+export function clampQuestion(records: Records, id: string, min: number, max: number): string | null {
   const outside = framesOutsideRange(records, id, min, max);
-  if (outside.length === 0) return null;
-  const count = outside.length;
-  const first = min === max ? tn('gear.clampOther', count) : tn('gear.clampOutside', count, { range: focalLabel({ min, max }) });
+  const count = outside.filter((f) => !f.trashed).length;
+  if (count === 0) return null;
+  const trashed = outside.length - count;
+  const props = records[id]?.props ?? {};
+  const named = typeof props.name === 'string' ? props.name.trim() : '';
+  const lens = named === '' ? lensSpec(lensFields(props)) : named;
+  const first = min === max ? tn('gear.clampOther', count, { lens }) : tn('gear.clampOutside', count, { lens, range: focalLabel({ min, max }) });
+  const also = trashed > 0 ? [tn('gear.clampTrashed', trashed)] : [];
   const ends = new Set(outside.map((f) => f.mm));
-  const then = ends.size === 1 ? tn('gear.clampTo', count, { mm: [...ends][0] ?? min }) : t('gear.clampNearest', { from: min, to: max });
-  return `${first} ${then}`;
+  const then = ends.size === 1 ? tn('gear.clampTo', outside.length, { mm: [...ends][0] ?? min }) : t('gear.clampNearest', { from: min, to: max });
+  return [first, ...also, then].join(' ');
 }
+
+/** A lens's range as a key, so the editor can tell when it changed. */
+const rangeKey = (range: { min: number; max: number } | null): string => (range ? `${String(range.min)}–${String(range.max)}` : '');
+
+/** Prime or zoom as the stored range says: a zoom when its ends differ, else a prime. */
+const typeOf = (lens: ReturnType<typeof lensFields>): LensType => (lens.range && !isPrime(lens) ? 'zoom' : 'prime');
 
 export function LensFieldsEditor({ id, records, props, edit }: Omit<FieldsProps, 'projectId'>) {
   const lens = lensFields(props);
   const range = lens.range;
-  // Kept while the item is open: a zoom whose ends are still the same reads as a zoom until it's set otherwise.
-  const [type, setType] = useState<LensType>(range && !isPrime(lens) ? 'zoom' : 'prime');
+  const key = rangeKey(range);
+  // Prime or zoom, kept while the item is open: a zoom whose ends are still the same (Zoom picked, one end typed)
+  // reads as a zoom until it's set otherwise. `key` is the range it was worked out for; `expected`, the range this
+  // editor's own last edit asked for. When the stored range changes to anything else (an undo, a redo, History), the
+  // choice is worked out again from it, so the editor never shows Prime over a zoom.
+  const [choice, setChoice] = useState<{ type: LensType; key: string; expected: string | null }>(() => ({ type: typeOf(lens), key, expected: null }));
+  let type = choice.type;
+  if (choice.key !== key) {
+    type = choice.expected === key ? choice.type : typeOf(lens);
+    // Adjusted while rendering, as React has it for state that follows a prop: no extra render of the old choice.
+    setChoice({ type, key, expected: null });
+  }
+  const setType = (next: LensType) => {
+    setChoice((c) => ({ ...c, type: next }));
+  };
   const preset = (SQUEEZES as readonly number[]).includes(lens.squeeze);
   const [typing, setTyping] = useState(!preset);
   const refused = t('gear.focalRefused');
+  const write = (min: number, max: number) => {
+    setChoice((c) => ({ ...c, expected: rangeKey({ min, max }) }));
+    void edit((now) => lensRangeChange(now, id, min, max));
+  };
   /**
    * A new range, asked first when frames using the lens would fall outside it (each then takes its nearer end, in the
    * same edit). `cancelled` puts the field or the switch back when the person says no.
@@ -192,7 +221,7 @@ export function LensFieldsEditor({ id, records, props, edit }: Omit<FieldsProps,
   const changeRange = (min: number, max: number, cancelled: () => void) => {
     const question = clampQuestion(records, id, min, max);
     if (question === null) {
-      void edit((now) => lensRangeChange(now, id, min, max));
+      write(min, max);
       return;
     }
     // Asked once the key that left the field is done: Enter's own keypress would otherwise land on the window's first
@@ -207,7 +236,7 @@ export function LensFieldsEditor({ id, records, props, edit }: Omit<FieldsProps,
         ],
         cancel: 'cancel',
       }).then((answer) => {
-        if (answer === 'change') void edit((now) => lensRangeChange(now, id, min, max));
+        if (answer === 'change') write(min, max);
         else cancelled();
       });
     }, 0);

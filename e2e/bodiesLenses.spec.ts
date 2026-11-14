@@ -130,14 +130,14 @@ test('a body from the table, a prime and an anamorphic zoom, each picked on a fr
   await toSection(page, 'Production');
   await list.getByRole('button', { name: /^Angénieux Optimo/ }).click();
   await fill(page, 'To (mm)', '40');
-  await expect(rangeQuestion(page)).toContainText('1 frame uses this lens outside 30–40 mm. It will be set to 40 mm.');
+  await expect(rangeQuestion(page)).toContainText('“Angénieux Optimo” is used by 1 frame outside 30–40 mm. It will be set to 40 mm.');
   await rangeQuestion(page).getByRole('button', { name: 'Cancel' }).click();
   await expect(rangeQuestion(page)).toHaveCount(0);
   await expect(editor(page).getByRole('textbox', { name: 'To (mm)', exact: true })).toHaveValue('72');
   await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
   // Made a prime: asked too; said no to, it stays a zoom.
   await editor(page).getByRole('radio', { name: 'Prime', exact: true }).click();
-  await expect(rangeQuestion(page)).toContainText('1 frame uses this lens at another focal length. It will be set to 30 mm.');
+  await expect(rangeQuestion(page)).toContainText('“Angénieux Optimo” is used by 1 frame at another focal length. It will be set to 30 mm.');
   await rangeQuestion(page).getByRole('button', { name: 'Cancel' }).click();
   await expect(editor(page).getByRole('radio', { name: 'Zoom', exact: true })).toHaveAttribute('aria-checked', 'true');
   await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
@@ -152,6 +152,19 @@ test('a body from the table, a prime and an anamorphic zoom, each picked on a fr
   await expect(lensMm(page)).toHaveValue('50');
   await toSection(page, 'Production');
   await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
+  // Made a prime and said yes to; one undo makes it a zoom again, and the editor shows it so, both ends and all.
+  await list.getByRole('button', { name: /^Angénieux Optimo/ }).click();
+  await editor(page).getByRole('radio', { name: 'Prime', exact: true }).click();
+  await rangeQuestion(page).getByRole('button', { name: 'Change the range' }).click();
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30 mm 2×');
+  await expect(editor(page).getByRole('textbox', { name: 'Focal length (mm)', exact: true })).toHaveValue('30');
+  await editor(page).getByRole('radio', { name: 'Prime', exact: true }).focus();
+  await page.keyboard.press(await undoKey(page));
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
+  await expect(editor(page).getByRole('radio', { name: 'Zoom', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(editor(page).getByRole('textbox', { name: 'From (mm)', exact: true })).toHaveValue('30');
+  await expect(editor(page).getByRole('textbox', { name: 'To (mm)', exact: true })).toHaveValue('72');
+  await expect(editor(page).getByRole('textbox', { name: 'Focal length (mm)', exact: true })).toHaveCount(0);
 
   // The zoom to the Trash: the frame reads "No lens picked", squeeze 1, its focal length kept.
   await list.getByRole('button', { name: /^Angénieux Optimo/ }).click();

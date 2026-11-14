@@ -14,7 +14,7 @@ import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { ItemHistory } from './ItemHistory';
-import { putBackChange, putBackProblem } from './putBack';
+import { putBackProblem, putBackStep } from './putBack';
 import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
 import { lineText, namedById, who, type FieldChange, type Line } from './summary';
 import { nameThisPoint, removeNamedVersion } from './versionWrites';
@@ -210,20 +210,12 @@ export function HistoryTile() {
   const putBack = async (recordId: string, field: FieldChange): Promise<boolean> => {
     if (projectStore.getState().restoring || !gate.take('item', projectStore.getState().records)) return false;
     let changed = false;
-    // Set inside the edit's callback, so read through a box: the compiler can't follow it there.
-    const refused: { problem: string | null } = { problem: null };
     try {
-      // Worked out from the item as it is when the edit's turn comes, so an edit queued just before isn't undone by it.
-      const done = await projectStore.getState().applyWith((now) => {
-        // A value the item can't take now (a focal length outside its lens's range) is refused, never saved.
-        refused.problem = putBackProblem(now, recordId, field);
-        const change = refused.problem === null ? putBackChange(now[recordId], field) : null;
-        changed = change !== null;
-        return { changes: change ? [change] : [] };
-      });
-      if (refused.problem !== null) showInfo(refused.problem);
-      changed &&= done;
-      return done;
+      // A value the item can't take now (a focal length outside its lens's range) is refused, never saved.
+      const step = await putBackStep(projectStore.getState().applyWith, recordId, field);
+      if (step.problem !== null) showInfo(step.problem);
+      changed = step.changed;
+      return step.done;
     } finally {
       gate.written(changed);
     }
@@ -347,7 +339,15 @@ export function HistoryTile() {
       </div>
       {filtered && named ? (
         itemOps?.id === item.id ? (
-          <ItemHistory item={item} title={named.title} ops={itemOps.ops} places={places} busy={restoring} onPutBack={putBack} />
+          <ItemHistory
+            item={item}
+            title={named.title}
+            ops={itemOps.ops}
+            places={places}
+            busy={restoring}
+            problem={(recordId, field) => putBackProblem(records, recordId, field)}
+            onPutBack={putBack}
+          />
         ) : (
           <p className="p-3 text-[13px] text-text-muted">{t('historyTile.readingHistory')}</p>
         )
