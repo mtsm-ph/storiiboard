@@ -8,7 +8,7 @@ import type { DisplayOp } from './deckDisplay';
 import { escapedUri, writeDeckPdf, type DeckPdfInput, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
 
 // More of the deck PDF writer (5.6a, review): the address in a link, pictures that can't be printed and Stop, characters a font lacks,
-// a variable font's substituted weights, letter spacing, the background, and the made bold and slant. Helpers as deckPdfWriter.test.ts.
+// letter spacing, the background, and the made bold and slant. Helpers as deckPdfWriter.test.ts.
 
 const file = (name: string) => new Uint8Array(readFileSync(new URL(`./fonts/${name}.ttf`, import.meta.url)));
 const REGULAR = file('InterTight-Regular');
@@ -141,27 +141,6 @@ describe('characters a font does not have', () => {
   it('stay as the font’s own empty box where no font has them, and the font is named', async () => {
     const result = await build([page(text('A中B', 100, { family: 'Brand Mono' }))], { fonts: loader({ 'Brand Mono': MONO }) });
     expect(result.fontNotes).toEqual([{ family: 'Brand Mono', reason: 'glyphs' }]);
-  });
-});
-
-describe('a variable font’s weights', () => {
-  const variable =
-    (defaultWeight: number): FontLoader =>
-    (family, weight) => {
-      asked.push(`${family}|${String(weight)}`);
-      return Promise.resolve({ key: family === 'Outfit' ? family : `${family}|${String(weight)}`, bytes: REGULAR, synthBold: false, synthItalic: false, ...(family === 'Outfit' ? { defaultWeight } : {}) });
-    };
-  const asked: string[] = [];
-
-  it('print in Inter Tight and are listed when asked for more than 100 from the embedded one', async () => {
-    const ops = [...text('Light', 100, { family: 'Outfit', weight: 100 }), ...text('Regular', 200, { family: 'Outfit', weight: 400 }), ...text('Bold', 300, { family: 'Outfit', weight: 700 })];
-    const result = await build([page(ops)], { fonts: variable(100) });
-    expect(result.fontNotes).toEqual([{ family: 'Outfit', reason: 'weight', weights: [400, 700] }]);
-    // Light stays in Outfit; Regular and Bold are asked for of Inter Tight, at their own weight.
-    expect(asked).toEqual(expect.arrayContaining(['Inter Tight|400', 'Inter Tight|700']));
-    expect(asked).not.toContain('Inter Tight|100');
-    const near = await build([page(text('Near', 100, { family: 'Outfit', weight: 200 }))], { fonts: variable(100) });
-    expect(near.fontNotes).toEqual([]);
   });
 });
 

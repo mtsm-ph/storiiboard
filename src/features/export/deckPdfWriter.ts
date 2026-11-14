@@ -86,8 +86,6 @@ export interface FontFile {
   bytes: Uint8Array;
   synthBold: boolean;
   synthItalic: boolean;
-  /** The weight the file itself is, where it is a variable font that embeds as one instance only: a face asked for more than 100 from it is printed in Inter Tight and listed. */
-  defaultWeight?: number;
 }
 export type FontLoader = (family: string, weight: number, italic: boolean) => Promise<FontFile | null>;
 
@@ -100,12 +98,10 @@ export interface PictureData {
 /** `longEdge`: the most pixels the picture's long edge needs where it is printed (300 dpi, at most 6000). */
 export type PictureLoader = (sha256: string, longEdge: number, signal?: AbortSignal) => Promise<PictureData | null>;
 
-export type FontNoteReason = 'restricted' | 'bitmap' | 'missing' | 'unreadable' | 'glyphs' | 'weight';
+export type FontNoteReason = 'restricted' | 'bitmap' | 'missing' | 'unreadable' | 'glyphs';
 export interface FontNote {
   family: string;
   reason: FontNoteReason;
-  /** For 'weight': the weights of the family that can't be printed yet and were set in Inter Tight, in order. */
-  weights?: number[];
 }
 
 export interface DeckPdfInput {
@@ -173,12 +169,6 @@ export async function writeDeckPdf(input: DeckPdfInput): Promise<DeckPdf> {
   const note = (family: string, reason: FontNoteReason) => {
     notes.set(`${family}\n${reason}`, { family, reason });
   };
-  const noteWeight = (family: string, weight: number) => {
-    const key = `${family}\nweight`;
-    const known = notes.get(key);
-    const weights = new Set([...(known?.weights ?? []), weight]);
-    notes.set(key, { family, reason: 'weight', weights: [...weights].sort((a, b) => a - b) });
-  };
 
   // Fonts: one embedded font per file, a face resolved once per family, weight and slant.
   const embedded = new Map<string, Promise<PDFFont | null>>();
@@ -210,11 +200,7 @@ export async function writeDeckPdf(input: DeckPdfInput): Promise<DeckPdf> {
       made = (async (): Promise<Face> => {
         const file = family === FALLBACK_FAMILY ? null : await input.fonts(family, weight, italic).catch(() => null);
         if (family !== FALLBACK_FAMILY && file === null) note(family, 'missing');
-        // A variable font embeds as its default instance only (Outfit's is Thin), so a weight more than 100 from it would print
-        // as the wrong face: that text goes in Inter Tight at the weight asked for, and the notice names the style.
-        const farFromDefault = file?.defaultWeight !== undefined && Math.abs(weight - file.defaultWeight) > 100;
-        if (farFromDefault) noteWeight(family, weight);
-        const font = file && !farFromDefault ? await embedFile(file, family) : null;
+        const font = file ? await embedFile(file, family) : null;
         if (file && font) return { font, synthBold: file.synthBold, synthItalic: file.synthItalic };
         // Inter Tight, the app's own font, in the weight and slant asked for.
         const fallback = await input.fonts(FALLBACK_FAMILY, weight, italic);

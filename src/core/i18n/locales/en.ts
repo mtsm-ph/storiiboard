@@ -2666,7 +2666,6 @@ export const en = {
   'export.deck.unprintable.one': '{count} picture couldn’t be printed.',
   'export.deck.unprintable.other': '{count} pictures couldn’t be printed.',
   'export.deck.fontGlyphs': '{name}: some characters it doesn’t have print as empty boxes.',
-  'export.deck.fontWeight': '{name} {weights} can’t be printed yet; {fallback} was used.',
   'deck.export': 'Export',
   'moodboard.pasteDeckOnly': 'Pages paste only into a deck.',
 };

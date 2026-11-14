@@ -157,15 +157,11 @@ describe('the notice after the export', () => {
     expect(deckPdfWarnings([], 1)).toEqual(['1 picture printed from the copy kept in the project, not its original file.']);
     expect(deckPdfWarnings([], 0, 2)).toEqual(['2 pictures couldn’t be printed.']);
     expect(deckPdfWarnings([{ family: 'Brand Sans', reason: 'glyphs' }], 0)).toEqual(['Brand Sans: some characters it doesn’t have print as empty boxes.']);
-    expect(deckPdfWarnings([{ family: 'Outfit', reason: 'weight', weights: [400, 700] }], 0)).toEqual([
-      'Outfit Regular, Bold can’t be printed yet; Inter Tight was used.',
-    ]);
     expect(deckPdfWarnings([], 0)).toEqual([]);
   });
 
   it('is in Spanish too', () => {
     setLocale('es');
-    expect(deckPdfWarnings([{ family: 'Outfit', reason: 'weight', weights: [400] }], 0)).toEqual(['Todavía no se puede imprimir Outfit Normal; se usó Inter Tight.']);
     expect(deckPdfWarnings([{ family: 'Brand Sans', reason: 'restricted' }], 2)).toEqual([
       'Brand Sans: su licencia no permite incrustarla, así que se usó Inter Tight.',
       '2 imágenes impresas desde la copia guardada en el proyecto, no desde sus archivos originales.',

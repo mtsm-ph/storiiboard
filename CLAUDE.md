@@ -210,6 +210,9 @@
   - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
   - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
     never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.
+    The bundled families print at every weight from the static files their publishers ship (OFL; Kevin, Nov 11;
+    src/features/export/fonts, each listed with its source and SHA-256); one is generated with fonttools only if a
+    weight isn't published.
 - Cloud links: one shared link per project; list, download and relink media.
 - Missing media: flag it clearly and offer relink. Device-wide file search is a later phase.
 - Script import: Fountain, Final Draft (.fdx) and PDF.
