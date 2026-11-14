@@ -347,6 +347,43 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 13: Phase 5 merged; Kevin's Nov 11 answers built; Phase 6 planned)
+
+- **Models (Kevin, Nov 13; CLAUDE.md, Who does what):** the main session runs on Fable 5.2 and does what it did:
+  plans, briefs, diagnosis, judging review findings, git, CI, docs and Kevin's reports. It costs the most per token,
+  so it writes no long code itself and keeps its own reading small; briefs still carry everything a builder needs.
+  The builder is claude-opus-5-5 at effort medium, the reviewer claude-opus-5-5 at effort high, read-only.
+  **The first builder run in the new chat is the model check: its transcript must record claude-opus-5-5.** If it
+  records anything else, stop and tell Kevin. (Agent files load when a chat starts: every builder run on Nov 13 was
+  still claude-sonnet-5-5.)
+- **Merged Nov 13:** #135 to #145 into `v2`, in order, base first. Each PR was retargeted to `v2`, `git merge-tree`
+  showed its merged tree equal to its head's tree, CI was run by hand on that head (`gh workflow run ci.yml --ref
+  <branch>`: a changed base starts no run by itself) and the merge waited for green. `v2`'s tree is exactly #145's.
+  The full checkpoint on `v2`, `checkpoint/phase5-v2` at 91e307e (run 43525039687), passed every job Nov 13: smoke
+  and screenshots on Linux and in WebKit on the Mac, both installers after their Rust tests. Kevin's gate checklist
+  below runs from its installers.
+- **Open, stacked, waiting for Kevin** (each based on the one before; merge in order as above):
+  - #146 5.8, the small answers: the tests' server opens no socket (hot reload was already off since 5.2, but Vite's
+    client still connected: `noDevSocket` in vite.config.ts swaps the client's socket out for the test server only;
+    nothing is filtered); "Actualizada"; builder.md's foreground line; the opener rule.
+  - #147 5.9, Show in Finder / Show in Explorer (two review rounds).
+  - #148 5.10, every weight of the bundled fonts from the publishers' static files (one review round; 17.6 MB more).
+  - #149 the sidebar's built sections live, only Setup muted: **all 60 baselines changed; Kevin compares and says
+    merge.**
+  - #150 Phase 6's plan (PLAN.md, "Phase 6 milestones") and docs/PHASE6_DECISIONS.md: 16 questions. **Nothing of
+    Phase 6 is built until Kevin answers.**
+- **Questions for Kevin:** Bodoni Moda's publisher ships one optical size (11), so large Bodoni titles print about
+  2% wider and with less contrast than the canvas draws them: accept, or generate optical sizes with fonttools?
+  The Inspector still lists "Shoot day · Phase 3" as to come, though shoot days are built: show the frame's day
+  there, or drop the line? An offline Windows installer is Phase 8's, as a second download (answered Nov 11).
+- **By hand, added to the Phase 5 checklist below:** Show in Finder on the Mac and Show in Explorer on Windows for a
+  dropped picture (and whether a picture whose original is in Desktop or Documents raises the Mac's folder prompt
+  when selected); a deck PDF with Outfit Bold, Archivo Light Italic and Jost at several weights.
+- Run npm and npx from PowerShell, or from Bash with the folder spelled `C:/Users/...`: under `/c/Users/...` Vitest
+  fails every file with "failed to find the current suite".
+- Leftovers (build output or temp; deleting is Kevin's): test-results/probe510, test-results/*.diff, and in the
+  system temp folder the font downloads `sb510-*` (fonttools 4.68.0 was installed for this user with pip).
+
 ### Next session: start here (Nov 11: Phase 5 built, at the gate)
 
 - Phase 5 is built and reviewed, every milestone under Kevin's Nov 10 answers, as a stack of PRs each based on the one
@@ -389,6 +426,11 @@ Lows deferred (noted, not planned yet):
    (it was refused there since Phase 2).
 9. Present on a second screen, F for full screen; nothing you press while presenting changes the project.
 10. Windows 10 (item 11 of Phase 4's list) with a board open.
+11. Once #147 is merged: select a dropped picture: Show in Finder (Mac) and Show in Explorer (Windows) show its
+    original, selected, never opened; move the original away and the action goes. On the Mac, a picture whose
+    original is in Desktop or Documents: does selecting it raise the folder-access prompt?
+12. Once #148 is merged: a deck PDF with Outfit Bold, Archivo Light Italic, Jost at several weights and a large
+    Bodoni Moda title: each prints in its own face and weight, with no notice.
 
 ### Waiting for Kevin (Phase 5)
 
