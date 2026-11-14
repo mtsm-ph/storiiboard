@@ -384,9 +384,9 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes), #162 (6.7; it also holds 6.6's second-round fixes), #163 (6.8; it also holds 6.7's second-round fixes). Next:
-  6.9 from docs/briefs/6.9-underlay-measure.md (branch `phase6/6.9-underlay-measure` off 6.8's), then 6.10
-  (6.10-export.md), 6.11 (6.11-performance.md): every remaining brief is written. Then the gate: a full
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes), #162 (6.7; it also holds 6.6's second-round fixes), #163 (6.8; it also holds 6.7's second-round fixes), #164 (6.9; it also holds 6.8's second-round fixes). Next:
+  6.10 from docs/briefs/6.10-export.md (branch `phase6/6.10-export` off 6.9's), then 6.11
+  (6.11-performance.md): both briefs are written. Then the gate: a full
   checkpoint on the top branch and Kevin's checklist. The print path's gaps for plans are
   listed below under "For 6.10" and in the 6.10 brief. Screenshots the main session looks at come from a probe
   spec under test-results/probe (not committed): ask the builder for them after any milestone that draws. The test server's output is in every run's

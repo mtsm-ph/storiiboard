@@ -980,6 +980,11 @@ function underlayMeasureLine(ops: readonly LoggedOp[], around: ReadonlyMap<strin
   if (items.length === 0 || !items.every((op) => record(op)?.type === 'plan_item')) return null;
   const kinds = new Set(items.map((op) => record(op)?.props.kind));
   if (kinds.size !== 1) return null;
+  // A copy (items carrying `copied_from`: a setup's copied from another) or a move into another plan ("This setup only",
+  // back to every setup) is the plan's line, whatever the items are (6.9 review, L9).
+  const copied = items.some((op) => op.kind === 'create' && typeof op.after?.props.copied_from === 'string');
+  const moved = items.some((op) => op.kind === 'move' && !!op.before && !!op.after && op.before.parentId !== op.after.parentId);
+  if (copied || moved) return null;
   const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
   const n = new Set(items.map((op) => op.recordId)).size;
   if (kinds.has('measure')) {

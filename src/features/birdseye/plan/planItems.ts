@@ -2,6 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react';
 import { Group, Line, Rect } from 'react-konva';
 import { getLocale, t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
+import { mediaFields } from '../../../core/media/store';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
 import {
   boxFields,
@@ -394,6 +395,8 @@ export function underlayItem(id: string, fields: UnderlayFields, unit: PlanUnit,
     ...g,
     label: underlayAnnounce(fields, unit),
     keepRatio: true,
+    // Nothing snaps to the picture's frame or middle lines (6.9 review, L5): what is traced over it snaps to the walls.
+    noSnap: true,
     draw: (context) => createElement(PictureNode, { id, sha256: sha, width: g.width, height: g.height, zoom: context.zoom, inView: context.inView, colours: context.colours }),
   };
 }
@@ -1225,6 +1228,20 @@ export interface PlanClip {
   fields: ShownFields;
   /** The plan the original sat in (6.2b review): a paste goes back to it, or to the same level of the view pasted in. */
   planId?: string | null;
+  /**
+   * An underlay's picture record's props as they were when copied (6.9 review, M1), as a board's clip keeps its
+   * picture's: a Cut takes the underlay to the Trash, and its paste still names the stored picture.
+   */
+  media?: SbdRecord['props'];
+}
+
+/** The stored picture's address an underlay's clip names (its copy-time record, else the live one), or null for none. */
+export function clipPictureSha(records: Records, item: PlanClip): string | null {
+  if (item.props.kind !== 'underlay') return null;
+  const mediaId = typeof item.props.media_id === 'string' ? item.props.media_id : '';
+  const live = mediaId === '' ? undefined : records[mediaId];
+  const props = item.media ?? (live?.type === 'media' ? live.props : undefined);
+  return props ? (mediaFields(props)?.sha256 ?? null) : null;
 }
 
 /**
@@ -1247,7 +1264,10 @@ export function planClipOf(records: Records, ids: readonly string[], view?: Plan
   const openings = walls.flatMap((w) => (w.fields.kind === 'wall' ? openingsInView(records, w.record.id, view).map((o) => o.record) : []));
   return [...[...walls.map((w) => w.record), ...moves].sort(bySortKey), ...openings.sort(bySortKey)].flatMap((record) => {
     const fields = shownFields(record.props);
-    return fields ? [{ id: record.id, props: record.props, fields, planId: record.parentId }] : [];
+    if (!fields) return [];
+    const mediaId = isUnderlay(fields) ? fields.mediaId : null;
+    const media = mediaId === null ? undefined : records[mediaId];
+    return [{ id: record.id, props: record.props, fields, planId: record.parentId, ...(media?.type === 'media' ? { media: media.props } : {}) }];
   });
 }
 
@@ -1293,17 +1313,19 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
   const changes: Change[] = [];
   const copies = new Map<string, string>();
   const make = (item: PlanClip, props: Props): string | null => {
+    const id = crypto.randomUUID();
+    // An underlay's copy (6.9) takes a picture record of its own naming the same stored picture, as a board's does; one
+    // whose picture is known nowhere (deleted for good since the copy) isn't pasted: an underlay never names nothing.
+    const picture = props.kind === 'underlay' ? underlayPictureCopy(records, props, id, item.media) : null;
+    if (props.kind === 'underlay' && !picture) return null;
     const planId = planOf(item);
     if (planId === null) return null;
-    const id = crypto.randomUUID();
     const sortKey = keyBetween(lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item'), null);
     lastKeys.set(planId, sortKey);
     ids.push(id);
     // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
     const own: Props = withoutFrameLinks({ ...props });
     delete own.copied_from;
-    // An underlay's copy (6.9) takes a picture record of its own naming the same stored picture, as a board's does.
-    const picture = own.kind === 'underlay' ? underlayPictureCopy(records, own, id) : null;
     if (picture) own.media_id = picture.id;
     changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props: own } });
     if (picture) changes.push(picture.change);
@@ -1741,6 +1763,11 @@ export interface IconPatch {
   centreX?: number;
   centreY?: number;
   name?: string;
+  /**
+   * A width or depth typed keeps each item's own proportions (6.9 review, L3: underlays, whose pictures are never
+   * stretched): the other side follows, item by item.
+   */
+  keepRatio?: boolean;
 }
 
 /** An icon's middle, metres. */
@@ -1755,7 +1782,20 @@ type IconUpdate = Change & { kind: 'update' };
  */
 export function iconPatchRefused(records: Records, ids: readonly string[], patch: IconPatch): boolean {
   if ((patch.width !== undefined && patch.width < MIN_PLAN_SIZE) || (patch.depth !== undefined && patch.depth < MIN_PLAN_SIZE)) return true;
+  // A side that follows the one typed (keepRatio) is under a centimetre for none of them.
+  if (patch.keepRatio && ids.some((id) => {
+    const live = liveIcon(records, id);
+    const size = live ? sizeKeptRatio(live.fields, patch) : null;
+    return size !== null && (size.width < MIN_PLAN_SIZE || size.height < MIN_PLAN_SIZE);
+  })) return true;
   return unreadableAfter(records, iconUpdates(records, ids, patch));
+}
+
+/** The size a typed width or depth gives an item when it keeps its proportions; null when the patch types neither. */
+function sizeKeptRatio(now: PlanGeometry, patch: IconPatch): { width: number; height: number } | null {
+  if (patch.width !== undefined) return { width: patch.width, height: now.width > 0 ? (patch.width * now.height) / now.width : now.height };
+  if (patch.depth !== undefined) return { width: now.height > 0 ? (patch.depth * now.width) / now.height : now.width, height: patch.depth };
+  return null;
 }
 
 /** A field changed on the selected icons: one update per icon that changes, one op group; its middle stays where it is. Nothing when refused. */
@@ -1770,14 +1810,15 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
     if (!live) return [];
     const now = live.fields;
     const centre = iconCentre(now);
-    const width = patch.width ?? now.width;
-    const height = patch.depth ?? now.height;
+    const kept = patch.keepRatio ? sizeKeptRatio(now, patch) : null;
+    const width = kept ? tidy(kept.width) : (patch.width ?? now.width);
+    const height = kept ? tidy(kept.height) : (patch.depth ?? now.height);
     const cx = patch.centreX ?? centre.x;
     const cy = patch.centreY ?? centre.y;
     const set: Props = {};
     const unset: string[] = [];
-    if (patch.width !== undefined && Math.abs(width - now.width) > 1e-6) set.width = tidy(width);
-    if (patch.depth !== undefined && Math.abs(height - now.height) > 1e-6) set.height = tidy(height);
+    if ((patch.width !== undefined || kept) && Math.abs(width - now.width) > 1e-6) set.width = tidy(width);
+    if ((patch.depth !== undefined || kept) && Math.abs(height - now.height) > 1e-6) set.height = tidy(height);
     const x = tidy(cx - width / 2);
     const y = tidy(cy - height / 2);
     if (Math.abs(x - now.x) > 1e-6) set.x = x;

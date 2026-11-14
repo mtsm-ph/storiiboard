@@ -2,7 +2,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import { showInfo, showNotice } from '../../../app/notice';
 import type { PictureFile } from '../../../app/pictures';
 import { projectStore, type ProjectState } from '../../../app/projectStore';
-import { localizeError, t } from '../../../core/i18n';
+import { localizeError, t, tn } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
@@ -20,7 +20,7 @@ import {
   takeFrameLensChanges,
 } from '../../../core/model/planCamera';
 import { lightBeamChanges, lightWattsChanges, planGearChanges } from '../../../core/model/planLight';
-import { pickableIds } from '../../../core/model/planLayers';
+import { pickableIds, rowState, UNDERLAY_ROW } from '../../../core/model/planLayers';
 import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
@@ -36,6 +36,7 @@ import {
   openingsLeftOut,
   placeIconChanges,
   placeOpeningChanges,
+  clipPictureSha,
   planClipOf,
   planGeometryChanges,
   planNudgeChanges,
@@ -57,10 +58,12 @@ import {
 } from './planItems';
 import { iconSize } from './iconSizes';
 import { layerStatesNow, ownEdit, revealLayersOf, showUnderlayRow } from './layersStore';
-import { addUnderlayChanges, isPdfName, setScaleChanges } from './underlayEdits';
+import { addUnderlayChanges, setScaleChanges, underlayFileKind } from './underlayEdits';
 import { prepare, reason } from '../../storyboard/addPictures';
 import { picturesBusy } from '../../storyboard/picturesBusy';
 import { planStore } from './planStore';
+import { planClipMarker, PLAN_CLIP_TEXT } from './planClipboard';
+import { openingKey } from './shownPlan';
 
 // What a person does on a plan (6.2a, 6.2b), as edits through projectStore.applyWith: each is one op group, so one ⌘Z,
 // as a board's are (src/features/moodboards/boardActions.ts). New walls go into the scene's room; a door or window into
@@ -216,12 +219,19 @@ export async function deletePlanSelection(view: PlanView): Promise<void> {
 /** A door or window selected without its wall is copied only with it: the words for it, or none. */
 const leftOutWords = (records: Records, ids: readonly string[]): string[] => (openingsLeftOut(records, ids) ? [t('plan.openingCopiedWithWall')] : []);
 
+/**
+ * Copy: the items kept inside the app with the opening of the project they were copied in (6.9 review, M1), and the
+ * system clipboard marked as the plan's (M2: planClipboard.ts), so a picture copied before can't win over them.
+ */
 export function copyPlanSelection(view: PlanView): number {
-  const { records } = projectStore.getState();
+  const { records, project } = projectStore.getState();
   const ids = planSelection(records, view);
   const clip = planClipOf(records, ids, view);
   for (const words of leftOutWords(records, ids)) showInfo(words);
-  if (clip.length > 0) planStore.getState().copy(clip);
+  if (clip.length > 0) {
+    planStore.getState().copy(clip, openingKey(project));
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+  }
   return clip.length;
 }
 
@@ -234,16 +244,45 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
  * that level; at the pointer or 16 cm from the originals; the pasted are selected. A setup's icon pasted into a scene
  * with no setup shown is left out, and said. Everything the paste says is one notice (L4), in order: `lead` (what a
  * Duplicate left out), what was left out or not pasted, then what the reveal showed or unlocked and a solo ended.
+ * What was copied pastes only into the opening of the project it was copied in (6.9 review, M1): its cameras, marks,
+ * lights and underlays name that project's bodies, frames, characters, gear and pictures. There, an underlay whose
+ * stored picture has gone since (Empty Trash) is left out, looked at inside the edit's turn, after any Empty Trash
+ * ahead of it, as a board's paste does; the rest goes through.
  */
-export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard, lead: readonly string[] = []): Promise<void> {
+export async function pastePlan(
+  view: PlanView,
+  at: Point | null,
+  clip = planStore.getState().clipboard,
+  lead: readonly string[] = [],
+  store: StoreApi<ProjectState> = projectStore,
+): Promise<void> {
   if (clip.length === 0) {
     if (lead.length > 0) showInfo(lead.join(' '));
     return;
   }
+  const { project } = store.getState();
+  if (!project) return;
+  const { clipboard, clipFrom } = planStore.getState();
+  // A Duplicate gives its clip directly, from this project. Another opening (a backup, an opened version, a switch) is another project.
+  if (clip === clipboard && clipFrom !== openingKey(project)) {
+    showInfo([...lead, t('plan.pasteElsewhere')].join(' '));
+    return;
+  }
   let ids: string[] = [];
-  const out = { count: 0, north: 0 };
-  const written = await projectStore.getState().applyWith((records) => {
-    const made = planPasteInView(records, view, clip, at);
+  const out = { count: 0, north: 0, gone: 0 };
+  const written = await store.getState().applyWith(async (records) => {
+    const shas = [...new Set(clip.flatMap((item) => [clipPictureSha(records, item)].filter((sha): sha is string => sha !== null)))];
+    const rows = shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
+    const stored = new Set(rows.map((row) => String(row.sha256)));
+    const kept = clip.filter((item) => {
+      if (item.props.kind !== 'underlay') return true;
+      const sha = clipPictureSha(records, item);
+      return sha !== null && stored.has(sha);
+    });
+    out.gone = clip.length - kept.length;
+    if (kept.length === 0) return { changes: [] };
+    // The records as they are now: the query above waited its turn.
+    const made = planPasteInView(store.getState().records, view, kept, at);
     ids = made.ids;
     out.count = made.leftOut;
     out.north = made.northKept ?? 0;
@@ -251,8 +290,14 @@ export async function pastePlan(view: PlanView, at: Point | null, clip = planSto
   });
   // One north per room (6.6): a pasted north the room already has is left out, and said; the room's own is selected
   // with what was pasted, and its layer shown and unlocked, as placing a north does (6.8 review, L6).
-  const said = [...lead, ...(out.count > 0 ? [t('library.noSetup')] : []), ...(out.north > 0 ? [t('plan.north.notPasted')] : [])];
-  const records = projectStore.getState().records;
+  const said = [
+    ...lead,
+    ...(out.gone > 0 ? [t('plan.underlay.pasteGone')] : []),
+    ...(out.count > 0 ? [t('library.noSetup')] : []),
+    ...(out.north > 0 ? [t('plan.north.notPasted')] : []),
+  ];
+  if (store.getState().project !== project) return;
+  const records = store.getState().records;
   const kept = out.north > 0 ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
   if (written) select(view, kept === null ? ids : [...ids, kept], records, said);
   else if (said.length > 0) showInfo(said.join(' '));
@@ -495,28 +540,39 @@ export async function changeMeasures(ids: readonly string[], patch: MeasurePatch
   return projectStore.getState().applyWith((records) => ({ changes: measurePatchChanges(records, ids, patch) }));
 }
 
-/** Why an underlay wasn't added: a PDF (not read in this milestone), no room, another project open, nothing that reads. */
-export type UnderlayOutcome = 'pdf' | 'noRoom' | 'otherProject' | 'failed' | null;
+/**
+ * Why an underlay wasn't added: a PDF (not read in this milestone), something that isn't a picture, no room, another
+ * project open, nothing that reads.
+ */
+export type UnderlayOutcome = 'pdf' | 'notPicture' | 'noRoom' | 'otherProject' | 'failed' | null;
 
 /**
  * Pictures added under the room (6.9): the first picture of a choice, a drop or a paste, prepared as a board's pictures
  * are (capped, colour kept, thumbnail made: src/features/storyboard/addPictures.ts), then an underlay with its picture
- * in one op group, its middle at `centre` (metres). A PDF is said ("Save it as a picture first") and left out; a file
- * that can't be read is named in a notice. Only into the project the choice or drop began in (`madeIn`), and only while
- * the scene still has a room. The underlay's row is drawn if it was hidden, its lock kept, so nothing is selected.
+ * in one op group, its middle at `centre` (metres). Each file is told by its name and type before anything is read
+ * (6.9 review, L6): a PDF is said ("Save it as a picture first"), anything that isn't a picture is said and never read,
+ * opened or run; of several pictures the first is added and the rest are said (L7). A file that can't be read is named
+ * in a notice. Only into the project the choice or drop began in (`madeIn`), and only while the scene still has a room.
+ * Added, it is said to be locked so walls are traced over it (L8), with the underlay's row drawn if it was hidden, its
+ * lock kept, so nothing is selected; everything in one notice.
  */
 export async function addUnderlay(view: PlanView, files: readonly PictureFile[], centre: Point, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<UnderlayOutcome> {
   if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
-  const pictures = files.filter((file) => !isPdfName(file.name));
-  if (pictures.length < files.length) showInfo(t('plan.underlay.pdf'));
+  const kinds = files.map((file) => underlayFileKind({ name: file.name, type: file.file?.type }));
+  const pictures = files.filter((_, i) => kinds[i] === 'picture');
+  const said = [...(kinds.includes('pdf') ? [t('plan.underlay.pdf')] : []), ...(kinds.includes('other') ? [t('plan.underlay.notPicture')] : [])];
   const [file] = pictures;
-  if (!file) return files.length > 0 ? 'pdf' : null;
+  if (!file) {
+    if (said.length > 0) showInfo(said.join(' '));
+    return files.length === 0 ? null : kinds.includes('pdf') ? 'pdf' : 'notPicture';
+  }
+  if (pictures.length > 1) said.push(tn('plan.underlay.oneAtATime', pictures.length));
   picturesBusy.setState((s) => ({ count: s.count + 1 }));
   let prepared: Awaited<ReturnType<typeof prepare>> | null = null;
   try {
     prepared = await prepare({ kind: 'picture', file }, madeIn.file.nativeHandle);
   } catch (error) {
-    showNotice(localizeError(reason(error)));
+    showNotice([...said, localizeError(reason(error))].join(' '));
     return 'failed';
   } finally {
     picturesBusy.setState((s) => ({ count: s.count - 1 }));
@@ -525,7 +581,7 @@ export async function addUnderlay(view: PlanView, files: readonly PictureFile[],
   if (prepared.kind !== 'picture' || store.getState().project !== madeIn) return 'otherProject';
   const picture = prepared.picture;
   const outcome: { why: UnderlayOutcome } = { why: null };
-  await store.getState().applyWith((records) => {
+  const written = await store.getState().applyWith((records) => {
     if (runRoomId(records, view.sceneId) === null) {
       outcome.why = 'noRoom';
       return { changes: [] };
@@ -533,11 +589,16 @@ export async function addUnderlay(view: PlanView, files: readonly PictureFile[],
     const made = addUnderlayChanges(records, view.sceneId, picture, centre, madeIn.file.path);
     return { changes: made.changes, alsoWrite: made.alsoWrite };
   });
+  if (store.getState().project !== madeIn) return outcome.why ?? null;
   if (outcome.why === 'noRoom') {
-    if (store.getState().project === madeIn) showInfo(t('library.needsRoom'));
+    showInfo([...said, t('library.needsRoom')].join(' '));
     return 'noRoom';
   }
-  if (store.getState().project === madeIn) showUnderlayRow();
+  if (!written) {
+    if (said.length > 0) showInfo(said.join(' '));
+    return null;
+  }
+  showUnderlayRow([...said, t(rowState(layerStatesNow(), UNDERLAY_ROW).locked ? 'plan.underlay.addedLocked' : 'plan.underlay.added')]);
   return null;
 }
 

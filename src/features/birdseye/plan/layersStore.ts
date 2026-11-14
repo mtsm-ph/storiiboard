@@ -313,16 +313,26 @@ export function choosePlanTool(next: Tool): void {
 /**
  * The underlay's row seen (6.9): a picture just added onto a hidden row is drawn dimmed, as the row starts, its lock as
  * it was, so walls are traced over it and it is never picked by surprise. Said as revealing is. Nothing during a solo:
- * the solo's dim already shows it.
+ * the solo's dim already shows it. `lead`: what else the step says, first in the same notice (L4), said even when the
+ * row was drawn already.
  */
-export function showUnderlayRow(): void {
+export function showUnderlayRow(lead: readonly string[] = []): void {
   const { solo } = layersStore.getState();
-  if (solo) return;
   const now = layerStatesNow();
   const row = rowState(now, UNDERLAY_ROW);
-  if (row.show !== 'hidden') return;
-  commit({ ...now, [UNDERLAY_ROW]: { ...row, show: 'dimmed' } });
-  showInfo(tn('layers.revealed.shown', 1, { layers: rowName(UNDERLAY_ROW) }));
+  const reveal = !solo && row.show === 'hidden';
+  if (reveal) commit({ ...now, [UNDERLAY_ROW]: { ...row, show: 'dimmed' } });
+  const words = [...lead, ...(reveal ? [tn('layers.revealed.shown', 1, { layers: rowName(UNDERLAY_ROW) })] : [])];
+  if (words.length > 0) showInfo(words.join(' '));
+}
+
+/**
+ * "Set scale" started (6.9) from the room's menu, the Layers row, the header's note or the Selection tile: the
+ * underlay's row drawn first when it was hidden, and said (6.9 review, L4), so its two clicks land on a picture in view.
+ */
+export function startUnderlayScale(underlayId: string): void {
+  showUnderlayRow();
+  planStore.getState().startScale(underlayId);
 }
 
 /** For tests: the state as a fresh session reads it from settings. */

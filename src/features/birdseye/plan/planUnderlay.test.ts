@@ -1,25 +1,33 @@
 import { createHash } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { noticeStore } from '../../../app/notice';
 import { setPlanUnitsChoice } from '../../../app/planUnits';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { readOriginal, type PreparedImage } from '../../../core/media/store';
 import { MEASURE_THICKNESS, measureFields, planItemLayer, scaledUnderlay, sceneRoomId, shownItems, startRoomChanges, underlayFields, wallEnds, type Point } from '../../../core/model/plan';
 import { ALL_SHOWN, layeredItems, layerOfItem, layerPickable, pickableIds, soloStates, UNDERLAY_ROW, UNDERLAY_START } from '../../../core/model/planLayers';
-import { kindHome, separateCopyChanges, setupOnlyChanges } from '../../../core/model/planRooms';
+import { copySetupChanges, kindHome, separateCopyChanges, setupOnlyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { importProjectJson, projectJsonBytes, readProjectJson } from '../../../core/storage/projectJson';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { nextPoint, NO_MODS, runClick, runKey, runStart } from '../../../ui/canvas/pathRun';
+import { runSnapEnds, snapTargetItems } from '../../../ui/canvas/snapping';
 import { loadSteps } from '../../history/steps';
 import { lineText } from '../../history/summary';
+import { CLIP_TYPE as BOARD_CLIP_TYPE } from '../../moodboards/clipboardMarker';
 import { restoreChanges, trashItems } from '../../trash/trash';
 import { layersStore, layerStatesNow, setLayerLocked, showAllLayers, soloLayer } from './layersStore';
+import { addUnderlay as addUnderlayAction, pastePlan, setUnderlayScale } from './planActions';
+import { pasteIsPicture, PLAN_CLIP_TEXT, PLAN_CLIP_TYPE, planClipMarker } from './planClipboard';
+import { openingKey, showPlan } from './shownPlan';
 import {
   drawMeasuresChanges,
   drawWallsChanges,
+  iconPatchChanges,
+  iconPatchRefused,
   measureItem,
   measurePatchChanges,
   measurePatchRefused,
@@ -28,11 +36,12 @@ import {
   planItemsBuilder,
   planPasteInView,
   trashPlanItemsChanges,
+  underlayItem,
   unreadableAfter,
 } from './planItems';
-import { planScale, toCanvas } from './planScale';
+import { planScale, SCALE_TOOL, toCanvas } from './planScale';
 import { planStore } from './planStore';
-import { addUnderlayChanges, scaleTarget, setScaleChanges, underlayPictures, underlaySize, unscaledIn } from './underlayEdits';
+import { addUnderlayChanges, scaleTarget, setScaleChanges, underlayAt, underlayFileKind, underlayName, underlayPictures, underlaySize, unscaledIn } from './underlayEdits';
 
 // The room's underlays and measures (6.9, docs/PHASE6_DECISIONS.md 12): the set-scale maths, the underlay drawn beneath
 // everything, dimmed and locked by its own row until it is unlocked, its picture stored as a board's, a room copy giving
@@ -435,5 +444,287 @@ describe('History, the Trash and the JSON round trip', () => {
     } finally {
       await imported.close();
     }
+  });
+});
+
+// 6.9 review: the plan's clipboard belongs to the opening it was copied in, and a picture gone for good isn't pasted
+// (M1); the system clipboard's mark decides a paste (M2); Set scale for the room shown and the underlay clicked (L1, L2);
+// typed sizes keeping each underlay's shape (L3); nothing snapping to an underlay (L5); files told apart before they
+// are read (L6); History's lines for moves and copies of measures (L9); the `madeIn` guards (L13).
+describe('the review’s fixes (6.9 review)', () => {
+  const noticeNow = () => noticeStore.getState().message;
+  const countItems = (state: ReturnType<typeof store.getState>) => Object.values(state.records).filter((r) => r.type === 'plan_item' && r.trashedAt === null).length;
+
+  /** A wall from -1 m to 1 m on y = 3 m in the scene's room. */
+  async function wall(sceneId: string) {
+    const made = drawWallsChanges(records(), sceneId, [
+      { x: -100, y: 300 },
+      { x: 100, y: 300 },
+    ]);
+    await store.getState().apply(made.changes);
+    return made.ids[0] ?? '';
+  }
+
+  it('pastes the rest and leaves out an underlay whose picture was deleted for good (Empty Trash), and says so', async () => {
+    const { sceneId, view } = await scene();
+    const id = await addUnderlay(sceneId);
+    const wallId = await wall(sceneId);
+    setLayerLocked(UNDERLAY_ROW, false);
+    planStore.getState().copy(planClipOf(records(), [id, wallId], view), openingKey(project));
+    await store.getState().apply(trashPlanItemsChanges(records(), [id]));
+    await store.getState().emptyTrash();
+    expect(await readOriginal(project.file, image(3).original.sha256)).toBeNull();
+    noticeStore.setState({ message: null });
+    await pastePlan(view, null, undefined, [], store);
+    const live = Object.values(records()).filter((r) => r.type === 'plan_item' && r.trashedAt === null);
+    expect(live.map((r) => r.props.kind).sort()).toEqual(['wall', 'wall']);
+    expect(Object.values(records()).some((r) => r.type === 'media')).toBe(false);
+    expect(noticeNow()).toContain('An underlay wasn’t pasted: its picture has been deleted for good.');
+  });
+
+  it('pastes a cut underlay back with its picture: the clip keeps the picture record it was copied with', async () => {
+    const { sceneId, view } = await scene();
+    const id = await addUnderlay(sceneId);
+    setLayerLocked(UNDERLAY_ROW, false);
+    planStore.getState().copy(planClipOf(records(), [id], view), openingKey(project));
+    await store.getState().apply(trashPlanItemsChanges(records(), [id]));
+    await pastePlan(view, null, undefined, [], store);
+    const copy = Object.values(records()).find((r) => r.type === 'plan_item' && r.trashedAt === null && r.props.kind === 'underlay');
+    const media = records()[underlayFields(copy?.props ?? {})?.mediaId ?? ''];
+    expect(media?.type).toBe('media');
+    expect(media?.parentId).toBe(copy?.id);
+    expect(media?.props.file).toBe(image(3).original.sha256);
+    // The pure paste never makes an underlay naming nothing: with no picture known anywhere it is left out.
+    const bare = planClipOf(records(), [copy?.id ?? ''], view).map((item) => ({ id: item.id, props: item.props, fields: item.fields, planId: item.planId ?? null }));
+    await store.getState().apply([{ kind: 'trash', id: media?.id ?? '' }]);
+    expect(planPasteInView(records(), view, bare, null).ids).toEqual([]);
+  });
+
+  it('pastes nothing into another project, whatever was copied, and writes nothing to either', async () => {
+    const { sceneId, view } = await scene();
+    const id = await addUnderlay(sceneId);
+    const wallId = await wall(sceneId);
+    setLayerLocked(UNDERLAY_ROW, false);
+    planStore.getState().copy(planClipOf(records(), [id, wallId], view), openingKey(project));
+    const other = await createProject(folder.path('Elsewhere.sbd'), { driver: nodeDriver, backups: false });
+    const there = createProjectStore();
+    await there.getState().open(other);
+    try {
+      const otherScene = crypto.randomUUID();
+      await there.getState().apply([{ kind: 'create', record: { id: otherScene, type: 'scene', parentId: other.projectId, sortKey: '1', props: { number: '1', name: 'Diner' } } }]);
+      await there.getState().apply(startRoomChanges(there.getState().records, other.projectId, otherScene));
+      const before = { here: countItems(store.getState()), there: countItems(there.getState()) };
+      const ops = async (file: Project['file']) => Number((await file.query('SELECT count(*) AS n FROM ops'))[0]?.n);
+      const opsBefore = { here: await ops(project.file), there: await ops(other.file) };
+      noticeStore.setState({ message: null });
+      await pastePlan({ sceneId: otherScene, setupId: null }, null, undefined, [], there);
+      expect(countItems(there.getState())).toBe(before.there);
+      expect(countItems(store.getState())).toBe(before.here);
+      expect(await ops(other.file)).toBe(opsBefore.there);
+      expect(await ops(project.file)).toBe(opsBefore.here);
+      expect(noticeNow()).toBe('What was copied on a plan pastes within its own project.');
+      expect(openingKey(other)).not.toBe(openingKey(project));
+    } finally {
+      await there.getState().close();
+    }
+  });
+
+  it('marks the system clipboard with the plan’s own token, apart from a board’s', () => {
+    planClipMarker.reset();
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+    const set: Record<string, string> = {};
+    planClipMarker.markSystemClipboard({ setData: (type: string, value: string) => void (set[type] = value) } as unknown as DataTransfer, null);
+    expect(set[PLAN_CLIP_TYPE]).toBe(planClipMarker.lastCopy().token);
+    expect(set['text/plain']).toBe(PLAN_CLIP_TEXT);
+    expect(PLAN_CLIP_TYPE).not.toBe(BOARD_CLIP_TYPE);
+    // A board's token is not the plan's.
+    expect(planClipMarker.decidePaste({ token: 'a board’s token', text: 'Storiiboard items', files: 1, hasClip: true })).toBe('system');
+  });
+
+  /** What a paste event carries: the plan's token or none, words, and how many files. */
+  const transfer = (token: string, text: string, files: number) =>
+    ({ getData: (type: string) => (type === PLAN_CLIP_TYPE ? token : type === 'text/plain' ? text : ''), files: { length: files } }) as unknown as DataTransfer;
+
+  it('pastes the copied plan items over an older picture on the clipboard after a switch of window', () => {
+    planClipMarker.reset();
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+    planClipMarker.markSystemClipboard({ setData: () => undefined } as unknown as DataTransfer, null);
+    const { token } = planClipMarker.lastCopy();
+    planClipMarker.blurred();
+    // The copy replaced the screenshot that was there: what comes back is the plan's mark, and the plan's items paste.
+    expect(pasteIsPicture(transfer(token, PLAN_CLIP_TEXT, 0), true)).toBe(false);
+    expect(pasteIsPicture(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe(false);
+    // The write not known (no copy event, as the canvas menu's Copy): fresh items still win over a stale picture.
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+    expect(pasteIsPicture(transfer('', '', 1), true)).toBe(false);
+  });
+
+  it('takes a picture copied after the plan’s items as an underlay, before or after a switch of window', () => {
+    planClipMarker.reset();
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+    planClipMarker.markSystemClipboard({ setData: () => undefined } as unknown as DataTransfer, null);
+    expect(pasteIsPicture(transfer('', '', 1), true)).toBe(true);
+    planClipMarker.blurred();
+    expect(pasteIsPicture(transfer('', '', 1), true)).toBe(true);
+    // Nothing copied on the plan: a picture is an underlay; no files, never one.
+    planClipMarker.reset();
+    expect(pasteIsPicture(transfer('', '', 1), false)).toBe(true);
+    expect(pasteIsPicture(transfer('', 'some words', 0), true)).toBe(false);
+  });
+
+  it('marks the clipboard through the clipboard API when no copy event comes (the canvas menu’s Copy)', async () => {
+    vi.useFakeTimers();
+    const written: string[] = [];
+    vi.stubGlobal('window', { setTimeout: globalThis.setTimeout, addEventListener: () => undefined });
+    vi.stubGlobal('document', { addEventListener: () => undefined });
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: (text: string) => {
+          written.push(text);
+          return Promise.resolve();
+        },
+      },
+    });
+    try {
+      planClipMarker.reset();
+      planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+      planClipMarker.markSystemClipboard(null, null);
+      await vi.advanceTimersByTimeAsync(60);
+      expect(written).toEqual([PLAN_CLIP_TEXT]);
+      expect(planClipMarker.lastCopy().write).toBe('ok');
+      planClipMarker.blurred();
+      expect(pasteIsPicture(transfer('', PLAN_CLIP_TEXT, 0), true)).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends Set scale’s clicks when another scene or setup is shown, back to Select', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = await addUnderlay(sceneId);
+    showPlan(sceneId, setupId);
+    planStore.getState().startScale(id);
+    expect(planStore.getState()).toMatchObject({ tool: SCALE_TOOL, scaling: id });
+    showPlan(sceneId, null);
+    expect(planStore.getState()).toMatchObject({ tool: 'select', scaling: null, scaleFirst: null });
+    showPlan(null);
+  });
+
+  it('scales the underlay under the first click, the one started for first, never one of another room', async () => {
+    const { sceneId, roomId } = await scene();
+    const back = await addUnderlay(sceneId, 3);
+    const front = await addUnderlay(sceneId, 5);
+    // Both 10 × 5 m about the origin; the front one moved 8 m right, so only the back one is under (-4, 0).
+    await store.getState().apply([{ kind: 'update', id: front, set: { x: 3 } }]);
+    expect(underlayAt(records(), roomId, { x: -4, y: 0 })).toBe(back);
+    expect(underlayAt(records(), roomId, { x: 7, y: 0 })).toBe(front);
+    // Under both: the topmost, unless the one started for is under it too.
+    expect(underlayAt(records(), roomId, { x: 4, y: 0 })).toBe(front);
+    expect(underlayAt(records(), roomId, { x: 4, y: 0 }, back)).toBe(back);
+    expect(underlayAt(records(), roomId, { x: -4, y: 0 }, front)).toBe(back);
+    expect(underlayAt(records(), roomId, { x: 40, y: 0 })).toBeNull();
+    // Another room's underlay is never the one.
+    const two = await scene('2');
+    expect(underlayAt(records(), two.roomId, { x: -4, y: 0 }, back)).toBeNull();
+    expect(underlayName(records(), back)).toBe('plan-3.jpg');
+  });
+
+  it('keeps each underlay’s own shape when a width or depth is typed for several', async () => {
+    const { sceneId } = await scene();
+    const wide = await addUnderlay(sceneId, 3);
+    const tall = addUnderlayChanges(records(), sceneId, { image: image(7, 1000, 2000), source: { name: 'tall.jpg' } }, { x: 0, y: 0 }, project.file.path);
+    await store.getState().apply(tall.changes, { alsoWrite: tall.alsoWrite });
+    await store.getState().apply(iconPatchChanges(records(), [wide, tall.id], { width: 4, keepRatio: true }));
+    expect(fieldsOf(wide)).toMatchObject({ width: 4, height: 2 });
+    expect(fieldsOf(tall.id)).toMatchObject({ width: 4, height: 8 });
+    await store.getState().apply(iconPatchChanges(records(), [wide, tall.id], { depth: 1, keepRatio: true }));
+    expect(fieldsOf(wide)).toMatchObject({ width: 2, height: 1 });
+    expect(fieldsOf(tall.id)).toMatchObject({ width: 0.5, height: 1 });
+    // A side that would follow under a centimetre is refused for all.
+    expect(iconPatchRefused(records(), [wide, tall.id], { depth: 0.015, keepRatio: true })).toBe(true);
+  });
+
+  it('is never a snap target: moves, drawn boxes and runs leave it out; a board’s items are as ever', async () => {
+    const { sceneId } = await scene();
+    const id = await addUnderlay(sceneId);
+    const fields = fieldsOf(id);
+    if (!fields) throw new Error('no underlay');
+    const picture = underlayItem(id, fields, 'metres', null);
+    expect(picture.noSnap).toBe(true);
+    const other = { id: 'b', x: 0, y: 0, width: 10, height: 10, rotation: 0, label: 'Rectangle', snapPoints: [{ x: 1, y: 1 }] };
+    const seen = { x: -10000, y: -10000, width: 20000, height: 20000 };
+    expect(snapTargetItems([picture, other], new Set(), seen).map((i) => i.id)).toEqual(['b']);
+    expect(runSnapEnds([{ ...picture, snapPoints: [{ x: 0, y: 0 }] }, other])).toEqual([{ x: 1, y: 1 }]);
+  });
+
+  it('tells pictures, PDFs and anything else apart by name and type, and never reads what isn’t a picture', async () => {
+    expect(underlayFileKind({ name: 'plan.JPG' })).toBe('picture');
+    expect(underlayFileKind({ name: 'scan', type: 'image/png' })).toBe('picture');
+    expect(underlayFileKind({ name: 'plan.pdf' })).toBe('pdf');
+    expect(underlayFileKind({ name: 'plan', type: 'application/pdf' })).toBe('pdf');
+    expect(underlayFileKind({ name: 'setup.exe', type: 'application/x-msdownload' })).toBe('other');
+    expect(underlayFileKind({ name: 'take.mov', type: 'video/quicktime' })).toBe('other');
+    const { sceneId, view } = await scene();
+    const read = vi.fn(() => Promise.resolve(new Blob()));
+    const files = [
+      { name: 'setup.exe', file: new File([], 'setup.exe', { type: 'application/x-msdownload' }), read },
+      { name: 'take.mov', file: new File([], 'take.mov', { type: 'video/quicktime' }), read },
+    ];
+    noticeStore.setState({ message: null });
+    expect(await addUnderlayAction(view, files, { x: 0, y: 0 }, project, store)).toBe('notPicture');
+    expect(read).not.toHaveBeenCalled();
+    expect(noticeNow()).toBe('Only a picture can be an underlay.');
+    expect(await addUnderlayAction(view, [{ name: 'plan', file: new File([], 'plan', { type: 'application/pdf' }), read }], { x: 0, y: 0 }, project, store)).toBe('pdf');
+    expect(read).not.toHaveBeenCalled();
+    expect(noticeNow()).toBe('A PDF can’t be an underlay yet. Save it as a picture first.');
+    setLocale('es');
+    expect(await addUnderlayAction(view, files, { x: 0, y: 0 }, project, store)).toBe('notPicture');
+    expect(noticeNow()).toBe('Solo una imagen puede ser imagen de fondo.');
+    setLocale('en');
+    expect(shownItems(records(), sceneId, null).some((i) => i.fields.kind === 'underlay')).toBe(false);
+  });
+
+  it('writes nothing from a drop or a scale question made in another opening (`madeIn`)', async () => {
+    const { sceneId, view } = await scene();
+    const id = await addUnderlay(sceneId);
+    const other = await createProject(folder.path('Elsewhere.sbd'), { driver: nodeDriver, backups: false });
+    try {
+      const read = vi.fn(() => Promise.resolve(new Blob()));
+      const before = countItems(store.getState());
+      expect(await addUnderlayAction(view, [{ name: 'plan.jpg', read }], { x: 0, y: 0 }, other, store)).toBe('otherProject');
+      expect(await addUnderlayAction(view, [{ name: 'plan.jpg', read }], { x: 0, y: 0 }, null, store)).toBe('otherProject');
+      expect(read).not.toHaveBeenCalled();
+      expect(countItems(store.getState())).toBe(before);
+      expect(await setUnderlayScale(id, { x: 0, y: 0 }, { x: 1, y: 0 }, 4, other, store)).toBe(false);
+      expect(fieldsOf(id)).toMatchObject({ scaled: false, width: 10 });
+      // The project it was made in: written.
+      expect(await setUnderlayScale(id, { x: 0, y: 0 }, { x: 1, y: 0 }, 4, project, store)).toBe(true);
+      expect(fieldsOf(id)).toMatchObject({ scaled: true, width: 40 });
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('says measures moved into one setup, or copied from another, as the plan’s move and copy, in English and Spanish', async () => {
+    const { sceneId, setupId } = await scene();
+    const second = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: second, type: 'setup', parentId: sceneId, sortKey: 'b', props: { name: '' } } }]);
+    const measures = drawMeasuresChanges(records(), sceneId, [
+      { x: 0, y: 0 },
+      { x: 300, y: 0 },
+      { x: 300, y: 200 },
+    ]);
+    await store.getState().apply(measures.changes);
+    await store.getState().apply(setupOnlyChanges(records(), sceneId, setupId, measures.ids, true));
+    await store.getState().apply(copySetupChanges(records(), setupId, second));
+    expect((await lines()).slice(-3)).toEqual(['Drew 2 measures', 'Put 2 plan items in one setup only', 'Copied 2 plan items from another setup']);
+    setLocale('es');
+    expect((await lines()).slice(-3)).toEqual([
+      'Se dibujaron 2 medidas',
+      'Se dejaron 2 elementos de la planta solo en un emplazamiento',
+      'Se copiaron 2 elementos de la planta de otro emplazamiento',
+    ]);
+    setLocale('en');
   });
 });

@@ -292,3 +292,109 @@ test('a picture dropped or pasted onto the plan is an underlay where it lands; a
   await expect(page.getByText('A PDF can’t be an underlay yet. Save it as a picture first.')).toBeVisible();
   expect((await ofKind(page, 'underlay')).length).toBe(2);
 });
+
+// 6.9 review (L13): Set scale's clicks taken exactly where they are, Escape after one click, several pictures dropped
+// at once, the lock said, the drawn picture's size by zoom, and drops and pastes with the Storyboard open beside the plan.
+
+test('Set scale takes its clicks exactly where they are, never snapped; Escape after one click scales nothing', async ({ page }) => {
+  await startRoom(page);
+  await addUnderlayFromMenu(page);
+  await expect(page.getByText('Underlay added, locked so you can trace over it. Unlock it in Layers to move it.')).toBeVisible();
+  // A wall whose start is 4 cm left of the first click, on the grid's lines.
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -200, -200);
+  await clickAt(page, 200, -200);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['underlay', 'wall']);
+
+  // Escape after one click: back to Select, no question, nothing scaled.
+  await planTile(page).locator('[data-underlay-scale-now]').click();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:scale');
+  await clickAt(page, -50, 50);
+  await page.keyboard.press('Escape');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  await expect(page.locator('[data-scale-window]')).toHaveCount(0);
+  expect((await one(page, 'underlay')).scaled).toBe(false);
+
+  // Off the grid, 4 cm and 3 cm from the wall's end: snapped, the two points would be 3.04 m apart.
+  await planTile(page).locator('[data-underlay-scale-now]').click();
+  await clickAt(page, -196, -197);
+  await clickAt(page, 104, -197);
+  const question = page.locator('[data-scale-window]');
+  await expect(question).toContainText('3.00 m');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).fill('6m');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).press('Enter');
+  await expect.poll(async () => (await one(page, 'underlay')).scaled).toBe(true);
+  // Doubled about the first click, (-1.96, -1.97): the middle, at the origin before, is now twice as far the other way.
+  const scaled = await one(page, 'underlay');
+  expect(scaled.x + scaled.width / 2).toBeCloseTo(1.96, 2);
+  expect(scaled.y + scaled.height / 2).toBeCloseTo(1.97, 2);
+});
+
+test('a drop of several pictures adds the first and says so; zoomed out the underlay draws its small preview', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const jpeg = (name: string) => ({ name, type: 'image/jpeg', data: [...readFileSync(imagePath)] });
+  await startRoom(page);
+  const at = await screen(page, 0, 0);
+  await holder(page).dispatchEvent('drop', { dataTransfer: await files(page, [jpeg('a.jpg'), jpeg('b.jpg'), jpeg('c.jpg')]), clientX: at.x, clientY: at.y });
+  await expect.poll(() => kinds(page)).toEqual(['underlay']);
+  await expect(page.getByText('1 of 3 added: an underlay is one picture at a time. Underlay added, locked so you can trace over it. Unlock it in Layers to move it.')).toBeVisible();
+  // Anything that isn't a picture is refused before it is read.
+  await holder(page).dispatchEvent('drop', { dataTransfer: await files(page, [{ name: 'take.mov', type: 'video/quicktime', data: [0, 0, 0, 20] }]), clientX: at.x, clientY: at.y });
+  await expect(page.getByText('Only a picture can be an underlay.')).toBeVisible();
+  expect(await kinds(page)).toEqual(['underlay']);
+  // 10 m at 100% is 1000 screen pixels: the stored picture. Zoomed out under 640, the thumbnail (5.7's level); back up close, the picture.
+  await expect.poll(async () => Object.values(await levels(page))).toEqual(['original']);
+  await canvas(page).focus();
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('-');
+  await expect.poll(async () => Object.values(await levels(page))).toEqual(['thumbnail']);
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('=');
+  await expect.poll(async () => Object.values(await levels(page))).toEqual(['original']);
+});
+
+test('with the Storyboard open beside the plan, a drop on a frame is its picture and a drop on the plan an underlay, never both; a paste into a text field neither', async ({ page }) => {
+  const { readFileSync } = await import('node:fs');
+  const jpeg = (name: string) => ({ name, type: 'image/jpeg', data: [...readFileSync(imagePath)] });
+  await startRoom(page);
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Storyboard', exact: true }).click();
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  const frames = board.locator('[aria-label="Frames in SC 01"] [data-shot-id]');
+  await expect(frames).toHaveCount(1);
+  await expect(planTile(page)).toBeVisible();
+
+  // On the frame: its picture, and no underlay.
+  await frames.nth(0).dispatchEvent('drop', { dataTransfer: await files(page, [jpeg('frame.jpg')]) });
+  await expect(frames.nth(0).locator('img[data-frame-image]')).toBeVisible();
+  expect(await kinds(page)).toEqual([]);
+
+  // On the plan: an underlay, and the board as it was (one frame, its one picture).
+  const at = await screen(page, 0, 0);
+  await holder(page).dispatchEvent('drop', { dataTransfer: await files(page, [jpeg('plan.jpg')]), clientX: at.x, clientY: at.y });
+  await expect.poll(() => kinds(page)).toEqual(['underlay']);
+  await expect(frames).toHaveCount(1);
+  await expect(board.locator('img[data-frame-image]')).toHaveCount(1);
+
+  // A measure's name field focused in the Selection tile: a pasted picture is the field's, neither an underlay nor a frame's.
+  await canvas(page).focus();
+  await page.keyboard.press('r');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('3m');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['measure', 'underlay']);
+  const name = selectionTile(page).getByRole('textbox', { name: 'Name', exact: true });
+  await name.focus();
+  const transfer = await files(page, [jpeg('pasted.jpg')]);
+  await page.evaluate((data) => {
+    document.activeElement?.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, transfer);
+  // Give a wrong paste time to land before looking.
+  await page.waitForTimeout(500);
+  expect(await kinds(page)).toEqual(['measure', 'underlay']);
+  await expect(frames).toHaveCount(1);
+  await expect(board.locator('img[data-frame-image]')).toHaveCount(1);
+});

@@ -36,6 +36,11 @@ export function typeOf(name: string): string {
   return TYPES[name.split('.').pop()?.toLowerCase() ?? ''] ?? '';
 }
 
+const PICTURE_TYPES = new Set(Object.values(TYPES));
+
+/** Whether a MIME type is one of the picture types above (a browser's File says it; a path through Rust has none). */
+export const isPictureType = (mime: string): boolean => PICTURE_TYPES.has(mime.toLowerCase());
+
 // Sent by src-tauri/src/pictures.rs, with points already in CSS pixels: Tauri's own drag events mix device pixels
 // (Windows) and points (Mac) under one label.
 const DROPPED_EVENT = 'storiiboard://pictures-dropped';

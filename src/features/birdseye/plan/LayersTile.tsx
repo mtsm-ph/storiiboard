@@ -7,10 +7,10 @@ import { cx } from '../../../ui/cx';
 import { LayerShowGlyph, LockGlyph } from '../../../ui/glyphs';
 import { roveFocus, rovingIndex } from '../../../ui/roving';
 import { DepartmentSwatch } from '../../../ui/tags';
-import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { groupName } from './library';
 import { useLiveView } from './PlanTile';
-import { planStore, usePlan } from './planStore';
+import { usePlan } from './planStore';
 import { scaleTarget } from './underlayEdits';
 import { viewKey } from './planItems';
 
@@ -229,7 +229,7 @@ function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerS
             onClick={() => {
               const target = scaleTarget(records, roomId, selection ?? []);
               if (target === null) return;
-              planStore.getState().startScale(target);
+              startUnderlayScale(target);
               document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();
             }}
           >

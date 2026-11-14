@@ -132,14 +132,17 @@ function copyItems(records: Records, fromPlanId: string, toPlanId: string, after
  * An underlay's picture for its copy (6.9): a `media` record of its own under the copy, naming the same stored picture
  * (its `file`), so the bytes are kept once, as a board's pasted picture does (5.1b). Never the original's record: that
  * one hangs from the original underlay, and Empty Trash after the original is deleted would take it, and the copy's
- * picture with it. Null when the original names no live picture.
+ * picture with it. Null when the original names no live picture and no `kept` props (a clip's, taken when it was copied:
+ * 6.9 review, M1) stand in for it.
  */
-export function underlayPictureCopy(records: Records, props: Props, copyId: string): { id: string; change: Change } | null {
+export function underlayPictureCopy(records: Records, props: Props, copyId: string, kept?: Props): { id: string; change: Change } | null {
   const mediaId = typeof props.media_id === 'string' ? props.media_id : '';
   const media = mediaId === '' ? undefined : records[mediaId];
-  if (media?.type !== 'media' || media.trashedAt !== null) return null;
+  const live = media?.type === 'media' && media.trashedAt === null ? media.props : undefined;
+  const from = live ?? kept;
+  if (!from) return null;
   const id = crypto.randomUUID();
-  return { id, change: { kind: 'create', record: { id, type: 'media', parentId: copyId, sortKey: keyBetween(null, null), props: { ...media.props } } } };
+  return { id, change: { kind: 'create', record: { id, type: 'media', parentId: copyId, sortKey: keyBetween(null, null), props: { ...from } } } };
 }
 
 /** A plan's live items copied into another, after its last (see copyItems). */

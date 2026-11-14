@@ -1,9 +1,11 @@
+import { isPictureType, typeOf } from '../../../app/pictures';
 import { imageStatements, mediaFields, mediaProps } from '../../../core/media/store';
 import { lastKeyUnder, scaledUnderlay, underlayFields, type Point, type ShownItem } from '../../../core/model/plan';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import type { Change } from '../../../core/ops/ops';
 import { keyBetween } from '../../../core/ops/order';
 import type { Statement } from '../../../core/storage/driver';
+import { hitsPoint } from '../../../ui/canvas/hitTest';
 import type { FramePicture } from '../../storyboard/framePictures';
 import { runRoomId, unreadableAfter } from './planItems';
 
@@ -26,6 +28,20 @@ export function underlaySize(aspect: number): { width: number; height: number } 
 
 /** Whether a file is a PDF, which this milestone doesn't read as an underlay (the notice says to save it as a picture). */
 export const isPdfName = (name: string): boolean => /\.pdf$/i.test(name.trim());
+
+/** What a file offered as an underlay is, told by its name and type alone, before anything is read (6.9 review, L6). */
+export type UnderlayFileKind = 'picture' | 'pdf' | 'other';
+
+/**
+ * A PDF by its name or its type; a picture when its extension or its type is one of the picture types boards take
+ * (src/app/pictures.ts); anything else (a video, a program) is refused without being read, opened or run.
+ */
+export function underlayFileKind(file: { name: string; type?: string | undefined }): UnderlayFileKind {
+  const type = (file.type ?? '').toLowerCase();
+  if (isPdfName(file.name) || type === 'application/pdf') return 'pdf';
+  if (typeOf(file.name) !== '' || isPictureType(type)) return 'picture';
+  return 'other';
+}
 
 export interface AddedUnderlay {
   id: string;
@@ -92,6 +108,30 @@ export function scaleTarget(records: Records, roomId: string | null, selected: r
   const all = roomUnderlays(records, roomId);
   const picked = all.find((r) => selected.includes(r.id));
   return (picked ?? all.at(-1))?.id ?? null;
+}
+
+/**
+ * The underlay Set scale's first click is on (6.9 review, L2): of the room's live underlays under `point` (metres, as
+ * each is drawn, turned about its middle), the one Set scale was started for when it is one of them, else the topmost.
+ * Null when the click is on none: an underlay of another room is never one (L1).
+ */
+export function underlayAt(records: Records, roomId: string | null, point: Point, preferred: string | null = null): string | null {
+  const under = roomUnderlays(records, roomId).flatMap((r) => {
+    const fields = underlayFields(r.props);
+    return fields && hitsPoint(fields, point) ? [r.id] : [];
+  });
+  if (preferred !== null && under.includes(preferred)) return preferred;
+  return under.at(-1) ?? null;
+}
+
+/** What an underlay is called in Set scale's words: its name, else its picture's file name, else null. */
+export function underlayName(records: Records, underlayId: string): string | null {
+  const fields = underlayFields(records[underlayId]?.props ?? {});
+  if (!fields) return null;
+  if (fields.name !== '') return fields.name;
+  const media = fields.mediaId === null ? undefined : records[fields.mediaId];
+  const name = media?.type === 'media' ? mediaFields(media.props)?.sourceName : undefined;
+  return name !== undefined && name !== '' ? name : null;
 }
 
 /** Whether any of the room's underlays is still to be set to scale: the Plan tile's quiet note. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { departmentWorkspaceId, WORKSPACES, workspaceById } from '../workspaces';
 import { loadSettings } from '../../../core/storage/settings';
 import { removeTile, sameLayout, split, stack, tilesIn, type Layout } from './layout';
-import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY, layoutsOf, usable } from './layoutStore';
+import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY, layoutsOf, PREVIOUS_DEFAULTS, usable, withoutOldDefault } from './layoutStore';
 
 function memory(initial: string | null = null) {
   let value = initial;
@@ -251,5 +251,51 @@ describe('department workspaces (3.6a)', () => {
     store.getState().change(camera, removeTile(layoutsOf(store.getState().layouts, camera).current, 'inspector'));
     store.getState().resetToDefault(camera);
     expect(tilesIn(layoutsOf(store.getState().layouts, camera).current)).toEqual(['scenes', 'department', 'inspector']);
+  });
+});
+
+describe('an earlier default stored only because another workspace was written (6.9 review, L12)', () => {
+  // Every key kept, so the settings and the layouts survive a restart together.
+  function machine(layouts: unknown) {
+    const values = new Map([[LAYOUTS_KEY, JSON.stringify(layouts)]]);
+    return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, next: string) => void values.set(key, next) };
+  }
+
+  it('is written for a workspace never touched: changing another one stores every default of the day', () => {
+    const storage = machine({});
+    const store = createLayoutStore(storage);
+    store.getState().change('storyboard', removeTile(layoutsOf(store.getState().layouts, 'storyboard').current, 'player'));
+    const stored = JSON.parse(storage.getItem(LAYOUTS_KEY) ?? '{}') as Record<string, { saved: Layout }>;
+    expect(stored.setup).toBeDefined();
+    expect(sameLayout(stored.setup?.saved ?? workspaceById('storyboard').defaultLayout(), workspaceById('setup').defaultLayout())).toBe(true);
+  });
+
+  it('takes the default of today for each of the Setup workspace’s earlier defaults, saved and current', () => {
+    const olds = PREVIOUS_DEFAULTS.setup ?? [];
+    expect(olds).toHaveLength(3);
+    for (const old of olds) {
+      const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: old(), saved: old() } })).getState().layouts, 'setup');
+      expect(sameLayout(layouts.saved, workspaceById('setup').defaultLayout())).toBe(true);
+      expect(sameLayout(layouts.current, workspaceById('setup').defaultLayout())).toBe(true);
+      expect(isUnsaved(layouts)).toBe(false);
+    }
+  });
+
+  it('keeps a layout the person changed from an earlier default, and their unsaved change over an untouched saved one', () => {
+    const [old] = PREVIOUS_DEFAULTS.setup ?? [];
+    if (!old) throw new Error('no earlier default');
+    const changed = removeTile(old(), 'frames');
+    const kept = layoutsOf(createLayoutStore(machine({ setup: { current: changed, saved: changed } })).getState().layouts, 'setup');
+    expect(sameLayout(kept.saved, changed)).toBe(true);
+    expect(sameLayout(kept.current, changed)).toBe(true);
+    const mixed = layoutsOf(createLayoutStore(machine({ setup: { current: changed, saved: old() } })).getState().layouts, 'setup');
+    expect(sameLayout(mixed.saved, workspaceById('setup').defaultLayout())).toBe(true);
+    expect(sameLayout(mixed.current, changed)).toBe(true);
+  });
+
+  it('leaves the default of today, and other workspaces, as they were', () => {
+    expect(sameLayout(withoutOldDefault('setup', workspaceById('setup').defaultLayout()), workspaceById('setup').defaultLayout())).toBe(true);
+    const storyboard = workspaceById('storyboard').defaultLayout();
+    expect(withoutOldDefault('storyboard', storyboard)).toBe(storyboard);
   });
 });

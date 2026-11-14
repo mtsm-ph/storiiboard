@@ -5,11 +5,11 @@ import type { SbdRecord } from '../../../core/model/record';
 import { Button } from '../../../ui/Button';
 import { changeIcons, changeMeasures } from './planActions';
 import { iconCentre, iconPatchRefused, measurePatchRefused, type IconPatch, type MeasurePatch } from './planItems';
-import { planStore } from './planStore';
+import { startUnderlayScale } from './layersStore';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
 // The Selection tile's fields for a room's underlay and its measures (6.9). An underlay (selected once its row is
-// unlocked in the Layers tile): its width (its depth follows, the picture's shape kept), rotation and middle, and Set
+// unlocked in the Layers tile): its width or depth (the other follows, the picture's shape kept), rotation and middle, and Set
 // scale; a quiet note until a scale is set. A measure: its length (typed, its start stays), rotation and start, as a
 // wall's.
 
@@ -33,10 +33,11 @@ export function UnderlayFieldsView({ ids, underlays, unit, records }: { ids: rea
   const rotations = shared(underlays.map((u) => degreesText(u.rotation)));
   const xText = text(centres.map((c) => c.x));
   const yText = text(centres.map((c) => c.y));
-  const [only] = underlays;
   const [onlyId] = ids;
-  // Its width typed: its depth follows, so the picture is never stretched.
-  const width = (m: number): IconPatch => (only && ids.length === 1 ? { width: m, depth: Math.round(((m * only.height) / only.width) * 10000) / 10000 } : { width: m });
+  // Its width or depth typed: the other follows, each underlay by its own proportions (6.9 review, L3), so no picture is
+  // ever stretched, however many are selected.
+  const width = (m: number): IconPatch => ({ width: m, keepRatio: true });
+  const depth = (m: number): IconPatch => ({ depth: m, keepRatio: true });
   return (
     <>
       <p className="sb-label" data-selection-kind="">
@@ -49,10 +50,7 @@ export function UnderlayFieldsView({ ids, underlays, unit, records }: { ids: rea
       )}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3">
         <TypedField key={keyed('width')} label={t('selection.width')} text={widthText ?? ''} mixed={widthText === null} onCommit={lengthCommit(unit, write, width)} refused={refused} />
-        <p className="flex flex-col gap-1 text-[13px]" data-underlay-depth="">
-          <span className="sb-label">{t('selection.depth')}</span>
-          <span className="font-mono">{depthText ?? t('plan.field.mixed')}</span>
-        </p>
+        <TypedField key={keyed('depth')} label={t('selection.depth')} text={depthText ?? ''} mixed={depthText === null} onCommit={lengthCommit(unit, write, depth)} refused={refused} />
         <TypedField
           key={keyed('rotation')}
           label={t('selection.rotation')}
@@ -74,7 +72,7 @@ export function UnderlayFieldsView({ ids, underlays, unit, records }: { ids: rea
             variant="secondary"
             data-selection-set-scale=""
             onClick={() => {
-              planStore.getState().startScale(onlyId);
+              startUnderlayScale(onlyId);
               planCanvas()?.focus();
             }}
           >

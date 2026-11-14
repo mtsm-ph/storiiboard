@@ -15,7 +15,7 @@ import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy, withDraft } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
-import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
+import { mergeGuides, runSnapEnds, snapMove, snapPoint, snapTargetItems, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
 import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
 import { DOUBLE_PRESS_MS, END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
@@ -632,7 +632,7 @@ export function Canvas({
   const snapTargets = (moving: ReadonlySet<string>): WorldRect[] => {
     const { shown: all, viewport: now, size: box } = latest.current;
     const seen = visibleWorld(now, box);
-    return all.filter((item) => !moving.has(item.id)).map(boundsOf).filter((b) => rectsMeet(b, seen));
+    return snapTargetItems(all, moving, seen).map(boundsOf);
   };
 
   /**
@@ -663,7 +663,7 @@ export function Canvas({
             })
         : null;
       const seen = visibleWorld(now, box);
-      g.anchorTargets = anchored ? all.filter((item) => !g.origins.has(item.id) && rectsMeet(boundsOf(item), seen)).flatMap((item) => item.snapPoints ?? []) : [];
+      g.anchorTargets = anchored ? runSnapEnds(snapTargetItems(all, new Set(g.origins.keys()), seen)) : [];
     }
     if (g.anchors) {
       const zoom = latest.current.viewport.zoom;
@@ -710,7 +710,7 @@ export function Canvas({
   const pathPoint = (raw: Point, mods: PathMods, draft: PathDraft | null): Point => {
     const free = tools?.find((each) => each.id === (draft?.tool ?? latest.current.tool))?.snap === false;
     const used: PathMods = free ? { shiftKey: mods.shiftKey, ctrlKey: true, metaKey: false, altKey: false } : mods;
-    return nextPoint(raw, used, draft, { ends: latest.current.shown.flatMap((item) => item.snapPoints ?? []), grid: latest.current.scale?.grid, zoom: latest.current.viewport.zoom });
+    return nextPoint(raw, used, draft, { ends: runSnapEnds(latest.current.shown), grid: latest.current.scale?.grid, zoom: latest.current.viewport.zoom });
   };
 
   /** Whether a run has as many points as its tool takes (6.9: Set scale's two), so it ends by itself. */

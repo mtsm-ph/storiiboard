@@ -87,9 +87,10 @@ import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, MEASURE_TOOL, PLAN_CANVAS_TOOLS, PLAN_TOOLS, PLAN_ZOOM, planScale, SCALE_TOOL, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
-import { roomUnderlays, scaleTarget, underlayPictures, unscaledIn } from './underlayEdits';
+import { roomUnderlays, scaleTarget, underlayAt, underlayName, underlayPictures, unscaledIn } from './underlayEdits';
 import { blockingLooks } from './markLooks';
-import { choosePlanTool, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { choosePlanTool, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { pasteIsPicture, planClipMarker } from './planClipboard';
 import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
@@ -682,19 +683,29 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // Which size each underlay's picture is drawn at now, for the end-to-end tests (as a board's are).
   const levels = useDrawnLevels();
   const pictureLevels = useMemo(() => JSON.stringify(Object.fromEntries(visible.flatMap((item) => (isUnderlay(item.fields) && levels[item.record.id] ? [[item.record.id, levels[item.record.id]]] : [])))), [visible, levels]);
-  const hasUnderlay = roomUnderlays(records, room.id).length > 0;
-  const unscaled = unscaledIn(records, room.id);
+  // Read once per change of the records or the room (6.9 review, L10), never on a hover's render.
+  const underlays = useMemo(() => roomUnderlays(records, room.id), [records, room.id]);
+  const hasUnderlay = underlays.length > 0;
+  const unscaled = useMemo(() => unscaledIn(records, room.id), [records, room.id]);
   // Set scale's question (6.9), once its two clicks are in.
   const [scaleAsk, setScaleAsk] = useState<ScaleAsk | null>(null);
   const scalingNow = tool === SCALE_TOOL;
-  /** Set scale (6.9): the selected underlay's two clicks, or the room's frontmost one's; the plan takes the focus for them. */
+  const scaling = usePlan((s) => s.scaling);
+  // The underlay Set scale's first click landed on (6.9 review, L2), so the hint names it until the second.
+  const scaleFirst = usePlan((s) => s.scaleFirst);
+  /** What the hint calls an underlay among several: its name or its picture's file name, else its number back to front. */
+  const nameOf = (id: string): string => underlayName(records, id) ?? t('plan.underlay.numbered', { number: underlays.findIndex((r) => r.id === id) + 1 });
+  /**
+   * Set scale (6.9): two clicks on the selected underlay, else the room's frontmost, or whichever is topmost under the
+   * first click (L2); its row drawn first when hidden (L4); the plan takes the focus for them.
+   */
   const startScale = () => {
     const target = scaleTarget(projectStore.getState().records, room.id, planStore.getState().selections[key] ?? []);
     if (target === null) {
       showInfo(t('plan.underlay.none'));
       return;
     }
-    planStore.getState().startScale(target);
+    startUnderlayScale(target);
     holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
   };
   /** Pictures added under the room (6.9): their middle at `centre` (metres), else the middle of the view. */
@@ -887,7 +898,12 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         {/* A quiet note while an underlay is still to be set to scale (6.9); while its two clicks are under way, what to do. */}
         {scalingNow ? (
           <p className="text-[12px]" data-scale-hint="">
-            {t('plan.underlay.scaleHint')}
+            {/* With several underlays, which one the clicks scale (L2): the one started for, until the first click picks. */}
+            {underlays.length > 1
+              ? scaleFirst !== null && scaleFirst !== ''
+                ? t('plan.underlay.scaleHintOn', { name: nameOf(scaleFirst) })
+                : t('plan.underlay.scaleHintMany', { name: nameOf(scaling ?? underlays.at(-1)?.id ?? '') })
+              : t('plan.underlay.scaleHint')}
           </p>
         ) : (
           unscaled && (
@@ -913,6 +929,14 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         data-picture-levels={pictureLevels}
         // Marks the plan as taking its own drops and pastes, so the storyboard's listeners leave them (useBoardDrops.ts).
         data-plan-drops=""
+        onPointerDownCapture={(event) => {
+          // Set scale's first click among several underlays (L2): the one it lands on is named in the hint. The canvas
+          // takes the click as ever; the underlay scaled is worked out again from the points it hands back. '' is a first
+          // click on none, so the second never takes its place.
+          if (!scalingNow || scaleFirst !== null || event.button !== 0 || underlays.length < 2) return;
+          const at = dropAt({ x: event.clientX, y: event.clientY });
+          if (at) planStore.getState().setScaleFirst(underlayAt(projectStore.getState().records, room.id, at, planStore.getState().scaling) ?? '');
+        }}
         onDragOver={(event) => {
           if (!event.dataTransfer.types.includes('Files')) return;
           event.preventDefault();
@@ -986,24 +1010,41 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             // Set scale's two clicks (6.9): the underlay read now, before the canvas goes back to Select (which ends the
             // scaling); the question opens on the next tick, once the click that ended the run is over, and only while
             // the project they were made in is the one open.
-            const underlayId = planStore.getState().scaling;
+            const preferred = planStore.getState().scaling;
             const [a, b] = points;
-            if (underlayId === null || !a || !b) return undefined;
+            if (!a || !b) return undefined;
+            const first = { x: toMetres(a.x), y: toMetres(a.y) };
+            const now = projectStore.getState().records;
+            // Only for an underlay of the room shown (L1): one started in another view is never rescaled unseen.
+            if (preferred === null || !roomUnderlays(now, room.id).some((r) => r.id === preferred)) {
+              showInfo(t('plan.underlay.scaleOtherRoom'));
+              return undefined;
+            }
+            // The topmost underlay under the first click, the one started for first (L2); none under it: said, and the
+            // tool kept for two more clicks (picked again once the canvas has gone back to Select).
+            const underlayId = underlayAt(now, room.id, first, preferred);
+            if (underlayId === null) {
+              showInfo(t('plan.underlay.clickOnPicture'));
+              setTimeout(() => {
+                if (projectStore.getState().project === madeIn && planStore.getState().tool === 'select') planStore.getState().startScale(preferred);
+              }, 0);
+              return undefined;
+            }
             setTimeout(() => {
               if (projectStore.getState().project !== madeIn) return;
-              setScaleAsk({ underlayId, a: { x: toMetres(a.x), y: toMetres(a.y) }, b: { x: toMetres(b.x), y: toMetres(b.y) } });
+              setScaleAsk({ underlayId, a: first, b: { x: toMetres(b.x), y: toMetres(b.y) } });
             }, 0);
             return undefined;
           }}
           onPasteData={(transfer) => {
-            // A picture pasted onto the plan is an underlay (6.9), unless what was copied on the plan is newer (copied
-            // since this window last had the focus elsewhere): then the plan's own items paste, as they always have.
-            const files = [...transfer.files];
-            const own = planStore.getState();
-            if (files.length === 0 || (own.clipboard.length > 0 && own.clipFresh)) return false;
-            addPictures(files.map(fromFile), null);
+            // A picture pasted onto the plan is an underlay (6.9), unless the clipboard is the plan's own copy, told by the
+            // mark its Copy and Cut put there (6.9 review, M2: planClipboard.ts), not by focus history: then the plan's
+            // own items paste, as they always have.
+            if (!pasteIsPicture(transfer, planStore.getState().clipboard.length > 0)) return false;
+            addPictures([...transfer.files].map(fromFile), null);
             return true;
           }}
+          onSystemCopy={planClipMarker.markSystemClipboard}
           onCommand={run}
           canPaste={clipboard.length > 0}
           fixedColours={PAPER_COLOURS}
