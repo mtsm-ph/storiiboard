@@ -4,7 +4,7 @@ import { createProjectStore, projectStore } from '../../../app/projectStore';
 import { projectSelfStore } from '../../../app/settings/projectRole';
 import { setLocale } from '../../../core/i18n';
 import { CAMERA_ICON, iconGroup, LIGHT_ICON, NORTH_ICON, PLAN_ITEM_KINDS, PLAN_LAYERS, planItemLayer, shownItems, startRoomChanges } from '../../../core/model/plan';
-import { ALL_SHOWN, layeredItems, layeredItemsKeeper, layerOfItem, myDepartmentStates, sameStates, soloStates, type PlanLayerStates } from '../../../core/model/planLayers';
+import { ALL_SHOWN, LAYER_ROWS, layeredItems, layeredItemsKeeper, layerOfItem, myDepartmentStates, sameStates, soloStates, type PlanLayerStates } from '../../../core/model/planLayers';
 import { itemLayer, markOwnerChanges, nextPositionChanges, placeMarkChanges } from '../../../core/model/planBlocking';
 import type { Props } from '../../../core/model/record';
 import { log } from '../../../core/ops/ops';
@@ -76,7 +76,7 @@ async function plan() {
 }
 
 const states = (patch: Partial<Record<keyof PlanLayerStates, Partial<PlanLayerStates['camera']>>>): PlanLayerStates =>
-  Object.fromEntries(PLAN_LAYERS.map((l) => [l, { ...ALL_SHOWN[l], ...patch[l] }])) as unknown as PlanLayerStates;
+  Object.fromEntries(LAYER_ROWS.map((l) => [l, { ...ALL_SHOWN[l], ...patch[l] }])) as unknown as PlanLayerStates;
 
 describe('an item’s layer', () => {
   it('is one layer for every kind this version knows, the underlay its own row', () => {
@@ -291,7 +291,7 @@ async function useAppStore() {
 }
 
 const without = (states: PlanLayerStates, patch: Partial<Record<keyof PlanLayerStates, Partial<PlanLayerStates['camera']>>>): PlanLayerStates =>
-  Object.fromEntries(PLAN_LAYERS.map((l) => [l, { ...states[l], ...patch[l] }])) as unknown as PlanLayerStates;
+  Object.fromEntries(LAYER_ROWS.map((l) => [l, { ...states[l], ...patch[l] }])) as unknown as PlanLayerStates;
 
 const memoryStorage = () => {
   const kept = new Map<string, string>();

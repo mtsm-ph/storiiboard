@@ -10,12 +10,16 @@ import {
   isIcon,
   isLight,
   isMark,
+  isMeasure,
   isNorth,
   isOpening,
   isSun,
+  isUnderlay,
   keptInWall,
   lastKeyUnder,
   markFields,
+  MEASURE_THICKNESS,
+  measureFields,
   MIN_PLAN_SIZE,
   normalDegrees,
   OPENING_WIDTH,
@@ -47,6 +51,7 @@ import {
   type IconFields,
   type LightFields,
   type MarkFields,
+  type MeasureFields,
   type NorthFields,
   type OpeningFields,
   type OpeningKind,
@@ -57,12 +62,13 @@ import {
   type ShownItem,
   type SunFields,
   type Swing,
+  type UnderlayFields,
 } from '../../../core/model/plan';
 import type { LayerLook } from '../../../core/model/planLayers';
 import { cameraMarks, markLayer, ownerMarks, repointCamera, soundOrders, type MarkOwner } from '../../../core/model/planBlocking';
 import { CONE_LENGTH_M, isCameraIcon, isTrackIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
-import { iconHome } from '../../../core/model/planRooms';
+import { iconHome, underlayPictureCopy } from '../../../core/model/planRooms';
 import { roomNorthItem } from '../../../core/model/planSun';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import { sceneSetups, setupLabel } from '../../../core/model/setup';
@@ -73,6 +79,7 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { DIM_OPACITY } from '../../../ui/canvas/ItemNodes';
+import { PictureNode } from '../../moodboards/PictureNode';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
 import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cameraDraw';
 import { heightLabel } from './cameraLooks';
@@ -122,8 +129,17 @@ function liveIcon(records: Records, id: string): { record: SbdRecord; fields: Bo
   return fields ? { record, fields } : null;
 }
 
-/** A live item with a box of its own: a wall, an icon or a camera (a door or window takes its place from its wall). */
-const liveBoxed = (records: Records, id: string): { record: SbdRecord; fields: PlanItemFields | BoxFields } | null => liveItem(records, id) ?? liveIcon(records, id);
+/** A live measure (6.9), with its fields: a line stored as a wall's box is. */
+function liveMeasure(records: Records, id: string): { record: SbdRecord; fields: MeasureFields } | null {
+  const record = records[id];
+  if (record?.type !== 'plan_item' || record.trashedAt !== null) return null;
+  const fields = measureFields(record.props);
+  return fields ? { record, fields } : null;
+}
+
+/** A live item with a box of its own: a wall, an icon, a camera, a measure… (a door or window takes its place from its wall). */
+const liveBoxed = (records: Records, id: string): { record: SbdRecord; fields: PlanItemFields | BoxFields | MeasureFields } | null =>
+  liveItem(records, id) ?? liveIcon(records, id) ?? liveMeasure(records, id);
 
 const toCanvasGeometry = (g: PlanGeometry): Geometry => ({ x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height), rotation: g.rotation });
 
@@ -361,6 +377,75 @@ export function sunItem(id: string, fields: SunFields, look: SunLook | null): Ca
   return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}), ...(fit ? { fitExtent: fit } : {}) };
 }
 
+/** What an underlay is called aloud: "Underlay, 10.00 m by 7.50 m", and whether its scale is set. */
+export const underlayAnnounce = (fields: UnderlayFields, unit: PlanUnit): string =>
+  t(fields.scaled ? 'plan.announce.underlay' : 'plan.announce.underlayUnscaled', { width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) });
+
+/**
+ * An underlay for the canvas (6.9): its picture stretched to its box, stored and drawn as a board's pictures are (the
+ * thumbnail until it is drawn large, then the stored picture; "gone" said where the file no longer holds it), its
+ * proportions kept. `sha` is its picture's address, null when its `media` record is missing. Dimmed and locked by its
+ * row of the layers, as any layer's items are.
+ */
+export function underlayItem(id: string, fields: UnderlayFields, unit: PlanUnit, sha: string | null): CanvasItem {
+  const g = toCanvasGeometry(fields);
+  return {
+    id,
+    ...g,
+    label: underlayAnnounce(fields, unit),
+    keepRatio: true,
+    draw: (context) => createElement(PictureNode, { id, sha256: sha, width: g.width, height: g.height, zoom: context.zoom, inView: context.inView, colours: context.colours }),
+  };
+}
+
+/** How long a measure's end ticks reach either side of its line, screen pixels. */
+const MEASURE_TICK_PIXELS = 6;
+
+/** What a measure is called aloud: "Measure, 3.50 m". */
+export const measureAnnounce = (fields: MeasureFields, unit: PlanUnit): string =>
+  fields.name === '' ? t('plan.announce.measure', { length: formatLength(fields.width, unit) }) : t('plan.announce.measureNamed', { name: fields.name, length: formatLength(fields.width, unit) });
+
+/** A measure's label: its name when it has one, then its length in the unit shown. */
+export const measureLines = (fields: MeasureFields, unit: PlanUnit): string[] => [...(fields.name !== '' ? [fields.name] : []), formatLength(fields.width, unit)];
+
+/**
+ * A measure for the canvas (6.9): a thin ink line along its box's middle with a tick across each end, its length (in the
+ * unit shown) an upright mono label beside its middle, as a wall's height label is (BesideLabels), never themed. Picked
+ * at least FRAME_PICK_PIXELS thick, as a standing frame is: its 1 cm box is a hairline zoomed out. Its ends are its snap
+ * points, as a wall's are.
+ */
+export function measureItem(id: string, fields: MeasureFields, unit: PlanUnit): CanvasItem {
+  const g = toCanvasGeometry(fields);
+  const [start, end] = wallEnds(fields);
+  const lines = measureLines(fields, unit);
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const mid = g.height / 2;
+    const tick = MEASURE_TICK_PIXELS / context.zoom;
+    const ink = { stroke: context.colours.ink, strokeWidth: 1, strokeScaleEnabled: false, listening: false } as const;
+    return createElement(
+      Fragment,
+      null,
+      createElement(Line, { key: 'line', points: [0, mid, g.width, mid], ...ink }),
+      createElement(Line, { key: 'start', points: [0, mid - tick, 0, mid + tick], ...ink }),
+      createElement(Line, { key: 'end', points: [g.width, mid - tick, g.width, mid + tick], ...ink }),
+    );
+  };
+  return {
+    id,
+    ...g,
+    label: measureAnnounce(fields, unit),
+    snapPoints: [
+      { x: toCanvas(start.x), y: toCanvas(start.y) },
+      { x: toCanvas(end.x), y: toCanvas(end.y) },
+    ],
+    pickThickness: FRAME_PICK_PIXELS,
+    draw,
+    // Above the line, the side away from its box's normal, so a measure drawn along a wall's face and the wall's own height
+    // label (on the wall's normal side) sit apart.
+    beyond: besideBeyond(g, { lines, side: -1, edge: g.height / 2 }, PLAN_ZOOM.min),
+  };
+}
+
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
 function joinedTo(lines: readonly WallLine[]): Map<string, WallLine[]> {
   // Cells of 1 canvas unit (1 cm), far wider than the 1 mm join: two ends that join are in the same or a neighbouring cell.
@@ -470,6 +555,8 @@ const isGripItem = (item: ShownItem): item is ShownItem & { fields: GripFields }
 const isNorthItem = (item: ShownItem): item is ShownItem & { fields: NorthFields } => isNorth(item.fields);
 const isSunItem = (item: ShownItem): item is ShownItem & { fields: SunFields } => isSun(item.fields);
 const isMarkItem = (item: ShownItem): item is ShownItem & { fields: MarkFields } => isMark(item.fields);
+const isUnderlayItem = (item: ShownItem): item is ShownItem & { fields: UnderlayFields } => isUnderlay(item.fields);
+const isMeasureItem = (item: ShownItem): item is ShownItem & { fields: MeasureFields } => isMeasure(item.fields);
 
 /**
  * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
@@ -487,11 +574,12 @@ export function planItemsBuilder(): (
   suns?: ReadonlyMap<string, SunLook>,
   blocking?: BlockingLooks,
   layers?: ReadonlyMap<string, LayerLook>,
+  pictures?: ReadonlyMap<string, string | null>,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let layered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS, pictures = new Map()) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -624,10 +712,28 @@ export function planItemsBuilder(): (
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
+    // Underlays (6.9) beneath everything, each made again when its record or its picture's address changed; measures over
+    // the cameras and under the sun paths, so a dimension reads over the set it measures.
+    const underlayItems = shown.filter(isUnderlayItem).map((item): CanvasItem => {
+      const sha = item.fields.mediaId === null ? null : (pictures.get(item.fields.mediaId) ?? null);
+      const key = JSON.stringify(sha);
+      const same = kept(item, [], key);
+      if (same) return same;
+      const made = underlayItem(item.record.id, item.fields, unit, sha);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
+      return made;
+    });
+    const measureItems = shown.filter(isMeasureItem).map((item): CanvasItem => {
+      const same = kept(item, []);
+      if (same) return same;
+      const made = measureItem(item.record.id, item.fields, unit);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], item: made });
+      return made;
+    });
     // Each item's layer (6.8): a dimmed layer's drawn at the core's dim, a locked one's never picked. The state is part
     // of the key: an item is made again only when it, or its layer's look, changed. A hidden layer's never come here.
     const nextLayered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
-    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems].map((item) => {
+    const items = [...underlayItems, ...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...measureItems, ...sunItems].map((item) => {
       const look = layers.get(item.id);
       if (!look || (!look.dim && !look.locked)) return item;
       const key = (look.dim ? 'dim' : '') + (look.locked ? 'locked' : '');
@@ -682,7 +788,7 @@ export function runRoomId(records: Records, sceneId: string): string | null {
 }
 
 /** The kinds of plan item an edit here writes: each must still read (shownFields) once the edit is written. */
-const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun', 'mark'];
+const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun', 'mark', 'underlay', 'measure'];
 
 /**
  * Whether these changes would leave a wall, door, window, icon or camera unreadable (6.3 review, M5): past the plan's
@@ -718,6 +824,35 @@ export function drawWallsChanges(records: Records, sceneId: string, points: read
   if (roomId === null) return { ids: [], changes: [] };
   const run = wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
   return unreadableAfter(records, run.changes) ? { ids: [], changes: [] } : run;
+}
+
+/** The props a new measure is written with (6.9): its box as a wall's, a centimetre deep. */
+export const measureProps = (g: PlanGeometry): Props => ({ kind: 'measure', x: g.x, y: g.y, width: g.width, height: g.height, rotation: g.rotation });
+
+/**
+ * A run of measures drawn in a view (canvas units, 6.9): one measure a segment, at the front of that view's scene's room
+ * (a wall-to-wall dimension is the room's), drawn as the Wall tool draws (pathRun.ts); segments of no length left out.
+ */
+export function drawMeasuresChanges(records: Records, sceneId: string, points: readonly Point[]): { ids: string[]; changes: Change[] } {
+  const roomId = runRoomId(records, sceneId);
+  if (roomId === null) return { ids: [], changes: [] };
+  let previous = lastKeyUnder(records, roomId, 'plan_item');
+  const ids: string[] = [];
+  const changes: Change[] = [];
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (!a || !b) continue;
+    const from = { x: toMetres(a.x), y: toMetres(a.y) };
+    const to = { x: toMetres(b.x), y: toMetres(b.y) };
+    if (Math.hypot(to.x - from.x, to.y - from.y) < MIN_PLAN_SIZE) continue;
+    const id = crypto.randomUUID();
+    const sortKey = keyBetween(previous, null);
+    previous = sortKey;
+    ids.push(id);
+    changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: roomId, sortKey, props: measureProps(wallBetween(from, to, MEASURE_THICKNESS)) } });
+  }
+  return unreadableAfter(records, changes) ? { ids: [], changes: [] } : { ids, changes };
 }
 
 const sameGeometry = (a: PlanGeometry, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
@@ -964,6 +1099,17 @@ function geometryUpdates(records: Records, changes: readonly GeometryChange[], w
       if (sameGeometry(icon.fields, next)) return [];
       return [{ kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } }];
     }
+    const measure = liveMeasure(records, c.id);
+    if (measure) {
+      // A measure (6.9): moved, turned and stretched as the gesture left it, its depth as stored (a line has none to change),
+      // about its middle line, so the line stays where the handles put it.
+      const was = measure.fields;
+      const gesture = metresOf(c);
+      const cy = gesture.y + gesture.height / 2;
+      const next = keptWhereSame(was, { ...gesture, y: Math.round((cy - was.height / 2) * 10000) / 10000, height: was.height });
+      if (sameGeometry(was, next)) return [];
+      return [{ kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } }];
+    }
     const live = liveItem(records, c.id);
     if (!live) return [];
     // Held by every plan's doors and windows (6.2b review): one only another scene shows keeps its place in the room too.
@@ -1051,7 +1197,7 @@ export function reorderPlanChanges(records: Records, ids: readonly string[], mod
     const all = Object.values(records)
       .filter((r) => r.type === 'plan_item' && r.parentId === planId && r.props.kind !== 'mark')
       .sort(inDrawingOrder);
-    const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || boxFields(r.props) !== null)).map((r) => r.id);
+    const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || boxFields(r.props) !== null || measureFields(r.props) !== null)).map((r) => r.id);
     const chosen = new Set(chosenIds);
     const nextLive = reordered(live, chosen, mode);
     if (nextLive.every((id, i) => id === live[i])) return [];
@@ -1140,7 +1286,7 @@ export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip
 export function planPasteChanges(records: Records, into: string | ((item: PlanClip) => string | null), clip: readonly PlanClip[], at: Point | null): { ids: string[]; changes: Change[] } {
   const planOf = typeof into === 'string' ? () => into : into;
   // Walls and icons keep their places to each other, all moved as one.
-  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields | BoxFields } => !isOpening(item.fields));
+  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields | BoxFields | MeasureFields } => !isOpening(item.fields));
   const placed = pasted(walls.map((item) => toCanvasGeometry(item.fields)), at);
   const lastKeys = new Map<string, string | null>();
   const ids: string[] = [];
@@ -1156,7 +1302,11 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
     const own: Props = withoutFrameLinks({ ...props });
     delete own.copied_from;
+    // An underlay's copy (6.9) takes a picture record of its own naming the same stored picture, as a board's does.
+    const picture = own.kind === 'underlay' ? underlayPictureCopy(records, own, id) : null;
+    if (picture) own.media_id = picture.id;
     changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props: own } });
+    if (picture) changes.push(picture.change);
     return id;
   };
   walls.forEach((item, i) => {
@@ -1234,6 +1384,38 @@ function wallUpdates(records: Records, ids: readonly string[], patch: WallPatch)
       else set.name = patch.name.trim();
     }
     delete set.kind;
+    if (Object.keys(set).length === 0 && unset.length === 0) return [];
+    return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
+  });
+}
+
+/** What the Selection tile changes on measures (6.9), as on walls: a length keeps its start, a rotation turns about it. */
+export type MeasurePatch = Pick<WallPatch, 'length' | 'rotation' | 'startX' | 'startY' | 'name'>;
+
+/** A field changed on the selected measures: one update per measure that changes, one op group; nothing when refused. */
+export function measurePatchChanges(records: Records, ids: readonly string[], patch: MeasurePatch): Change[] {
+  return readableOnly(records, measureUpdates(records, ids, patch));
+}
+
+/** Whether the Selection tile refuses a change to the selected measures: one under a centimetre, or past the plan's reach or size. */
+export const measurePatchRefused = (records: Records, ids: readonly string[], patch: MeasurePatch): boolean =>
+  (patch.length !== undefined && patch.length < MIN_PLAN_SIZE) || unreadableAfter(records, measureUpdates(records, ids, patch));
+
+function measureUpdates(records: Records, ids: readonly string[], patch: MeasurePatch): Change[] {
+  return ids.flatMap((id): Change[] => {
+    const live = liveMeasure(records, id);
+    if (!live) return [];
+    const now = live.fields;
+    const [start] = wallEnds(now);
+    const changedShape = patch.length !== undefined || patch.rotation !== undefined || patch.startX !== undefined || patch.startY !== undefined;
+    const geometry = changedShape ? wallFrom({ x: patch.startX ?? start.x, y: patch.startY ?? start.y }, patch.rotation ?? now.rotation, patch.length ?? now.width, now.height) : now;
+    const set: Props = {};
+    const unset: string[] = [];
+    if (changedShape && !sameGeometry(now, geometry)) Object.assign(set, { x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height, rotation: geometry.rotation });
+    if (patch.name !== undefined && patch.name.trim() !== now.name) {
+      if (patch.name.trim() === '') unset.push('name');
+      else set.name = patch.name.trim();
+    }
     if (Object.keys(set).length === 0 && unset.length === 0) return [];
     return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
   });

@@ -1,13 +1,12 @@
 import { BEAM_ICON } from '../../../core/model/planLight';
 import { ICON_BOXES } from './iconBoxes';
-import { DOOR_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { DOOR_TOOL, MEASURE_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
 
 // What each library icon is when it is placed (6.3, docs/PHASE6_DECISIONS.md 8): its real default size in metres,
 // width by depth (a symbol's longer side, its other in its drawing's proportions), editable once it's down. Three
-// set-art icons are 6.2's tools instead (the Library picks the tool), and the icons later milestones make live (cameras
-// 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 and cast marks 6.7 are placed now; the measure 6.9)
-// show in the Library but can't be placed yet. Every other icon is placeable and has a size
-// here, and nothing else does (iconSizes.test.ts).
+// set-art icons are 6.2's tools instead (the Library picks the tool), and so is the measure (6.9); the icons later
+// milestones made live (cameras 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 and cast marks 6.7) are
+// placed now. Every other icon is placeable and has a size here, and nothing else does (iconSizes.test.ts).
 
 export interface IconSize {
   /** Metres across. */
@@ -121,16 +120,17 @@ export const ICON_SIZES: Readonly<Record<string, IconSize>> = Object.fromEntries
   Object.entries(STATED_SIZES).map(([id, stated]): [string, IconSize] => [id, 'side' in stated ? symbolSize(id, stated.side) : { width: stated.width, depth: stated.depth }]),
 );
 
-/** The set-art icons that are 6.2's tools: in the Library they pick the tool. */
+/** The icons that are the plan's tools (6.2's wall, door and window; 6.9's measure): in the Library they pick the tool. */
 export const TOOL_ICONS: Readonly<Record<string, string>> = {
   'set-art/wall': WALL_TOOL,
   'set-art/door': DOOR_TOOL,
   'set-art/window': WINDOW_TOOL,
+  'production/measure': MEASURE_TOOL,
 };
 
 /** Whole groups and single icons a later milestone of this phase makes live. */
 const COMING_GROUPS: ReadonlySet<string> = new Set<string>();
-const COMING_ICONS: ReadonlySet<string> = new Set(['production/measure']);
+const COMING_ICONS: ReadonlySet<string> = new Set<string>();
 
 /** The field of view's picture (6.4): every camera draws its own cone, so it is never placed as an item. */
 export const FIELD_OF_VIEW_ICON = 'camera/field-of-view';

@@ -167,10 +167,17 @@ describe('a tile added to a built-in default since a layout was saved (6.0: Setu
     expect(sameLayout(layouts.saved, workspaceById('setup').defaultLayout())).toBe(true);
     expect(sameLayout(layouts.current, workspaceById('setup').defaultLayout())).toBe(true);
     const column = Object.fromEntries(leftColumn(layouts.current));
-    // The new default's own column (304, 256, 248 since the 6.8 review gave Layers room for its eight rows), not the old
-    // ratio between Layers and Library.
-    expect(column.setups).toBeGreaterThanOrEqual(0.3);
-    expect((column.layers ?? 0) / (column.library ?? 1)).toBeCloseTo(256 / 248, 5);
+    // The new default's own column (Setups and Layers, half each since 6.9 moved the Library under the Selection tile),
+    // not the old ratio between Layers and Library.
+    expect(Object.keys(column)).toEqual(['setups', 'layers']);
+    expect(column.setups).toBeCloseTo(0.5, 5);
+    expect(column.layers).toBeCloseTo(0.5, 5);
+    // The Library under the Selection tile, about 55/45.
+    const root = layouts.current.root;
+    const right = root.kind === 'split' ? root.children[2] : undefined;
+    if (right?.kind !== 'split') throw new Error('Expected a right column.');
+    expect(right.children.map((child) => (child.kind === 'stack' ? child.tiles[0] : 'split'))).toEqual(['selection', 'library']);
+    expect(right.sizes[0]).toBeCloseTo(444 / 808, 5);
   });
 
   it('gets its share from the old default changed only in its other columns, Layers and Library keeping their ratio', () => {

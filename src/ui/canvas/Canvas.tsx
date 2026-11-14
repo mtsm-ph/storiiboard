@@ -703,9 +703,21 @@ export function Canvas({
     };
   };
 
-  /** Where a point-to-point run's next point goes (6.2a): another item's snap point near it, else the grid; Shift holds to 15° steps. */
-  const pathPoint = (raw: Point, mods: PathMods, draft: PathDraft | null): Point =>
-    nextPoint(raw, mods, draft, { ends: latest.current.shown.flatMap((item) => item.snapPoints ?? []), grid: latest.current.scale?.grid, zoom: latest.current.viewport.zoom });
+  /**
+   * Where a point-to-point run's next point goes (6.2a): another item's snap point near it, else the grid; Shift holds to
+   * 15° steps. A tool that never snaps (6.9: Set scale's clicks) takes the point as it is, Shift still holding its steps.
+   */
+  const pathPoint = (raw: Point, mods: PathMods, draft: PathDraft | null): Point => {
+    const free = tools?.find((each) => each.id === (draft?.tool ?? latest.current.tool))?.snap === false;
+    const used: PathMods = free ? { shiftKey: mods.shiftKey, ctrlKey: true, metaKey: false, altKey: false } : mods;
+    return nextPoint(raw, used, draft, { ends: latest.current.shown.flatMap((item) => item.snapPoints ?? []), grid: latest.current.scale?.grid, zoom: latest.current.viewport.zoom });
+  };
+
+  /** Whether a run has as many points as its tool takes (6.9: Set scale's two), so it ends by itself. */
+  const runFull = (run: PathDraft): boolean => {
+    const most = tools?.find((each) => each.id === run.tool)?.maxPoints;
+    return most !== undefined && run.points.length >= most;
+  };
 
   /** The run ends: its fixed points are the host's to write (one edit), and the tool is Select again unless another was picked. */
   const finishPath = (toSelect = true) => {
@@ -781,7 +793,10 @@ export function Canvas({
       if (next === 'double') {
         doubleFinished.current = press.time;
         finishPath();
-      } else if (next !== run) setPath(next);
+      } else if (next !== run) {
+        setPath(next);
+        if (runFull(next)) finishPath();
+      }
       return;
     }
     if (current === 'connector') {
@@ -1015,6 +1030,7 @@ export function Canvas({
       else if (ran.kind === 'taken') {
         setPath(ran.run);
         setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(ran.length) : String(tidy(ran.length)) }));
+        if (runFull(ran.run)) finishPath();
       } else {
         setPath(ran.run);
         // A run dropped by taking its only point off has nothing left to say.

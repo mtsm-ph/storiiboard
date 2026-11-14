@@ -1,15 +1,18 @@
 import { useId, useMemo } from 'react';
 import { useProject } from '../../../app/projectStore';
 import { labels, t, tn } from '../../../core/i18n';
-import { shownItems, type PlanLayer } from '../../../core/model/plan';
-import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, type LayerShow, type LayerState } from '../../../core/model/planLayers';
+import { sceneRoomId, shownItems, type PlanLayer } from '../../../core/model/plan';
+import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, rowState, UNDERLAY_ROW, type LayerRow, type LayerShow, type LayerState } from '../../../core/model/planLayers';
 import { cx } from '../../../ui/cx';
 import { LayerShowGlyph, LockGlyph } from '../../../ui/glyphs';
 import { roveFocus } from '../../../ui/roving';
 import { DepartmentSwatch } from '../../../ui/tags';
-import { myDepartmentLayers, setLayerLocked, setLayerShow, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { groupName } from './library';
 import { useLiveView } from './PlanTile';
+import { planStore, usePlan } from './planStore';
+import { scaleTarget } from './underlayEdits';
+import { viewKey } from './planItems';
 
 // The Layers tile (6.8), in the Setup workspace: one row per department layer in call-sheet order, each with its
 // department's colour as a tag (a tag, never state), its name, how many of the shown plan's items are on it, Shown /
@@ -77,6 +80,7 @@ export function LayersTile() {
         {LAYER_ORDER.map((layer) => (
           <LayerRow key={layer} layer={layer} state={states[layer]} count={counts?.[layer] ?? 0} solo={solo} />
         ))}
+        <UnderlayRow state={rowState(states, UNDERLAY_ROW)} count={counts?.[UNDERLAY_ROW] ?? 0} solo={solo} roomId={sceneId === null ? null : sceneRoomId(records, records[sceneId])} viewKeyNow={sceneId === null ? null : viewKey(sceneId, setupId)} />
       </ul>
       <p className="text-[12px] text-text-muted">{t('layers.keys')}</p>
       {/* What the last change here did, read out (L3); the plan's keys are read by the canvas's own line. */}
@@ -158,10 +162,86 @@ function LayerRow({ layer, state, count, solo }: { layer: PlanLayer; state: Laye
 }
 
 /**
+ * The underlay's own row (6.9, decision 12): Shown, Dimmed or Hidden and Locked, as a department's, dimmed and locked
+ * until changed; no Solo and no key (it is no department's), and Set scale while the room has an underlay. Unlocked
+ * here, an underlay can be selected, moved, resized, turned and deleted. During a solo its lock is the solo's.
+ */
+function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerState; count: number; solo: PlanLayer | null; roomId: string | null; viewKeyNow: string | null }) {
+  const name = rowName(UNDERLAY_ROW);
+  const empty = count === 0;
+  const heldBy = solo !== null ? groupName(solo) : null;
+  const heldId = useId();
+  const selection = usePlan((s) => (viewKeyNow === null ? undefined : s.selections[viewKeyNow]));
+  const records = useProject((s) => s.records);
+  return (
+    <li
+      className={cx('flex min-h-[18px] flex-wrap-reverse items-start gap-x-[2px] border-t border-border pt-1.5', empty && 'text-text-muted')}
+      data-underlay-layer=""
+      data-layer-show={state.show}
+      data-layer-locked={state.locked ? 'true' : undefined}
+      data-layer-empty={empty ? 'true' : undefined}
+    >
+      <span className="flex min-w-0 max-w-full shrink-0 items-start gap-[2px]">
+        <span className="flex h-[18px] shrink-0 items-center">
+          <span aria-hidden="true" className={cx('inline-block h-2.5 w-2.5 shrink-0 border', empty ? 'border-text-muted' : 'border-text')} />
+        </span>
+        <span className="min-w-0 break-words text-[12px] leading-[18px]" data-layer-name="">
+          {name}
+        </span>
+      </span>
+      <span className="ml-auto flex shrink-0 items-start gap-[2px]" data-layer-controls="">
+        <span className="min-w-[1ch] shrink-0 text-right font-mono text-[12px] leading-[18px]" data-layer-count={count}>
+          <span aria-hidden="true">{count}</span>
+          <span className="sr-only">{tn('layers.items', count)}</span>
+        </span>
+        <ShowChoice layer={UNDERLAY_ROW} name={name} show={state.show} muted={empty} />
+        <button
+          type="button"
+          aria-pressed={state.locked}
+          aria-disabled={heldBy !== null || undefined}
+          aria-label={t('layers.lockOf', { layer: name })}
+          aria-describedby={heldBy !== null ? heldId : undefined}
+          title={heldBy !== null ? t('layers.lockedBySolo', { layer: heldBy }) : t('layers.lockOf', { layer: name })}
+          data-layer-lock={UNDERLAY_ROW}
+          className={cx(CELL, LOCK_ROOM, 'border', heldBy !== null ? 'cursor-default border-dashed' : '', edge(empty || heldBy !== null), inked(state.locked && heldBy === null, empty || heldBy !== null))}
+          onClick={() => {
+            if (heldBy === null) setLayerLocked(UNDERLAY_ROW, !state.locked);
+          }}
+        >
+          <LockGlyph open={!state.locked} inherit />
+        </button>
+        {heldBy !== null && (
+          <span id={heldId} className="sr-only">
+            {t('layers.lockedBySolo', { layer: heldBy })}
+          </span>
+        )}
+        {!empty && (
+          <button
+            type="button"
+            data-layer-set-scale=""
+            aria-label={t('layers.scaleOf')}
+            title={t('layers.scaleOf')}
+            className={cx('sb-label h-[18px] shrink-0 border px-px tracking-normal focus-visible:-outline-offset-2', edge(false), inked(false))}
+            onClick={() => {
+              const target = scaleTarget(records, roomId, selection ?? []);
+              if (target === null) return;
+              planStore.getState().startScale(target);
+              document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();
+            }}
+          >
+            {t('layers.scale')}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+}
+
+/**
  * Shown, Dimmed or Hidden, as three icon cells (a radio group, one Tab stop, the arrows picking as native radios do):
  * each named "Lighting: hidden", the current one an ink fill.
  */
-function ShowChoice({ layer, name, show, muted }: { layer: PlanLayer; name: string; show: LayerShow; muted: boolean }) {
+function ShowChoice({ layer, name, show, muted }: { layer: LayerRow; name: string; show: LayerShow; muted: boolean }) {
   return (
     // Its outline sits a pixel above and below the row's 18 px (-my-px), its cells level with the lock and Solo, so a
     // one-line row stays 18 px and the seven rows fit the Setup workspace's default layout as before.

@@ -30,9 +30,10 @@ export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'lig
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
 /**
  * The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras
- * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6), and marks (6.7).
+ * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6), marks (6.7), and the room's
+ * underlays and measures (6.9).
  */
-export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun' | 'mark';
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun' | 'mark' | 'underlay' | 'measure';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -499,12 +500,93 @@ export function markFields(props: Props): MarkFields | null {
   return { kind: 'mark', icon: icon === '' ? MARK_ICON : icon, ...box, characterId: idOrNull(props.character_id), cameraId: idOrNull(props.camera_id), order };
 }
 
-/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
+/**
+ * A picture under the room (6.9, decision 12, Kevin's: the underlay belongs to the room): a floor plan or a location
+ * photo in the room's plan, so every scene and setup set there sees it, and a room may have several. A box as an
+ * icon's, its picture stretched to it (its proportions kept by the handles); `media_id` names its picture, a `media`
+ * record under it stored as a board's pictures are. `scaled` says a scale was set by two points and a typed distance
+ * ("Set scale"), `scale_m` the distance typed then, for History's words.
+ */
+export interface UnderlayFields {
+  kind: 'underlay';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  /** The `media` record of its picture, as stored; null for none. */
+  mediaId: string | null;
+  scaled: boolean;
+  /** Metres between the two points when its scale was set, or null. */
+  scaleM: number | null;
+}
+
+/** An underlay's props, or null when it can't be read (no place or size, or past the plan's reach). */
+export function underlayFields(props: Props): UnderlayFields | null {
+  if (props.kind !== 'underlay') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const scaleM = num(props.scale_m);
+  return { kind: 'underlay', ...box, mediaId: idOrNull(props.media_id), scaled: props.scaled === true, scaleM: scaleM !== null && scaleM > 0 ? scaleM : null };
+}
+
+/** A measure's thickness as stored (6.9): a line, a centimetre deep, so it moves, turns and resizes as a wall's box does. */
+export const MEASURE_THICKNESS = 0.01;
+
+/**
+ * A measure (6.9): one straight dimension line stored as a wall is, a rotated rectangle, `width` its length, `height`
+ * 1 cm, `rotation` its direction from its start to its end. It belongs to the room (a wall-to-wall dimension is the
+ * room's); its layer is production's.
+ */
+export interface MeasureFields {
+  kind: 'measure';
+  x: number;
+  y: number;
+  /** Its length, metres. */
+  width: number;
+  height: number;
+  rotation: number;
+  name: string;
+}
+
+/** A measure's props, or null when it can't be read (no place or length, or past the plan's reach or size). */
+export function measureFields(props: Props): MeasureFields | null {
+  if (props.kind !== 'measure') return null;
+  const x = num(props.x);
+  const y = num(props.y);
+  const width = num(props.width);
+  if (x === null || y === null || width === null || width <= 0) return null;
+  const height = num(props.height);
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || (height !== null && !notHuge(height))) return null;
+  return {
+    kind: 'measure',
+    x,
+    y,
+    width: Math.max(MIN_PLAN_SIZE, width),
+    height: height !== null && height > 0 ? height : MEASURE_THICKNESS,
+    rotation: normalDegrees(num(props.rotation) ?? 0),
+    name: text(props.name).trim(),
+  };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north, a sun path, a mark, an underlay or a measure. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields | UnderlayFields | MeasureFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
 export const shownFields = (props: Props): ShownFields | null =>
-  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
+  planItemFields(props) ??
+  openingFields(props) ??
+  iconFields(props) ??
+  cameraFields(props) ??
+  lightFields(props) ??
+  gripFields(props) ??
+  northFields(props) ??
+  sunFields(props) ??
+  markFields(props) ??
+  underlayFields(props) ??
+  measureFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
@@ -515,11 +597,34 @@ export const isWallFields = (fields: ShownFields): fields is PlanItemFields => f
 export const isNorth = (fields: ShownFields): fields is NorthFields => fields.kind === 'north';
 export const isSun = (fields: ShownFields): fields is SunFields => fields.kind === 'sun';
 export const isMark = (fields: ShownFields): fields is MarkFields => fields.kind === 'mark';
+export const isUnderlay = (fields: ShownFields): fields is UnderlayFields => fields.kind === 'underlay';
+export const isMeasure = (fields: ShownFields): fields is MeasureFields => fields.kind === 'measure';
 
-/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
-export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
+/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north, a sun path, a mark or an underlay. */
+export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields | UnderlayFields;
 export const boxFields = (props: Props): BoxFields | null =>
-  iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
+  iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props) ?? underlayFields(props);
+
+/**
+ * "Set scale" (6.9): an underlay's new box once two points clicked on it (metres) are `typed` metres apart, scaled about
+ * the first point, so that point stays where it is on the plan and on the picture, and the picture keeps its shape and
+ * its turn. Null when it can't be: the points on top of each other, a distance that isn't above 0, or a box that would
+ * be past the plan's reach or size (PLAN_REACH, PLAN_MAX_SIZE) or under a centimetre.
+ */
+export function scaledUnderlay(box: PlanGeometry, a: Point, b: Point, typed: number): PlanGeometry | null {
+  const clicked = Math.hypot(b.x - a.x, b.y - a.y);
+  if (!Number.isFinite(typed) || typed <= 0 || !Number.isFinite(clicked) || clicked < 1e-6) return null;
+  const k = typed / clicked;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const width = box.width * k;
+  const height = box.height * k;
+  const ncx = a.x + (cx - a.x) * k;
+  const ncy = a.y + (cy - a.y) * k;
+  const next = { x: tidy(ncx - width / 2), y: tidy(ncy - height / 2), width: tidy(width), height: tidy(height), rotation: box.rotation };
+  if (next.width < MIN_PLAN_SIZE || next.height < MIN_PLAN_SIZE || !notHuge(next.width) || !notHuge(next.height) || !inReach(next.x) || !inReach(next.y)) return null;
+  return next;
+}
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera

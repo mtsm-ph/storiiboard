@@ -170,6 +170,13 @@ export interface ToolSpec {
   pointToPoint?: boolean;
   /** How wide a run's segments are drawn while drawing, world units (a wall's thickness); else a hairline. */
   pathWidth?: number;
+  /**
+   * A point-to-point run that ends by itself once it has this many points (6.9: a plan's Set scale, two clicks), handed
+   * to the host as any finished run is. Left out (a wall's run), it runs until Enter, a double-click or Escape.
+   */
+  maxPoints?: number;
+  /** False: a run's points go exactly where the clicks are, never onto the grid or another item's points (6.9). */
+  snap?: boolean;
 }
 
 /** A grid in world units: its step, every how many steps a line is strong, and the step Alt snaps to. */

@@ -433,8 +433,8 @@ unreadable value reads as not set, as every prop does.
     `width_m` up to 1 000 m (src/core/model/plan.ts, `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308)
     the item isn't read and is kept unseen, as one with no size is, so the canvas never works in endless units. The
     app never writes past them (third review round): a typed field, a nudge, a drag or resize, a paste, a run of walls
-    or a placement that would leave a wall, door, window, icon, camera, light, flag, diffusion frame, north or sun path
-    past them is
+    or a placement that would leave a wall, door, window, icon, camera, light, flag, diffusion frame, north, sun path,
+    mark, underlay or measure (6.9) past them is
     refused whole and writes nothing (one check, `unreadableAfter` in src/features/birdseye/plan/planItems.ts); a
     typed field says it isn't a length.
   - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
@@ -497,7 +497,8 @@ unreadable value reads as not set, as every prop does.
   - Drawing order (6.5): walls, then doors and windows, then icons, then flags and diffusion, then lights, then
     cameras, whatever the front-to-back order: the plan items' order (`sort_key`) decides only within a kind, so a
     light, a flag or a camera always draws above the set pieces. North (6.6) draws with the icons, after them; marks
-    (6.7) after north, under the flags, lights and cameras; sun paths last, above the cameras.
+    (6.7) after north, under the flags, lights and cameras; sun paths last, above the cameras. Underlays (6.9) first,
+    under everything; measures (6.9) above the cameras, under the sun paths.
   - A flag's or diffusion frame's label (6.5 review), everywhere it is named (the legend, History, the Trash, the
     Selection tile, aloud), is its kind and size, never the icon it was placed as: "Diffusion · 8×8", "Flag · 2×3",
     or the typed width in the unit shown when it matches no size ("Bounce · 1.50 m"). Words only: nothing is stored.
@@ -580,7 +581,28 @@ unreadable value reads as not set, as every prop does.
     length ("3.00 m track") and resizes without keeping its proportions. Nothing is stored for it.
   - `cast/eyeline` and `cast/background` (6.7) are plain `icon` items in the scene's blocking, as every cast icon is;
     `cast/walk-path` is the path's picture, never placed.
-  - An underlay's `media_id` (6.9): the picture under the plan, a `media` record stored as board pictures are.
+  - An `underlay` (6.9, decision 12) is a picture under a room: a floor plan or a location photo, in the room's plan
+    (never a scene's or a setup's: "This setup only" leaves it where it is), so every scene and setup set in the room
+    sees it; a room may have several. Its box as an icon's (`x`, `y`, `width`, `height`, `rotation`, metres), its
+    picture stretched to it; added with its longer side 10 m, centred in the view, its proportions the picture's.
+    `media_id`: its picture, a `media` record of `kind` `image` under the underlay, stored as a board's pictures are
+    (the pipeline's picture of at most 2560 px and its thumbnail in `media_files`, `source_path` pointing at the
+    original, never the original embedded). A `media_id` naming no live record reads as a missing picture (drawn
+    as a board's missing picture is, "This picture was deleted for good."). `scaled` (6.9): `true` once "Set scale" has set it to scale (absent
+    before), so the plan says "Not to scale yet" until then; `scale_m`: the distance typed then, metres, kept for
+    History's words. Set scale scales the box about the first of the two points clicked so they are the typed
+    distance apart: the first point stays where it was on the plan and on the picture, the picture keeps its shape
+    and its turn, one step. An underlay's copy (a room's separate copy, a paste, a duplicate) has a `media` record of
+    its own under it naming the same stored picture (`file`), so the bytes are kept once and Empty Trash of the
+    original never takes the copy's picture. It goes to the Trash as any item, its picture record with it (its
+    child); Empty Trash removes both, and the bytes when nothing else uses them. It has no department layer: its own
+    row in the layers' state (`underlay`, this computer's settings, dimmed and locked until changed). Drawn under
+    every other item. A PDF isn't read as an underlay in this version.
+  - A `measure` (6.9) is a dimension line, stored as a wall is: `width` its length, `height` 0.01 m, `rotation` its
+    direction from its start to its end, `name` as a wall's. It belongs to the room (a wall-to-wall dimension is the
+    room's); "This setup only" moves one into a setup's plan and back. Its length is drawn as a label in the unit
+    shown, never stored; its layer (6.8) is production's. Drawn over the cameras, under the sun paths. Reach and size
+    as a wall's; an underlay's as an icon's.
 
 ## Schema v13: approvals kept through the upgrade (3.18)
 

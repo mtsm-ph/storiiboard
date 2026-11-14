@@ -107,6 +107,7 @@ function copyItems(records: Records, fromPlanId: string, toPlanId: string, after
   const items = liveItemsOf(records, fromPlanId);
   const ids = new Map(items.map((r) => [r.id, crypto.randomUUID()]));
   let previous = after;
+  const pictures: Change[] = [];
   const changes = items.map((r): Change => {
     const sortKey = keyBetween(previous, null);
     previous = sortKey;
@@ -115,9 +116,30 @@ function copyItems(records: Records, fromPlanId: string, toPlanId: string, after
     const props: Props = { ...repointCamera(withoutFrameLinks(r.props), ids), copied_from: r.id };
     const wall = typeof props.wall_id === 'string' ? ids.get(props.wall_id) : undefined;
     if (wall) props.wall_id = wall;
-    return { kind: 'create', record: { id: ids.get(r.id) ?? crypto.randomUUID(), type: 'plan_item', parentId: toPlanId, sortKey, props } };
+    const id = ids.get(r.id) ?? crypto.randomUUID();
+    const picture = props.kind === 'underlay' ? underlayPictureCopy(records, props, id) : null;
+    if (picture) {
+      props.media_id = picture.id;
+      pictures.push(picture.change);
+    }
+    return { kind: 'create', record: { id, type: 'plan_item', parentId: toPlanId, sortKey, props } };
   });
-  return { changes, ids };
+  // Each picture record after the underlay it hangs from.
+  return { changes: [...changes, ...pictures], ids };
+}
+
+/**
+ * An underlay's picture for its copy (6.9): a `media` record of its own under the copy, naming the same stored picture
+ * (its `file`), so the bytes are kept once, as a board's pasted picture does (5.1b). Never the original's record: that
+ * one hangs from the original underlay, and Empty Trash after the original is deleted would take it, and the copy's
+ * picture with it. Null when the original names no live picture.
+ */
+export function underlayPictureCopy(records: Records, props: Props, copyId: string): { id: string; change: Change } | null {
+  const mediaId = typeof props.media_id === 'string' ? props.media_id : '';
+  const media = mediaId === '' ? undefined : records[mediaId];
+  if (media?.type !== 'media' || media.trashedAt !== null) return null;
+  const id = crypto.randomUUID();
+  return { id, change: { kind: 'create', record: { id, type: 'media', parentId: copyId, sortKey: keyBetween(null, null), props: { ...media.props } } } };
 }
 
 /** A plan's live items copied into another, after its last (see copyItems). */
@@ -304,7 +326,8 @@ function cheatedCopyOrders(records: Records, sceneId: string, changes: readonly 
 /** The level an item of a kind belongs to (decision 2): the room's for the set, the scene's for blocking, else the setup's. */
 export function kindHome(kind: unknown): PlanLevel {
   if (kind === 'mark' || kind === 'path') return 'blocking';
-  if (kind === 'wall' || kind === 'door' || kind === 'window' || kind === 'underlay' || kind === 'north') return 'room';
+  // A measure (6.9) is the room's: a wall-to-wall dimension belongs with the walls.
+  if (kind === 'wall' || kind === 'door' || kind === 'window' || kind === 'underlay' || kind === 'north' || kind === 'measure') return 'room';
   return 'setup';
 }
 
@@ -374,8 +397,8 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
       const r = records[id];
       const level = r?.type === 'plan_item' && r.trashedAt === null ? levelOf(r.parentId) : null;
       if (!r || level === null || (on ? level === 'setup' : level !== 'setup')) return [];
-      // The room's north (6.6) is the room's alone: never one setup's.
-      if (on && r.props.kind === 'north') return [];
+      // The room's north (6.6) and its underlays (6.9) are the room's alone: never one setup's.
+      if (on && (r.props.kind === 'north' || r.props.kind === 'underlay')) return [];
       if (!on && r.props.kind === 'north' && !northFits()) return [];
       // A door or window in a wall that is this setup's only stays with its wall (it would show nowhere else).
       if (!on && openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? '')) return [];

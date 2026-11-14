@@ -90,8 +90,8 @@ export function planLegend(
       else room.set(key, { kind: fields.kind, metres: fields.heightM, count: 1 });
       continue;
     }
-    // North is the room's line (6.6), and a sun path is a drawing, not a thing on set.
-    if (fields.kind === 'north' || fields.kind === 'sun') continue;
+    // North is the room's line (6.6), and a sun path is a drawing, not a thing on set; so are an underlay and a measure (6.9).
+    if (fields.kind === 'north' || fields.kind === 'sun' || fields.kind === 'underlay' || fields.kind === 'measure') continue;
     // A mark's by markLayer (6.7 review): on the camera layer only while its camera link reads.
     const layer = itemLayer(records, record);
     if (layer === null) continue;

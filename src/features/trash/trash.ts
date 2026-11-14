@@ -216,7 +216,7 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind, unit: Pla
       // A mark (6.7) by whose it is: "ANA's mark", a camera's position, else a tape mark.
       const owner = shown && isMark(shown) ? markOwner(records, record) : null;
       const mark = shown && isMark(shown) ? (owner?.kind === 'character' ? t('plan.mark.ofCharacter', { name: characterTitle(records, owner.id) }) : owner?.kind === 'camera' ? t('plan.mark.cameraKind') : iconLabel(MARK_ICON)) : null;
-      const item = mark !== null ? mark : grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      const item = mark !== null ? mark : grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : kind === 'underlay' ? t('plan.item.underlay') : kind === 'measure' ? t('plan.item.measure') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }

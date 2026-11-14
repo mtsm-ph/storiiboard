@@ -132,11 +132,12 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
         split(
           'row',
           [
-            // At 900 px tall Layers keeps about 250 px, its eight rows and two buttons; the Setups tile gets the rest of
-            // what Layers had, as its rows are tall. The Library can't spare any: it shows few enough icons as it is.
-            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [304, 256, 248]),
+            // The left column is Setups and Layers, half each: Layers keeps its department rows, the underlay's (6.9) and
+            // its buttons. The Library sits under the Selection tile on the right (6.9), about 55/45, where it shows rows
+            // of icons; at the left column's foot it showed less than one.
+            split('column', [stack(['setups']), stack(['layers'])], [404, 404]),
             split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
-            stack(['selection']),
+            split('column', [stack(['selection']), stack(['library'])], [444, 364]),
           ],
           [248, 824, 336],
         ),

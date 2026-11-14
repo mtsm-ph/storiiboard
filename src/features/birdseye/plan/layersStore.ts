@@ -7,13 +7,17 @@ import { list, t, tn } from '../../../core/i18n';
 import type { PlanLayer } from '../../../core/model/plan';
 import {
   ALL_SHOWN,
+  departmentRows,
   keepUnknownRows,
-  LAYER_ORDER,
   layerOfItem,
   myDepartmentStates,
   pickableIds,
   revealedStates,
+  ROW_ORDER,
+  rowState,
   soloStates,
+  UNDERLAY_ROW,
+  type LayerRow,
   type LayerShow,
   type PlanLayerStates,
 } from '../../../core/model/planLayers';
@@ -122,40 +126,48 @@ const REVEALED = { shown: 'layers.revealed.shown', unlocked: 'layers.revealed.un
 
 const SHOW_SAID = { shown: 'layers.showIn.shown', dimmed: 'layers.showIn.dimmed', hidden: 'layers.showIn.hidden' } as const satisfies Record<LayerShow, string>;
 
-export function setLayerShow(layer: PlanLayer, show: LayerShow, by: SaidBy = 'tile'): void {
+/** A row's name: a department layer's as the Library names its group, the underlay's own (6.9). */
+export const rowName = (row: LayerRow): string => (row === UNDERLAY_ROW ? t('layers.underlay') : groupName(row));
+
+export function setLayerShow(layer: LayerRow, show: LayerShow, by: SaidBy = 'tile'): void {
   const { solo } = layersStore.getState();
   const base = baseNow();
-  if (!solo && base[layer].show === show) return;
-  commit({ ...base, [layer]: { ...base[layer], show } });
-  say(t(SHOW_SAID[show], { layer: groupName(layer) }), by);
+  if (!solo && rowState(base, layer).show === show) return;
+  commit({ ...base, [layer]: { ...rowState(base, layer), show } });
+  say(t(SHOW_SAID[show], { layer: rowName(layer) }), by);
 }
 
-export function setLayerLocked(layer: PlanLayer, locked: boolean, by: SaidBy = 'tile'): void {
+export function setLayerLocked(layer: LayerRow, locked: boolean, by: SaidBy = 'tile'): void {
   const { solo } = layersStore.getState();
-  const words = t(locked ? 'layers.said.locked' : 'layers.said.unlocked', { layer: groupName(layer) });
+  const words = t(locked ? 'layers.said.locked' : 'layers.said.unlocked', { layer: rowName(layer) });
   if (solo?.layer === layer) {
     // The solo layer's own lock: changed in the solo and in what comes back after it, the solo kept.
     const now = layerStatesNow();
-    if (now[layer].locked === locked) return;
-    commit({ ...now, [layer]: { ...now[layer], locked } }, { layer, before: { ...solo.before, [layer]: { ...solo.before[layer], locked } } });
+    if (rowState(now, layer).locked === locked) return;
+    commit({ ...now, [layer]: { ...rowState(now, layer), locked } }, { layer: solo.layer, before: { ...solo.before, [layer]: { ...rowState(solo.before, layer), locked } } });
     say(words, by);
     return;
   }
   const base = baseNow();
-  if (!solo && base[layer].locked === locked) return;
-  commit({ ...base, [layer]: { ...base[layer], locked } });
+  if (!solo && rowState(base, layer).locked === locked) return;
+  commit({ ...base, [layer]: { ...rowState(base, layer), locked } });
   say(words, by);
 }
 
-/** "Show all": every layer shown, none locked. */
+/**
+ * "Show all": every department layer shown, none locked. The underlay's row keeps its lock (6.9: never unlocked by
+ * surprise while walls are traced over it); hidden, it comes back dimmed, so nothing on the plan stays out of sight.
+ */
 export function showAllLayers(by: SaidBy = 'tile'): void {
-  commit({ ...baseNow(), ...ALL_SHOWN });
+  const base = baseNow();
+  const underlay = rowState(base, UNDERLAY_ROW);
+  commit({ ...base, ...departmentRows(ALL_SHOWN), [UNDERLAY_ROW]: underlay.show === 'hidden' ? { ...underlay, show: 'dimmed' } : underlay });
   say(t('layers.said.all'), by);
 }
 
-/** "My department": the person's own layers shown, the rest dimmed, none locked. */
+/** "My department": the person's own layers shown, the rest dimmed, none locked; the underlay's row as it is (6.9). */
 export function myDepartmentLayers(by: SaidBy = 'tile'): void {
-  commit({ ...baseNow(), ...myDepartmentNow() });
+  commit({ ...baseNow(), ...departmentRows(myDepartmentNow()) });
   say(t('layers.said.mine'), by);
 }
 
@@ -181,14 +193,14 @@ export function soloLayer(layer: PlanLayer, by: SaidBy = 'tile'): void {
  * tool that draws on one), and the notice says which and what was done (L4). During a solo, one that isn't the solo
  * layer ends it first (its lock is the solo's), and the reveal applies to what comes back.
  */
-export function revealLayers(layers: readonly PlanLayer[]): void {
+export function revealLayers(layers: readonly LayerRow[]): void {
   if (layers.length === 0) return;
   const { solo } = layersStore.getState();
   const now = layerStatesNow();
   if (solo && layers.every((l) => l === solo.layer)) {
     // Only the solo layer: shown already; unlocked in the solo and after it, the solo kept.
-    if (!now[solo.layer].locked) return;
-    const unlock = (s: PlanLayerStates): PlanLayerStates => ({ ...s, [solo.layer]: { ...s[solo.layer], locked: false } });
+    if (!rowState(now, solo.layer).locked) return;
+    const unlock = (s: PlanLayerStates): PlanLayerStates => ({ ...s, [solo.layer]: { ...rowState(s, solo.layer), locked: false } });
     commit(unlock(now), { layer: solo.layer, before: unlock(solo.before) });
     showInfo(tn('layers.revealed.unlocked', 1, { layers: groupName(solo.layer) }));
     return;
@@ -196,7 +208,7 @@ export function revealLayers(layers: readonly PlanLayer[]): void {
   const { states, changed, did } = revealedStates(solo ? solo.before : now, layers);
   if (!solo && changed.length === 0) return;
   commit(states);
-  if (changed.length > 0) showInfo(tn(REVEALED[did], changed.length, { layers: list(changed.map(groupName)) }));
+  if (changed.length > 0) showInfo(tn(REVEALED[did], changed.length, { layers: list(changed.map(rowName)) }));
   else if (solo) showInfo(t('layers.soloEnded', { layer: groupName(solo.layer) }));
 }
 
@@ -207,7 +219,22 @@ export function revealLayersOf(ids: readonly string[], records: Readonly<Record<
     const layer = record ? layerOfItem(records, record) : null;
     return layer === null ? [] : [layer];
   });
-  revealLayers(LAYER_ORDER.filter((l) => layers.includes(l)));
+  revealLayers(ROW_ORDER.filter((l) => layers.includes(l)));
+}
+
+/**
+ * The underlay's row seen (6.9): a picture just added onto a hidden row is drawn dimmed, as the row starts, its lock as
+ * it was, so walls are traced over it and it is never picked by surprise. Said as revealing is. Nothing during a solo:
+ * the solo's dim already shows it.
+ */
+export function showUnderlayRow(): void {
+  const { solo } = layersStore.getState();
+  if (solo) return;
+  const now = layerStatesNow();
+  const row = rowState(now, UNDERLAY_ROW);
+  if (row.show !== 'hidden') return;
+  commit({ ...now, [UNDERLAY_ROW]: { ...row, show: 'dimmed' } });
+  showInfo(tn('layers.revealed.shown', 1, { layers: rowName(UNDERLAY_ROW) }));
 }
 
 /** For tests: the state as a fresh session reads it from settings. */

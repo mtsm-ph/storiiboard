@@ -76,6 +76,7 @@ const TOOL_WORDS: Readonly<Record<string, MessageKey>> = {
   'set-art/wall': 'plan.tool.wall',
   'set-art/door': 'plan.tool.door',
   'set-art/window': 'plan.tool.window',
+  'production/measure': 'plan.tool.measure',
 };
 
 interface Ghost {
