@@ -313,7 +313,10 @@ Props only (docs/PHASE6_DECISIONS.md 16, approved by Kevin Nov 13): one schema v
 with no table change, no new record type (`setup`, `plan` and `plan_item` exist) and nothing rewritten. A file from
 before opens with every row as it was; it is backed up first, as for every upgrade. The number is there so an older
 Storiiboard refuses a file that may hold plans rather than open it and lose them. No approval or issued call sheet
-changes with it: neither the scene approvals' fingerprints nor the call sheet's recipes read any prop below yet.
+changes with it: neither the scene approvals' fingerprints nor the call sheet's recipes read any prop below yet. 3.6b's
+approval rule hashes every prop of a scene and its frames, so it leaves out a frame's `lens_id` and `setup_id` and a
+scene's `room_id` by name: setting one alone keeps a sign-off given under that rule current. A frame's `lens_mm`
+still counts under every rule.
 
 Units, always, whatever the screen shows: lengths in metres, angles in degrees, focal lengths and sensor sizes in mm.
 Each prop says the milestone that starts writing it; after 6.1 only those marked 6.0 and 6.1 are written. A missing or
@@ -357,8 +360,10 @@ unreadable value reads as not set, as every prop does.
   - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),
     `shot_ids` (6.4: the frames shot from it), `shown_shot_id` (6.4: the frame whose field of view it draws),
     `lens_mm` and `lens_id` (6.4: only for a camera with no frame yet), `on_side` (6.4: true when turned for vertical
-    shooting, which swaps the mode's width and height). Its field of view is worked out, never stored: the mode's area
-    after de-squeeze, the project's frame shape fitted inside it, 2 × atan(width / (2 × focal length)).
+    shooting, which turns the de-squeezed area: its width and height swap). Its field of view is worked out, never
+    stored: the mode's area de-squeezed along its width (width × squeeze, by height), then turned when `on_side`, the
+    project's frame shape fitted inside it, 2 × atan(width / (2 × focal length)). The squeeze comes before the turn
+    because a lens squeezes along the sensor's recording width, which turns with the camera.
   - A light's `beam_deg` (6.5: degrees) and `watts` (6.5).
   - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
     of the plan.

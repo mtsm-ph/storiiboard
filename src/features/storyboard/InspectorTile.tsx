@@ -45,7 +45,7 @@ import { useSelection } from './selection';
 import { frameShootDay } from '../../core/model/shootDay';
 import { frameSetupId, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, setupLabel } from '../../core/model/setup';
 import { defaultBody, frameLens, lensLabel, pickLens, projectLenses } from '../../core/model/cameraGear';
-import { aspectValue, fieldOfView, oneDecimal } from '../../core/model/fieldOfView';
+import { fieldOfView, oneDecimal } from '../../core/model/fieldOfView';
 import { openShootDay } from '../schedule/shownDay';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { t, tn } from '../../core/i18n';
@@ -239,7 +239,7 @@ export function InspectorTile() {
               sensorHeightMm: body.fields.sensorHeightMm,
               squeeze: picked?.fields.squeeze ?? 1,
               focalMm: lensMm,
-              aspect: aspectValue(projectStoryboard(records[project.projectId]?.props).aspectRatio),
+              aspect: aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio),
             })
           : null;
         const fieldOfViewLine: InspectorFieldOfView =

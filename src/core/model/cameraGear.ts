@@ -79,16 +79,36 @@ const live = (records: Records, projectId: string, kind: GearKind): SbdRecord[] 
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 
-/** The project's live camera bodies by letter (A first), those without one last, in the order they were made. */
+/**
+ * The project's live camera bodies by letter (A first), those without one last, in the order they were made.
+ *
+ * A letter is unique when it's given, but a body in the Trash keeps its letter, and a restore (or an undo, or an old
+ * kind put back from History) can bring it back beside the body that took the letter since. Read here, among live
+ * bodies sharing a letter the first by sort key keeps it and each later one reads as having none, so the letter choice
+ * offers it None and the free letters, and the default body never depends on the order records happen to load in.
+ * Nothing is rewritten in the file.
+ */
 export function projectBodies(records: Records, projectId: string): { record: SbdRecord; fields: BodyFields }[] {
   const rank = (letter: string | null) => (letter === null ? CAMERA_LETTERS.length : CAMERA_LETTERS.indexOf(letter));
+  const held = new Set<string>();
   return live(records, projectId, 'camera_body')
     .sort(bySortKey)
-    .map((record) => ({ record, fields: bodyFields(record.props) }))
+    .map((record) => {
+      const fields = bodyFields(record.props);
+      if (fields.letter === null) return { record, fields };
+      if (held.has(fields.letter)) return { record, fields: { ...fields, letter: null } };
+      held.add(fields.letter);
+      return { record, fields };
+    })
     .sort((a, b) => rank(a.fields.letter) - rank(b.fields.letter));
 }
 
-/** The default body: the project's first by letter, or null when it has none. */
+/** A body's fields as the project reads them: its letter only when no earlier body holds it (see projectBodies). */
+export function projectBodyFields(records: Records, projectId: string, bodyId: string): BodyFields | null {
+  return projectBodies(records, projectId).find((b) => b.record.id === bodyId)?.fields ?? null;
+}
+
+/** The default body: the one with the lowest letter, else the first made without one; null when the project has none. */
 export function defaultBody(records: Records, projectId: string): { record: SbdRecord; fields: BodyFields } | null {
   return projectBodies(records, projectId)[0] ?? null;
 }
@@ -168,6 +188,11 @@ export const frameSqueeze = (records: Records, shot: SbdRecord): number => frame
 
 /** Whether a focal length sits in a lens's range; any does when the lens has none. */
 export const inRange = (fields: LensFields, mm: number): boolean => fields.range === null || (mm >= fields.range.min && mm <= fields.range.max);
+
+/** What a frame's focal length field says when a length is refused for its lens: "This lens goes from 24 to 70 mm." */
+export function rangeMessage(range: { min: number; max: number }): string {
+  return range.min === range.max ? t('inspector.lensIsPrime', { mm: range.min }) : t('inspector.lensOutOfRange', { from: range.min, to: range.max });
+}
 
 /**
  * A frame's lens picked, or none (null), as one edit. A prime sets the frame's focal length to its own; a zoom keeps

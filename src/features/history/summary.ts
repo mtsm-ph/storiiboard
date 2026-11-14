@@ -628,7 +628,11 @@ function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): P
     const id = after.props.lens_id;
     if (typeof id !== 'string' || id === '') return line('history.lensCleared', { who });
     const lens = around.get(id);
-    return line('history.lensPicked', { who, lens: lens ? nameOf(lens) : t('history.aLens') });
+    const name = lens ? nameOf(lens) : t('history.aLens');
+    // The focal length too when the pick changed it (a prime's own, a zoom's nearer end).
+    const mm = after.props.lens_mm;
+    if (changed.includes('lens_mm') && typeof mm === 'number') return line('history.lensPickedAt', { who, lens: name, mm: { mono: t('history.mmValue', { mm }) } });
+    return line('history.lensPicked', { who, lens: name });
   }
   if (after.type !== 'gear_item') return null;
   if (changed.includes('kind') && changed.every((prop) => prop === 'kind' || prop === 'camera_letter')) {

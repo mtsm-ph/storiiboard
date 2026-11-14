@@ -270,7 +270,7 @@ function GearEditor({ id, projectId, records, props, fields, currency, nameField
         }}
       />
       {kind === 'camera_body' && <BodyFieldsEditor id={id} projectId={projectId} records={records} props={props} edit={edit} />}
-      {kind === 'lens' && <LensFieldsEditor key={id} id={id} props={props} edit={edit} />}
+      {kind === 'lens' && <LensFieldsEditor key={id} id={id} records={records} props={props} edit={edit} />}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
         <Select
           label={t('gear.department')}

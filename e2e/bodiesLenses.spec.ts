@@ -32,6 +32,8 @@ const inspector = (page: Page) => page.getByRole('region', { name: 'Frame inspec
 const lensChoice = (page: Page) => inspector(page).getByRole('combobox', { name: 'Lens', exact: true });
 const lensMm = (page: Page) => inspector(page).getByRole('textbox', { name: 'Lens (mm)', exact: true });
 const fieldOfView = (page: Page) => inspector(page).locator('[data-field-of-view]');
+const undoKey = async (page: Page) => `${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+z`;
+const rangeQuestion = (page: Page) => page.getByRole('alertdialog', { name: 'Change the focal range?' });
 
 async function newItem(page: Page, name: string, kind: 'Camera body' | 'Lens') {
   await gear(page).getByRole('button', { name: '+ New item' }).click();
@@ -118,9 +120,40 @@ test('a body from the table, a prime and an anamorphic zoom, each picked on a fr
   await expect(lensMm(page)).toHaveValue('50');
   const inInspector = await new AxeBuilder({ page }).include('[data-inspector]').analyze();
   expect(inInspector.violations).toEqual([]);
+  // With a lens picked, the focal length can't be emptied: the field shows it again.
+  await lensMm(page).fill('');
+  await lensMm(page).press('Enter');
+  await expect(inspector(page).getByRole('alert')).toHaveText('This lens goes from 30 to 72 mm.');
+  await expect(lensMm(page)).toHaveValue('50');
+
+  // A shorter range would leave the frame outside it: asked first. Said no to, nothing changes.
+  await toSection(page, 'Production');
+  await list.getByRole('button', { name: /^Angénieux Optimo/ }).click();
+  await fill(page, 'To (mm)', '40');
+  await expect(rangeQuestion(page)).toContainText('1 frame uses this lens outside 30–40 mm. It will be set to 40 mm.');
+  await rangeQuestion(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(rangeQuestion(page)).toHaveCount(0);
+  await expect(editor(page).getByRole('textbox', { name: 'To (mm)', exact: true })).toHaveValue('72');
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
+  // Made a prime: asked too; said no to, it stays a zoom.
+  await editor(page).getByRole('radio', { name: 'Prime', exact: true }).click();
+  await expect(rangeQuestion(page)).toContainText('1 frame uses this lens at another focal length. It will be set to 30 mm.');
+  await rangeQuestion(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(editor(page).getByRole('radio', { name: 'Zoom', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
+  // Said yes to: the range and the frame change together.
+  await fill(page, 'To (mm)', '40');
+  await rangeQuestion(page).getByRole('button', { name: 'Change the range' }).click();
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–40 mm 2×');
+  await openFrame(page);
+  await expect(lensMm(page)).toHaveValue('40');
+  // One undo brings back both.
+  await page.keyboard.press(await undoKey(page));
+  await expect(lensMm(page)).toHaveValue('50');
+  await toSection(page, 'Production');
+  await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toContainText('30–72 mm 2×');
 
   // The zoom to the Trash: the frame reads "No lens picked", squeeze 1, its focal length kept.
-  await toSection(page, 'Production');
   await list.getByRole('button', { name: /^Angénieux Optimo/ }).click();
   await editor(page).getByRole('button', { name: 'Delete item' }).click();
   await expect(list.getByRole('button', { name: /^Angénieux Optimo/ })).toHaveCount(0);
@@ -129,12 +162,23 @@ test('a body from the table, a prime and an anamorphic zoom, each picked on a fr
   await expect(lensChoice(page).locator('option')).toHaveText(['No lens picked', 'Cooke S4 · 24 mm']);
   await expect(lensMm(page)).toHaveValue('50');
   await expect(fieldOfView(page)).toContainText('35.6 × 20.0');
+  // Brought back by undo: the frame kept its lens, so it shows it again.
+  await page.keyboard.press(await undoKey(page));
+  await expect(lensChoice(page).locator('option:checked')).toHaveText('Angénieux Optimo · 30–72 mm 2×');
+  await expect(fieldOfView(page)).toContainText('51.1° · 47.8 mm of 35.6 × 20.0');
 
   // A 9:16 frame and the 24 mm prime: 26.4° on 11.25 mm of the width.
   await setAspect(page, '9:16');
   await lensChoice(page).selectOption({ label: 'Cooke S4 · 24 mm' });
   await expect(lensMm(page)).toHaveValue('24');
   await expect(fieldOfView(page)).toContainText('26.4° · 11.3 mm of 35.6 × 20.0');
+  // One undo takes back the pick whole: the zoom and its 50 mm together.
+  await storyboard(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press(await undoKey(page));
+  await expect(lensChoice(page).locator('option:checked')).toHaveText('Angénieux Optimo · 30–72 mm 2×');
+  await expect(lensMm(page)).toHaveValue('50');
+  await lensChoice(page).selectOption({ label: 'Cooke S4 · 24 mm' });
+  await expect(lensMm(page)).toHaveValue('24');
   // A prime takes only its own focal length.
   await lensMm(page).fill('35');
   await lensMm(page).press('Enter');

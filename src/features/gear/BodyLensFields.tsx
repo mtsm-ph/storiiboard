@@ -1,13 +1,14 @@
 import { useState } from 'react';
+import { ask } from '../../app/ask';
 import { showInfo } from '../../app/notice';
-import { t } from '../../core/i18n';
-import { bodyFields, freeLetters, isFocal, isPrime, isSensorSize, isSqueeze, lensFields, SQUEEZES } from '../../core/model/cameraGear';
+import { t, tn } from '../../core/i18n';
+import { bodyFields, focalLabel, freeLetters, isFocal, isPrime, isSensorSize, isSqueeze, lensFields, projectBodyFields, SQUEEZES } from '../../core/model/cameraGear';
 import type { SbdRecord } from '../../core/model/record';
 import { cameraLabel, matchingMode, modeLabel, SENSOR_MODES, type SensorMode } from '../../core/model/sensorModes';
 import type { Change } from '../../core/ops/ops';
 import { Select, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
-import { cameraLetterChange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from './gearEdits';
+import { cameraLetterChange, framesOutsideRange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from './gearEdits';
 
 // A camera body's and a lens's own fields in the Gear tile (6.1). A body: the camera and recording mode picked from
 // the short table (src/core/model/sensorModes.ts), which fills the mode's name, width and height, each still typed
@@ -41,8 +42,11 @@ const readNumber = (text: string): number | null => {
 interface NumberFieldProps {
   label: string;
   value: number | null;
-  /** Takes the number typed (null for an emptied field) or refuses it: false snaps it back with `refused`. */
-  onCommit: (value: number | null) => boolean;
+  /**
+   * Takes the number typed (null for an emptied field) or refuses it: false snaps it back with `refused`. One that asks
+   * first calls `revert` when the person says no, so the field shows the stored value again.
+   */
+  onCommit: (value: number | null, revert: () => void) => boolean;
   refused: string;
 }
 
@@ -58,9 +62,13 @@ function NumberField({ label, value, onCommit, refused }: NumberFieldProps) {
       autoComplete="off"
       defaultValue={text}
       onBlur={(event) => {
-        if (event.currentTarget.value.trim() === text) return;
-        if (!onCommit(readNumber(event.currentTarget.value))) {
-          event.currentTarget.value = text;
+        const input = event.currentTarget;
+        if (input.value.trim() === text) return;
+        const revert = () => {
+          input.value = text;
+        };
+        if (!onCommit(readNumber(input.value), revert)) {
+          revert();
           showInfo(refused);
         }
       }}
@@ -79,7 +87,8 @@ const CAMERAS: readonly (readonly SensorMode[])[] = Object.values(
 );
 
 export function BodyFieldsEditor({ id, projectId, records, props, edit }: FieldsProps) {
-  const body = bodyFields(props);
+  // As the project reads it: a letter an earlier body holds (one restored beside the body that took it) reads as none.
+  const body = projectBodyFields(records, projectId, id) ?? bodyFields(props);
   const matched = matchingMode(body.sensorMode, body.sensorWidthMm, body.sensorHeightMm);
   const letters = freeLetters(records, projectId, id);
   const sizeCommit = (prop: 'sensor_width_mm' | 'sensor_height_mm') => (mm: number | null) => {
@@ -154,7 +163,21 @@ export function BodyFieldsEditor({ id, projectId, records, props, edit }: Fields
 type LensType = 'prime' | 'zoom';
 const OTHER_SQUEEZE = 'other';
 
-export function LensFieldsEditor({ id, props, edit }: Omit<FieldsProps, 'projectId' | 'records'>) {
+/**
+ * What the Gear tile asks before a range that would leave frames outside it: how many, and the focal length they'll
+ * take. Null when no frame would change.
+ */
+function clampQuestion(records: Records, id: string, min: number, max: number): string | null {
+  const outside = framesOutsideRange(records, id, min, max);
+  if (outside.length === 0) return null;
+  const count = outside.length;
+  const first = min === max ? tn('gear.clampOther', count) : tn('gear.clampOutside', count, { range: focalLabel({ min, max }) });
+  const ends = new Set(outside.map((f) => f.mm));
+  const then = ends.size === 1 ? tn('gear.clampTo', count, { mm: [...ends][0] ?? min }) : t('gear.clampNearest', { from: min, to: max });
+  return `${first} ${then}`;
+}
+
+export function LensFieldsEditor({ id, records, props, edit }: Omit<FieldsProps, 'projectId'>) {
   const lens = lensFields(props);
   const range = lens.range;
   // Kept while the item is open: a zoom whose ends are still the same reads as a zoom until it's set otherwise.
@@ -162,9 +185,36 @@ export function LensFieldsEditor({ id, props, edit }: Omit<FieldsProps, 'project
   const preset = (SQUEEZES as readonly number[]).includes(lens.squeeze);
   const [typing, setTyping] = useState(!preset);
   const refused = t('gear.focalRefused');
-  const setRange = (min: number | null, max: number | null) => {
+  /**
+   * A new range, asked first when frames using the lens would fall outside it (each then takes its nearer end, in the
+   * same edit). `cancelled` puts the field or the switch back when the person says no.
+   */
+  const changeRange = (min: number, max: number, cancelled: () => void) => {
+    const question = clampQuestion(records, id, min, max);
+    if (question === null) {
+      void edit((now) => lensRangeChange(now, id, min, max));
+      return;
+    }
+    // Asked once the key that left the field is done: Enter's own keypress would otherwise land on the window's first
+    // button (Cancel) and answer it at once.
+    window.setTimeout(() => {
+      void ask({
+        title: t('gear.clampTitle'),
+        text: question,
+        choices: [
+          { id: 'cancel', label: t('common.cancel') },
+          { id: 'change', label: t('gear.clampConfirm'), variant: 'primary' },
+        ],
+        cancel: 'cancel',
+      }).then((answer) => {
+        if (answer === 'change') void edit((now) => lensRangeChange(now, id, min, max));
+        else cancelled();
+      });
+    }, 0);
+  };
+  const setRange = (min: number | null, max: number | null, revert: () => void) => {
     if (min === null || max === null || !isFocal(min) || !isFocal(max) || min > max) return false;
-    void edit((now) => lensRangeChange(now, id, min, max));
+    changeRange(min, max, revert);
     return true;
   };
   const squeezeCommit = (value: number | null) => {
@@ -183,16 +233,20 @@ export function LensFieldsEditor({ id, props, edit }: Omit<FieldsProps, 'project
         value={type}
         onChange={(next) => {
           setType(next);
-          // A prime has one focal length: the zoom's wide end.
-          if (next === 'prime' && range && range.min !== range.max) void edit((now) => lensRangeChange(now, id, range.min, range.min));
+          // A prime has one focal length: the zoom's wide end. Said no to, it stays a zoom.
+          if (next === 'prime' && range && range.min !== range.max) {
+            changeRange(range.min, range.min, () => {
+              setType('zoom');
+            });
+          }
         }}
       />
       {type === 'prime' ? (
-        <NumberField label={t('gear.focalLength')} value={range?.min ?? null} onCommit={(mm) => setRange(mm, mm)} refused={refused} />
+        <NumberField label={t('gear.focalLength')} value={range?.min ?? null} onCommit={(mm, revert) => setRange(mm, mm, revert)} refused={refused} />
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <NumberField label={t('gear.focalFrom')} value={range?.min ?? null} onCommit={(mm) => setRange(mm, range ? range.max : mm)} refused={refused} />
-          <NumberField label={t('gear.focalTo')} value={range?.max ?? null} onCommit={(mm) => setRange(range ? range.min : mm, mm)} refused={refused} />
+          <NumberField label={t('gear.focalFrom')} value={range?.min ?? null} onCommit={(mm, revert) => setRange(mm, range ? range.max : mm, revert)} refused={refused} />
+          <NumberField label={t('gear.focalTo')} value={range?.max ?? null} onCommit={(mm, revert) => setRange(range ? range.min : mm, mm, revert)} refused={refused} />
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">

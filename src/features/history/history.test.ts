@@ -13,7 +13,7 @@ import { addSetup, joinSetup, renameSetup } from '../../core/model/setup';
 import { pickLens } from '../../core/model/cameraGear';
 import { setLocale } from '../../core/i18n';
 import { gearKindChange, lensRangeChange, lensSqueezeChange, sensorModePick, sensorSizeChange } from '../gear/gearEdits';
-import { putBackChange } from './putBack';
+import { putBackChange, putBackProblem } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
 
@@ -371,7 +371,19 @@ describe('Put back', () => {
     const a = await frame();
     await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
     const number = shotFields(records()[a]?.props ?? {}).number;
+    // The pick set the focal length too (the frame had none): the line says it.
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux, 24 mm`);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    // Kept inside the range: the lens alone.
     expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux`);
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 135 } }]);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux, 70 mm`);
+    setLocale('es');
+    expect((await lines()).at(-1)).toBe(`${number}: lente Angénieux, 70 mm`);
+    setLocale('en');
     await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
     expect((await lines()).at(-1)).toBe(`${number}: no lens picked`);
     // The item's own history names its fields; none shows an id.
@@ -381,6 +393,53 @@ describe('Put back', () => {
     setLocale('es');
     expect((await lines()).at(-1)).toBe(`${number}: ninguna lente elegida`);
     setLocale('en');
+  });
+
+  it('changes a lens’s range and the frames it leaves outside in one step that one undo takes back (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const [a, b, c] = [await frame(), await frame(), await frame()];
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { lens_id: 'z', lens_mm: 50 } },
+      { kind: 'update', id: b, set: { lens_id: 'z', lens_mm: 30 } },
+      { kind: 'update', id: c, set: { lens_id: 'z', lens_mm: 60 } },
+    ]);
+    await store.getState().apply([{ kind: 'trash', id: c }]);
+    const steps = await stepCount();
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 40) }));
+    expect(await stepCount()).toBe(steps + 1);
+    const mm = (id: string) => shotFields(records()[id]?.props ?? {}).lensMm;
+    expect([mm(a), mm(b), mm(c)]).toEqual([40, 30, 60]);
+    await store.getState().undo();
+    expect([mm(a), mm(b), mm(c)]).toEqual([50, 30, 60]);
+    expect(records().z?.props.focal_max_mm).toBe(70);
+  });
+
+  it('never puts back a focal length outside the frame’s lens’s range, nor none while a lens is picked (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 135 } }]);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 50 } }]);
+    const tooLong = await lastChange(a, 'lens_mm');
+    expect(tooLong.before).toBe(70);
+    // 70 is inside: it can go back.
+    expect(putBackProblem(records(), a, tooLong)).toBeNull();
+    const ops = await opsOfRecord(project.file, a);
+    const all = ops.flatMap((op) => (op.before && op.after ? fieldChanges(op.before, op.after) : [])).filter((f) => f.prop === 'lens_mm');
+    const [none, long] = all;
+    if (!none || !long) throw new Error('no lens changes');
+    expect([none.before, long.before]).toEqual([undefined, 135]);
+    expect(putBackProblem(records(), a, long)).toBe('This lens goes from 24 to 70 mm.');
+    expect(putBackProblem(records(), a, none)).toBe('This lens goes from 24 to 70 mm.');
+    // With no lens picked (or the lens in the Trash), any goes back.
+    await store.getState().apply([{ kind: 'trash', id: 'z' }]);
+    expect(putBackProblem(records(), a, long)).toBeNull();
+    expect(await putBack(a, long)).toBe(true);
+    expect(shotFields(records()[a]?.props ?? {}).lensMm).toBe(135);
   });
 
   it('says a person’s Full view as on or off (3.6c)', async () => {

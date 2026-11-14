@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { aspectValue, fieldOfView, oneDecimal } from './fieldOfView';
+import { fieldOfView, oneDecimal } from './fieldOfView';
+import { aspectRatioValue } from './storyboard';
 
 // The field of view (6.1, decision 6): what the project's frame sees, not the whole sensor. Kevin's cases, on a
 // 35.6 × 20.0 mm mode.
@@ -25,6 +26,15 @@ describe('the field of view', () => {
     const fov = fieldOfView({ ...mode, focalMm: 24, aspect: 9 / 16, onSide: true });
     expect(Math.abs((fov?.widthMm ?? 0) - 20)).toBeLessThan(0.05);
     expect(Math.abs((fov?.degrees ?? 0) - 45.2)).toBeLessThan(0.05);
+  });
+
+  it('on its side with an anamorphic lens, de-squeezes along the sensor’s width, then turns the area', () => {
+    // 35.6 × 20.0 de-squeezed is 71.2 × 20.0; turned, 20.0 × 71.2; a 2.39:1 frame is as wide as that: 20.0 mm.
+    const fov = fieldOfView({ ...mode, squeeze: 2, focalMm: 50, aspect: 2.39, onSide: true });
+    expect(Math.abs((fov?.widthMm ?? 0) - 20)).toBeLessThan(0.05);
+    expect(Math.abs((fov?.degrees ?? 0) - 22.6)).toBeLessThan(0.05);
+    // Not the sensor turned first and then squeezed (40 mm, 43.6°).
+    expect(Math.abs((fov?.degrees ?? 0) - 43.6)).toBeGreaterThan(1);
   });
 
   it('fits a frame wider than the area by the area’s width, and a taller one by its height', () => {
@@ -56,16 +66,8 @@ describe('the field of view', () => {
 });
 
 describe('the project’s frame shape', () => {
-  it('reads ratios and decimals', () => {
-    expect(aspectValue('2.39:1')).toBeCloseTo(2.39, 5);
-    expect(aspectValue('16:9')).toBeCloseTo(16 / 9, 5);
-    expect(aspectValue('9:16')).toBeCloseTo(9 / 16, 5);
-    expect(aspectValue('1.85')).toBeCloseTo(1.85, 5);
-    expect(aspectValue(' 4:3 ')).toBeCloseTo(4 / 3, 5);
-    expect(aspectValue(2)).toBe(2);
-  });
-
-  it('is null for anything else', () => {
-    for (const value of ['', 'wide', '16:0', '0:9', '-2', ':', '1:1:1', null, undefined, 0, -1, Number.NaN, {}, []]) expect(aspectValue(value)).toBeNull();
+  it('takes the project’s stored shape as storyboard.ts converts it, width over height', () => {
+    expect(fieldOfView({ ...mode, squeeze: 2, focalMm: 50, aspect: aspectRatioValue('2.39:1') })?.widthMm).toBeCloseTo(47.8, 1);
+    expect(fieldOfView({ ...mode, focalMm: 24, aspect: aspectRatioValue('9:16') })?.widthMm).toBeCloseTo(11.25, 2);
   });
 });

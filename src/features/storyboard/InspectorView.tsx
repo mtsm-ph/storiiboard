@@ -1,6 +1,7 @@
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
+import { rangeMessage } from '../../core/model/cameraGear';
 import type { DepartmentStatuses } from '../../core/model/departmentStatus';
 import { DEPARTMENTS, type Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
@@ -838,6 +839,7 @@ export function InspectorView({
               // The frame's lens (6.1), from the project's in Gear: one edit per pick, its focal length with it.
               <Select
                 label={t('inspector.lens')}
+                mono
                 value={lens.value}
                 onChange={(event) => {
                   const id = event.currentTarget.value;
@@ -860,17 +862,17 @@ export function InspectorView({
                 placeholder="35"
                 onCommit={(text) => {
                   const trimmed = text.trim();
+                  const range = lens?.range;
                   if (trimmed === '') {
+                    // A picked lens always has its focal length: emptied, the field shows it again and says the range.
+                    if (range) return rangeMessage(range);
                     onShotChange({ unset: ['lens_mm'] });
                     return null;
                   }
                   const mm = Number(trimmed.replace(/mm$/i, ''));
                   if (!Number.isFinite(mm) || mm <= 0 || mm > 2000) return t('inspector.lensProblem');
                   // Outside the picked lens's range: refused, never saved.
-                  const range = lens?.range;
-                  if (range && (mm < range.min || mm > range.max)) {
-                    return range.min === range.max ? t('inspector.lensIsPrime', { mm: range.min }) : t('inspector.lensOutOfRange', { from: range.min, to: range.max });
-                  }
+                  if (range && (mm < range.min || mm > range.max)) return rangeMessage(range);
                   onShotChange({ set: { lens_mm: mm } });
                   return null;
                 }}

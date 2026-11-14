@@ -1,4 +1,4 @@
-import { bodyFields, freeLetters, gearKind, isFocal, isSensorSize, isSqueeze, type GearKind } from '../../core/model/cameraGear';
+import { bodyFields, frameLens, freeLetters, gearKind, isFocal, isSensorSize, isSqueeze, type GearKind } from '../../core/model/cameraGear';
 import { isDepartment } from '../../core/model/department';
 import { gearFields, MAX_QUANTITY } from '../../core/model/gear';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
@@ -156,13 +156,21 @@ export function sensorModeNameChange(records: Records, id: string, name: string)
   return next === '' ? [{ kind: 'update', id, unset: ['sensor_mode'] }] : [{ kind: 'update', id, set: { sensor_mode: next } }];
 }
 
-/** A body's sensor width or height in mm, typed by hand; null takes it off. */
+/**
+ * A body's sensor width or height in mm, typed by hand; null takes it off. A size typed over the phones entry's 36 × 24
+ * is no longer full-frame equivalents, so `focal_equivalent` comes off in the same edit (picking the entry sets it again).
+ */
 export function sensorSizeChange(records: Records, id: string, prop: 'sensor_width_mm' | 'sensor_height_mm', mm: number | null): Change[] {
   const item = liveBody(records, id);
   if (!item || (mm !== null && !isSensorSize(mm))) return [];
   const current = typeof item.props[prop] === 'number' ? item.props[prop] : null;
   if (current === mm) return [];
-  return mm === null ? [{ kind: 'update', id, unset: [prop] }] : [{ kind: 'update', id, set: { [prop]: mm } }];
+  const width = prop === 'sensor_width_mm' ? mm : item.props.sensor_width_mm;
+  const height = prop === 'sensor_height_mm' ? mm : item.props.sensor_height_mm;
+  const phones = SENSOR_MODES.find((m) => m.focalEquivalent === true);
+  const equivalent = phones !== undefined && width === phones.widthMm && height === phones.heightMm;
+  const unset = [...(mm === null ? [prop] : []), ...(item.props.focal_equivalent !== undefined && !equivalent ? ['focal_equivalent'] : [])];
+  return [{ kind: 'update', id, ...(mm === null ? {} : { set: { [prop]: mm } }), ...(unset.length > 0 ? { unset } : {}) }];
 }
 
 /** A body's camera letter: one no other live body of the project has. */
@@ -172,12 +180,33 @@ export function cameraLetterChange(records: Records, id: string, letter: string)
   return [{ kind: 'update', id, set: { camera_letter: letter } }];
 }
 
-/** A lens's focal range in mm: from ≤ to, equal for a prime. Both ends in one edit. */
+/**
+ * The live frames whose lens (read through frameLens) is this one and whose focal length sits outside min–max, each
+ * with the end of the range it would take: the nearer one. Frames in the Trash, and frames of a lens in the Trash, are
+ * left as they are.
+ */
+export function framesOutsideRange(records: Records, lensId: string, min: number, max: number): { id: string; mm: number }[] {
+  return Object.values(records).flatMap((shot) => {
+    if (shot.type !== 'shot' || shot.trashedAt !== null || frameLens(records, shot)?.record.id !== lensId) return [];
+    const mm = shot.props.lens_mm;
+    if (typeof mm !== 'number' || !Number.isFinite(mm) || (mm >= min && mm <= max)) return [];
+    return [{ id: shot.id, mm: mm < min ? min : max }];
+  });
+}
+
+/**
+ * A lens's focal range in mm: from ≤ to, equal for a prime. Both ends in one edit, with every frame using the lens
+ * outside the new range set to its nearer end, so a frame's `lens_mm` always sits in its lens's range and one ⌘Z
+ * brings the range and the frames back together. The Gear tile asks before it when there are any.
+ */
 export function lensRangeChange(records: Records, id: string, min: number, max: number): Change[] {
   const item = liveLensItem(records, id);
   if (!item || !isFocal(min) || !isFocal(max) || min > max) return [];
   if (item.props.focal_min_mm === min && item.props.focal_max_mm === max) return [];
-  return [{ kind: 'update', id, set: { focal_min_mm: min, focal_max_mm: max } }];
+  return [
+    { kind: 'update', id, set: { focal_min_mm: min, focal_max_mm: max } },
+    ...framesOutsideRange(records, id, min, max).map(({ id: shotId, mm }): Change => ({ kind: 'update', id: shotId, set: { lens_mm: mm } })),
+  ];
 }
 
 /** A lens's squeeze, from 1 to 2.5. */

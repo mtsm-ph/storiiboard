@@ -1,3 +1,4 @@
+import { frameLens, rangeMessage } from '../../core/model/cameraGear';
 import { customFieldsOf, hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
@@ -45,4 +46,18 @@ export function putBackChange(record: SbdRecord | undefined, field: FieldChange)
   }
   if (same(record.props[field.prop], before)) return null;
   return { kind: 'update', id: record.id, ...(before === undefined ? { unset: [field.prop] } : { set: { [field.prop]: before } }) };
+}
+
+/**
+ * Why an old value can't go back on the item as the project is now, in the words the Inspector uses; null when it can.
+ * A frame's focal length must sit inside its picked lens's range (6.1), and a frame with a lens picked always has one,
+ * so an old `lens_mm` outside the range, or none at all, is refused while that lens is picked.
+ */
+export function putBackProblem(records: Readonly<Record<string, SbdRecord>>, recordId: string, field: FieldChange): string | null {
+  const record = records[recordId];
+  if (record?.type !== 'shot' || field.prop !== 'lens_mm' || field.key !== undefined) return null;
+  const range = frameLens(records, record)?.fields.range;
+  if (!range) return null;
+  const mm = field.before;
+  return typeof mm === 'number' && mm >= range.min && mm <= range.max ? null : rangeMessage(range);
 }
