@@ -523,7 +523,7 @@ export const boxFields = (props: Props): BoxFields | null =>
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
- * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door or window the set's (art); a measure
+ * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door, window or the room's north the set's (art); a measure
  * production's. Null for the underlay (its own row, 6.9), an icon outside every group and a kind this version doesn't
  * know: such an item is always drawn and picked, whatever the layers say (planLayers.ts). A mark's needs its records (6.7 review): `cameraMark` says whether its camera link
  * reads, which markLayer (planBlocking.ts) works out; read without it, a mark is cast blocking's.
@@ -533,8 +533,10 @@ export function planItemLayer(props: Props, cameraMark = false): PlanLayer | nul
   if (props.kind === 'camera') return 'camera';
   if (props.kind === 'light') return 'lighting';
   if (props.kind === 'flag' || props.kind === 'diffusion') return 'grip';
-  // North and the sun path (6.6) by their icons' groups.
-  if (props.kind === 'north') return 'production';
+  // The room's north (6.6) goes with the room (6.8 review): the set's layer, as its walls, so hiding art hides the
+  // compass with them. Its icon stays in the Library's production group, as the kit has it; only its layer differs.
+  if (props.kind === 'north') return 'set-art';
+  // The sun path (6.6) by its icon's group.
   if (props.kind === 'sun') return 'lighting';
   // A mark (6.7): a camera's later position (its link reading) is the camera department's, any other cast blocking.
   if (props.kind === 'mark') return cameraMark ? 'camera' : 'cast';

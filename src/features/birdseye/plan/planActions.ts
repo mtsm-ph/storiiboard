@@ -126,11 +126,21 @@ export async function renameRoom(roomId: string, name: string): Promise<boolean>
   return projectStore.getState().applyWith((records) => ({ changes: renamePlanChanges(records, roomId, name) }));
 }
 
-/** "Start from another setup" (6.2b): that setup's items copied into this one, one op group. */
+/**
+ * "Start from another setup" (6.2b): that setup's items copied into this one, one op group. The copies' layers are
+ * shown and unlocked where hidden or locked, with the usual notice (6.8 review, L5), so nothing copied lands unseen.
+ */
 export async function copySetup(view: PlanView, fromSetupId: string): Promise<boolean> {
   const to = view.setupId;
   if (to === null) return false;
-  return projectStore.getState().applyWith((records) => ({ changes: copySetupChanges(records, fromSetupId, to) }));
+  let ids: string[] = [];
+  const written = await projectStore.getState().applyWith((records) => {
+    const changes = copySetupChanges(records, fromSetupId, to);
+    ids = changes.flatMap((c) => (c.kind === 'create' && c.record.id !== undefined ? [c.record.id] : []));
+    return { changes };
+  });
+  if (written) revealLayersOf(ids);
+  return written;
 }
 
 /** "This setup only" on or off (6.2b), for the selected items: moved into the setup's plan, or back to their level. */
@@ -230,9 +240,12 @@ export async function pastePlan(view: PlanView, at: Point | null, clip = planSto
     return { changes: made.changes };
   });
   if (out.count > 0) showInfo(t('library.noSetup'));
-  // One north per room (6.6): a pasted north the room already has is left out, and said.
+  // One north per room (6.6): a pasted north the room already has is left out, and said; the room's own is selected
+  // with what was pasted, and its layer shown and unlocked, as placing a north does (6.8 review, L6).
   if (out.north > 0) showInfo(t('plan.north.notPasted'));
-  if (written) select(view, ids);
+  const records = projectStore.getState().records;
+  const kept = out.north > 0 ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
+  if (written) select(view, kept === null ? ids : [...ids, kept]);
 }
 
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */

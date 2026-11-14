@@ -7,6 +7,7 @@ import { sceneSetups, setupLabel } from '../../../core/model/setup';
 import { Button } from '../../../ui/Button';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
+import { revealLayersOf } from './layersStore';
 import { viewKey } from './planItems';
 import { planStore } from './planStore';
 import { showPlan } from './shownPlan';
@@ -21,6 +22,8 @@ type Records = Readonly<Record<string, SbdRecord>>;
 /** The Setup section on a setup's plan, with one of its cameras selected. */
 export function openCameraOnPlan(sceneId: string, setupId: string, cameraId: string): void {
   showPlan(sceneId, setupId);
+  // Taken to the camera, which is shown: its layer shown and unlocked first, with the usual notice (6.8 review, M1).
+  revealLayersOf([cameraId]);
   planStore.getState().select(viewKey(sceneId, setupId), [cameraId]);
   showWorkspace('setup');
 }

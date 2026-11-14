@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { SETTINGS_KEY } from '../src/core/storage/settings';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -162,6 +163,21 @@ test('hides, locks, dims and solos layers, starts a gaffer on lighting and grip,
   await expect(row(page, 'camera').getByRole('button', { name: /^Solo the Camera layer/ })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => shows(page)).toEqual({ camera: 'shown', lighting: 'dimmed', grip: 'dimmed', 'set-art': 'dimmed', sound: 'dimmed', production: 'dimmed', cast: 'dimmed' });
   await expect.poll(() => kinds(page)).toEqual(['camera', 'icon', 'light', 'mark', 'wall']);
+  // During the solo the other layers are locked too, their locks on and held, saying why (6.8 review, M3).
+  const heldLock = row(page, 'lighting').locator('[data-layer-lock]');
+  await expect(heldLock).toHaveAttribute('aria-pressed', 'true');
+  await expect(heldLock).toHaveAttribute('aria-disabled', 'true');
+  await expect(heldLock).toHaveAttribute('title', 'Locked while Camera is solo');
+  await heldLock.click({ force: true });
+  await expect(heldLock).toHaveAttribute('aria-pressed', 'true');
+  // Select all then Delete during the solo touches only the camera.
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+a`);
+  await expect.poll(() => selection(page)).toEqual([camera.id]);
+  await page.keyboard.press('Delete');
+  await expect.poll(() => kinds(page)).toEqual(['icon', 'light', 'mark', 'wall']);
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await expect.poll(() => kinds(page)).toEqual(['camera', 'icon', 'light', 'mark', 'wall']);
   await row(page, 'camera').getByRole('button', { name: /^Solo the Camera layer/ }).click();
   await expect.poll(() => shows(page)).toEqual({ camera: 'shown', lighting: 'hidden', grip: 'shown', 'set-art': 'shown', sound: 'shown', production: 'shown', cast: 'dimmed' });
   await expect(row(page, 'set-art')).toHaveAttribute('data-layer-locked', 'true');
@@ -177,8 +193,8 @@ test('hides, locks, dims and solos layers, starts a gaffer on lighting and grip,
   await expect.poll(() => shows(page)).toEqual({ camera: 'shown', lighting: 'shown', grip: 'shown', 'set-art': 'shown', sound: 'shown', production: 'shown', cast: 'shown' });
   await expect(planTile(page).locator('[data-layers-note]')).toHaveCount(0);
   await expect(row(page, 'set-art')).not.toHaveAttribute('data-layer-locked', 'true');
-  // None of it is a step in History: only the Delete and its undo are.
-  expect(await historySteps(page)).toBe(before + 2);
+  // None of it is a step in History: only the two Deletes and their undos are.
+  expect(await historySteps(page)).toBe(before + 4);
 
   // "This is me" a gaffer, then My department: lighting and grip shown, the rest dimmed.
   await toSection(page, 'Production');
@@ -240,36 +256,143 @@ test('the Layers tile is reached and read by the keyboard, and passes axe', asyn
   expect(plan.violations).toEqual([]);
 });
 
-// 6.8 review: each layer is one row at a 200 px tile, the Layers tile tall enough in the Setup workspace's default
-// layout for every row without scrolling, the same row at a wider tile.
-test('each layer is one line in a 200 px tile, and every row shows in the default layout without scrolling', async ({ page }) => {
+/**
+ * Each row's layout: whether it is one line (every control within the row's 18 px), and whether its name shows whole
+ * (never cut off, never under its controls) with the controls on the row's first line, inside the row and the tile.
+ */
+async function rowLayout(page: Page) {
+  return layersTile(page)
+    .locator('[data-layer]')
+    .evaluateAll((list) =>
+      list.map((r) => {
+        const box = r.getBoundingClientRect();
+        const name = r.querySelector<HTMLElement>('[data-layer-name]');
+        if (!name) throw new Error('no name');
+        const nameBox = name.getBoundingClientRect();
+        const controls = [...r.querySelectorAll('[data-layer-count], [role="radiogroup"], button:not([role="radio"])')].map((c) => c.getBoundingClientRect());
+        const tile = r.closest('[data-layers-tile]')?.getBoundingClientRect();
+        const overlaps = (k: DOMRect) => k.left < nameBox.right - 1 && k.right > nameBox.left + 1 && k.top < nameBox.bottom - 1 && k.bottom > nameBox.top + 1;
+        return {
+          layer: r.getAttribute('data-layer') ?? '',
+          oneLine: box.height <= 20 && controls.every((k) => k.top >= box.top - 1 && k.bottom <= box.bottom + 1),
+          whole: name.scrollWidth <= name.clientWidth + 1 && !controls.some(overlaps),
+          controlsOnTop: controls.every((k) => Math.abs(k.top - box.top) <= 1 && k.right <= box.right + 1),
+          inTile: tile !== undefined && box.right <= tile.right + 1 && nameBox.right <= tile.right + 1,
+          // The name on a line of its own under the controls, and on one line.
+          nameBelow: controls.every((k) => k.bottom <= nameBox.top + 1) && nameBox.height <= 20,
+        };
+      }),
+    );
+}
+
+// 6.8 second review: a row is one line wherever its name fits beside its controls; where it doesn't, in any language,
+// the name goes onto a line of its own (the row grows, the controls stay on its first line at the right), never cut short.
+test('each layer is one line where its name fits and wraps where it doesn’t, never cut off; every row shows without scrolling', async ({ page }) => {
   await buildPlan(page);
   const rows = layersTile(page).locator('[data-layer]');
   await expect(rows).toHaveCount(7);
-  const oneLine = async () =>
-    rows.evaluateAll((list) =>
-      list.map((r) => {
-        const box = r.getBoundingClientRect();
-        const kids = [...r.children].map((c) => c.getBoundingClientRect());
-        // On one line: every control within the row's own height, none past its right edge.
-        return kids.every((k) => k.top >= box.top - 1 && k.bottom <= box.bottom + 1 && k.right <= box.right + 1) && box.height <= 20;
-      }),
-    );
-  // In the default layout: one line each, and the list ends inside the tile (no scrolling to reach a row).
-  expect(await oneLine()).toEqual(Array(7).fill(true));
+  // In the default layout, in English: one line each, and the list ends inside the tile (no scrolling to reach a row).
+  for (const r of await rowLayout(page)) expect(r, r.layer).toMatchObject({ oneLine: true, whole: true, controlsOnTop: true, inTile: true });
   const tile = await layersTile(page).boundingBox();
   const last = await rows.last().boundingBox();
   expect(tile && last && last.y + last.height <= tile.y + tile.height).toBe(true);
-  // Squeezed to 200 px: still one line each, the names cut short with their whole name in the title.
-  await layersTile(page).evaluate((el) => {
-    el.style.width = '200px';
-    el.style.flex = 'none';
-  });
-  expect((await layersTile(page).boundingBox())?.width).toBeLessThanOrEqual(201);
-  expect(await oneLine()).toEqual(Array(7).fill(true));
-  await expect(row(page, 'set-art').locator('[data-layer-name]')).toHaveAttribute('title', 'Set and art');
-  // Show all and My department share one row above the list.
+  // At 200 px every row is whole, and Show all and My department share one row above the list.
+  const squeeze = (px: number) =>
+    layersTile(page).evaluate((el, width) => {
+      el.style.width = `${String(width)}px`;
+      el.style.flex = 'none';
+    }, px);
+  await squeeze(200);
+  for (const r of await rowLayout(page)) expect(r, r.layer).toMatchObject({ whole: true, controlsOnTop: true, inTile: true });
   const all = await layersTile(page).locator('[data-layers-all]').boundingBox();
   const mine = await layersTile(page).locator('[data-layers-mine]').boundingBox();
   expect(all && mine && Math.abs(all.y - mine.y) < 1).toBe(true);
+  // Squeezed to 170 px: a longer name goes onto a line of its own under the controls, whole; the controls stay on top.
+  await squeeze(170);
+  expect((await layersTile(page).boundingBox())?.width).toBeLessThanOrEqual(171);
+  const squeezed = await rowLayout(page);
+  for (const r of squeezed) expect(r, r.layer).toMatchObject({ whole: true, controlsOnTop: true, inTile: true });
+  expect(squeezed.find((r) => r.layer === 'set-art')).toMatchObject({ nameBelow: true });
+  await expect(row(page, 'set-art').locator('[data-layer-name]')).toHaveText('Set and art');
+});
+
+test('in Spanish at 1280 × 720 no layer’s name is cut off', async ({ page }) => {
+  await buildPlan(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const app = await openSettings(page, 'App');
+  await app.getByLabel('Language').selectOption('es');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
+  const capas = page.getByRole('region', { name: 'Capas', exact: true });
+  await expect(capas).toBeVisible();
+  await expect(capas.locator('[data-layer="set-art"] [data-layer-name]')).toHaveText('Escenografía y arte');
+  for (const r of await rowLayout(page)) expect(r, r.layer).toMatchObject({ whole: true, controlsOnTop: true, inTile: true });
+});
+
+test('the start follows “This is me” until a layer is first changed, and the settings keep nothing till then', async ({ page }) => {
+  await buildPlan(page);
+  const stored = () => page.evaluate((key) => (JSON.parse(window.localStorage.getItem(key) ?? '{}') as { planLayers?: unknown }).planLayers ?? null, SETTINGS_KEY);
+  expect(await shows(page)).toEqual({ camera: 'shown', lighting: 'shown', grip: 'shown', 'set-art': 'shown', sound: 'shown', production: 'shown', cast: 'shown' });
+  const people = page.getByRole('region', { name: 'Cast and crew', exact: true });
+  const editor = people.locator('[data-person-editor]');
+  const addPerson = async (name: string, role: string) => {
+    await toSection(page, 'Production');
+    await people.getByRole('button', { name: '+ New person' }).click();
+    await page.keyboard.type(name);
+    await page.keyboard.press('Enter');
+    await editor.getByRole('combobox', { name: 'Role' }).selectOption({ label: role });
+    await editor.getByRole('button', { name: 'This is me' }).click();
+    await toSection(page, 'Setup');
+  };
+  // A gaffer: lighting and grip shown, the rest dimmed, with no button pressed.
+  await addPerson('Sam Ortiz', 'Gaffer');
+  await expect.poll(() => shows(page)).toEqual({ camera: 'dimmed', lighting: 'shown', grip: 'shown', 'set-art': 'dimmed', sound: 'dimmed', production: 'dimmed', cast: 'dimmed' });
+  expect(await stored()).toBeNull();
+  // Another "This is me": the layers follow.
+  await addPerson('Mia Ruiz', 'Sound');
+  await expect.poll(() => shows(page)).toEqual({ camera: 'dimmed', lighting: 'dimmed', grip: 'dimmed', 'set-art': 'dimmed', sound: 'shown', production: 'dimmed', cast: 'dimmed' });
+  expect(await stored()).toBeNull();
+  // A first change: from then on the layers are what was chosen, whoever this is.
+  await row(page, 'cast').getByRole('radio', { name: 'Cast: hidden', exact: true }).click();
+  await expect.poll(stored).not.toBeNull();
+  await toSection(page, 'Production');
+  await people.locator('[data-person-id]').filter({ hasText: 'Sam Ortiz' }).click();
+  await editor.getByRole('button', { name: 'This is me' }).click();
+  await toSection(page, 'Setup');
+  await expect.poll(() => shows(page)).toEqual({ camera: 'dimmed', lighting: 'dimmed', grip: 'dimmed', 'set-art': 'dimmed', sound: 'shown', production: 'dimmed', cast: 'hidden' });
+});
+
+test('digits typed during a wall run are its length, never a solo; a wall or door tool shows the set’s layer', async ({ page }) => {
+  await buildPlan(page);
+  const allShown = { camera: 'shown', lighting: 'shown', grip: 'shown', 'set-art': 'shown', sound: 'shown', production: 'shown', cast: 'shown' };
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -200, 100);
+  await page.keyboard.type('25');
+  await expect(planTile(page).locator('[data-path-length]')).toHaveAttribute('data-path-length', '25');
+  expect(await shows(page)).toEqual(allShown);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  // Art hidden, then the Door tool: the layer is shown again, and said, so the door has its walls to go into.
+  await row(page, 'set-art').getByRole('radio', { name: 'Set and art: hidden', exact: true }).click();
+  await expect.poll(async () => (await kinds(page)).includes('wall')).toBe(false);
+  await canvas(page).focus();
+  await page.keyboard.press('d');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:door');
+  await expect.poll(async () => (await shows(page))['set-art']).toBe('shown');
+  await expect(page.getByText('Layer shown so you can see what you’re working on: Set and art.')).toBeVisible();
+  await expect.poll(async () => (await kinds(page)).includes('wall')).toBe(true);
+});
+
+test('a layer key is said aloud on the plan, a tile control in the tile', async ({ page }) => {
+  await buildPlan(page);
+  await canvas(page).focus();
+  await page.keyboard.press('1');
+  await expect(canvas(page).getByRole('status')).toHaveText('Camera layer solo, the others dimmed and locked');
+  await page.keyboard.press('0');
+  await expect(canvas(page).getByRole('status')).toHaveText('All layers shown, none locked');
+  await row(page, 'lighting').getByRole('radio', { name: 'Lighting: hidden', exact: true }).click();
+  await expect(layersTile(page).locator('[data-layers-said]')).toHaveText('Lighting: hidden');
+  await layersTile(page).getByRole('button', { name: 'Lock the Grip layer' }).click();
+  await expect(layersTile(page).locator('[data-layers-said]')).toHaveText('Grip: locked');
 });

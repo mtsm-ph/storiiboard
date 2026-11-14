@@ -515,7 +515,8 @@ unreadable value reads as not set, as every prop does.
     and comes back only into a room with no live north (6.6 review): the Trash refuses it while the room has one, so a
     restore never makes a second north nor turns the room's; undo walks back a north placed since first. "This setup
     only" off moves a north out of a setup's plan (only an import puts one there) only into a room with none, and only
-    one. Its layer (6.8) is production's.
+    one. Its layer (6.8) is the set's (art), with the room's walls, though the Library lists its icon with
+    production's.
   - A `sun` (6.6) is a sun path, in a setup's own plan. `icon` `lighting/sun-path` (missing reads so), its box as an
     icon's (placed 0.8 × 0.8 m); its position is the middle of its drawing, and its `rotation` is never used (written
     0; the handles never turn it). `time`: written "12:00" when placed; missing or not a 24-hour "HH:mm" reads as

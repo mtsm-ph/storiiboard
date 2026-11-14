@@ -127,6 +127,8 @@ test('a setup dragged by its handle to a new place, the numbers following', asyn
 
   // From the first row's handle to below the last row, with the mouse: Door becomes Setup 3.
   const handle = setupsTile(page).locator('[data-setup-handle]').first();
+  // Adding a setup scrolls its row into view; the first one is scrolled to, as a person would, before it's pressed.
+  await handle.scrollIntoViewIfNeeded();
   const from = await handle.boundingBox();
   const last = await setupsTile(page).locator('[data-setup-row]').nth(2).boundingBox();
   if (!from || !last) throw new Error('no rows');
@@ -172,7 +174,9 @@ test('a drag that ends outside its scene, on its own place, or with Escape write
 
   const bar = page.locator('[data-setup-drop-bar]');
   const press = async () => {
-    const handle = await scene1.locator('[data-setup-handle]').first().boundingBox();
+    const first = scene1.locator('[data-setup-handle]').first();
+    await first.scrollIntoViewIfNeeded();
+    const handle = await first.boundingBox();
     if (!handle) throw new Error('no handle');
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
@@ -234,7 +238,10 @@ test('a drag whose release never reached the window (it lost focus, or the butto
   const order = async () => setupsTile(page).locator('[data-setup-row]').evaluateAll((all) => all.map((row) => row.getAttribute('data-setup-row')));
   const before = await order();
   const bar = page.locator('[data-setup-drop-bar]');
-  const handle = await setupsTile(page).locator('[data-setup-handle]').first().boundingBox();
+  // Adding a setup scrolls its row into view; the first one is scrolled to, as a person would, before it's pressed.
+  const first = setupsTile(page).locator('[data-setup-handle]').first();
+  await first.scrollIntoViewIfNeeded();
+  const handle = await first.boundingBox();
   const last = await setupsTile(page).locator('[data-setup-row]').nth(2).boundingBox();
   if (!handle || !last) throw new Error('no rows');
   const x = handle.x + handle.width / 2;

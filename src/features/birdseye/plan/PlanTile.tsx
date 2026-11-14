@@ -5,7 +5,7 @@ import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
 import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
 import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind, type PlanLayer, type ShownItem } from '../../../core/model/plan';
-import { LAYER_ORDER, layeredItems, layerNote, layerOfItem, type LayerLook, type PlanLayerStates } from '../../../core/model/planLayers';
+import { LAYER_ORDER, layeredItemsKeeper, layerNote, layerOfItem, type LayerLook, type PlanLayerStates } from '../../../core/model/planLayers';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
@@ -18,7 +18,7 @@ import { Button } from '../../../ui/Button';
 import { Canvas } from '../../../ui/canvas/Canvas';
 import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
-import type { CanvasCommand, CanvasItem, Point } from '../../../ui/canvas/types';
+import type { CanvasCommand, CanvasItem, Point, Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
 import { InAppWindow } from '../../../ui/InAppWindow';
 import { Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
@@ -56,7 +56,7 @@ import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { blockingLooks } from './markLooks';
-import { showAllLayers, soloLayer, usePlanLayerStates } from './layersStore';
+import { clearLayersSaid, revealLayers, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates } from './layersStore';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -421,13 +421,25 @@ export function turnFor(event: { code: string; key: string; shiftKey?: boolean }
 /**
  * The layer keys on the plan (6.8): 1 to 7 solo the layers in the Layers tile's order (call-sheet order), 0 shows all.
  * By the physical key, so AZERTY's unshifted digit row works too; never with a modifier or Shift (Shift+0, 1 and 2 are
- * the canvas's zoom keys).
+ * the canvas's zoom keys). A numpad key only while it types its digit (6.8 review, L2): with NumLock off the same keys
+ * are End, Home, Clear and Insert, and solo nothing.
  */
-export function layerKeyFor(event: { code: string; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }): PlanLayer | 'all' | null {
+export function layerKeyFor(event: { code: string; key?: string; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }): PlanLayer | 'all' | null {
   if (event.shiftKey === true || event.altKey === true || event.metaKey === true || event.ctrlKey === true) return null;
-  const digit = /^(?:Digit|Numpad)([0-9])$/.exec(event.code)?.[1];
+  const found = /^(Digit|Numpad)([0-9])$/.exec(event.code);
+  const digit = found?.[2];
   if (digit === undefined) return null;
+  if (found?.[1] === 'Numpad' && event.key !== digit) return null;
   return digit === '0' ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
+}
+
+/**
+ * A tool chosen (6.8 review, L7): the Wall, Door and Window tools draw on the set's layer, so that layer is shown and
+ * unlocked first (with the usual notice), as placing on it would: a door is never refused for walls out of sight.
+ */
+function choosePlanTool(next: Tool): void {
+  if (next === WALL_TOOL || next === DOOR_TOOL || next === WINDOW_TOOL) revealLayers(['set-art']);
+  planStore.getState().setTool(next);
 }
 
 /** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
@@ -441,7 +453,14 @@ function LayersNote({ states }: { states: PlanLayerStates }) {
   return (
     <p className="flex min-w-0 items-center gap-1.5 text-[12px]" data-layers-note="">
       <span className="truncate">{parts.join(' · ')}</span>
-      <button type="button" data-layers-show-all="" className="sb-label h-7 shrink-0 px-1 underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4" onClick={showAllLayers}>
+      <button
+        type="button"
+        data-layers-show-all=""
+        className="sb-label h-7 shrink-0 px-1 underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4"
+        onClick={() => {
+          showAllLayers('plan');
+        }}
+      >
         {t('layers.showAll')}
       </button>
     </p>
@@ -493,8 +512,12 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const blocking = useMemo(() => blockingLooks(records, view, shown, unit, stored ?? []), [records, view.sceneId, view.setupId, shown, unit, stored, locale]);
   // The layers (6.8): a hidden layer's items are left out (a door or window with its wall), a dimmed one's drawn at the
   // core's dim, a locked one's drawn and never picked. This computer's state, never the project's.
+  // Kept as it was while the shown items, the states and the marks' layers are (L12): an edit elsewhere builds nothing.
   const layerStates = usePlanLayerStates();
-  const layered = useMemo(() => layeredItems(records, shown, layerStates), [records, shown, layerStates]);
+  const [keepLayered] = useState(layeredItemsKeeper);
+  const layered = useMemo(() => keepLayered(records, shown, layerStates), [keepLayered, records, shown, layerStates]);
+  // What the last layer key (or the header's Show all) did, read out by the canvas's spoken line (L3).
+  const layersSaid = useLayersSaid('plan');
   const visible = layered.visible;
   const built = useMemo(
     () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks),
@@ -637,7 +660,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         <LayersNote states={layerStates} />
       </div>
       <div className="shrink-0" data-plan-tools="">
-        <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
+        <ToolStrip tool={tool} onTool={choosePlanTool} tools={PLAN_TOOLS} />
       </div>
       <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
         <Canvas
@@ -645,10 +668,12 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           items={items}
           selection={selection}
           onSelectionChange={(ids) => {
+            clearLayersSaid();
             planStore.getState().select(key, ids);
           }}
+          announcement={layersSaid}
           tool={tool}
-          onToolChange={planStore.getState().setTool}
+          onToolChange={choosePlanTool}
           viewport={planViewportOf(viewports, key)}
           onViewportChange={(next) => {
             planStore.getState().setViewport(key, next);
@@ -711,8 +736,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             const layerKey = layerKeyFor(event);
             if (layerKey !== null) {
               if (!event.repeat) {
-                if (layerKey === 'all') showAllLayers();
-                else soloLayer(layerKey);
+                if (layerKey === 'all') showAllLayers('plan');
+                else soloLayer(layerKey, 'plan');
               }
               return true;
             }

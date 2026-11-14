@@ -29,10 +29,12 @@ import {
   type Swing,
 } from '../../../core/model/plan';
 import { alsoInRoom, homeOf, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOthers, type PlanPlace } from '../../../core/model/planRooms';
+import { pickableIds } from '../../../core/model/planLayers';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
+import { usePlanLayerStates } from './layersStore';
 import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
 import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallPatchRefused, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
@@ -68,9 +70,12 @@ function SelectionContent() {
   const live = useLiveView(records);
   const key = live ? viewKey(live.view.sceneId, live.view.setupId) : '';
   const stored = usePlan((s) => s.selections[key]);
+  // Only what can be picked (6.8 review, M1): nothing on a hidden or locked layer is ever editable here, whatever put it
+  // in the stored selection.
+  const layerStates = usePlanLayerStates();
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('plan.noProject')}</p>;
   if (!live) return <p className="p-3 text-[13px] text-text-muted">{t('plan.pick')}</p>;
-  const selected = (stored ?? []).flatMap((id) => {
+  const selected = pickableIds(records, stored ?? [], layerStates).flatMap((id) => {
     const record = records[id];
     const fields = record?.type === 'plan_item' && record.trashedAt === null ? shownFields(record.props) : null;
     return fields ? [{ id, fields }] : [];

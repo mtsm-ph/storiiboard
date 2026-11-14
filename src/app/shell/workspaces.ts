@@ -132,7 +132,9 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
         split(
           'row',
           [
-            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [272, 288, 248]),
+            // At 900 px tall Layers keeps about 250 px, its eight rows and two buttons; the Setups tile gets the rest of
+            // what Layers had, as its rows are tall. The Library can't spare any: it shows few enough icons as it is.
+            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [304, 256, 248]),
             split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
             stack(['selection']),
           ],

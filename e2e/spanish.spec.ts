@@ -62,10 +62,7 @@ async function overflowing(page: Page, within?: string): Promise<string[]> {
       const text = el.textContent.trim();
       if (text === '') continue;
       const name = `${el.tagName.toLowerCase()} “${text.slice(0, 60)}”`;
-      // A plan layer's name (6.8 review) is the one label made to end in an ellipsis in a narrow Layers tile, its whole
-      // name in its title: cut short by design, never spilling. Anything else cut off still counts.
-      const byDesign = el.matches('[data-layer-name]') && el.title === text;
-      if (!byDesign && el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1) out.push(`${name} ${String(el.scrollWidth)}>${String(el.clientWidth)}`);
+      if (el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1) out.push(`${name} ${String(el.scrollWidth)}>${String(el.clientWidth)}`);
       const clip = clipper(el);
       // A box that scrolls (a tile's body, the shot list) shows the rest by scrolling: only what's clipped for good counts.
       if (clip && getComputedStyle(clip).overflowX !== 'auto' && getComputedStyle(clip).overflowX !== 'scroll') {
