@@ -51,6 +51,8 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
   return (
     <Menu
       align="right"
+      // Wide enough for Open tile's three columns.
+      panelClassName="w-96"
       label={<>{t('layoutMenu.layout')}{unsaved && <span className="sr-only">{' '}{t('layoutMenu.unsavedChanges')}</span>}</>}
       buttonClassName="sb-label flex h-full items-center border-l border-border-top px-4 focus-visible:-outline-offset-4"
     >
@@ -131,11 +133,12 @@ export function LayoutMenu({ workspace }: { workspace: Workspace }) {
               {missing.length === 0 ? (
                 <p className="sb-label px-3 pb-3 text-text-muted">{t('layoutMenu.everyTileIsOpen')}</p>
               ) : (
-                // Two columns, so the menu stays short as phases build more tiles: a long one would reach down over
-                // the tiles' own title bars.
-                // A long name wraps rather than being cut ("Elenco y equipo"); the last row leaves its rule to the
-                // next group's.
-                <div className="grid grid-cols-2 [&_span]:whitespace-normal [&>button:nth-child(odd)]:border-r [&>button:nth-child(odd)]:border-r-border [&>button:nth-last-child(-n+2)]:border-b-0">
+                // Three columns in a wider panel, so the menu stays short as phases build more tiles: in two, 6.2a's
+                // twenty reached down over the Storyboard's Player and half covered its Maximize button, too small a
+                // target left to press.
+                // A long name wraps rather than being cut ("Elenco y equipo"); the last row (the row of the item at
+                // 3n+1 among the last three) leaves its rule to the next group's.
+                <div className="grid grid-cols-3 [&_span]:whitespace-normal [&>button:not(:nth-child(3n))]:border-r [&>button:not(:nth-child(3n))]:border-r-border [&>button:nth-child(3n+1):nth-last-child(-n+3)]:border-b-0 [&>button:nth-child(3n+1):nth-last-child(-n+3)~button]:border-b-0">
                   {missing.map((tile) => (
                     <MenuItem key={tile} data-tile={tile} onClick={onOpenTile}>
                       {TILES[tile]?.title}
