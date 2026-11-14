@@ -42,6 +42,7 @@ const base = () =>
     record('e', 'shot', 's2', { number: '2A', status: 'need' }, 'a'),
     record('f', 'shot', 's2', { number: '2B', status: 'have' }, 'b'),
     record('g', 'shot', 's2', { number: '2C', status: 'need', shoot_day_id: 'gone' }, 'c'),
+    record('x', 'setup', 's1', { name: '' }, 'a'),
     record('d1', 'shoot_day', 'p', { date: '2026-11-18', call_time: '07:00' }, 'a'),
     record('d2', 'shoot_day', 'p', { date: '2026-11-16' }, 'b'),
     record('d3', 'shoot_day', 'p', {}, 'c'),
@@ -96,17 +97,28 @@ describe('shoot days', () => {
 
   it('add up their frames, setups (frames sharing one count once) and hours at the minutes per setup', () => {
     const records = base();
-    const totals = dayTotals(dayFrames(records, 'p', 'd2'), setupMinutes(records.p?.props));
+    const totals = dayTotals(records, dayFrames(records, 'p', 'd2'), setupMinutes(records.p?.props));
     expect(totals).toEqual({ frames: 3, setups: 2, minutes: 60 });
     // A frame marked Have since it was put in the day isn't left to shoot: it stays listed, but doesn't count.
     const shot = { ...records, a: { ...(records.a as SbdRecord), props: { ...records.a?.props, status: 'have' } } };
     expect(dayFrames(shot, 'p', 'd2')).toHaveLength(3);
-    expect(dayTotals(dayFrames(shot, 'p', 'd2'), 30)).toEqual({ frames: 2, setups: 1, minutes: 30 });
+    expect(dayTotals(shot, dayFrames(shot, 'p', 'd2'), 30)).toEqual({ frames: 2, setups: 1, minutes: 30 });
     expect(setupMinutes({ setup_minutes: 45 })).toBe(45);
     expect(setupMinutes({ setup_minutes: 0 })).toBe(30);
     expect(durationLabel(90)).toBe('1 h 30 min');
     expect(durationLabel(45)).toBe('45 min');
     expect(durationLabel(120)).toBe('2 h');
+  });
+
+  it('count frames whose setup is in the Trash, in another scene or gone as setups of their own (6.0)', () => {
+    const records = base();
+    const trashed = { ...records, x: { ...(records.x as SbdRecord), trashedAt: at } };
+    expect(dayTotals(trashed, dayFrames(trashed, 'p', 'd2'), 30)).toEqual({ frames: 3, setups: 3, minutes: 90 });
+    // A setup under another scene than the frames', and an id that names nothing.
+    const elsewhere = { ...records, x: { ...(records.x as SbdRecord), parentId: 's2' } };
+    expect(dayTotals(elsewhere, dayFrames(elsewhere, 'p', 'd2'), 30).setups).toBe(3);
+    const gone = recordsOf(...Object.values(records).filter((r) => r.id !== 'x'));
+    expect(dayTotals(gone, dayFrames(gone, 'p', 'd2'), 30).setups).toBe(3);
   });
 });
 

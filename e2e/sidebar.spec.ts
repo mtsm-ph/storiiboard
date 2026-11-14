@@ -9,19 +9,18 @@ test.beforeEach(async ({ page }) => {
 const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 const section = (page: Page, name: string) => sidebar(page).getByRole('button', { name: new RegExp(`^${name}`) });
 
-test('lists the six sections in order, only Setup still showing its phase, and opens one per click', async ({ page }) => {
+test('lists the six sections in order, every one live, and opens one per click', async ({ page }) => {
   const sections = sidebar(page).locator('[id^="section-"]');
   await expect(sections).toHaveText([
     'Storyboard',
     'Assets',
     'Team',
-    'SetupPhase 6',
+    'Setup',
     'Production',
     'Moodboard',
   ]);
-  // Only Setup is still to come (Phase 6; Kevin, Nov 11): it alone is muted. The built sections read as live.
-  await expect(section(page, 'Setup')).toHaveClass(/text-text-muted/);
-  for (const built of ['Assets', 'Team', 'Production', 'Moodboard']) {
+  // Setup is live from 6.0 (its Setups tile): no section shows a phase or reads as muted any more.
+  for (const built of ['Assets', 'Team', 'Setup', 'Production', 'Moodboard']) {
     await expect(section(page, built)).not.toHaveClass(/text-text-muted/);
   }
   // Settings is a window of the app's own (polish B), behind the gear at the sidebar's foot (polish C).
@@ -37,6 +36,7 @@ test('lists the six sections in order, only Setup still showing its phase, and o
   await expect(page.getByText('Workspace: Production')).toBeVisible();
 
   await section(page, 'Setup').click();
+  await expect(page.getByRole('region', { name: 'Setups', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Set plan' })).toBeVisible();
 });
 

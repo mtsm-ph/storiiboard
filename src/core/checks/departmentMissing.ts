@@ -20,7 +20,7 @@ export interface DepartmentMissing {
 export function departmentMissing(ctx: CheckContext): DepartmentMissing[] {
   const { sheet, frames } = ctx;
   const dayId = sheet.day.record.id;
-  if (dayTotals(frames, 1).frames === 0) return [];
+  if (dayTotals(ctx.records, frames, 1).frames === 0) return [];
   // The context's frames are already the sheet's: only "Need to shoot" ones, so one already shot asks nothing of the day.
   const present = new Set(sheet.people.flatMap((p) => personPart(p.fields).departments));
   const found: DepartmentMissing[] = [];

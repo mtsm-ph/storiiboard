@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLocale, t } from '../../core/i18n';
 import { createProjectStore } from '../../app/projectStore';
 import { withField } from '../../core/model/customFields';
+import { newSetupFromFrames } from '../../core/model/setup';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
@@ -262,6 +263,21 @@ describe('the shot list CSV', () => {
     expect(store.getState().records[b]?.trashedAt).toBeNull();
     expect(header({ kind: 'project' }).endsWith(',Departments,Scene approvals,Drone')).toBe(true);
     expect(shotListCsv(store.getState().records, project.projectId, { kind: 'project' })).not.toContain('Nudity rider');
+  });
+
+  it('reads the same with setups as without: no setup column yet, and the setup is never taken for a custom field (6.0)', async () => {
+    await store.getState().apply([{ kind: 'create', record: { id: 'sc4', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4', name: 'Diner' } } }]);
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const added = addShot(store.getState().records, project.projectId, 'sc4');
+      await store.getState().apply(added.changes);
+      ids.push(added.shotId);
+    }
+    const csv = () => shotListCsv(store.getState().records, project.projectId, { kind: 'project' });
+    const without = csv();
+    await store.getState().apply(newSetupFromFrames(store.getState().records, ids, 'u1'));
+    expect(store.getState().records[ids[0] ?? '']?.props.setup_id).toBe('u1');
+    expect(csv()).toBe(without);
   });
 
   it('is one row per live frame in board order, with custom fields as columns, exactly', async () => {

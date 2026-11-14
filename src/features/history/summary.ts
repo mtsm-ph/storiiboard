@@ -81,6 +81,7 @@ const FIELD: Readonly<Record<string, string>> = labels({
   page_eighths: 'history.field.pageEighths',
   numbers_locked: 'history.field.numbersLocked',
   shoot_day_id: 'history.field.shootDay',
+  setup_id: 'history.field.setup',
   date: 'history.field.date',
   call_time: 'history.field.callTime',
   wrap_time: 'history.field.wrapTime',
@@ -262,6 +263,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'location_id') return t('history.aLocation');
   if (prop === 'cast_id') return t('history.aPerson');
   if (prop === 'shoot_day_id') return t('history.aShootDay');
+  if (prop === 'setup_id') return t('history.aSetup');
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
   // The people on a shoot day (4.2), kept by id (some may since be in the Trash): a step names who, this just says it changed.
@@ -581,6 +583,11 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
     case 'gear_item':
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aGearItem');
+    case 'setup': {
+      // By its name (6.0): its number is its place among the scene's setups now, not then.
+      const name = typeof record.props.name === 'string' ? record.props.name.trim() : '';
+      return name === '' ? t('history.aSetup') : t('history.setupCalled', { name });
+    }
     case 'shoot_day': {
       // By its date (3.7); its number belongs to the order the days are in now.
       const date = dayDateLabel(shootDayFields(record.props).date);
@@ -638,6 +645,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   character: 'count.characters',
   person: 'count.people',
   shoot_day: 'count.shootDays',
+  setup: 'count.setups',
   gear_item: 'count.gearItems',
   board: 'count.boards',
   board_item: 'count.rectangles',
@@ -776,7 +784,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
 
   // Most telling first: what was made, deleted, brought back or moved; then what changed.
   for (const kind of ['create', 'trash', 'restore'] as const) {
-    for (const type of ['scene', 'shot', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item', 'board', 'board_item'] as const) {
+    for (const type of ['scene', 'shot', 'setup', 'note', 'media', 'stroke', 'location', 'character', 'person', 'shoot_day', 'gear_item', 'board', 'board_item'] as const) {
       const found = of(kind, type);
       if (found.length === 0) continue;
       // A picture or video card's media is written with its item (5.1b): the item is the news, named by its kind.
@@ -831,6 +839,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         const madePage = madePages[0];
         if (kind === 'create' && madePages.length === 1 && madePage && others.length > 1) return [...line('history.pageDuplicated', { name: nameOf(record(madePage)) }), tag];
       }
+      if (type === 'setup') return setupStep(kind, found, ops, around);
       const first = found[0];
       // A deck (5.5) says so: the pages and cards made with it are not the news.
       if (type === 'board' && first && record(first)?.props.kind === 'deck') {
@@ -850,6 +859,8 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   if (moved) {
     // One page moved to another place in the deck (5.5).
     if (moves.length === 1 && itemFields(record(moved)?.props ?? {})?.kind === 'page') return [...line('history.moved', { name: nameOf(record(moved)) }), tag];
+    // A scene's setups put in another order (6.0): their numbers follow.
+    if (moves.every((op) => record(op)?.type === 'setup')) return line('history.setupsReordered', { scene: setupScene(record(moved), ops, around) });
     // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
     if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: itemsCount(moves.map((op) => record(op)), new Set(moves.map((op) => op.recordId)).size) })];
     if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];
@@ -892,6 +903,17 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     if (mine.length > 1 && !props.has('text')) return [t('history.boardItemsChanged', { things })];
   }
   if (updates.length === 0 && lostUpdates.length > 0) return [t('history.lostChanged', { items: items(new Set(lostUpdates.map((op) => op.recordId)).size), tag })];
+  // A setup named, renamed or its name taken off (6.0).
+  const renamed = updates.length === 1 ? updates[0] : undefined;
+  if (renamed?.before?.type === 'setup' && renamed.after && changedProps(renamed.before, renamed.after).every((prop) => prop === 'name')) {
+    const scene = setupScene(renamed.after, ops, around);
+    const name = typeof renamed.after.props.name === 'string' ? renamed.after.props.name.trim() : '';
+    if (name === '') return line('history.setupNameRemoved', { setup: nameOf(renamed.before), scene });
+    return line('history.setupRenamed', { setup: nameOf(renamed.before), scene }, { name });
+  }
+  // Frames put into a setup, or taken out of theirs (6.0), together.
+  const joining = framesSetupLine(updates, around);
+  if (joining) return [...joining, tag];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
     const op = updates[0];
     if (op?.before && op.after) {
@@ -933,6 +955,57 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     return [t('history.changedCount', { things: tn('count.items', new Set(updates.map((op) => op.recordId)).size), tag })];
   }
   return [t('history.changes', { things: tn('count.changes', ops.length), tag })];
+}
+
+/** The scene a setup sits in, as the step left it or as it was then (`around`): `SC 04`, or "a scene". */
+function setupScene(setup: SbdRecord | null, ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part {
+  const sceneId = setup?.parentId ?? null;
+  if (sceneId === null) return t('history.aScene');
+  const written = ops.find((op) => op.recordId === sceneId);
+  const scene = (written ? (written.after ?? written.before) : null) ?? around.get(sceneId) ?? null;
+  return scene?.type === 'scene' ? nameOf(scene) : t('history.aScene');
+}
+
+/**
+ * A setup made, deleted or restored (6.0): "Added a setup to SC 04", "Made a setup in SC 04 from 3 frames" (New setup
+ * from the board's selected frames), "Deleted setup “Window side” from SC 04".
+ */
+function setupStep(kind: 'create' | 'trash' | 'restore', found: readonly LoggedOp[], ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line {
+  const first = found[0];
+  if (!first || found.length > 1) return [t(MANY[kind], { things: tn('count.setups', found.length) })];
+  const setup = first.after ?? first.before;
+  const parts = { setup: nameOf(setup), scene: setupScene(setup, ops, around) };
+  if (kind === 'trash') return line('history.setupDeleted', parts);
+  if (kind === 'restore') return line('history.setupRestored', parts);
+  const joined = ops.filter((op) => op.kind === 'update' && op.after?.type === 'shot' && op.after.props.setup_id === first.recordId).length;
+  return joined > 0 ? line('history.setupMadeFrom', parts, { frames: tn('count.frames', joined) }) : line('history.setupAdded', parts);
+}
+
+/**
+ * Frames into one setup, or out of theirs, and nothing else changed: "Added 4A to setup “Window side” in SC 04",
+ * "Took 2 frames out of a setup in SC 04". Null for any other step.
+ */
+function framesSetupLine(updates: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+  if (updates.length === 0) return null;
+  const only = updates.every((op) => op.before?.type === 'shot' && op.after && changedProps(op.before, op.after).every((prop) => prop === 'setup_id'));
+  if (!only) return null;
+  const ids = new Set(updates.map((op) => op.after?.props.setup_id));
+  const [to] = [...ids];
+  if (ids.size !== 1) return null;
+  const firstShot = updates[0]?.after ?? null;
+  const frames: Part = updates.length === 1 && firstShot ? nameOf(firstShot) : tn('count.frames', updates.length);
+  const sceneId = firstShot?.parentId ?? null;
+  const sceneRecord = sceneId ? around.get(sceneId) : undefined;
+  const scene: Part = sceneRecord?.type === 'scene' ? nameOf(sceneRecord) : t('history.aScene');
+  if (typeof to === 'string') {
+    const setup = around.get(to);
+    return line('history.framesJoinedSetup', { frames, setup: setup ? nameOf(setup) : t('history.aSetup'), scene });
+  }
+  // Out: named by the setup they left, when they all left the same one.
+  const left = new Set(updates.map((op) => op.before?.props.setup_id));
+  const [from] = [...left];
+  const setup = left.size === 1 && typeof from === 'string' ? around.get(from) : undefined;
+  return line('history.framesLeftSetup', { frames, setup: setup ? nameOf(setup) : t('history.aSetup'), scene });
 }
 
 /**
