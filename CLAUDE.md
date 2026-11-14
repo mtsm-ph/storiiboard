@@ -146,6 +146,11 @@
     - Cameras, lights, grip, sound and production items: a `plan` of kind `setup` under its setup. A new setup
       starts empty or from another setup's state, copied.
     - Anything can also be placed in one setup only (a cheated mark, an extra set piece).
+    - Built in 6.2a: src/core/model/plan.ts (the readers; `scene.room_id` has one), src/core/model/length.ts, the
+      plan host in src/features/birdseye/plan (1 canvas unit = 1 cm, converted only in planScale.ts; a wall is a
+      rotated rectangle that snaps by its middle line's ends), the Plan and Selection tiles. The canvas core's
+      scale, host tools and point-to-point runs (src/ui/canvas: scale.ts, pathRun.ts) are optional props: a board
+      passes none and must behave exactly as before.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile
