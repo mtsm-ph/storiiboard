@@ -42,6 +42,9 @@ import { ProjectPictures } from './ProjectPictures';
 import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
+import { frameShootDay } from '../../core/model/shootDay';
+import { openShootDay } from '../schedule/shownDay';
+import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { t, tn } from '../../core/i18n';
 
 /** Escape from the inspector: focus goes back to the frame (or the scene) it was showing. */
@@ -93,6 +96,7 @@ export function InspectorTile() {
   // The frame whose clip is being saved (2.8b), so a second press waits for it.
   const savingFor = useClipSaving();
   const projectLuts = useProjectLuts();
+  const workspaceId = useWorkspaceId();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('inspectorTile.noProjectOpen')}</p>;
   const sceneRecord = sceneId ? records[sceneId] : undefined;
@@ -203,6 +207,9 @@ export function InspectorTile() {
       }
     : undefined;
 
+  // The frame's day (5.11), read from the records as they are; opens the Shoot days tile on it, in this workspace.
+  const shootDay = shot ? frameShootDay(records, project.projectId, shot) : null;
+
   return (
     <ProjectPictures>
       <InspectorView
@@ -307,6 +314,18 @@ export function InspectorTile() {
         picture={picture}
         locationName={locationName}
         {...(frameLocation ? { frameLocation } : {})}
+        {...(shot
+          ? {
+              shootDay: shootDay
+                ? {
+                    label: shootDay.label,
+                    onOpen: () => {
+                      openShootDay(workspaceId, shootDay.id);
+                    },
+                  }
+                : null,
+            }
+          : {})}
         strokeCount={shot ? strokesOf(records, shot.id).length : 0}
         onSketch={() => {
           if (shot) openSketch(shot.id);

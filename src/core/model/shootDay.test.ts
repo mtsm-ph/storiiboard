@@ -7,6 +7,7 @@ import {
   dayTotals,
   durationLabel,
   frameDayId,
+  frameShootDay,
   projectShootDays,
   setupMinutes,
   shootDayFields,
@@ -57,6 +58,23 @@ describe('shoot days', () => {
     ]);
     expect(dayLabel(days[0] ?? { number: 0, fields: shootDayFields({}) })).toBe('Day 1 · Mon, Nov 16');
     expect(dayLabel({ number: 3, fields: shootDayFields({}) })).toBe('Day 3');
+  });
+
+  it('give a frame its day for the Inspector: number and date, or none when unset, trashed or gone (5.11)', () => {
+    const records = base();
+    const day = (id: string) => frameShootDay(records, 'p', records[id] as SbdRecord);
+    expect(day('a')).toEqual({ id: 'd2', label: 'Day 1 · Mon, Nov 16' });
+    // No day set.
+    expect(day('e')).toBeNull();
+    // Its day is in the Trash.
+    expect(day('g')).toBeNull();
+    // An id that names nothing, or a record that isn't a day.
+    const nowhere = recordsOf(...Object.values(records), record('h', 'shot', 's2', { status: 'need', shoot_day_id: 'nope' }, 'd'), record('i', 'shot', 's2', { shoot_day_id: 's1' }, 'e'));
+    expect(frameShootDay(nowhere, 'p', nowhere.h as SbdRecord)).toBeNull();
+    expect(frameShootDay(nowhere, 'p', nowhere.i as SbdRecord)).toBeNull();
+    // An undated day still reads by its number.
+    const undated = recordsOf(...Object.values(records), record('j', 'shot', 's2', { shoot_day_id: 'd3' }, 'f'));
+    expect(frameShootDay(undated, 'p', undated.j as SbdRecord)).toEqual({ id: 'd3', label: 'Day 3' });
   });
 
   it('read only valid dates and times', () => {
