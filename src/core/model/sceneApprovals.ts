@@ -155,8 +155,8 @@ export function sceneApprovalLine(approvals: readonly SceneApproval[], basis: Ap
 // 3.18's rule (`current`, Kevin Nov 9): 3.15's, plus the scene's characters (`character_ids`, and any value a name
 // match left in `characters`) for every department, and each frame's T-stop, support and height for camera and
 // grip-electric, who light and rig for them. Nothing else (a title, custom fields, gear, the shoot day, note cards)
-// changes an approval. (When Phase 6 gives a frame its lens from a setup or the bird's-eye plan, that source belongs
-// here too, as a rule of its own.)
+// changes an approval. (6.4 kept it so: a frame keeps its own lens, and a camera on a bird's-eye plan reads that lens
+// live and never writes it, so a plan never feeds a fingerprint and no new rule was needed.)
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 

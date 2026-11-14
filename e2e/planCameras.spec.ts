@@ -45,6 +45,7 @@ interface Camera {
   shotIds: string[];
   onSide: boolean;
   rotation: number;
+  centre: { x: number; y: number };
   lensMm: number | null;
   cone: number | null;
   labels: string[];
@@ -67,6 +68,15 @@ const mod = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(naviga
 const cameras = async (page: Page): Promise<Camera[]> =>
   (JSON.parse((await planTile(page).locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as Camera[]).filter((item) => item.kind === 'camera');
 const selection = async (page: Page): Promise<string[]> => JSON.parse((await canvas(page).getAttribute('data-selection')) ?? '[]') as string[];
+
+/** Where a world point (canvas units: cm) is on screen, from the view the canvas reports. */
+async function screen(page: Page, x: number, y: number) {
+  const box = await canvas(page).boundingBox();
+  if (!box) throw new Error('no canvas');
+  const attr = async (name: string) => Number(await canvas(page).getAttribute(name));
+  const zoom = await attr('data-zoom');
+  return { x: box.x + box.width / 2 + (x - (await attr('data-cx'))) * zoom, y: box.y + box.height / 2 + (y - (await attr('data-cy'))) * zoom };
+}
 
 async function newItem(page: Page, name: string, kind: 'Camera body' | 'Lens') {
   await gear(page).getByRole('button', { name: '+ New item' }).click();
@@ -175,6 +185,8 @@ test('links frames to a camera, draws the frame’s lens live, and checks a type
   await expect.poll(async () => (await cameras(page))[0]?.labels[0]).toMatch(/^A · 35 mm · /);
   await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
   const steps = page.getByRole('region', { name: 'History', exact: true }).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+  // The newest step is the frame's lens, on the frame: nothing written on the plan.
+  await expect(steps.first()).toContainText(/1A: lens\s*50\s*mm\s*→\s*35\s*mm/);
   await expect(steps.first()).not.toContainText('camera');
   await page.keyboard.press('Escape');
 
@@ -207,6 +219,18 @@ test('links frames to a camera, draws the frame’s lens live, and checks a type
   // The cone draws the frame's lens all the same.
   await expect.poll(async () => (await cameras(page)).find((c) => c.id === second)?.labels[0]).toMatch(/^A · 24 mm · /);
 
+  // Where the lens is changed, the Inspector says so by the frame's lens, and opens the plan on that camera.
+  await toSection(page, 'Storyboard');
+  await storyboard(page).locator('[data-shot-id]').nth(1).click();
+  const inspectorCheck = inspector(page).locator('[data-plan-lens-check]');
+  await expect(inspectorCheck).toContainText('A · Camera (2) on Setup 1’s plan was planned at 85 mm.');
+  await storyboard(page).locator('[data-shot-id]').nth(0).click();
+  await expect(inspectorCheck).toHaveCount(0);
+  await storyboard(page).locator('[data-shot-id]').nth(1).click();
+  await inspectorCheck.getByRole('button', { name: /^Open on the plan/ }).click();
+  await expect(canvas(page)).toBeVisible();
+  await expect.poll(() => selection(page)).toEqual([second]);
+
   const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
   for (const area of ['[data-selection-tile]', '[data-frames-tile]']) {
     expect((await new AxeBuilder({ page }).include(area).withTags(tags).analyze()).violations, area).toEqual([]);
@@ -234,4 +258,40 @@ test('links frames to a camera, draws the frame’s lens live, and checks a type
   ]);
   await expect.poll(async () => (await cameras(page)).map((c) => c.labels[0])).toEqual(['A · 35 mm · 31.9°', expect.stringMatching(/^A · 24 mm · /)]);
   await expect(framesTile(page).locator('[data-frames-frame]')).toHaveCount(2);
+});
+
+test('turns a camera with the rotate handle, and its labels follow the language (6.4 review)', async ({ page }) => {
+  await setupWithFrames(page);
+  const id = await placeCamera(page);
+  await expect.poll(async () => (await cameras(page))[0]?.labels).toEqual(['No camera body']);
+  // Close enough that the handles stand clear of the 40 cm box.
+  await canvas(page).focus();
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('+');
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-zoom'))).toBeGreaterThan(2);
+  const placed = (await cameras(page)).find((c) => c.id === id);
+  if (!placed) throw new Error('no camera');
+  expect(placed.rotation).toBe(0);
+  const cx = placed.centre.x * 100;
+  const cy = placed.centre.y * 100;
+  // The rotate handle sits 24 px above the top edge's middle; dragged level with the middle, to its right, the camera
+  // points along +x: a quarter turn clockwise.
+  const top = await screen(page, cx, cy - 20);
+  const right = await screen(page, cx + 200, cy);
+  await page.mouse.move(top.x, top.y - 24);
+  await page.mouse.down();
+  await page.mouse.move(right.x, right.y, { steps: 14 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.round((await cameras(page)).find((c) => c.id === id)?.rotation ?? 0)).toBe(90);
+  // Turned about its middle: it stays where it was.
+  const turned = (await cameras(page)).find((c) => c.id === id);
+  expect(turned?.centre.x).toBeCloseTo(placed.centre.x, 2);
+  expect(turned?.centre.y).toBeCloseTo(placed.centre.y, 2);
+
+  // A change of language reads its labels again, with no edit.
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
+  await page.keyboard.press('Escape');
+  // (The tile's name is in Spanish now too: read the plan by its data.)
+  const labels = async () => (JSON.parse((await page.locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as Camera[]).find((c) => c.id === id)?.labels;
+  await expect.poll(labels).toEqual(['Sin cuerpo de cámara']);
 });

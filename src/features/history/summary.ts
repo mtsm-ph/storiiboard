@@ -1402,7 +1402,11 @@ function setupStep(kind: 'create' | 'trash' | 'restore', found: readonly LoggedO
  * Frames into one setup, or out of theirs, and nothing else changed: "Added 4A to setup “Window side” in SC 04",
  * "Took 2 frames out of a setup in SC 04". Null for any other step.
  */
-function framesSetupLine(updates: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+function framesSetupLine(all: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+  // The cameras that let the frames go in the same step (6.4 review) are not the news: the frames are.
+  const linksOnly = (op: LoggedOp) =>
+    op.before?.type === 'plan_item' && op.after?.props.kind === 'camera' && changedProps(op.before, op.after).every((prop) => prop === 'shot_ids' || prop === 'shown_shot_id');
+  const updates = all.filter((op) => !linksOnly(op));
   if (updates.length === 0) return null;
   const only = updates.every((op) => op.before?.type === 'shot' && op.after && changedProps(op.before, op.after).every((prop) => prop === 'setup_id'));
   if (!only) return null;

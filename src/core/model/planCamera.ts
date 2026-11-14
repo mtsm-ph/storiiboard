@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import type { Change } from '../ops/ops';
-import { defaultBody, frameLens, inRange, isFocal, lensFields, projectBodies, type BodyFields, type LensFields } from './cameraGear';
+import { frameLens, inRange, isFocal, lensFields, projectBodies, type BodyFields, type LensFields } from './cameraGear';
+import { framesOffCameras } from './cameraLinks';
 import { fieldOfView, type FieldOfView } from './fieldOfView';
 import { cameraFields, planFields, setupPlanOf, type CameraFields } from './plan';
 import type { JsonValue, Props, SbdRecord } from './record';
@@ -16,7 +17,9 @@ import { aspectRatioValue, projectStoryboard, shotFields } from './storyboard';
 // One reader decides which frames a camera shoots (cameraFrames): a frame counts only while it is live and in the
 // camera's own setup (frameSetupId), and only for the first camera of that setup, in plan order, that lists it, so a
 // frame is never shot from two cameras whatever a file says. An id that is trashed, gone or in another setup reads as
-// not linked; it stays in the file, so a restore brings the link back. Every edit here is an op list, one group.
+// not linked; it stays in the file, so a restore brings the link back. But a frame given to a camera, set to none, or
+// taken out of its setup comes off every camera record that lists it, in the same group (cameraLinks.ts), so nothing
+// restored or moved back later hands it silently to another camera. Every edit here is an op list, one group.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -37,6 +40,61 @@ export function liveCamera(records: Records, id: string): { record: SbdRecord; f
   return fields ? { record, fields } : null;
 }
 
+// Worked out once per set of records (6.4 review): a plan draws every camera's cone and labels, and the Frames tile asks
+// who shoots each frame, on every edit. Each reading of a setup (its plan, frames, cameras and who holds each frame) and
+// of a project's bodies scans every record, so each is kept for the records object it was read from; an edit makes a
+// new records object, and with it new readings.
+const memos = new WeakMap<Records, Map<string, unknown>>();
+
+function memo<T>(records: Records, key: string, make: () => T): T {
+  let known = memos.get(records);
+  if (!known) {
+    known = new Map();
+    memos.set(records, known);
+  }
+  if (known.has(key)) return known.get(key) as T;
+  const made = make();
+  known.set(key, made);
+  return made;
+}
+
+/** What a setup's cameras read from: its own plan, its frames in board order, its live cameras in plan order, and who shoots each frame. */
+interface SetupReading {
+  planId: string | null;
+  frames: readonly SbdRecord[];
+  cameras: readonly { record: SbdRecord; fields: CameraFields }[];
+  /** Frame id to camera id, by the first camera in plan order that lists it. */
+  held: ReadonlyMap<string, string>;
+}
+
+let setupReadings = 0;
+
+/** How many times a setup's reading has been worked out from the records: for tests, which check it's once per records. */
+export const setupReadingsMade = (): number => setupReadings;
+
+function setupReading(records: Records, setupId: string): SetupReading {
+  return memo(records, `setup:${setupId}`, (): SetupReading => {
+    setupReadings += 1;
+    const plan = setupPlanOf(records, setupId);
+    const frames = setupFrames(records, setupId);
+    const cameras = plan
+      ? Object.values(records)
+          .filter((r) => r.type === 'plan_item' && r.parentId === plan.id && r.trashedAt === null)
+          .sort(bySortKey)
+          .flatMap((record) => {
+            const fields = cameraFields(record.props);
+            return fields ? [{ record, fields }] : [];
+          })
+      : [];
+    const ids = new Set(frames.map((shot) => shot.id));
+    const held = new Map<string, string>();
+    for (const camera of cameras) {
+      for (const id of camera.fields.shotIds) if (ids.has(id) && !held.has(id)) held.set(id, camera.record.id);
+    }
+    return { planId: plan?.id ?? null, frames, cameras, held };
+  });
+}
+
 /** The live setup a camera's plan belongs to, or null (a camera in a room or a blocking plan shoots no frame). */
 export function cameraSetupId(records: Records, camera: SbdRecord): string | null {
   const plan = camera.parentId ? records[camera.parentId] : undefined;
@@ -44,30 +102,22 @@ export function cameraSetupId(records: Records, camera: SbdRecord): string | nul
   const setup = records[plan.parentId];
   if (setup?.type !== 'setup' || setup.trashedAt !== null) return null;
   // Only the setup's own plan (its first live one), as the plan view reads it.
-  return setupPlanOf(records, setup.id)?.id === plan.id ? setup.id : null;
+  return setupReading(records, setup.id).planId === plan.id ? setup.id : null;
+}
+
+/** A setup's frames in board order (setupFrames), read once per records with its cameras. */
+export function cameraSetupFrames(records: Records, setupId: string): readonly SbdRecord[] {
+  return setupReading(records, setupId).frames;
 }
 
 /** A setup's live cameras in plan order (back to front). */
-export function setupCameras(records: Records, setupId: string): { record: SbdRecord; fields: CameraFields }[] {
-  const plan = setupPlanOf(records, setupId);
-  if (!plan) return [];
-  return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === plan.id && r.trashedAt === null)
-    .sort(bySortKey)
-    .flatMap((record) => {
-      const fields = cameraFields(record.props);
-      return fields ? [{ record, fields }] : [];
-    });
+export function setupCameras(records: Records, setupId: string): readonly { record: SbdRecord; fields: CameraFields }[] {
+  return setupReading(records, setupId).cameras;
 }
 
 /** Who shoots each frame of a setup: frame id to camera id, by the first camera in plan order that lists it. */
-function holders(records: Records, setupId: string): Map<string, string> {
-  const frames = new Set(setupFrames(records, setupId).map((shot) => shot.id));
-  const held = new Map<string, string>();
-  for (const camera of setupCameras(records, setupId)) {
-    for (const id of camera.fields.shotIds) if (frames.has(id) && !held.has(id)) held.set(id, camera.record.id);
-  }
-  return held;
+function holders(records: Records, setupId: string): ReadonlyMap<string, string> {
+  return setupReading(records, setupId).held;
 }
 
 /** The camera that shoots a frame, or null: the one reader of every camera's `shot_ids` for that frame. */
@@ -84,8 +134,8 @@ export function cameraFrames(records: Records, cameraId: string): SbdRecord[] {
   const camera = liveCamera(records, cameraId);
   const setupId = camera ? cameraSetupId(records, camera.record) : null;
   if (!camera || setupId === null) return [];
-  const held = holders(records, setupId);
-  return setupFrames(records, setupId).filter((shot) => held.get(shot.id) === cameraId);
+  const reading = setupReading(records, setupId);
+  return reading.frames.filter((shot) => reading.held.get(shot.id) === cameraId);
 }
 
 /** The frame whose lens the cone draws: `shown_shot_id` when it is linked, else the first linked frame in board order. */
@@ -117,11 +167,16 @@ export function cameraBody(records: Records, camera: SbdRecord): CameraBody | nu
   const projectId = projectOf(records, camera);
   if (projectId === null) return null;
   const fields = cameraFields(camera.props);
-  const named = fields?.bodyId ? projectBodies(records, projectId).find((b) => b.record.id === fields.bodyId) : undefined;
+  const bodies = bodiesOf(records, projectId);
+  const named = fields?.bodyId ? bodies.find((b) => b.record.id === fields.bodyId) : undefined;
   if (named) return { ...named, isDefault: false };
-  const fallback = defaultBody(records, projectId);
+  // The default body is the first of the project's (defaultBody), read from the same list.
+  const fallback = bodies[0];
   return fallback ? { ...fallback, isDefault: true } : null;
 }
+
+/** The project's live bodies (projectBodies), once per records. */
+const bodiesOf = (records: Records, projectId: string): readonly { record: SbdRecord; fields: BodyFields }[] => memo(records, `bodies:${projectId}`, () => projectBodies(records, projectId));
 
 /** A live lens by id, or null. */
 function liveLens(records: Records, id: string | null): { record: SbdRecord; fields: LensFields } | null {
@@ -190,11 +245,6 @@ export function cameraCone(records: Records, cameraId: string): CameraCone | nul
   return { ...fov, letter, focalMm: lens.mm, sensorWidthMm, sensorHeightMm, onSide: camera.fields.onSide };
 }
 
-/** The props the cone's label and drawing are worked out from, as one string: the same string, the same cone. */
-export function cameraLookKey(records: Records, cameraId: string): string {
-  return JSON.stringify([cameraCone(records, cameraId), cameraHeight(records, cameraId)]);
-}
-
 /** A camera as its setup's lists name it: "A · Dolly track", its name in place of the icon's when it has one. */
 export function cameraTitle(records: Records, cameraId: string, iconName: (icon: string) => string): string {
   const camera = liveCamera(records, cameraId);
@@ -216,8 +266,6 @@ export function cameraTitle(records: Records, cameraId: string, iconName: (icon:
 
 // The edits.
 
-const idsWithout = (ids: readonly string[], id: string): string[] => ids.filter((each) => each !== id);
-
 /** A camera's `shot_ids` written as given: unset when empty, and `shown_shot_id` taken off when it names a frame no longer in it. */
 function linksUpdate(camera: { record: SbdRecord; fields: CameraFields }, ids: readonly string[]): Change | null {
   const set: Record<string, JsonValue> = {};
@@ -233,37 +281,35 @@ function linksUpdate(camera: { record: SbdRecord; fields: CameraFields }, ids: r
 }
 
 /**
- * A frame linked to a camera: only a live frame of the camera's own setup. It leaves every other camera of the setup
- * that lists it in the same group, so a frame is shot from one camera. Nothing when it is that camera's already.
+ * A frame linked to a camera: only a live frame of the camera's own setup. It comes off every other camera record that
+ * lists it in the same group (framesOffCameras: those in the Trash and in other setups too), so a frame is shot from one
+ * camera, and a camera restored later never takes it back from the one it was given to. Nothing when it is that
+ * camera's already and no other lists it.
  */
 export function linkFrameChanges(records: Records, cameraId: string, shotId: string): Change[] {
   const camera = liveCamera(records, cameraId);
   const setupId = camera ? cameraSetupId(records, camera.record) : null;
-  if (!camera || setupId === null || !setupFrames(records, setupId).some((shot) => shot.id === shotId)) return [];
-  const others = setupCameras(records, setupId).flatMap((other): Change[] => {
-    if (other.record.id === cameraId || !other.fields.shotIds.includes(shotId)) return [];
-    const change = linksUpdate(other, idsWithout(other.fields.shotIds, shotId));
-    return change ? [change] : [];
-  });
-  const held = frameCamera(records, shotId) === cameraId;
-  if (held && others.length === 0) return [];
+  if (!camera || setupId === null || !setupReading(records, setupId).frames.some((shot) => shot.id === shotId)) return [];
+  const others = framesOffCameras(records, [shotId], cameraId);
   const own = camera.fields.shotIds.includes(shotId) ? null : linksUpdate(camera, [...camera.fields.shotIds, shotId]);
   return [...others, ...(own ? [own] : [])];
 }
 
-/** A frame unlinked from a camera: out of its `shot_ids`, and no longer its shown frame. Nothing when it isn't listed. */
+/**
+ * A frame unlinked from a camera: out of its `shot_ids`, no longer its shown frame, and off every other camera record
+ * that lists it in the same group (framesOffCameras), so it never reads as another camera's once this one lets it go.
+ * Nothing when this camera doesn't list it.
+ */
 export function unlinkFrameChanges(records: Records, cameraId: string, shotId: string): Change[] {
   const camera = liveCamera(records, cameraId);
   if (!camera || !camera.fields.shotIds.includes(shotId)) return [];
-  const change = linksUpdate(camera, idsWithout(camera.fields.shotIds, shotId));
-  return change ? [change] : [];
+  return framesOffCameras(records, [shotId]);
 }
 
-/** Which camera shoots a frame (the Frames tile's choice): one camera, linked as linkFrameChanges does, or none. */
+/** Which camera shoots a frame (the Frames tile's choice): one camera, linked as linkFrameChanges does, or none: off every camera that lists it. */
 export function assignFrameChanges(records: Records, shotId: string, cameraId: string | null): Change[] {
   if (cameraId !== null) return linkFrameChanges(records, cameraId, shotId);
-  const holder = frameCamera(records, shotId);
-  return holder === null ? [] : unlinkFrameChanges(records, holder, shotId);
+  return framesOffCameras(records, [shotId]);
 }
 
 /** A linked frame made the one the cone draws. Nothing when it already is, or isn't linked. */

@@ -27,3 +27,15 @@ describe('drawing past the box', () => {
     expect(drawnItems([plain], new Set(), view)).toEqual([plain]);
   });
 });
+
+describe('a section’s name tab (boards, unchanged by 6.4)', () => {
+  it('keeps a section drawn while only its tab meets the view, and culls it when neither does', () => {
+    // The tab sits above the box's top left corner, as a board draws it.
+    const section = item('sec', 10, 330, { section: { tab: { x: 0, y: -40, width: 120, height: 24 } } });
+    expect(drawReach(section)).toEqual({ x: 10, y: 290, width: 120, height: 80 });
+    expect(drawnItems([section], new Set(), view).map((i) => i.id)).toEqual(['sec']);
+    const below = item('low', 10, 400, { section: { tab: { x: 0, y: -40, width: 120, height: 24 } } });
+    expect(drawnItems([below], new Set(), view)).toEqual([]);
+    expect(drawnItems([below], new Set(['low']), view).map((i) => i.id)).toEqual(['low']);
+  });
+});

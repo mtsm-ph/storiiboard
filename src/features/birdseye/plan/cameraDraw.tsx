@@ -1,4 +1,5 @@
 import { Group, Line, Text } from 'react-konva';
+import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
 
@@ -22,6 +23,12 @@ export interface CameraLook {
 const FILL_OPACITY = 0.08;
 const EDGE_OPACITY = 0.55;
 const LABEL_PIXELS = 11;
+/** The labels' line height, in label sizes. */
+const LINE_HEIGHT = 1.3;
+/** How wide a label line may run, screen pixels (it is cut short with an ellipsis past it). */
+const LABEL_SPAN_PIXELS = 200;
+/** The gap between the box and the first label line, screen pixels. */
+const LABEL_GAP_PIXELS = 3;
 
 /** The cone's three corners in the camera's own box (canvas units): its middle, then the left and right far ends. */
 export function conePoints(width: number, height: number, degrees: number, length: number): [number, number, number, number, number, number] {
@@ -32,13 +39,34 @@ export function conePoints(width: number, height: number, degrees: number, lengt
 }
 
 /**
- * How far a camera's drawing reaches on the plan (canvas units): its cone's corners turned with it, and room round its
- * box for the labels.
+ * Where a camera's labels can reach on the plan (canvas units) when drawn at `zoom`: centred under its middle, upright
+ * whatever way it points, as wide as a line may run and as deep as its lines. Labels are sized in screen pixels, so the
+ * fewer the pixels per unit, the further they reach: worked out for the least zoom, they are never culled on screen.
  */
-export function cameraReach(box: { x: number; y: number; width: number; height: number; rotation: number }, degrees: number | null, length: number, labelRoom: number): Rect {
+export function labelReach(box: { x: number; y: number; width: number; height: number }, lines: number, zoom: number): Rect | null {
+  if (lines === 0) return null;
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  const around: Rect = { x: box.x - labelRoom, y: box.y - labelRoom, width: box.width + 2 * labelRoom, height: box.height + 2 * labelRoom };
+  const span = Math.max(box.width, LABEL_SPAN_PIXELS / zoom);
+  const below = Math.hypot(box.width, box.height) / 2 + LABEL_GAP_PIXELS / zoom;
+  return { x: cx - span / 2, y: cy, width: span, height: below + (lines * LABEL_PIXELS * LINE_HEIGHT) / zoom };
+}
+
+/**
+ * How far a camera's drawing reaches on the plan (canvas units): its cone's corners turned with it, `labelRoom` round
+ * its box, and its labels (`labels`, from labelReach).
+ */
+export function cameraReach(
+  box: { x: number; y: number; width: number; height: number; rotation: number },
+  degrees: number | null,
+  length: number,
+  labelRoom: number,
+  labels: Rect | null = null,
+): Rect {
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const boxed: Rect = { x: box.x - labelRoom, y: box.y - labelRoom, width: box.width + 2 * labelRoom, height: box.height + 2 * labelRoom };
+  const around = labels ? (unionBounds([boxed, labels]) ?? boxed) : boxed;
   if (degrees === null) return around;
   const p = conePoints(box.width, box.height, degrees, length);
   const turn = (box.rotation * Math.PI) / 180;
@@ -68,9 +96,9 @@ interface ConeProps {
 export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
   const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
   const size = LABEL_PIXELS / zoom;
-  // Clear of the box whichever way it is turned: half its diagonal from its middle.
-  const below = Math.hypot(width, height) / 2 + 3 / zoom;
-  const span = Math.max(width, 200 / zoom);
+  // Clear of the box whichever way it is turned: half its diagonal from its middle (labelReach reads the same numbers).
+  const below = Math.hypot(width, height) / 2 + LABEL_GAP_PIXELS / zoom;
+  const span = Math.max(width, LABEL_SPAN_PIXELS / zoom);
   return (
     <>
       {points && (
@@ -86,13 +114,14 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
           />
         </>
       )}
-      <Group x={width / 2} y={height / 2} rotation={-rotation} listening={false}>
+      {/* Named upright: while the handles turn the camera, the canvas turns this back by the live turn (UPRIGHT). */}
+      <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
         {look.lines.map((text, i) => (
           <Text
             key={`${String(i)}:${text}`}
             text={text}
             x={-span / 2}
-            y={below + i * size * 1.3}
+            y={below + i * size * LINE_HEIGHT}
             width={span}
             align="center"
             fontFamily='"JetBrains Mono"'
@@ -108,12 +137,14 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
   );
 }
 
-/** The canvas's drawing past a camera's box, and how far it reaches. */
-export function cameraBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: CameraLook, length: number): Beyond {
-  // Room for three label lines at the plan's least zoom would be metres wide; a metre round the box keeps them drawn
-  // while the camera is near the view's edge, and a selected camera is always drawn.
+/**
+ * The canvas's drawing past a camera's box, and how far it reaches. Its labels' reach is worked out for `leastZoom`, the
+ * plan's least zoom, not the view's: a zoom then never makes the item again (its bounds stay as they are), and wherever
+ * the view is zoomed its labels reach no further than that, so a label on screen is never culled with its box.
+ */
+export function cameraBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: CameraLook, length: number, leastZoom: number): Beyond {
   return {
-    bounds: cameraReach(box, look.degrees, length, 100),
+    bounds: cameraReach(box, look.degrees, length, 0, labelReach(box, look.lines.length, leastZoom)),
     draw: (context) => <CameraBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} />,
   };
 }

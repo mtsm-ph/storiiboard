@@ -13,6 +13,12 @@ export type RegisterNode = (id: string, node: Konva.Group | null) => void;
 /** The key an item's drawing past its box is registered under: the handles turn it with the item while they turn it. */
 export const beyondKey = (id: string): string => `${id}\u0000beyond`;
 
+/**
+ * The Konva name a node drawn past an item's box takes to stay upright (6.4 review: a camera's labels): while the
+ * handles turn the item, the canvas turns such nodes back by the live turn, so they never spin with the gesture.
+ */
+export const UPRIGHT = 'sb-upright';
+
 /** How strongly a dimmed item is drawn (6.2a; DESIGN.md's locked layer at 45%). */
 export const DIM_OPACITY = 0.45;
 

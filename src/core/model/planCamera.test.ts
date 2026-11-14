@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { planLensDiffers, runChecks } from '../checks';
 import type { Change } from '../ops/ops';
 import { callSheetFingerprint } from '../../features/callsheets/fingerprint';
+import { cameraLooks } from '../../features/birdseye/plan/cameraLooks';
+import { moveItem } from '../../features/storyboard/board';
 import { callSheet } from './callsheet';
 import { cameraFields, setupPlanOf, shownItems } from './plan';
 import {
@@ -15,10 +17,12 @@ import {
   cameraLensMmChanges,
   cameraLensRefusal,
   cameraOnSideChanges,
+  cameraTitle,
   frameCamera,
   framesDiffering,
   linkFrameChanges,
   pickCameraLensChanges,
+  setupReadingsMade,
   showFrameChanges,
   shownFrame,
   takeFrameLensChanges,
@@ -28,6 +32,7 @@ import {
 import { copySetupChanges } from './planRooms';
 import type { Props, SbdRecord } from './record';
 import { approvalBasis } from './sceneApprovals';
+import { joinSetup, leaveSetup, newSetupFromFrames } from './setup';
 
 // A camera on a setup's plan (6.4): which frames it shoots (one reader, every stale link read as none), the frame whose
 // lens it draws, its body, its lens and height, the cone's numbers through fieldOfView from records (Kevin's three
@@ -69,6 +74,12 @@ function applied(records: Records, changes: readonly Change[]): Records {
     } else if (change.kind === 'trash') {
       const was = next[change.id];
       if (was) next[change.id] = { ...was, trashedAt: at };
+    } else if (change.kind === 'restore') {
+      const was = next[change.id];
+      if (was) next[change.id] = { ...was, trashedAt: null };
+    } else if (change.kind === 'move') {
+      const was = next[change.id];
+      if (was) next[change.id] = { ...was, parentId: change.parentId, sortKey: change.sortKey };
     }
   }
   return next;
@@ -299,3 +310,111 @@ describe('approvals and issued call sheets', () => {
     expect(await fingerprint(linked)).toBe(await fingerprint(day));
   });
 });
+
+describe('a frame never moves silently to another camera (6.4 review)', () => {
+  /** Camera A (`cam`, first in plan order) and camera B (`cam2`) on Setup 1's plan. */
+  const two = (a: Props, b: Props): Records => ({ ...base(a), cam2: camera('cam2', b, 'z') });
+
+  it('takes a frame given to B off A in the Trash too, so restoring A leaves it with B', () => {
+    const records = two({ shot_ids: ['a'], shown_shot_id: 'a' }, {});
+    const trashed = applied(records, [{ kind: 'trash', id: 'cam' }]);
+    expect(frameCamera(trashed, 'a')).toBeNull();
+    const changes = linkFrameChanges(trashed, 'cam2', 'a');
+    // One group: A (in the Trash) lets it go, its shown mark with it; B takes it.
+    expect(changes).toEqual([
+      { kind: 'update', id: 'cam', unset: ['shot_ids', 'shown_shot_id'] },
+      { kind: 'update', id: 'cam2', set: { shot_ids: ['a'] } },
+    ]);
+    const given = applied(trashed, changes);
+    expect(frameCamera(given, 'a')).toBe('cam2');
+    const restored = applied(given, [{ kind: 'restore', id: 'cam' }]);
+    expect(frameCamera(restored, 'a')).toBe('cam2');
+    expect(cameraFrames(restored, 'cam')).toEqual([]);
+    expect(cameraFrames(restored, 'cam2').map((s) => s.id)).toEqual(['a']);
+  });
+
+  it('takes a frame two cameras list off both for “None” and for Unlink, so it never reads as the other’s', () => {
+    // An import left 1A on both; A holds it, being first.
+    const records = two({ shot_ids: ['a', 'b'] }, { shot_ids: ['a'], shown_shot_id: 'a' });
+    expect(frameCamera(records, 'a')).toBe('cam');
+    const none = assignFrameChanges(records, 'a', null);
+    expect(none).toEqual([
+      { kind: 'update', id: 'cam', set: { shot_ids: ['b'] } },
+      { kind: 'update', id: 'cam2', unset: ['shot_ids', 'shown_shot_id'] },
+    ]);
+    expect(frameCamera(applied(records, none), 'a')).toBeNull();
+    const unlinked = applied(records, unlinkFrameChanges(records, 'cam', 'a'));
+    expect(frameCamera(unlinked, 'a')).toBeNull();
+    expect(cameraFields(unlinked.cam2?.props ?? {})?.shotIds).toEqual([]);
+    // Linking it to B takes it off A, and gives B no second copy.
+    const toB = linkFrameChanges(records, 'cam2', 'a');
+    expect(toB).toEqual([{ kind: 'update', id: 'cam', set: { shot_ids: ['b'] } }]);
+    expect(frameCamera(applied(records, toB), 'a')).toBe('cam2');
+  });
+
+  it('takes a frame off its cameras when it leaves its setup, so coming back never re-links it', () => {
+    const records = base({ shot_ids: ['a', 'b'], shown_shot_id: 'a' });
+    const out = leaveSetup(records, ['a']);
+    expect(out).toEqual([
+      { kind: 'update', id: 'a', unset: ['setup_id'] },
+      { kind: 'update', id: 'cam', set: { shot_ids: ['b'] }, unset: ['shown_shot_id'] },
+    ]);
+    const left = applied(records, out);
+    const back = applied(left, joinSetup(left, ['a'], 'u1'));
+    expect(frameSetupIdOf(back, 'a')).toBe('u1');
+    expect(frameCamera(back, 'a')).toBeNull();
+    expect(cameraFrames(back, 'cam').map((s) => s.id)).toEqual(['b']);
+    // Straight into another setup, or into a new one, and back: the same.
+    const across = applied(records, joinSetup(records, ['a'], 'u2'));
+    expect(cameraFields(across.cam?.props ?? {})?.shotIds).toEqual(['b']);
+    expect(frameCamera(applied(across, joinSetup(across, ['a'], 'u1')), 'a')).toBeNull();
+    const made = applied(records, newSetupFromFrames(records, ['a'], 'u3'));
+    expect(cameraFields(made.cam?.props ?? {})?.shotIds).toEqual(['b']);
+    expect(frameCamera(applied(made, joinSetup(made, ['a'], 'u1')), 'a')).toBeNull();
+  });
+
+  it('takes a frame off its cameras when it moves to another scene, and moved back it is linked to none', () => {
+    const records: Records = { ...base({ shot_ids: ['a', 'b'] }), s2: record('s2', 'scene', 'p', { number: '2' }, 's2') };
+    const moved = moveItem(records, 'p', 'a', 's2', null);
+    expect(moved).toContainEqual({ kind: 'update', id: 'cam', set: { shot_ids: ['b'] } });
+    const there = applied(records, moved);
+    const home = applied(there, moveItem(there, 'p', 'a', 's1', null));
+    const rejoined = applied(home, joinSetup(home, ['a'], 'u1'));
+    expect(frameCamera(rejoined, 'a')).toBeNull();
+    // A move inside its scene leaves the links as they are.
+    expect(moveItem(records, 'p', 'b', 's1', 'a').some((c) => c.kind === 'update' && c.id === 'cam')).toBe(false);
+  });
+});
+
+describe('reading cameras once per records (6.4 review)', () => {
+  it('works out a setup’s frames, cameras and who holds each frame once for 10 cameras and 30 frames', () => {
+    const frames = Array.from({ length: 30 }, (_, i) => record(`f${String(i).padStart(2, '0')}`, 'shot', 's1', { number: `1${String(i)}`, setup_id: 'u1', lens_mm: 24 + i }, `f${String(i).padStart(2, '0')}`));
+    const cameras = Array.from({ length: 10 }, (_, i) =>
+      camera(`c${String(i)}`, { shot_ids: frames.slice(i * 3, i * 3 + 3).map((f) => f.id), height_m: 1.2 }, `c${String(i)}`),
+    );
+    const records: Records = { ...base({}), ...recordsOf(...frames, ...cameras) };
+    const read = (r: Records) => {
+      const shown = shownItems(r, 's1', 'u1');
+      const looks = cameraLooks(r, shown, 'metres', []);
+      for (const f of frames) frameCamera(r, f.id);
+      for (const c of cameras) cameraTitle(r, c.id, (icon) => icon);
+      return looks;
+    };
+    const before = setupReadingsMade();
+    const looks = read(records);
+    expect(looks.size).toBe(11);
+    expect(looks.get('c0')?.lines[0]).toMatch(/^A · 24 mm · /);
+    expect(setupReadingsMade() - before).toBe(1);
+    // The same records again: nothing read again. A new records object (an edit): read once more.
+    read(records);
+    expect(setupReadingsMade() - before).toBe(1);
+    read({ ...records });
+    expect(setupReadingsMade() - before).toBe(2);
+  });
+});
+
+/** A frame's setup as the one reader has it. */
+const frameSetupIdOf = (records: Records, id: string): string | null => {
+  const shot = records[id];
+  return shot && typeof shot.props.setup_id === 'string' ? shot.props.setup_id : null;
+};

@@ -2,17 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { cameraFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
-import { cameraFrames, linkFrameChanges } from '../../../core/model/planCamera';
-import { log } from '../../../core/ops/ops';
+import { cameraBodyChanges, cameraFrames, linkFrameChanges } from '../../../core/model/planCamera';
+import type { SbdRecord } from '../../../core/model/record';
+import { leaveSetup } from '../../../core/model/setup';
+import { log, type Change } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
+import { lensSqueezeChange, sensorModePick } from '../../gear/gearEdits';
 import { restoreChanges, trashItems } from '../../trash/trash';
-import { cameraReach, conePoints } from './cameraDraw';
+import { drawnItems } from '../../../ui/canvas/culling';
+import { cameraBeyond, cameraReach, conePoints } from './cameraDraw';
 import { cameraLooks, coneLabel } from './cameraLooks';
 import { placeIcon } from './planActions';
 import { iconPatchChanges, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, trashPlanItemsChanges, turnChanges } from './planItems';
-import { CAMERA_TOOL, PLAN_TOOLS } from './planScale';
+import { CAMERA_TOOL, PLAN_TOOLS, PLAN_ZOOM } from './planScale';
+import { turnFor } from './PlanTile';
 
 // Cameras on a plan (6.4): placed from the Library or the C tool into the setup shown as `camera` items, the plan made
 // in the same step; drawn with their cone past their box, made again only when what the cone reads changes; turned
@@ -129,6 +134,24 @@ describe('a camera on the canvas', () => {
     expect(rx - lx).toBeCloseTo(2 * 100 * Math.sin(Math.PI / 4), 6);
   });
 
+  it('keeps a camera drawn at the least zoom while only its label is on screen (6.4 review)', () => {
+    // A 40 × 40 box at the origin pointing up, its cone 600 up: the view is far to its right, clear of both.
+    const box = { x: 0, y: 0, width: 40, height: 40, rotation: 0 };
+    const look = { degrees: 50, lines: ['A · 50 mm · 51.1°'], selected: false };
+    const beyond = cameraBeyond(box, look, 600, PLAN_ZOOM.min);
+    const camera = { id: 'cam', label: 'cam', ...box, beyond };
+    const plain = { id: 'box', label: 'box', ...box };
+    // At zoom 0.02 the label, 11 px high and up to 200 px wide, runs 50 m either side of the camera's middle: a view
+    // 20 m to the right of the box still has it.
+    const view = { x: 2000, y: 0, width: 50000, height: 30000 };
+    expect(drawnItems([plain], new Set(), view)).toEqual([]);
+    expect(drawnItems([camera], new Set(), view).map((i) => i.id)).toEqual(['cam']);
+    // Its bounds don't hang on the view's zoom: the same item whatever the zoom, never made again by one.
+    expect(cameraBeyond(box, look, 600, PLAN_ZOOM.min).bounds).toEqual(beyond.bounds);
+    // A view clear of the label too: not drawn.
+    expect(drawnItems([camera], new Set(), { x: 20000, y: 0, width: 50000, height: 30000 })).toEqual([]);
+  });
+
   it('says what is missing in its label', () => {
     expect(coneLabel({ missing: 'noBody', letter: null })).toBe('No camera body');
     expect(coneLabel({ missing: 'noFocal', letter: 'A' })).toBe('A · No focal length');
@@ -136,6 +159,19 @@ describe('a camera on the canvas', () => {
 });
 
 describe('editing a camera', () => {
+  it('turns by [ and ], and by comma and period, which need no AltGr on Spanish and German layouts (6.4 review)', () => {
+    expect(turnFor({ code: 'BracketRight', key: ']' })).toBe(1);
+    expect(turnFor({ code: 'BracketLeft', key: '[' })).toBe(-1);
+    expect(turnFor({ code: 'Period', key: '.' })).toBe(1);
+    expect(turnFor({ code: 'Comma', key: ',' })).toBe(-1);
+    // Shift types : and ; (Spanish) or > and < (US) there: still a turn, of 1°.
+    expect(turnFor({ code: 'Period', key: ':' })).toBe(1);
+    expect(turnFor({ code: 'Comma', key: ';' })).toBe(-1);
+    // A layout that puts them elsewhere (French: the comma on M) is read by what it types.
+    expect(turnFor({ code: 'KeyM', key: ',' })).toBe(-1);
+    expect(turnFor({ code: 'KeyC', key: 'c' })).toBe(0);
+  });
+
   it('turns by [ and ], pastes without its frames, and goes to the Trash and back', async () => {
     const { sceneId, setupId } = await scene();
     const id = crypto.randomUUID();
@@ -159,5 +195,97 @@ describe('editing a camera', () => {
     expect(trashItems(records(), project.projectId).some((item) => item.id === id)).toBe(true);
     await store.getState().apply(restoreChanges(records(), project.projectId, id));
     expect(cameraFrames(records(), id).map((s) => s.id)).toEqual(['a']);
+  });
+});
+
+describe('a camera follows the board through the item builder (6.4 review)', () => {
+  it('is made again with new cone numbers, and no plan op, for a squeeze, a body mode and its default body swapped; and when its frame leaves the setup', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), { sceneId, setupId }, 'camera/camera', { x: 0, y: 0 }, id));
+    await store.getState().apply(linkFrameChanges(records(), id, 'a'));
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'fx6', type: 'gear_item', parentId: project.projectId, sortKey: 'c', props: { name: 'FX6', kind: 'camera_body', sensor_width_mm: 23.1, sensor_height_mm: 12.99, camera_letter: 'B' } } },
+    ]);
+    const build = planItemsBuilder();
+    const read = (selection: readonly string[] = []) => {
+      const shown = shownItems(records(), sceneId, setupId);
+      const looks = cameraLooks(records(), shown, 'metres', selection);
+      return { shown, look: looks.get(id), item: build(shown, 'metres', '#16150F', 'en', looks).find((i) => i.id === id) };
+    };
+    const planRecords = (): SbdRecord[] => Object.values(records()).filter((r) => r.type === 'plan' || r.type === 'plan_item');
+    let was = read();
+    expect(was.look?.degrees).not.toBeNull();
+    const follows = async (changes: Change[], planOp = false) => {
+      expect(changes.length).toBeGreaterThan(0);
+      const plans = planRecords();
+      const opsBefore = (await log(project.file)).length;
+      await store.getState().apply(changes);
+      expect(await groups()).toBe(opsBefore + 1);
+      // No plan op: the plan and its items are the very records they were.
+      const after = planRecords();
+      expect(after.length).toBe(plans.length);
+      if (!planOp) {
+        after.forEach((r, i) => {
+          expect(r).toBe(plans[i]);
+        });
+      }
+      const now = read();
+      expect(now.item).toBeDefined();
+      expect(now.item).not.toBe(was.item);
+      expect(now.look?.lines).not.toEqual(was.look?.lines);
+      was = now;
+    };
+    // The lens's squeeze, in Gear: 2× to none. (At 2.39:1 a 1.5× squeeze would still fill the frame by its height: the
+    // same cone, rightly made again for nothing.)
+    await follows(lensSqueezeChange(records(), 'ana', 1));
+    // The body's mode: an ALEXA 35 at 4K 16:9.
+    await follows(sensorModePick(records(), 'fx3', 'alexa35-4k-169'));
+    // Another body under the camera, which names none: its default body, the FX3, to the Trash, so the FX6 (B cam, a
+    // smaller sensor) is the default now, its letter in the label too.
+    await follows([{ kind: 'trash', id: 'fx3' }]);
+    expect(was.look?.lines[0]).toMatch(/^B · 50 mm · /);
+    // Its frame out of the setup: no frame, no focal length, no cone. The camera lets the frame go in the same step (so
+    // the frame never comes back linked), the one plan op here.
+    const leaving = leaveSetup(records(), ['a']);
+    expect(leaving.filter((c) => c.kind === 'update' && records()[c.id]?.type === 'plan_item')).toEqual([{ kind: 'update', id, unset: ['shot_ids'] }]);
+    await follows(leaving, true);
+    expect(was.look).toMatchObject({ degrees: null, lines: ['B · No focal length'] });
+  });
+
+  it('is made again when the camera is set to another body (an edit to the camera itself)', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), { sceneId, setupId }, 'camera/camera', { x: 0, y: 0 }, id));
+    await store.getState().apply(linkFrameChanges(records(), id, 'b'));
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'fx6', type: 'gear_item', parentId: project.projectId, sortKey: 'c', props: { name: 'FX6', kind: 'camera_body', sensor_width_mm: 23.1, sensor_height_mm: 12.99, camera_letter: 'B' } } },
+    ]);
+    const build = planItemsBuilder();
+    const item = () => {
+      const shown = shownItems(records(), sceneId, setupId);
+      const looks = cameraLooks(records(), shown, 'metres', []);
+      return { line: looks.get(id)?.lines[0], made: build(shown, 'metres', '#16150F', 'en', looks).find((i) => i.id === id) };
+    };
+    const was = item();
+    expect(was.line).toMatch(/^A · 24 mm · /);
+    await store.getState().apply(cameraBodyChanges(records(), id, 'fx6'));
+    const now = item();
+    expect(now.line).toMatch(/^B · 24 mm · /);
+    expect(now.line).not.toBe(was.line);
+    expect(now.made).not.toBe(was.made);
+  });
+
+  it('makes a new item when the camera is selected, and none for the same look', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), { sceneId, setupId }, 'camera/camera', { x: 0, y: 0 }, id));
+    const build = planItemsBuilder();
+    const shown = shownItems(records(), sceneId, setupId);
+    const item = (selection: readonly string[]) => build(shown, 'metres', '#16150F', 'en', cameraLooks(records(), shown, 'metres', selection)).find((i) => i.id === id);
+    const plain = item([]);
+    const selected = item([id]);
+    expect(selected).not.toBe(plain);
+    expect(item([id])).toBe(selected);
   });
 });

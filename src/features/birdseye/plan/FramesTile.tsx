@@ -1,8 +1,8 @@
 import { useProject } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
-import { cameraTitle, frameCamera, setupCameras, shownFrame } from '../../../core/model/planCamera';
+import { cameraSetupFrames, cameraTitle, frameCamera, setupCameras, shownFrame } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
-import { setupFrames, setupLabel } from '../../../core/model/setup';
+import { setupLabel } from '../../../core/model/setup';
 import { aspectRatioValue, projectStoryboard, SHOT_SIZE_LABEL, shotFields } from '../../../core/model/storyboard';
 import { cx } from '../../../ui/cx';
 import { Select } from '../../../ui/fields';
@@ -47,7 +47,7 @@ export function FramesTile() {
 function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records: Records; projectId: string; sceneId: string; setup: SbdRecord; number: number }) {
   const key = viewKey(sceneId, setup.id);
   const selected = usePlan((s) => s.selections[key]);
-  const frames = setupFrames(records, setup.id);
+  const frames = cameraSetupFrames(records, setup.id);
   const cameras = setupCameras(records, setup.id);
   const aspect = aspectRatioValue(projectStoryboard(records[projectId]?.props).aspectRatio);
   const name = setupLabel({ number, fields: { name: typeof setup.props.name === 'string' ? setup.props.name.trim() : '' } });
@@ -72,10 +72,12 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
           const spec = [fields.size ? SHOT_SIZE_LABEL[fields.size] : null, fields.lensMm === null ? null : t('lens.prime', { mm: fields.lensMm })].filter((p) => p !== null).join(' · ');
           return (
             <li key={shot.id} data-frames-frame={shot.id} data-frames-camera={holder ?? ''} data-frames-shown={isShown ? 'true' : undefined} className="flex w-36 flex-col border border-border">
+              {/* With no camera there is no lens to show: still in the Tab order, so the frame is read, but disabled, saying why. */}
               <button
                 type="button"
                 data-frames-pick={shot.id}
                 aria-current={current || undefined}
+                aria-disabled={holder === null || undefined}
                 onClick={() => {
                   if (holder === null) return;
                   void showFrame(holder, shot.id);

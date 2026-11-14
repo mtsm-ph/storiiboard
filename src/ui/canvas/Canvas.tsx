@@ -7,7 +7,7 @@ import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, rectFromCorners, topmostAt } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 import { drawnItems } from './culling';
-import { beyondKey, ItemNodes, type RegisterNode } from './ItemNodes';
+import { beyondKey, ItemNodes, UPRIGHT, type RegisterNode } from './ItemNodes';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
@@ -568,6 +568,8 @@ export function Canvas({
       if (beyond) {
         beyond.position(node.position());
         beyond.rotation(node.rotation());
+        // What is drawn upright in it (a camera's labels) is turned back by the live turn, not only the committed one.
+        for (const upright of beyond.find(`.${UPRIGHT}`)) upright.rotation(-node.rotation());
       }
     }
     setTransforming({ key: latest.current.selection.join('|'), live });

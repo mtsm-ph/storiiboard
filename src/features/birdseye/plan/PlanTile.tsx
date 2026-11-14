@@ -369,6 +369,16 @@ function SetupCopyOffer({ view }: { view: PlanView }) {
   );
 }
 
+/**
+ * Which way a turn key turns a camera (6.4): 1 clockwise (] or period), -1 the other way ([ or comma), 0 for any other
+ * key. Matched by the key's place (`code`) and by what it types (`key`), so Shift (which types < or : there) still turns.
+ */
+export function turnFor(event: { code: string; key: string }): -1 | 0 | 1 {
+  if (event.code === 'BracketRight' || event.code === 'Period' || event.key === '.') return 1;
+  if (event.code === 'BracketLeft' || event.code === 'Comma' || event.key === ',') return -1;
+  return 0;
+}
+
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
 
 function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode; room: SbdRecord }) {
@@ -388,8 +398,11 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const [build] = useState(planItemsBuilder);
   const shown = useMemo(() => keepShown(records, view.sceneId, view.setupId), [keepShown, records, view.sceneId, view.setupId]);
   // Each camera's cone and labels (6.4), read live from its frames, its body and the project: a lens changed on the
-  // board changes them with no edit to the plan. A camera's item is made again only when its own look changed.
-  const looks = useMemo(() => cameraLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored]);
+  // board changes them with no edit to the plan. A camera's item is made again only when its own look changed. Its lines
+  // are words, and t() reads the language set now, so a change of language reads them again: `locale` is a dependency
+  // the function doesn't name.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
+  const looks = useMemo(() => cameraLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
   const built = useMemo(() => build(shown, unit, INK, locale, looks), [build, shown, unit, locale, looks]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
@@ -525,12 +538,14 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           }}
           onKey={(event) => {
             // [ and ] turn the selected cameras 5° (Shift: 1°) the other way and clockwise (6.4); with a modifier they
-            // stay the canvas's order keys.
-            if ((event.code === 'BracketLeft' || event.code === 'BracketRight') && !event.altKey && !event.metaKey && !event.ctrlKey) {
+            // stay the canvas's order keys. Where [ needs AltGr (Spanish, German), comma and period do the same: free on
+            // the plan (they step frames only in the Player), and on those layouts with no modifier at all.
+            const turn = turnFor(event);
+            if (turn !== 0 && !event.altKey && !event.metaKey && !event.ctrlKey) {
               const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && item.fields.kind === 'camera'));
               if (cameras.length === 0) return false;
               const step = event.shiftKey ? 1 : 5;
-              void turnCameras(cameras, event.code === 'BracketRight' ? step : -step);
+              void turnCameras(cameras, turn * step);
               return true;
             }
             if (event.key.toLowerCase() !== 'f' || event.altKey || event.metaKey || event.ctrlKey) return false;

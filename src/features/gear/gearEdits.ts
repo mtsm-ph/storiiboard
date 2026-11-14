@@ -199,9 +199,25 @@ export function framesOutsideRange(records: Records, lensId: string, min: number
 }
 
 /**
+ * The cameras on a plan (6.4) whose picked lens (`lens_id`) is this one and whose typed focal length sits outside
+ * min–max, each with the nearer end, as framesOutsideRange has them: those in the Trash too, marked `trashed`. A camera
+ * with no typed focal length keeps none (its own field takes an empty one), and a value this version can't read is
+ * never written over.
+ */
+export function camerasOutsideRange(records: Records, lensId: string, min: number, max: number): { id: string; mm: number; trashed: boolean }[] {
+  return Object.values(records).flatMap((camera) => {
+    if (camera.type !== 'plan_item' || camera.props.kind !== 'camera' || camera.props.lens_id !== lensId) return [];
+    const mm = camera.props.lens_mm;
+    if (typeof mm !== 'number' || !Number.isFinite(mm) || (mm >= min && mm <= max)) return [];
+    return [{ id: camera.id, mm: mm < min ? min : max, trashed: camera.trashedAt !== null }];
+  });
+}
+
+/**
  * A lens's focal range in mm: from ≤ to, equal for a prime. Both ends in one edit, with every frame using the lens
  * outside the new range (in the Trash too) set to its nearer end, so a frame's `lens_mm` always sits in its lens's
- * range and one ⌘Z brings the range and the frames back together. The Gear tile asks before it when live frames change.
+ * range and one ⌘Z brings the range and the frames back together; so are the cameras on a plan that picked the lens
+ * (6.4 review), whose own field would refuse a length outside it. The Gear tile asks before it when live ones change.
  */
 export function lensRangeChange(records: Records, id: string, min: number, max: number): Change[] {
   const item = liveLensItem(records, id);
@@ -209,7 +225,7 @@ export function lensRangeChange(records: Records, id: string, min: number, max: 
   if (item.props.focal_min_mm === min && item.props.focal_max_mm === max) return [];
   return [
     { kind: 'update', id, set: { focal_min_mm: min, focal_max_mm: max } },
-    ...framesOutsideRange(records, id, min, max).map(({ id: shotId, mm }): Change => ({ kind: 'update', id: shotId, set: { lens_mm: mm } })),
+    ...[...framesOutsideRange(records, id, min, max), ...camerasOutsideRange(records, id, min, max)].map(({ id: changed, mm }): Change => ({ kind: 'update', id: changed, set: { lens_mm: mm } })),
   ];
 }
 

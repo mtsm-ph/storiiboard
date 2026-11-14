@@ -55,7 +55,7 @@ import { cameraBeyond, type CameraLook } from './cameraDraw';
 import { IconShape, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
 import { iconLabel, planIconOf } from './iconWords';
-import { planScale, toCanvas, toMetres } from './planScale';
+import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
 import { wallOutline, type WallLine } from './wallShape';
 
 // A plan's items for the canvas core and back (6.2a, 6.2b): records in metres become CanvasItems in canvas units
@@ -162,7 +162,7 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
-  return { id, ...g, label: cameraAnnounce(fields, unit, look), keepRatio: true, draw, beyond: cameraBeyond(g, look, toCanvas(CONE_LENGTH_M)) };
+  return { id, ...g, label: cameraAnnounce(fields, unit, look), keepRatio: true, draw, beyond: cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min) };
 }
 
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
