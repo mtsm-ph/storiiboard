@@ -87,9 +87,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     get label() {
       return t('workspace.storyboard');
     },
-    get phase() {
-      return t('phase.number', { phase: 1 });
-    },
+    phase: null,
     order: ['scenes', 'board', 'inspector', 'player'],
     defaultLayout: () =>
       layout(
@@ -105,9 +103,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     get label() {
       return t('workspace.assets');
     },
-    get phase() {
-      return t('phase.number', { phase: 3 });
-    },
+    phase: null,
     order: ['assets', 'player'],
     defaultLayout: () => layout(split('row', [stack(['assets']), stack(['player'])], [1056, 360])),
   },
@@ -116,14 +112,13 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     get label() {
       return t('workspace.team');
     },
-    get phase() {
-      return t('phase.number', { phase: 3 });
-    },
+    phase: null,
     order: ['team'],
     defaultLayout: () => layout(stack(['team'])),
   },
   {
-    // Home of the bird's-eye view (CLAUDE.md, Navigation).
+    // Home of the bird's-eye view (CLAUDE.md, Navigation). The one section still to come (Kevin, Nov 11): the sidebar
+    // shows its phase, muted, until Phase 6 builds it. Every other section is built and reads as live.
     id: 'setup',
     get label() {
       return t('workspace.setup');
@@ -150,9 +145,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     get label() {
       return t('workspace.production');
     },
-    get phase() {
-      return t('phase.range', { from: 3, to: 4 });
-    },
+    phase: null,
     order: ['days', 'calendar', 'sheet', 'locations', 'gear', 'people'],
     defaultLayout: () =>
       layout(
