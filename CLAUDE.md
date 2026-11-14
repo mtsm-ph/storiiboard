@@ -371,11 +371,17 @@
   WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.
 - Update the status in docs/PLAN.md at the end of each PR.
-- Who does what (Kevin, Nov 9): the main session plans each milestone, writes the briefs, diagnoses what a builder
-  can't fix, judges review findings and fixes the subtle ones (routine ones go back to a builder), does all of git
-  (commits, PRs, merges), runs the CI checkpoints, keeps CLAUDE.md, PLAN.md and HANDOFF.md and writes the reports.
-  The builder (.claude/agents/builder.md) writes the long code and its tests from a brief; the reviewer
-  (.claude/agents/reviewer.md) reviews. Their models and effort are set in their files; start them without a model.
+- Who does what (Kevin, Nov 9; models Nov 13): the main session plans each milestone, writes the briefs, diagnoses
+  what a builder can't fix, judges review findings, does all of git (commits, PRs, merges), runs the CI checkpoints,
+  keeps CLAUDE.md, PLAN.md and HANDOFF.md and writes Kevin's reports. The builder (.claude/agents/builder.md) writes
+  the code and its tests from a brief; the reviewer (.claude/agents/reviewer.md) reviews, read-only.
+  - Models (Kevin, Nov 13): the main session runs on Fable 5.2; the builder on claude-opus-5-5 at effort medium; the
+    reviewer on claude-opus-5-5 at effort high. The agents' models and effort are set in their files; start them
+    without a model. Agent files are read when a chat starts, so a change to one takes effect in the next chat.
+  - The main session costs the most per token, so it writes no long code itself and keeps its own reading small:
+    fixes from a review go back to a builder, and a brief still carries everything a builder needs.
+  - The first builder run in a new chat is the model check: its transcript must record the model builder.md names
+    (claude-opus-5-5). If it doesn't, stop and tell Kevin.
   - A builder starts with none of the main session's context, so every brief is complete: the goal, the decisions
     that apply, the files, the tests to add, the checks to run and what not to touch. A big milestone is several
     briefs. One builder at a time, in this checkout, never two in parallel.
