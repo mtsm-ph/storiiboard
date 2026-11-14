@@ -1,0 +1,587 @@
+import { readFileSync } from 'node:fs';
+import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
+import { createProjectStore } from '../../app/projectStore';
+import { setLocale } from '../../core/i18n';
+import { sceneRoomId, startRoomChanges } from '../../core/model/plan';
+import { assignFrameChanges, cameraBodyChanges } from '../../core/model/planCamera';
+import type { Change } from '../../core/ops/ops';
+import { nodeDriver } from '../../core/storage/nodeDriver';
+import { createProject, type Project } from '../../core/storage/project';
+import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
+import { DIM_OPACITY } from '../../ui/canvas/ItemNodes';
+import type { CanvasItem } from '../../ui/canvas/types';
+import { iconShapesOf } from '../birdseye/plan/iconDraw';
+import { setLayerShow, showAllLayers } from '../birdseye/plan/layersStore';
+import { drawWallsChanges, placeIconChanges } from '../birdseye/plan/planItems';
+import { arcCubics, displayOps, parsePathData, parsePaint, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
+import { writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
+import {
+  chooseScale,
+  dayPlanViews,
+  fontMeasure,
+  LANDSCAPE,
+  planPages,
+  pointsPerUnit,
+  PT_PER_MM,
+  scenePlanViews,
+  wrapEntry,
+  type PlanArea,
+  type PlanPage,
+  type PlanPrintOptions,
+  type PlanView,
+} from './planPages';
+import { HALO_POINTS, HAIRLINE, KIT_LINE, planPrintPage, printWeights, printZoom, PRINT_COLOURS } from './planRender';
+
+// Plans on paper (6.10): the scale chosen, a wall measured on the page, the page's words and legend, packets' order, and
+// the print path's six gaps (arcs and quadratics, rgba paint, icon text, weights, drawings past an item's box, label
+// halos), read from display lists and from the written PDF. The canvas isn't here (no Konva in Node): a plan's drawing is
+// read from the plan's own React elements by a small stand-in for PageStage below, the same transforms Konva applies.
+// What Konva itself draws is read back in the browser by e2e/planExport.spec.ts.
+
+const font = (name: string) => new Uint8Array(readFileSync(new URL(`./fonts/${name}.ttf`, import.meta.url)));
+const FILES = { sans: font('InterTight-Regular'), sansBold: font('InterTight-Bold'), mono: font('JetBrainsMono-Regular'), monoBold: font('JetBrainsMono-Bold') };
+const measure = fontMeasure(FILES);
+const fonts: FontLoader = (family, weight) => {
+  const bytes = family === 'Inter Tight' ? (weight >= 600 ? FILES.sansBold : FILES.sans) : family === 'JetBrains Mono' ? (weight >= 600 ? FILES.monoBold : FILES.mono) : null;
+  return Promise.resolve(bytes ? { key: `${family}|${String(weight >= 600)}`, bytes, synthBold: false, synthItalic: false } : null);
+};
+const noPictures: PictureLoader = () => Promise.resolve(null);
+
+let folder: TestFolder;
+let project: Project;
+let store = createProjectStore();
+beforeEach(async () => {
+  setLocale('en');
+  folder = makeTestFolder();
+  project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+  store = createProjectStore();
+  await store.getState().open(project);
+});
+afterEach(async () => {
+  showAllLayers();
+  await store.getState().close();
+  folder.remove();
+});
+
+const records = () => store.getState().records;
+const apply = (changes: Change[]) => store.getState().apply(changes);
+
+const options = (extra: Partial<PlanPrintOptions> = {}): PlanPrintOptions => ({
+  paper: 'a4',
+  unit: 'metres',
+  underlay: true,
+  grid: true,
+  title: 'Bey County',
+  now: new Date('2026-11-14T12:00:00Z'),
+  zones: new Map(),
+  measure,
+  ...extra,
+});
+
+/**
+ * SC 04 INT. DINER — DAY with two setups; Setup 1 holds 1A (MS, 35 mm) and 1B; a room with a free-standing 4.00 m wall
+ * and an 8 m one 6 m below it (so the plan prints at 1:50 on A4), a camera on the Sony FX3 shooting both frames, a
+ * 650 W fresnel 2.40 m up and a 4×4 flag.
+ */
+async function furnished() {
+  const p = project.projectId;
+  const sceneId = crypto.randomUUID();
+  const setupId = crypto.randomUUID();
+  const otherId = crypto.randomUUID();
+  const bodyId = crypto.randomUUID();
+  await apply([
+    { kind: 'create', record: { id: bodyId, type: 'gear_item', parentId: p, sortKey: 'a', props: { name: 'Sony FX3', kind: 'camera_body', camera_letter: 'A', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20 } } },
+    { kind: 'create', record: { id: sceneId, type: 'scene', parentId: p, sortKey: '1', props: { number: '4', name: 'Diner', int_ext: 'INT', day_night: 'DAY' } } },
+    { kind: 'create', record: { id: setupId, type: 'setup', parentId: sceneId, sortKey: 'a', props: { name: '' } } },
+    { kind: 'create', record: { id: otherId, type: 'setup', parentId: sceneId, sortKey: 'b', props: { name: 'Window side' } } },
+    { kind: 'create', record: { id: 'f1', type: 'shot', parentId: sceneId, sortKey: 'a', props: { number: '1A', setup_id: setupId, size: 'MS', lens_mm: 35 } } },
+    { kind: 'create', record: { id: 'f2', type: 'shot', parentId: sceneId, sortKey: 'b', props: { number: '1B', setup_id: setupId, size: 'CU' } } },
+  ]);
+  await apply(startRoomChanges(records(), p, sceneId));
+  expect(sceneRoomId(records(), records()[sceneId])).not.toBeNull();
+  const wall = drawWallsChanges(records(), sceneId, [
+    { x: -200, y: -300 },
+    { x: 200, y: -300 },
+  ]);
+  await apply(wall.changes);
+  await apply(drawWallsChanges(records(), sceneId, [
+    { x: -400, y: 300 },
+    { x: 400, y: 300 },
+  ]).changes);
+  const view = { sceneId, setupId };
+  const camera = crypto.randomUUID();
+  const light = crypto.randomUUID();
+  const flag = crypto.randomUUID();
+  await apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 1 }, camera));
+  await apply(placeIconChanges(records(), view, 'lighting/fresnel', { x: 2, y: -1 }, light));
+  await apply(placeIconChanges(records(), view, 'grip/flag', { x: 1, y: 0 }, flag));
+  await apply([{ kind: 'update', id: light, set: { watts: 650, height_m: 2.4 } }]);
+  await apply(cameraBodyChanges(records(), camera, bodyId));
+  await apply(assignFrameChanges(records(), 'f1', camera));
+  await apply(assignFrameChanges(records(), 'f2', camera));
+  return { sceneId, setupId, otherId, camera, light, flag, wallId: wall.ids[0] ?? '' };
+}
+
+// A stand-in for PageStage: the plan's React elements as Konva would make them, as PrintNodes.
+
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+const mul = (first: Matrix, second: Matrix): Matrix => {
+  const [a1, b1, c1, d1, e1, f1] = first;
+  const [a2, b2, c2, d2, e2, f2] = second;
+  return [a1 * a2 + b1 * c2, a1 * b2 + b1 * d2, c1 * a2 + d1 * c2, c1 * b2 + d1 * d2, e1 * a2 + f1 * c2 + e2, e1 * b2 + f1 * d2 + f2];
+};
+
+/** Konva's transform for a node's attributes: its offset, scale, rotation, then its place. */
+function konvaMatrix(a: Record<string, unknown>): Matrix {
+  const n = (k: string, d: number) => {
+    const v = a[k];
+    return typeof v === 'number' ? v : d;
+  };
+  const r = (n('rotation', 0) * Math.PI) / 180;
+  let m: Matrix = [1, 0, 0, 1, -n('offsetX', 0), -n('offsetY', 0)];
+  m = mul(m, [n('scaleX', 1), 0, 0, n('scaleY', 1), 0, 0]);
+  m = mul(m, [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0]);
+  return mul(m, [1, 0, 0, 1, n('x', 0), n('y', 0)]);
+}
+
+const KINDS: Readonly<Record<string, PrintNode['kind']>> = { Group: 'group', Rect: 'rect', Line: 'line', Path: 'path', Text: 'text', Circle: 'ellipse', Wedge: 'wedge', Shape: 'glyph', Image: 'image' };
+
+function nodesOf(element: ReactNode): PrintNode[] {
+  if (Array.isArray(element)) return element.flatMap((e: ReactNode) => nodesOf(e));
+  if (!isValidElement(element)) return [];
+  const el = element as ReactElement<Record<string, unknown>>;
+  const props = el.props;
+  if (el.type === Fragment) return nodesOf(props.children as ReactNode);
+  if (typeof el.type === 'function') {
+    const fn = el.type as ((p: unknown) => ReactNode) & { name: string };
+    // The two drawings with hooks: an icon's text (its Shape carries the part) and a picture (its image carries its hash).
+    const part = props.part as { kind?: string } | undefined;
+    if (part?.kind === 'text') return [{ kind: 'glyph', matrix: IDENTITY, opacity: 1, visible: true, attrs: { sbText: part }, children: [] }];
+    if (fn.name === 'PictureNode') return [{ kind: 'image', matrix: IDENTITY, opacity: 1, visible: true, attrs: { sbSha: props.sha256 ?? '', width: props.width, height: props.height }, children: [] }];
+    return nodesOf(fn(props));
+  }
+  const kind = typeof el.type === 'string' ? KINDS[el.type] : undefined;
+  if (!kind) return [];
+  const attrs: Record<string, unknown> = { ...props };
+  const node: PrintNode = {
+    kind,
+    matrix: konvaMatrix(attrs),
+    opacity: typeof attrs.opacity === 'number' ? attrs.opacity : 1,
+    visible: attrs.visible !== false,
+    attrs,
+    children: kind === 'group' ? nodesOf(props.children as ReactNode) : [],
+  };
+  if (kind === 'text') {
+    const size = typeof attrs.fontSize === 'number' ? attrs.fontSize : 12;
+    return [{ ...node, layout: { lines: [{ text: typeof attrs.text === 'string' ? attrs.text : '' }], width: typeof attrs.width === 'number' ? attrs.width : 0, height: size, baselineShift: size * 0.35 } }];
+  }
+  return [node];
+}
+
+/** The plan area as PageStage draws it in print mode: page fitted to the box, each item's drawing past its box under it, a dimmed one dimmed. */
+function stageOf(area: PlanArea): PrintNode {
+  const s = Math.min(area.box.width / area.world.width, area.box.height / area.world.height);
+  const context = { colours: PRINT_COLOURS, zoom: printZoom(area.pointsPerUnit), inView: true, present: true, print: true };
+  const itemNode = (item: CanvasItem): PrintNode => {
+    const place = konvaMatrix({ x: item.x + item.width / 2, y: item.y + item.height / 2, offsetX: item.width / 2, offsetY: item.height / 2, rotation: item.rotation });
+    const children: PrintNode[] = [];
+    if (item.beyond) children.push({ kind: 'group', matrix: place, opacity: 1, visible: true, attrs: {}, children: nodesOf(item.beyond.draw({ width: item.width, height: item.height, rotation: item.rotation, ...context })) });
+    children.push({ kind: 'group', matrix: place, opacity: 1, visible: true, attrs: {}, children: nodesOf(item.draw?.({ width: item.width, height: item.height, ...context })) });
+    return { kind: 'group', matrix: IDENTITY, opacity: item.dim ? DIM_OPACITY : 1, visible: true, attrs: {}, children };
+  };
+  const offX = (area.box.width - area.world.width * s) / 2 - area.world.x * s;
+  const offY = (area.box.height - area.world.height * s) / 2 - area.world.y * s;
+  return { kind: 'group', matrix: [s, 0, 0, s, offX, offY], opacity: 1, visible: true, attrs: {}, children: area.items.map(itemNode) };
+}
+
+/** A plan page's display list, as planRender makes it (its drawing through printWeights). */
+const printed = (page: PlanPage): PrintPage => planPrintPage(page, page.plan ? printWeights(displayOps(stageOf(page.plan))) : null, { scale: page.plan ? `Scale ${page.plan.scale.label}` : '', noRoom: 'No room drawn', legend: 'Legend' }, measure);
+
+/** Every filled path's points on the page (points), with its fill, from a display list. */
+function pagePaths(ops: readonly DisplayOp[]): { fill: string | null; points: { x: number; y: number }[] }[] {
+  const stack: Matrix[] = [IDENTITY];
+  const out: { fill: string | null; points: { x: number; y: number }[] }[] = [];
+  for (const op of ops) {
+    const m = stack[stack.length - 1] ?? IDENTITY;
+    if (op.op === 'save') stack.push(m);
+    else if (op.op === 'restore') stack.pop();
+    else if (op.op === 'concat') stack[stack.length - 1] = mul(op.m, m);
+    else if (op.op === 'shape') {
+      const points = op.path.flatMap((s: Segment) => ('m' in s ? [s.m] : 'l' in s ? [s.l] : [])).map(([x, y]) => ({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] }));
+      out.push({ fill: op.fill, points });
+    }
+  }
+  return out;
+}
+
+const widthOf = (points: readonly { x: number }[]) => Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x));
+
+/** Every filled path in a PDF page's content stream, its points in PDF points, read by following q, Q and cm. */
+async function pdfFilledPaths(bytes: Uint8Array): Promise<{ x: number; y: number }[][]> {
+  const pdf = await PDFDocument.load(bytes);
+  const out: { x: number; y: number }[][] = [];
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream) || object.dict.get(PDFName.of('Type')) || object.dict.get(PDFName.of('Subtype'))) continue;
+    const text = new TextDecoder('latin1').decode(decodePDFRawStream(object).decode());
+    if (!text.includes(' cm\n')) continue;
+    const stack: Matrix[] = [IDENTITY];
+    let numbers: number[] = [];
+    let path: { x: number; y: number }[] = [];
+    for (const token of text.split(/\s+/)) {
+      const m = stack[stack.length - 1] ?? IDENTITY;
+      if (/^-?[\d.]+$/.test(token)) numbers.push(Number(token));
+      else {
+        if (token === 'q') stack.push(m);
+        else if (token === 'Q') stack.pop();
+        else if (token === 'cm') stack[stack.length - 1] = mul(numbers.slice(-6) as unknown as Matrix, m);
+        else if (token === 'm' || token === 'l') {
+          const [x = 0, y = 0] = numbers.slice(-2);
+          path.push({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+        } else if (token === 'f' || token === 'B') {
+          out.push(path);
+          path = [];
+        } else if (token === 'S' || token === 'n') path = [];
+        numbers = [];
+      }
+    }
+  }
+  return out;
+}
+
+const write = (pages: readonly PrintPage[], pictures: PictureLoader = noPictures) =>
+  writeDeckPdf({ title: 'Plan', pageCount: pages.length, page: (i) => Promise.resolve(pages[i] as PrintPage), fonts, pictures, watermark: null });
+
+async function pdfText(bytes: Uint8Array): Promise<string[]> {
+  const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
+  const out: string[] = [];
+  for (let n = 1; n <= pdf.numPages; n += 1) out.push((await (await pdf.getPage(n)).getTextContent()).items.map((item) => ('str' in item ? item.str : '')).join(' ').replace(/\s+/g, ' '));
+  await pdf.destroy();
+  return out;
+}
+
+describe('the scale (6.10)', () => {
+  const A4_BOX = { width: 560, height: 470 };
+  const LETTER_BOX = { width: 510, height: 490 };
+  it('is the largest metric scale at which the extent fits, on A4 and on Letter', () => {
+    // A 2 m prop table fits at 1:20; 9 m at 1:50; a 40 m stage at 1:250; a 300 m lot only at 1:1000, cut by the box.
+    expect(chooseScale({ width: 200, height: 150 }, A4_BOX, 'metres').label).toBe('1:20');
+    expect(chooseScale({ width: 900, height: 700 }, A4_BOX, 'metres').label).toBe('1:50');
+    expect(chooseScale({ width: 900, height: 700 }, LETTER_BOX, 'metres').label).toBe('1:75');
+    expect(chooseScale({ width: 4000, height: 2000 }, A4_BOX, 'metres').label).toBe('1:250');
+    expect(chooseScale({ width: 30000, height: 30000 }, A4_BOX, 'metres').label).toBe('1:1000');
+  });
+
+  it('is in inches to the foot when the plan shows feet', () => {
+    expect(chooseScale({ width: 200, height: 150 }, A4_BOX, 'feet').label).toBe('1" = 1\'-0"');
+    expect(chooseScale({ width: 900, height: 700 }, A4_BOX, 'feet').label).toBe('1/4" = 1\'-0"');
+    expect(chooseScale({ width: 2000, height: 1500 }, LETTER_BOX, 'feet').label).toBe('1/16" = 1\'-0"');
+    expect(chooseScale({ width: 100000, height: 100 }, A4_BOX, 'feet').label).toBe('1/32" = 1\'-0"');
+  });
+
+  it('maps a world unit (1 cm of the room) to its paper size', () => {
+    expect(pointsPerUnit(50) / PT_PER_MM).toBeCloseTo(0.2, 9);
+    expect(pointsPerUnit(48) * 30.48).toBeCloseTo(18, 6);
+  });
+});
+
+describe('a setup’s page (6.10)', () => {
+  it('prints a 4.00 m wall 80.0 mm long at 1:50, in the display list and in the written PDF', async () => {
+    const { sceneId, setupId } = await furnished();
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    if (!page?.plan) throw new Error('no plan');
+    expect(page.plan.scale.label).toBe('1:50');
+    const list = printed(page);
+    const walls = pagePaths(list.ops).filter((p) => p.fill === '#16150F' && p.points.length === 4);
+    const mm = walls.map((p) => Math.round((widthOf(p.points) / PT_PER_MM) * 10) / 10);
+    expect(mm).toContain(80);
+    const pdf = await write([list]);
+    const inPdf = (await pdfFilledPaths(pdf.bytes)).filter((p) => p.length === 4).map((p) => Math.round((widthOf(p) / PT_PER_MM) * 10) / 10);
+    expect(inPdf).toContain(80);
+  });
+
+  it('heads the page with the project, the slate and heading, the setup, the day and the page; its legend by department and its frames', async () => {
+    const { sceneId, setupId } = await furnished();
+    const p = project.projectId;
+    const dayId = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: dayId, type: 'shoot_day', parentId: p, sortKey: 'a', props: { date: '2026-11-17' } } },
+      { kind: 'update', id: 'f1', set: { shoot_day_id: dayId } },
+    ]);
+    const [page] = planPages(records(), p, [{ sceneId, setupId }], options());
+    expect(page?.header).toEqual({
+      project: 'Bey County',
+      company: null,
+      slate: 'SC 04 · INT. DINER — DAY',
+      setup: 'Setup 1',
+      days: 'Day 1 · Tue, Nov 17',
+      printed: 'Printed Nov 14, 2026',
+      page: 'Page 1 of 1',
+      continued: null,
+    });
+    const lines = (page?.legend.rows ?? []).map((row) => row.pieces.map((piece) => piece.text).join(''));
+    expect(lines).toEqual([
+      'CAMERA',
+      'A · Camera',
+      'LIGHTING',
+      'Fresnel · 2.40 m · 650 W',
+      'GRIP',
+      'Flag · 2×3',
+      'Total 650 W',
+      'FRAMES',
+      'A · Sony FX3, Full frame 16:9',
+      '1A · MS · 35 mm · 53.9°',
+      '1B · CU',
+    ]);
+    // Every word is real text in the PDF, set in the bundled faces, embedded.
+    const pdf = await write([printed(page as PlanPage)]);
+    const [text] = await pdfText(pdf.bytes);
+    for (const words of ['Bey County', 'SC 04 · INT. DINER — DAY', 'Setup 1', 'Day 1 · Tue, Nov 17', 'Page 1 of 1', 'Scale 1:50', 'Fresnel', '650 W', '35 mm', '53.9°']) expect(text).toContain(words);
+    const doc = await PDFDocument.load(pdf.bytes);
+    expect(doc.getPages().map((pg) => [pg.getWidth(), pg.getHeight()])).toEqual([[841.89, 595.28]]);
+    const fontNames: string[] = [];
+    for (const [, object] of doc.context.enumerateIndirectObjects()) if (object instanceof PDFDict && object.get(PDFName.of('Type')) === PDFName.of('FontDescriptor')) fontNames.push(String(object.get(PDFName.of('FontName'))));
+    expect(fontNames.some((n) => n.includes('InterTight'))).toBe(true);
+    expect(fontNames.some((n) => n.includes('JetBrainsMono'))).toBe(true);
+  });
+
+  it('is landscape Letter when asked, and the legend runs on to pages of its own, never smaller than 7 pt', async () => {
+    const { sceneId, setupId } = await furnished();
+    const changes: Change[] = [];
+    for (let i = 0; i < 70; i += 1) changes.push(...placeIconChanges(records(), { sceneId, setupId }, 'set-art/chair', { x: (i % 10) * 0.5, y: 2 }, `chair${String(i)}`));
+    await apply(changes);
+    await apply(Array.from({ length: 70 }, (_, i): Change => ({ kind: 'update', id: `chair${String(i)}`, set: { name: `Chair number ${String(i)} by the long counter`, height_m: 0.45 + i / 100 } })));
+    const pages = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ paper: 'letter' }));
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages[0]?.size).toEqual(LANDSCAPE.letter);
+    expect(pages[1]?.plan).toBeNull();
+    expect(pages[1]?.header.continued).toBe('SC 04 · Setup 1 legend, continued');
+    expect(pages.map((pg) => pg.header.page)).toEqual(pages.map((_, i) => `Page ${String(i + 1)} of ${String(pages.length)}`));
+    const rows = pages.flatMap((pg) => pg.legend.rows);
+    expect(Math.min(...rows.map((row) => row.size))).toBeGreaterThanOrEqual(7);
+    // Nothing cut: every chair's line is there, whole.
+    const text = rows.map((row) => row.pieces.map((piece) => piece.text).join('')).join(' ');
+    for (let i = 0; i < 70; i += 1) expect(text).toContain(`Chair number ${String(i)} by the long counter`);
+    const doc = await PDFDocument.load((await write(pages.map(printed))).bytes);
+    expect(doc.getPageCount()).toBe(pages.length);
+    expect(doc.getPages().map((pg) => [pg.getWidth(), pg.getHeight()])[0]).toEqual([792, 612]);
+  });
+
+  it('wraps a long line by words, running on indented, and breaks a word longer than a row between its letters', () => {
+    const rows = wrapEntry({ kind: 'line', parts: [{ text: 'A very long name for a flag that runs on', face: 'sans' }, { text: ' · 2.40 m', face: 'mono' }] }, 80, measure);
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.slice(1).every((row) => (row.pieces[0]?.x ?? 0) === 8)).toBe(true);
+    expect(rows.map((row) => row.pieces.map((p) => p.text).join('')).join(' ')).toBe('A very long name for a flag that runs on · 2.40 m');
+    const long = wrapEntry({ kind: 'line', parts: [{ text: 'Supercalifragilisticexpialidocious', face: 'mono' }] }, 60, measure);
+    expect(long.map((row) => row.pieces.map((p) => p.text).join('')).join('')).toBe('Supercalifragilisticexpialidocious');
+    for (const row of long) expect(row.pieces.reduce((w, p) => Math.max(w, p.x + measure(p.text, p.face, row.size)), 0)).toBeLessThanOrEqual(60 + 1e-6);
+  });
+
+  it('prints every layer whatever the Layers tile says, nothing selected, and a room-less view says so', async () => {
+    const { sceneId, setupId, camera, light } = await furnished();
+    setLayerShow('camera', 'hidden');
+    setLayerShow('lighting', 'hidden');
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const ids = page?.plan?.items.map((item) => item.id) ?? [];
+    expect(ids).toContain(camera);
+    expect(ids).toContain(light);
+    expect(page?.plan?.items.every((item) => item.locked !== true)).toBe(true);
+    expect(page?.plan?.noRoom).toBe(false);
+  });
+
+  it('draws the camera’s cone, the light’s beam and the sun path in the display list', async () => {
+    const { sceneId, setupId } = await furnished();
+    const p = project.projectId;
+    const loc = crypto.randomUUID();
+    const day = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: loc, type: 'location', parentId: p, sortKey: 'a', props: { name: 'Diner', map_name: 'Diner', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' } } },
+      { kind: 'create', record: { id: day, type: 'shoot_day', parentId: p, sortKey: 'a', props: { date: '2026-11-17' } } },
+      { kind: 'update', id: sceneId, set: { location_id: loc } },
+      { kind: 'update', id: 'f1', set: { shoot_day_id: day } },
+    ]);
+    // The sun needs the room's north to know which way it goes round.
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'production/north', { x: -3, y: -2 }));
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'lighting/sun-path', { x: -2, y: 0 }));
+    const [page] = planPages(records(), p, [{ sceneId, setupId }], options());
+    const ops = printed(page as PlanPage).ops;
+    // The cone: ink at 8%; the beam: a wedge in the lighting colour at 18%.
+    expect(ops.some((op) => op.op === 'opacity' && op.value === 0.08)).toBe(true);
+    expect(ops.some((op) => op.op === 'opacity' && op.value === 0.18)).toBe(true);
+    // The sun's arc's hours and its rise and set, as words.
+    const words = ops.flatMap((op) => (op.op === 'text' ? op.lines.map((l) => l.text) : []));
+    expect(words.some((w) => w.startsWith('Rise'))).toBe(true);
+    expect(words.some((w) => w.startsWith('Set'))).toBe(true);
+    // Its golden stretch, gold over ink.
+    expect(ops.some((op) => op.op === 'shape' && op.stroke === '#FFB162')).toBe(true);
+  });
+
+  it('prints the underlay dimmed, from its picture, and the PDF asks for its original', async () => {
+    const { sceneId, setupId } = await furnished();
+    const roomId = sceneRoomId(records(), records()[sceneId]) ?? '';
+    const sha = 'a'.repeat(64);
+    await apply([
+      { kind: 'create', record: { id: 'm1', type: 'media', parentId: roomId, sortKey: 'a', props: { kind: 'image', file: sha, width: 800, height: 600 } } },
+      { kind: 'create', record: { id: 'u1', type: 'plan_item', parentId: roomId, sortKey: '0', props: { kind: 'underlay', media_id: 'm1', x: -4, y: -3, width: 8, height: 6, rotation: 0, scaled: true } } },
+    ]);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    expect(page?.plan?.items.find((item) => item.id === 'u1')?.dim).toBe(true);
+    const ops = printed(page as PlanPage).ops;
+    const at = ops.findIndex((op) => op.op === 'image');
+    expect(at).toBeGreaterThan(-1);
+    expect(ops[at]).toMatchObject({ op: 'image', sha256: sha });
+    expect(ops.slice(0, at).some((op) => op.op === 'opacity' && op.value === DIM_OPACITY)).toBe(true);
+    const asked: string[] = [];
+    const jpeg = new Uint8Array(readFileSync(new URL('../../../e2e/fixtures/images/srgb.jpg', import.meta.url)));
+    const pdf = await write([printed(page as PlanPage)], (s) => {
+      asked.push(s);
+      return Promise.resolve({ bytes: jpeg, kind: 'jpeg', original: true });
+    });
+    expect(asked).toEqual([sha]);
+    expect(pdf.storedCopies).toBe(0);
+    // Turned off, it isn't printed.
+    const [without] = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ underlay: false }));
+    expect(without?.plan?.items.some((item) => item.id === 'u1')).toBe(false);
+  });
+});
+
+describe('packets (6.10)', () => {
+  it('prints a scene’s setups in setup order, and a scene with none as one page of its room', async () => {
+    const { sceneId, setupId, otherId } = await furnished();
+    expect(scenePlanViews(records(), sceneId)).toEqual([
+      { sceneId, setupId },
+      { sceneId, setupId: otherId },
+    ]);
+    const pages = planPages(records(), project.projectId, scenePlanViews(records(), sceneId), options());
+    expect(pages.map((pg) => pg.header.setup)).toEqual(['Setup 1', 'Setup 2 · Window side']);
+    await apply([{ kind: 'create', record: { id: 'bare', type: 'scene', parentId: project.projectId, sortKey: '2', props: { number: '5' } } }]);
+    const bare = planPages(records(), project.projectId, scenePlanViews(records(), 'bare'), options());
+    expect(bare.map((pg) => [pg.header.setup, pg.plan?.noRoom])).toEqual([[null, true]]);
+  });
+
+  it('prints a day’s setups with a frame to shoot, in the call sheet’s scene order, each page naming the day', async () => {
+    const { sceneId, setupId, otherId } = await furnished();
+    const p = project.projectId;
+    const day = crypto.randomUUID();
+    const first = crypto.randomUUID();
+    const firstSetup = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: day, type: 'shoot_day', parentId: p, sortKey: 'a', props: { date: '2026-11-17' } } },
+      // A scene before SC 04 on the board, with a setup and a frame on the day.
+      { kind: 'create', record: { id: first, type: 'scene', parentId: p, sortKey: '0', props: { number: '2' } } },
+      { kind: 'create', record: { id: firstSetup, type: 'setup', parentId: first, sortKey: 'a', props: { name: '' } } },
+      { kind: 'create', record: { id: 'g1', type: 'shot', parentId: first, sortKey: 'a', props: { number: '2A', setup_id: firstSetup, shoot_day_id: day } } },
+      { kind: 'update', id: 'f2', set: { shoot_day_id: day } },
+      // A frame of Setup 2 on the day, but in hand: not shot, so not printed.
+      { kind: 'create', record: { id: 'f3', type: 'shot', parentId: sceneId, sortKey: 'c', props: { number: '1C', setup_id: otherId, shoot_day_id: day, status: 'have' } } },
+    ]);
+    const views = dayPlanViews(records(), p, day);
+    expect(views).toEqual<PlanView[]>([
+      { sceneId: first, setupId: firstSetup, dayId: day },
+      { sceneId, setupId, dayId: day },
+    ]);
+    const pages = planPages(records(), p, views, options());
+    expect(pages.map((pg) => pg.header.days)).toEqual(['Day 1 · Tue, Nov 17', 'Day 1 · Tue, Nov 17']);
+    expect(dayPlanViews(records(), p, 'none')).toEqual([]);
+  });
+});
+
+describe('the print path’s gaps (6.10)', () => {
+  it('turns arcs into cubics that keep to the circle, within 0.01 of its radius', () => {
+    const r = 9;
+    const path = parsePathData('M25 16A9 9 0 0 1 7 16A9 9 0 0 1 25 16Z');
+    const cubics = path.flatMap((s) => ('c' in s ? [s.c] : []));
+    expect(cubics.length).toBeGreaterThanOrEqual(4);
+    let from = { x: 25, y: 16 };
+    for (const c of cubics) {
+      for (let k = 0; k <= 20; k += 1) {
+        const t = k / 20;
+        const u = 1 - t;
+        const x = u * u * u * from.x + 3 * u * u * t * c[0] + 3 * u * t * t * c[2] + t * t * t * c[4];
+        const y = u * u * u * from.y + 3 * u * u * t * c[1] + 3 * u * t * t * c[3] + t * t * t * c[5];
+        expect(Math.abs(Math.hypot(x - 16, y - 16) - r)).toBeLessThan(0.01 * r);
+      }
+      from = { x: c[4], y: c[5] };
+    }
+    expect(from.x).toBeCloseTo(25, 9);
+    // A relative arc, a quadratic and its smooth follower, H and V, all read.
+    expect(parsePathData('M0 0 h10 v10 a5 5 0 0 1 -10 0 Q0 20 10 20 T20 20 Z').filter((s) => 'z' in s)).toHaveLength(1);
+    const quad = parsePathData('M0 0 Q10 10 20 0').find((s): s is { c: readonly [number, number, number, number, number, number] } => 'c' in s);
+    expect(quad?.c.map((v) => Math.round(v * 1000) / 1000)).toEqual([6.667, 6.667, 13.333, 6.667, 20, 0]);
+    expect(arcCubics(0, 0, 0, 5, 0, false, true, 10, 0)).toBe('line');
+  });
+
+  it('carries rgba paint and opacity through to the PDF as transparency', async () => {
+    expect(parsePaint('rgba(22, 21, 15, 0.5)')).toEqual({ rgb: [22 / 255, 21 / 255, 15 / 255], alpha: 0.5 });
+    expect(parsePaint('#16150F')?.alpha).toBe(1);
+    expect(parsePaint('rgba(0, 0, 0, 0)')).toBeNull();
+    const ops = displayOps({ kind: 'rect', matrix: IDENTITY, opacity: 0.5, visible: true, attrs: { width: 100, height: 100, fill: 'rgba(22, 21, 15, 0.4)' }, children: [] });
+    const page: PrintPage = { format: 'a4', orientation: 'landscape', ...LANDSCAPE.a4, background: '#FFFFFF', ops };
+    const doc = await PDFDocument.load((await write([page])).bytes);
+    const alphas: number[] = [];
+    const states = doc.getPages()[0]?.node.Resources()?.lookup(PDFName.of('ExtGState'), PDFDict);
+    for (const [, state] of states?.entries() ?? []) {
+      const dict = doc.context.lookup(state, PDFDict);
+      alphas.push(Number(String(dict.get(PDFName.of('ca')))));
+    }
+    // The node's 50%, and its paint's 40% on top of it.
+    expect(alphas.sort()).toEqual([0.2, 0.5]);
+  });
+
+  it('prints an icon’s text as real text in JetBrains Mono at its baseline', async () => {
+    const part = iconShapesOf('production/parking')?.find((p) => p.kind === 'text');
+    expect(part).toMatchObject({ text: 'P', family: 'JetBrains Mono' });
+    const ops = displayOps({ kind: 'glyph', matrix: IDENTITY, opacity: 1, visible: true, attrs: { sbText: part }, children: [] });
+    expect(ops.find((op) => op.op === 'text')).toMatchObject({ op: 'text', family: 'JetBrains Mono', weight: 700, align: 'center', lines: [{ text: 'P', baseline: 21 }] });
+    const pdf = await write([{ format: 'a4', orientation: 'landscape', ...LANDSCAPE.a4, background: '#FFFFFF', ops }]);
+    expect((await pdfText(pdf.bytes))[0]).toContain('P');
+    const doc = await PDFDocument.load(pdf.bytes);
+    const names: string[] = [];
+    for (const [, object] of doc.context.enumerateIndirectObjects()) if (object instanceof PDFDict && object.get(PDFName.of('Type')) === PDFName.of('FontDescriptor')) names.push(String(object.get(PDFName.of('FontName'))));
+    expect(names.some((n) => n.includes('JetBrainsMono-Bold'))).toBe(true);
+  });
+
+  it('prints the screen’s weights at paper’s: 1.5 px at 0.6 pt, thinner as hairlines, dashes with them, and halos of 1.5 pt white', () => {
+    const shape = (strokeWidth: number, dash: number[]): DisplayOp => ({ op: 'shape', path: [], fill: null, stroke: '#16150F', strokeWidth, fixedStroke: true, dash, cap: 'butt', join: 'miter' });
+    const out = printWeights([shape(1.5, [6, 4]), shape(1, [4, 3]), shape(5, []), { op: 'save' }, { op: 'concat', m: [0.5, 0, 0, 0.5, 0, 0] }, { op: 'text', lines: [{ text: 'A', baseline: 0 }], align: 'left', padding: 0, width: 0, family: 'JetBrains Mono', weight: 400, italic: false, size: 14, fill: '#16150F', letterSpacing: 0, stroke: { colour: '#EEE9DF', width: 0.3 } }, { op: 'restore' }]);
+    const weights = (op: DisplayOp | undefined) => (op?.op === 'shape' ? [op.strokeWidth, ...op.dash].map((n) => Math.round(n * 1000) / 1000) : []);
+    expect(weights(out[0])).toEqual([KIT_LINE, 2.4, 1.6]);
+    expect(weights(out[1])).toEqual([HAIRLINE, 1, 0.75]);
+    expect(weights(out[2])).toEqual([2]);
+    // In units at half scale, 3 units is 1.5 pt; the paper's halo is the sheet's white.
+    expect(out[5]).toMatchObject({ stroke: { colour: '#FFFFFF', width: HALO_POINTS / 0.5 } });
+  });
+
+  it('draws a halo as the letters’ outlines stroked under the text, the letters over it, read once', async () => {
+    const ops: DisplayOp[] = [{ op: 'text', lines: [{ text: 'Fresnel', baseline: 100 }], align: 'left', padding: 0, width: 0, family: 'JetBrains Mono', weight: 400, italic: false, size: 7, fill: '#16150F', letterSpacing: 0, stroke: { colour: '#FFFFFF', width: 1.5 } }];
+    const pdf = await write([{ format: 'a4', orientation: 'landscape', ...LANDSCAPE.a4, background: '#FFFFFF', ops }]);
+    const doc = await PDFDocument.load(pdf.bytes);
+    let content = '';
+    for (const [, object] of doc.context.enumerateIndirectObjects()) if (object instanceof PDFRawStream && !object.dict.get(PDFName.of('Subtype'))) content += new TextDecoder('latin1').decode(decodePDFRawStream(object).decode());
+    // White outlines stroked 1.5 wide, then the text in ink.
+    const halo = content.indexOf('1 1 1 RG');
+    const strokeAt = content.indexOf('\nS\n', halo);
+    const text = content.indexOf('BT', halo);
+    expect(halo).toBeGreaterThan(-1);
+    expect(content.slice(halo, strokeAt)).toContain('1.5 w');
+    expect(strokeAt).toBeGreaterThan(halo);
+    expect(text).toBeGreaterThan(strokeAt);
+    // Read once, not twice.
+    expect((await pdfText(pdf.bytes))[0]?.match(/Fresnel/g)).toHaveLength(1);
+  });
+
+  it('draws what an item draws past its box, under the item, as PageStage now does', async () => {
+    const { sceneId, setupId, camera } = await furnished();
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const item = page?.plan?.items.find((i) => i.id === camera);
+    expect(item?.beyond).toBeDefined();
+    const node = stageOf({ ...(page?.plan as PlanArea), items: item ? [item] : [] });
+    const groups = node.children[0]?.children ?? [];
+    // The cone's group first, then the camera's own.
+    expect(groups).toHaveLength(2);
+    expect(JSON.stringify(groups[0])).toContain('"opacity":0.08');
+  });
+});
+

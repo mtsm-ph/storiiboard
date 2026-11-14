@@ -43,7 +43,7 @@ import {
 } from 'pdf-lib';
 import type { PageFormat, PageOrientation } from '../moodboards/pageFormats';
 import { cardUrl } from '../moodboards/links';
-import { apply, followed, parseColour, type DisplayOp, type Matrix, type Segment } from './deckDisplay';
+import { apply, followed, parseColour, parsePaint, parsePathData, type DisplayOp, type Matrix, type Segment } from './deckDisplay';
 import { embedRule, FALLBACK_FAMILY, fsTypeOfFont } from './deckFontRules';
 import type { Watermark } from './watermark';
 import { watermarkOutline } from './renderFrame';
@@ -141,9 +141,28 @@ export function longEdgeFor(widthPt: number, heightPt: number): number {
 
 interface Face {
   font: PDFFont;
+  /** The file's outlines, read when a halo needs them (6.10): a halo is drawn as the letters' outlines, not as text. */
+  outlines: () => FontkitFont | null;
   synthBold: boolean;
   synthItalic: boolean;
 }
+
+type FontkitFont = ReturnType<typeof fontkit.create>;
+
+/** A font file's outlines, read once per file and only when asked for. */
+const outlineFonts = new Map<string, FontkitFont | null>();
+const outlinesOf = (file: FontFile) => (): FontkitFont | null => {
+  if (!outlineFonts.has(file.key)) {
+    let made: FontkitFont | null = null;
+    try {
+      made = fontkit.create(file.bytes);
+    } catch {
+      made = null;
+    }
+    outlineFonts.set(file.key, made);
+  }
+  return outlineFonts.get(file.key) ?? null;
+};
 
 const rgbOf = (colour: string): [number, number, number] => parseColour(colour) ?? [0, 0, 0];
 
@@ -201,12 +220,12 @@ export async function writeDeckPdf(input: DeckPdfInput): Promise<DeckPdf> {
         const file = family === FALLBACK_FAMILY ? null : await input.fonts(family, weight, italic).catch(() => null);
         if (family !== FALLBACK_FAMILY && file === null) note(family, 'missing');
         const font = file ? await embedFile(file, family) : null;
-        if (file && font) return { font, synthBold: file.synthBold, synthItalic: file.synthItalic };
+        if (file && font) return { font, outlines: outlinesOf(file), synthBold: file.synthBold, synthItalic: file.synthItalic };
         // Inter Tight, the app's own font, in the weight and slant asked for.
         const fallback = await input.fonts(FALLBACK_FAMILY, weight, italic);
         const fallbackFont = fallback ? await embedFile(fallback, FALLBACK_FAMILY) : null;
         if (!fallback || !fallbackFont) throw new Error(`The app's own font ${FALLBACK_FAMILY} could not be embedded.`);
-        return { font: fallbackFont, synthBold: fallback.synthBold, synthItalic: fallback.synthItalic };
+        return { font: fallbackFont, outlines: outlinesOf(fallback), synthBold: fallback.synthBold, synthItalic: fallback.synthItalic };
       })();
       faces.set(key, made);
     }
@@ -299,6 +318,22 @@ async function drawPage(
   };
   const imageKeys = new Map<PDFImage, PDFName>();
   const current = () => stack[stack.length - 1] ?? { m: [1, 0, 0, 1, 0, 0] as Matrix };
+  // A paint's own alpha (6.10: a plan kit's rgba, a ring of a glow) on top of the opacity so far: a state of its own.
+  const paintStates = new Map<string, PDFName>();
+  const paintState = (fillAlpha: number, strokeAlpha: number): PDFName => {
+    const ca = Math.round(opacity * fillAlpha * 1000) / 1000;
+    const CA = Math.round(opacity * strokeAlpha * 1000) / 1000;
+    const key = `${String(ca)}|${String(CA)}`;
+    let state = paintStates.get(key);
+    if (!state) {
+      state = page.node.newExtGState('Paint', pdf.context.obj({ Type: 'ExtGState', CA, ca }));
+      paintStates.set(key, state);
+    }
+    return state;
+  };
+  /** Operators drawn with a paint's alpha, in a state of their own; as they are when both paints are opaque. */
+  const withAlpha = (fillAlpha: number, strokeAlpha: number, operators: PDFOperator[]): PDFOperator[] =>
+    operators.length === 0 || (fillAlpha >= 1 && strokeAlpha >= 1) ? operators : [pushGraphicsState(), setGraphicsState(paintState(fillAlpha, strokeAlpha)), ...operators, popGraphicsState()];
 
   for (const op of source.ops) {
     switch (op.op) {
@@ -334,12 +369,12 @@ async function drawPage(
         out.push(rectangle(op.x, op.y, op.width, op.height), clip(), endPath());
         break;
       case 'shape':
-        out.push(...shapeOperators(op, current().m));
+        out.push(...withAlpha(parsePaint(op.fill)?.alpha ?? 1, parsePaint(op.stroke)?.alpha ?? 1, shapeOperators(op, current().m)));
         break;
       case 'text': {
         const used = await face(op.family, op.weight, op.italic);
         const runs = await runsOf(op, used, face, note);
-        out.push(...textOperators(op, runs, keyOf));
+        out.push(...withAlpha(parsePaint(op.fill)?.alpha ?? 1, parsePaint(op.stroke?.colour)?.alpha ?? 1, textOperators(op, runs, keyOf)));
         break;
       }
       case 'image': {
@@ -465,6 +500,7 @@ function textOperators(op: Extract<DisplayOp, { op: 'text' }>, lines: readonly (
   const colour = rgbOf(op.fill);
   const out: PDFOperator[] = [pushGraphicsState(), setFillingRgbColor(...colour)];
   if (op.letterSpacing !== 0) out.push(setCharacterSpacing(op.letterSpacing));
+  const placed: { run: Run; x: number; baseline: number }[] = [];
   op.lines.forEach((line, n) => {
     const runs = lines[n] ?? [];
     if (line.text === '') return;
@@ -474,17 +510,50 @@ function textOperators(op: Extract<DisplayOp, { op: 'text' }>, lines: readonly (
     const width = runs.reduce((sum, run) => sum + run.face.font.widthOfTextAtSize(run.text, op.size), 0) + op.letterSpacing * Math.max(0, letters - 1);
     let x = op.align === 'right' ? op.width - op.padding - width : op.align === 'center' ? op.padding + (op.width - width - op.padding * 2) / 2 : op.padding;
     for (const run of runs) {
-      const used = run.face;
-      out.push(setFontAndSize(keyOf(used.font), op.size));
-      if (used.synthBold) out.push(setTextRenderingMode(TextRenderingMode.FillAndOutline), setStrokingRgbColor(...colour), setLineWidth(op.size * SYNTH_BOLD_WIDTH), setLineJoin(LineJoinStyle.Round));
-      else out.push(setTextRenderingMode(TextRenderingMode.Fill));
-      const skew = used.synthItalic ? SYNTH_ITALIC_SKEW : 0;
-      // The text matrix turns the page's flipped y back, so the letters stand upright.
-      out.push(beginText(), setTextMatrix(1, 0, skew, -1, x, line.baseline), showText(used.font.encodeText(run.text)), endText());
-      x += used.font.widthOfTextAtSize(run.text, op.size) + op.letterSpacing * Array.from(run.text).length;
+      placed.push({ run, x, baseline: line.baseline });
+      x += run.face.font.widthOfTextAtSize(run.text, op.size) + op.letterSpacing * Array.from(run.text).length;
     }
   });
+  // A halo first (6.10: a plan label's paper stroke), under the letters, which then cover its inner half. It is drawn as
+  // the letters' outlines, stroked, not as text: a reader's text extraction and search find each word once.
+  if (op.stroke) {
+    out.push(setStrokingRgbColor(...rgbOf(op.stroke.colour)), setLineWidth(op.stroke.width), setLineJoin(LineJoinStyle.Round), setLineCap(LineCapStyle.Round));
+    for (const { run, x, baseline } of placed) out.push(...outlineOperators(run, x, baseline, op.size, op.letterSpacing));
+  }
+  for (const { run, x, baseline } of placed) {
+    const used = run.face;
+    out.push(setFontAndSize(keyOf(used.font), op.size));
+    if (used.synthBold) out.push(setTextRenderingMode(TextRenderingMode.FillAndOutline), setStrokingRgbColor(...colour), setLineWidth(op.size * SYNTH_BOLD_WIDTH), setLineJoin(LineJoinStyle.Round));
+    else out.push(setTextRenderingMode(TextRenderingMode.Fill));
+    const skew = used.synthItalic ? SYNTH_ITALIC_SKEW : 0;
+    // The text matrix turns the page's flipped y back, so the letters stand upright.
+    out.push(beginText(), setTextMatrix(1, 0, skew, -1, x, baseline), showText(used.font.encodeText(run.text)), endText());
+  }
   out.push(popGraphicsState());
+  return out;
+}
+
+/** A run's letters as outlines at a baseline, stroked: what a halo is drawn from. Nothing when the file's outlines can't be read. */
+function outlineOperators(run: Run, x: number, baseline: number, size: number, letterSpacing: number): PDFOperator[] {
+  const kit = run.face.outlines();
+  if (!kit) return [];
+  const scale = size / kit.unitsPerEm;
+  const skew = run.face.synthItalic ? SYNTH_ITALIC_SKEW : 0;
+  const out: PDFOperator[] = [];
+  let at = x;
+  for (const glyph of kit.layout(run.text).glyphs) {
+    // Font units run up; the page's y runs down.
+    const P = (gx: number, gy: number): [number, number] => [at + (gx + skew * gy) * scale, baseline - gy * scale];
+    // The glyph's outline as SVG path data, read as every path is (parsePathData: quadratics made cubic).
+    for (const segment of parsePathData(glyph.path.toSVG())) {
+      if ('m' in segment) out.push(moveTo(...P(segment.m[0], segment.m[1])));
+      else if ('l' in segment) out.push(lineTo(...P(segment.l[0], segment.l[1])));
+      else if ('c' in segment) out.push(appendBezierCurve(...P(segment.c[0], segment.c[1]), ...P(segment.c[2], segment.c[3]), ...P(segment.c[4], segment.c[5])));
+      else out.push(closePath());
+    }
+    at += glyph.advanceWidth * scale + letterSpacing;
+  }
+  if (out.length > 0) out.push(stroke());
   return out;
 }
 

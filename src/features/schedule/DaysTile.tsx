@@ -27,6 +27,7 @@ import { confirmedCrew, crewChange, dayPeople, dayPeopleChosen } from '../../cor
 import { gearFields, gearIdsOf, moneyLabel, projectCurrency, projectGear } from '../../core/model/gear';
 import { gearNotOnDay } from '../../core/checks';
 import { DayChecksButton } from '../callsheets/DayChecksButton';
+import { openPlanExport } from '../export/exportStore';
 import { showDay, useShownDay } from './shownDay';
 import { GearPicker } from '../gear/GearPicker';
 import { gearListChange } from '../gear/gearEdits';
@@ -352,6 +353,17 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
       </p>
       {/* The call sheet's checks (4.8) for this day: the count opens the sheet on this day. */}
       <DayChecksButton records={records} projectId={projectId} dayId={id} dayName={label} />
+      {/* The day's plans (6.10): every setup with a frame to shoot today, in the call sheet's order, as one PDF. */}
+      <Button
+        className="self-start"
+        data-day-plans=""
+        aria-label={t('days.plansPdfOf', { day: label })}
+        onClick={() => {
+          openPlanExport({ kind: 'day', dayId: id }, 'plan-day-pdf');
+        }}
+      >
+        {t('days.plansPdf')}
+      </Button>
       <TextArea
         key={`notes:${day.fields.notes}`}
         label={t('days.notes')}

@@ -91,6 +91,7 @@ import { roomUnderlays, scaleTarget, underlayAt, underlayName, underlayPictures,
 import { blockingLooks } from './markLooks';
 import { choosePlanTool, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { pasteIsPicture, planClipMarker } from './planClipboard';
+import { openPlanExport } from '../../export/exportStore';
 import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
@@ -265,6 +266,38 @@ export function PlanTile() {
 }
 
 const MENU_BUTTON = 'sb-label flex h-7 items-center gap-1.5 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4';
+
+/**
+ * Export… (6.10): the shown setup's plan as a PDF or a PNG, or its scene's plans as one PDF, each opening the Export
+ * window for it with that format picked, where the paper, the underlay and the grid are chosen.
+ */
+function PlanExportMenu({ view }: { view: PlanView }) {
+  const choices = [
+    { id: 'plan-setup-pdf', words: t('plan.export.setupPdf'), target: { kind: 'setup', sceneId: view.sceneId, setupId: view.setupId } as const },
+    { id: 'plan-setup-png', words: t('plan.export.setupPng'), target: { kind: 'setup', sceneId: view.sceneId, setupId: view.setupId } as const },
+    { id: 'plan-scene-pdf', words: t('plan.export.scenePdf'), target: { kind: 'scene', sceneId: view.sceneId } as const },
+  ];
+  return (
+    <Menu label={t('plan.export.menu')} buttonClassName={MENU_BUTTON}>
+      {(close) => (
+        <MenuGroup>
+          {choices.map((choice) => (
+            <MenuItem
+              key={choice.id}
+              data-plan-export={choice.id}
+              onClick={() => {
+                close();
+                openPlanExport(choice.target, choice.id);
+              }}
+            >
+              {choice.words}
+            </MenuItem>
+          ))}
+        </MenuGroup>
+      )}
+    </Menu>
+  );
+}
 
 /**
  * The room's menu (6.2b): Rename, Use another room…, Make a separate copy (shared rooms), Delete room (unshared ones);
@@ -889,6 +922,9 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             }}
             onSetScale={startScale}
           />
+        </div>
+        <div className="flex h-7">
+          <PlanExportMenu view={view} />
         </div>
         <AlsoIn scenes={also} />
         <div className="flex h-7 empty:hidden">

@@ -1,9 +1,11 @@
+import type { Paper } from '../../core/model/paper';
 import type { SbdRecord } from '../../core/model/record';
 import type { ExportTarget } from '../../core/storage/exportFiles';
 import type { ProjectFile } from '../../core/storage/driver';
 import { deckPdf } from './deckPdf';
 import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
+import { planDayPdf, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
 import { pngFrames } from './pngFrames';
 import type { SwatchSource } from './swatchSet';
 import { swatchesAse } from './swatchesAse';
@@ -37,6 +39,13 @@ export interface ExportContext {
   swatches?: SwatchSource;
   /** A page's pixels per world unit, 1 or 2, for the formats that offer the choice. */
   pixelRatio?: 1 | 2;
+  /** The setup, scene or shoot day a plan export from the Plan tile or Shoot days is for (6.10); absent for Export Project. */
+  plan?: PlanTarget;
+  /** The paper a plan prints on (6.10): the call sheet's choice, by region unless set. */
+  paper?: Paper;
+  /** Whether a plan prints its room's underlay, dimmed, and its light grid (6.10's export choices, both on by default). */
+  planUnderlay?: boolean;
+  planGrid?: boolean;
 }
 
 export interface ExportFormatOptions {
@@ -44,6 +53,8 @@ export interface ExportFormatOptions {
   scenePalettes?: boolean;
   /** The format draws pages at 1x or 2x, so Export offers the choice. */
   pixelRatio?: boolean;
+  /** The format prints plans (6.10), so Export offers the paper, the underlay and the grid. */
+  plan?: boolean;
 }
 
 export interface ExportFormat {
@@ -56,6 +67,8 @@ export interface ExportFormat {
   deck?: true;
   /** It is for a scene's palette or the brand kit (5.6b), offered from them and not in Export Project. */
   swatches?: true;
+  /** It is for the Plan tile's setup (`view`) or a shoot day (`day`), offered from them (6.10) and not in Export Project. */
+  plans?: 'view' | 'day';
   /** The watermark it carries, when Watermark Settings say so; none for a report. */
   watermark?: WatermarkUse;
   /** The choices Export offers for it. */
@@ -69,6 +82,8 @@ export interface ExportFormat {
   readonly wholeNote?: string;
   /** The file's name, or the new folder's, for this scope. */
   name: (title: string, sceneNumber: string | null) => string;
+  /** The file's name for a plan export's target (6.10: "Bey County SC004 Setup 2 plan.pdf"). */
+  planName?: (title: string, records: Readonly<Record<string, SbdRecord>>, target: PlanTarget) => string;
   /** Resolves to what it wrote. */
   run: (context: ExportContext) => Promise<ExportResult>;
 }
@@ -80,7 +95,13 @@ export interface ExportResult {
   warning?: string;
 }
 
-export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, projectJsonFormat, fullArchiveFormat];
+export const FORMATS: readonly ExportFormat[] = [pdfStoryboard, shotListCsvFormat, pngFrames, planScenePdf, projectJsonFormat, fullArchiveFormat];
+
+/** What the Plan tile's Export menu offers (6.10): the shown setup's plan as a PDF or a PNG, and its scene's plans. */
+export const PLAN_FORMATS: readonly ExportFormat[] = [planSetupPdf, planSetupPng, planScenePdf];
+
+/** What a day's Plans (PDF) in Shoot days offers (6.10): the day's plans. */
+export const DAY_PLAN_FORMATS: readonly ExportFormat[] = [planDayPdf];
 
 /** What a deck's Export button offers (5.6a): scoped to the open deck, so none is in Export Project's list above. */
 export const DECK_FORMATS: readonly ExportFormat[] = [deckPdf, deckPng];

@@ -68,7 +68,8 @@ export const roomLineText = (line: PrintedRoomLine): string =>
     .map((part) => part.text)
     .join('');
 
-const heightText = (height: LegendHeight, unit: PlanUnit): string => ('metres' in height ? formatLength(height.metres, unit) : choiceLabel(HEIGHT_LABEL, height.frame));
+/** A legend line's height as it reads: in the unit shown, or a linked frame's choice ("Eye level"). The print (6.10) reads it too. */
+export const heightText = (height: LegendHeight, unit: PlanUnit): string => ('metres' in height ? formatLength(height.metres, unit) : choiceLabel(HEIGHT_LABEL, height.frame));
 
 /** "4,200 W", or "4,200 W + 2 unknown". */
 export const totalWatts = (watts: { known: number; unknown: number }): string =>
