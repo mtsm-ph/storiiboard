@@ -2,7 +2,22 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { ALL_WORKSPACES, isCustomWorkspaceId, TILES, workspaceById, type WorkspaceId } from '../workspaces';
 import { loadSettings, saveSettings } from '../../../core/storage/settings';
-import { dropTile, isLayout, openTile, removeTile, sameLayout, stackOf, tilesIn, type DropZone, type Layout, type TileId } from './layout';
+import {
+  dropTile,
+  findStack,
+  isLayout,
+  openTile,
+  removeTile,
+  sameLayout,
+  split,
+  stack,
+  stackOf,
+  tilesIn,
+  type DropZone,
+  type Layout,
+  type LayoutNode,
+  type TileId,
+} from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
 // never in a .sbd. A workspace keeps its current layout and the one last saved; the tab shows a dot when they differ.
@@ -88,17 +103,68 @@ export function usable(value: unknown): Layout | null {
  * holding `near`, else as opening it would), and Settings remembers it was offered, so closing it then is for good.
  * One line per tile, never removed: a line taken out would offer the tile again to nobody, but one left costs nothing.
  */
-export const TILES_ADDED: readonly { tile: TileId; workspace: WorkspaceId; near: TileId; zone: DropZone }[] = [
-  // 6.0: the Setup section went live with its Setups tile, above Layers in the left column.
-  { tile: 'setups', workspace: 'setup', near: 'layers', zone: 'top' },
+export const TILES_ADDED: readonly {
+  tile: TileId;
+  workspace: WorkspaceId;
+  near: TileId;
+  zone: DropZone;
+  /** Its share of the split it lands in, as the new default gives it; the rest keep their proportions. */
+  share: number;
+  /** The workspace's default before the tile: a saved layout still exactly that takes the new default instead. */
+  previousDefault: () => Layout;
+}[] = [
+  // 6.0: the Setup section went live with its Setups tile, above Layers in the left column, about half of it.
+  {
+    tile: 'setups',
+    workspace: 'setup',
+    near: 'layers',
+    zone: 'top',
+    share: 0.5,
+    previousDefault: () => ({
+      root: split(
+        'row',
+        [
+          split('column', [stack(['layers']), stack(['library'])], [120, 688]),
+          split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
+          stack(['selection']),
+        ],
+        [248, 824, 336],
+      ),
+      maximized: null,
+    }),
+  },
 ];
 
 const offeredKey = (added: (typeof TILES_ADDED)[number]) => `${added.workspace}:${added.tile}`;
 
-function withAdded(layout: Layout, added: (typeof TILES_ADDED)[number]): Layout {
-  if (tilesIn(layout).includes(added.tile)) return layout;
-  const near = stackOf(layout, added.near);
-  return near ? dropTile(layout, added.tile, near.id, added.zone) : openTile(layout, added.tile);
+/**
+ * Gives the tile's lone stack `share` of its parent split. The stack it was split from (`nearId`) first takes back
+ * the half it gave, so every sibling keeps the ratio to the others it had before the tile came.
+ */
+function giveShare(node: LayoutNode, tile: TileId, share: number, nearId: string): LayoutNode {
+  if (node.kind === 'stack') return node;
+  const index = node.children.findIndex((child) => child.kind === 'stack' && child.tiles.length === 1 && child.tiles[0] === tile);
+  if (index < 0) return { ...node, children: node.children.map((child) => giveShare(child, tile, share, nearId)) };
+  const before = [...node.sizes];
+  const near = node.children.findIndex((child) => child.id === nearId);
+  if (near >= 0) before[near] = (before[near] ?? 0) + (before[index] ?? 0);
+  const others = before.reduce((sum, size, i) => (i === index ? sum : sum + size), 0);
+  if (others <= 0) return node;
+  const sizes = before.map((size, i) => (i === index ? share : (size / others) * (1 - share)));
+  return { ...node, sizes };
+}
+
+function withAdded(saved: Layout, added: (typeof TILES_ADDED)[number]): Layout {
+  if (tilesIn(saved).includes(added.tile)) return saved;
+  // Never changed from the old default: the new one is what the person would have had.
+  if (sameLayout(saved, added.previousDefault())) return workspaceById(added.workspace).defaultLayout();
+  const near = stackOf(saved, added.near);
+  let next = near ? dropTile(saved, added.tile, near.id, added.zone) : openTile(saved, added.tile);
+  // Split from its neighbour, it would get half that one tile's room; it gets its share of the column instead.
+  if (near && added.zone !== 'center') next = { ...next, root: giveShare(next.root, added.tile, added.share, near.id) };
+  // Dropping a tile clears a maximized stack; one the person left maximized stays so when it still exists.
+  if (saved.maximized && findStack(next, saved.maximized)) next = { ...next, maximized: saved.maximized };
+  return next;
 }
 
 function load(storage: Storage | undefined, settings: Storage | undefined): Partial<Record<WorkspaceId, WorkspaceLayouts>> {
@@ -136,15 +202,19 @@ function load(storage: Storage | undefined, settings: Storage | undefined): Part
   if (due.length > 0) {
     // Written before they're marked offered: a store that fails in between offers them again, never loses them.
     // Only a workspace with layouts of the person's own has anything to write.
-    if (due.some((added) => saved[added.workspace] !== undefined)) {
+    const needsWrite = (added: (typeof TILES_ADDED)[number]) => saved[added.workspace] !== undefined;
+    let written = true;
+    if (due.some(needsWrite)) {
       try {
         storage?.setItem(LAYOUTS_KEY, JSON.stringify(layouts));
       } catch {
-        // A full or blocked store loses the layout, not the session.
+        // A full or blocked store loses the layout, not the session; the tile is offered again next time.
+        written = false;
       }
     }
     // Marked even where the default was used: it has the tile, and one closed from it stays closed.
-    saveSettings({ tilesOffered: [...offered, ...due.map(offeredKey)] }, settings);
+    const marked = due.filter((added) => written || !needsWrite(added));
+    if (marked.length > 0) saveSettings({ tilesOffered: [...offered, ...marked.map(offeredKey)] }, settings);
   }
   return layouts;
 }

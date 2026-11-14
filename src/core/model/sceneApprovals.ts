@@ -186,7 +186,13 @@ function hash(text: string): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
 }
 
-const without = (props: Props, key: string): Props => Object.fromEntries(Object.entries(props).filter(([k]) => k !== key));
+const without = (props: Props, ...keys: string[]): Props => Object.fromEntries(Object.entries(props).filter(([k]) => !keys.includes(k)));
+
+// 3.6b's rule hashes every prop, so a prop added later would turn a sign-off given under it "Changed" although nothing
+// that department touches changed. Phase 6's links (a frame's lens and setup, a scene's room) are left out by name: no
+// file from before holds them, so leaving them out changes no stored fingerprint. A frame's `lens_mm` still counts.
+const LEGACY_SKIPPED_FRAME = ['department_status', 'lens_id', 'setup_id'];
+const LEGACY_SKIPPED_SCENE = ['department_approvals', 'room_id'];
 
 interface SceneContent {
   /** Everything but the departments' own parts: canonical JSON for 3.6b's rule, its hash for 3.15's. */
@@ -243,9 +249,9 @@ function sceneContent(records: Records, sceneId: string): SceneContent | null {
   // Frames and note cards, as the board shows them.
   const items = inside(scene).filter((r) => r.type === 'shot' || r.type === 'note');
   const shared = canonical({
-    scene: without(scene.props, 'department_approvals'),
+    scene: without(scene.props, ...LEGACY_SKIPPED_SCENE),
     items: items.map((item): JsonValue =>
-      item.type === 'note' ? { note: item.id, text: item.props.text ?? null } : { shot: item.id, props: without(item.props, 'department_status'), own: own(item) },
+      item.type === 'note' ? { note: item.id, text: item.props.text ?? null } : { shot: item.id, props: without(item.props, ...LEGACY_SKIPPED_FRAME), own: own(item) },
     ),
   });
   const content = { shared, shots: items.filter((r) => r.type === 'shot') };

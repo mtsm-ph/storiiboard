@@ -179,6 +179,44 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries camera bodies, lenses and a frame’s lens out and back, every Phase 6 prop as written (6.1)', async () => {
+    const file = project.file;
+    const body = { name: 'FX3', kind: 'camera_body', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20, camera_letter: 'A' };
+    const phone = { name: 'Phone', kind: 'camera_body', sensor_mode: 'Focal lengths as full-frame equivalents', sensor_width_mm: 36, sensor_height_mm: 24, camera_letter: 'B', focal_equivalent: true };
+    const zoom = { name: 'Angénieux', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70, squeeze: 2 };
+    const prime = { name: 'Cooke 35', kind: 'lens', focal_min_mm: 35, focal_max_mm: 35 };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'g1', type: 'gear_item', parentId: project.projectId, sortKey: 'a', props: body } },
+        { kind: 'create', record: { id: 'g2', type: 'gear_item', parentId: project.projectId, sortKey: 'b', props: phone } },
+        { kind: 'create', record: { id: 'g3', type: 'gear_item', parentId: project.projectId, sortKey: 'c', props: zoom } },
+        { kind: 'create', record: { id: 'g4', type: 'gear_item', parentId: project.projectId, sortKey: 'd', props: prime } },
+        { kind: 'update', id: 's1', set: { lens_id: 'g3', lens_mm: 50 } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    // A lens in the Trash goes out and comes back in the Trash, its frame's id kept.
+    await apply(file, [{ kind: 'trash', id: 'g4' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (lenses).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('s1')?.props))).toMatchObject({ lens_id: 'g3', lens_mm: 50 });
+      expect(JSON.parse(String(row('g1')?.props))).toEqual(body);
+      expect(JSON.parse(String(row('g2')?.props))).toEqual(phone);
+      expect(JSON.parse(String(row('g3')?.props))).toEqual(zoom);
+      expect(JSON.parse(String(row('g4')?.props))).toEqual(prime);
+      expect(row('g4')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('imports a project exported at an older schema, then upgrades it as on open', async () => {
     const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
     // Schema 7 had no video tables: the same project without them, said to be at 7.

@@ -4,6 +4,8 @@ import { sceneApprovalText } from '../../core/model/sceneApprovals';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
 import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
+import { focalLabel, GEAR_KIND_LABEL, gearKind, lensFields } from '../../core/model/cameraGear';
+import { modeLabel } from '../../core/model/sensorModes';
 import { attachmentFields } from '../../core/model/attachment';
 import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
@@ -144,10 +146,21 @@ const FIELD: Readonly<Record<string, string>> = labels({
   role: 'history.field.role',
   power: 'history.field.power',
   rotation: 'history.field.rotation',
+  // Camera bodies and lenses (6.1).
+  kind: 'history.field.kind',
+  sensor_mode: 'history.field.sensorMode',
+  sensor_width_mm: 'history.field.sensorWidth',
+  sensor_height_mm: 'history.field.sensorHeight',
+  camera_letter: 'history.field.cameraLetter',
+  focal_equivalent: 'history.field.focalEquivalent',
+  focal_min_mm: 'history.field.focalMin',
+  focal_max_mm: 'history.field.focalMax',
+  squeeze: 'history.field.squeeze',
+  lens_id: 'history.field.lensId',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
-const MONO = new Set(['number', 'lens_mm', 't_stop']);
+const MONO = new Set(['number', 'lens_mm', 't_stop', 'sensor_width_mm', 'sensor_height_mm', 'camera_letter', 'focal_min_mm', 'focal_max_mm', 'squeeze']);
 
 export const fieldLabel = (prop: string): string => FIELD[prop] ?? prop.replace(/_/g, ' ');
 
@@ -264,6 +277,15 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'cast_id') return t('history.aPerson');
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   if (prop === 'setup_id') return t('history.aSetup');
+  if (prop === 'lens_id') return t('history.aLens');
+  // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
+  if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
+  // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
+  if ((prop === 'sensor_width_mm' || prop === 'sensor_height_mm' || prop === 'focal_min_mm' || prop === 'focal_max_mm') && typeof value === 'number') {
+    return t('history.mmValue', { mm: value });
+  }
+  if (prop === 'squeeze' && typeof value === 'number') return t('history.squeezeValue', { squeeze: value });
+  if (prop === 'sensor_mode' && typeof value === 'string') return modeLabel(value);
   // Who's confirmed for a shoot day (3.8), kept by person id: said as how many.
   if (prop === 'crew' && isObject(value)) return tn('history.crewConfirmed', Object.values(value).filter((v) => v === 'confirmed').length);
   // The people on a shoot day (4.2), kept by id (some may since be in the Trash): a step names who, this just says it changed.
@@ -569,6 +591,7 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   ['cast_id', 'history.aPerson'],
   ['shoot_day_id', 'history.aShootDay'],
   ['setup_id', 'history.aSetup'],
+  ['lens_id', 'history.aLens'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -586,6 +609,45 @@ export function namedById(record: SbdRecord | undefined): string | null {
   if (record?.type === 'shoot_day') return dayDateLabel(shootDayFields(record.props).date) || t('history.undatedDay');
   if (record?.type === 'setup') return setupName(record);
   return record?.type === 'location' && typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : null;
+}
+
+const SENSOR_PICK = new Set(['sensor_mode', 'sensor_width_mm', 'sensor_height_mm', 'focal_equivalent']);
+
+/**
+ * The steps of 6.1's bodies and lenses that change more than one prop at once, each in one line: a frame's lens
+ * picked (its focal length with it), an item made a body (its letter with it), a recording mode picked from the table,
+ * a lens's range. Null for any other step.
+ */
+function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+  const { before, after } = op;
+  if (!before || !after) return null;
+  const changed = changedProps(before, after);
+  if (changed.length === 0) return null;
+  const who = capitalise(nameOf(after, around));
+  if (after.type === 'shot' && changed.includes('lens_id') && changed.every((prop) => prop === 'lens_id' || prop === 'lens_mm')) {
+    const id = after.props.lens_id;
+    if (typeof id !== 'string' || id === '') return line('history.lensCleared', { who });
+    const lens = around.get(id);
+    const name = lens ? nameOf(lens) : t('history.aLens');
+    // The focal length too when the pick changed it (a prime's own, a zoom's nearer end).
+    const mm = after.props.lens_mm;
+    if (changed.includes('lens_mm') && typeof mm === 'number') return line('history.lensPickedAt', { who, lens: name, mm: { mono: t('history.mmValue', { mm }) } });
+    return line('history.lensPicked', { who, lens: name });
+  }
+  if (after.type !== 'gear_item') return null;
+  if (changed.includes('kind') && changed.every((prop) => prop === 'kind' || prop === 'camera_letter')) {
+    return line('history.gearKindChange', { who }, { kind: GEAR_KIND_LABEL[gearKind(after.props)] });
+  }
+  if (changed.length > 1 && changed.every((prop) => SENSOR_PICK.has(prop))) {
+    const mode = typeof after.props.sensor_mode === 'string' ? modeLabel(after.props.sensor_mode) : '—';
+    const [width, height] = [after.props.sensor_width_mm, after.props.sensor_height_mm];
+    const size = typeof width === 'number' && typeof height === 'number' ? t('history.sensorSize', { width, height }) : '—';
+    return line('history.sensorModePicked', { who, size: { mono: size } }, { mode });
+  }
+  if (changed.length > 1 && changed.every((prop) => prop === 'focal_min_mm' || prop === 'focal_max_mm')) {
+    return line('history.lensRange', { who, range: { mono: focalLabel(lensFields(after.props).range) || '—' } });
+  }
+  return null;
 }
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
@@ -938,6 +1000,8 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   if (joining) return [...joining, tag];
   if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
     const op = updates[0];
+    const camera = updates.length === 1 && op ? cameraGearLine(op, around) : null;
+    if (camera) return [...camera, tag];
     if (op?.before && op.after) {
       const changes = fieldChanges(op.before, op.after);
       const who = capitalise(nameOf(op.after, around));
