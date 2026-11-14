@@ -29,7 +29,7 @@ import { Select, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
 import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
-import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
+import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallPatchRefused, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
 import { CameraFieldsView } from './CameraSelection';
@@ -194,6 +194,8 @@ function WallFields({ ids, walls, unit, records, view }: { ids: readonly string[
       if (need.hidden) return t(need.hidden.kind === 'door' ? 'selection.wallTooShortDoorIn' : 'selection.wallTooShortWindowIn', { place: need.hidden.place, length });
       return t('selection.wallTooShort', { length });
     }
+    // Past the plan's reach or size it would vanish: refused, nothing saved (6.3 review).
+    if (wallPatchRefused(records, ids, patch)) return false;
     void changeWalls(ids, patch);
     return true;
   };

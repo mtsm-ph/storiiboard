@@ -1,14 +1,21 @@
-// The box each plan icon draws on its 32 px grid (6.3 review), written to src/features/birdseye/plan/iconBoxes.ts so
-// an icon is cut to the same box in every engine, with or without a page: measuring in the page (getBBox on a hidden
-// copy) gave a box that depended on the engine and on whether a font had loaded. Run it by hand after the kit's icons
-// change, from the repo's root:
+// What each plan icon draws, as plain data (6.3, third review round), written to src/features/birdseye/plan/iconBoxes.ts
+// so the plan draws every icon as vectors, the same in every engine, with or without a page: its shapes as paths on the
+// kit's 32 px grid (every rect, circle, ellipse, line, polyline and polygon turned into path data, any transform already
+// applied, circles and ellipses kept as arcs), each with the kit's own paint, and its texts; and the box of its ink.
+// Run it by hand after the kit's icons change, from the repo's root:
 //
 //   node scripts/planIconBoxes.ts
 //
-// It reads the kit's simple shapes (rect, circle, ellipse, line, polyline, polygon, path with every command, text as a
-// nominal box at its x and y) and a shape's rotate or translate transform; each box is padded by half the widest stroke
-// in its SVG, so a cut never clips a line's edge. An icon this can't read is entered by hand in BY_HAND below, with why.
-// A Vitest test (src/features/birdseye/plan/iconBoxes.test.ts) runs `iconBoxes` again and checks the table is current.
+// The box is the bare geometry of what an icon draws, no stroke padding at all: the plan draws an icon's lines at the
+// kit's weight in screen pixels at every zoom (non-scaling strokes), so a padding counted in the grid would be right at
+// one zoom only. Strokes straddle the box's edge, as they do in any drawing. A text counts as a nominal box at its x and
+// y (a monospace face's advance, 0.6 em a character, from its cap height to its descent).
+//
+// It reads only what it can draw exactly and throws, naming the file, on anything else: an element outside {svg, title,
+// desc, rect, circle, ellipse, line, polyline, polygon, path, text} (a group, defs, use), an attribute it doesn't know, a
+// length that isn't a plain number (a unit, a percentage), a single-quoted attribute, an arc flag that isn't 0 or 1, a
+// zero-length arc, a transform other than rotate and translate, or a box that isn't a number. Never a silent zero.
+// A Vitest test (src/features/birdseye/plan/iconBoxes.test.ts) runs it again and checks the table is current.
 // Plain TypeScript Node runs as is (type stripping, Node 22.18 and later): no enums, no imports but Node's.
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -22,6 +29,48 @@ export interface IconBox {
   height: number;
 }
 
+export type LineCap = 'butt' | 'round' | 'square';
+export type LineJoin = 'miter' | 'round' | 'bevel';
+
+/** One shape of an icon as a path on the 32 px grid, its transform applied, with the kit's paint. */
+export interface IconPath {
+  kind: 'path';
+  d: string;
+  /** The kit's hex, or null for none. */
+  fill: string | null;
+  fillOpacity: number;
+  stroke: string | null;
+  strokeOpacity: number;
+  /** Grid pixels, which the plan draws as screen pixels. */
+  strokeWidth: number;
+  dash: number[] | null;
+  lineCap: LineCap;
+  lineJoin: LineJoin;
+  opacity: number;
+}
+
+/** A text of an icon: its baseline at x, y on the grid, anchored as SVG's text-anchor says, in a bundled face. */
+export interface IconText {
+  kind: 'text';
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  anchor: 'start' | 'middle' | 'end';
+  family: string;
+  weight: number;
+  fill: string;
+  fillOpacity: number;
+  opacity: number;
+}
+
+export type IconPart = IconPath | IconText;
+
+export interface IconDrawing {
+  box: IconBox;
+  shapes: IconPart[];
+}
+
 interface Pt {
   x: number;
   y: number;
@@ -29,46 +78,149 @@ interface Pt {
 
 const GRID = 32;
 
-/** Icons whose box is entered by hand, by id, each with why: none so far, as every kit icon reads. */
-const BY_HAND: Readonly<Record<string, IconBox>> = {};
+/** The faces the app bundles and the canvas can draw an icon's text in. */
+const FACES = ['JetBrains Mono', 'Inter Tight'];
 
-const attrsOf = (tag: string): Record<string, string> => {
+const ELEMENTS = new Set(['title', 'desc', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+
+/** Paint and type attributes, which a shape takes from the root unless it sets its own. */
+const PRESENTATION = new Set([
+  'fill',
+  'fill-opacity',
+  'stroke',
+  'stroke-opacity',
+  'stroke-width',
+  'stroke-dasharray',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'font-family',
+  'font-weight',
+  'font-size',
+  'text-anchor',
+]);
+
+const GEOMETRY: Readonly<Record<string, readonly string[]>> = {
+  rect: ['x', 'y', 'width', 'height', 'rx', 'ry'],
+  circle: ['cx', 'cy', 'r'],
+  ellipse: ['cx', 'cy', 'rx', 'ry'],
+  line: ['x1', 'y1', 'x2', 'y2'],
+  polyline: ['points'],
+  polygon: ['points'],
+  path: ['d'],
+  text: ['x', 'y'],
+};
+
+const ROOT_ONLY = new Set(['xmlns', 'width', 'height', 'viewBox']);
+
+/** A tag's attributes, every one double-quoted and read whole: anything else throws. */
+function attrsOf(source: string, tag: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) if (m[1] !== undefined && m[2] !== undefined) out[m[1]] = m[2];
-  return out;
-};
-const n = (value: string | undefined, fallback = 0): number => {
-  const v = value === undefined ? NaN : Number(value);
-  return Number.isFinite(v) ? v : fallback;
-};
+  let rest = source;
+  for (;;) {
+    rest = rest.replace(/^\s+/, '');
+    if (rest === '') return out;
+    const m = /^([A-Za-z_:][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/.exec(rest);
+    if (!m) throw new Error(`<${tag}> has an attribute that can't be read: "${rest.slice(0, 24)}"`);
+    const name = m[1] ?? '';
+    if (m[4] !== undefined) throw new Error(`<${tag}> has a single-quoted attribute ${name}`);
+    if (Object.hasOwn(out, name)) throw new Error(`<${tag}> sets ${name} twice`);
+    out[name] = m[3] ?? '';
+    rest = rest.slice(m[0].length);
+  }
+}
 
-/** A shape's transform as a function on points: rotate(a [cx cy]) and translate(x [y]); anything else can't be read. */
-function transformOf(value: string | undefined): (p: Pt) => Pt {
-  if (value === undefined || value.trim() === '') return (p) => p;
-  const steps = [...value.matchAll(/(\w+)\(([^)]*)\)/g)].map((m) => ({ name: m[1] ?? '', args: (m[2] ?? '').split(/[\s,]+/).filter((s) => s !== '').map(Number) }));
-  const fns = steps.map(({ name, args }): ((p: Pt) => Pt) => {
-    if (name === 'translate') return (p) => ({ x: p.x + (args[0] ?? 0), y: p.y + (args[1] ?? 0) });
-    if (name === 'rotate') {
+const NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
+
+/** A plain number, or a throw naming what it was for: a unit or a percentage is not read. */
+function num(value: string, what: string): number {
+  const v = value.trim();
+  if (!NUMBER.test(v)) throw new Error(`${what} "${value}" isn't a plain number`);
+  const out = Number(v);
+  if (!Number.isFinite(out)) throw new Error(`${what} "${value}" isn't a number`);
+  return out;
+}
+
+/** An attribute's number, its default when it is absent, or a throw when it is required and absent. */
+function numAttr(a: Readonly<Record<string, string>>, name: string, tag: string, fallback?: number): number {
+  const value = a[name];
+  if (value === undefined) {
+    if (fallback === undefined) throw new Error(`<${tag}> has no ${name}`);
+    return fallback;
+  }
+  return num(value, `<${tag}> ${name}`);
+}
+
+function paint(value: string, what: string): string | null {
+  const v = value.trim();
+  if (v === 'none') return null;
+  if (/^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(v)) return v;
+  throw new Error(`${what} "${value}" isn't a hex colour or none`);
+}
+
+function opacity(value: string, what: string): number {
+  return Math.min(1, Math.max(0, num(value, what)));
+}
+
+/** A style attribute's declarations, as presentation attributes (CSS wins over them, as in a browser). */
+function styleOf(value: string, tag: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split(';')) {
+    if (part.trim() === '') continue;
+    const at = part.indexOf(':');
+    const name = at < 0 ? '' : part.slice(0, at).trim();
+    if (!PRESENTATION.has(name)) throw new Error(`<${tag}> style "${part.trim()}" can't be read`);
+    out[name] = part.slice(at + 1).trim();
+  }
+  return out;
+}
+
+/** An affine transform [a b c d e f]: x' = a x + c y + e, y' = b x + d y + f. */
+type Matrix = readonly [number, number, number, number, number, number];
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+const times = (m: Matrix, n: Matrix): Matrix => [
+  m[0] * n[0] + m[2] * n[1],
+  m[1] * n[0] + m[3] * n[1],
+  m[0] * n[2] + m[2] * n[3],
+  m[1] * n[2] + m[3] * n[3],
+  m[0] * n[4] + m[2] * n[5] + m[4],
+  m[1] * n[4] + m[3] * n[5] + m[5],
+];
+const apply = (m: Matrix, p: Pt): Pt => ({ x: m[0] * p.x + m[2] * p.y + m[4], y: m[1] * p.x + m[3] * p.y + m[5] });
+/** How far a transform turns, degrees (only rotations and moves are read, so it never scales or skews). */
+const turnOf = (m: Matrix): number => (Math.atan2(m[1], m[0]) * 180) / Math.PI;
+
+/** A shape's transform: rotate(a [cx cy]) and translate(x [y]); anything else throws. */
+function transformOf(value: string | undefined, tag: string): Matrix {
+  if (value === undefined) return IDENTITY;
+  let rest = value.trim();
+  let m = IDENTITY;
+  while (rest !== '') {
+    const step = /^(\w+)\s*\(([^)]*)\)\s*,?\s*/.exec(rest);
+    if (!step) throw new Error(`<${tag}> transform "${value}" can't be read`);
+    const name = step[1] ?? '';
+    const args = (step[2] ?? '')
+      .trim()
+      .split(/[\s,]+/)
+      .filter((s) => s !== '')
+      .map((s) => num(s, `<${tag}> ${name}`));
+    let next: Matrix;
+    if (name === 'translate' && (args.length === 1 || args.length === 2)) next = [1, 0, 0, 1, args[0] ?? 0, args[1] ?? 0];
+    else if (name === 'rotate' && (args.length === 1 || args.length === 3)) {
       const a = ((args[0] ?? 0) * Math.PI) / 180;
       const cx = args[1] ?? 0;
       const cy = args[2] ?? 0;
-      return (p) => ({ x: cx + (p.x - cx) * Math.cos(a) - (p.y - cy) * Math.sin(a), y: cy + (p.x - cx) * Math.sin(a) + (p.y - cy) * Math.cos(a) });
-    }
-    throw new Error(`transform ${name} can't be read`);
-  });
-  // The rightmost step applies first, as SVG has it.
-  return (p) => fns.reduceRight((q, fn) => fn(q), p);
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      next = [cos, sin, -sin, cos, cx - cx * cos + cy * sin, cy - cx * sin - cy * cos];
+    } else throw new Error(`<${tag}> transform ${name}(${step[2] ?? ''}) can't be read`);
+    // The list applies right to left, as SVG has it: the leftmost is outermost.
+    m = times(m, next);
+    rest = rest.slice(step[0].length);
+  }
+  return m;
 }
 
 const SAMPLES = 96;
-
-/** Points along an ellipse's outline (enough for a box). */
-function ellipsePoints(cx: number, cy: number, rx: number, ry: number): Pt[] {
-  return Array.from({ length: SAMPLES }, (_, i) => {
-    const a = (i / SAMPLES) * 2 * Math.PI;
-    return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
-  });
-}
 
 /** An elliptical arc's points, from SVG's endpoint form (SVG 1.1, F.6.5), sampled. */
 function arcPoints(from: Pt, rxIn: number, ryIn: number, xRotation: number, large: boolean, sweep: boolean, to: Pt): Pt[] {
@@ -87,9 +239,9 @@ function arcPoints(from: Pt, rxIn: number, ryIn: number, xRotation: number, larg
     rx *= Math.sqrt(scale);
     ry *= Math.sqrt(scale);
   }
-  const num = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
+  const num2 = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
   const den = rx * rx * y1 * y1 + ry * ry * x1 * x1;
-  const k = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num / den));
+  const k = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num2 / den));
   const cx1 = (k * rx * y1) / ry;
   const cy1 = (-k * ry * x1) / rx;
   const cx = cos * cx1 - sin * cy1 + (from.x + to.x) / 2;
@@ -117,10 +269,22 @@ function bezierPoints(controls: readonly Pt[]): Pt[] {
   return Array.from({ length: SAMPLES + 1 }, (_, i) => at(i / SAMPLES));
 }
 
-/** Every point a path's outline passes through (sampled along its curves), every command absolute or relative. */
-export function pathPoints(d: string): Pt[] {
-  const tokens = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g) ?? [];
-  const out: Pt[] = [];
+/** A path's segments, every one absolute: H and V as L, S as C, T as Q; an arc with a zero radius is a line, as SVG has it. */
+type Segment =
+  | { k: 'M'; p: Pt }
+  | { k: 'L'; p: Pt }
+  | { k: 'C'; c1: Pt; c2: Pt; p: Pt }
+  | { k: 'Q'; c: Pt; p: Pt }
+  | { k: 'A'; rx: number; ry: number; turn: number; large: boolean; sweep: boolean; p: Pt }
+  | { k: 'Z' };
+
+const TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g;
+
+/** A path's data read into absolute segments; anything it can't read throws. */
+export function pathSegments(d: string): Segment[] {
+  if (!/^[\s,]*$/.test(d.replace(TOKEN, ' '))) throw new Error(`path "${d}" has something that can't be read`);
+  const tokens = d.match(TOKEN) ?? [];
+  const out: Segment[] = [];
   let i = 0;
   let cmd = '';
   let cur: Pt = { x: 0, y: 0 };
@@ -129,11 +293,22 @@ export function pathPoints(d: string): Pt[] {
   let lastCubic: Pt | null = null;
   let lastQuad: Pt | null = null;
   const isCmd = (t: string | undefined) => t !== undefined && /^[A-Za-z]$/.test(t);
-  const num = (): number => {
+  const next = (): string => {
     const t = tokens[i];
     i += 1;
     if (t === undefined || isCmd(t)) throw new Error(`path "${d}" ends too soon`);
-    return Number(t);
+    return t;
+  };
+  const number = (): number => {
+    const t = next();
+    const v = Number(t);
+    if (!Number.isFinite(v)) throw new Error(`path "${d}" has "${t}", which isn't a number`);
+    return v;
+  };
+  const flag = (): boolean => {
+    const t = next();
+    if (t !== '0' && t !== '1') throw new Error(`path "${d}" has an arc flag "${t}" that isn't 0 or 1`);
+    return t === '1';
   };
   while (i < tokens.length) {
     if (isCmd(tokens[i])) {
@@ -143,14 +318,14 @@ export function pathPoints(d: string): Pt[] {
     const rel = cmd === cmd.toLowerCase();
     const base = rel ? cur : { x: 0, y: 0 };
     const pt = (): Pt => {
-      const x = num();
-      const y = num();
+      const x = number();
+      const y = number();
       return { x: base.x + x, y: base.y + y };
     };
     const up = cmd.toUpperCase();
     if (up === 'Z') {
+      out.push({ k: 'Z' });
       cur = start;
-      out.push(cur);
       lastCubic = null;
       lastQuad = null;
       // Z takes no numbers: the next token is a command.
@@ -160,160 +335,359 @@ export function pathPoints(d: string): Pt[] {
     if (up === 'M') {
       cur = pt();
       start = cur;
-      out.push(cur);
+      out.push({ k: 'M', p: cur });
       // Numbers after a moveto are linetos.
       cmd = rel ? 'l' : 'L';
       lastCubic = null;
       lastQuad = null;
-    } else if (up === 'L' || up === 'T') {
-      const to = pt();
-      if (up === 'T') {
-        const c: Pt = lastQuad ? { x: 2 * cur.x - lastQuad.x, y: 2 * cur.y - lastQuad.y } : cur;
-        out.push(...bezierPoints([cur, c, to]));
-        lastQuad = c;
-      } else {
-        out.push(to);
-        lastQuad = null;
-      }
-      cur = to;
-      lastCubic = null;
-    } else if (up === 'H') {
-      cur = { x: (rel ? cur.x : 0) + num(), y: cur.y };
-      out.push(cur);
+    } else if (up === 'L') {
+      cur = pt();
+      out.push({ k: 'L', p: cur });
       lastCubic = null;
       lastQuad = null;
-    } else if (up === 'V') {
-      cur = { x: cur.x, y: (rel ? cur.y : 0) + num() };
-      out.push(cur);
+    } else if (up === 'H' || up === 'V') {
+      const v = number();
+      cur = up === 'H' ? { x: (rel ? cur.x : 0) + v, y: cur.y } : { x: cur.x, y: (rel ? cur.y : 0) + v };
+      out.push({ k: 'L', p: cur });
       lastCubic = null;
       lastQuad = null;
     } else if (up === 'C' || up === 'S') {
       const c1: Pt = up === 'C' ? pt() : lastCubic ? { x: 2 * cur.x - lastCubic.x, y: 2 * cur.y - lastCubic.y } : cur;
       const c2 = pt();
-      const to = pt();
-      out.push(...bezierPoints([cur, c1, c2, to]));
+      const p = pt();
+      out.push({ k: 'C', c1, c2, p });
       lastCubic = c2;
       lastQuad = null;
-      cur = to;
-    } else if (up === 'Q') {
-      const c = pt();
-      const to = pt();
-      out.push(...bezierPoints([cur, c, to]));
+      cur = p;
+    } else if (up === 'Q' || up === 'T') {
+      const c: Pt = up === 'Q' ? pt() : lastQuad ? { x: 2 * cur.x - lastQuad.x, y: 2 * cur.y - lastQuad.y } : cur;
+      const p = pt();
+      out.push({ k: 'Q', c, p });
       lastQuad = c;
       lastCubic = null;
-      cur = to;
+      cur = p;
     } else if (up === 'A') {
-      const rx = num();
-      const ry = num();
-      const rotation = num();
-      const large = num() !== 0;
-      const sweep = num() !== 0;
-      const to = pt();
-      out.push(...arcPoints(cur, rx, ry, rotation, large, sweep, to));
-      cur = to;
+      const rx = Math.abs(number());
+      const ry = Math.abs(number());
+      const turn = number();
+      const large = flag();
+      const sweep = flag();
+      const p = pt();
+      if (Math.hypot(p.x - cur.x, p.y - cur.y) < 1e-9) throw new Error(`path "${d}" has a zero-length arc`);
+      out.push(rx === 0 || ry === 0 ? { k: 'L', p } : { k: 'A', rx, ry, turn, large, sweep, p });
+      cur = p;
       lastCubic = null;
       lastQuad = null;
     } else throw new Error(`path command ${cmd} can't be read`);
   }
+  if (out[0] !== undefined && out[0].k !== 'M') throw new Error(`path "${d}" doesn't start with a move`);
   return out;
 }
 
-/** The points of one shape, before its transform; null for an element that draws nothing (title). */
-function shapePoints(name: string, a: Record<string, string>, content: string): Pt[] | null {
+const fmt = (v: number): string => {
+  const r = Math.round(v * 10000) / 10000;
+  return String(Object.is(r, -0) ? 0 : r);
+};
+const xy = (p: Pt) => `${fmt(p.x)} ${fmt(p.y)}`;
+
+/** Segments moved by a transform, as path data: an arc's ends move and its axes turn with it. */
+function pathData(segments: readonly Segment[], m: Matrix): string {
+  const turn = turnOf(m);
+  return segments
+    .map((s) => {
+      if (s.k === 'Z') return 'Z';
+      if (s.k === 'M' || s.k === 'L') return `${s.k}${xy(apply(m, s.p))}`;
+      if (s.k === 'C') return `C${xy(apply(m, s.c1))} ${xy(apply(m, s.c2))} ${xy(apply(m, s.p))}`;
+      if (s.k === 'Q') return `Q${xy(apply(m, s.c))} ${xy(apply(m, s.p))}`;
+      return `A${fmt(s.rx)} ${fmt(s.ry)} ${fmt((((s.turn + turn) % 360) + 360) % 360)} ${s.large ? '1' : '0'} ${s.sweep ? '1' : '0'} ${xy(apply(m, s.p))}`;
+    })
+    .join('');
+}
+
+/** Every point a path's outline passes through (sampled along its curves), every command absolute or relative. */
+export function pathPoints(d: string): Pt[] {
+  const out: Pt[] = [];
+  let cur: Pt = { x: 0, y: 0 };
+  let start: Pt = { x: 0, y: 0 };
+  for (const s of pathSegments(d)) {
+    if (s.k === 'Z') {
+      cur = start;
+      out.push(cur);
+      continue;
+    }
+    if (s.k === 'M') start = s.p;
+    if (s.k === 'M' || s.k === 'L') out.push(s.p);
+    else if (s.k === 'C') out.push(...bezierPoints([cur, s.c1, s.c2, s.p]));
+    else if (s.k === 'Q') out.push(...bezierPoints([cur, s.c, s.p]));
+    else out.push(...arcPoints(cur, s.rx, s.ry, s.turn, s.large, s.sweep, s.p));
+    cur = s.p;
+  }
+  return out;
+}
+
+/** A shape's outline as path data on its own grid, before its transform. */
+function outlineOf(name: string, a: Readonly<Record<string, string>>): string {
   switch (name) {
     case 'rect': {
-      const x = n(a.x);
-      const y = n(a.y);
-      const w = n(a.width);
-      const h = n(a.height);
-      return [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+      const x = numAttr(a, 'x', name, 0);
+      const y = numAttr(a, 'y', name, 0);
+      const w = numAttr(a, 'width', name);
+      const h = numAttr(a, 'height', name);
+      if (w <= 0 || h <= 0) throw new Error(`<rect> of ${String(w)} by ${String(h)} draws nothing`);
+      // One radius given stands for both, and neither is past half a side, as SVG has it.
+      const rxSet = a.rx === undefined ? undefined : numAttr(a, 'rx', name);
+      const rySet = a.ry === undefined ? undefined : numAttr(a, 'ry', name);
+      const rx = Math.min(w / 2, Math.max(0, rxSet ?? rySet ?? 0));
+      const ry = Math.min(h / 2, Math.max(0, rySet ?? rxSet ?? 0));
+      if (rx === 0 || ry === 0) return `M${fmt(x)} ${fmt(y)}H${fmt(x + w)}V${fmt(y + h)}H${fmt(x)}Z`;
+      const r = `${fmt(rx)} ${fmt(ry)} 0 0 1`;
+      return (
+        `M${fmt(x + rx)} ${fmt(y)}H${fmt(x + w - rx)}A${r} ${fmt(x + w)} ${fmt(y + ry)}V${fmt(y + h - ry)}A${r} ${fmt(x + w - rx)} ${fmt(y + h)}` +
+        `H${fmt(x + rx)}A${r} ${fmt(x)} ${fmt(y + h - ry)}V${fmt(y + ry)}A${r} ${fmt(x + rx)} ${fmt(y)}Z`
+      );
     }
     case 'circle':
-      return ellipsePoints(n(a.cx), n(a.cy), n(a.r), n(a.r));
-    case 'ellipse':
-      return ellipsePoints(n(a.cx), n(a.cy), n(a.rx), n(a.ry));
+    case 'ellipse': {
+      const cx = numAttr(a, 'cx', name, 0);
+      const cy = numAttr(a, 'cy', name, 0);
+      const rx = name === 'circle' ? numAttr(a, 'r', name) : numAttr(a, 'rx', name);
+      const ry = name === 'circle' ? rx : numAttr(a, 'ry', name);
+      if (rx <= 0 || ry <= 0) throw new Error(`<${name}> with a radius of ${String(Math.min(rx, ry))} draws nothing`);
+      // From its right, clockwise, as SVG starts a circle (so a dash starts where the kit's does).
+      const r = `${fmt(rx)} ${fmt(ry)} 0 0 1`;
+      return `M${fmt(cx + rx)} ${fmt(cy)}A${r} ${fmt(cx - rx)} ${fmt(cy)}A${r} ${fmt(cx + rx)} ${fmt(cy)}Z`;
+    }
     case 'line':
-      return [{ x: n(a.x1), y: n(a.y1) }, { x: n(a.x2), y: n(a.y2) }];
+      return `M${fmt(numAttr(a, 'x1', name, 0))} ${fmt(numAttr(a, 'y1', name, 0))}L${fmt(numAttr(a, 'x2', name, 0))} ${fmt(numAttr(a, 'y2', name, 0))}`;
     case 'polyline':
     case 'polygon': {
-      const v = (a.points ?? '').split(/[\s,]+/).filter((s) => s !== '').map(Number);
-      const pts: Pt[] = [];
-      for (let k = 0; k + 1 < v.length; k += 2) pts.push({ x: v[k] ?? 0, y: v[k + 1] ?? 0 });
-      return pts;
+      const raw = a.points;
+      if (raw === undefined) throw new Error(`<${name}> has no points`);
+      const v = raw
+        .trim()
+        .split(/[\s,]+/)
+        .filter((s) => s !== '')
+        .map((s) => num(s, `<${name}> points`));
+      if (v.length < 4 || v.length % 2 !== 0) throw new Error(`<${name}> points "${raw}" aren't pairs`);
+      const pairs: string[] = [];
+      for (let k = 0; k < v.length; k += 2) pairs.push(`${k === 0 ? 'M' : 'L'}${fmt(v[k] ?? 0)} ${fmt(v[k + 1] ?? 0)}`);
+      return pairs.join('') + (name === 'polygon' ? 'Z' : '');
     }
-    case 'path':
-      return pathPoints(a.d ?? '');
-    case 'text': {
-      // A nominal box: a monospace face's advance (0.6 em a character), from its cap height to its descent.
-      const size = n(a['font-size'], 16);
-      const width = 0.6 * size * content.trim().length;
-      const x = n(a.x);
-      const y = n(a.y);
-      const anchor = a['text-anchor'] ?? 'start';
-      const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
-      return [{ x: left, y: y - 0.8 * size }, { x: left + width, y: y + 0.2 * size }];
+    case 'path': {
+      const d = a.d;
+      if (d === undefined || d.trim() === '') throw new Error('<path> has no d');
+      return d;
     }
-    case 'title':
-    case 'desc':
-      return null;
     default:
       throw new Error(`element <${name}> can't be read`);
   }
+}
+
+/** One element of an SVG's body: its name, attributes and the text inside it. */
+interface Element {
+  name: string;
+  attrs: Record<string, string>;
+  content: string;
+}
+
+/** An SVG's root attributes and the flat list of elements in it: nothing nested, nothing it doesn't know. */
+function elementsOf(svg: string): { root: Record<string, string>; body: Element[] } {
+  const s = svg.trim();
+  const open = /^<svg\b([^>]*)>/.exec(s);
+  if (!open) throw new Error('no <svg> root');
+  if (!s.endsWith('</svg>')) throw new Error('no </svg> at its end');
+  const root = attrsOf(open[1] ?? '', 'svg');
+  const body = s.slice(open[0].length, s.length - '</svg>'.length);
+  const out: Element[] = [];
+  let at = 0;
+  while (at < body.length) {
+    const space = /^\s*/.exec(body.slice(at))?.[0].length ?? 0;
+    at += space;
+    if (at >= body.length) break;
+    const rest = body.slice(at);
+    const tag = /^<([A-Za-z][\w:-]*)\b((?:\s+[^\s=>/]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/.exec(rest);
+    if (!tag) throw new Error(`"${rest.slice(0, 24)}" can't be read`);
+    const name = tag[1] ?? '';
+    if (!ELEMENTS.has(name)) throw new Error(`element <${name}> can't be read`);
+    const attrs = attrsOf(tag[2] ?? '', name);
+    at += tag[0].length;
+    let content = '';
+    if (tag[3] !== '/') {
+      const close = body.indexOf(`</${name}>`, at);
+      if (close < 0) throw new Error(`<${name}> is never closed`);
+      content = body.slice(at, close);
+      if (content.includes('<')) throw new Error(`<${name}> holds other elements`);
+      at = close + `</${name}>`.length;
+    }
+    out.push({ name, attrs, content });
+  }
+  return { root, body: out };
+}
+
+/** The paint and type a shape draws with: the root's, then its own attributes, then its style. */
+function presentationOf(root: Readonly<Record<string, string>>, el: Element): Record<string, string> {
+  const own: Record<string, string> = {};
+  for (const [name, value] of Object.entries(el.attrs)) if (PRESENTATION.has(name)) own[name] = value;
+  return { ...root, ...own, ...(el.attrs.style === undefined ? {} : styleOf(el.attrs.style, el.name)) };
+}
+
+const CAPS: readonly LineCap[] = ['butt', 'round', 'square'];
+const JOINS: readonly LineJoin[] = ['miter', 'round', 'bevel'];
+
+function dashOf(value: string | undefined, tag: string): number[] | null {
+  if (value === undefined || value.trim() === 'none') return null;
+  const parts = value
+    .trim()
+    .split(/[\s,]+/)
+    .filter((s) => s !== '')
+    .map((s) => num(s, `<${tag}> stroke-dasharray`));
+  if (parts.some((v) => v < 0)) throw new Error(`<${tag}> stroke-dasharray "${value}" is negative`);
+  return parts.every((v) => v === 0) ? null : parts;
+}
+
+/** The weight a font-weight names. */
+function weightOf(value: string | undefined, tag: string): number {
+  if (value === undefined || value === 'normal') return 400;
+  if (value === 'bold') return 700;
+  return num(value, `<${tag}> font-weight`);
 }
 
 /** Outward to a hundredth, so the box always holds what it measured. */
 const down = (v: number) => Math.floor(v * 100 + 1e-6) / 100;
 const up = (v: number) => Math.ceil(v * 100 - 1e-6) / 100;
 
-/** What one icon's SVG draws on the 32 px grid, padded by half its widest stroke and kept inside the grid. */
-export function iconBox(svg: string): IconBox {
-  const root = /<svg\b[^>]*>/.exec(svg)?.[0] ?? '';
-  const body = svg.slice(svg.indexOf(root) + root.length).replace(/<\/svg>\s*$/, '');
-  const widths = [...svg.matchAll(/stroke-width="([^"]*)"/g)].map((m) => n(m[1]));
-  // An SVG's strokes default to 1 when it sets none.
-  const pad = Math.max(1, ...widths) / 2;
+/** What one icon's SVG draws: its shapes as data and the box of their geometry on the 32 px grid, kept inside the grid. */
+export function iconDrawing(svg: string): IconDrawing {
+  const { root, body } = elementsOf(svg);
+  const inherited: Record<string, string> = {};
+  for (const [name, value] of Object.entries(root)) {
+    if (PRESENTATION.has(name)) inherited[name] = value;
+    else if (!ROOT_ONLY.has(name)) throw new Error(`<svg> attribute ${name} can't be read`);
+  }
+  if (root.viewBox !== undefined) {
+    const view = root.viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map((v) => num(v, '<svg> viewBox'));
+    if (view.join(' ') !== `0 0 ${String(GRID)} ${String(GRID)}`) throw new Error(`<svg> viewBox "${root.viewBox}" isn't the 32 px grid`);
+  }
+  for (const name of ['width', 'height']) if (root[name] !== undefined) num(root[name] ?? '', `<svg> ${name}`);
+  const shapes: IconPart[] = [];
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const m of body.matchAll(/<(\w+)\b([^>]*?)(\/>|>([^<]*)<\/\1>)/g)) {
-    const name = m[1] ?? '';
-    const a = attrsOf(m[2] ?? '');
-    const pts = shapePoints(name, a, m[4] ?? '');
-    if (pts === null) continue;
-    const move = transformOf(a.transform);
-    for (const p of pts.map(move)) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
+  const take = (p: Pt) => {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  };
+  for (const el of body) {
+    if (el.name === 'title' || el.name === 'desc') {
+      if (Object.keys(el.attrs).length > 0) throw new Error(`<${el.name}> has attributes`);
+      continue;
     }
+    const allowed = new Set([...(GEOMETRY[el.name] ?? []), ...PRESENTATION, 'transform', 'style', 'opacity']);
+    for (const name of Object.keys(el.attrs)) if (!allowed.has(name)) throw new Error(`<${el.name}> attribute ${name} can't be read`);
+    const p = presentationOf(inherited, el);
+    // SVG's defaults: black fill, no stroke, 1 wide, butt caps, mitred joins.
+    const fill = paint(p.fill ?? '#000000', `<${el.name}> fill`);
+    const fillOpacity = p['fill-opacity'] === undefined ? 1 : opacity(p['fill-opacity'], `<${el.name}> fill-opacity`);
+    const stroke = paint(p.stroke ?? 'none', `<${el.name}> stroke`);
+    const own = el.attrs.opacity === undefined ? 1 : opacity(el.attrs.opacity, `<${el.name}> opacity`);
+    if (el.name === 'text') {
+      if (el.attrs.transform !== undefined) throw new Error('<text> with a transform can’t be drawn');
+      if (stroke !== null) throw new Error('<text> with a stroke can’t be drawn');
+      if (fill === null) throw new Error('<text> with no fill draws nothing');
+      const text = el.content.trim();
+      if (text === '' || /[&<>]/.test(text)) throw new Error(`<text> "${el.content}" can't be read`);
+      const family = (p['font-family'] ?? '').split(',')[0]?.trim().replace(/^"(.*)"$/, '$1') ?? '';
+      if (!FACES.includes(family)) throw new Error(`<text> font "${p['font-family'] ?? ''}" isn't a bundled face`);
+      const anchor = p['text-anchor'] ?? 'start';
+      if (anchor !== 'start' && anchor !== 'middle' && anchor !== 'end') throw new Error(`<text> text-anchor "${anchor}" can't be read`);
+      const size = num(p['font-size'] ?? '', '<text> font-size');
+      const x = numAttr(el.attrs, 'x', 'text', 0);
+      const y = numAttr(el.attrs, 'y', 'text', 0);
+      shapes.push({ kind: 'text', text, x, y, size, anchor, family, weight: weightOf(p['font-weight'], 'text'), fill, fillOpacity, opacity: own });
+      // A nominal box: a monospace face's advance (0.6 em a character), from its cap height to its descent.
+      const width = 0.6 * size * text.length;
+      const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
+      take({ x: left, y: y - 0.8 * size });
+      take({ x: left + width, y: y + 0.2 * size });
+      continue;
+    }
+    const lineCap = p['stroke-linecap'] ?? 'butt';
+    const lineJoin = p['stroke-linejoin'] ?? 'miter';
+    if (!(CAPS as readonly string[]).includes(lineCap)) throw new Error(`<${el.name}> stroke-linecap "${lineCap}" can't be read`);
+    if (!(JOINS as readonly string[]).includes(lineJoin)) throw new Error(`<${el.name}> stroke-linejoin "${lineJoin}" can't be read`);
+    const d = pathData(pathSegments(outlineOf(el.name, el.attrs)), transformOf(el.attrs.transform, el.name));
+    shapes.push({
+      kind: 'path',
+      d,
+      // A line is never filled.
+      fill: el.name === 'line' ? null : fill,
+      fillOpacity,
+      stroke,
+      strokeOpacity: p['stroke-opacity'] === undefined ? 1 : opacity(p['stroke-opacity'], `<${el.name}> stroke-opacity`),
+      strokeWidth: p['stroke-width'] === undefined ? 1 : num(p['stroke-width'], `<${el.name}> stroke-width`),
+      dash: dashOf(p['stroke-dasharray'], el.name),
+      lineCap: lineCap as LineCap,
+      lineJoin: lineJoin as LineJoin,
+      opacity: own,
+    });
+    for (const pt of pathPoints(d)) take(pt);
   }
-  if (!Number.isFinite(minX)) throw new Error('nothing drawn');
-  const x = Math.max(0, down(minX - pad));
-  const y = Math.max(0, down(minY - pad));
-  const right = Math.min(GRID, up(maxX + pad));
-  const bottom = Math.min(GRID, up(maxY + pad));
-  return { x, y, width: Math.round((right - x) * 100) / 100, height: Math.round((bottom - y) * 100) / 100 };
+  if (shapes.length === 0) throw new Error('nothing drawn');
+  const x = Math.max(0, down(minX));
+  const y = Math.max(0, down(minY));
+  const right = Math.min(GRID, up(maxX));
+  const bottom = Math.min(GRID, up(maxY));
+  const box = { x, y, width: Math.round((right - x) * 100) / 100, height: Math.round((bottom - y) * 100) / 100 };
+  if (![box.x, box.y, box.width, box.height].every(Number.isFinite)) throw new Error('its box isn’t a number');
+  if (box.width < 0 || box.height < 0 || (box.width === 0 && box.height === 0)) throw new Error('its box is empty');
+  return { box, shapes };
 }
 
-/** Every icon's box, by id ("set-art/sofa"), from its SVG's text: by hand where BY_HAND has it. */
-export function iconBoxes(svgs: Readonly<Record<string, string>>): Record<string, IconBox> {
-  const out: Record<string, IconBox> = {};
+/** What one icon's SVG draws on the 32 px grid: the box of its geometry. */
+export const iconBox = (svg: string): IconBox => iconDrawing(svg).box;
+
+/** Every icon's drawing, by id ("set-art/sofa"), from its SVG's text; one that can't be read throws, naming its file. */
+export function iconDrawings(svgs: Readonly<Record<string, string>>): Record<string, IconDrawing> {
+  const out: Record<string, IconDrawing> = {};
   for (const id of Object.keys(svgs).sort()) {
-    const svg = svgs[id] ?? '';
-    const hand = Object.hasOwn(BY_HAND, id) ? BY_HAND[id] : undefined;
-    out[id] = hand ?? iconBox(svg);
+    try {
+      out[id] = iconDrawing(svgs[id] ?? '');
+    } catch (error) {
+      throw new Error(`${ICONS}/${id}.svg: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   return out;
 }
 
+/** Every icon's box, by id. */
+export function iconBoxes(svgs: Readonly<Record<string, string>>): Record<string, IconBox> {
+  return Object.fromEntries(Object.entries(iconDrawings(svgs)).map(([id, drawing]) => [id, drawing.box]));
+}
+
+/** A value as TypeScript source, single-quoted as the repo writes it. */
+function literal(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string') return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return `[${value.map(literal).join(', ')}]`;
+  if (typeof value === 'object') return `{ ${Object.entries(value as Record<string, unknown>).map(([k, v]) => `${k}: ${literal(v)}`).join(', ')} }`;
+  throw new Error(`can't write ${typeof value}`);
+}
+
 /** The table as the TypeScript file the app reads. */
-export function iconBoxesSource(boxes: Readonly<Record<string, IconBox>>): string {
-  const rows = Object.entries(boxes).map(([id, b]) => `  '${id}': { x: ${String(b.x)}, y: ${String(b.y)}, width: ${String(b.width)}, height: ${String(b.height)} },`);
+export function iconBoxesSource(drawings: Readonly<Record<string, IconDrawing>>): string {
+  const boxes = Object.entries(drawings).map(([id, d]) => `  '${id}': ${literal(d.box)},`);
+  const shapes = Object.entries(drawings).flatMap(([id, d]) => [`  '${id}': [`, ...d.shapes.map((s) => `    ${literal(s)},`), '  ],']);
   return [
     '// Written by scripts/planIconBoxes.ts (node scripts/planIconBoxes.ts, after the kit’s icons change); never edited by',
-    '// hand. What each plan icon draws on its 32 px grid, padded by half its widest stroke: the box an icon is cut to.',
+    '// hand. What each plan icon draws on its 32 px grid: the bare box of its geometry (no stroke padding), and its shapes',
+    '// as data, paths with their transforms applied and texts, in the kit’s own colours. Shared by every item of an icon.',
     '',
     'export interface IconBox {',
     '  x: number;',
@@ -322,8 +696,42 @@ export function iconBoxesSource(boxes: Readonly<Record<string, IconBox>>): strin
     '  height: number;',
     '}',
     '',
+    'export interface IconPath {',
+    "  kind: 'path';",
+    '  d: string;',
+    '  fill: string | null;',
+    '  fillOpacity: number;',
+    '  stroke: string | null;',
+    '  strokeOpacity: number;',
+    '  strokeWidth: number;',
+    '  dash: readonly number[] | null;',
+    "  lineCap: 'butt' | 'round' | 'square';",
+    "  lineJoin: 'miter' | 'round' | 'bevel';",
+    '  opacity: number;',
+    '}',
+    '',
+    'export interface IconText {',
+    "  kind: 'text';",
+    '  text: string;',
+    '  x: number;',
+    '  y: number;',
+    '  size: number;',
+    "  anchor: 'start' | 'middle' | 'end';",
+    '  family: string;',
+    '  weight: number;',
+    '  fill: string;',
+    '  fillOpacity: number;',
+    '  opacity: number;',
+    '}',
+    '',
+    'export type IconPart = IconPath | IconText;',
+    '',
     'export const ICON_BOXES: Readonly<Record<string, IconBox>> = {',
-    ...rows,
+    ...boxes,
+    '};',
+    '',
+    'export const ICON_SHAPES: Readonly<Record<string, readonly IconPart[]>> = {',
+    ...shapes,
     '};',
     '',
   ].join('\n');
@@ -346,7 +754,7 @@ export function kitSvgs(root = '.'): Record<string, string> {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const boxes = iconBoxes(kitSvgs());
-  writeFileSync(OUT, iconBoxesSource(boxes));
-  console.log(`Wrote ${String(Object.keys(boxes).length)} boxes to ${OUT}.`);
+  const drawings = iconDrawings(kitSvgs());
+  writeFileSync(OUT, iconBoxesSource(drawings));
+  console.log(`Wrote ${String(Object.keys(drawings).length)} icons to ${OUT}.`);
 }

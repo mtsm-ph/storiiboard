@@ -421,6 +421,14 @@ unreadable value reads as not set, as every prop does.
     `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
     `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
+  - Reach and size (6.3 review): a wall's, icon's or camera's `x` and `y` are read only within 10 000 m (10 km) of the
+    plan's origin either way, and its `width` and `height` (a wall's length and thickness) only up to 1 000 m (1 km); a
+    door's or window's `along_m` only up to 10 000 m and its `width_m` up to 1 000 m (src/core/model/plan.ts,
+    `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308) the item isn't read and is kept unseen, as one with
+    no size is, so the canvas never works in endless units. The app never writes past them (third review round): a
+    typed field, a nudge, a drag or resize, a paste, a run of walls or a placement that would leave a wall, door,
+    window, icon or camera past them is refused whole and writes nothing (one check, `unreadableAfter` in
+    src/features/birdseye/plan/planItems.ts); a typed field says it isn't a length.
   - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
     metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
     `width_m` (6.2b): a door or window in its wall, its distance along it and its width, metres; `hinge` and `swing`
