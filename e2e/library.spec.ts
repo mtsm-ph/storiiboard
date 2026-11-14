@@ -5,7 +5,7 @@ import { closeSettings, openSettings } from './settings';
 
 // The library (6.3) in the memory build: a sofa dragged from the Library onto a scene's room reads 2.00 m by 0.90 m in
 // the Selection tile; a C-stand placed from the keyboard goes into the setup and the arrows nudge it; the scene's other
-// setup shows the sofa, not the C-stand; a table resized and turned by typing; a camera, not placeable yet, says why;
+// setup shows the sofa, not the C-stand; a table resized and turned by typing; a light, not placeable yet, says why;
 // undo, redo and a reload; the plan stays paper in dark; and axe on the Library tile. The canvas is pixels, so the tests
 // read the plan from the data its tile keeps (data-plan-data, in metres).
 
@@ -164,7 +164,7 @@ test('drags a sofa into the room, places a C-stand from the keyboard into the se
   await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
 });
 
-test('resizes and turns a table by typing, refuses a camera with words, and keeps it all through undo, redo and a reload', async ({ page }) => {
+test('resizes and turns a table by typing, refuses a light with words, and keeps it all through undo, redo and a reload', async ({ page }) => {
   await startRoom(page);
   await libraryIcon(page, 'set-art/table').focus();
   await page.keyboard.press('Enter');
@@ -183,17 +183,18 @@ test('resizes and turns a table by typing, refuses a camera with words, and keep
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await icons(page))[0]?.rotation).toBe(90);
 
-  // A camera comes later in this phase: greyed out, and it says so when dragged (with no ghost) or pressed.
-  const camera = libraryIcon(page, 'camera/camera');
+  // A light comes later in this phase (cameras are placed from 6.4): greyed out, and it says so when dragged (with no
+  // ghost) or pressed.
+  const camera = libraryIcon(page, 'lighting/fresnel');
   await expect(camera).toHaveAttribute('aria-disabled', 'true');
-  await expect(libraryTile(page).locator('[data-library-group="camera"]')).toContainText('Coming in this phase');
-  const comingNotice = page.getByText('Camera: coming in this phase.', { exact: true });
+  await expect(libraryTile(page).locator('[data-library-group="lighting"]')).toContainText('Coming in this phase');
+  const comingNotice = page.getByText('Fresnel: coming in this phase.', { exact: true });
   await expect(comingNotice).toHaveCount(0);
   // The Library scrolled down to the table when it was placed.
   await camera.scrollIntoViewIfNeeded();
   const box = await camera.boundingBox();
   const target = await screen(page, 200, 200);
-  if (!box) throw new Error('no camera in the Library');
+  if (!box) throw new Error('no light in the Library');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });

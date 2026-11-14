@@ -6,7 +6,8 @@ import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, rectFromCorners, topmostAt } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
-import { ItemNodes, type RegisterNode } from './ItemNodes';
+import { drawnItems } from './culling';
+import { beyondKey, ItemNodes, type RegisterNode } from './ItemNodes';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
@@ -380,12 +381,9 @@ export function Canvas({
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
   const pickedSet = new Set(selection);
-  // A section's name tab counts as part of it, or its name would vanish while the section's corner is just off the view.
-  const reach = (item: CanvasItem): WorldRect => {
-    const tab = tabRect(item);
-    return (tab ? unionBounds([boundsFor(item), tab]) : null) ?? boundsFor(item);
-  };
-  const drawn = shown.filter((item) => pickedSet.has(item.id) || rectsMeet(reach(item), world));
+  // A section's name tab counts as part of it, or its name would vanish while the section's corner is just off the view;
+  // so does what an item draws past its box (6.4: a camera's cone), or the cone would vanish with its camera's box.
+  const drawn = drawnItems(shown, pickedSet, world);
   // A picked item out of the view is still drawn (its handles need the node), but not as in view: its picture stays small.
   const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
   const drawnSections = drawn.filter((item) => item.section);
@@ -565,6 +563,12 @@ export function Canvas({
       const node = nodes.current.get(item.id);
       if (!node || !latest.current.selection.includes(item.id)) continue;
       live.set(item.id, nodeGeometry(latest.current.draft?.get(item.id) ?? item, node));
+      // What it draws past its box turns and moves with it under the handles (never stretched: a cone keeps its angle).
+      const beyond = nodes.current.get(beyondKey(item.id));
+      if (beyond) {
+        beyond.position(node.position());
+        beyond.rotation(node.rotation());
+      }
     }
     setTransforming({ key: latest.current.selection.join('|'), live });
   };

@@ -119,7 +119,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
   },
   {
     // Home of the bird's-eye view (CLAUDE.md, Navigation). Live from 6.0, with its Setups tile, the Plan and Selection
-    // tiles from 6.2a and the Library from 6.3; the layers and frames tiles stay placeholders until the rest of Phase 6.
+    // tiles from 6.2a, the Library from 6.3 and the Frames tile from 6.4; the layers tile stays a placeholder until 6.8.
     id: 'setup',
     get label() {
       return t('workspace.setup');

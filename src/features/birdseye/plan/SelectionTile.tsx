@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
 import { formatLength, hasGroupingComma, parseLength, type PlanUnit } from '../../../core/model/length';
 import {
+  isCamera,
   isIcon,
   isOpening,
   isWallFields,
@@ -18,21 +17,23 @@ import {
   scenesUsingRoom,
   shownFields,
   wallEnds,
+  type BoxFields,
   type Hinge,
-  type IconFields,
   type OpeningFields,
   type PlanItemFields,
   type Swing,
 } from '../../../core/model/plan';
 import { alsoInRoom, itemHome, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOthers, type PlanPlace } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
-import { Select, TextField, Toggle } from '../../../ui/fields';
+import { Select, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
 import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
 import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
+import { CameraFieldsView } from './CameraSelection';
+import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
 // and each one edit when it's left (one ⌘Z), lengths in the unit the screen shows and read in any form (src/core/model/
@@ -42,71 +43,6 @@ import { AlsoIn, useLiveView } from './PlanTile';
 // and back. Nothing selected: the room, its name, and how many scenes are set in it.
 
 type Records = Readonly<Record<string, SbdRecord>>;
-
-/** The value every one of them has, or null when they differ. */
-function shared<T>(values: readonly T[]): T | null {
-  const [first] = values;
-  return first !== undefined && values.every((v) => v === first) ? first : null;
-}
-
-interface TypedFieldProps {
-  label: string;
-  /** What the field shows: '' for nothing set, or for several that differ. */
-  text: string;
-  /** Several selected with different values. */
-  mixed?: boolean;
-  /** Technical values (lengths, degrees) are mono; a name isn't. */
-  mono?: boolean;
-  /**
-   * Reads what was typed: true when it was taken (and written), false to snap back saying `refused` when given, or the
-   * words to say as it snaps back (a length that doesn't fit).
-   */
-  onCommit: (typed: string) => boolean | string;
-  refused?: string;
-}
-
-/**
- * A field written when it's left or Enter is pressed, one edit each. The caller keys it by the item and the field,
- * never by its value: Enter keeps the focus in it, and what the records say (an undo, the tidy form of what was typed)
- * shows in it as it changes.
- */
-function TypedField({ label, text, mixed = false, mono = true, onCommit, refused }: TypedFieldProps) {
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (input.current) input.current.value = text;
-  }, [text]);
-  const commit = (field: HTMLInputElement) => {
-    if (field.value.trim() === text) return;
-    const taken = onCommit(field.value);
-    // Taken: the field shows the value as the plan has it ("3.50 m" for "3.5"), even when it's the one already stored,
-    // which changes nothing the field would hear of. A new value comes back through `text` once it's written.
-    field.value = text;
-    if (taken === true) return;
-    const words = typeof taken === 'string' ? taken : refused;
-    if (words !== undefined) showInfo(words);
-  };
-  return (
-    <TextField
-      ref={input}
-      label={label}
-      mono={mono}
-      autoComplete="off"
-      defaultValue={text}
-      placeholder={mixed ? t('plan.field.mixed') : undefined}
-      onBlur={(event) => {
-        commit(event.currentTarget);
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter') return;
-        event.preventDefault();
-        commit(event.currentTarget);
-      }}
-    />
-  );
-}
-
-/** "90°": a rotation in whole hundredths, as a technical value. */
-const degreesText = (degrees: number): string => t('plan.degrees', { value: String(Math.round(degrees * 100) / 100) });
 
 export function SelectionTile() {
   return (
@@ -134,7 +70,8 @@ function SelectionContent() {
     const ids = selected.map((s) => s.id);
     const walls = selected.flatMap((s) => (isWallFields(s.fields) ? [s.fields] : []));
     const openings = selected.flatMap((s) => (isOpening(s.fields) ? [s.fields] : []));
-    const icons = selected.flatMap((s) => (isIcon(s.fields) ? [s.fields] : []));
+    const icons = selected.flatMap((s) => (isIcon(s.fields) || isCamera(s.fields) ? [s.fields] : []));
+    const [camera] = selected.flatMap((s) => (isCamera(s.fields) ? [s] : []));
     // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its already.
     const movable = ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
     return (
@@ -143,6 +80,9 @@ function SelectionContent() {
           <WallFields ids={ids} walls={walls} unit={unit} records={records} view={live.view} />
         ) : openings.length === selected.length ? (
           <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
+        ) : camera && selected.length === 1 && isCamera(camera.fields) ? (
+          // A camera (6.4): its body, its frames, its lens, its field of view.
+          <CameraFieldsView id={camera.id} fields={camera.fields} unit={unit} records={records} />
         ) : icons.length === selected.length ? (
           <IconFieldsView ids={ids} icons={icons} unit={unit} records={records} />
         ) : (
@@ -235,17 +175,6 @@ function PlaceList({ places }: { places: readonly PlanPlace[] }) {
     </span>
   );
 }
-
-/** A length field's commit: what's typed read in any form; `empty` is what an emptied field means, if it may be. */
-const lengthCommit =
-  <P,>(unit: PlanUnit, write: (patch: P) => boolean | string, apply: (m: number) => P, opts: { signed?: boolean; empty?: P } = {}) =>
-  (typed: string): boolean | string => {
-    if (typed.trim() === '' && opts.empty) return write(opts.empty);
-    if (hasGroupingComma(typed)) return t('plan.groupingComma');
-    const m = parseLength(typed, unit, opts.signed ?? false);
-    if (m === null || (!opts.signed && m <= 0)) return false;
-    return write(apply(m));
-  };
 
 function WallFields({ ids, walls, unit, records, view }: { ids: readonly string[]; walls: readonly PlanItemFields[]; unit: PlanUnit; records: Records; view: PlanView }) {
   const lengthText = (values: readonly number[]) => {
@@ -411,7 +340,7 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
  * A library icon's fields (6.3): its name, width and depth, its real height, its rotation and its middle, each typed;
  * a new size or rotation keeps its middle where it is. Several: the fields they share, and a change goes to each.
  */
-function IconFieldsView({ ids, icons, unit, records }: { ids: readonly string[]; icons: readonly IconFields[]; unit: PlanUnit; records: Records }) {
+function IconFieldsView({ ids, icons, unit, records }: { ids: readonly string[]; icons: readonly BoxFields[]; unit: PlanUnit; records: Records }) {
   const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
   const write = (patch: IconPatch): boolean => {
     // Under a centimetre, or past the plan's reach or size: refused, nothing saved (6.3 review).

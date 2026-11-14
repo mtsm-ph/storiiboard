@@ -50,6 +50,7 @@ const snapOf = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }):
 /** Why an icon wasn't placed, in words, as a notice; nothing for a drop after the project was switched. */
 function sayRefusal(why: PlaceOutcome, label: string): void {
   if (why === 'coming') showInfo(t('library.comingNotice', { what: label }));
+  else if (why === 'shown') showInfo(t('library.drawnByCamera', { what: label }));
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
   else if (why === 'noScene') showInfo(t('library.pick'));
@@ -149,6 +150,8 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
   const [active, setActive] = useState(0);
   const current = Math.min(active, entries.length - 1);
   const coming = entries.filter((e) => e.use === 'coming').length;
+  // The field of view (6.4): never placed, since each camera draws its own; said under its group.
+  const shownOnly = entries.some((e) => e.use === 'shown');
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[data-library-icon]') ?? [])];
     const index = buttons.findIndex((b) => b === document.activeElement);
@@ -172,6 +175,11 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
           {coming === entries.length ? t('library.coming') : t('library.comingSome')}
         </p>
       )}
+      {coming === 0 && shownOnly && (
+        <p id={noteId} className="text-[11px] text-text-muted">
+          {t('library.shownNote')}
+        </p>
+      )}
       <ul ref={list} aria-labelledby={headingId} className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
         {entries.map((entry, i) => (
           <li key={entry.icon.id} className="flex">
@@ -179,7 +187,7 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
               entry={entry}
               view={view}
               state={state}
-              describedBy={entry.use === 'coming' ? noteId : stateId}
+              describedBy={entry.use === 'coming' || entry.use === 'shown' ? noteId : stateId}
               tabStop={i === current}
               onKeyDown={onKeyDown}
               onFocus={() => {
@@ -195,7 +203,7 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
 
 /** Whether an entry can be placed now, from what the tile knows: refused ones show greyed out and say why when pressed. */
 function refusalNow(entry: LibraryEntry, view: PlanView | null, state: LibraryState): IconRefusal | null {
-  if (entry.use !== 'place') return entry.use === 'coming' ? 'coming' : null;
+  if (entry.use !== 'place') return entry.use === 'coming' || entry.use === 'shown' ? entry.use : null;
   if (state.kind === 'noView' || !view) return 'noScene';
   if (state.kind === 'noRoom') return 'noRoom';
   if (state.kind === 'noSetup' && iconHome(entry.icon.id) === 'setup') return 'noSetup';

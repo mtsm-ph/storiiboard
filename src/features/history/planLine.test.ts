@@ -255,3 +255,45 @@ describe('History for library icons (6.3)', () => {
     expect(tell([op('create', null, icon('a', 'set-art/sofa')), op('create', null, icon('b', 'set-art/table'))])).toBe('Se colocaron 2 elementos de la planta');
   });
 });
+
+// 6.4: cameras, named as the icon they were placed as; their frames by number.
+describe('History for cameras (6.4)', () => {
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const shot = (id: string, number: string) => record(id, 'shot', 'sc4', { number, setup_id: 'u1', lens_mm: 35 });
+  const camera = (id: string, props: Props = {}, icon = 'camera/camera') => record(id, 'plan_item', 'own', { kind: 'camera', icon, x: 0, y: 0, width: 0.4, height: 0.4, rotation: 0, ...props });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['own', own], ['a', shot('a', '4A')], ['b', shot('b', '4B')]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+
+  it('says a camera was placed, turned, its body changed, a frame linked, unlinked and shown, set on its side, a lens typed and taken off', () => {
+    const cam = camera('c');
+    expect(tell([op('create', null, cam)])).toBe('Placed a camera');
+    expect(tell([op('create', null, camera('d', {}, 'camera/dolly-track'))])).toBe('Placed a dolly and track');
+    expect(tell([op('update', cam, camera('c', { rotation: 45 }))])).toBe('Turned a camera');
+    expect(tell([op('update', cam, camera('c', { body_id: 'fx3' }))])).toBe('Changed the body of a camera');
+    expect(tell([op('update', cam, camera('c', { shot_ids: ['a'] }))])).toBe('Linked 4A to a camera');
+    // Linked here, taken from another camera in the same step.
+    const other = camera('o', { shot_ids: ['b'] });
+    expect(tell([op('update', other, camera('o')), op('update', cam, camera('c', { shot_ids: ['b'] }))])).toBe('Linked 4B to a camera');
+    expect(tell([op('update', camera('c', { shot_ids: ['a', 'b'], shown_shot_id: 'b' }), camera('c', { shot_ids: ['a'] }))])).toBe('Unlinked 4B from a camera');
+    expect(tell([op('update', camera('c', { shot_ids: ['a', 'b'] }), camera('c', { shot_ids: ['a', 'b'], shown_shot_id: 'b' }))])).toBe('Showed 4B’s lens on a camera');
+    expect(tell([op('update', cam, camera('c', { on_side: true }))])).toBe('Set a camera on its side');
+    expect(tell([op('update', camera('c', { on_side: true }), cam)])).toBe('Set a camera upright');
+    expect(tell([op('update', cam, camera('c', { lens_mm: 50 }))])).toBe('Typed a 50 mm lens on a camera');
+    expect(tell([op('update', camera('c', { lens_mm: 50, shot_ids: ['a'] }), camera('c', { shot_ids: ['a'] }))])).toBe('Took the typed lens off a camera: it now uses the frame’s lens');
+    expect(tell([op('update', camera('c', { lens_mm: 50 }), cam)])).toBe('Took the lens off a camera');
+    expect(tell([op('trash', cam, { ...cam, trashedAt: at })])).toBe('Deleted a camera');
+  });
+
+  it('names a camera’s fields, never its ids', () => {
+    const changes = fieldChanges(camera('c'), camera('c', { body_id: 'fx3', on_side: true }));
+    expect(changes.map((c) => changeLabel(c))).toEqual(['camera body', 'on its side']);
+    expect(valueText('shot_ids', ['a', 'b'])).toBe('2 frames');
+    expect(valueText('body_id', 'fx3')).toBe('a camera body');
+  });
+
+  it('says it in Spanish too', () => {
+    setLocale('es');
+    expect(tell([op('update', camera('c'), camera('c', { shot_ids: ['a'] }))])).toBe('Se vinculó 4A a una cámara');
+    expect(tell([op('update', camera('c'), camera('c', { on_side: true }))])).toBe('Se puso una cámara de costado');
+  });
+});
