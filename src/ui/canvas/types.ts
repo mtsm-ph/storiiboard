@@ -78,6 +78,17 @@ export interface CanvasItem extends Geometry {
    * contents. It is always upright.
    */
   section?: SectionLook;
+  /** Drawn but never picked: not by a click, a marquee, Tab or Select all (6.2a; a locked layer, an underlay). */
+  locked?: boolean;
+  /** Drawn at reduced opacity (6.2a; a dimmed layer). */
+  dim?: boolean;
+  /**
+   * Where the item snaps (6.2a; a wall's two middle line ends), in world units, absolute, for the item where it is now
+   * (a move carries them with it). Given, a move snaps these to the grid and to other items' snap points, in place of
+   * the box's edges and other items' lines; without (a board's items), the box snaps as it always has. A point-to-point
+   * run's clicks join them too.
+   */
+  snapPoints?: readonly Point[];
 }
 
 /** What makes an item a section: the name tab above its top left corner, and how the host draws it. */
@@ -98,10 +109,64 @@ export interface Viewport {
 /** The tools that place an item: drag to draw it or click to put one down (5.1a adds text, sticky and three shapes; 5.1b a link card; 5.5 a deck's page). */
 export type PlaceTool = 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'text' | 'sticky' | 'link' | 'section' | 'page';
 
-/** The Connector tool (5.2) draws a line between items; it places nothing by itself. */
-export type Tool = 'select' | 'hand' | 'connector' | PlaceTool;
+/** A tool a host adds of its own (6.2a: a plan's Wall), named so it never meets a board's. */
+export type HostToolId = `host:${string}`;
 
-export const isPlaceTool = (tool: Tool): tool is PlaceTool => tool !== 'select' && tool !== 'hand' && tool !== 'connector';
+/** The Connector tool (5.2) draws a line between items; it places nothing by itself. */
+export type Tool = 'select' | 'hand' | 'connector' | PlaceTool | HostToolId;
+
+export const isHostTool = (tool: Tool): tool is HostToolId => tool.startsWith('host:');
+export const isPlaceTool = (tool: Tool): tool is PlaceTool => tool !== 'select' && tool !== 'hand' && tool !== 'connector' && !isHostTool(tool);
+
+/**
+ * A tool in a host's own list (6.2a): given, it takes the place of a board's tools in the strip and in the keys. A host
+ * tool places what a click or drag makes (`size`), or draws point to point (`pointToPoint`: each click ends a segment
+ * and starts the next, Enter or a double-click finishes, Escape drops the segment in progress).
+ */
+export interface ToolSpec {
+  id: Tool;
+  label: () => string;
+  /** The letter that picks it, as the strip shows it ("W"); read from the letter typed. */
+  key: string;
+  /** The key as a screen reader says it, when the shown one isn't plain ("Shift+S"). */
+  aria?: string;
+  /** What a click places, world units. */
+  size?: Size;
+  pointToPoint?: boolean;
+  /** How wide a run's segments are drawn while drawing, world units (a wall's thickness); else a hairline. */
+  pathWidth?: number;
+}
+
+/** A grid in world units: its step, every how many steps a line is strong, and the step Alt snaps to. */
+export interface GridSpec {
+  step: number;
+  major: number;
+  fine: number;
+}
+
+/**
+ * A real scale for the world (6.2a, a plan): what a distance reads as, how a typed one is read, the grid, and the round
+ * lengths the rulers and the scale bar pick from. With one, the canvas draws a grid, rulers and a scale bar, snaps to the
+ * grid, and its zoom label is the scale bar.
+ */
+export interface CanvasScale {
+  /** A distance in world units as the screen shows it: "3.50 m", 12' 6". */
+  format: (world: number) => string;
+  /** A typed distance in world units, or null when it can't be read. */
+  parse: (text: string) => number | null;
+  /** A round length's short label: "1 m", "10 ft". */
+  label: (world: number) => string;
+  grid: GridSpec;
+  /** Round lengths in world units, smallest first. */
+  rounds: readonly number[];
+}
+
+/** How far the view may zoom out and in, and the most a fit zooms in. */
+export interface ZoomLimits {
+  min: number;
+  max: number;
+  fitMax: number;
+}
 
 /** A side of an item's box, before its rotation. */
 export type Side = 'top' | 'right' | 'bottom' | 'left';

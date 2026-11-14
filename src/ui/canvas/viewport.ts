@@ -1,4 +1,4 @@
-import type { Point, Rect, Size, Viewport } from './types';
+import type { Point, Rect, Size, Viewport, ZoomLimits } from './types';
 
 // Screen and world, as pure functions of the view (decision 11). The view is the world point at the middle of the
 // canvas and a zoom, so a resize keeps what the person was looking at.
@@ -9,7 +9,10 @@ export const DEFAULT_VIEWPORT: Viewport = { cx: 0, cy: 0, zoom: 1 };
 /** Screen pixels of air round everything when fitting. */
 export const FIT_PADDING = 48;
 
-export const clampZoom = (zoom: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+/** A board's limits: 10% to 800%, and a fit never zooms in past 100%. A host with a real scale gives its own (6.2a). */
+export const BOARD_ZOOM: ZoomLimits = { min: MIN_ZOOM, max: MAX_ZOOM, fitMax: 1 };
+
+export const clampZoom = (zoom: number, limits: Pick<ZoomLimits, 'min' | 'max'> = BOARD_ZOOM): number => Math.min(limits.max, Math.max(limits.min, zoom));
 
 export function toWorld(view: Viewport, size: Size, screen: Point): Point {
   return { x: view.cx + (screen.x - size.width / 2) / view.zoom, y: view.cy + (screen.y - size.height / 2) / view.zoom };
@@ -26,9 +29,9 @@ export function visibleWorld(view: Viewport, size: Size): Rect {
   return { x: view.cx - width / 2, y: view.cy - height / 2, width, height };
 }
 
-/** The view at a new zoom (clamped to 10%–800%) with the world point under `screen` staying under it. */
-export function zoomAround(view: Viewport, size: Size, zoom: number, screen: Point): Viewport {
-  const next = clampZoom(zoom);
+/** The view at a new zoom (clamped to 10%–800%, or the limits given) with the world point under `screen` staying under it. */
+export function zoomAround(view: Viewport, size: Size, zoom: number, screen: Point, limits?: Pick<ZoomLimits, 'min' | 'max'>): Viewport {
+  const next = clampZoom(zoom, limits);
   const under = toWorld(view, size, screen);
   return {
     zoom: next,
@@ -51,10 +54,10 @@ export function centreOn(view: Viewport, world: Point): Viewport {
  * The view that shows `bounds` whole with `padding` screen pixels round it, never zoomed in past `maxZoom` (a lone
  * small item isn't blown up to fill the canvas). Nothing to fit, or no room: the default view.
  */
-export function fitBounds(bounds: Rect | null, size: Size, padding = FIT_PADDING, maxZoom = 1): Viewport {
+export function fitBounds(bounds: Rect | null, size: Size, padding = FIT_PADDING, maxZoom = 1, limits?: Pick<ZoomLimits, 'min' | 'max'>): Viewport {
   if (!bounds || size.width <= 0 || size.height <= 0) return DEFAULT_VIEWPORT;
   const room = { width: Math.max(1, size.width - padding * 2), height: Math.max(1, size.height - padding * 2) };
-  const zoom = clampZoom(Math.min(maxZoom, room.width / Math.max(bounds.width, 1e-6), room.height / Math.max(bounds.height, 1e-6)));
+  const zoom = clampZoom(Math.min(maxZoom, room.width / Math.max(bounds.width, 1e-6), room.height / Math.max(bounds.height, 1e-6)), limits);
   return { zoom, cx: bounds.x + bounds.width / 2, cy: bounds.y + bounds.height / 2 };
 }
 

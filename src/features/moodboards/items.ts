@@ -6,6 +6,7 @@ import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placemen
 import { sectionContents } from '../../ui/canvas/sections';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode, SectionLook } from '../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../ui/canvas/zOrder';
+import { INK, PAPER, PAPER_COLOURS, RAISED } from '../../ui/canvas/paperColours';
 import { cardUrl, linkLabel } from './links';
 import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './itemMedia';
 import { mediaFields } from '../../core/media/store';
@@ -46,9 +47,9 @@ export const SECTION_COLOURS = ['#E4E8D2', '#DCE6EE', '#EEDDD2', '#E6DDEE', '#F2
 export const STICKY_INK = '#16150F';
 // Board content is never themed (M5): the board's own paper, ink and raised surface are fixed, the light theme's, in
 // both themes. A text box with no `color` is ink; an unfilled shape is the raised surface with an ink outline.
-export const BOARD_PAPER = '#EEE9DF';
-export const BOARD_INK = '#16150F';
-export const BOARD_RAISED = '#C9C1B1';
+export const BOARD_PAPER = PAPER;
+export const BOARD_INK = INK;
+export const BOARD_RAISED = RAISED;
 /** The muted ink (the brand's muted text), for a card's second line, fixed like the rest of a board's content. */
 export const BOARD_MUTED = '#5E5A52';
 /** Truffle, the warning colour (paper text on it), fixed like the rest of a board's content. */
@@ -57,7 +58,7 @@ export const BOARD_WARNING = '#A35139';
 export const PRESENT_BLACK = '#000000';
 export const PRESENT_WHITE = '#FFFFFF';
 /** What the canvas draws a board in: fixed, so a board looks the same in light and dark and prints as seen. */
-export const BOARD_COLOURS: CanvasColours = { ink: BOARD_INK, paper: BOARD_PAPER, raised: BOARD_RAISED };
+export const BOARD_COLOURS: CanvasColours = PAPER_COLOURS;
 /** Swatches for shapes and text: the brand's inks and papers, then a few hues for a board's own use. */
 export const SWATCHES: readonly string[] = ['#16150F', '#5E5A52', '#C9C1B1', '#EEE9DF', '#FFFFFF', '#DF5E27', '#FFB162', '#A35139', '#2F6B4F', '#2C5F8A', '#6B4C9A', '#C23B5A'];
 export const DEFAULT_FONT_FAMILY = 'Inter Tight';

@@ -50,11 +50,13 @@ export function ItemHistory({
       });
     });
   };
-  // A scene keeps its location by id, and a frame its shoot day (3.7) and its setup (6.0), which mean nothing to a person.
-  const named: Readonly<Record<'location_id' | 'shoot_day_id' | 'setup_id', MessageKey>> = {
+  // A scene keeps its location and its room (6.2a) by id, and a frame its shoot day (3.7) and its setup (6.0), which mean
+  // nothing to a person.
+  const named: Readonly<Record<'location_id' | 'shoot_day_id' | 'setup_id' | 'room_id', MessageKey>> = {
     location_id: 'history.aLocation',
     shoot_day_id: 'history.aShootDay',
     setup_id: 'history.aSetup',
+    room_id: 'history.aRoom',
   };
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
     field.key === undefined && Object.hasOwn(named, field.prop) && typeof v === 'string' && v !== ''
