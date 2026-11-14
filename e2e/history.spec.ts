@@ -375,6 +375,9 @@ test('a Put back from the keyboard keeps focus in the table, so the next Tab rea
 });
 
 test('Show older steps keeps focus in the list once the last page is in', async ({ page }) => {
+  // 97 edits take about 22 s, and the new project about 7 s more when the whole suite runs on six workers: the default
+  // 30 s ran out just as its last check ran (Nov 14 trace). The time is the setup's, not the app's.
+  test.setTimeout(90_000);
   await frames(page).first().click();
   // Four steps so far; this many more puts the oldest past the first page of 100.
   for (let i = 0; i < 97; i += 1) await setLens(page, String(20 + i));

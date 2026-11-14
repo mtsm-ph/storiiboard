@@ -1,9 +1,8 @@
 import { projectStore } from '../../../app/projectStore';
-import { renamePlanChanges, sceneRoomId, shownItems, startRoomChanges, wallsAlong } from '../../../core/model/plan';
+import { renamePlanChanges, sceneRoomId, shownItems, startRoomChanges } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
-import { planClipOf, planGeometryChanges, planNudgeChanges, planPasteChanges, reorderPlanChanges, trashPlanItemsChanges, viewKey, wallPatchChanges, type WallPatch } from './planItems';
-import { toMetres } from './planScale';
+import { drawWallsChanges, planClipOf, planGeometryChanges, planNudgeChanges, planPasteChanges, reorderPlanChanges, trashPlanItemsChanges, viewKey, wallPatchChanges, type WallPatch } from './planItems';
 import { planStore } from './planStore';
 
 // What a person does on a plan (6.2a), as edits through projectStore.applyWith: each is one op group, so one ⌘Z, as a
@@ -38,13 +37,14 @@ export async function renameRoom(roomId: string, name: string): Promise<boolean>
   return projectStore.getState().applyWith((records) => ({ changes: renamePlanChanges(records, roomId, name) }));
 }
 
-/** A run of walls drawn (canvas units): one wall a segment, the whole run one op group, the new walls selected. */
+/**
+ * A run of walls drawn (canvas units): one wall a segment, the whole run one op group, the new walls selected. Always
+ * into the room of the view the run was drawn in, even when it ends because another view was picked.
+ */
 export async function drawWalls(view: PlanView, points: readonly Point[]): Promise<void> {
   let ids: string[] = [];
   const written = await projectStore.getState().applyWith((records) => {
-    const roomId = sceneRoomId(records, records[view.sceneId]);
-    if (roomId === null) return { changes: [] };
-    const made = wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
+    const made = drawWallsChanges(records, view.sceneId, points);
     ids = made.ids;
     return { changes: made.changes };
   });

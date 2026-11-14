@@ -2,7 +2,8 @@ import { t } from '../i18n';
 
 // Lengths on a plan (6.2a, docs/PHASE6_DECISIONS.md 7). The file always holds metres; the screen shows metres or feet
 // and inches (feet in the US, metres elsewhere, or as Settings → App says). A length can be typed either way, whatever
-// the screen shows: "3.5m", "3,5 m", "350cm", "12ft", "12'", 12' 6", 12'6, 6", "6in", or a bare number in the unit shown.
+// the screen shows: "3.5m", "3,5 m", "350cm", "12ft", "12'", 12' 6", 12'6, 6", "6in", or a bare number in the unit shown;
+// and the US architectural forms 12'-6", 12'-6, 12' 6 1/2", 6 1/2", and 12-6 while the screen shows feet.
 // Figures, never the language's decimals, when written out: they're technical values, as a lens's mm is.
 
 export type PlanUnit = 'metres' | 'feet';
@@ -14,10 +15,32 @@ const FOOT = 0.3048;
 const tidyMetres = (m: number): number => Math.round(m * 10000) / 10000;
 
 const NUMBER = String.raw`(\d+(?:\.\d*)?|\.\d+)`;
+/** Inches: a number, a number and a fraction (6 1/2), or a fraction alone (1/2). */
+const INCH_TEXT = String.raw`((?:\d+(?:\.\d*)?|\.\d+)(?:\s+\d+\/\d+)?|\d+\/\d+)`;
+const INCH_MARK = String.raw`(?:"|in|inch|inches)`;
 const METRIC = new RegExp(String.raw`^${NUMBER}\s*(m|cm|mm|metres?|meters?)$`);
-const FEET = new RegExp(String.raw`^${NUMBER}\s*(?:'|ft|feet|foot)\s*(?:${NUMBER}\s*(?:"|in|inch|inches)?)?$`);
-const INCHES = new RegExp(String.raw`^${NUMBER}\s*(?:"|in|inch|inches)$`);
+// 12', 12' 6", 12'6, 12'-6", 12' 6 1/2".
+const FEET = new RegExp(String.raw`^${NUMBER}\s*(?:'|ft|feet|foot)\s*(?:-\s*)?(?:${INCH_TEXT}\s*${INCH_MARK}?)?$`);
+const INCHES = new RegExp(String.raw`^${INCH_TEXT}\s*${INCH_MARK}$`);
+// 12-6: feet, a dash, inches; read only while the screen shows feet.
+const DASHED = new RegExp(String.raw`^(\d+)\s*-\s*${INCH_TEXT}$`);
 const BARE = new RegExp(String.raw`^${NUMBER}$`);
+/** A grouping comma (1,500): refused rather than guessed, since it reads as 1.5 where a comma is the decimal mark. */
+const GROUPING = /,\d{3}(?!\d)/;
+/** The longest length a plan takes: a kilometre. */
+const MOST = 1000;
+
+/** Inches as typed: 6, 6.5, 6 1/2, 1/2; null for a fraction over nothing. */
+function inchValue(text: string): number | null {
+  const [whole = '', fraction] = text.trim().split(/\s+/);
+  const part = (f: string): number | null => {
+    const [top, bottom] = f.split('/').map(Number);
+    return top !== undefined && bottom !== undefined && bottom > 0 ? top / bottom : null;
+  };
+  if (whole.includes('/')) return fraction === undefined ? part(whole) : null;
+  const rest = fraction === undefined ? 0 : part(fraction);
+  return rest === null ? null : Number(whole) + rest;
+}
 
 const METRIC_FACTOR: Readonly<Record<string, number>> = { m: 1, cm: 0.01, mm: 0.001 };
 
@@ -26,8 +49,15 @@ const METRIC_FACTOR: Readonly<Record<string, number>> = { m: 1, cm: 0.01, mm: 0.
  * position (X and Y may be left of or above the plan's origin); a length never has one.
  */
 export function parseLength(text: string, unit: PlanUnit, signed = false): number | null {
-  let s = text
-    .trim()
+  const m = readLength(text, unit, signed);
+  // Nothing over a kilometre either way: a typo (an extra zero, a unit left off), never a set.
+  return m === null || Math.abs(m) > MOST ? null : m;
+}
+
+function readLength(text: string, unit: PlanUnit, signed: boolean): number | null {
+  const typed = text.trim();
+  if (GROUPING.test(typed)) return null;
+  let s = typed
     .toLowerCase()
     // Typographic marks, as a Mac's smart quotes or a pasted spec write them; two single quotes are an inch mark.
     .replace(/[’′‘]/g, "'")
@@ -46,13 +76,17 @@ export function parseLength(text: string, unit: PlanUnit, signed = false): numbe
     const [, value = '', suffix = 'm'] = metric;
     return tidyMetres(sign * Number(value) * (METRIC_FACTOR[suffix] ?? 1));
   }
-  const feet = FEET.exec(s);
+  const feet = FEET.exec(s) ?? (unit === 'feet' ? DASHED.exec(s) : null);
   if (feet) {
     const [, ft = '0', inches] = feet;
-    return tidyMetres(sign * (Number(ft) * FOOT + Number(inches ?? '0') * INCH));
+    const extra = inches === undefined ? 0 : inchValue(inches);
+    return extra === null ? null : tidyMetres(sign * (Number(ft) * FOOT + extra * INCH));
   }
   const inches = INCHES.exec(s);
-  if (inches) return tidyMetres(sign * Number(inches[1] ?? '0') * INCH);
+  if (inches) {
+    const value = inchValue(inches[1] ?? '');
+    return value === null ? null : tidyMetres(sign * value * INCH);
+  }
   const bare = BARE.exec(s);
   if (bare) return tidyMetres(sign * Number(bare[1] ?? '0') * (unit === 'feet' ? FOOT : 1));
   return null;
@@ -80,9 +114,11 @@ export function formatLength(m: number, unit: PlanUnit): string {
   return t('length.feetInches', { feet: `${sign}${String(feet)}`, inches: halfText(inches) });
 }
 
-/** A round length's short label, for a ruler's tick or the scale bar: "1 m", "0.5 m", "10 ft". */
+/** A round length's short label, for a ruler's tick or the scale bar: "1 m", "0.5 m", "0.01 m", "10 ft", "6 in". */
 export function roundLengthLabel(m: number, unit: PlanUnit): string {
   if (unit === 'metres') return t('length.metresShort', { value: String(Math.round(m * 1000) / 1000) });
+  // Under a foot, in inches (the scale bar's 1", 2" and 6" up close).
+  if (Math.abs(m) < FOOT - 1e-9 && m !== 0) return t('length.inchesShort', { value: String(Math.round((m / INCH) * 100) / 100) });
   return t('length.feetShort', { value: String(Math.round((m / FOOT) * 100) / 100) });
 }
 

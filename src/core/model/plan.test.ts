@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Props, SbdRecord } from './record';
 import {
   defaultRoomName,
+  normalDegrees,
+  parseDegrees,
   planFields,
   planItemFields,
   plansShown,
@@ -107,6 +109,22 @@ describe('the fields', () => {
     expect(start.y).toBeCloseTo(0, 6);
     expect(end.x).toBeCloseTo(0, 6);
     expect(end.y).toBeCloseTo(3.5, 6);
+  });
+
+  it('keeps a rotation to a millionth of a degree', () => {
+    expect(normalDegrees(36.86989764584)).toBe(36.869898);
+    expect(normalDegrees(-90)).toBe(270);
+    expect(normalDegrees(359.9999999)).toBe(0);
+  });
+
+  it('reads a typed rotation, a typographic minus and a bare decimal too', () => {
+    expect(parseDegrees('90')).toBe(90);
+    expect(parseDegrees('90°')).toBe(90);
+    expect(parseDegrees('-45')).toBe(315);
+    expect(parseDegrees('−45')).toBe(315);
+    expect(parseDegrees('.5')).toBe(0.5);
+    expect(parseDegrees('22,5 °')).toBe(22.5);
+    for (const typed of ['', 'north', '1.2.3', '--5', '−']) expect(parseDegrees(typed)).toBeNull();
   });
 });
 

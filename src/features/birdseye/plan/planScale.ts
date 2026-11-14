@@ -29,7 +29,8 @@ export function planScale(unit: PlanUnit): CanvasScale {
     },
     label: (units) => roundLengthLabel(toMetres(units), unit),
     grid: metres ? { step: 50, major: 2, fine: 5 } : { step: FOOT, major: 5, fine: FOOT / 12 },
-    rounds: metres ? [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000] : [1, 2, 5, 10, 20, 50, 100, 200, 500].map((ft) => ft * FOOT),
+    // Down to 1 cm and 1 inch, so the scale bar always has a round length that fits, at every zoom the plan allows.
+    rounds: metres ? [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000] : [...[1, 2, 6].map((inches) => (inches * FOOT) / 12), ...[1, 2, 5, 10, 20, 50, 100, 200, 500].map((ft) => ft * FOOT)],
   };
 }
 

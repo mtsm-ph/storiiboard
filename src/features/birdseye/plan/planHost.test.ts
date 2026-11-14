@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { planUnitFor } from '../../../app/planUnits';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
-import { planItemFields, sceneRoomId, shownItems, startRoomChanges, wallEnds, wallsAlong } from '../../../core/model/plan';
+import { planItemFields, sceneRoomId, shownItems, startRoomChanges, trashPlanChanges, wallBetween, wallEnds, wallProps, wallsAlong } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
 import { log, purgeIds, trashedRoots } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
@@ -10,8 +10,9 @@ import { createProject, type Project } from '../../../core/storage/project';
 import { loadSettings, saveSettings } from '../../../core/storage/settings';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { restoreChanges, trashItems } from '../../trash/trash';
-import { planCanvasItems, planClipOf, planGeometryChanges, planNudgeChanges, planPasteChanges, reorderPlanChanges, trashPlanItemsChanges, wallPatchChanges } from './planItems';
-import { planScale, toCanvas, toMetres } from './planScale';
+import { SCALE_BAR_PIXELS, scaleBarLength } from '../../../ui/canvas/scale';
+import { drawWallsChanges, planCanvasItems, planClipOf, planGeometryChanges, planItemsBuilder, planNudgeChanges, planPasteChanges, reorderPlanChanges, shownItemsKeeper, trashPlanItemsChanges, wallPatchChanges } from './planItems';
+import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
 import { wallOutline } from './wallShape';
 
 // The plan host (6.2a): metres to canvas units and back, the scale the canvas is given in each unit, walls drawn with
@@ -37,6 +38,19 @@ describe('canvas units', () => {
     expect(feet.grid.major).toBe(5);
     expect(metres.label(100)).toBe('1 m');
     expect(feet.label(304.8)).toBe('10 ft');
+  });
+
+  it('always has a scale bar that fits its box, from the closest zoom to the furthest, in both units', () => {
+    for (const unit of ['metres', 'feet'] as const) {
+      const { rounds, label } = planScale(unit);
+      for (const zoom of [PLAN_ZOOM.max, 10, 4, 1, 0.1, PLAN_ZOOM.min]) {
+        const bar = scaleBarLength(zoom, rounds);
+        expect(bar * zoom).toBeLessThanOrEqual(SCALE_BAR_PIXELS);
+        expect(bar * zoom).toBeGreaterThan(SCALE_BAR_PIXELS / 4);
+      }
+      // Up close: 5 cm, or 2 inches.
+      expect(label(scaleBarLength(PLAN_ZOOM.max, rounds))).toBe(unit === 'metres' ? '0.05 m' : '2 in');
+    }
   });
 });
 
@@ -82,6 +96,26 @@ describe('a wall’s corners', () => {
     // A straight joint stays square.
     const c = { id: 'c', start: { x: 100, y: 0 }, end: { x: 200, y: 0 }, thickness: 10 };
     expect(wallOutline(a, [a, c]).map((p) => Math.round(p.x))).toEqual([0, 100, 100, 0]);
+  });
+
+  it('mitre on a 20 m wall at 37°, its stored end coming back within 0.1 mm', () => {
+    const start = { x: 1.2345, y: 2.5 };
+    const corner = { x: start.x + 20 * Math.cos((37 * Math.PI) / 180), y: start.y + 20 * Math.sin((37 * Math.PI) / 180) };
+    const long = planItemFields(wallProps(wallBetween(start, corner)));
+    const next = planItemFields(wallProps(wallBetween(corner, { x: corner.x - 4, y: corner.y + 3 })));
+    if (!long || !next) throw new Error('no walls');
+    const [, end] = wallEnds(long);
+    const [nextStart] = wallEnds(next);
+    expect(Math.hypot(end.x - corner.x, end.y - corner.y)).toBeLessThanOrEqual(0.0001);
+    expect(Math.hypot(nextStart.x - corner.x, nextStart.y - corner.y)).toBeLessThanOrEqual(0.0001);
+    // Drawn, the corner is mitred: the long wall's two far corners are not square across its end.
+    const line = (id: string, f: typeof long) => {
+      const [a, b] = wallEnds(f);
+      return { id, start: { x: toCanvas(a.x), y: toCanvas(a.y) }, end: { x: toCanvas(b.x), y: toCanvas(b.y) }, thickness: toCanvas(f.height) };
+    };
+    const outline = wallOutline(line('long', long), [line('long', long), line('next', next)]);
+    const [, farA, farB] = outline;
+    expect(Math.abs((farA?.x ?? 0) - (farB?.x ?? 0))).toBeGreaterThan(1);
   });
 });
 
@@ -192,6 +226,85 @@ describe('the plan’s edits', () => {
     expect(purgeIds(Object.values(records())).sort()).toEqual([...walls].sort());
     await store.getState().apply(restoreChanges(records(), project.projectId, walls[0] ?? ''));
     expect(records()[walls[0] ?? '']?.trashedAt).toBeNull();
+  });
+
+  it('rebuilds nothing for an unrelated edit, and only a wall and its neighbours for an edit to that wall', async () => {
+    const { sceneId, roomId, walls } = await room();
+    // A third wall well away from the L.
+    await store.getState().apply(wallsAlong(records(), roomId, [{ x: 10, y: 10 }, { x: 12, y: 10 }]).changes);
+    const keep = shownItemsKeeper();
+    const build = planItemsBuilder();
+    const before = build(keep(records(), sceneId, null), 'metres', '#16150F');
+    // An edit elsewhere in the project: the same list and the same items.
+    await store.getState().apply([{ kind: 'update', id: sceneId, set: { name: 'Diner, later' } }]);
+    const after = build(keep(records(), sceneId, null), 'metres', '#16150F');
+    expect(after).toBe(before);
+    // One wall of the L made thicker: it and the wall joined to it are new, the far wall is the item it was.
+    const [first = '', second = ''] = walls;
+    await store.getState().apply(wallPatchChanges(records(), [first], { thickness: 0.2 }));
+    const edited = build(keep(records(), sceneId, null), 'metres', '#16150F');
+    const byId = (list: readonly { id: string }[], id: string) => list.find((item) => item.id === id);
+    expect(byId(edited, first)).not.toBe(byId(before, first));
+    expect(byId(edited, second)).not.toBe(byId(before, second));
+    const far = before.find((item) => item.id !== first && item.id !== second);
+    expect(far && byId(edited, far.id)).toBe(far);
+    // Each wall snaps by its middle line's ends.
+    expect(byId(edited, second)).toMatchObject({ snapPoints: [{ x: 350, y: 0 }, { x: 350, y: 381 }] });
+  });
+
+  it('writes a run into the room of the view it was drawn in, never another scene’s', async () => {
+    const one = await room();
+    const sceneTwo = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: sceneTwo, type: 'scene', parentId: project.projectId, sortKey: 'b', props: { number: '5' } } }]);
+    await store.getState().apply(startRoomChanges(records(), project.projectId, sceneTwo));
+    const made = drawWallsChanges(records(), one.sceneId, [{ x: 0, y: 500 }, { x: 300, y: 500 }]);
+    await store.getState().apply(made.changes);
+    expect(shownItems(records(), one.sceneId, null)).toHaveLength(3);
+    expect(shownItems(records(), sceneTwo, null)).toEqual([]);
+    // A scene with no room takes no walls.
+    const bare = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: bare, type: 'scene', parentId: project.projectId, sortKey: 'c', props: { number: '6' } } }]);
+    expect(drawWallsChanges(records(), bare, [{ x: 0, y: 0 }, { x: 100, y: 0 }]).changes).toEqual([]);
+  });
+
+  it('starts one room however many times Start the room is pressed', async () => {
+    const sceneId = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: sceneId, type: 'scene', parentId: project.projectId, sortKey: 'a', props: { number: '4' } } }]);
+    const start = () => store.getState().applyWith((now) => ({ changes: startRoomChanges(now, project.projectId, sceneId) }));
+    const before = await groups();
+    // Two presses in a row, the second before the first is written: each reads the records at its turn.
+    await Promise.all([start(), start()]);
+    const rooms = Object.values(records()).filter((r) => r.type === 'plan');
+    expect(rooms).toHaveLength(1);
+    expect(sceneRoomId(records(), records()[sceneId])).toBe(rooms[0]?.id);
+    expect(await groups()).toBe(before + 1);
+  });
+
+  it('trashes a room with its live items in one step, and restores it with them, not ones deleted before', async () => {
+    const { sceneId, roomId, walls } = await room();
+    const [first = '', second = ''] = walls;
+    await store.getState().apply(trashPlanItemsChanges(records(), [first]));
+    await store.getState().apply(trashPlanChanges(records(), roomId));
+    expect(records()[second]?.trashedAt).not.toBeNull();
+    expect(sceneRoomId(records(), records()[sceneId])).toBeNull();
+    // The Trash lists the room and the wall deleted before it; the wall that went with the room is in the room's row.
+    expect(trashItems(records(), project.projectId).map((row) => row.kind).sort()).toEqual(['plan', 'planItem']);
+    await store.getState().apply(restoreChanges(records(), project.projectId, roomId));
+    expect(records()[roomId]?.trashedAt).toBeNull();
+    expect(records()[second]?.trashedAt).toBeNull();
+    expect(records()[first]?.trashedAt).not.toBeNull();
+    expect(sceneRoomId(records(), records()[sceneId])).toBe(roomId);
+  });
+
+  it('restores a wall whose room is in the Trash with the room, whole', async () => {
+    const { roomId, walls } = await room();
+    const [first = '', second = ''] = walls;
+    await store.getState().apply(trashPlanItemsChanges(records(), [first]));
+    await store.getState().apply(trashPlanChanges(records(), roomId));
+    const back = restoreChanges(records(), project.projectId, first);
+    expect(back.map((c) => (c.kind === 'restore' ? c.id : '')).sort()).toEqual([roomId, first, second].sort());
+    await store.getState().apply(back);
+    expect([roomId, first, second].map((id) => records()[id]?.trashedAt)).toEqual([null, null, null]);
   });
 
   it('keeps the room when its scene goes to the Trash: another scene may use it', async () => {

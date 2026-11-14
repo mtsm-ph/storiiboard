@@ -53,11 +53,20 @@ export function planFields(props: Props): PlanFields | null {
   return { kind, name: text(props.name).trim(), locationId: locationId === '' ? null : locationId };
 }
 
-/** Degrees, 0 up to but not including 360. */
+/**
+ * Degrees, 0 up to but not including 360, to a millionth: a hundredth of a degree would put a 20 m wall's far end
+ * 3.5 mm off, past the 1 mm that joins two walls' ends, and its corner would no longer mitre.
+ */
 export const normalDegrees = (degrees: number): number => {
-  const d = Math.round((((degrees % 360) + 360) % 360) * 100) / 100;
+  const d = Math.round((((degrees % 360) + 360) % 360) * 1e6) / 1e6;
   return d >= 360 ? 0 : d;
 };
+
+/** A typed rotation: 90, 90°, -45, −45 (a typographic minus), .5, 22,5; null when it isn't one. */
+export function parseDegrees(typed: string): number | null {
+  const text = typed.trim().replace(/°$/, '').trim().replace(',', '.').replace(/^−/, '-');
+  return /^-?(\d+(\.\d*)?|\.\d+)$/.test(text) ? normalDegrees(Number(text)) : null;
+}
 
 export interface PlanItemFields {
   kind: ShownKind;
@@ -196,6 +205,31 @@ export function defaultRoomName(records: Records, scene: SbdRecord): string {
 export const roomTitle = (fields: PlanFields | null): string => (fields && fields.name !== '' ? fields.name : t('plan.room'));
 
 // The edits. Each is one op group, so one ⌘Z.
+
+/** A plan's items that went to the Trash with it, in the same group. */
+export function trashedWithPlan(records: Records, plan: SbdRecord): SbdRecord[] {
+  if (plan.trashedAt === null) return [];
+  return Object.values(records).filter((r) => r.type === 'plan_item' && r.parentId === plan.id && r.trashedAt === plan.trashedAt && r.trashedBy === plan.trashedBy);
+}
+
+/**
+ * A plan (a room) and its live items to the Trash, in one group, so a restore brings it back whole (6.2b's Delete room;
+ * nothing calls it yet). Items deleted before stay where they were. The scenes keep their `room_id`, which reads as no
+ * room meanwhile.
+ */
+export function trashPlanChanges(records: Records, planId: string): Change[] {
+  const plan = records[planId];
+  if (plan?.type !== 'plan' || plan.trashedAt !== null) return [];
+  const items = Object.values(records).filter((r) => r.type === 'plan_item' && r.parentId === planId && r.trashedAt === null);
+  return [{ kind: 'trash', id: planId }, ...items.map((r): Change => ({ kind: 'trash', id: r.id }))];
+}
+
+/** A trashed plan and the items that went to the Trash with it, brought back; not the ones deleted before it. */
+export function restorePlanChanges(records: Records, planId: string): Change[] {
+  const plan = records[planId];
+  if (plan?.type !== 'plan' || plan.trashedAt === null) return [];
+  return [{ kind: 'restore', id: planId }, ...trashedWithPlan(records, plan).map((r): Change => ({ kind: 'restore', id: r.id }))];
+}
 
 /**
  * "Start the room": a room under the project, named after the scene's place, and the scene's `room_id` set to it, in

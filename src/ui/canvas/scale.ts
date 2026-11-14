@@ -120,6 +120,56 @@ export function gridPull(rect: Rect, grid: GridSpec, zoom: number, mode: GridSna
   return { dx: pull(rect.x, rect.x + rect.width), dy: pull(rect.y, rect.y + rect.height) };
 }
 
+/**
+ * How far moving points (world units, where the move has put them) are pulled onto the grid: each axis on its own, the
+ * nearest of their coordinates to a line within reach (Alt: the first point to the fine step). An item's own snap
+ * points (a wall's middle line ends) take the place of its box's edges, so a wall's face never lands on the line.
+ */
+export function gridPullPoints(points: readonly Point[], grid: GridSpec, zoom: number, mode: GridSnap): { dx: number; dy: number } {
+  const [first] = points;
+  if (mode === 'off' || !first) return { dx: 0, dy: 0 };
+  if (mode === 'fine') return { dx: Math.round(first.x / grid.fine) * grid.fine - first.x, dy: Math.round(first.y / grid.fine) * grid.fine - first.y };
+  const shown = gridShown(zoom, grid);
+  if (shown.step <= 0) return { dx: 0, dy: 0 };
+  const reach = SNAP_PIXELS / zoom;
+  const pull = (values: readonly number[]): number =>
+    values
+      .map((v) => Math.round(v / shown.step) * shown.step - v)
+      .filter((d) => Math.abs(d) <= reach)
+      .reduce<number | null>((best, d) => (best === null || Math.abs(d) < Math.abs(best) ? d : best), null) ?? 0;
+  return { dx: pull(points.map((p) => p.x)), dy: pull(points.map((p) => p.y)) };
+}
+
+/**
+ * A move of items that give their own snap points (6.2a): `points` are theirs where they started, moved by dx and dy.
+ * One near another item's point (within `reach`, world units) joins it on both axes; else each axis is pulled onto the
+ * grid by the points, never by the box. Snapping off, the move is as the pointer made it.
+ */
+export function snapMoveByPoints(
+  points: readonly Point[],
+  dx: number,
+  dy: number,
+  targets: readonly Point[],
+  grid: GridSpec | undefined,
+  zoom: number,
+  mode: GridSnap,
+  reach: number,
+): { dx: number; dy: number } {
+  if (mode === 'off' || points.length === 0) return { dx, dy };
+  const moved = points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  let best: { x: number; y: number; d: number } | null = null;
+  for (const p of moved) {
+    const target = nearestPoint(p, targets, reach);
+    if (!target) continue;
+    const d = Math.hypot(target.x - p.x, target.y - p.y);
+    if (!best || d < best.d) best = { x: target.x - p.x, y: target.y - p.y, d };
+  }
+  if (best) return { dx: dx + best.x, dy: dy + best.y };
+  if (!grid) return { dx, dy };
+  const pulled = gridPullPoints(moved, grid, zoom, mode);
+  return { dx: dx + pulled.dx, dy: dy + pulled.dy };
+}
+
 /** The point at `to`'s distance from `from`, turned to the nearest `stepDegrees` (Shift held: 15° steps). */
 export function constrainAngle(from: Point, to: Point, stepDegrees = 15): Point {
   const length = Math.hypot(to.x - from.x, to.y - from.y);

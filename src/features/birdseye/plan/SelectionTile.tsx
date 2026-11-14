@@ -1,10 +1,10 @@
-import type { KeyboardEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
 import { formatLength, parseLength, type PlanUnit } from '../../../core/model/length';
-import { normalDegrees, planFields, planItemFields, roomTitle, sceneRoom, scenesUsingRoom, wallEnds, type PlanItemFields } from '../../../core/model/plan';
+import { parseDegrees, planFields, planItemFields, roomTitle, sceneRoom, scenesUsingRoom, wallEnds, type PlanItemFields } from '../../../core/model/plan';
 import { TextField } from '../../../ui/fields';
 import { changeWalls, renameRoom } from './planActions';
 import { viewKey, type WallPatch } from './planItems';
@@ -15,10 +15,6 @@ import { useLiveView } from './PlanTile';
 // each one edit when it's left (one ⌘Z), lengths in the unit the screen shows and read in any form (src/core/model/
 // length.ts); one that can't be read snaps back and says so, and nothing is saved. Several selected: the fields they
 // share, and a change goes to each. Nothing selected: the room, its name, and how many scenes are set in it.
-
-const blurOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-  if (event.key === 'Enter') event.currentTarget.blur();
-};
 
 /** The value every one of them has, or null when they differ. */
 function shared<T>(values: readonly T[]): T | null {
@@ -32,42 +28,52 @@ interface TypedFieldProps {
   text: string;
   /** Several selected with different values. */
   mixed?: boolean;
-  /** Reads what was typed: true when it was taken (and written), false to snap back with `refused`. */
+  /** Technical values (lengths, degrees) are mono; a name isn't. */
+  mono?: boolean;
+  /** Reads what was typed: true when it was taken (and written), false to snap back, saying `refused` when given. */
   onCommit: (typed: string) => boolean;
-  refused: string;
-  name?: string;
+  refused?: string;
 }
 
-function TypedField({ label, text, mixed = false, onCommit, refused, name }: TypedFieldProps) {
+/**
+ * A field written when it's left or Enter is pressed, one edit each. The caller keys it by the item and the field,
+ * never by its value: Enter keeps the focus in it, and what the records say (an undo, the tidy form of what was typed)
+ * shows in it as it changes.
+ */
+function TypedField({ label, text, mixed = false, mono = true, onCommit, refused }: TypedFieldProps) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (input.current) input.current.value = text;
+  }, [text]);
+  const commit = (field: HTMLInputElement) => {
+    if (field.value.trim() === text) return;
+    if (!onCommit(field.value)) {
+      field.value = text;
+      if (refused !== undefined) showInfo(refused);
+    }
+  };
   return (
     <TextField
-      // Keyed by the value, so an undo shows in the field it changed.
-      key={`${label}:${text}`}
+      ref={input}
       label={label}
-      mono
-      name={name}
+      mono={mono}
       autoComplete="off"
       defaultValue={text}
       placeholder={mixed ? t('plan.field.mixed') : undefined}
       onBlur={(event) => {
-        const input = event.currentTarget;
-        if (input.value.trim() === text) return;
-        if (!onCommit(input.value)) {
-          input.value = text;
-          showInfo(refused);
-        }
+        commit(event.currentTarget);
       }}
-      onKeyDown={blurOnEnter}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        commit(event.currentTarget);
+      }}
     />
   );
 }
 
 /** "90°": a rotation in whole hundredths, as a technical value. */
 const degreesText = (degrees: number): string => t('plan.degrees', { value: String(Math.round(degrees * 100) / 100) });
-const readDegrees = (typed: string): number | null => {
-  const text = typed.trim().replace(/°$/, '').replace(',', '.').trim();
-  return /^-?\d+(\.\d+)?$/.test(text) ? normalDegrees(Number(text)) : null;
-};
 
 export function SelectionTile() {
   return (
@@ -99,21 +105,17 @@ function SelectionContent() {
   return (
     <div className="flex flex-col gap-3 p-3" data-selection-room={room.id}>
       <p className="sb-label">{t('selection.room')}</p>
-      <TextField
-        key={`room:${fields?.name ?? ''}`}
+      <TypedField
+        key={`room:${room.id}`}
         label={t('selection.roomName')}
-        autoComplete="off"
-        defaultValue={roomTitle(fields)}
-        onBlur={(event) => {
-          const typed = event.currentTarget.value.trim();
-          if (typed === roomTitle(fields)) return;
-          if (typed === '') {
-            event.currentTarget.value = roomTitle(fields);
-            return;
-          }
-          void renameRoom(room.id, typed);
+        mono={false}
+        text={roomTitle(fields)}
+        onCommit={(typed) => {
+          // Emptied, it goes back to its name: a room always has one.
+          if (typed.trim() === '') return false;
+          void renameRoom(room.id, typed.trim());
+          return true;
         }}
-        onKeyDown={blurOnEnter}
       />
       <p className="text-[13px]" data-room-scenes={scenes}>
         {tn('selection.roomScenes', scenes)}
@@ -146,28 +148,29 @@ function WallFields({ ids, walls, unit }: { ids: readonly string[]; walls: reado
     return true;
   };
   const refused = t('selection.lengthRefused');
+  // Each field keyed by the walls and the field, never by its value, so Enter keeps the focus in it.
+  const keyed = (field: string) => `${ids.join(' ')}:${field}`;
   return (
     <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
       <p className="sb-label" data-selection-kind="">
         {ids.length === 1 ? t('plan.item.wall') : tn('selection.walls', ids.length)}
       </p>
-      <TextField
-        key={`name:${names ?? ''}`}
+      <TypedField
+        key={keyed('name')}
         label={t('selection.name')}
-        autoComplete="off"
-        defaultValue={names ?? ''}
-        placeholder={names === null ? t('plan.field.mixed') : undefined}
-        onBlur={(event) => {
-          const typed = event.currentTarget.value.trim();
-          if (typed === (names ?? '')) return;
-          write({ name: typed });
+        mono={false}
+        text={names ?? ''}
+        mixed={names === null}
+        onCommit={(typed) => {
+          write({ name: typed.trim() });
+          return true;
         }}
-        onKeyDown={blurOnEnter}
       />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3">
-        <TypedField label={t('selection.length')} text={lengthText(walls.map((w) => w.width))} mixed={lengthText(walls.map((w) => w.width)) === ''} onCommit={length((m) => ({ length: m }))} refused={refused} />
-        <TypedField label={t('selection.thickness')} text={lengthText(walls.map((w) => w.height))} mixed={lengthText(walls.map((w) => w.height)) === ''} onCommit={length((m) => ({ thickness: m }))} refused={refused} />
+        <TypedField key={keyed('length')} label={t('selection.length')} text={lengthText(walls.map((w) => w.width))} mixed={lengthText(walls.map((w) => w.width)) === ''} onCommit={length((m) => ({ length: m }))} refused={refused} />
+        <TypedField key={keyed('thickness')} label={t('selection.thickness')} text={lengthText(walls.map((w) => w.height))} mixed={lengthText(walls.map((w) => w.height)) === ''} onCommit={length((m) => ({ thickness: m }))} refused={refused} />
         <TypedField
+          key={keyed('height')}
           label={t('selection.height')}
           text={shared(heights) ?? ''}
           mixed={shared(heights) === null}
@@ -175,19 +178,20 @@ function WallFields({ ids, walls, unit }: { ids: readonly string[]; walls: reado
           refused={refused}
         />
         <TypedField
+          key={keyed('rotation')}
           label={t('selection.rotation')}
           text={rotations ?? ''}
           mixed={rotations === null}
           onCommit={(typed) => {
-            const degrees = readDegrees(typed);
+            const degrees = parseDegrees(typed);
             if (degrees === null) return false;
             write({ rotation: degrees });
             return true;
           }}
           refused={t('selection.rotationRefused')}
         />
-        <TypedField label={t('selection.x')} text={lengthText(ends.map((p) => p.x))} mixed={lengthText(ends.map((p) => p.x)) === ''} onCommit={length((m) => ({ startX: m }), { signed: true })} refused={refused} />
-        <TypedField label={t('selection.y')} text={lengthText(ends.map((p) => p.y))} mixed={lengthText(ends.map((p) => p.y)) === ''} onCommit={length((m) => ({ startY: m }), { signed: true })} refused={refused} />
+        <TypedField key={keyed('x')} label={t('selection.x')} text={lengthText(ends.map((p) => p.x))} mixed={lengthText(ends.map((p) => p.x)) === ''} onCommit={length((m) => ({ startX: m }), { signed: true })} refused={refused} />
+        <TypedField key={keyed('y')} label={t('selection.y')} text={lengthText(ends.map((p) => p.y))} mixed={lengthText(ends.map((p) => p.y)) === ''} onCommit={length((m) => ({ startY: m }), { signed: true })} refused={refused} />
       </div>
       <p className="text-[12px] text-text-muted">{t('selection.startNote')}</p>
     </div>

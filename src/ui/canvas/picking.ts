@@ -1,5 +1,6 @@
-import { marqueeHolds, marqueeTouches } from './hitTest';
-import type { CanvasItem, Rect } from './types';
+import { marqueeHolds, marqueeTouches, topmostAt } from './hitTest';
+import { topmostSectionAt } from './sections';
+import type { CanvasItem, Point, Rect } from './types';
 
 // What can be picked (6.2a): a locked item (a locked layer, an underlay) is drawn but never picked, by a click, a
 // marquee, Tab or Select all. Pure, so the rule is tested without a browser; the canvas picks only through these.
@@ -19,3 +20,10 @@ export const pickOrder = (sections: readonly CanvasItem[], links: readonly strin
   ...links,
   ...pickable(plain).map((item) => item.id),
 ];
+
+/** What a double-click lands on: the topmost item there that can be picked, never a locked one. */
+export const itemAt = (plain: readonly CanvasItem[], point: Point): CanvasItem | undefined => topmostAt(pickable(plain), point);
+
+/** What a right-click picks: the topmost item there, else a section by its tab or edge band; never a locked one. */
+export const menuPickAt = (plain: readonly CanvasItem[], sections: readonly CanvasItem[], point: Point, zoom: number): CanvasItem | undefined =>
+  itemAt(plain, point) ?? topmostSectionAt(pickable(sections), point, zoom);

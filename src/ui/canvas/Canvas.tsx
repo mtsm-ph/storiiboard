@@ -16,9 +16,10 @@ import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy 
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
-import { marqueePicks, pickable, pickOrder } from './picking';
+import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
+import { END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
 import { Rulers, RULER_SIZE } from './Rulers';
-import { constrainAngle, gridLines, gridPull, nearestPoint, pointAlong, scaleBarLength, snapToGrid, type GridSnap } from './scale';
+import { gridLines, gridPull, pointAlong, scaleBarLength, snapMoveByPoints, snapToGrid } from './scale';
 import {
   isAttached,
   isHostTool,
@@ -77,8 +78,6 @@ const QUICK_SIZE = 12;
 const END_GRAB = 9;
 /** A section's name is typed in room for this many world units at least, however short the name was. */
 const EDITING_NAME_WIDTH = 180;
-/** How near (screen pixels) a point-to-point run's click must be to another end to join it (6.2a). */
-const END_SNAP = 10;
 /** The grid's light and strong lines (6.2a): ink this strong on the paper. */
 const GRID_LIGHT = 0.1;
 const GRID_STRONG = 0.24;
@@ -92,35 +91,12 @@ const QUICK_LABEL: Readonly<Record<Side, () => string>> = {
 type Gesture =
   | { kind: 'pan'; last: Point }
   // `origins` is everything that moves (a section's contents too); `lead` the ones picked, which snap, and `targets` the lines they snap to.
-  | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; lead: string[]; targets: WorldRect[] | null; moved: boolean; collapseTo: string | null }
+  // `anchors` (6.2a): the lead's own snap points where they started (null when none gives them), and `anchorTargets` the other items' they join.
+  | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; lead: string[]; targets: WorldRect[] | null; moved: boolean; collapseTo: string | null; anchors?: Point[] | null; anchorTargets?: Point[] }
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
   | { kind: 'draw'; tool: PlaceTool | HostToolId; start: Point; screen: Point; targets: WorldRect[] | null; moved: boolean }
   // A connector drawn (the tool, or a "+" handle) or one of its ends dragged: `fixed` stays, the other end follows the pointer.
   | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null };
-
-/**
- * A run being drawn point to point (6.2a, a plan's walls): the points fixed so far, where the next would go (the pointer,
- * snapped), the direction a typed length goes in (radians), and what has been typed.
- */
-interface PathDraft {
-  tool: HostToolId;
-  points: Point[];
-  cursor: Point | null;
-  angle: number;
-  typed: string;
-}
-
-/** Ctrl (⌘ on a Mac) turns snapping off, as for items; Alt snaps to the grid's fine step. */
-const gridModeOf = (event: { ctrlKey: boolean; metaKey: boolean; altKey: boolean }): GridSnap => (event.ctrlKey || event.metaKey ? 'off' : event.altKey ? 'fine' : 'magnet');
-
-/** The direction the next segment goes: towards the pointer, else the run's last direction. */
-const pathAngle = (draft: PathDraft): number => {
-  const last = draft.points.at(-1);
-  if (last && draft.cursor && Math.hypot(draft.cursor.x - last.x, draft.cursor.y - last.y) > 1e-6) return Math.atan2(draft.cursor.y - last.y, draft.cursor.x - last.x);
-  return draft.angle;
-};
-
-const ARROW_ANGLE: Readonly<Record<string, number>> = { ArrowRight: 0, ArrowDown: Math.PI / 2, ArrowLeft: Math.PI, ArrowUp: -Math.PI / 2 };
 
 /** A connector being drawn or re-ended: the ends as the pointer makes them, and the side it would join. */
 interface ConnectDraft {
@@ -188,10 +164,12 @@ export interface CanvasProps {
   scale?: CanvasScale;
   /** How far the view zooms (a board's 10% to 800% without). */
   zoomLimits?: ZoomLimits;
-  /** A point-to-point tool's run finished (Enter, a double-click, Escape): its points, two or more, world units. */
+  /**
+   * A point-to-point tool's run finished (Enter, a double-click, Escape, another tool, or the canvas going away: a host
+   * keys its canvas per view, so a run never outlives the view it began in): its fixed points, two or more, world units.
+   * A run's clicks join the items' `snapPoints`.
+   */
   onPath?: (points: Point[], tool: HostToolId) => unknown;
-  /** Points a point-to-point run's clicks join when near (a plan's wall ends), world units. */
-  snapPoints?: readonly Point[];
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -256,7 +234,6 @@ export function Canvas({
   scale,
   zoomLimits,
   onPath,
-  snapPoints,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -407,10 +384,10 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
-  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, limits, scale, snapPoints });
+  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, limits, scale, snapPoints };
+    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale };
   });
 
   // The canvas follows the tile's size.
@@ -629,6 +606,33 @@ export function Canvas({
     const dx = tidy(world.x - g.start.x);
     const dy = tidy(world.y - g.start.y);
     if (off || g.lead.length === 0) return { dx, dy, guides: [] };
+    // Items that give their own snap points (6.2a: a wall's middle line ends) snap by those, to the grid and to other
+    // items' points, never by their box, so a wall on a grid line stays on it. Only when a lead item gives them: a
+    // board's move is as it always was.
+    if (g.anchors === undefined) {
+      const { items: all, viewport: now, size: box } = latest.current;
+      const lead = new Set(g.lead);
+      const anchored = all.some((item) => lead.has(item.id) && item.snapPoints !== undefined);
+      g.anchors = anchored
+        ? all
+            .filter((item) => lead.has(item.id))
+            .flatMap((item) => {
+              if (item.snapPoints) return [...item.snapPoints];
+              const b = boundsOf(item);
+              return [
+                { x: b.x, y: b.y },
+                { x: b.x + b.width, y: b.y + b.height },
+              ];
+            })
+        : null;
+      const seen = visibleWorld(now, box);
+      g.anchorTargets = anchored ? all.filter((item) => !g.origins.has(item.id) && rectsMeet(boundsOf(item), seen)).flatMap((item) => item.snapPoints ?? []) : [];
+    }
+    if (g.anchors) {
+      const zoom = latest.current.viewport.zoom;
+      const moved = snapMoveByPoints(g.anchors, dx, dy, g.anchorTargets ?? [], latest.current.scale?.grid, zoom, fine ? 'fine' : 'magnet', END_SNAP / zoom);
+      return { dx: tidy(moved.dx), dy: tidy(moved.dy), guides: [] };
+    }
     g.targets ??= snapTargets(new Set(g.origins.keys()));
     const lead = g.lead.flatMap((id) => {
       const o = g.origins.get(id);
@@ -656,50 +660,40 @@ export function Canvas({
     };
   };
 
-  /** Where a point-to-point run's next point goes (6.2a): another end near it, else the grid; Shift holds to 15° steps. */
-  const pathPoint = (raw: Point, mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean }, draft: PathDraft | null): Point => {
-    const last = draft?.points.at(-1);
-    const tidied = (p: Point): Point => ({ x: tidy(p.x), y: tidy(p.y) });
-    if (last && mods.shiftKey) return tidied(constrainAngle(last, raw));
-    const mode = gridModeOf(mods);
-    if (mode !== 'off') {
-      const end = nearestPoint(raw, [...(latest.current.snapPoints ?? []), ...(draft?.points ?? [])], END_SNAP / latest.current.viewport.zoom);
-      if (end) return end;
-    }
-    const grid = latest.current.scale?.grid;
-    return tidied(grid ? snapToGrid(raw, grid, latest.current.viewport.zoom, mode) : raw);
-  };
+  /** Where a point-to-point run's next point goes (6.2a): another item's snap point near it, else the grid; Shift holds to 15° steps. */
+  const pathPoint = (raw: Point, mods: PathMods, draft: PathDraft | null): Point =>
+    nextPoint(raw, mods, draft, { ends: latest.current.shown.flatMap((item) => item.snapPoints ?? []), grid: latest.current.scale?.grid, zoom: latest.current.viewport.zoom });
 
-  /** The run ends: its segments are the host's to write (one edit), and the tool is Select again unless another was picked. */
+  /** The run ends: its fixed points are the host's to write (one edit), and the tool is Select again unless another was picked. */
   const finishPath = (toSelect = true) => {
     const draft = pathRef.current;
     if (!draft) return;
     setPath(null);
     setPathSaid('');
-    if (draft.points.length >= 2) void onPath?.(draft.points, draft.tool);
+    const points = runPoints(draft);
+    if (points) void latest.current.onPath?.(points, draft.tool);
     if (toSelect) onToolChange('select');
   };
 
   // Another tool picked mid-run finishes the run as it stands.
   useEffect(() => {
-    if (pathRef.current && pathRef.current.tool !== tool) finishPath(false);
+    if (toolEndsRun(pathRef.current, tool)) finishPath(false);
     // finishPath reads the run through its ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
 
-  /** The run's next point, the typed length along its direction; refused (and said) when it isn't a length. */
-  const takeTyped = (draft: PathDraft) => {
-    const length = latest.current.scale ? latest.current.scale.parse(draft.typed) : Number(draft.typed.replace(',', '.'));
-    const last = draft.points.at(-1);
-    if (length === null || !Number.isFinite(length) || length <= 0 || !last) {
-      setPathSaid(t('canvas.path.refused', { typed: draft.typed }));
-      return;
-    }
-    const angle = pathAngle(draft);
-    const next = pointAlong(last, angle, length);
-    setPath({ ...draft, points: [...draft.points, { x: tidy(next.x), y: tidy(next.y) }], cursor: null, angle, typed: '' });
-    setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(length) : String(tidy(length)) }));
-  };
+  // The canvas going away (a host keys it per view, so a new view is a new canvas; the tile closed; another workspace)
+  // ends a run as Escape does: its fixed points go to the host it began with, so they're written into that view.
+  useEffect(
+    () => () => {
+      const draft = pathRef.current;
+      pathRef.current = null;
+      const points = runPoints(draft);
+      if (draft && points) void latest.current.onPath?.(points, draft.tool);
+      if (draft) latest.current.onToolChange('select');
+    },
+    [],
+  );
 
   /** The rectangle a drawing drag makes, its corners snapped to other items' lines unless snapping is off. */
   const drawnRect = (g: Extract<Gesture, { kind: 'draw' }>, world: Point, off: boolean): { rect: WorldRect; guides: Guide[] } => {
@@ -737,14 +731,9 @@ export function Canvas({
     if (spec?.pointToPoint && isHostTool(current)) {
       const run = pathRef.current;
       const at = pathPoint(world, event, run);
-      const last = run?.points.at(-1);
-      if (!run || !last) {
-        setPath({ tool: current, points: [at], cursor: at, angle: 0, typed: '' });
-        return;
-      }
-      // A second click where the last one was (a double-click's) adds nothing.
-      if (Math.hypot(at.x - last.x, at.y - last.y) * now.zoom < 2) return;
-      setPath({ ...run, points: [...run.points, at], cursor: at, angle: Math.atan2(at.y - last.y, at.x - last.x), typed: '' });
+      // A double-click's second press adds nothing, however far it jittered: the double-click finishes the run.
+      const next = run ? runClick(run, at, now.zoom, event.detail) : runStart(current, at);
+      if (next !== run) setPath(next);
       return;
     }
     if (current === 'connector') {
@@ -963,38 +952,22 @@ export function Canvas({
     const modifiers = event.metaKey || event.ctrlKey || event.altKey;
     const picked = latest.current.selection;
     // A run in progress (6.2a) takes typed lengths, Enter, Escape and the arrows (its direction) first.
+    // Backspace and Delete are always the run's: they take its last point off, and never reach the delete command.
     const run = pathRef.current;
-    if (run && !event.metaKey && !event.ctrlKey) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        if (run.typed !== '') setPath({ ...run, typed: '' });
-        else finishPath();
-        return;
+    const ran = run ? runKey(run, event, (text) => (latest.current.scale ? latest.current.scale.parse(text) : Number(text.replace(',', '.')))) : null;
+    if (ran) {
+      event.preventDefault();
+      if (ran.kind === 'finish') finishPath();
+      else if (ran.kind === 'refused') setPathSaid(t('canvas.path.refused', { typed: ran.typed }));
+      else if (ran.kind === 'taken') {
+        setPath(ran.run);
+        setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(ran.length) : String(tidy(ran.length)) }));
+      } else {
+        setPath(ran.run);
+        // A run dropped by taking its only point off has nothing left to say.
+        if (ran.run === null) setPathSaid('');
       }
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (run.typed !== '') takeTyped(run);
-        else finishPath();
-        return;
-      }
-      if (event.key === 'Backspace' && run.typed !== '') {
-        event.preventDefault();
-        setPath({ ...run, typed: run.typed.slice(0, -1) });
-        return;
-      }
-      // A digit or a decimal mark starts a length; once started, anything printable is part of it (12' 6", 3.5 m).
-      if (event.key.length === 1 && (run.typed !== '' || /[0-9.,]/.test(event.key))) {
-        event.preventDefault();
-        setPath({ ...run, typed: run.typed + event.key });
-        return;
-      }
-      const turn = ARROW_ANGLE[event.key];
-      if (turn !== undefined && run.typed === '') {
-        // From the keyboard, the next segment's direction.
-        event.preventDefault();
-        setPath({ ...run, cursor: null, angle: turn });
-        return;
-      }
+      return;
     }
     if (event.key === ' ' && !modifiers) {
       event.preventDefault();
@@ -1126,8 +1099,7 @@ export function Canvas({
         // From the keyboard: a run starts at the middle of the view; typed lengths and the arrows draw it.
         event.preventDefault();
         const { viewport: view } = latest.current;
-        const start = pathPoint({ x: view.cx, y: view.cy }, { shiftKey: false, ctrlKey: false, metaKey: false, altKey: false }, null);
-        setPath({ tool: pointTool.id, points: [start], cursor: null, angle: 0, typed: '' });
+        setPath(runStart(pointTool.id, pathPoint({ x: view.cx, y: view.cy }, NO_MODS, null), null));
         setPathSaid(t('canvas.path.started'));
         return;
       }
@@ -1264,8 +1236,9 @@ export function Canvas({
         }
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
         const at = worldOf(local(event));
-        const { pickPlain: plain, pickSections: sections, viewport: now } = latest.current;
-        const top = topmostAt(plain, at);
+        const { itemsShown: plain, pickSections: sections, viewport: now } = latest.current;
+        // A locked item is never picked, by a double-click either.
+        const top = itemAt(plain, at);
         if (top?.editable) onEdit?.(top.id);
         else if (top?.openable) onOpen?.(top.id);
         else if (!top) {
@@ -1327,7 +1300,7 @@ export function Canvas({
         if (event.button !== 2 && !event.ctrlKey) return;
         const screen = local(event);
         const there = worldOf(screen);
-        const top = topmostAt(latest.current.pickPlain, there) ?? topmostSectionAt(latest.current.pickSections, there, latest.current.viewport.zoom);
+        const top = menuPickAt(latest.current.itemsShown, latest.current.sectionsShown, there, latest.current.viewport.zoom);
         if (top && !latest.current.selection.includes(top.id)) onSelectionChange([top.id]);
         openMenu(screen);
       }}

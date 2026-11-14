@@ -16,6 +16,8 @@ import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
+import { formatLength } from '../../core/model/length';
+import { planUnitNow } from '../../app/planUnits';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -157,6 +159,8 @@ const FIELD: Readonly<Record<string, string>> = labels({
   focal_max_mm: 'history.field.focalMax',
   squeeze: 'history.field.squeeze',
   lens_id: 'history.field.lensId',
+  // A scene's room (6.2a).
+  room_id: 'history.field.room',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -278,6 +282,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   if (prop === 'setup_id') return t('history.aSetup');
   if (prop === 'lens_id') return t('history.aLens');
+  if (prop === 'room_id') return t('history.aRoom');
   // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
   if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
   // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
@@ -573,8 +578,18 @@ const isPrivate = (change: FieldChange): boolean => change.private === true || (
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
+/** A plan item's lengths in the unit this computer shows (3.50 m, 12' 6"), its rotation in degrees (6.2a); null for its other props. */
+const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m']);
+function planItemValue(change: FieldChange, value: JsonValue | undefined): string | null {
+  if (change.planItem !== true || change.key !== undefined || typeof value !== 'number') return null;
+  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, planUnitNow());
+  if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
+  return null;
+}
+
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  isPrivate(change)
+  planItemValue(change, value) ??
+  (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -584,10 +599,11 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
       ? clientValue(change, value, false)
       : isDeliverable(change)
         ? deliverableText(value, false)
-        : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
+        : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value));
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  isPrivate(change)
+  planItemValue(change, value) ??
+  (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -597,9 +613,13 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
       ? clientValue(change, value, true)
       : isDeliverable(change)
         ? deliverableText(value, true)
-        : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
-const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
-  change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+        : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value));
+const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part => {
+  // A wall's length is a technical value: mono.
+  const planned = planItemValue(change, value);
+  if (planned !== null) return { mono: planned };
+  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+};
 
 /** Props that keep another record by id, and what a step calls it when that record can't be named. */
 const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
@@ -608,6 +628,7 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   ['shoot_day_id', 'history.aShootDay'],
   ['setup_id', 'history.aSetup'],
   ['lens_id', 'history.aLens'],
+  ['room_id', 'history.aRoom'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -624,6 +645,8 @@ export function namedById(record: SbdRecord | undefined): string | null {
   // A shoot day (3.7) by its date, as History names one.
   if (record?.type === 'shoot_day') return dayDateLabel(shootDayFields(record.props).date) || t('history.undatedDay');
   if (record?.type === 'setup') return setupName(record);
+  // A room (6.2a) by its name, as a location is.
+  if (record?.type === 'plan') return typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name.trim() : null;
   return record?.type === 'location' && typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : null;
 }
 

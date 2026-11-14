@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { hostToolForKey, toolForKey, type KeyLike } from './keys';
-import { marqueePicks, pickable, pickOrder } from './picking';
+import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
 import { placedAt, PLACED_SIZE } from './placement';
-import { constrainAngle, gridLines, gridPull, gridShown, nearestPoint, rulerTicks, scaleBarLength, snapToGrid } from './scale';
+import { constrainAngle, gridLines, gridPull, gridPullPoints, gridShown, nearestPoint, rulerTicks, scaleBarLength, snapMoveByPoints, snapToGrid } from './scale';
 import { topmostAt } from './hitTest';
 import type { CanvasItem, GridSpec, ToolSpec } from './types';
 import { BOARD_ZOOM, fitBounds, zoomAround } from './viewport';
@@ -70,6 +70,32 @@ describe('grid snapping', () => {
     expect(gridPull({ x: 47, y: 10, width: 100, height: 10 }, GRID, 1, 'off')).toEqual({ dx: 0, dy: 0 });
   });
 
+  // A 3 m wall, 10 cm thick, along the grid line y = 0: its box is 5 cm either side, its snap points its middle line's ends.
+  const ends = [
+    { x: 0, y: 0 },
+    { x: 300, y: 0 },
+  ];
+
+  it('moves an item by its own snap points, so a wall on a grid line dragged 1 m lands exactly 1 m away', () => {
+    // By the box, the nearer edge is the wall's face: it would land 5 cm off the line.
+    expect(gridPull({ x: 100, y: 95, width: 300, height: 10 }, GRID, 1, 'magnet').dy).toBe(5);
+    expect(snapMoveByPoints(ends, 100, 100, [], GRID, 1, 'magnet', 10)).toEqual({ dx: 100, dy: 100 });
+    // A pointer a few px off still lands on the line, both axes.
+    expect(snapMoveByPoints(ends, 103, 98, [], GRID, 1, 'magnet', 10)).toEqual({ dx: 100, dy: 100 });
+  });
+
+  it('keeps a lengthwise drag on its line: the cross axis never moves', () => {
+    for (const dx of [7, 33, 100, 141]) expect(snapMoveByPoints(ends, dx, 0, [], GRID, 1, 'magnet', 10).dy).toBe(0);
+    expect(gridPullPoints([{ x: 13, y: 0 }], GRID, 1, 'magnet')).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('joins another item’s snap point on both axes, snaps finer with Alt, and not at all when off', () => {
+    // The wall's start dragged near another wall's end at (497, 203): it joins it exactly.
+    expect(snapMoveByPoints(ends, 500, 200, [{ x: 497, y: 203 }], GRID, 1, 'magnet', 10)).toEqual({ dx: 497, dy: 203 });
+    expect(snapMoveByPoints(ends, 52, 3, [], GRID, 1, 'fine', 10)).toEqual({ dx: 50, dy: 5 });
+    expect(snapMoveByPoints(ends, 52, 3, [{ x: 50, y: 0 }], GRID, 1, 'off', 10)).toEqual({ dx: 52, dy: 3 });
+  });
+
   it('holds a direction to 15° steps, and joins a nearby end', () => {
     const p = constrainAngle({ x: 0, y: 0 }, { x: 100, y: 10 });
     expect(p.x).toBeCloseTo(Math.hypot(100, 10), 6);
@@ -106,6 +132,18 @@ describe('locked items', () => {
     expect(pickOrder([], ['link'], items)).toEqual(['link', 'a', 'c']);
     expect(pickOrder([item('s', 0, { section: { tab: { x: 0, y: -24, width: 72, height: 24 } }, locked: true })], [], [])).toEqual([]);
     expect(items).toHaveLength(3);
+  });
+
+  it('are never picked by the context menu or a double-click either', () => {
+    // b, locked, lies over a at (75, 50) and alone at (130, 50).
+    expect(itemAt(items, { x: 75, y: 50 })?.id).toBe('a');
+    expect(itemAt(items, { x: 130, y: 50 })).toBeUndefined();
+    expect(menuPickAt(items, [], { x: 130, y: 50 }, 1)).toBeUndefined();
+    expect(menuPickAt(items, [], { x: 75, y: 50 }, 1)?.id).toBe('a');
+    const section = item('s', 0, { width: 400, height: 300, section: { tab: { x: 0, y: -24, width: 72, height: 24 } }, locked: true });
+    // A locked section's tab picks nothing.
+    expect(menuPickAt([], [section], { x: 10, y: -10 }, 1)).toBeUndefined();
+    expect(menuPickAt([], [{ ...section, locked: false }], { x: 10, y: -10 }, 1)?.id).toBe('s');
   });
 });
 

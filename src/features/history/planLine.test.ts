@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { setPlanUnitsChoice } from '../../app/planUnits';
 import { setLocale } from '../../core/i18n';
 import type { Props, SbdRecord } from '../../core/model/record';
 import type { LoggedOp } from '../../core/ops/ops';
-import { changeLabel, describeEdit, fieldChanges, lineText } from './summary';
+import { changeLabel, changeText, changeValue, describeEdit, fieldChanges, fieldLabel, lineText, namedById, valueText } from './summary';
 
 // A plan's steps in History (6.2a): a room started and renamed; walls drawn, moved, turned, resized, deleted and
 // restored, each one line for its group, in English and Spanish.
@@ -40,6 +41,7 @@ const say = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, new Map([['sc4
 
 afterEach(() => {
   setLocale('en');
+  setPlanUnitsChoice('region');
 });
 
 describe('History for plans', () => {
@@ -62,6 +64,33 @@ describe('History for plans', () => {
   it('names a wall’s fields as the Selection tile does', () => {
     const changes = fieldChanges(wall('a'), wall('a', { width: 5, height_m: 2.4 }));
     expect(changes.map((c) => changeLabel(c))).toEqual(['length', 'height']);
+  });
+
+  it('names a scene’s room by its name, never by its id', () => {
+    const kept = record('3f1c9a52-room', 'plan', 'p', { kind: 'room', name: 'Diner' });
+    const linked = { ...scene, props: { ...scene.props, room_id: kept.id } };
+    const text = lineText(describeEdit([op('update', scene, linked)], none, new Map([['sc4', scene], [kept.id, kept]])));
+    expect(text).toContain('room “Diner”');
+    expect(text).not.toContain(kept.id);
+    expect(fieldLabel('room_id')).toBe('room');
+    expect(valueText('room_id', kept.id)).toBe('a room');
+    // An item's own history names it as the project has it now (HistoryTile's `places`).
+    expect(namedById(kept)).toBe('Diner');
+    expect(namedById(record('r2', 'plan', 'p', { kind: 'room' }))).toBeNull();
+    setLocale('es');
+    expect(fieldLabel('room_id')).toBe('espacio');
+  });
+
+  it('shows a wall’s lengths in the unit this computer shows, and its turn in degrees', () => {
+    const [length, height] = fieldChanges(wall('a'), wall('a', { width: 3.81, height_m: 2.4 }));
+    if (!length || !height) throw new Error('no changes');
+    setPlanUnitsChoice('metres');
+    expect([changeText(length, length.before), changeText(length, length.after), changeValue(height, height.after)]).toEqual(['3.50 m', '3.81 m', '2.40 m']);
+    setPlanUnitsChoice('feet');
+    expect(changeText(length, length.after)).toBe('12\' 6"');
+    const [turn] = fieldChanges(wall('a'), wall('a', { rotation: 36.869898 }));
+    if (!turn) throw new Error('no change');
+    expect(changeText(turn, turn.after)).toBe('36.87°');
   });
 
   it('says it in Spanish too', () => {

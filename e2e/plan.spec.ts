@@ -147,6 +147,9 @@ test('starts a room, draws walls by click and typed length in metres and feet, r
   await field(page, 'Length').fill('4 m');
   await field(page, 'Length').press('Enter');
   await expect.poll(async () => (await walls(page))[1]?.width).toBe(4);
+  // Enter writes it and keeps the focus in the field, showing it as the plan has it.
+  await expect(field(page, 'Length')).toBeFocused();
+  await expect(field(page, 'Length')).toHaveValue('4.00 m');
   await field(page, 'Height').fill('2.4');
   await field(page, 'Height').press('Enter');
   await expect(field(page, 'Height')).toHaveValue('2.40 m');
@@ -162,8 +165,9 @@ test('starts a room, draws walls by click and typed length in metres and feet, r
   await page.mouse.down();
   await page.mouse.move(from.x + 100, from.y, { steps: 8 });
   await page.mouse.up();
-  // About a metre: the box's nearer edge snaps onto the grid (here its face, 5 cm off its middle line).
-  await expect.poll(async () => Math.abs(((await walls(page))[1]?.start.x ?? 0) - (before?.start.x ?? 0) - 1)).toBeLessThanOrEqual(0.06);
+  // A metre exactly: a wall snaps by its middle line's ends, so it stays on the grid line, and its other axis never moves.
+  await expect.poll(async () => Math.abs(((await walls(page))[1]?.start.x ?? 0) - (before?.start.x ?? 0) - 1)).toBeLessThanOrEqual(0.001);
+  expect(Math.abs(((await walls(page))[1]?.start.y ?? 0) - (before?.start.y ?? 0))).toBeLessThanOrEqual(0.001);
   await field(page, 'Rotation').fill('45');
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await walls(page))[1]?.rotation).toBe(45);
@@ -189,6 +193,41 @@ test('starts a room, draws walls by click and typed length in metres and feet, r
   await setupsTile(page).locator('[data-setups-scene-pick]').first().click();
   await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01');
   await expect.poll(async () => (await walls(page)).length).toBe(3);
+});
+
+test('a run of walls belongs to the view it began in: picking another setup writes it there, never into the other room', async ({ page }) => {
+  // A second scene, with its own setup and room.
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await startRoom(page);
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 02' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+  await planTile(page).getByRole('button', { name: 'Start the room' }).click();
+  await expect(canvas(page)).toBeVisible();
+
+  // Back on SC 01: a run of two fixed points, then SC 02's setup picked mid-run.
+  await setupsTile(page).locator('section[aria-label="SC 01"] [data-setup-select]').click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 1');
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -150, -150);
+  await clickAt(page, 150, -150);
+  await moveTo(page, 150, 100);
+  await expect(canvas(page)).toHaveAttribute('data-path', /.+/);
+  await setupsTile(page).locator('section[aria-label="SC 02"] [data-setup-select]').click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+
+  // SC 02's plan has no run and no walls; Enter there writes nothing.
+  await expect(canvas(page)).not.toHaveAttribute('data-path', /.*/);
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  await canvas(page).focus();
+  await page.keyboard.press('Enter');
+  expect(await walls(page)).toEqual([]);
+  // SC 01's room has the one wall its fixed points made, and no more.
+  await setupsTile(page).locator('section[aria-label="SC 01"] [data-setup-select]').click();
+  await expect.poll(() => widths(page)).toEqual([3]);
+  await setupsTile(page).locator('section[aria-label="SC 02"] [data-setup-select]').click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+  expect(await walls(page)).toEqual([]);
 });
 
 test('stays paper in dark, takes the keyboard, and passes axe on the Plan and Selection tiles', async ({ page }) => {

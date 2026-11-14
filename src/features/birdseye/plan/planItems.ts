@@ -6,12 +6,15 @@ import {
   MIN_PLAN_SIZE,
   normalDegrees,
   planItemFields,
+  sceneRoomId,
   shownItems,
   wallBetween,
   wallEnds,
   wallProps,
+  wallsAlong,
   type PlanGeometry,
   type PlanItemFields,
+  type ShownItem,
 } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
 import type { Change } from '../../../core/ops/ops';
@@ -51,28 +54,113 @@ const lineOf = (id: string, fields: PlanItemFields): WallLine => {
 export const wallLabel = (fields: PlanItemFields, unit: PlanUnit): string =>
   fields.name === '' ? t('plan.announce.wall', { length: formatLength(fields.width, unit) }) : t('plan.announce.wallNamed', { name: fields.name, length: formatLength(fields.width, unit) });
 
-/** What the canvas draws for a view, back to front: walls as ink bars, mitred where two meet. */
-export function planCanvasItems(records: Records, sceneId: string, setupId: string | null, unit: PlanUnit, ink: string): CanvasItem[] {
-  const shown = shownItems(records, sceneId, setupId);
-  const lines = shown.map((item) => lineOf(item.record.id, item.fields));
-  return shown.map((item, i): CanvasItem => {
-    const line = lines[i] as WallLine;
-    const outline = wallOutline(line, lines).flatMap((p) => [p.x, p.y]);
-    return {
-      id: item.record.id,
-      ...toCanvasGeometry(item.fields),
-      label: wallLabel(item.fields, unit),
-      draw: () => createElement(Line, { points: outline, closed: true, fill: ink, listening: false }),
-    };
-  });
+/** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
+function joinedTo(lines: readonly WallLine[]): Map<string, WallLine[]> {
+  // Cells of 1 canvas unit (1 cm), far wider than the 1 mm join: two ends that join are in the same or a neighbouring cell.
+  const cell = (p: Point) => [Math.floor(p.x), Math.floor(p.y)] as const;
+  const ends = new Map<string, WallLine[]>();
+  for (const line of lines) {
+    for (const p of [line.start, line.end]) {
+      const [cx, cy] = cell(p);
+      const key = `${String(cx)},${String(cy)}`;
+      const here = ends.get(key);
+      if (here) here.push(line);
+      else ends.set(key, [line]);
+    }
+  }
+  const joined = new Map<string, WallLine[]>();
+  for (const line of lines) {
+    const near = new Set<WallLine>();
+    for (const p of [line.start, line.end]) {
+      const [cx, cy] = cell(p);
+      for (let dx = -1; dx <= 1; dx += 1) for (let dy = -1; dy <= 1; dy += 1) for (const other of ends.get(`${String(cx + dx)},${String(cy + dy)}`) ?? []) if (other !== line) near.add(other);
+    }
+    joined.set(line.id, [...near]);
+  }
+  return joined;
 }
 
-/** Every shown wall's ends, canvas units: what a new wall's clicks join. */
-export function wallSnapPoints(records: Records, sceneId: string, setupId: string | null): Point[] {
-  return shownItems(records, sceneId, setupId).flatMap((item) => {
-    const line = lineOf(item.record.id, item.fields);
-    return [line.start, line.end];
-  });
+/** What a built item depended on: the same record, unit and ink, and the same walls at its ends, give the same item. */
+interface Built {
+  record: SbdRecord;
+  unit: PlanUnit;
+  ink: string;
+  neighbours: readonly SbdRecord[];
+  item: CanvasItem;
+}
+
+/**
+ * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
+ * the ink or the walls joined at its ends changed (their mitres shape its corners), so an edit elsewhere in the project
+ * rebuilds nothing and the canvas keeps what it drew; when nothing changed, the same list comes back.
+ */
+export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit, ink: string) => readonly CanvasItem[] {
+  let built = new Map<string, Built>();
+  let last: readonly CanvasItem[] = [];
+  return (shown, unit, ink) => {
+    const lines = shown.map((item) => lineOf(item.record.id, item.fields));
+    const records = new Map(shown.map((item) => [item.record.id, item.record]));
+    const joined = joinedTo(lines);
+    const next = new Map<string, Built>();
+    const items = shown.map((item, i): CanvasItem => {
+      const line = lines[i] as WallLine;
+      const near = joined.get(line.id) ?? [];
+      const neighbours = near.flatMap((other) => records.get(other.id) ?? []);
+      const was = built.get(item.record.id);
+      if (was && was.record === item.record && was.unit === unit && was.ink === ink && was.neighbours.length === neighbours.length && was.neighbours.every((r, k) => r === neighbours[k])) {
+        next.set(item.record.id, was);
+        return was.item;
+      }
+      const outline = wallOutline(line, [line, ...near]).flatMap((p) => [p.x, p.y]);
+      const made: CanvasItem = {
+        id: item.record.id,
+        ...toCanvasGeometry(item.fields),
+        label: wallLabel(item.fields, unit),
+        // A wall snaps by its middle line's ends, never by its box (a move keeps it on the grid line it was on).
+        snapPoints: [line.start, line.end],
+        draw: () => createElement(Line, { points: outline, closed: true, fill: ink, listening: false }),
+      };
+      next.set(item.record.id, { record: item.record, unit, ink, neighbours, item: made });
+      return made;
+    });
+    built = next;
+    if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
+    last = items;
+    return items;
+  };
+}
+
+/** What the canvas draws for a view, back to front: walls as ink bars, mitred where two meet. */
+export function planCanvasItems(records: Records, sceneId: string, setupId: string | null, unit: PlanUnit, ink: string): readonly CanvasItem[] {
+  return planItemsBuilder()(shownItems(records, sceneId, setupId), unit, ink);
+}
+
+/**
+ * A view's shown items, kept between calls: the same list back while every item record is the one it was, so an edit
+ * to anything else in the project (a frame, a scene) leaves the plan's items as they are.
+ */
+export function shownItemsKeeper(): (records: Records, sceneId: string, setupId: string | null) => readonly ShownItem[] {
+  let last: readonly ShownItem[] = [];
+  let lastKey = '';
+  return (records, sceneId, setupId) => {
+    const now = shownItems(records, sceneId, setupId);
+    const key = viewKey(sceneId, setupId);
+    const same = (item: ShownItem, i: number) => {
+      const was = last[i];
+      return was !== undefined && item.record === was.record && item.level === was.level;
+    };
+    if (key === lastKey && now.length === last.length && now.every(same)) return last;
+    last = now;
+    lastKey = key;
+    return now;
+  };
+}
+
+/** A run of walls drawn in a view (canvas units): one wall a segment, into that view's scene's room, never another's. */
+export function drawWallsChanges(records: Records, sceneId: string, points: readonly Point[]): { ids: string[]; changes: Change[] } {
+  const roomId = sceneRoomId(records, records[sceneId]);
+  if (roomId === null) return { ids: [], changes: [] };
+  return wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
 }
 
 const sameGeometry = (a: PlanItemFields, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;

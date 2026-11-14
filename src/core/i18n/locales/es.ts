@@ -2826,6 +2826,7 @@ export const es: Messages = {
   'length.feetInches': '{feet}\' {inches}"',
   'length.metresShort': '{value} m',
   'length.feetShort': '{value} ft',
+  'length.inchesShort': '{value} in',
   'canvas.path.refused': 'No es una medida: {typed}. Prueba 3.5 m, 350 cm o 12\' 6".',
   'canvas.path.taken': 'Tramo de {length} dibujado.',
   'canvas.path.started': 'Dibujando desde el centro de la vista. Escribe una medida y pulsa Enter; las flechas fijan la dirección; Enter solo termina.',
@@ -2893,6 +2894,7 @@ export const es: Messages = {
   'history.field.wallThickness': 'grosor',
   'history.field.wallHeight': 'altura',
   'history.field.planName': 'nombre',
+  'history.field.room': 'espacio',
   'count.planItems.one': '{count} elemento de planta',
   'count.planItems.other': '{count} elementos de planta',
 };

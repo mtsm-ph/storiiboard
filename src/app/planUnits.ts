@@ -3,7 +3,7 @@ import { createStore } from 'zustand/vanilla';
 import type { PlanUnit } from '../core/model/length';
 import { isUsLocale } from '../core/net/weather';
 import { loadSettings, saveSettings, type PlanUnitsChoice } from '../core/storage/settings';
-import { useRegionLocale } from './weekStart';
+import { regionLocaleNow, useRegionLocale } from './weekStart';
 
 // The units a plan shows (6.2a, docs/PHASE6_DECISIONS.md 7), as the forecast's are (weatherUnits.ts): feet and inches
 // where this computer's region is the US, metres elsewhere, unless Settings → App sets one. Kept in this computer's
@@ -23,6 +23,9 @@ export function planUnitFor(choice: PlanUnitsChoice, regionLocale: string | null
   if (choice === 'metres' || choice === 'feet') return choice;
   return isUsLocale(regionLocale) ? 'feet' : 'metres';
 }
+
+/** The unit a plan shows, read outside a component (History's lines name a wall's length in it). */
+export const planUnitNow = (): PlanUnit => planUnitFor(store.getState().choice, regionLocaleNow());
 
 /** The unit a plan shows now, following Settings and the computer. */
 export function usePlanUnit(): PlanUnit {

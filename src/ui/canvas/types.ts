@@ -82,6 +82,13 @@ export interface CanvasItem extends Geometry {
   locked?: boolean;
   /** Drawn at reduced opacity (6.2a; a dimmed layer). */
   dim?: boolean;
+  /**
+   * Where the item snaps (6.2a; a wall's two middle line ends), in world units, absolute, for the item where it is now
+   * (a move carries them with it). Given, a move snaps these to the grid and to other items' snap points, in place of
+   * the box's edges and other items' lines; without (a board's items), the box snaps as it always has. A point-to-point
+   * run's clicks join them too.
+   */
+  snapPoints?: readonly Point[];
 }
 
 /** What makes an item a section: the name tab above its top left corner, and how the host draws it. */

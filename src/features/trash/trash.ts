@@ -16,7 +16,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { setupFields } from '../../core/model/setup';
-import { planFields, planItemFields, roomTitle } from '../../core/model/plan';
+import { planFields, planItemFields, restorePlanChanges, roomTitle } from '../../core/model/plan';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -355,9 +355,15 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       }
       return [{ kind: 'restore', id }, ...connectors];
     }
-    case 'plan_item':
-      // An item whose plan is in the Trash brings the plan back, or it would come back onto nothing (6.2a).
-      return parent?.type === 'plan' && parent.trashedAt !== null ? [{ kind: 'restore', id: parent.id }, { kind: 'restore', id }] : [{ kind: 'restore', id }];
+    case 'plan':
+      // A room comes back with the items that went to the Trash with it (6.2a), not ones deleted before.
+      return restorePlanChanges(records, id);
+    case 'plan_item': {
+      // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
+      if (parent?.type !== 'plan' || parent.trashedAt === null) return [{ kind: 'restore', id }];
+      const plan = restorePlanChanges(records, parent.id);
+      return plan.some((c) => c.kind === 'restore' && c.id === id) ? plan : [...plan, { kind: 'restore', id }];
+    }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.
       // With a new number if a live scene has taken its own; its frames are numbered the board's way.

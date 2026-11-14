@@ -2827,6 +2827,7 @@ export const en = {
   'length.feetInches': '{feet}\' {inches}"',
   'length.metresShort': '{value} m',
   'length.feetShort': '{value} ft',
+  'length.inchesShort': '{value} in',
   'canvas.path.refused': 'Not a length: {typed}. Try 3.5 m, 350 cm or 12\' 6".',
   'canvas.path.taken': 'Segment of {length} drawn.',
   'canvas.path.started': 'Drawing from the middle of the view. Type a length and press Enter; the arrows set the direction; Enter alone finishes.',
@@ -2894,6 +2895,7 @@ export const en = {
   'history.field.wallThickness': 'thickness',
   'history.field.wallHeight': 'height',
   'history.field.planName': 'name',
+  'history.field.room': 'room',
   'count.planItems.one': '{count} plan item',
   'count.planItems.other': '{count} plan items',
 };

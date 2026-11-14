@@ -1,8 +1,8 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { usePlanUnit } from '../../../app/planUnits';
 import { useProject } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
-import { planFields, roomTitle, sceneRoom, shownItems, wallEnds } from '../../../core/model/plan';
+import { planFields, roomTitle, sceneRoom, wallEnds } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -25,7 +25,7 @@ import {
   startRoom,
   type PlanView,
 } from './planActions';
-import { planCanvasItems, viewKey, wallSnapPoints } from './planItems';
+import { planItemsBuilder, shownItemsKeeper, viewKey } from './planItems';
 import { PLAN_TOOLS, PLAN_ZOOM, planScale, WALL_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { useShownPlan } from './shownPlan';
@@ -92,7 +92,9 @@ export function PlanTile() {
       </div>
     );
   }
-  return <PlanCanvas view={live.view} header={header} roomName={roomTitle(planFields(room.props))} />;
+  // A canvas per view: nothing it holds (a run of walls being drawn above all) carries into another view. A run in
+  // progress when the view changes ends as Escape ends it, written into the room it was drawn in.
+  return <PlanCanvas key={viewKey(live.view.sceneId, live.view.setupId)} view={live.view} header={header} roomName={roomTitle(planFields(room.props))} />;
 }
 
 function PlanCanvas({ view, header, roomName }: { view: PlanView; header: ReactNode; roomName: string }) {
@@ -103,8 +105,12 @@ function PlanCanvas({ view, header, roomName }: { view: PlanView; header: ReactN
   const viewports = usePlan((s) => s.viewports);
   const tool = usePlan((s) => s.tool);
   const clipboard = usePlan((s) => s.clipboard);
-  const items = useMemo(() => planCanvasItems(records, view.sceneId, view.setupId, unit, INK), [records, view.sceneId, view.setupId, unit]);
-  const snapPoints = useMemo(() => wallSnapPoints(records, view.sceneId, view.setupId), [records, view.sceneId, view.setupId]);
+  // Read once per change of the records, and kept as they were while the plan's own records are (an edit elsewhere in
+  // the project rebuilds nothing, and the canvas keeps what it drew for each wall).
+  const [keepShown] = useState(shownItemsKeeper);
+  const [build] = useState(planItemsBuilder);
+  const shown = useMemo(() => keepShown(records, view.sceneId, view.setupId), [keepShown, records, view.sceneId, view.setupId]);
+  const items = useMemo(() => build(shown, unit, INK), [build, shown, unit]);
   const scale = useMemo(() => planScale(unit), [unit]);
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => items.some((item) => item.id === id)), [stored, items]);
@@ -112,12 +118,12 @@ function PlanCanvas({ view, header, roomName }: { view: PlanView; header: ReactN
   const data = useMemo(
     () =>
       JSON.stringify(
-        shownItems(records, view.sceneId, view.setupId).map(({ record, fields, level }) => {
+        shown.map(({ record, fields, level }) => {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end };
         }),
       ),
-    [records, view.sceneId, view.setupId],
+    [shown],
   );
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
@@ -177,7 +183,6 @@ function PlanCanvas({ view, header, roomName }: { view: PlanView; header: ReactN
           tools={PLAN_TOOLS}
           scale={scale}
           zoomLimits={PLAN_ZOOM}
-          snapPoints={snapPoints}
         />
       </div>
     </div>

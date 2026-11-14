@@ -36,6 +36,32 @@ describe('parseLength', () => {
     expect(parseLength('.5', 'metres')).toBe(0.5);
   });
 
+  it('reads the US architectural forms, and 12-6 only while the screen shows feet', () => {
+    expect(parseLength('12\'-6"', 'metres')).toBe(3.81);
+    expect(parseLength("12'-6", 'metres')).toBe(3.81);
+    expect(parseLength('12\' 6 1/2"', 'metres')).toBe(3.8227);
+    expect(parseLength('6 1/2"', 'metres')).toBe(0.1651);
+    expect(parseLength('1/2"', 'metres')).toBe(0.0127);
+    expect(parseLength('12-6', 'feet')).toBe(3.81);
+    expect(parseLength('12-6 1/2', 'feet')).toBe(3.8227);
+    expect(parseLength('12-6', 'metres')).toBeNull();
+    expect(parseLength('6 1/0"', 'metres')).toBeNull();
+  });
+
+  it('refuses a grouping comma rather than guess it, and anything over a kilometre', () => {
+    expect(parseLength('1,500 mm', 'metres')).toBeNull();
+    expect(parseLength('1,500', 'metres')).toBeNull();
+    expect(parseLength('2,000 m', 'feet')).toBeNull();
+    // A decimal comma is still read.
+    expect(parseLength('3,5 m', 'metres')).toBe(3.5);
+    expect(parseLength('3,50 m', 'metres')).toBe(3.5);
+    expect(parseLength('1000 m', 'metres')).toBe(1000);
+    expect(parseLength('1001 m', 'metres')).toBeNull();
+    expect(parseLength('5000', 'feet')).toBeNull();
+    expect(parseLength('-1001 m', 'metres', true)).toBeNull();
+    expect(parseLength('-0.5 m', 'metres')).toBeNull();
+  });
+
   it('refuses anything else, and a minus unless it is a position', () => {
     for (const text of ['', 'abc', '3.5 km', '12 yards', '3..5', '1/2', 'm', "'"]) expect(parseLength(text, 'metres')).toBeNull();
     expect(parseLength('-2 m', 'metres')).toBeNull();
@@ -74,5 +100,9 @@ describe('formatLength', () => {
     expect(roundLengthLabel(1, 'metres')).toBe('1 m');
     expect(roundLengthLabel(0.5, 'metres')).toBe('0.5 m');
     expect(roundLengthLabel(3.048, 'feet')).toBe('10 ft');
+    // Under a foot, inches; a centimetre in metres.
+    expect(roundLengthLabel(0.0508, 'feet')).toBe('2 in');
+    expect(roundLengthLabel(0.3048, 'feet')).toBe('1 ft');
+    expect(roundLengthLabel(0.01, 'metres')).toBe('0.01 m');
   });
 });
