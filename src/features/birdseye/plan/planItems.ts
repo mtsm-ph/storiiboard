@@ -65,7 +65,7 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
-import { cameraBeyond, labelsBeyond, UprightLabels, type CameraLook } from './cameraDraw';
+import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cameraDraw';
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
@@ -371,12 +371,13 @@ function drawOpening(o: OpeningFields, frame: OpeningFrame, colours: CanvasColou
 export function openingItem(id: string, fields: OpeningFields, wall: PlanItemFields, unit: PlanUnit, preview = false): CanvasItem {
   const frame = openingFrame(wall, fields);
   const g = toCanvasGeometry(frame.box);
-  // A set height (decision 11, 6.5 review): a label by it, upright, as every item's is.
+  // A set height (decision 11, 6.5 reviews): a label beside it, upright, on the side away from its wall's height label
+  // (which sits on the wall's normal side), past its own box, so a door's swing never runs through it.
   const lines = heightLines(fields, unit, false);
   return {
     id,
     ...g,
-    ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
+    ...(lines.length > 0 ? { beyond: besideBeyond(g, { lines, side: -1, edge: g.height / 2 }, PLAN_ZOOM.min) } : {}),
     label: openingLabel(fields, unit),
     // It snaps along its wall (planConstrain), never by its box.
     snapPoints: [],
@@ -450,28 +451,30 @@ export function planItemsBuilder(): (
       }
       return null;
     };
+    const openingsOn = new Map<string, (ShownItem & { fields: OpeningFields })[]>();
+    for (const item of shown.filter(isOpeningItem)) openingsOn.set(item.fields.wallId, [...(openingsOn.get(item.fields.wallId) ?? []), item]);
     const wallItems = walls.map((item, i): CanvasItem => {
       const line = lines[i] as WallLine;
       const near = joined.get(line.id) ?? [];
-      const neighbours = near.flatMap((other) => records.get(other.id) ?? []);
+      const heights = heightLines(item.fields, unit, false);
+      // A wall with a height label is made again when a door or window on it changes too: the label sits past its swing.
+      const openings = heights.length > 0 ? (openingsOn.get(item.record.id) ?? []) : [];
+      const neighbours = [...near.flatMap((other) => records.get(other.id) ?? []), ...openings.map((o) => o.record)];
       const same = kept(item, neighbours);
       if (same) return same;
       const outline = wallOutline(line, [line, ...near]).flatMap((p) => [p.x, p.y]);
       const g = toCanvasGeometry(item.fields);
-      // A set height (decision 11, 6.5 review) is a label at the wall's middle, upright, over its ink.
-      const heights = heightLines(item.fields, unit, false);
+      // A set height (decision 11, 6.5 reviews) is a label beside the wall's middle, on its normal side, upright, past a
+      // door that swings that way (cameraDraw.tsx, besidePlace).
+      const clears = openings.map((o) => ({ from: toCanvas(o.fields.along - o.fields.width / 2), to: toCanvas(o.fields.along + o.fields.width / 2), reach: toCanvas(openingFrame(item.fields, o.fields).hi) }));
       const made: CanvasItem = {
         id: item.record.id,
         ...g,
         label: wallLabel(item.fields, unit),
         // A wall snaps by its middle line's ends, never by its box (a move keeps it on the grid line it was on).
         snapPoints: [line.start, line.end],
-        draw: (context) => {
-          const bar = createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false });
-          if (heights.length === 0) return bar;
-          const label = createElement(UprightLabels, { key: 'height', width: g.width, height: g.height, zoom: context.zoom, rotation: g.rotation, colours: context.colours, lines: heights, at: 'middle' });
-          return createElement(Fragment, null, bar, label);
-        },
+        draw: () => createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false }),
+        ...(heights.length > 0 ? { beyond: besideBeyond(g, { lines: heights, side: 1, edge: g.height / 2, clears }, PLAN_ZOOM.min) } : {}),
       };
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours, item: made });
       return made;

@@ -2,7 +2,13 @@ import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
-import { gripFields, lightFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
+import { Text } from 'react-konva';
+import { gripFields, lightFields, planItemFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges, wallEnds, type PlanItemFields } from '../../../core/model/plan';
+import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
+import type { CanvasItem } from '../../../ui/canvas/types';
+import { BesideLabels, besidePlace, type BesideSpec } from './cameraDraw';
+import { printedRoomLines, roomLineParts, roomLineText } from './LegendView';
+import { restoredName, trashItems } from '../../trash/trash';
 import { BEAM_FACING, BEAM_LENGTH_M, beamDirection, beamFacing, LIGHT_ICONS, lightWatts } from '../../../core/model/planLight';
 import { copySetupChanges, separateCopyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
@@ -416,21 +422,21 @@ describe('a wall’s, a door’s and a window’s height (6.5 review, decision 1
     return { sceneId, setupId };
   }
 
-  it('draws a set height as a label: at a wall’s middle, upright, over its ink; by a door; none without one', async () => {
+  it('draws a set height as a label beside a wall’s middle, upright, past its box with no patch; by a door; none without one', async () => {
     const { sceneId, setupId } = await room();
     const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
     const drawnBy = (id: string) => {
       const item = built.find((i) => i.id === id);
       return item?.draw?.({ width: item.width, height: item.height, zoom: 1, inView: true, colours: PAPER_COLOURS }) as ReactElement<{ children?: ReactElement[] }> | undefined;
     };
-    // A wall with a height draws its bar and, over it, the label at its middle.
-    const labelled = drawnBy('w1')?.props.children ?? [];
-    const label = labelled[1] as ReactElement<{ lines: string[]; at: string; rotation: number }> | undefined;
-    expect(label?.props).toMatchObject({ lines: ['2.40 m'], at: 'middle', rotation: 0 });
-    // One without draws its bar alone.
+    // A wall draws its bar alone, with or without a height (6.5 second review: the label is no longer on its ink).
+    expect(drawnBy('w1')?.props.children).toBeUndefined();
     expect(drawnBy('w4')?.props.children).toBeUndefined();
-    // A door's height is a label by it, past its box; a window without one has none.
-    expect(built.find((i) => i.id === 'door')?.beyond).toBeDefined();
+    // Its label is past its box, on its normal side, through the shared upright means.
+    expect(besideSpecOf(built, 'w1')).toMatchObject({ lines: ['2.40 m'], side: 1 });
+    expect(built.find((i) => i.id === 'w4')?.beyond).toBeUndefined();
+    // A door's height is a label beside it, on the other side; a window without one has none.
+    expect(besideSpecOf(built, 'door')).toMatchObject({ lines: ['2.10 m'], side: -1 });
     expect(built.find((i) => i.id === 'win')?.beyond).toBeUndefined();
   });
 
@@ -442,5 +448,199 @@ describe('a wall’s, a door’s and a window’s height (6.5 review, decision 1
       { kind: 'wall', metres: 3, count: 1 },
       { kind: 'door', metres: 2.1, count: 1 },
     ]);
+  });
+});
+
+/** The beside label's spec an item's beyond drawing was made with (a wall's, a door's or a window's height). */
+function besideSpecOf(built: readonly CanvasItem[], id: string): BesideSpec | undefined {
+  const item = built.find((i) => i.id === id);
+  const drawn = item?.beyond?.draw({ width: item.width, height: item.height, zoom: 1, inView: true, colours: PAPER_COLOURS, rotation: item.rotation }) as ReactElement<{ spec: BesideSpec }> | undefined;
+  return drawn?.props.spec;
+}
+
+describe('a height label beside its wall, door or window, never on it (6.5 second review, M-1)', () => {
+  const T = 0.1;
+  const wall = (roomId: string, id: string, props: Record<string, number>) => ({
+    kind: 'create' as const,
+    record: { id, type: 'plan_item' as const, parentId: roomId, sortKey: id, props: { kind: 'wall', x: 0, y: 0, width: 3, height: T, rotation: 0, height_m: 2.4, ...props } },
+  });
+  const door = (roomId: string, id: string, wallId: string, swing: 'left' | 'right') => ({
+    kind: 'create' as const,
+    record: { id, type: 'plan_item' as const, parentId: roomId, sortKey: `z${id}`, props: { kind: 'door', wall_id: wallId, along_m: 1.5, width_m: 0.9, height_m: 2.1, swing } },
+  });
+
+  async function walls() {
+    const { sceneId, setupId } = await scene();
+    const roomId = sceneRoomId(records(), records()[sceneId]) ?? '';
+    await store.getState().apply([
+      // A 3 m wall with a centred door swinging to its label's side, and one swinging away.
+      wall(roomId, 'toward', { y: 10 }),
+      door(roomId, 'd-toward', 'toward', 'right'),
+      wall(roomId, 'away', { y: 14 }),
+      door(roomId, 'd-away', 'away', 'left'),
+      // 1 m walls, straight and turned.
+      wall(roomId, 'short', { y: 20, width: 1 }),
+      wall(roomId, 'short30', { y: 24, width: 1, rotation: 30 }),
+      wall(roomId, 'short90', { y: 28, width: 1, rotation: 90 }),
+    ]);
+    return { sceneId, setupId };
+  }
+
+  /** The label's four corners for `item` at `zoom`, as offsets (canvas units) along the wall `on` and across it from its middle line. */
+  function cornersOn(item: CanvasItem, spec: BesideSpec, zoom: number, on: PlanItemFields): { along: number; across: number }[] {
+    const place = besidePlace(item, spec, zoom, item.rotation);
+    const turn = (item.rotation * Math.PI) / 180;
+    const [dx, dy] = [place.x - item.width / 2, place.y - item.height / 2];
+    const centre = { x: item.x + item.width / 2 + dx * Math.cos(turn) - dy * Math.sin(turn), y: item.y + item.height / 2 + dx * Math.sin(turn) + dy * Math.cos(turn) };
+    const [start] = wallEnds(on);
+    const wallTurn = (on.rotation * Math.PI) / 180;
+    const dir = { x: Math.cos(wallTurn), y: Math.sin(wallTurn) };
+    const mid = { x: toCanvas(start.x) + dir.x * toCanvas(on.width / 2), y: toCanvas(start.y) + dir.y * toCanvas(on.width / 2) };
+    return [-1, 1].flatMap((sx) =>
+      [-1, 1].map((sy) => {
+        const p = { x: centre.x + (sx * place.width) / 2, y: centre.y + (sy * place.height) / 2 };
+        return { along: (p.x - toCanvas(start.x)) * dir.x + (p.y - toCanvas(start.y)) * dir.y, across: (p.x - mid.x) * -dir.y + (p.y - mid.y) * dir.x };
+      }),
+    );
+  }
+
+  const fieldsOf = (id: string): PlanItemFields => {
+    const fields = planItemFields(records()[id]?.props ?? {});
+    if (!fields) throw new Error('no wall');
+    return fields;
+  };
+
+  it('keeps a wall’s label clear of a centred door’s box whichever way it swings, and the door’s clear of both', async () => {
+    const { sceneId, setupId } = await walls();
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    const item = (id: string) => {
+      const found = built.find((i) => i.id === id);
+      if (!found) throw new Error(`no ${id}`);
+      return found;
+    };
+    const half = toCanvas(T / 2);
+    const swing = toCanvas(0.9);
+    for (const zoom of [0.2, 1, 4]) {
+      for (const id of ['toward', 'away']) {
+        const spec = besideSpecOf(built, id);
+        if (!spec) throw new Error('no label');
+        const corners = cornersOn(item(id), spec, zoom, fieldsOf(id));
+        // On the normal side, past the wall's face; past the door's swing where the door swings that way.
+        const past = id === 'toward' ? half + swing : half;
+        for (const c of corners) expect(c.across).toBeGreaterThan(past);
+        // Inside the bounds the canvas culls by.
+        const bounds = item(id).beyond?.bounds;
+        const place = besidePlace(item(id), spec, zoom, 0);
+        expect(bounds && place.width <= bounds.width && place.height <= bounds.height).toBe(true);
+      }
+      for (const [id, wallId] of [['d-toward', 'toward'], ['d-away', 'away']] as const) {
+        const spec = besideSpecOf(built, id);
+        if (!spec) throw new Error('no label');
+        // On the other side, past the door's own box: the wall's face for one swinging right, its swing for one swinging left.
+        const past = id === 'd-toward' ? half : half + swing;
+        for (const c of cornersOn(item(id), spec, zoom, fieldsOf(wallId))) expect(c.across).toBeLessThan(-past);
+      }
+    }
+  });
+
+  it('keeps a 1 m wall’s label off the wall at the least zoom, straight or turned, with no paper patch', async () => {
+    const { sceneId, setupId } = await walls();
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    for (const id of ['short', 'short30', 'short90']) {
+      const item = built.find((i) => i.id === id);
+      const spec = besideSpecOf(built, id);
+      if (!item || !spec) throw new Error('no label');
+      for (const c of cornersOn(item, spec, 0.2, fieldsOf(id))) expect(c.across).toBeGreaterThan(toCanvas(T / 2));
+      // Every line is text, upright (turned back by the wall's rotation), named so the canvas keeps it upright live.
+      const group = BesideLabels({ width: item.width, height: item.height, zoom: 0.2, rotation: item.rotation, colours: PAPER_COLOURS, spec }) as ReactElement<{ name: string; rotation: number; children: ReactElement[] }>;
+      expect(group.props.name).toBe(UPRIGHT);
+      expect(group.props.rotation).toBe(-item.rotation);
+      expect(group.props.children.every((child) => child.type === Text)).toBe(true);
+    }
+  });
+
+  it('makes a wall’s label again when the unit or the language changes, and when a door on it moves', async () => {
+    const { sceneId, setupId } = await walls();
+    const build = planItemsBuilder();
+    const first = build(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    const again = build(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    expect(again).toBe(first);
+    const feet = build(shownItems(records(), sceneId, setupId), 'feet', '#16150F', 'en');
+    expect(besideSpecOf(feet, 'toward')?.lines).toEqual(['7\' 10.5"']);
+    expect(besideSpecOf(feet, 'd-toward')?.lines).toEqual(heightLines({ heightM: 2.1, name: '' }, 'feet'));
+    setLocale('es');
+    const spanish = build(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'es');
+    expect(spanish.find((i) => i.id === 'toward')).not.toBe(first.find((i) => i.id === 'toward'));
+    expect(besideSpecOf(spanish, 'toward')?.lines).toEqual(heightLines({ heightM: 2.4, name: '' }, 'metres'));
+    // A door moved off the label's stretch of wall: the label no longer has its swing to clear.
+    await store.getState().apply([{ kind: 'update', id: 'd-toward', set: { along_m: 0.5 } }]);
+    const moved = build(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'es');
+    const clears = besideSpecOf(moved, 'toward')?.clears ?? [];
+    expect(clears).toHaveLength(1);
+    expect(clears[0]?.from).toBeCloseTo(toCanvas(0.05));
+    expect(clears[0]?.to).toBeCloseTo(toCanvas(0.95));
+    expect(clears[0]?.reach).toBeCloseTo(toCanvas(T / 2 + 0.9));
+    // Off the middle of the wall it overlaps the label nowhere, so the label sits by the wall's face.
+    const spec = besideSpecOf(moved, 'toward');
+    const item = moved.find((i) => i.id === 'toward');
+    if (!spec || !item) throw new Error('no label');
+    expect(besidePlace(item, spec, 1, 0).y).toBeLessThan(besidePlace(item, { ...spec, clears: [{ from: 0, to: item.width, reach: toCanvas(0.95) }] }, 1, 0).y);
+  });
+});
+
+describe('the legend’s room lines (6.5 second review, L3)', () => {
+  it('says one wall in the singular, more in the plural with their count, the numbers in mono, en and es', () => {
+    expect(roomLineText({ kind: 'wall', height: '3.00 m', count: 1 })).toBe('Wall · 3.00 m');
+    expect(roomLineText({ kind: 'wall', height: '2.40 m', count: 4 })).toBe('Walls · 2.40 m ×4');
+    expect(roomLineText({ kind: 'door', height: '2.10 m', count: 1 })).toBe('Door · 2.10 m');
+    expect(roomLineText({ kind: 'window', height: '1.20 m', count: 2 })).toBe('Windows · 1.20 m ×2');
+    expect(roomLineParts({ kind: 'wall', height: '2.40 m', count: 4 })).toEqual([
+      { text: 'Walls · ', mono: false },
+      { text: '2.40 m', mono: true },
+      { text: ' ×', mono: false },
+      { text: '4', mono: true },
+    ]);
+    setLocale('es');
+    expect(roomLineText({ kind: 'wall', height: '3.00 m', count: 1 })).toBe('Muro · 3.00 m');
+    expect(roomLineText({ kind: 'door', height: '2.10 m', count: 3 })).toBe('Puertas · 2.10 m ×3');
+    expect(roomLineText({ kind: 'window', height: '1.20 m', count: 1 })).toBe('Ventana · 1.20 m');
+  });
+
+  it('merges lines that print the same in the unit shown, adding their counts; keeps them apart where they differ', () => {
+    const room = [
+      { kind: 'wall' as const, metres: 2.433, count: 1 },
+      { kind: 'wall' as const, metres: 2.44, count: 3 },
+      { kind: 'door' as const, metres: 2.44, count: 1 },
+    ];
+    expect(printedRoomLines(room, 'feet')).toEqual([
+      { kind: 'wall', height: '8\' 0"', count: 4 },
+      { kind: 'door', height: '8\' 0"', count: 1 },
+    ]);
+    expect(printedRoomLines(room, 'metres')).toEqual([
+      { kind: 'wall', height: '2.43 m', count: 1 },
+      { kind: 'wall', height: '2.44 m', count: 3 },
+      { kind: 'door', height: '2.44 m', count: 1 },
+    ]);
+  });
+});
+
+describe('the Trash names a frame in the unit it is given (6.5 second review, L7)', () => {
+  it('reads a typed flag in metres or in feet, as the tile passes the setting', async () => {
+    const { sceneId, setupId } = await scene();
+    const flag = await place({ sceneId, setupId }, 'grip/flag');
+    await store.getState().apply([{ kind: 'update', id: flag, set: { width: 1.5 } }]);
+    await store.getState().apply([{ kind: 'trash', id: flag }]);
+    const named = (unit: 'metres' | 'feet') => trashItems(records(), project.projectId, unit).find((i) => i.id === flag)?.name;
+    expect(named('metres')).toMatch(/^Flag · 1\.50 m/);
+    expect(named('feet')).toMatch(/^Flag · 4' 11"/);
+    expect(restoredName(records(), flag, 'feet')).toMatch(/^Flag · 4' 11"/);
+  });
+});
+
+describe('a frame typed in feet reads as the crew size (6.5 second review, M-2)', () => {
+  it('matches a preset within half a centimetre, so 8′ is an 8×8 and 3′ a 2×3; 2.50 m stays typed', () => {
+    expect(frameLabel({ icon: 'grip/diffusion-4x4', width: 2.4384, height: 0.05 }, 'feet')).toBe('Diffusion · 8×8');
+    expect(frameLabel({ icon: 'grip/flag', width: 0.9144, height: 0.05 }, 'feet')).toBe('Flag · 2×3');
+    expect(frameLabel({ icon: 'grip/diffusion-4x4', width: 2.5, height: 0.05 }, 'metres')).toBe('Diffusion · 2.50 m');
   });
 });

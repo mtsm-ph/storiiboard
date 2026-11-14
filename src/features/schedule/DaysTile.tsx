@@ -561,7 +561,7 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
 }
 
 /** Where a plan's finding comes from (6.5): the setup's scene and its number now ("SC 01", "Setup 2"). */
-function planPlace(records: Readonly<Record<string, SbdRecord>>, setupId: string): { scene: string; setup: string } | null {
+export function planPlace(records: Readonly<Record<string, SbdRecord>>, setupId: string): { scene: string; setup: string } | null {
   const setup = records[setupId];
   const scene = setup?.parentId ? records[setup.parentId] : undefined;
   if (scene?.type !== 'scene') return null;

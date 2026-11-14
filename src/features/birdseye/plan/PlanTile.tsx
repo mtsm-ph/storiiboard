@@ -376,17 +376,29 @@ function SetupCopyOffer({ view }: { view: PlanView }) {
 
 const TURN_CODES: Readonly<Record<string, 1 | -1>> = { BracketRight: 1, Period: 1, BracketLeft: -1, Comma: -1 };
 const TURN_KEYS: Readonly<Record<string, 1 | -1>> = { ']': 1, '.': 1, '[': -1, ',': -1 };
+/** What Shift makes of the comma, period and bracket keys (US and Dvorak), read only with Shift down. */
+const SHIFTED_TURN_KEYS: Readonly<Record<string, 1 | -1>> = { '>': 1, '<': -1, '}': 1, '{': -1 };
+/**
+ * What a key types where its unshifted character zooms (+ on German and Spanish BracketRight, * with Shift): that key is
+ * the canvas's zoom key, so it never turns, shifted or not (6.5 second review).
+ */
+const ZOOM_KEY_CHARACTERS: ReadonlySet<string> = new Set(['+', '*']);
 
 /**
  * Which way a turn key turns a camera, light or frame (6.4, 6.5): 1 clockwise (] or period), -1 the other way ([ or
  * comma), 0 for any other key. The physical key (`code`) decides first, so Shift on it (< or : on QWERTY; "." on
  * AZERTY's ; key) turns the same way; but never where that key types a letter (Dvorak's v and w sit there, and are the
- * Select and Wall tools). A key with another code turns by what it types (`key`), as Dvorak's own . and , do.
+ * Select and Wall tools), nor where it is the zoom key. A key with another code turns by what it types (`key`), as
+ * Dvorak's own . and , do, and with Shift by their shifted forms (< > { }), so Shift turns 1° there too; never the
+ * German < key (IntlBackslash), where < is no comma's shift.
  */
-export function turnFor(event: { code: string; key: string }): -1 | 0 | 1 {
+export function turnFor(event: { code: string; key: string; shiftKey?: boolean }): -1 | 0 | 1 {
   const byCode = Object.hasOwn(TURN_CODES, event.code) ? TURN_CODES[event.code] : undefined;
-  if (byCode !== undefined) return /^\p{L}$/u.test(event.key) ? 0 : byCode;
-  return (Object.hasOwn(TURN_KEYS, event.key) ? TURN_KEYS[event.key] : undefined) ?? 0;
+  if (byCode !== undefined) return /^\p{L}$/u.test(event.key) || ZOOM_KEY_CHARACTERS.has(event.key) ? 0 : byCode;
+  const byKey = Object.hasOwn(TURN_KEYS, event.key) ? TURN_KEYS[event.key] : undefined;
+  if (byKey !== undefined) return byKey;
+  if (event.shiftKey === true && event.code !== 'IntlBackslash' && Object.hasOwn(SHIFTED_TURN_KEYS, event.key)) return SHIFTED_TURN_KEYS[event.key] ?? 0;
+  return 0;
 }
 
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);

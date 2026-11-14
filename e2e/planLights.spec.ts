@@ -234,3 +234,67 @@ test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept 
   await expect.poll(async () => Math.abs((((await frames(page))[0] as (Item & { rotation: number }) | undefined)?.rotation ?? 0) - 45)).toBeLessThanOrEqual(3);
   expect((await frames(page))[0]).toMatchObject({ width: 0.91, height: 0.05 });
 });
+
+/** A flag from the Library in a new room of SC 01's first setup, in metres: placed and selected. */
+async function placeFlag(page: Page): Promise<Item & { centre: { x: number; y: number } }> {
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await closeSettings(page);
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await planTile(page).getByRole('button', { name: 'New room' }).click();
+  await expect(canvas(page)).toBeVisible();
+  const flag = libraryTile(page).locator('[data-library-icon="grip/flag"]');
+  await flag.scrollIntoViewIfNeeded();
+  await flag.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await frames(page)).length).toBe(1);
+  const placed = (await frames(page))[0] as Item & { centre: { x: number; y: number } };
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+  return placed;
+}
+
+test('picks a flag 3 px off its line at about 25%, by a click and by a right-click (6.5 second review)', async ({ page }) => {
+  const placed = await placeFlag(page);
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => selection(page)).toEqual([]);
+  // Zoomed out to about 25%: the 5 cm bar is barely a pixel; it is picked 8 px thick, 4 px either side of its line.
+  for (let i = 0; i < 20 && Number(await canvas(page).getAttribute('data-zoom')) > 0.27; i += 1) await page.keyboard.press('-');
+  const zoom = Number(await canvas(page).getAttribute('data-zoom'));
+  expect(zoom).toBeLessThanOrEqual(0.27);
+  expect(zoom).toBeGreaterThanOrEqual(0.2);
+  const at = await screen(page, placed.centre.x * 100, placed.centre.y * 100);
+  await page.mouse.click(at.x, at.y + 3);
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+  // Off it, and the same point's right-click opens its menu, the flag picked.
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => selection(page)).toEqual([]);
+  await page.mouse.click(at.x, at.y + 3, { button: 'right' });
+  await expect(canvas(page).getByRole('group', { name: 'Board actions' })).toBeVisible();
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+});
+
+test('names a typed frame in the Trash and History in the plan’s unit, and again when the setting changes (6.5 second review)', async ({ page }) => {
+  await placeFlag(page);
+  await type(page, 'Width', '1.5');
+  await expect.poll(async () => (await frames(page))[0]?.width).toBe(1.5);
+  await canvas(page).focus();
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await frames(page)).length).toBe(0);
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  const trash = page.getByRole('region', { name: 'Trash', exact: true });
+  await expect(trash).toContainText('Flag · 1.50 m');
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  const history = page.getByRole('region', { name: 'History', exact: true });
+  await expect(history).toContainText('Deleted a flag · 1.50 m');
+  // Feet and inches: both lists name it again, with nothing else touched.
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Feet and inches' });
+  await closeSettings(page);
+  await expect(trash).toContainText('Flag · 4\' 11"');
+  await expect(trash).not.toContainText('1.50 m');
+  await expect(history).toContainText('Deleted a flag · 4\' 11"');
+});

@@ -196,13 +196,27 @@ describe('editing a camera', () => {
     // AZERTY's brackets' place types the dead circumflex and $: by the key's place.
     expect(turnFor({ code: 'BracketLeft', key: 'Dead' })).toBe(-1);
     expect(turnFor({ code: 'BracketRight', key: '$' })).toBe(1);
-    // Spanish: comma and period in their places, Shift ; and :; the bracket keys type a dead grave and +.
+    // Spanish: comma and period in their places, Shift ; and :; the bracket keys type a dead grave and + (the + zooms
+    // before the plan sees it, and its Shift, *, never turns: 6.5 second review).
     expect(turnFor({ code: 'Comma', key: ',' })).toBe(-1);
     expect(turnFor({ code: 'Period', key: ':' })).toBe(1);
     expect(turnFor({ code: 'BracketLeft', key: 'Dead' })).toBe(-1);
-    expect(turnFor({ code: 'BracketRight', key: '+' })).toBe(1);
+    expect(turnFor({ code: 'BracketRight', key: '*', shiftKey: true })).toBe(0);
     // Spanish ñ (at Semicolon) is a letter with no turn of its own.
     expect(turnFor({ code: 'Semicolon', key: 'ñ' })).toBe(0);
+  });
+
+  it('turns by the shifted forms < > { } where Shift types them on the comma, period and bracket keys elsewhere (6.5 second review)', () => {
+    // Dvorak: Shift on its , and . keys (KeyW, KeyE) types < and >; on its [ and ] keys (Minus, Equal), { and }.
+    expect(turnFor({ code: 'KeyW', key: '<', shiftKey: true })).toBe(-1);
+    expect(turnFor({ code: 'KeyE', key: '>', shiftKey: true })).toBe(1);
+    expect(turnFor({ code: 'Minus', key: '{', shiftKey: true })).toBe(-1);
+    expect(turnFor({ code: 'Equal', key: '}', shiftKey: true })).toBe(1);
+    // German: the key of its own that types < (and > with Shift) is no comma's shift; it never turns.
+    expect(turnFor({ code: 'IntlBackslash', key: '<' })).toBe(0);
+    expect(turnFor({ code: 'IntlBackslash', key: '>', shiftKey: true })).toBe(0);
+    // German BracketRight types + (the canvas zooms by it before the plan sees it) and * with Shift: never a turn.
+    expect(turnFor({ code: 'BracketRight', key: '*', shiftKey: true })).toBe(0);
   });
 
   it('turns by [ and ], pastes without its frames, and goes to the Trash and back', async () => {

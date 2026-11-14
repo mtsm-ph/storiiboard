@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { gearListChange } from '../../features/gear/gearEdits';
 import { gearIdsOf } from '../model/gear';
 import type { Props, SbdRecord } from '../model/record';
@@ -158,6 +158,35 @@ describe('gear on a setup’s plan, not on the day’s list (6.5)', () => {
     const records = planned();
     const trashedPlan = { ...records, own: { ...(records.own as SbdRecord), trashedAt: at } };
     expect(gearNotOnDay(trashedPlan, 'p')).toEqual([]);
+  });
+
+  it('reads the plans’ items in one scan of the records however many setups a day has (6.5 second review)', () => {
+    // N setups, each with its own plan, a light in it and a frame on day d: how many times the records are read whole.
+    const withSetups = (n: number) => {
+      const list = [record('p', 'project', null, {}), record('k1', 'gear_item', 'p', { name: 'Fresnel 1K' }), record('s1', 'scene', 'p', { number: '1' }), record('d', 'shoot_day', 'p', { date: '2026-11-16' })];
+      for (let i = 0; i < n; i += 1) {
+        list.push(
+          record(`su${String(i)}`, 'setup', 's1', { name: '' }),
+          record(`plan${String(i)}`, 'plan', `su${String(i)}`, { kind: 'setup', name: '' }),
+          record(`l${String(i)}`, 'plan_item', `plan${String(i)}`, { kind: 'light', icon: 'lighting/fresnel', x: 0, y: 0, width: 0.4, height: 0.4, gear_id: 'k1' }),
+          record(`f${String(i)}`, 'shot', 's1', { number: `1${String.fromCharCode(65 + i)}`, status: 'need', shoot_day_id: 'd', setup_id: `su${String(i)}` }, `f${String(i)}`),
+        );
+      }
+      return recordsOf(...list);
+    };
+    const scans = (records: ReturnType<typeof withSetups>) => {
+      const values = vi.spyOn(Object, 'values');
+      try {
+        expect(gearNotOnDay(records, 'p')).toHaveLength(Object.keys(records).filter((id) => id.startsWith('su')).length);
+        return values.mock.calls.filter(([read]) => read === records).length;
+      } finally {
+        values.mockRestore();
+      }
+    };
+    const one = scans(withSetups(1));
+    const four = scans(withSetups(4));
+    // Each further setup costs only the look-up of its own plan (setupPlanOf): its items come from the one index.
+    expect(four - one).toBe(3);
   });
 
   it('reads the same findings each time from the same records, and new ones from new records', () => {

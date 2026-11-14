@@ -66,11 +66,20 @@ export function pickBoxOf(g: Geometry & { pickThickness?: number }, zoom: number
   return { x: g.x + (g.width - width) / 2, y: g.y + (g.height - height) / 2, width, height, rotation: g.rotation };
 }
 
-/** The topmost item at a point; `inOrder` runs back to front, as the items are drawn. */
+/**
+ * The topmost item at a point; `inOrder` runs back to front, as the items are drawn. With a zoom, in two passes (6.5
+ * second review): every item's own box first, topmost first, and only where none is hit a thin item's widened band, so
+ * a flag's band never takes a click inside the light under it.
+ */
 export function topmostAt<T extends Geometry & { pickThickness?: number }>(inOrder: readonly T[], point: Point, zoom?: number): T | undefined {
   for (let i = inOrder.length - 1; i >= 0; i -= 1) {
     const item = inOrder[i];
-    if (item && hitsPoint(zoom === undefined ? item : pickBoxOf(item, zoom), point)) return item;
+    if (item && hitsPoint(item, point)) return item;
+  }
+  if (zoom === undefined) return undefined;
+  for (let i = inOrder.length - 1; i >= 0; i -= 1) {
+    const item = inOrder[i];
+    if (item && item.pickThickness !== undefined && hitsPoint(pickBoxOf(item, zoom), point)) return item;
   }
   return undefined;
 }

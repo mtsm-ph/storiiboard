@@ -168,7 +168,9 @@ export function frameSizeBox(fields: Pick<GripFields, 'icon' | 'height'>, size: 
   return liesFlat(fields.icon) ? { width: size.long, depth: size.short } : { width: size.long, depth: fields.height };
 }
 
-const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.0005;
+// Half a centimetre (6.5 second review): a size typed in feet is the exact inch (8' is 2.4384 m, 3' 0.9144 m) against
+// the presets' rounded centimetres, and still reads as the crew size; presets are at least 0.3 m apart, so none blur.
+const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
 
 /** The size a frame is now, or null for one typed by hand. */
 export function frameSizeOf(fields: Pick<GripFields, 'icon' | 'width' | 'height'>): FrameSize | null {

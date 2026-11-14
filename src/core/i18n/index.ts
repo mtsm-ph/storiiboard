@@ -125,7 +125,11 @@ export function list(items: readonly string[]): string {
   return t('list.and', { items: items.slice(0, -1).join(t('list.separator')), last });
 }
 
-/** An amount the way the current language writes the currency ("$350.00", "US$350.00"); a code Intl doesn't know reads as the number and the code. */
+/**
+ * An amount the way the current language writes the currency ("$350.00", "US$350.00"); a code Intl doesn't know reads
+ * as the number and the code. Deliberately by the computer's region (`dateTag`), unlike formatNumber: money, weather
+ * units and the week's first day follow the region (Kevin, Nov 10), so a rate reads as the producer's books write it.
+ */
 export function formatMoney(amount: number, currency: string): string {
   try {
     return new Intl.NumberFormat(current.dateTag, { style: 'currency', currency }).format(amount);
@@ -137,7 +141,8 @@ export function formatMoney(amount: number, currency: string): string {
 /**
  * A number the way the app's language writes it ("4,200", "1.5"), to `digits` decimals at most, grouped. By the
  * language's own tag (the one t() and plural rules use), never the computer's region: a German-region computer in
- * English reads "1,200 W" as the English words around it do (6.5 review).
+ * English reads "1,200 W" as the English words around it do (6.5 review). Money is the deliberate exception: formatMoney
+ * follows the region (Kevin, Nov 10, with weather units and the week's first day).
  */
 export function formatNumber(value: number, digits = 1): string {
   return new Intl.NumberFormat(current.tag, { maximumFractionDigits: digits, useGrouping: true }).format(value);

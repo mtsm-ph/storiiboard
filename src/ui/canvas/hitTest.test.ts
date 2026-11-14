@@ -40,6 +40,22 @@ describe('hit tests on rotated rectangles', () => {
     expect(topmostAt(items, { x: 500, y: 500 })).toBeUndefined();
   });
 
+  it('picks a box under a thin item’s widened band before the band; the band only off every box (6.5 second review)', () => {
+    // At 25% a flag 5 units thick, picked 8 px thick (32 units, 16 either side of its middle line y = 2.5), above a light
+    // whose box starts 2 units under the flag's.
+    const light = { id: 'light', x: 0, y: 7, width: 40, height: 40, rotation: 0 };
+    const flag = { id: 'flag', x: 0, y: 0, width: 100, height: 5, rotation: 0, pickThickness: 8 };
+    const items = [light, flag];
+    // Inside the light's box, within 4 px (16 units) of the flag's line: the light.
+    expect(topmostAt(items, { x: 20, y: 10 }, 0.25)?.id).toBe('light');
+    // Off both boxes, within the band: the flag.
+    expect(topmostAt(items, { x: 70, y: 12 }, 0.25)?.id).toBe('flag');
+    // On the flag's own box: the flag, being on top.
+    expect(topmostAt(items, { x: 20, y: 3 }, 0.25)?.id).toBe('flag');
+    // Past the band: nothing.
+    expect(topmostAt(items, { x: 70, y: 30 }, 0.25)).toBeUndefined();
+  });
+
   it('a marquee touches an item it crosses, misses one it does not reach, and one inside it', () => {
     expect(marqueeTouches(box(), { x: 90, y: 10, width: 50, height: 50 })).toBe(true);
     expect(marqueeTouches(box(), { x: 0, y: 30, width: 100, height: 20 })).toBe(false);
