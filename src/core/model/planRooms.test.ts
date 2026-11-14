@@ -1,7 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import type { Change } from '../ops/ops';
+import { setLocale } from '../i18n';
 import { sceneRoomId, shownItems } from './plan';
-import { alsoInRoom, copySetupChanges, deleteRoomChanges, itemLevel, kindHome, roomChoices, separateCopyChanges, setRoomChanges, setupCopySources, setupHasItems, setupOnlyChanges } from './planRooms';
+import {
+  alsoInRoom,
+  copyName,
+  copySetupChanges,
+  deleteRoomChanges,
+  deleteUnusedRoomChanges,
+  itemLevel,
+  kindHome,
+  replaceRoomChanges,
+  roomChoices,
+  scenesLosing,
+  separateCopyChanges,
+  setRoomChanges,
+  setupCopySources,
+  setupHasItems,
+  setupOnlyChanges,
+  setupOnlyHeld,
+} from './planRooms';
 import type { Props, SbdRecord } from './record';
 
 // Rooms shared and copied, a setup's state copied, and items in one setup only (6.2b), on records made here: the
@@ -183,5 +201,133 @@ describe('this setup only', () => {
       ['d1', 'setup'],
     ]);
     expect(shownItems(there, 'sc4', 'u2').map((i) => i.record.id)).toEqual(['w1']);
+  });
+});
+
+// The 6.2b review: a scene's own doors and windows in a shared room's walls, copies that say what they were copied
+// from and are named the same in every language, rooms left or deleted, and the switch's limits.
+
+const setupA = record('u1', 'setup', 'sc4', { name: '' }, 'a');
+const setupB = record('u2', 'setup', 'sc4', { name: '' }, 'b');
+const withSetups = { ...base, ...of(setupA, setupB) };
+/** SC 04's Setup 1 with the room's door d1 made its own. */
+const doorInSetup = () => applied(withSetups, setupOnlyChanges(withSetups, 'sc4', 'u1', ['d1'], true, 'own'));
+
+describe('a separate copy and a scene’s own doors (6.2b review)', () => {
+  it('points a setup’s own door in a room wall at the copied wall: shown in that setup, gone from the other scene', () => {
+    const there = doorInSetup();
+    expect(there.d1?.parentId).toBe('own');
+    const changes = separateCopyChanges(there, 'p', 'sc4', 'copy');
+    const after = applied(there, changes);
+    const copiedWall = Object.values(after).find((r) => r.parentId === 'copy' && r.props.kind === 'wall');
+    expect(copiedWall).toBeDefined();
+    // The door is re-pointed, not copied, in the same group.
+    expect(changes).toContainEqual({ kind: 'update', id: 'd1', set: { wall_id: copiedWall?.id } });
+    expect(shownItems(after, 'sc4', 'u1').map((i) => [i.record.id, i.level])).toEqual([
+      [copiedWall?.id, 'room'],
+      ['d1', 'setup'],
+    ]);
+    expect((shownItems(after, 'sc4', 'u1')[1]?.fields as { wallId?: string }).wallId).toBe(copiedWall?.id);
+    // The other scene shows its wall with no door, and no live door is left in w1.
+    expect(shownItems(after, 'sc2', null).map((i) => i.record.id)).toEqual(['w1']);
+    expect(Object.values(after).filter((r) => r.props.wall_id === 'w1' && r.trashedAt === null)).toEqual([]);
+  });
+
+  it('copies no item in the Trash, and copies one of a kind this version doesn’t know with every prop', () => {
+    const gone = { ...record('gone', 'plan_item', 'r1', { kind: 'wall', x: 9, y: 0, width: 1, height: 0.1, rotation: 0 }, 'p'), trashedAt: at };
+    const later = record('later', 'plan_item', 'r1', { kind: 'hologram', glow: 3, nested: { a: [1, 2] } }, 'q');
+    const records = { ...base, ...of(gone, later) };
+    const after = applied(records, separateCopyChanges(records, 'p', 'sc4', 'copy'));
+    const copied = Object.values(after).filter((r) => r.parentId === 'copy');
+    expect(copied.map((r) => r.props.kind).sort()).toEqual(['door', 'hologram', 'wall']);
+    expect(copied.find((r) => r.props.kind === 'hologram')?.props).toEqual({ kind: 'hologram', glow: 3, nested: { a: [1, 2] }, copied_from: 'later' });
+    // Each copy names what it was copied from.
+    expect(copied.find((r) => r.props.kind === 'wall')?.props.copied_from).toBe('w1');
+  });
+
+  it('names a copy the same in every language, an unnamed room’s copy unnamed, a copy of a copy without a stacked suffix', () => {
+    setLocale('es');
+    try {
+      expect(applied(base, separateCopyChanges(base, 'p', 'sc4', 'copy')).copy?.props.name).toBe('Counter (SC 04)');
+    } finally {
+      setLocale('en');
+    }
+    expect(copyName('Diner (SC 02)', '4')).toBe('Diner (SC 04)');
+    expect(copyName('Diner (ESC 02)', '12A')).toBe('Diner (SC 12A)');
+    expect(copyName('Diner (main)', '4')).toBe('Diner (main) (SC 04)');
+    const unnamed = { ...base, r1: record('r1', 'plan', 'p', { kind: 'room', location_id: 'loc1' }, 'a') };
+    const after = applied(unnamed, separateCopyChanges(unnamed, 'p', 'sc4', 'copy'));
+    expect(after.copy?.props).toEqual({ kind: 'room', location_id: 'loc1' });
+  });
+});
+
+describe('leaving a room (6.2b review)', () => {
+  it('trashes a scene’s own doors in the old room’s walls when it uses another room, in the same group', () => {
+    const there = doorInSetup();
+    const changes = setRoomChanges(there, 'sc4', 'r2');
+    expect(changes).toEqual([
+      { kind: 'trash', id: 'd1' },
+      { kind: 'update', id: 'sc4', set: { room_id: 'r2' } },
+    ]);
+    // The room's own items stay for the scene still in it.
+    const after = applied(there, changes);
+    expect(after.w1?.trashedAt).toBeNull();
+    expect(shownItems(after, 'sc2', null).map((i) => i.record.id)).toEqual(['w1']);
+    // A new room does the same; a scene with no door of its own in the room trashes nothing.
+    expect(replaceRoomChanges(there, 'p', 'sc4', 'r9')[0]).toEqual({ kind: 'trash', id: 'd1' });
+    expect(setRoomChanges(base, 'sc4', 'r2')).toEqual([{ kind: 'update', id: 'sc4', set: { room_id: 'r2' } }]);
+  });
+
+  it('trashes them with the room on Delete room, and a room no scene uses from the chooser', () => {
+    const alone = doorInSetup();
+    const sharerGone = { ...alone, sc2: { ...(alone.sc2 as SbdRecord), trashedAt: at } };
+    const changes = deleteRoomChanges(sharerGone, 'sc4');
+    expect(changes.map((c) => (c.kind === 'trash' ? c.id : c.kind)).sort()).toEqual(['d1', 'r1', 'w1']);
+    expect(deleteUnusedRoomChanges(base, 'r2')).toEqual([{ kind: 'trash', id: 'r2' }]);
+    expect(deleteUnusedRoomChanges(base, 'r1')).toEqual([]);
+    expect(deleteUnusedRoomChanges(base, 'loc1')).toEqual([]);
+  });
+
+  it('counts only live scenes in the chooser, and a trashed scene restored after Delete room reads as having no room', () => {
+    const sharerGone = { ...base, sc2: { ...sc2, trashedAt: at } };
+    expect(roomChoices(sharerGone, 'sc9').find((c) => c.id === 'r1')?.scenes).toBe(1);
+    const deleted = applied(sharerGone, deleteRoomChanges(sharerGone, 'sc4'));
+    expect(deleted.r1?.trashedAt).not.toBeNull();
+    const restored = { ...deleted, sc2: { ...sc2, trashedAt: null } };
+    expect(sceneRoomId(restored, restored.sc2)).toBeNull();
+    expect(restored.sc2.props.room_id).toBe('r1');
+    expect(shownItems(restored, 'sc2', null)).toEqual([]);
+  });
+});
+
+describe('the switch’s limits (6.2b review)', () => {
+  it('keeps a door with its setup-only wall, and says why', () => {
+    const there = applied(withSetups, setupOnlyChanges(withSetups, 'sc4', 'u1', ['w1'], true, 'own'));
+    expect(setupOnlyHeld(there, 'sc4', 'u1', ['d1'])).toBe('wallOnly');
+    expect(setupOnlyChanges(there, 'sc4', 'u1', ['d1'], false)).toEqual([]);
+    // With its wall, both go back.
+    expect(setupOnlyHeld(there, 'sc4', 'u1', ['w1', 'd1'])).toBeNull();
+    expect(setupOnlyChanges(there, 'sc4', 'u1', ['w1', 'd1'], false).filter((c) => c.kind === 'move')).toHaveLength(2);
+  });
+
+  it('can’t be turned off with no room, and goes back to the scene’s room as it is now', () => {
+    const there = applied(withSetups, setupOnlyChanges(withSetups, 'sc4', 'u1', ['w1'], true, 'own'));
+    const roomless = { ...there, sc4: { ...(there.sc4 as SbdRecord), props: { number: '4', location_id: 'loc1' } } };
+    expect(setupOnlyHeld(roomless, 'sc4', 'u1', ['w1'])).toBe('noRoom');
+    const moved = { ...there, sc4: { ...(there.sc4 as SbdRecord), props: { number: '4', location_id: 'loc1', room_id: 'r2' } } };
+    const back = setupOnlyChanges(moved, 'sc4', 'u1', ['w1'], false);
+    expect(back.flatMap((c) => (c.kind === 'move' ? [c.parentId] : []))).toEqual(['r2', 'r2']);
+  });
+
+  it('names the other scenes sharing the room that would stop showing a room item', () => {
+    expect(scenesLosing(withSetups, 'sc4', 'u1', ['w1'])).toEqual(['SC 02']);
+    expect(scenesLosing(doorInSetup(), 'sc4', 'u1', ['d1'])).toEqual([]);
+  });
+
+  it('copies a setup with each item saying what it was copied from', () => {
+    const own = record('own1', 'plan', 'u1', { kind: 'setup', name: '' });
+    const records = { ...withSetups, ...of(own, wall('sw', 'own1', 'a')) };
+    const changes = copySetupChanges(records, 'u1', 'u2', 'own2');
+    expect(changes.flatMap((c) => (c.kind === 'create' && c.record.type === 'plan_item' ? [c.record.props?.copied_from] : []))).toEqual(['sw']);
   });
 });

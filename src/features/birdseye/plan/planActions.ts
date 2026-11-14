@@ -3,14 +3,16 @@ import { showInfo } from '../../../app/notice';
 import { projectStore, type ProjectState } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
-import { newRoomChanges, renamePlanChanges, sceneRoomId, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
-import { copySetupChanges, deleteRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
+import { renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import {
   drawWallsChanges,
   flipDoorsChanges,
   openingPatchChanges,
+  openingsLeftOut,
+  pasteTarget,
   placeOpeningChanges,
   planClipOf,
   planGeometryChanges,
@@ -57,11 +59,19 @@ export async function startRoom(sceneId: string): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: startRoomChanges(records, project.projectId, sceneId) }));
 }
 
-/** "New room" (6.2b): a new room for the scene, whether or not it had one; the old one is left as it is. */
+/**
+ * "New room" (6.2b): a new room for the scene, whether or not it had one; the old one is left as it is, but for the
+ * doors and windows this scene put in its walls at its own level, which go to the Trash with the step.
+ */
 export async function newRoom(sceneId: string): Promise<boolean> {
   const { project } = projectStore.getState();
   if (!project) return false;
-  return projectStore.getState().applyWith((records) => ({ changes: newRoomChanges(records, project.projectId, sceneId) }));
+  return projectStore.getState().applyWith((records) => ({ changes: replaceRoomChanges(records, project.projectId, sceneId) }));
+}
+
+/** A room no scene uses, deleted from the chooser (6.2b review): it and its items to the Trash, one op group. */
+export async function deleteUnusedRoom(roomId: string): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: deleteUnusedRoomChanges(records, roomId) }));
 }
 
 /** "Use a room already drawn" (6.2b): the scene's `room_id`, one op. */
@@ -132,17 +142,17 @@ export async function drawWalls(view: PlanView, points: readonly Point[], madeIn
 /** A door or window put in a wall (6.2b), selected once it's written. */
 export async function placeOpening(view: PlanView, spot: OpeningSpot, kind: OpeningKind): Promise<void> {
   const id = crypto.randomUUID();
-  const written = await projectStore.getState().applyWith((records) => ({ changes: placeOpeningChanges(records, spot, kind, id) }));
+  const written = await projectStore.getState().applyWith((records) => ({ changes: placeOpeningChanges(records, spot, kind, id, view) }));
   if (written) select(view, [id]);
 }
 
-/** A finished move, resize or turn; a door or window may land on any wall the view shows. */
+/** A finished move, resize or turn; a door or window may land on any wall the view shows, checked against what it shows. */
 export async function changePlanGeometry(changes: readonly GeometryChange[], view?: PlanView): Promise<void> {
-  await projectStore.getState().applyWith((records) => ({ changes: planGeometryChanges(records, changes, view ? shownWalls(shownItems(records, view.sceneId, view.setupId)) : undefined) }));
+  await projectStore.getState().applyWith((records) => ({ changes: planGeometryChanges(records, changes, view ? shownWalls(shownItems(records, view.sceneId, view.setupId)) : undefined, view) }));
 }
 
-export async function nudgePlan(ids: readonly string[], dx: number, dy: number): Promise<void> {
-  await projectStore.getState().applyWith((records) => ({ changes: planNudgeChanges(records, ids, dx, dy) }));
+export async function nudgePlan(ids: readonly string[], dx: number, dy: number, view?: PlanView): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: planNudgeChanges(records, ids, dx, dy, view) }));
 }
 
 export async function reorderPlan(view: PlanView, mode: ReorderMode): Promise<void> {
@@ -154,9 +164,16 @@ export async function deletePlanSelection(view: PlanView): Promise<void> {
   if (written) select(view, []);
 }
 
+/** A door or window selected without its wall is copied only with it: said, as the usual notice. */
+function sayLeftOut(records: Records, ids: readonly string[]): void {
+  if (openingsLeftOut(records, ids)) showInfo(t('plan.openingCopiedWithWall'));
+}
+
 export function copyPlanSelection(view: PlanView): number {
   const { records } = projectStore.getState();
-  const clip = planClipOf(records, planSelection(records, view));
+  const ids = planSelection(records, view);
+  const clip = planClipOf(records, ids, view);
+  sayLeftOut(records, ids);
   if (clip.length > 0) planStore.getState().copy(clip);
   return clip.length;
 }
@@ -165,14 +182,15 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
   if (copyPlanSelection(view) > 0) await deletePlanSelection(view);
 }
 
-/** Paste into the scene's room, at the pointer or 16 cm from the originals; the pasted are selected. */
+/**
+ * Paste, each copy into the plan its original sits in (a setup's only wall stays that setup's), or the view's plan of
+ * that level; at the pointer or 16 cm from the originals; the pasted are selected.
+ */
 export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard): Promise<void> {
   if (clip.length === 0) return;
   let ids: string[] = [];
   const written = await projectStore.getState().applyWith((records) => {
-    const roomId = sceneRoomId(records, records[view.sceneId]);
-    if (roomId === null) return { changes: [] };
-    const made = planPasteChanges(records, roomId, clip, at);
+    const made = planPasteChanges(records, pasteTarget(records, view), clip, at);
     ids = made.ids;
     return { changes: made.changes };
   });
@@ -182,17 +200,19 @@ export async function pastePlan(view: PlanView, at: Point | null, clip = planSto
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
 export async function duplicatePlanSelection(view: PlanView): Promise<void> {
   const { records } = projectStore.getState();
-  await pastePlan(view, null, planClipOf(records, planSelection(records, view)));
+  const ids = planSelection(records, view);
+  sayLeftOut(records, ids);
+  await pastePlan(view, null, planClipOf(records, ids, view));
 }
 
 /** A field changed in the Selection tile, on every selected wall it fits: one op group. */
-export async function changeWalls(ids: readonly string[], patch: WallPatch): Promise<boolean> {
-  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch) }));
+export async function changeWalls(ids: readonly string[], patch: WallPatch, view?: PlanView): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch, view) }));
 }
 
 /** A field changed on the selected doors and windows: one op group, nothing when it doesn't fit. */
-export async function changeOpenings(ids: readonly string[], patch: OpeningPatch): Promise<boolean> {
-  return projectStore.getState().applyWith((records) => ({ changes: openingPatchChanges(records, ids, patch) ?? [] }));
+export async function changeOpenings(ids: readonly string[], patch: OpeningPatch, view?: PlanView): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: openingPatchChanges(records, ids, patch, view) ?? [] }));
 }
 
 /** F and Shift+F: the selected doors' swing or hinge flipped, one op group. */

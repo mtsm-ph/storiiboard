@@ -121,7 +121,10 @@ export interface CanvasProps {
   onGeometry: (changes: GeometryChange[]) => unknown;
   /** An arrow key's nudge, as a distance: the host adds it to the items as they are when the edit is written. */
   onNudge: (ids: string[], dx: number, dy: number) => unknown;
-  /** An item drawn, clicked into place or placed with Enter (`by` the key: 6.2b), by the tool that placed it. */
+  /**
+   * An item drawn, clicked into place or placed with Enter (`by` the key: 6.2b), by the tool that placed it. The tool
+   * goes back to Select, unless this gives back `false`: the host placed nothing and keeps the tool (6.2b review).
+   */
   onCreate: (geometry: Geometry, tool: PlaceTool | HostToolId, by?: 'pointer' | 'key') => unknown;
   /** Enter or a double-click on an editable item (text, sticky): the host edits it in place. */
   onEdit?: (id: string) => void;
@@ -917,14 +920,15 @@ export function Canvas({
       setPreview(null);
       const box = g.moved ? drawnRect(g, world, off).rect : rectFromCorners(g.start, world);
       // Only a click (under 3 px) places the standard rectangle; any drag draws what was dragged, at least 8 a side.
-      void onCreate(
+      const made = onCreate(
         g.moved
           ? { x: tidy(box.x), y: tidy(box.y), width: tidy(Math.max(MIN_SIZE, box.width)), height: tidy(Math.max(MIN_SIZE, box.height)), rotation: 0 }
           : placedAt(g.start, isPlaceTool(g.tool) ? g.tool : 'rect', tools?.find((each) => each.id === g.tool)?.size),
         g.tool,
         'pointer',
       );
-      onToolChange('select');
+      // A host that placed nothing there says so and keeps its tool (6.2b review: a Door tool pressed over no wall).
+      if (made !== false) onToolChange('select');
     }
   };
 
@@ -1139,8 +1143,8 @@ export function Canvas({
       if (event.key === 'Enter' && (isPlaceTool(placing) || isHostTool(placing))) {
         event.preventDefault();
         const { viewport: view } = latest.current;
-        void onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing, 'key');
-        onToolChange('select');
+        const made = onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing, 'key');
+        if (made !== false) onToolChange('select');
         return;
       }
       // Enter on one selected video or link card opens it.
@@ -1221,8 +1225,9 @@ export function Canvas({
       : selection.length === 1
         ? t('canvas.selectedAt', {
             label: items.find((i) => i.id === selection[0])?.label ?? links.find((l) => l.id === selection[0])?.label ?? '',
-            n: [...links, ...items].findIndex((i) => i.id === selection[0]) + 1,
-            total: links.length + items.length,
+            // A locked item (a preview, an underlay) is never picked, so it isn't counted either (6.2b review).
+            n: [...links, ...pickable(items)].findIndex((i) => i.id === selection[0]) + 1,
+            total: links.length + pickable(items).length,
           })
         : tn('canvas.itemsSelected', selection.length);
   const data = useMemo(() => JSON.stringify(items.map(({ id, x, y, width, height, rotation }) => ({ id, x, y, width, height, rotation }))), [items]);

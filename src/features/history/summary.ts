@@ -723,23 +723,31 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   const isPlan = (op: LoggedOp) => record(op)?.type === 'plan' || record(op)?.type === 'plan_item';
   const roomLink = (op: LoggedOp) =>
     op.kind === 'update' && op.before?.type === 'scene' && op.after !== null && changedProps(op.before, op.after).every((prop) => prop === 'room_id');
-  // A scene set in a room already drawn (6.2b): its `room_id` alone.
-  if (ops.length === 1 && ops[0] && roomLink(ops[0]) && !ops.some(isPlan)) {
-    const scene = record(ops[0]);
+  const isOpeningOp = (op: LoggedOp) => record(op)?.type === 'plan_item' && (record(op)?.props.kind === 'door' || record(op)?.props.kind === 'window');
+  // The doors and windows a scene had in its old room's walls at its own level, gone to the Trash as it left the room
+  // (6.2b review): said after the step's own line.
+  const strandedIn = (roomId: string | null) => ops.filter((op) => op.kind === 'trash' && isOpeningOp(op) && record(op)?.parentId !== roomId).length;
+  const withStranded = (said: Line, count: number): Line => (count === 0 ? said : [...said, tn('history.strandedTrashed', count)]);
+  // A scene set in a room already drawn (6.2b): its `room_id` alone, with any of its own openings in the old room trashed.
+  const link = ops.find(roomLink);
+  if (link && ops.every((op) => op === link || (op.kind === 'trash' && isOpeningOp(op)))) {
+    const scene = record(link);
     const roomId = scene?.props.room_id;
     const room = typeof roomId === 'string' ? (around.get(roomId) ?? null) : null;
-    return line('history.roomChosen', { scene: nameOf(scene, around) }, { name: roomName(room) });
+    return withStranded(line('history.roomChosen', { scene: nameOf(scene, around) }, { name: roomName(room) }), strandedIn(null));
   }
   if (!ops.some(isPlan)) return null;
   if (!ops.every((op) => isPlan(op) || roomLink(op))) return null;
   const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  // Items made by a copy (a setup's or a room's) say what they were copied from; ones put in by hand don't (6.2b review).
+  const created = items.filter((op) => op.kind === 'create');
+  const copies = created.length > 0 && created.every((op) => typeof op.after?.props.copied_from === 'string');
   const started = ops.find((op) => op.kind === 'create' && op.after?.type === 'plan' && op.after.props.kind === 'room');
   if (started) {
-    const linked = ops.find(roomLink);
-    const scene = linked ? record(linked) : null;
-    // A room made with items in it is a separate copy of another (6.2b).
-    if (items.length > 0) return line('history.roomCopied', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
-    return line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+    const scene = link ? record(link) : null;
+    // A room made with copied items in it is a separate copy of another (6.2b).
+    if (copies) return line('history.roomCopied', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+    return withStranded(line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) }), strandedIn(started.recordId));
   }
   const renamed = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null);
   if (renamed?.before && renamed.after) {
@@ -748,7 +756,10 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   }
   // A room deleted or restored with its items (6.2b: Delete room).
   const roomGone = ops.find((op) => (op.kind === 'trash' || op.kind === 'restore') && record(op)?.type === 'plan');
-  if (roomGone) return [t(roomGone.kind === 'trash' ? 'history.roomDeleted' : 'history.roomRestored', { name: roomName(record(roomGone)) })];
+  if (roomGone) {
+    const said = [t(roomGone.kind === 'trash' ? 'history.roomDeleted' : 'history.roomRestored', { name: roomName(record(roomGone)) })];
+    return roomGone.kind === 'trash' ? withStranded(said, strandedIn(roomGone.recordId)) : said;
+  }
   const n = new Set(items.map((op) => op.recordId)).size;
   if (n === 0) return null;
   const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
@@ -764,8 +775,8 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     const intoSetup = moves.every((op) => planKindOf(op.after?.parentId) === 'setup');
     return [tn(intoSetup ? 'history.toSetupOnly' : 'history.backToEverySetup', moves.length)];
   }
-  // Copied from another setup (6.2b): items made in a setup's own plan.
-  if (all('create') && items.every((op) => planKindOf(op.after?.parentId) === 'setup')) return [tn('history.setupCopied', n)];
+  // Copied from another setup (6.2b): items made in a setup's own plan, each from the item it was copied from.
+  if (all('create') && copies && items.every((op) => planKindOf(op.after?.parentId) === 'setup')) return [tn('history.setupCopied', n)];
   // Doors and windows (6.2b), named as what they are; a wall's openings that go and come back with it aren't counted.
   const kinds = new Set(items.map((op) => record(op)?.props.kind));
   const openingOnly = [...kinds].every((kind) => kind === 'door' || kind === 'window');
@@ -792,12 +803,17 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   if (all('restore')) return [tn('history.wallsRestored', w > 0 ? w : n)];
   if (all('move')) return [tn('history.planItemsReordered', n)];
   if (!all('update')) return null;
-  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  // A wall resized from its start keeps its doors and windows where they were (their `along_m` in the same step): the
+  // step is the wall's.
+  const keptOpenings = w > 0 && items.every((op) => record(op)?.props.kind === 'wall' || (isOpeningOp(op) && op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'along_m')));
+  const counted = keptOpenings ? walls : items;
+  const m = keptOpenings ? w : n;
+  const props = new Set(counted.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
   const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
-  if (only(['x', 'y'])) return [tn('history.wallsMoved', n)];
-  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', n)];
-  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', n)];
-  return [tn('history.wallsChanged', n)];
+  if (only(['x', 'y'])) return [tn('history.wallsMoved', m)];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', m)];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', m)];
+  return [tn('history.wallsChanged', m)];
 }
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */

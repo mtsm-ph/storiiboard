@@ -5,13 +5,17 @@ import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
 import {
   isOpening,
+  keptInWall,
   lastKeyUnder,
   MIN_PLAN_SIZE,
   normalDegrees,
   OPENING_WIDTH,
   openingFields,
+  openingsInView,
   openingsOf,
+  planFields,
   planItemFields,
+  plansShown,
   sceneRoomId,
   shownFields,
   shownItems,
@@ -24,6 +28,7 @@ import {
   type OpeningKind,
   type PlanGeometry,
   type PlanItemFields,
+  type PlanViewOf,
   type ShownFields,
   type ShownItem,
   type Swing,
@@ -62,7 +67,8 @@ function liveOpening(records: Records, id: string): { record: SbdRecord; fields:
   if (record?.type !== 'plan_item' || record.trashedAt !== null) return null;
   const fields = openingFields(record.props);
   const wall = fields ? liveItem(records, fields.wallId) : null;
-  return fields && wall ? { record, fields, wall } : null;
+  // Read inside its wall, as the plan shows it (a wall shortened in another scene's view may have left it past an end).
+  return fields && wall ? { record, fields: keptInWall(fields, wall.fields.width), wall } : null;
 }
 
 const toCanvasGeometry = (g: PlanGeometry): Geometry => ({ x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height), rotation: g.rotation });
@@ -317,18 +323,50 @@ function wallFrom(start: Point, rotation: number, length: number, thickness: num
   return { ...g, rotation: normalDegrees(rotation), width: Math.max(MIN_PLAN_SIZE, Math.round(length * 10000) / 10000) };
 }
 
-/** The least length a wall can have and keep its doors and windows where they are. */
-export const wallNeedOf = (records: Records, wallId: string): number => wallNeeds(openingsOf(records, wallId).map((o) => o.fields));
+/** The least length a wall can have and keep its doors and windows where they are: those the view shows (with none, every plan's). */
+export const wallNeedOf = (records: Records, wallId: string, view?: PlanViewOf | null): number => wallNeeds(openingsInView(records, wallId, view).map((o) => o.fields));
 
-/** A wall's new box held at the length its openings need (6.2b): the end that moved least stays where it is. */
-function heldAtNeed(was: PlanItemFields, next: PlanGeometry, need: number): PlanGeometry {
-  if (next.width >= need - 1e-4) return next;
+interface Span {
+  along: number;
+  width: number;
+}
+
+/**
+ * A wall's new box held so its doors and windows stay in it (6.2b), and how far its start moved along it (each
+ * opening's `along_m` less that keeps it where it is in the room, 6.2b review). Only a change that shortens the wall is
+ * held, so a move or a turn never stretches a wall whose openings need more than it has (after a restore or an import).
+ * Its direction kept, each end stops where the opening nearest it begins; turned too, the end that moved least stays
+ * and the length stops at what they need.
+ */
+function heldForOpenings(was: PlanItemFields, next: PlanGeometry, spans: readonly Span[]): { geometry: PlanGeometry; shift: number } {
+  const shrank = next.width < was.width - 1e-9;
+  if (next.rotation !== was.rotation) {
+    const need = wallNeeds(spans);
+    if (!shrank || next.width >= need - 1e-4) return { geometry: next, shift: 0 };
+    const [s0, e0] = wallEnds(was);
+    const [s1, e1] = wallEnds(next);
+    const startStays = Math.hypot(s1.x - s0.x, s1.y - s0.y) <= Math.hypot(e1.x - e0.x, e1.y - e0.y);
+    const { dir } = wallAxes(next);
+    const start = startStays ? s1 : { x: e1.x - dir.x * need, y: e1.y - dir.y * need };
+    return { geometry: wallFrom(start, next.rotation, need, next.height), shift: 0 };
+  }
+  if (Math.abs(next.width - was.width) <= 1e-9) return { geometry: next, shift: 0 };
+  const { dir } = wallAxes(was);
   const [s0, e0] = wallEnds(was);
   const [s1, e1] = wallEnds(next);
-  const startStays = Math.hypot(s1.x - s0.x, s1.y - s0.y) <= Math.hypot(e1.x - e0.x, e1.y - e0.y);
-  const { dir } = wallAxes(next);
-  const start = startStays ? s1 : { x: e1.x - dir.x * need, y: e1.y - dir.y * need };
-  return wallFrom(start, next.rotation, need, next.height);
+  const along = (a: Point, b: Point) => (b.x - a.x) * dir.x + (b.y - a.y) * dir.y;
+  const startMoved = along(s0, s1);
+  const endMoved = along(e0, e1);
+  if (!shrank || spans.length === 0) return { geometry: next, shift: startMoved };
+  // How far each end may come in: to the nearest opening's edge (never out past where it is now).
+  const startRoom = Math.max(0, Math.min(...spans.map((o) => o.along - o.width / 2)));
+  const endRoom = Math.max(0, Math.min(...spans.map((o) => was.width - o.along - o.width / 2)));
+  const startShift = Math.min(startMoved, startRoom);
+  const endShift = Math.max(endMoved, -endRoom);
+  if (startShift === startMoved && endShift === endMoved) return { geometry: next, shift: startMoved };
+  const start = { x: s1.x + dir.x * (startShift - startMoved), y: s1.y + dir.y * (startShift - startMoved) };
+  const length = was.width - startShift + endShift;
+  return { geometry: wallFrom(start, next.rotation, length, next.height), shift: startShift };
 }
 
 interface WallChoice {
@@ -416,12 +454,17 @@ export function planConstrain(shown: readonly ShownItem[], unit: PlanUnit): (mov
   };
 }
 
+const planKindOf = (records: Records, planId: string | null): string | null => (planId === null ? null : (planFields(records[planId]?.props ?? {})?.kind ?? null));
+
 /**
- * A finished move, resize or turn (canvas units): one update per item that changed, all one op group. A wall is held at
- * the length its doors and windows need; a door or window lands where its box was put, along a wall (onto another wall
- * it moves to that wall, `wall_id` and all), and one whose wall moved with it is left to follow it.
+ * A finished move, resize or turn (canvas units): one update per item that changed, all one op group. A wall shortened
+ * is held at the length the doors and windows its view shows need; resized from its start, every opening in it (every
+ * plan's) keeps its place in the room. A door or window lands where its box was put, along a wall (onto another wall it
+ * moves to that wall, `wall_id` and all), and one whose wall moved with it is left to follow it. A setup's own opening
+ * stays in the setup's plan whatever wall it goes to; one at the room's level dragged onto a wall that is one setup's
+ * only goes into that setup's plan with it.
  */
-export function planGeometryChanges(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[]): Change[] {
+export function planGeometryChanges(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null): Change[] {
   const changed = new Set(changes.map((c) => c.id));
   return changes.flatMap((c): Change[] => {
     const opening = liveOpening(records, c.id);
@@ -429,22 +472,32 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
       if (changed.has(opening.fields.wallId)) return [];
       const centre = centreOfBox({ x: toMetres(c.x), y: toMetres(c.y), width: toMetres(c.width), height: toMetres(c.height), rotation: c.rotation }, opening.fields);
       const pool = candidateWalls(records, opening, walls);
-      const others = (wallId: string) => openingsOf(records, wallId).filter((o) => o.record.id !== c.id && !changed.has(o.record.id)).map((o) => o.fields);
+      const others = (wallId: string) => openingsInView(records, wallId, view).filter((o) => o.record.id !== c.id && !changed.has(o.record.id)).map((o) => o.fields);
       const landed = landing({ id: c.id, fields: opening.fields, wallId: opening.fields.wallId }, centre, pool.some((w) => w.id === opening.fields.wallId) ? pool : [...pool, { id: opening.wall.record.id, fields: opening.wall.fields }], others, 0);
       if (!landed || (landed.wallId === opening.fields.wallId && Math.abs(landed.along - opening.fields.along) < 1e-4)) return [];
       const set: Props = { along_m: landed.along };
       if (landed.wallId !== opening.fields.wallId) set.wall_id = landed.wallId;
       const move: Change[] = [];
-      // Into a wall that sits in another plan (one setup's own), the opening goes with it there.
       const wallPlan = records[landed.wallId]?.parentId ?? null;
-      if (wallPlan !== null && wallPlan !== opening.record.parentId) move.push({ kind: 'move', id: c.id, parentId: wallPlan, sortKey: keyBetween(lastKeyUnder(records, wallPlan, 'plan_item'), null) });
+      const ownPlan = opening.record.parentId;
+      if (wallPlan !== null && wallPlan !== ownPlan && planKindOf(records, ownPlan) !== 'setup' && planKindOf(records, wallPlan) === 'setup') {
+        move.push({ kind: 'move', id: c.id, parentId: wallPlan, sortKey: keyBetween(lastKeyUnder(records, wallPlan, 'plan_item'), null) });
+      }
       return [{ kind: 'update', id: c.id, set }, ...move];
     }
     const live = liveItem(records, c.id);
     if (!live) return [];
-    const next = keptWhereSame(live.fields, heldAtNeed(live.fields, keptWhereSame(live.fields, metresOf(c)), wallNeedOf(records, c.id)));
+    const held = heldForOpenings(live.fields, keptWhereSame(live.fields, metresOf(c)), openingsInView(records, c.id, view).map((o) => o.fields));
+    const next = keptWhereSame(live.fields, held.geometry);
     if (sameGeometry(live.fields, next)) return [];
-    return [{ kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } }];
+    const wall: Change = { kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } };
+    if (Math.abs(held.shift) < 1e-4) return [wall];
+    // Its start moved along it: each opening's distance from the start changes by as much, so it stays where it was.
+    const kept = openingsOf(records, c.id).flatMap((o): Change[] => {
+      const along = Math.max(0, Math.round((o.fields.along - held.shift) * 10000) / 10000);
+      return Math.abs(along - o.fields.along) < 1e-6 ? [] : [{ kind: 'update', id: o.record.id, set: { along_m: along } }];
+    });
+    return [wall, ...kept];
   });
 }
 
@@ -453,7 +506,7 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
  * along its wall by the nudge's length, towards the wall's end when the arrow points that way (Right and Down when it
  * points across); one whose wall is nudged too moves with it.
  */
-export function planNudgeChanges(records: Records, ids: readonly string[], dx: number, dy: number): Change[] {
+export function planNudgeChanges(records: Records, ids: readonly string[], dx: number, dy: number, view?: PlanViewOf | null): Change[] {
   const picked = new Set(ids);
   return ids.flatMap((id): Change[] => {
     const opening = liveOpening(records, id);
@@ -463,7 +516,7 @@ export function planNudgeChanges(records: Records, ids: readonly string[], dx: n
       const towards = dx * dir.x + dy * dir.y;
       const sign = Math.abs(towards) > 1e-9 ? Math.sign(towards) : Math.sign(dx + dy);
       const wanted = opening.fields.along + sign * toMetres(Math.hypot(dx, dy));
-      const others = openingsOf(records, opening.fields.wallId).filter((o) => o.record.id !== id).map((o) => o.fields);
+      const others = openingsInView(records, opening.fields.wallId, view).filter((o) => o.record.id !== id).map((o) => o.fields);
       const fit = fitAlong(opening.wall.fields.width, opening.fields.width, wanted, others);
       if (fit === null || Math.abs(fit - opening.fields.along) < 1e-4) return [];
       return [{ kind: 'update', id, set: { along_m: fit } }];
@@ -471,7 +524,7 @@ export function planNudgeChanges(records: Records, ids: readonly string[], dx: n
     const live = liveItem(records, id);
     if (!live) return [];
     const g = toCanvasGeometry(live.fields);
-    return planGeometryChanges(records, [{ id, ...g, x: g.x + dx, y: g.y + dy }]);
+    return planGeometryChanges(records, [{ id, ...g, x: g.x + dx, y: g.y + dy }], undefined, view);
   });
 }
 
@@ -520,56 +573,92 @@ export function reorderPlanChanges(records: Records, ids: readonly string[], mod
   });
 }
 
-/** What Copy keeps: the items' props as they are (metres), back to front, with the id each was copied from. */
+/** What Copy keeps: the items' props as they are (metres), back to front, with the id each was copied from and its plan. */
 export interface PlanClip {
   id: string;
   props: SbdRecord['props'];
   fields: ShownFields;
+  /** The plan the original sat in (6.2b review): a paste goes back to it, or to the same level of the view pasted in. */
+  planId?: string | null;
 }
 
-/** Copied walls, with the doors and windows in them; a door or window copied without its wall isn't (it has nowhere to go). */
-export function planClipOf(records: Records, ids: readonly string[]): PlanClip[] {
+/**
+ * Copied walls, with the doors and windows in them the view shows (with no view, every plan's); a door or window copied
+ * without its wall isn't (it has nowhere to go).
+ */
+export function planClipOf(records: Records, ids: readonly string[], view?: PlanViewOf | null): PlanClip[] {
   const walls = ids.flatMap((id) => {
     const live = liveItem(records, id);
     return live ? [live] : [];
   });
-  const wallIds = new Set(walls.map((w) => w.record.id));
-  const openings = Object.values(records).filter((r) => r.type === 'plan_item' && r.trashedAt === null && wallIds.has(openingFields(r.props)?.wallId ?? ''));
+  const openings = walls.flatMap((w) => openingsInView(records, w.record.id, view).map((o) => o.record));
   return [...walls.map((w) => w.record).sort(bySortKey), ...openings.sort(bySortKey)].flatMap((record) => {
     const fields = shownFields(record.props);
-    return fields ? [{ id: record.id, props: record.props, fields }] : [];
+    return fields ? [{ id: record.id, props: record.props, fields, planId: record.parentId }] : [];
   });
 }
 
+/** Whether a door or window is selected without its wall: Copy and Duplicate leave it out, and say so. */
+export const openingsLeftOut = (records: Records, ids: readonly string[]): boolean => {
+  const picked = new Set(ids);
+  return ids.some((id) => {
+    const fields = openingFields(records[id]?.props ?? {});
+    return fields !== null && records[id]?.trashedAt === null && !picked.has(fields.wallId);
+  });
+};
+
 /**
- * Pasted into a plan at the front: at the pointer (canvas units) when there is one, else 16 cm from the originals, as
- * the core places a board's paste. Each keeps every prop it was copied with; a door or window goes into its wall's copy.
+ * Where a pasted item goes in a view (6.2b review): the plan its original sits in when the view shows that plan, else
+ * the view's plan of the same level, else the scene's room; null when the scene has no room and nothing fits.
  */
-export function planPasteChanges(records: Records, planId: string, clip: readonly PlanClip[], at: Point | null): { ids: string[]; changes: Change[] } {
+export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip) => string | null {
+  const plans = plansShown(records, view.sceneId, view.setupId);
+  const shown = new Set([plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  return (item) => {
+    const from = item.planId ?? null;
+    if (from !== null && shown.has(from)) return from;
+    const kind = planKindOf(records, from);
+    const same = kind === 'room' || kind === 'blocking' || kind === 'setup' ? plans[kind] : null;
+    return same?.id ?? plans.room?.id ?? null;
+  };
+}
+
+/**
+ * Pasted at the front of its plan: at the pointer (canvas units) when there is one, else 16 cm from the originals, as
+ * the core places a board's paste. Each keeps every prop it was copied with (not what it was copied from); a door or
+ * window goes into its wall's copy. `into` is one plan for all, or where each goes (`pasteTarget`).
+ */
+export function planPasteChanges(records: Records, into: string | ((item: PlanClip) => string | null), clip: readonly PlanClip[], at: Point | null): { ids: string[]; changes: Change[] } {
+  const planOf = typeof into === 'string' ? () => into : into;
   const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields } => item.fields.kind === 'wall');
   const placed = pasted(walls.map((item) => toCanvasGeometry(item.fields)), at);
-  let previous = lastKeyUnder(records, planId, 'plan_item');
+  const lastKeys = new Map<string, string | null>();
   const ids: string[] = [];
   const changes: Change[] = [];
   const copies = new Map<string, string>();
-  const make = (props: Props) => {
+  const make = (item: PlanClip, props: Props): string | null => {
+    const planId = planOf(item);
+    if (planId === null) return null;
     const id = crypto.randomUUID();
-    const sortKey = keyBetween(previous, null);
-    previous = sortKey;
+    const sortKey = keyBetween(lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item'), null);
+    lastKeys.set(planId, sortKey);
     ids.push(id);
-    changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
+    const own: Props = { ...props };
+    delete own.copied_from;
+    changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props: own } });
     return id;
   };
   walls.forEach((item, i) => {
     const g = placed[i];
     if (!g) return;
     const m = metresOf(g);
-    copies.set(item.id, make({ ...item.props, x: m.x, y: m.y }));
+    const id = make(item, { ...item.props, x: m.x, y: m.y });
+    if (id !== null) copies.set(item.id, id);
   });
   for (const item of clip) {
     if (!isOpening(item.fields)) continue;
     const wall = copies.get(item.fields.wallId);
-    if (wall) make({ ...item.props, wall_id: wall });
+    if (wall) make(item, { ...item.props, wall_id: wall });
   }
   return { ids, changes };
 }
@@ -590,12 +679,13 @@ export interface WallPatch {
   name?: string;
 }
 
-/** Whether walls can be this long and keep their doors and windows (6.2b): a shorter length is refused. */
-export const wallsTakeLength = (records: Records, ids: readonly string[], length: number): boolean => ids.every((id) => !liveItem(records, id) || length >= wallNeedOf(records, id) - 1e-4);
+/** Whether walls can be this long and keep the doors and windows the view shows (6.2b): a shorter length is refused. */
+export const wallsTakeLength = (records: Records, ids: readonly string[], length: number, view?: PlanViewOf | null): boolean =>
+  ids.every((id) => !liveItem(records, id) || length >= wallNeedOf(records, id, view) - 1e-4);
 
 /** A field changed on the selected walls (6.2a Selection tile): one update per wall that changes, one op group. */
-export function wallPatchChanges(records: Records, ids: readonly string[], patch: WallPatch): Change[] {
-  if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length)) return [];
+export function wallPatchChanges(records: Records, ids: readonly string[], patch: WallPatch, view?: PlanViewOf | null): Change[] {
+  if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length, view)) return [];
   return ids.flatMap((id): Change[] => {
     const live = liveItem(records, id);
     if (!live) return [];
@@ -646,19 +736,29 @@ export const openingDistances = (wall: PlanItemFields, o: OpeningFields): { from
 
 /**
  * A field changed on the selected doors and windows: one update each, one op group; null when a new width or place
- * doesn't fit one of them in its wall (off its end, or over another opening), and nothing is written.
+ * doesn't fit one of them in its wall (off its end, or over another opening the view shows, the selected ones each at
+ * its new place), and nothing is written.
  */
-export function openingPatchChanges(records: Records, ids: readonly string[], patch: OpeningPatch): Change[] | null {
+export function openingPatchChanges(records: Records, ids: readonly string[], patch: OpeningPatch, view?: PlanViewOf | null): Change[] | null {
   const changes: Change[] = [];
-  for (const id of ids) {
+  const moving = patch.width !== undefined || patch.fromStart !== undefined || patch.fromEnd !== undefined;
+  // Every new span first, so the selected are checked against each other where they will be, not where they were.
+  const planned = ids.flatMap((id) => {
     const live = liveOpening(records, id);
-    if (!live) continue;
+    if (!live) return [];
+    const width = patch.width ?? live.fields.width;
+    const along = patch.fromStart !== undefined ? patch.fromStart + width / 2 : patch.fromEnd !== undefined ? live.wall.fields.width - patch.fromEnd - width / 2 : live.fields.along;
+    return [{ id, live, width, tidyAlong: Math.round(along * 10000) / 10000 }];
+  });
+  const newSpan = new Map(planned.map((p) => [p.id, { along: p.tidyAlong, width: p.width }]));
+  for (const { id, live, width, tidyAlong } of planned) {
     const now = live.fields;
-    const width = patch.width ?? now.width;
-    const along = patch.fromStart !== undefined ? patch.fromStart + width / 2 : patch.fromEnd !== undefined ? live.wall.fields.width - patch.fromEnd - width / 2 : now.along;
-    const tidyAlong = Math.round(along * 10000) / 10000;
-    const others = openingsOf(records, now.wallId).filter((o) => o.record.id !== id).map((o) => o.fields);
-    if ((patch.width !== undefined || patch.fromStart !== undefined || patch.fromEnd !== undefined) && !fitsAt(live.wall.fields.width, { along: tidyAlong, width }, others)) return null;
+    if (moving) {
+      const others = openingsInView(records, now.wallId, view)
+        .filter((o) => o.record.id !== id)
+        .map((o) => newSpan.get(o.record.id) ?? o.fields);
+      if (!fitsAt(live.wall.fields.width, { along: tidyAlong, width }, others)) return null;
+    }
     const set: Props = {};
     const unset: string[] = [];
     if (Math.abs(width - now.width) > 1e-6) set.width_m = Math.round(width * 10000) / 10000;
@@ -720,10 +820,10 @@ export const openingProps = (kind: OpeningKind, wallId: string, along: number): 
   kind === 'door' ? { kind, wall_id: wallId, along_m: along, width_m: OPENING_WIDTH.door, hinge: 'start', swing: 'left' } : { kind, wall_id: wallId, along_m: along, width_m: OPENING_WIDTH.window };
 
 /** A door or window put in a wall, at the front of the wall's plan (so it is at the wall's level), one op. */
-export function placeOpeningChanges(records: Records, spot: OpeningSpot, kind: OpeningKind, id: string = crypto.randomUUID()): Change[] {
+export function placeOpeningChanges(records: Records, spot: OpeningSpot, kind: OpeningKind, id: string = crypto.randomUUID(), view?: PlanViewOf | null): Change[] {
   const wall = liveItem(records, spot.wallId);
   if (!wall?.record.parentId) return [];
-  const others = openingsOf(records, spot.wallId).map((o) => o.fields);
+  const others = openingsInView(records, spot.wallId, view).map((o) => o.fields);
   if (!fitsAt(wall.fields.width, { along: spot.along, width: OPENING_WIDTH[kind] }, others)) return [];
   const planId = wall.record.parentId;
   return [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyBetween(lastKeyUnder(records, planId, 'plan_item'), null), props: openingProps(kind, spot.wallId, spot.along) } }];

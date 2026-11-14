@@ -378,8 +378,11 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines). Next: 6.2b from docs/briefs/6.2b-doors-rooms-copies.md (branch `phase6/6.2b-doors-rooms` off
-  6.2a's), then 6.3 from docs/briefs/6.3-library.md; briefs for 6.4 on are not written yet (docs/briefs/
+  20 baselines), #157 (6.2b). Next: 6.3 from docs/briefs/6.3-library.md (branch `phase6/6.3-library` off 6.2b's),
+  then 6.4 from docs/briefs/6.4-cameras.md; briefs for 6.5 on are not written yet. Flaky once each, cause not
+  proven (the test server on port 1421 refused a page load under a full parallel run): plan.spec "two scenes at
+  one location share a room…" and liveCards.spec "a board linked to a scene, a character and a location…"; if a
+  third appears, diagnose the server before going on (docs/briefs/
   canvas-core-map.md maps the canvas core). Two stray files in the repo root for Kevin to delete, never staged:
   playwright-full.log, tsconfig.tsbuildinfo. The sensor table's Sony FX3 entry is Kevin's own figures, unchecked (Sony's site refuses
   automated reads). Spanish for setup: "Emplazamiento", tile title "Emplaz.": Kevin decides the word.

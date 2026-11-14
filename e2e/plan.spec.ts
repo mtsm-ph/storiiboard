@@ -323,13 +323,16 @@ test('puts a door and a window in a wall, slides and types the door’s place, f
   await expect(canvas(page)).toHaveAttribute('data-tool', 'host:door');
   await moveTo(page, -100, 10);
   await expect(planTile(page).locator('[data-plan-data]')).toHaveAttribute('data-plan-preview', /"along":1\b/);
+  // The preview is never one of the items read out: the wall is still 1 of 1.
+  await expect(canvas(page).getByRole('status')).toHaveText('Wall, 4.00 m 1 of 1 selected');
   await clickAt(page, -100, 10);
   await expect.poll(async () => (await openings(page)).map((o) => [o.kind, o.along])).toEqual([['door', 1]]);
-  // Over no wall, the Window tool puts nothing; over the wall, a window.
+  // Over no wall, the Window tool puts nothing, says why and stays picked; over the wall, a window.
   await page.keyboard.press('n');
   await clickAt(page, 100, 200);
+  await expect(page.getByText('Point at a wall', { exact: true })).toBeVisible();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:window');
   await expect.poll(async () => (await openings(page)).length).toBe(1);
-  await page.keyboard.press('n');
   await clickAt(page, 100, 0);
   await expect.poll(async () => (await openings(page)).map((o) => [o.kind, o.along])).toEqual([
     ['door', 1],
@@ -399,6 +402,14 @@ test('the keyboard puts a door in the middle of the selected wall, and the Door 
   await drawWall(page);
   await canvas(page).focus();
   await page.keyboard.press('Escape');
+  // With no wall selected, Enter puts nothing, says so and keeps the tool.
+  await expect.poll(() => selection(page)).toEqual([]);
+  await page.keyboard.press('d');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('Select one wall first', { exact: true })).toBeVisible();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:door');
+  await expect.poll(async () => (await openings(page)).length).toBe(0);
+  await page.keyboard.press('v');
   await clickAt(page, 0, 0);
   await expect.poll(() => selection(page)).toHaveLength(1);
   await page.keyboard.press('d');
@@ -439,6 +450,7 @@ test('two scenes at one location share a room until one takes a separate copy, a
   await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
   const choice = planTile(page).locator('[data-room-choice]');
   await expect(choice).toHaveText(['DinerDiner · Used by 1 scene']);
+  await expect(choice).toHaveAccessibleName('Diner · Diner · Used by 1 scene');
   await choice.focus();
   await page.keyboard.press('Enter');
   await expect.poll(() => widths(page)).toEqual([4]);
@@ -598,4 +610,117 @@ test('a run never ends in another project: a version opened mid-run takes no wal
   await expect.poll(() => walls(page)).toEqual(kept);
   await page.waitForTimeout(300);
   expect(await walls(page)).toEqual(kept);
+});
+
+// 6.2b review: "This setup only", "Start from another setup", the focus after the room's steps, a narrow tile.
+
+const levels = async (page: Page) => (await planData(page)).map((item) => item.level);
+const sceneSetup = (page: Page, scene: string) => setupsTile(page).locator(`section[aria-label="${scene}"] [data-setup-select]`);
+const setupOnlySwitch = (page: Page) => selectionTile(page).getByRole('switch', { name: 'This setup only' });
+
+test('a wall made this setup’s only leaves the scene’s other setup and the scene sharing the room, and comes back when turned off', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await startRoom(page);
+  await drawWall(page);
+  // SC 01's second setup, and SC 02 set in the same room.
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 2');
+  await expect.poll(() => widths(page)).toEqual([4]);
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 02' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+  await planTile(page).locator('[data-room-choice]').click();
+  await expect.poll(() => widths(page)).toEqual([4]);
+
+  // In SC 01's first setup: the wall selected, the switch says who stops showing it, then turned on.
+  await sceneSetup(page, 'SC 01').first().click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 1');
+  await clickAt(page, 0, 0);
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Wall');
+  await expect(selectionTile(page).locator('[data-setup-only-losing]')).toHaveText('SC 02 won’t show it');
+  await setupOnlySwitch(page).click();
+  await expect.poll(() => levels(page)).toEqual(['setup']);
+  await expect(setupOnlySwitch(page)).toHaveAttribute('aria-checked', 'true');
+  await sceneSetup(page, 'SC 01').nth(1).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 2');
+  await expect.poll(() => walls(page)).toEqual([]);
+  await sceneSetup(page, 'SC 02').first().click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+  await expect.poll(() => walls(page)).toEqual([]);
+
+  // Turned off: back in the room, so both show it again.
+  await sceneSetup(page, 'SC 01').first().click();
+  await clickAt(page, 0, 0);
+  await expect(setupOnlySwitch(page)).toHaveAttribute('aria-checked', 'true');
+  await setupOnlySwitch(page).click();
+  await expect.poll(() => levels(page)).toEqual(['room']);
+  await sceneSetup(page, 'SC 01').nth(1).click();
+  await expect.poll(() => widths(page)).toEqual([4]);
+  await sceneSetup(page, 'SC 02').first().click();
+  await expect.poll(() => widths(page)).toEqual([4]);
+
+  // A narrow tile: the header and the tools wrap, nothing runs out of it.
+  const strip = planTile(page).locator('[data-plan-tile] > div').first();
+  await planTile(page).locator('[data-plan-tile]').evaluate((tile) => {
+    (tile as HTMLElement).style.width = '320px';
+  });
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+  expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  const tools = await strip.evaluate((el) => [...el.querySelectorAll('button')].every((b) => b.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1));
+  expect(tools).toBe(true);
+});
+
+test('a setup starts from another’s state: its own wall copied, the two not linked', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  // Setup 1's wall made its own, so Setup 1 has items of its own to copy.
+  await clickAt(page, 0, 0);
+  await setupOnlySwitch(page).click();
+  await expect.poll(() => levels(page)).toEqual(['setup']);
+  const [original] = await walls(page);
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 2');
+  await expect.poll(() => walls(page)).toEqual([]);
+  await planTile(page).getByRole('button', { name: 'Start from another setup' }).click();
+  await page.locator('[data-copy-setup]').click();
+  await expect.poll(() => levels(page)).toEqual(['setup']);
+  const [copy] = await walls(page);
+  expect(copy?.id).not.toBe(original?.id);
+  expect(copy?.width).toBe(4);
+  await expect(planTile(page).getByRole('button', { name: 'Start from another setup' })).toHaveCount(0);
+  // A change to the copy leaves Setup 1's as it was.
+  await clickAt(page, 0, 0);
+  await field(page, 'Length').fill('3 m');
+  await field(page, 'Length').press('Enter');
+  await expect.poll(() => widths(page)).toEqual([3]);
+  await sceneSetup(page, 'SC 01').first().click();
+  await expect.poll(() => widths(page)).toEqual([4]);
+  // One undo takes the length back, the next the copy.
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await sceneSetup(page, 'SC 01').nth(1).click();
+  await expect.poll(() => walls(page)).toEqual([]);
+});
+
+test('the focus after the room’s steps: Delete room to the chooser, a room chosen to the canvas, a room no scene uses deleted', async ({ page }) => {
+  await startRoom(page);
+  // Delete room: the canvas and its menu go, the chooser's first button takes the focus.
+  await planTile(page).getByRole('button', { name: /^Room: / }).click();
+  await page.getByRole('button', { name: 'Delete room' }).click();
+  await expect(planTile(page).getByRole('button', { name: 'New room' })).toBeFocused();
+  // New room from the chooser: the canvas takes it.
+  await page.keyboard.press('Enter');
+  await expect(canvas(page)).toBeFocused();
+  // A second room for the scene leaves the first used by none: the chooser deletes it.
+  await planTile(page).getByRole('button', { name: /^Room: / }).click();
+  await page.getByRole('button', { name: 'Use another room…' }).click();
+  const window = page.getByRole('dialog', { name: 'Use another room' });
+  await window.getByRole('button', { name: 'New room' }).click();
+  await expect(window).toHaveCount(0);
+  await planTile(page).getByRole('button', { name: /^Room: / }).click();
+  await page.getByRole('button', { name: 'Use another room…' }).click();
+  await expect(window.locator('[data-room-choice]')).toHaveText(['SC 01Used by 0 scenes']);
+  await window.getByRole('button', { name: 'Delete room SC 01' }).click();
+  await expect(window.locator('[data-room-choice]')).toHaveCount(0);
+  await expect(window.getByRole('button', { name: 'New room' })).toBeFocused();
 });

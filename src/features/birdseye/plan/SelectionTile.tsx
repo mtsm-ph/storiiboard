@@ -6,6 +6,7 @@ import { t, tn } from '../../../core/i18n';
 import { formatLength, hasGroupingComma, parseLength, type PlanUnit } from '../../../core/model/length';
 import {
   isOpening,
+  keptInWall,
   openingFields,
   parseDegrees,
   planFields,
@@ -20,13 +21,14 @@ import {
   type PlanItemFields,
   type Swing,
 } from '../../../core/model/plan';
-import { itemLevel } from '../../../core/model/planRooms';
+import { alsoInRoom, itemLevel, scenesLosing, setupOnlyHeld } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, TextField, Toggle } from '../../../ui/fields';
+import { Trans } from '../../../ui/Trans';
 import { changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
 import { openingDistances, openingPatchChanges, viewKey, wallNeedOf, wallsTakeLength, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
-import { useLiveView } from './PlanTile';
+import { AlsoIn, useLiveView } from './PlanTile';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
 // and each one edit when it's left (one ⌘Z), lengths in the unit the screen shows and read in any form (src/core/model/
@@ -131,15 +133,15 @@ function SelectionContent() {
     return (
       <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
         {walls.length === selected.length ? (
-          <WallFields ids={ids} walls={walls} unit={unit} records={records} />
+          <WallFields ids={ids} walls={walls} unit={unit} records={records} view={live.view} />
         ) : openings.length === selected.length ? (
-          <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} />
+          <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
         ) : (
           <p className="sb-label" data-selection-kind="">
             {tn('selection.items', selected.length)}
           </p>
         )}
-        {live.view.setupId !== null && <SetupOnlySwitch view={live.view} ids={ids} records={records} />}
+        {live.view.setupId !== null && <SetupOnlySwitch view={{ sceneId: live.view.sceneId, setupId: live.view.setupId }} ids={ids} records={records} />}
       </div>
     );
   }
@@ -165,26 +167,39 @@ function SelectionContent() {
       <p className="text-[13px]" data-room-scenes={scenes}>
         {tn('selection.roomScenes', scenes)}
       </p>
+      <AlsoIn scenes={alsoInRoom(records, live.scene.id)} />
     </div>
   );
 }
 
 /**
  * "This setup only" (6.2b): on when every selected item sits in the setup's own plan. Turned on, they move there, so
- * other setups and scenes no longer show them; off, back to the level each belongs to.
+ * other setups and scenes no longer show them; off, back to the level each belongs to (the scene's room as it is now).
+ * It can't be turned off with no room to go back to, nor for a door or window alone whose wall is this setup's only;
+ * the words under it say why, and which scenes sharing the room would stop showing it.
  */
-function SetupOnlySwitch({ view, ids, records }: { view: PlanView; ids: readonly string[]; records: Records }) {
+function SetupOnlySwitch({ view, ids, records }: { view: PlanView & { setupId: string }; ids: readonly string[]; records: Records }) {
   const on = ids.every((id) => itemLevel(records, view.sceneId, view.setupId, id) === 'setup');
+  const held = on ? setupOnlyHeld(records, view.sceneId, view.setupId, ids) : null;
+  const losing = on ? [] : scenesLosing(records, view.sceneId, view.setupId, ids);
   return (
     <div className="border-t border-border pt-3" data-setup-only={on ? 'on' : 'off'}>
       <Toggle
         label={t('selection.setupOnly')}
         checked={on}
+        disabled={held !== null}
         onChange={(next) => {
           void setupOnly(view, ids, next);
         }}
       />
-      <p className="mt-1 text-[12px] text-text-muted">{t(on ? 'selection.setupOnlyOn' : 'selection.setupOnlyOff')}</p>
+      <p className="mt-1 text-[12px] text-text-muted" data-setup-only-why={held ?? undefined}>
+        {held === 'noRoom' ? t('selection.setupOnlyNoRoom') : held === 'wallOnly' ? t('selection.setupOnlyWallOnly') : t(on ? 'selection.setupOnlyOn' : 'selection.setupOnlyOff')}
+      </p>
+      {losing.length > 0 && (
+        <p className="mt-1 text-[12px] text-text-muted" data-setup-only-losing={losing.join(' ')}>
+          <Trans k="selection.setupOnlyLosing" parts={{ scenes: <span className="font-mono">{losing.join(', ')}</span> }} />
+        </p>
+      )}
     </div>
   );
 }
@@ -200,7 +215,7 @@ const lengthCommit =
     return write(apply(m));
   };
 
-function WallFields({ ids, walls, unit, records }: { ids: readonly string[]; walls: readonly PlanItemFields[]; unit: PlanUnit; records: Records }) {
+function WallFields({ ids, walls, unit, records, view }: { ids: readonly string[]; walls: readonly PlanItemFields[]; unit: PlanUnit; records: Records; view: PlanView }) {
   const lengthText = (values: readonly number[]) => {
     const one = shared(values.map((v) => formatLength(v, unit)));
     return one ?? '';
@@ -211,11 +226,11 @@ function WallFields({ ids, walls, unit, records }: { ids: readonly string[]; wal
   const rotations = shared(walls.map((w) => degreesText(w.rotation)));
   const write = (patch: WallPatch): boolean | string => {
     // A wall is never shorter than its doors and windows need: refused, saying how long it must be.
-    if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length)) {
-      const need = Math.max(...ids.map((id) => wallNeedOf(records, id)));
+    if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length, view)) {
+      const need = Math.max(...ids.map((id) => wallNeedOf(records, id, view)));
       return t('selection.wallTooShort', { length: formatLength(need, unit) });
     }
-    void changeWalls(ids, patch);
+    void changeWalls(ids, patch, view);
     return true;
   };
   const length = (apply: (m: number) => WallPatch, opts: { signed?: boolean; empty?: WallPatch } = {}) => lengthCommit(unit, write, apply, opts);
@@ -266,12 +281,13 @@ function WallFields({ ids, walls, unit, records }: { ids: readonly string[]; wal
   );
 }
 
-function OpeningFieldsView({ ids, openings, unit, records }: { ids: readonly string[]; openings: readonly OpeningFields[]; unit: PlanUnit; records: Records }) {
+function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readonly string[]; openings: readonly OpeningFields[]; unit: PlanUnit; records: Records; view: PlanView }) {
   const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
   const distances = ids.flatMap((id) => {
     const o = openingFields(records[id]?.props ?? {});
     const wall = o ? planItemFields(records[o.wallId]?.props ?? {}) : null;
-    return o && wall ? [openingDistances(wall, o)] : [];
+    // As the plan reads it: inside its wall.
+    return o && wall ? [openingDistances(wall, keptInWall(o, wall.width))] : [];
   });
   const kind = shared(openings.map((o) => o.kind));
   const doors = kind === 'door';
@@ -280,8 +296,8 @@ function OpeningFieldsView({ ids, openings, unit, records }: { ids: readonly str
   const swing = shared(openings.map((o) => o.swing));
   const write = (patch: OpeningPatch): boolean | string => {
     // A width or place that would run it off the wall or over another opening is refused, and nothing is saved.
-    if (openingPatchChanges(records, ids, patch) === null) return t('selection.openingRefused');
-    void changeOpenings(ids, patch);
+    if (openingPatchChanges(records, ids, patch, view) === null) return t('selection.openingRefused');
+    void changeOpenings(ids, patch, view);
     return true;
   };
   const length = (apply: (m: number) => OpeningPatch, opts: { empty?: OpeningPatch } = {}) => lengthCommit(unit, write, apply, opts);
@@ -317,7 +333,7 @@ function OpeningFieldsView({ ids, openings, unit, records }: { ids: readonly str
             label={t('selection.hinge')}
             value={hinge ?? ''}
             onChange={(event) => {
-              if (event.target.value !== '') void changeOpenings(ids, { hinge: event.target.value as Hinge });
+              if (event.target.value !== '') void changeOpenings(ids, { hinge: event.target.value as Hinge }, view);
             }}
           >
             {hinge === null && <option value="">{t('plan.field.mixed')}</option>}
@@ -328,7 +344,7 @@ function OpeningFieldsView({ ids, openings, unit, records }: { ids: readonly str
             label={t('selection.swing')}
             value={swing ?? ''}
             onChange={(event) => {
-              if (event.target.value !== '') void changeOpenings(ids, { swing: event.target.value as Swing });
+              if (event.target.value !== '') void changeOpenings(ids, { swing: event.target.value as Swing }, view);
             }}
           >
             {swing === null && <option value="">{t('plan.field.mixed')}</option>}

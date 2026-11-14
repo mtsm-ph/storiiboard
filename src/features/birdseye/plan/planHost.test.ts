@@ -3,7 +3,8 @@ import { planUnitFor } from '../../../app/planUnits';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale, t } from '../../../core/i18n';
 import { openingFields, planItemFields, sceneRoomId, shownItems, startRoomChanges, trashPlanChanges, wallBetween, wallEnds, wallProps, wallsAlong } from '../../../core/model/plan';
-import { separateCopyChanges } from '../../../core/model/planRooms';
+import { openingFrame } from '../../../core/model/openings';
+import { copySetupChanges, itemLevel, separateCopyChanges, setupOnlyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { log, loadRecords, purgeIds, trashedRoots } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
@@ -30,6 +31,7 @@ import {
   planItemsBuilder,
   planNudgeChanges,
   planPasteChanges,
+  pasteTarget,
   reorderPlanChanges,
   shownItemsKeeper,
   shownWalls,
@@ -591,6 +593,169 @@ describe('a handle pressed or dragged (6.2a review)', () => {
     await store.getState().apply(planGeometryChanges(records(), [{ ...box, x: box.x - 250, width: box.width + 500 }]));
     expect(fieldsOf(wall)?.width).toBe(10);
     expect(Math.abs((fieldsOf(wall)?.rotation ?? 0) - exact)).toBeLessThan(1e-6);
+  });
+});
+
+// The 6.2b review: every check on a wall's doors and windows sees what the view shows; a wall resized from its start
+// keeps them where they are; a scene's own doors on a separate copy; copies, pastes and drags keep each item's level.
+
+describe('what a view shows, and walls resized from their start (6.2b review)', () => {
+  /** SC 04 (the L and its door, two setups) and SC 07 in one room. */
+  async function shared() {
+    const made = await withDoor();
+    const other = crypto.randomUUID();
+    const u1 = crypto.randomUUID();
+    const u2 = crypto.randomUUID();
+    await store.getState().apply([
+      { kind: 'create', record: { id: other, type: 'scene', parentId: project.projectId, sortKey: 'b', props: { number: '7', room_id: made.roomId } } },
+      { kind: 'create', record: { id: u1, type: 'setup', parentId: made.sceneId, sortKey: 'a', props: { name: '' } } },
+      { kind: 'create', record: { id: u2, type: 'setup', parentId: made.sceneId, sortKey: 'b', props: { name: '' } } },
+    ]);
+    return { ...made, other, u1, u2, first: made.walls[0] ?? '', second: made.walls[1] ?? '' };
+  }
+  const centreOf = (id: string) => {
+    const o = openingOf(id);
+    const wall = o ? fieldsOf(o.wallId) : null;
+    if (!o || !wall) throw new Error('no opening');
+    return openingFrame(wall, o).centre;
+  };
+
+  it('re-points a setup’s own door on a separate copy, in one group that one undo takes back', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const before = await groups();
+    await store.getState().apply(separateCopyChanges(records(), project.projectId, s.sceneId));
+    expect(await groups()).toBe(before + 1);
+    const copy = sceneRoomId(records(), records()[s.sceneId]);
+    const door = shownItems(records(), s.sceneId, s.u1).find((i) => i.record.id === s.door);
+    expect(records()[openingOf(s.door)?.wallId ?? '']?.parentId).toBe(copy);
+    expect(door?.level).toBe('setup');
+    expect(shownItems(records(), s.other, null).map((i) => i.record.id)).toEqual(s.walls);
+    await store.getState().undo();
+    expect(sceneRoomId(records(), records()[s.sceneId])).toBe(s.roomId);
+    expect(openingOf(s.door)?.wallId).toBe(s.first);
+    expect(Object.values(records()).filter((r) => r.type === 'plan' && r.trashedAt === null && r.props.kind === 'room')).toHaveLength(1);
+  });
+
+  it('checks a copied setup’s door against its own view only: a nudge and a new width go through, one copy one undo', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const before = await groups();
+    await store.getState().apply(copySetupChanges(records(), s.u1, s.u2));
+    expect(await groups()).toBe(before + 1);
+    const twin = shownItems(records(), s.sceneId, s.u2).find((i) => i.level === 'setup')?.record.id ?? '';
+    expect(openingOf(twin)).toMatchObject({ wallId: s.first, along: 1 });
+    const view = { sceneId: s.sceneId, setupId: s.u2 };
+    // Counting every plan's doors, the twin would jump past the original it exactly overlaps, and a width be refused.
+    expect(planNudgeChanges(records(), [twin], 10, 0, view)).toEqual([{ kind: 'update', id: twin, set: { along_m: 1.1 } }]);
+    expect(openingPatchChanges(records(), [twin], { width: 1 }, view)).not.toBeNull();
+    expect(openingPatchChanges(records(), [twin], { width: 1 })).toBeNull();
+    await store.getState().undo();
+    expect(records()[twin]).toBeUndefined();
+  });
+
+  it('puts a door where the Door tool previews it, and lets a wall be shortened past a door only another scene shows', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const seven = { sceneId: s.other, setupId: null };
+    const spot = openingSpot(shownItems(records(), s.other, null), { x: 100, y: 0 }, 'window', 0.5);
+    expect(spot?.along).toBe(1);
+    if (!spot) throw new Error('no spot');
+    expect(placeOpeningChanges(records(), spot, 'window', 'w', seven)).toHaveLength(1);
+    expect(placeOpeningChanges(records(), spot, 'window', 'w')).toEqual([]);
+    // SC 07 shows no door: its wall can be 1 m; SC 04's setup still has its door, read inside the wall, never rewritten.
+    expect(wallsTakeLength(records(), [s.first], 1, seven)).toBe(true);
+    expect(wallsTakeLength(records(), [s.first], 1, { sceneId: s.sceneId, setupId: s.u1 })).toBe(false);
+    await store.getState().apply(wallPatchChanges(records(), [s.first], { length: 1 }, seven));
+    expect(fieldsOf(s.first)?.width).toBe(1);
+    expect(openingOf(s.door)?.along).toBe(1);
+    const read = shownItems(records(), s.sceneId, s.u1).find((i) => i.record.id === s.door)?.fields;
+    expect(read).toMatchObject({ along: 0.55, width: 0.9 });
+  });
+
+  it('keeps each door’s place in the room when the wall is resized from its start, and stops at the nearest one', async () => {
+    const { sceneId, walls, door } = await withDoor();
+    const first = walls[0] ?? '';
+    const view = { sceneId, setupId: null };
+    const was = centreOf(door);
+    const before = await groups();
+    // The start handle dragged 50 cm in: the end stays, the door with it.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, x: 50, y: -5, width: 300, height: 10, rotation: 0 }], undefined, view));
+    expect(await groups()).toBe(before + 1);
+    expect(openingOf(door)?.along).toBe(0.5);
+    expect(centreOf(door).x).toBeCloseTo(was.x, 4);
+    // Pulled on to 2 m: it stops at the door's edge, from the start side.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, x: 200, y: -5, width: 150, height: 10, rotation: 0 }], undefined, view));
+    const [start] = wallEnds(fieldsOf(first) as never);
+    expect(start.x).toBeCloseTo(0.55, 4);
+    expect(fieldsOf(first)?.width).toBeCloseTo(2.95, 4);
+    expect(openingOf(door)?.along).toBeCloseTo(0.45, 4);
+    expect(centreOf(door).x).toBeCloseTo(was.x, 4);
+    // Undone, the wall and the door are as they were.
+    await store.getState().undo();
+    await store.getState().undo();
+    expect(openingOf(door)?.along).toBe(1);
+  });
+
+  it('never stretches a wall its doors already overrun when it is only moved', async () => {
+    const { walls } = await withDoor();
+    const first = walls[0] ?? '';
+    // As a History put-back or an import may leave it: 1 m long with a door needing 1.45 m.
+    await store.getState().apply([{ kind: 'update', id: first, set: { width: 1 } }]);
+    const f = fieldsOf(first);
+    if (!f) throw new Error('no wall');
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, x: toCanvas(f.x) + 100, y: toCanvas(f.y), width: 100, height: 10, rotation: 0 }]));
+    expect(fieldsOf(first)).toMatchObject({ width: 1, x: f.x + 1 });
+  });
+
+  it('refuses a typed place or width that would make the selected doors overlap each other', async () => {
+    const { walls, door } = await withDoor();
+    const other = crypto.randomUUID();
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: walls[0] ?? '', wall: fieldsOf(walls[0] ?? '') as never, along: 2.5 }, 'door', other));
+    expect(openingPatchChanges(records(), [door, other], { fromStart: 0.5 })).toBeNull();
+    expect(openingPatchChanges(records(), [door, other], { width: 1.6 })).toBeNull();
+    expect(openingPatchChanges(records(), [door, other], { width: 1.2 })).toHaveLength(2);
+  });
+
+  it('pastes a setup’s own wall into that setup, copies only the doors the view shows, and keeps a setup’s door its own when dragged', async () => {
+    const s = await shared();
+    const u1View = { sceneId: s.sceneId, setupId: s.u1 };
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.second], true));
+    const setupPlan = records()[s.second]?.parentId;
+    const pasted = planPasteChanges(records(), pasteTarget(records(), u1View), planClipOf(records(), [s.second], u1View), null);
+    expect(pasted.changes.map((c) => (c.kind === 'create' ? c.record.parentId : ''))).toEqual([setupPlan]);
+    // The room's door, made SC 04 Setup 1's own: SC 07's copy of the wall leaves it out.
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    expect(planClipOf(records(), [s.first], { sceneId: s.other, setupId: null }).map((c) => c.id)).toEqual([s.first]);
+    expect(planClipOf(records(), [s.first], u1View).map((c) => c.id)).toEqual([s.first, s.door]);
+    // Dragged onto the setup's own wall, the setup's door is moved along and onto it, nothing more (it is in the
+    // setup's plan already); a room door dragged onto that wall goes into the setup's plan with it.
+    const box = planCanvasItems(records(), s.sceneId, s.u1, 'metres', '#16150F').find((i) => i.id === s.door);
+    if (!box) throw new Error('no door');
+    const shown = shownItems(records(), s.sceneId, s.u1);
+    const onto = planGeometryChanges(records(), [{ id: s.door, x: box.x + 250, y: box.y + 200, width: box.width, height: box.height, rotation: box.rotation }], shownWalls(shown), u1View);
+    expect(onto).toEqual([{ kind: 'update', id: s.door, set: { along_m: 2, wall_id: s.second } }]);
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], false));
+    expect(records()[s.door]?.parentId).toBe(s.roomId);
+    const roomDoor = planCanvasItems(records(), s.sceneId, s.u1, 'metres', '#16150F').find((i) => i.id === s.door);
+    if (!roomDoor) throw new Error('no door');
+    const into = planGeometryChanges(records(), [{ id: s.door, x: roomDoor.x + 250, y: roomDoor.y + 200, width: roomDoor.width, height: roomDoor.height, rotation: roomDoor.rotation }], shownWalls(shown), u1View);
+    expect(into.map((c) => c.kind)).toEqual(['update', 'move']);
+    expect(into[1]).toMatchObject({ kind: 'move', parentId: setupPlan });
+  });
+
+  it('keeps a setup’s own door in the setup when it is dragged onto a room wall', async () => {
+    const s = await shared();
+    const u1View = { sceneId: s.sceneId, setupId: s.u1 };
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const box = planCanvasItems(records(), s.sceneId, s.u1, 'metres', '#16150F').find((i) => i.id === s.door);
+    if (!box) throw new Error('no door');
+    const shown = shownItems(records(), s.sceneId, s.u1);
+    const onto = planGeometryChanges(records(), [{ id: s.door, x: box.x + 250, y: box.y + 200, width: box.width, height: box.height, rotation: box.rotation }], shownWalls(shown), u1View);
+    expect(onto).toEqual([{ kind: 'update', id: s.door, set: { along_m: 2, wall_id: s.second } }]);
+    await store.getState().apply(onto);
+    expect(itemLevel(records(), s.sceneId, s.u1, s.door)).toBe('setup');
+    expect(shownItems(records(), s.sceneId, s.u2).some((i) => i.record.id === s.door)).toBe(false);
   });
 });
 

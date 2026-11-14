@@ -354,14 +354,21 @@ unreadable value reads as not set, as every prop does.
   6.2b: a room is shared. "New room" makes one as above (whether or not the scene had a room); "Use a room already
   drawn" sets the scene's `room_id` to a live room, in one step, leaving the room it had as it was. "Make a separate
   copy" (only for a room another live scene uses) writes, in one step, a new room with every prop of the old one but
-  `name` ("<name> (SC 04)"), a copy of every live item in it (new ids, every prop kept; a door's or window's `wall_id`
-  points to the copied wall), and the scene's `room_id` set to the copy. "Delete room" (only for a room no other live
-  scene uses) trashes the room and its live items in one step; the scene keeps its `room_id`, which reads as no room.
+  `name` ("<name> (SC 04)", never in the screen's language: an earlier copy's " (SC 02)" is replaced, not added to,
+  and an unnamed room's copy stays unnamed), a copy of every live item in it (new ids, every prop kept, `copied_from`
+  added; a door's or window's `wall_id` points to the copied wall), and the scene's `room_id` set to the copy; the doors
+  and windows the scene had put in the room's walls at its own level (its blocking, a setup's only) get the copied
+  walls' ids as their `wall_id` in the same step. "Delete room" (only for a room no other live scene uses) trashes the
+  room and its live items in one step; the scene keeps its `room_id`, which reads as no room. A room no live scene uses
+  can be deleted from the chooser the same way. "Use another room…", "New room" for a scene that had one, and "Delete
+  room" also trash, in the same step, the doors and windows the scene had put in its old room's walls at its own level
+  (no view would show them, yet they would still hold those walls in every other scene); undo brings them back.
   "Start from another setup" copies a setup's live items into another setup's plan (made then, if it has none) in one
-  step, only while that setup has no items of its own; nothing links the two afterwards. "This setup only" moves
-  (a `move` op) an item from the room or the scene's blocking into the setup's plan (made then, if needed), and back
-  to the level its kind belongs to (the room for walls, doors, windows and set pieces; the blocking, made then if
-  needed, for marks and paths); a wall takes the doors and windows that sit in the same plan as it.
+  step, `copied_from` added to each, only while that setup has no items of its own; nothing links the two afterwards.
+  "This setup only" moves (a `move` op) an item from the room or the scene's blocking into the setup's plan (made then,
+  if needed), and back to the level its kind belongs to (the scene's room as it is then, for walls, doors, windows and
+  set pieces; the blocking, made then if needed, for marks and paths); a wall takes the doors and windows that sit in
+  the same plan as it. A door or window in a wall that is the setup's only stays with that wall.
 - `plan_item`: an item's level is the plan it sits in.
   - Geometry reuses `board_item`'s names (see Boards), in metres instead of world units: `x` and `y` (the top left
     corner before rotation), `width` and `height`, `rotation` (degrees clockwise round the centre, 0 up to 360); z order
@@ -382,9 +389,16 @@ unreadable value reads as not set, as every prop does.
     `start`); `swing` (6.2b): `left` or `right`, the side of the wall it opens to, seen going from the wall's start to
     its end (anything else reads as `left`). Written with `hinge: "start"` and `swing: "left"`; a window has neither.
     `height_m` and `name` as a wall's. An opening is kept inside its wall (half its width from each end) and clear of
-    the wall's other openings; a wall is never made shorter than its openings need (the largest `along_m` plus half
-    `width_m`). It sits in its wall's plan when put in; trashing a wall trashes its openings in the same step, and
-    restoring the wall brings those back.
+    the wall's other openings that share a view with it (those in the wall's plan and in the plans the view shows); a
+    wall is never made shorter, in a view, than the openings that view shows need (the largest `along_m` plus half
+    `width_m`). An opening that only another scene's view shows may so end up past its wall's end: it is read inside
+    the wall (no wider than it, half its width from each end), never rewritten and never dropped. A wall resized from
+    its start keeps its openings where they are in the room: each one's `along_m` changes by as much as the start moved,
+    in the same step. It sits in its wall's plan when put in; dragged onto another wall, a setup's own opening stays in
+    that setup's plan, and one at the room's level dragged onto a wall that is one setup's only moves into that setup's
+    plan with it. Trashing a wall trashes its openings in the same step, and restoring the wall brings those back.
+  - `copied_from` (6.2b review): the item this one was copied from when a setup or a room was copied; never read except
+    by History. A paste never writes it.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `set_piece`, `icon`, `camera`, `light`, `flag`, `diffusion`,
     `mark`, `path`, `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and
     not shown.

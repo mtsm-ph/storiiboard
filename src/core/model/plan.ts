@@ -246,8 +246,23 @@ export function shownItems(records: Records, sceneId: string, setupId: string | 
       return fields ? [{ record, fields, level }] : [];
     });
   });
-  const walls = new Set(all.filter((item) => item.fields.kind === 'wall').map((item) => item.record.id));
-  return all.filter((item) => !isOpening(item.fields) || walls.has(item.fields.wallId));
+  const walls = new Map(all.flatMap((item) => (item.fields.kind === 'wall' ? [[item.record.id, item.fields.width] as const] : [])));
+  return all.flatMap((item): ShownItem[] => {
+    if (!isOpening(item.fields)) return [item];
+    const length = walls.get(item.fields.wallId);
+    return length === undefined ? [] : [{ ...item, fields: keptInWall(item.fields, length) }];
+  });
+}
+
+/**
+ * An opening as it reads in a wall of this length (6.2b review): inside it, half its width from each end, no wider than
+ * the wall. A wall may be shortened past an opening that only another scene's view shows (each view checks only what it
+ * shows); that opening is read inside the wall, never rewritten and never dropped.
+ */
+export function keptInWall(o: OpeningFields, wallLength: number): OpeningFields {
+  const width = Math.min(o.width, wallLength);
+  const along = Math.min(Math.max(o.along, width / 2), wallLength - width / 2);
+  return width === o.width && along === o.along ? o : { ...o, width, along };
 }
 
 /** The live openings in a wall, wherever they sit. */
@@ -257,6 +272,29 @@ export function openingsOf(records: Records, wallId: string): { record: SbdRecor
     const fields = openingFields(record.props);
     return fields?.wallId === wallId ? [{ record, fields }] : [];
   });
+}
+
+/** A plan view: the scene, and the setup when one is picked. */
+export interface PlanViewOf {
+  sceneId: string;
+  setupId: string | null;
+}
+
+/**
+ * The openings that share a view with a wall (6.2b review): those in the wall's own plan and in the plans the view shows
+ * (the scene's room, its blocking, the setup's own), read inside the wall. Every check on a wall's openings (a door put
+ * in, nudged, dragged, typed; the wall's least length) sees these, exactly what the person sees, never a door that only
+ * another scene's setup shows. With no view, every plan's.
+ */
+export function openingsInView(records: Records, wallId: string, view?: PlanViewOf | null): { record: SbdRecord; fields: OpeningFields }[] {
+  const all = openingsOf(records, wallId);
+  const wall = records[wallId];
+  const length = wall?.type === 'plan_item' ? planItemFields(wall.props)?.width : undefined;
+  const inside = (list: typeof all) => (length === undefined ? list : list.map((o) => ({ record: o.record, fields: keptInWall(o.fields, length) })));
+  if (!view) return inside(all);
+  const plans = plansShown(records, view.sceneId, view.setupId);
+  const ids = new Set([wall?.parentId, plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  return inside(all.filter((o) => o.record.parentId !== null && ids.has(o.record.parentId)));
 }
 
 /** The openings that went to the Trash with their wall, in the same group (6.2b): they come back with it. */

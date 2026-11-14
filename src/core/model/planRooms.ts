@@ -1,7 +1,10 @@
 import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
 import {
+  blockingPlanOf,
   lastKeyUnder,
+  newRoomChanges,
+  openingFields,
   planFields,
   plansShown,
   roomTitle,
@@ -14,7 +17,7 @@ import {
 } from './plan';
 import type { Props, SbdRecord } from './record';
 import { sceneSetups, type Setup } from './setup';
-import { sceneFields, sceneLabel } from './storyboard';
+import { sceneFields, sceneLabel, sceneNumberLabel } from './storyboard';
 
 // Rooms shared and copied, and a setup's state copied (6.2b, docs/PHASE6_DECISIONS.md 2). A room is drawn once and
 // scenes point to it, so a moved wall moves in every scene set there; a scene takes its own copy only when asked. A
@@ -72,7 +75,12 @@ export function setRoomChanges(records: Records, sceneId: string, roomId: string
   const room = records[roomId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null || room?.type !== 'plan' || room.trashedAt !== null || planFields(room.props)?.kind !== 'room') return [];
   if (sceneRoomId(records, scene) === roomId) return [];
-  return [{ kind: 'update', id: sceneId, set: { room_id: roomId } }];
+  return leaveRoomFor(records, sceneId, [{ kind: 'update', id: sceneId, set: { room_id: roomId } }]);
+}
+
+/** "New room" from the chooser (6.2b): a new room for the scene, leaving the one it had as it is but for its own openings in it. */
+export function replaceRoomChanges(records: Records, projectId: string, sceneId: string, id: string = crypto.randomUUID()): Change[] {
+  return leaveRoomFor(records, sceneId, newRoomChanges(records, projectId, sceneId, id));
 }
 
 /** The other live scenes set in this scene's room, by their slate labels in order ("SC 02", "SC 07"). */
@@ -87,45 +95,125 @@ export function alsoInRoom(records: Records, sceneId: string): string[] {
 }
 
 /**
- * A plan's live items copied into another, after its last, each a new record with every prop it had; a door or window
- * whose wall is copied too points to the copy, one whose wall isn't keeps its wall. Pure but for the new ids.
+ * A plan's live items copied into another, after its last, each a new record with every prop it had and `copied_from`
+ * (the item it was copied from: History tells a copy from items put in by hand by it); a door or window whose wall is
+ * copied too points to the copy, one whose wall isn't keeps its wall. Pure but for the new ids, which come back too.
  */
-export function copyItemsChanges(records: Records, fromPlanId: string, toPlanId: string, after: string | null = lastKeyUnder(records, toPlanId, 'plan_item')): Change[] {
+function copyItems(records: Records, fromPlanId: string, toPlanId: string, after: string | null): { changes: Change[]; ids: Map<string, string> } {
   const items = liveItemsOf(records, fromPlanId);
   const ids = new Map(items.map((r) => [r.id, crypto.randomUUID()]));
   let previous = after;
-  return items.map((r): Change => {
+  const changes = items.map((r): Change => {
     const sortKey = keyBetween(previous, null);
     previous = sortKey;
-    const props: Props = { ...r.props };
+    const props: Props = { ...r.props, copied_from: r.id };
     const wall = typeof props.wall_id === 'string' ? ids.get(props.wall_id) : undefined;
     if (wall) props.wall_id = wall;
     return { kind: 'create', record: { id: ids.get(r.id) ?? crypto.randomUUID(), type: 'plan_item', parentId: toPlanId, sortKey, props } };
   });
+  return { changes, ids };
+}
+
+/** A plan's live items copied into another, after its last (see copyItems). */
+export function copyItemsChanges(records: Records, fromPlanId: string, toPlanId: string, after: string | null = lastKeyUnder(records, toPlanId, 'plan_item')): Change[] {
+  return copyItems(records, fromPlanId, toPlanId, after).changes;
+}
+
+/** The plans only this scene's views show besides its room: its blocking, and each live setup's own. */
+function scenesOwnPlans(records: Records, sceneId: string): Set<string> {
+  const ids = new Set<string>();
+  const blocking = blockingPlanOf(records, sceneId);
+  if (blocking) ids.add(blocking.id);
+  for (const setup of sceneSetups(records, sceneId)) {
+    const plan = setupPlanOf(records, setup.record.id);
+    if (plan) ids.add(plan.id);
+  }
+  return ids;
+}
+
+/**
+ * The doors and windows this scene put in its room's walls at its own level (its blocking, a setup's only): they show
+ * only while the scene is in that room. Live ones, in walls that sit in the room.
+ */
+export function scenesOpeningsIn(records: Records, sceneId: string, roomId: string): SbdRecord[] {
+  const own = scenesOwnPlans(records, sceneId);
+  return Object.values(records).filter((r) => {
+    if (r.type !== 'plan_item' || r.trashedAt !== null || r.parentId === null || !own.has(r.parentId)) return false;
+    const fields = openingFields(r.props);
+    return fields !== null && records[fields.wallId]?.parentId === roomId;
+  });
+}
+
+/**
+ * A scene leaving its room ("Use another room…", "New room", "Delete room"; 6.2b review): the doors and windows it put
+ * in that room's walls at its own level go to the Trash in the same group, since no view would show them any more and
+ * they would still hold those walls in every other scene. Undo brings them back with the room.
+ */
+function leavingRoomChanges(records: Records, sceneId: string): Change[] {
+  const roomId = sceneRoomId(records, records[sceneId]);
+  if (roomId === null) return [];
+  return scenesOpeningsIn(records, sceneId, roomId).map((r): Change => ({ kind: 'trash', id: r.id }));
+}
+
+/** The scene set in a room already drawn, or a new one; leaving its room as it is but for its own openings in it. */
+export function leaveRoomFor(records: Records, sceneId: string, changes: readonly Change[]): Change[] {
+  return changes.length === 0 ? [] : [...leavingRoomChanges(records, sceneId), ...changes];
+}
+
+/**
+ * What a copy of a room is called (6.2b review), never in the screen's language: an unnamed room's copy stays unnamed
+ * (the screen names it), a named one's is "<name> (SC 04)", an earlier copy's " (SC 02)" replaced, never stacked.
+ */
+export function copyName(name: string, sceneNumber: string): string {
+  const trimmed = name.trim();
+  if (trimmed === '') return '';
+  // "SC" as the slate reads in English whatever the screen shows; an older copy's Spanish "ESC" is replaced too.
+  return `${trimmed.replace(/\s+\((?:SC|ESC) [^()]+\)$/, '')} (SC ${sceneNumberLabel(sceneNumber)})`;
 }
 
 /**
  * "Make a separate copy" (6.2b): only for a room another live scene uses too. The room and every live item in it
  * copied, its openings pointing to the copied walls, the copy named "<name> (SC 04)", and this scene pointed at it,
- * all in one group; the other scenes keep the room as it was.
+ * all in one group; the other scenes keep the room as it was. The doors and windows this scene put in the room's walls
+ * at its own level (its blocking, a setup's only) are pointed at the copied walls in the same group, so they stay in
+ * this scene's views and stop holding the shared room's walls.
  */
 export function separateCopyChanges(records: Records, projectId: string, sceneId: string, id: string = crypto.randomUUID()): Change[] {
   const scene = records[sceneId];
   const room = sceneRoom(records, sceneId);
   if (scene?.type !== 'scene' || !room || alsoInRoom(records, sceneId).length === 0) return [];
-  const name = `${roomTitle(planFields(room.props))} (${sceneLabel(sceneFields(scene.props).number)})`;
+  const props: Props = { ...room.props };
+  const name = copyName(typeof room.props.name === 'string' ? room.props.name : '', sceneFields(scene.props).number);
+  if (name === '') delete props.name;
+  else props.name = name;
+  const copied = copyItems(records, room.id, id, null);
+  const repointed = scenesOpeningsIn(records, sceneId, room.id).flatMap((r): Change[] => {
+    const wall = copied.ids.get(openingFields(r.props)?.wallId ?? '');
+    return wall ? [{ kind: 'update', id: r.id, set: { wall_id: wall } }] : [];
+  });
   return [
-    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyBetween(lastKeyUnder(records, projectId, 'plan'), null), props: { ...room.props, name } } },
-    ...copyItemsChanges(records, room.id, id, null),
+    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyBetween(lastKeyUnder(records, projectId, 'plan'), null), props } },
+    ...copied.changes,
+    ...repointed,
     { kind: 'update', id: sceneId, set: { room_id: id } },
   ];
 }
 
-/** "Delete room": only when no other live scene uses it. The room and its items to the Trash; the scene then has none. */
+/**
+ * "Delete room": only when no other live scene uses it. The room and its items to the Trash, with the doors and windows
+ * this scene put in its walls at its own level; the scene then has none.
+ */
 export function deleteRoomChanges(records: Records, sceneId: string): Change[] {
   const room = sceneRoom(records, sceneId);
   if (!room || alsoInRoom(records, sceneId).length > 0) return [];
-  return trashPlanChanges(records, room.id);
+  return [...trashPlanChanges(records, room.id), ...leavingRoomChanges(records, sceneId)];
+}
+
+/** A room no live scene uses, deleted from the chooser (6.2b review): it and its items to the Trash, one group. */
+export function deleteUnusedRoomChanges(records: Records, roomId: string): Change[] {
+  const room = records[roomId];
+  if (room?.type !== 'plan' || planFields(room.props)?.kind !== 'room' || scenesUsingRoom(records, roomId).length > 0) return [];
+  return trashPlanChanges(records, roomId);
 }
 
 /** Whether a setup has items of its own (any kind, so a later version's are counted too). */
@@ -187,6 +275,8 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
       const r = records[id];
       const level = r?.type === 'plan_item' && r.trashedAt === null ? levelOf(r.parentId) : null;
       if (!r || level === null || (on ? level === 'setup' : level !== 'setup')) return [];
+      // A door or window in a wall that is this setup's only stays with its wall (it would show nowhere else).
+      if (!on && openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? '')) return [];
       return [{ record: r, level }];
     })
     .sort((a, b) => order.indexOf(a.level) - order.indexOf(b.level) || bySortKey(a.record, b.record));
@@ -215,6 +305,30 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
     changes.push({ kind: 'move', id: record.id, parentId: planId, sortKey });
   }
   return changes.some((c) => c.kind === 'move') ? changes : [];
+}
+
+/** Whether a door or window sits in a wall that is in this setup's own plan. */
+function openingOnSetupWall(records: Records, setupPlanId: string | null, r: SbdRecord): boolean {
+  const fields = openingFields(r.props);
+  return setupPlanId !== null && fields !== null && records[fields.wallId]?.parentId === setupPlanId;
+}
+
+/** Why "This setup only" can't be turned off for these items in this view, or null when it can (6.2b review). */
+export function setupOnlyHeld(records: Records, sceneId: string, setupId: string, ids: readonly string[]): 'noRoom' | 'wallOnly' | null {
+  const plans = plansShown(records, sceneId, setupId);
+  const picked = new Set(ids);
+  const items = ids.flatMap((id) => (records[id] ? [records[id]] : []));
+  if (!items.every((r) => r.parentId !== null && r.parentId === plans.setup?.id)) return null;
+  if (items.some((r) => openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? ''))) return 'wallOnly';
+  if (plans.room === null && items.some((r) => kindHome(r.props.kind) === 'room')) return 'noRoom';
+  return null;
+}
+
+/** The other live scenes that stop showing these items when they are made this setup's only: those sharing the room. */
+export function scenesLosing(records: Records, sceneId: string, setupId: string, ids: readonly string[]): string[] {
+  const plans = plansShown(records, sceneId, setupId);
+  if (!plans.room || !ids.some((id) => records[id]?.parentId === plans.room?.id)) return [];
+  return alsoInRoom(records, sceneId);
 }
 
 /** The level an item sits at in a view, or null when the view doesn't show its plan. */

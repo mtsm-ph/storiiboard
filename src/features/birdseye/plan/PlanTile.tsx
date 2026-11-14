@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
-import { t, tn } from '../../../core/i18n';
+import { pluralKey, t, tn } from '../../../core/i18n';
 import { isOpening, OPENING_WIDTH, planFields, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
@@ -25,6 +26,7 @@ import {
   cutPlanSelection,
   deletePlanSelection,
   deleteRoom,
+  deleteUnusedRoom,
   drawWalls,
   duplicatePlanSelection,
   flipDoors,
@@ -62,20 +64,55 @@ export function useLiveView(records: Records): { view: PlanView; scene: SbdRecor
   return { view: { sceneId, setupId: setup ? setup.record.id : null }, scene, setup: setup?.record ?? null, number: setup?.number ?? null };
 }
 
+// What takes the focus once the element it was on goes away (6.2b review): the chooser after Delete room, the canvas
+// after a room is chosen or started from the chooser that stood in its place. Kept a moment only, so a step that
+// wrote nothing never moves the focus later.
+let focusNext: { what: 'chooser' | 'canvas'; until: number } | null = null;
+const focusSoon = (what: 'chooser' | 'canvas') => {
+  focusNext = { what, until: Date.now() + 2000 };
+};
+const takeFocus = (what: 'chooser' | 'canvas'): boolean => {
+  const due = focusNext !== null && focusNext.what === what && Date.now() <= focusNext.until;
+  if (due) focusNext = null;
+  return due;
+};
+
+/** "Also in SC 02, SC 07 and 9 more" (6.2b review): one line, the scene numbers in mono, every one of them in its title. */
+export function AlsoIn({ scenes }: { scenes: readonly string[] }) {
+  if (scenes.length === 0) return null;
+  const listed = scenes.length > 3 ? scenes.slice(0, 2) : scenes;
+  const more = scenes.length - listed.length;
+  const names = <span className="font-mono">{listed.join(', ')}</span>;
+  return (
+    <p className="max-w-full min-w-0 truncate text-[12px] text-text-muted" data-room-shared={scenes.join(' ')} title={t('plan.alsoIn', { scenes: scenes.join(', ') })}>
+      {more > 0 ? <Trans k={pluralKey('plan.alsoInMore', more)} parts={{ scenes: names, count: <span className="font-mono">{more}</span> }} /> : <Trans k="plan.alsoIn" parts={{ scenes: names }} />}
+    </p>
+  );
+}
+
 /**
  * Starting a scene's room (6.2b): "New room", or one of the rooms already drawn, those at the scene's location first,
- * each with its location and how many scenes use it. Choosing one is one edit.
+ * each with its location and how many scenes use it. Choosing one is one edit. A room no scene uses can be deleted here.
+ * In place of the canvas (no `onChosen`), the canvas takes the focus once a room is chosen or started.
  */
 function RoomChooser({ sceneId, onChosen }: { sceneId: string; onChosen?: () => void }) {
   const records = useProject((s) => s.records);
   const choices = roomChoices(records, sceneId);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (takeFocus('chooser')) root.current?.querySelector<HTMLElement>('button')?.focus();
+  }, []);
+  const chosen = () => {
+    if (!onChosen) focusSoon('canvas');
+  };
   return (
-    <div className="flex flex-col gap-3" data-room-chooser="">
+    <div className="flex flex-col gap-3" data-room-chooser="" ref={root}>
       <div>
         <Button
           variant="primary"
           data-new-room=""
           onClick={() => {
+            chosen();
             void newRoom(sceneId).then(() => onChosen?.());
           }}
         >
@@ -89,12 +126,14 @@ function RoomChooser({ sceneId, onChosen }: { sceneId: string; onChosen?: () => 
           </h3>
           <ul className="flex flex-col gap-1.5">
             {choices.map((choice) => (
-              <li key={choice.id}>
+              <li key={choice.id} className="flex gap-1.5">
                 <button
                   type="button"
                   data-room-choice={choice.id}
-                  className="flex w-full flex-col items-start border border-text px-2.5 py-1.5 text-left text-[13px] hover:underline"
+                  aria-label={[choice.name, choice.location, tn('selection.roomScenes', choice.scenes)].filter((part) => part !== '').join(' · ')}
+                  className="flex min-w-0 flex-1 flex-col items-start border border-text px-2.5 py-1.5 text-left text-[13px] hover:underline"
                   onClick={() => {
+                    chosen();
                     void chooseRoom(sceneId, choice.id).then(() => onChosen?.());
                   }}
                 >
@@ -111,6 +150,20 @@ function RoomChooser({ sceneId, onChosen }: { sceneId: string; onChosen?: () => 
                     {tn('selection.roomScenes', choice.scenes)}
                   </span>
                 </button>
+                {choice.scenes === 0 && (
+                  <Button
+                    variant="secondary"
+                    data-delete-room={choice.id}
+                    aria-label={t('plan.deleteUnusedRoomLabel', { name: choice.name })}
+                    onClick={() => {
+                      // The focus goes to the chooser's first button: this one goes with its row.
+                      root.current?.querySelector<HTMLElement>('button')?.focus();
+                      void deleteUnusedRoom(choice.id);
+                    }}
+                  >
+                    {t('plan.deleteUnusedRoom')}
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -130,7 +183,7 @@ export function PlanTile() {
   const room = sceneRoom(records, live.scene.id);
   const name = live.setup && typeof live.setup.props.name === 'string' ? live.setup.props.name.trim() : '';
   const header = (
-    <h2 data-plan-header="" className="min-w-0 truncate text-[13px] font-bold">
+    <h2 data-plan-header="" className="max-w-full min-w-0 truncate text-[13px] font-bold">
       <span className="font-mono">{scene}</span>
       {live.number !== null && (
         <>
@@ -171,43 +224,50 @@ function RoomMenu({ sceneId, room, shared }: { sceneId: string; room: SbdRecord;
     <>
       <Menu label={<span data-user-text="">{t('plan.roomMenu', { name })}</span>} buttonClassName={MENU_BUTTON}>
         {(close) => (
-          <MenuGroup>
-            <MenuItem
-              onClick={() => {
-                close();
-                setOpen('rename');
-              }}
-            >
-              {t('plan.renameRoom')}
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                close();
-                setOpen('choose');
-              }}
-            >
-              {t('plan.useAnotherRoom')}
-            </MenuItem>
-            {shared ? (
+          <>
+            <MenuGroup>
               <MenuItem
                 onClick={() => {
                   close();
-                  void separateCopy(sceneId);
+                  setOpen('rename');
                 }}
               >
-                {t('plan.separateCopy')}
+                {t('plan.renameRoom')}
               </MenuItem>
-            ) : (
               <MenuItem
                 onClick={() => {
                   close();
-                  void deleteRoom(sceneId);
+                  setOpen('choose');
                 }}
               >
-                {t('plan.deleteRoom')}
+                {t('plan.useAnotherRoom')}
               </MenuItem>
+              {shared && (
+                <MenuItem
+                  onClick={() => {
+                    close();
+                    void separateCopy(sceneId);
+                  }}
+                >
+                  {t('plan.separateCopy')}
+                </MenuItem>
+              )}
+            </MenuGroup>
+            {!shared && (
+              <MenuGroup>
+                <MenuItem
+                  onClick={() => {
+                    close();
+                    // The canvas and this menu go; the chooser that takes their place takes the focus.
+                    focusSoon('chooser');
+                    void deleteRoom(sceneId);
+                  }}
+                >
+                  {t('plan.deleteRoom')}
+                </MenuItem>
+              </MenuGroup>
             )}
-          </MenuGroup>
+          </>
         )}
       </Menu>
       {open === 'rename' && (
@@ -338,6 +398,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // An undo that removed an item takes it out of the selection.
   const selection = useMemo(() => (stored ?? []).filter((id) => built.some((item) => item.id === id)), [stored, built]);
   const also = alsoInRoom(records, view.sceneId);
+  const holder = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (takeFocus('canvas')) holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
+  }, []);
   // What the plan holds, in metres, as plain data for the end-to-end tests (the canvas is pixels).
   const data = useMemo(() => {
     const walls = new Map(shown.flatMap((item) => (isOpening(item.fields) ? [] : [[item.record.id, item.fields] as const])));
@@ -385,14 +449,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS}>
         {header}
         <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
-        {also.length > 0 && (
-          <p className="text-[12px] text-text-muted" data-room-shared={also.join(' ')}>
-            {t('plan.alsoIn', { scenes: also.join(', ') })}
-          </p>
-        )}
+        <AlsoIn scenes={also} />
         <SetupCopyOffer view={view} />
       </ToolStrip>
-      <div className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
+      <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
         <Canvas
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}
           items={items}
@@ -407,15 +467,24 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             planStore.getState().setViewport(key, next);
           }}
           onGeometry={(changes) => changePlanGeometry(changes, view)}
-          onNudge={(ids, dx, dy) => nudgePlan(ids, dx, dy)}
+          onNudge={(ids, dx, dy) => nudgePlan(ids, dx, dy, view)}
           onCreate={(geometry, used, by) => {
             const placing = openingKindOf(used);
             if (!placing) return undefined;
-            // From the keyboard, into the one wall selected; by the pointer, into the wall under it, or nowhere.
+            // From the keyboard, into the one wall selected; by the pointer, into the wall under it. Nowhere to go: the tool
+            // stays, and the notice says why (false keeps the canvas's tool).
             const walls = selection.filter((id) => shown.some((item) => item.record.id === id && item.fields.kind === 'wall'));
-            const at = by === 'key' ? (walls.length === 1 && walls[0] ? openingSpotInWall(shown, walls[0], placing) : null) : openingSpot(shown, { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 }, placing, toMetres(scale.grid.step));
+            if (by === 'key' && (walls.length !== 1 || !walls[0])) {
+              showInfo(t('plan.selectOneWall'));
+              return false;
+            }
+            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 }, placing, toMetres(scale.grid.step));
+            if (!at) {
+              showInfo(t(by === 'key' ? 'selection.openingRefused' : 'plan.pointAtWall'));
+              return false;
+            }
             setHover(null);
-            return at ? placeOpening(view, at, placing) : undefined;
+            return placeOpening(view, at, placing);
           }}
           onPath={(points, used) => (used === WALL_TOOL ? drawWalls(view, points, madeIn) : undefined)}
           onCommand={run}
