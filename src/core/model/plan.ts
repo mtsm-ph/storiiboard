@@ -21,11 +21,27 @@ export const PLAN_KINDS = ['room', 'blocking', 'setup'] as const;
 export type PlanKind = (typeof PLAN_KINDS)[number];
 export type PlanLevel = PlanKind;
 
-/** Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls only and keeps the rest unseen. */
-export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'set_piece', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
+/**
+ * Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls, doors, windows and icons and keeps the
+ * rest unseen. A set piece is an `icon` whose icon is in the set-art group (6.3), never a kind of its own.
+ */
+export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws: walls (6.2a), and the doors and windows in them (6.2b). */
-export type ShownKind = 'wall' | OpeningKind;
+/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), and the library's icons (6.3). */
+export type ShownKind = 'wall' | OpeningKind | 'icon';
+
+/**
+ * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
+ * group, the first part of its id ("set-art/sofa"): worked out, never stored.
+ */
+export const PLAN_LAYERS = ['camera', 'lighting', 'grip', 'set-art', 'cast', 'sound', 'production'] as const;
+export type PlanLayer = (typeof PLAN_LAYERS)[number];
+
+/** An icon id's group ("set-art" for "set-art/sofa"), or null for an id outside every group. */
+export function iconGroup(icon: string): PlanLayer | null {
+  const group = icon.split('/')[0] ?? '';
+  return PLAN_LAYERS.find((layer) => layer === group) ?? null;
+}
 const SHOWN_KINDS: readonly string[] = ['wall'];
 export const OPENING_KINDS = ['door', 'window'] as const;
 export type OpeningKind = (typeof OPENING_KINDS)[number];
@@ -155,13 +171,65 @@ export function openingFields(props: Props): OpeningFields | null {
   };
 }
 
-/** Any item this version shows: a wall, a door or a window. */
-export type ShownFields = PlanItemFields | OpeningFields;
+/**
+ * A library icon on a plan (6.3): the kit's icon id (`set-art/sofa`), and a box in metres as a wall's, `width` across
+ * and `height` its depth, turned round its middle. Its real height (`height_m`) is kept, not drawn (decision 11). An id
+ * this version doesn't know is still an icon: drawn as a plain outline, its record untouched.
+ */
+export interface IconFields {
+  kind: 'icon';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+}
+
+/** An icon's props, or null when it isn't one that can be read (no icon id, no place or size). */
+export function iconFields(props: Props): IconFields | null {
+  if (props.kind !== 'icon') return null;
+  const icon = text(props.icon).trim();
+  const x = num(props.x);
+  const y = num(props.y);
+  const width = num(props.width);
+  const height = num(props.height);
+  if (icon === '' || x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  const heightM = num(props.height_m);
+  return {
+    kind: 'icon',
+    icon,
+    x,
+    y,
+    width: Math.max(MIN_PLAN_SIZE, width),
+    height: Math.max(MIN_PLAN_SIZE, height),
+    rotation: normalDegrees(num(props.rotation) ?? 0),
+    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    name: text(props.name).trim(),
+  };
+}
+
+/** Any item this version shows: a wall, a door, a window or an icon. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
-export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props);
+export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props) ?? iconFields(props);
 
-export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind !== 'wall';
+export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
+export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
+export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
+
+/**
+ * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a wall, door or window
+ * the set's (art). Null for a kind this version doesn't show.
+ */
+export function planItemLayer(props: Props): PlanLayer | null {
+  if (props.kind === 'icon') return typeof props.icon === 'string' ? iconGroup(props.icon) : null;
+  if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
+  return null;
+}
 
 const livePlan = (records: Records, id: unknown, kind: PlanKind): SbdRecord | null => {
   if (typeof id !== 'string' || id === '') return null;

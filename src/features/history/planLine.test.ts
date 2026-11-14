@@ -186,3 +186,50 @@ describe('History for plans', () => {
     expect(say([op('create', null, room), op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r' } })])).toBe('Se empezó el espacio “Diner” para ESC 04');
   });
 });
+
+// 6.3: library icons, named as what they are.
+describe('History for library icons (6.3)', () => {
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const icon = (id: string, name: string, props: Props = {}, parentId = 'r') => record(id, 'plan_item', parentId, { kind: 'icon', icon: name, x: 0, y: 0, width: 2, height: 0.9, rotation: 0, ...props });
+  const around = new Map([['sc4', scene], ['r', room], ['own', own]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+
+  it('says an icon was placed, moved, turned, resized, named, deleted and restored, naming it', () => {
+    const sofa = icon('s', 'set-art/sofa');
+    expect(tell([op('create', null, sofa)])).toBe('Placed a sofa in Diner');
+    expect(tell([op('create', null, icon('c', 'grip/c-stand', {}, 'own'))])).toBe('Placed a C-stand');
+    expect(tell([op('update', sofa, icon('s', 'set-art/sofa', { x: 1, y: 2 }))])).toBe('Moved a sofa');
+    expect(tell([op('update', sofa, icon('s', 'set-art/sofa', { rotation: 90 }))])).toBe('Turned a sofa');
+    expect(tell([op('update', sofa, icon('s', 'set-art/sofa', { width: 2.2, x: -0.1 }))])).toBe('Resized a sofa');
+    expect(tell([op('update', sofa, icon('s', 'set-art/sofa', { name: 'Hero couch' }))])).toBe('Named a sofa “Hero couch”');
+    expect(tell([op('update', icon('s', 'set-art/sofa', { name: 'Hero couch' }), sofa)])).toBe('Took the name off a sofa');
+    expect(tell([op('update', sofa, icon('s', 'set-art/sofa', { height_m: 0.8 }))])).toBe('Changed a sofa');
+    expect(tell([op('trash', sofa, { ...sofa, trashedAt: at })])).toBe('Deleted a sofa');
+    expect(tell([op('restore', { ...sofa, trashedAt: at }, sofa)])).toBe('Restored a sofa');
+    // An icon this version doesn't know, by what it is in general.
+    expect(tell([op('create', null, icon('x', 'set-art/grand-piano'))])).toBe('Placed a plan item in Diner');
+  });
+
+  it('counts several, or icons with walls, as plan items', () => {
+    const placed = [op('create', null, icon('a', 'set-art/sofa')), op('create', null, icon('b', 'set-art/table'))];
+    expect(tell(placed)).toBe('Placed 2 plan items');
+    expect(tell([op('update', icon('a', 'set-art/sofa'), icon('a', 'set-art/sofa', { x: 1 })), op('update', wall('w'), wall('w', { x: 1 }))])).toBe('Moved 2 plan items');
+    expect(tell([op('trash', icon('a', 'set-art/sofa'), { ...icon('a', 'set-art/sofa'), trashedAt: at }), op('trash', wall('w'), { ...wall('w'), trashedAt: at })])).toBe('Deleted 2 plan items');
+    // A setup's copy still says it was copied (6.2b).
+    const copied = [op('create', null, icon('k', 'grip/c-stand', { copied_from: 'c' }, 'own'))];
+    expect(tell(copied)).toBe('Copied a plan item from another setup');
+  });
+
+  it('names an icon’s width and depth as the Selection tile does', () => {
+    const sofa = icon('s', 'set-art/sofa');
+    const changes = fieldChanges(sofa, icon('s', 'set-art/sofa', { width: 2.2, height: 1 }));
+    expect(changes.map((c) => changeLabel(c))).toEqual(['width', 'depth']);
+  });
+
+  it('says it in Spanish too', () => {
+    setLocale('es');
+    expect(tell([op('create', null, icon('s', 'set-art/sofa'))])).toBe('Se colocó un sofá en Diner');
+    expect(tell([op('update', icon('t', 'set-art/table'), icon('t', 'set-art/table', { rotation: 45 }))])).toBe('Se giró una mesa');
+    expect(tell([op('create', null, icon('a', 'set-art/sofa')), op('create', null, icon('b', 'set-art/table'))])).toBe('Se colocaron 2 elementos de planta');
+  });
+});

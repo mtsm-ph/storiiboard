@@ -4,6 +4,8 @@ import { getLocale, t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
 import {
+  iconFields,
+  isIcon,
   isOpening,
   keptInWall,
   lastKeyUnder,
@@ -24,6 +26,7 @@ import {
   wallProps,
   wallsAlong,
   type Hinge,
+  type IconFields,
   type OpeningFields,
   type OpeningKind,
   type PlanGeometry,
@@ -33,6 +36,7 @@ import {
   type ShownItem,
   type Swing,
 } from '../../../core/model/plan';
+import { iconHome } from '../../../core/model/planRooms';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import type { Change } from '../../../core/ops/ops';
 import { keyBetween } from '../../../core/ops/order';
@@ -40,6 +44,9 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
+import { IconShape, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
+import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
+import { iconLabel, planIconOf } from './iconWords';
 import { planScale, toCanvas, toMetres } from './planScale';
 import { wallOutline, type WallLine } from './wallShape';
 
@@ -71,6 +78,17 @@ function liveOpening(records: Records, id: string): { record: SbdRecord; fields:
   return fields && wall ? { record, fields: keptInWall(fields, wall.fields.width), wall } : null;
 }
 
+/** A live library icon (6.3), with its fields. */
+function liveIcon(records: Records, id: string): { record: SbdRecord; fields: IconFields } | null {
+  const record = records[id];
+  if (record?.type !== 'plan_item' || record.trashedAt !== null) return null;
+  const fields = iconFields(record.props);
+  return fields ? { record, fields } : null;
+}
+
+/** A live item with a box of its own: a wall or an icon (a door or window takes its place from its wall). */
+const liveBoxed = (records: Records, id: string): { record: SbdRecord; fields: PlanItemFields | IconFields } | null => liveItem(records, id) ?? liveIcon(records, id);
+
 const toCanvasGeometry = (g: PlanGeometry): Geometry => ({ x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height), rotation: g.rotation });
 
 /** A wall as a line with ends, canvas units. */
@@ -89,6 +107,30 @@ export const openingLabel = (fields: OpeningFields, unit: PlanUnit): string => {
   if (fields.name !== '') return t(fields.kind === 'door' ? 'plan.announce.doorNamed' : 'plan.announce.windowNamed', { name: fields.name, width });
   return t(fields.kind === 'door' ? 'plan.announce.door' : 'plan.announce.window', { width });
 };
+
+/** What an icon is called aloud: "Sofa, 2.00 m by 0.90 m", or "Hero couch, sofa, 2.00 m by 0.90 m". */
+export const iconAnnounce = (fields: IconFields, unit: PlanUnit): string => {
+  const sizes = { width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) };
+  const what = iconLabel(fields.icon);
+  return fields.name === '' ? t('plan.announce.icon', { what, ...sizes }) : t('plan.announce.iconNamed', { name: fields.name, what, ...sizes });
+};
+
+/**
+ * A library icon for the canvas (6.3): its box at its real size, drawn from its SVG; a zone and a note resize freely,
+ * every other icon keeps its proportions (corner handles). An icon id this version doesn't have is an outline with "?".
+ */
+export function iconItem(id: string, fields: IconFields, unit: PlanUnit): CanvasItem {
+  const icon = planIconOf(fields.icon);
+  const g = toCanvasGeometry(fields);
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: fields.name, colours: context.colours };
+    if (!icon) return createElement(UnknownIconShape, common);
+    if (icon.id === 'production/zone') return createElement(ZoneShape, common);
+    if (icon.id === 'production/note') return createElement(NoteShape, { icon, ...common });
+    return createElement(IconShape, { icon, ...common });
+  };
+  return { id, ...g, label: iconAnnounce(fields, unit), ...(icon && !FREE_RESIZE.has(icon.id) ? { keepRatio: true } : {}), draw };
+}
 
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
 function joinedTo(lines: readonly WallLine[]): Map<string, WallLine[]> {
@@ -185,6 +227,7 @@ interface Built {
 
 const isWall = (item: ShownItem): item is ShownItem & { fields: PlanItemFields } => item.fields.kind === 'wall';
 const isOpeningItem = (item: ShownItem): item is ShownItem & { fields: OpeningFields } => isOpening(item.fields);
+const isIconItem = (item: ShownItem): item is ShownItem & { fields: IconFields } => isIcon(item.fields);
 
 /**
  * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
@@ -237,7 +280,16 @@ export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [wall.record], item: made });
       return [made];
     });
-    const items = [...wallItems, ...openingItems];
+    // Icons (6.3) over the walls and their openings, each made again only when its own record (or the unit, ink or
+    // language) changed: it depends on nothing else.
+    const iconItems = shown.filter(isIconItem).map((item): CanvasItem => {
+      const same = kept(item, []);
+      if (same) return same;
+      const made = iconItem(item.record.id, item.fields, unit);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], item: made });
+      return made;
+    });
+    const items = [...wallItems, ...openingItems, ...iconItems];
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;
@@ -285,7 +337,7 @@ export function drawWallsChanges(records: Records, sceneId: string, points: read
   return wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
 }
 
-const sameGeometry = (a: PlanItemFields, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
+const sameGeometry = (a: PlanGeometry, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
 
 /** Closer than this to what's stored is what's stored: the canvas's own rounding (0.1 mm, hundredths of a degree). */
 const SAME_METRES = 0.00005;
@@ -295,7 +347,7 @@ const SAME_DEGREES = 0.005;
  * A gesture's box with the stored values kept wherever it differs from them by no more than the canvas's rounding, so a
  * handle pressed without a drag writes nothing, and a resize keeps a wall's rotation to the millionth of a degree.
  */
-function keptWhereSame(was: PlanItemFields, next: PlanGeometry): PlanGeometry {
+function keptWhereSame(was: PlanGeometry, next: PlanGeometry): PlanGeometry {
   const near = (a: number, b: number) => (Math.abs(a - b) <= SAME_METRES + 1e-12 ? a : b);
   const turn = Math.abs(((((next.rotation - was.rotation) % 360) + 540) % 360) - 180);
   return {
@@ -485,6 +537,13 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
       }
       return [{ kind: 'update', id: c.id, set }, ...move];
     }
+    const icon = liveIcon(records, c.id);
+    if (icon) {
+      // An icon's box is just its box (6.3): moved, turned and resized as the gesture left it, in metres.
+      const next = keptWhereSame(icon.fields, metresOf(c));
+      if (sameGeometry(icon.fields, next)) return [];
+      return [{ kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } }];
+    }
     const live = liveItem(records, c.id);
     if (!live) return [];
     const held = heldForOpenings(live.fields, keptWhereSame(live.fields, metresOf(c)), openingsInView(records, c.id, view).map((o) => o.fields));
@@ -521,18 +580,18 @@ export function planNudgeChanges(records: Records, ids: readonly string[], dx: n
       if (fit === null || Math.abs(fit - opening.fields.along) < 1e-4) return [];
       return [{ kind: 'update', id, set: { along_m: fit } }];
     }
-    const live = liveItem(records, id);
+    const live = liveBoxed(records, id);
     if (!live) return [];
     const g = toCanvasGeometry(live.fields);
     return planGeometryChanges(records, [{ id, ...g, x: g.x + dx, y: g.y + dy }], undefined, view);
   });
 }
 
-/** The items to the Trash, in one group: a wall with the doors and windows in it, so a restore brings them back. */
+/** The items to the Trash, in one group: a wall with the doors and windows in it, so a restore brings them back; an icon on its own. */
 export function trashPlanItemsChanges(records: Records, ids: readonly string[]): Change[] {
   const going = new Set<string>();
   for (const id of ids) {
-    if (!liveItem(records, id) && !liveOpening(records, id)) continue;
+    if (!liveBoxed(records, id) && !liveOpening(records, id)) continue;
     going.add(id);
     if (liveItem(records, id)) for (const o of openingsOf(records, id)) going.add(o.record.id);
   }
@@ -541,18 +600,21 @@ export function trashPlanItemsChanges(records: Records, ids: readonly string[]):
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 
-/** Forward, back, to the front or the back: each plan's walls reordered among their own plan's (a level is a plan). */
+/**
+ * Forward, back, to the front or the back: each plan's walls and icons reordered among their own plan's (a level is a
+ * plan). Walls are drawn under every icon whatever their order, so an icon's order counts among the icons.
+ */
 export function reorderPlanChanges(records: Records, ids: readonly string[], mode: ReorderMode): Change[] {
   const byPlan = new Map<string, string[]>();
   for (const id of ids) {
-    const live = liveItem(records, id);
+    const live = liveBoxed(records, id);
     const planId = live?.record.parentId;
     if (planId) byPlan.set(planId, [...(byPlan.get(planId) ?? []), id]);
   }
   return [...byPlan].flatMap(([planId, chosenIds]) => {
     // Every sibling holds a key, the Trash's too, so a new key never ties with one coming back.
     const all = Object.values(records).filter((r) => r.type === 'plan_item' && r.parentId === planId).sort(bySortKey);
-    const live = all.filter((r) => r.trashedAt === null && planItemFields(r.props) !== null).map((r) => r.id);
+    const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || iconFields(r.props) !== null)).map((r) => r.id);
     const chosen = new Set(chosenIds);
     const nextLive = reordered(live, chosen, mode);
     if (nextLive.every((id, i) => id === live[i])) return [];
@@ -583,15 +645,15 @@ export interface PlanClip {
 }
 
 /**
- * Copied walls, with the doors and windows in them the view shows (with no view, every plan's); a door or window copied
- * without its wall isn't (it has nowhere to go).
+ * Copied walls and icons, with the doors and windows in the walls the view shows (with no view, every plan's); a door
+ * or window copied without its wall isn't (it has nowhere to go).
  */
 export function planClipOf(records: Records, ids: readonly string[], view?: PlanViewOf | null): PlanClip[] {
   const walls = ids.flatMap((id) => {
-    const live = liveItem(records, id);
+    const live = liveBoxed(records, id);
     return live ? [live] : [];
   });
-  const openings = walls.flatMap((w) => openingsInView(records, w.record.id, view).map((o) => o.record));
+  const openings = walls.flatMap((w) => (w.fields.kind === 'wall' ? openingsInView(records, w.record.id, view).map((o) => o.record) : []));
   return [...walls.map((w) => w.record).sort(bySortKey), ...openings.sort(bySortKey)].flatMap((record) => {
     const fields = shownFields(record.props);
     return fields ? [{ id: record.id, props: record.props, fields, planId: record.parentId }] : [];
@@ -630,7 +692,8 @@ export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip
  */
 export function planPasteChanges(records: Records, into: string | ((item: PlanClip) => string | null), clip: readonly PlanClip[], at: Point | null): { ids: string[]; changes: Change[] } {
   const planOf = typeof into === 'string' ? () => into : into;
-  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields } => item.fields.kind === 'wall');
+  // Walls and icons keep their places to each other, all moved as one.
+  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields | IconFields } => item.fields.kind === 'wall' || item.fields.kind === 'icon');
   const placed = pasted(walls.map((item) => toCanvasGeometry(item.fields)), at);
   const lastKeys = new Map<string, string | null>();
   const ids: string[] = [];
@@ -827,4 +890,141 @@ export function placeOpeningChanges(records: Records, spot: OpeningSpot, kind: O
   if (!fitsAt(wall.fields.width, { along: spot.along, width: OPENING_WIDTH[kind] }, others)) return [];
   const planId = wall.record.parentId;
   return [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyBetween(lastKeyUnder(records, planId, 'plan_item'), null), props: openingProps(kind, spot.wallId, spot.along) } }];
+}
+
+/** A plan made under a parent for a level, in the same group as what needs it (6.2a's rule: never ahead). */
+function newPlanChange(records: Records, parentId: string, kind: 'blocking' | 'setup', id: string): Change {
+  return { kind: 'create', record: { id, type: 'plan', parentId, sortKey: keyBetween(lastKeyUnder(records, parentId, 'plan'), null), props: { kind, name: '' } } };
+}
+
+/** Why an icon can't be placed in a view, or null when it can (6.3): the Library says it in words. */
+export type IconRefusal = 'coming' | 'tool' | 'noRoom' | 'noSetup' | 'noScene';
+
+export function iconRefusal(records: Records, view: PlanViewOf | null, icon: string): IconRefusal | null {
+  const use = iconUse(icon);
+  if (use !== 'place') return use;
+  if (!view || runRoomId(records, view.sceneId) === null) return view && records[view.sceneId]?.type === 'scene' ? 'noRoom' : 'noScene';
+  if (iconHome(icon) === 'setup') {
+    const setup = view.setupId === null ? undefined : records[view.setupId];
+    if (setup?.type !== 'setup' || setup.trashedAt !== null || setup.parentId !== view.sceneId) return 'noSetup';
+  }
+  return null;
+}
+
+/**
+ * A library icon placed in a view (6.3), its middle at `centre` (metres), at its default size, at the front of the plan
+ * of the level it belongs to (decision 2): a set piece in the scene's room, so every scene and setup in the room shows
+ * it; anything else in the setup shown, its plan made now when it has none, in the same group. Nothing when it can't be
+ * placed there (iconRefusal says why).
+ */
+export function placeIconChanges(records: Records, view: PlanViewOf, icon: string, centre: Point, id: string = crypto.randomUUID(), newPlanId: string = crypto.randomUUID()): Change[] {
+  const size = iconSize(icon);
+  if (!size || iconRefusal(records, view, icon) !== null) return [];
+  const plans = plansShown(records, view.sceneId, view.setupId);
+  const home = iconHome(icon);
+  const changes: Change[] = [];
+  let planId: string | null = null;
+  if (home === 'room') planId = plans.room?.id ?? null;
+  else if (home === 'blocking') {
+    planId = plans.blocking?.id ?? null;
+    if (planId === null) {
+      planId = newPlanId;
+      changes.push(newPlanChange(records, view.sceneId, 'blocking', planId));
+    }
+  } else if (view.setupId !== null) {
+    planId = plans.setup?.id ?? null;
+    if (planId === null) {
+      planId = newPlanId;
+      changes.push(newPlanChange(records, view.setupId, 'setup', planId));
+    }
+  }
+  if (planId === null) return [];
+  const tidy = (m: number) => Math.round(m * 10000) / 10000;
+  const props: Props = { kind: 'icon', icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
+  const sortKey = keyBetween(changes.length > 0 ? null : lastKeyUnder(records, planId, 'plan_item'), null);
+  changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
+  return changes;
+}
+
+/**
+ * Paste or Duplicate in a view (6.3): each copy into the plan its original sits in, or the view's plan of that level
+ * (pasteTarget). An icon that belongs to a setup goes into the setup shown, its plan made now when it has none, in the
+ * same group; with no setup shown it is left out.
+ */
+export function planPasteInView(records: Records, view: PlanViewOf, clip: readonly PlanClip[], at: Point | null, newPlanId: string = crypto.randomUUID()): { ids: string[]; changes: Change[]; leftOut: number } {
+  const base = pasteTarget(records, view);
+  const plans = plansShown(records, view.sceneId, view.setupId);
+  const shown = new Set([plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  const setup = view.setupId === null ? undefined : records[view.setupId];
+  const hasSetup = setup?.type === 'setup' && setup.trashedAt === null && setup.parentId === view.sceneId;
+  // Holders, since the target sets them as the paste reads each item.
+  const made: { id: string | null } = { id: null };
+  const out = { count: 0 };
+  const target = (item: PlanClip): string | null => {
+    const from = item.planId ?? null;
+    const setupIcon = item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup';
+    if (!setupIcon || (from !== null && shown.has(from) && planKindOf(records, from) === 'setup')) return base(item);
+    if (!hasSetup || view.setupId === null) {
+      out.count += 1;
+      return null;
+    }
+    if (plans.setup) return plans.setup.id;
+    made.id = newPlanId;
+    return newPlanId;
+  };
+  const pasted = planPasteChanges(records, target, clip, at);
+  const changes = made.id !== null && view.setupId !== null ? [newPlanChange(records, view.setupId, 'setup', made.id), ...pasted.changes] : pasted.changes;
+  return { ids: pasted.ids, changes, leftOut: out.count };
+}
+
+/** What the Selection tile changes on icons (6.3); each field it leaves out stays as it is. */
+export interface IconPatch {
+  /** Metres, about its middle. */
+  width?: number;
+  depth?: number;
+  /** Metres; null takes it off. */
+  heightM?: number | null;
+  /** Degrees, turned about its middle. */
+  rotation?: number;
+  /** Its middle, metres. */
+  centreX?: number;
+  centreY?: number;
+  name?: string;
+}
+
+/** An icon's middle, metres. */
+export const iconCentre = (fields: PlanGeometry): Point => ({ x: Math.round((fields.x + fields.width / 2) * 10000) / 10000, y: Math.round((fields.y + fields.height / 2) * 10000) / 10000 });
+
+/** A field changed on the selected icons: one update per icon that changes, one op group; its middle stays where it is. */
+export function iconPatchChanges(records: Records, ids: readonly string[], patch: IconPatch): Change[] {
+  const tidy = (m: number) => Math.round(m * 10000) / 10000;
+  return ids.flatMap((id): Change[] => {
+    const live = liveIcon(records, id);
+    if (!live) return [];
+    const now = live.fields;
+    const centre = iconCentre(now);
+    const width = patch.width ?? now.width;
+    const height = patch.depth ?? now.height;
+    const cx = patch.centreX ?? centre.x;
+    const cy = patch.centreY ?? centre.y;
+    const set: Props = {};
+    const unset: string[] = [];
+    if (patch.width !== undefined && Math.abs(width - now.width) > 1e-6) set.width = tidy(Math.max(MIN_PLAN_SIZE, width));
+    if (patch.depth !== undefined && Math.abs(height - now.height) > 1e-6) set.height = tidy(Math.max(MIN_PLAN_SIZE, height));
+    const x = tidy(cx - width / 2);
+    const y = tidy(cy - height / 2);
+    if (Math.abs(x - now.x) > 1e-6) set.x = x;
+    if (Math.abs(y - now.y) > 1e-6) set.y = y;
+    if (patch.rotation !== undefined && normalDegrees(patch.rotation) !== now.rotation) set.rotation = normalDegrees(patch.rotation);
+    if (patch.heightM !== undefined && patch.heightM !== now.heightM) {
+      if (patch.heightM === null) unset.push('height_m');
+      else set.height_m = patch.heightM;
+    }
+    if (patch.name !== undefined && patch.name.trim() !== now.name) {
+      if (patch.name.trim() === '') unset.push('name');
+      else set.name = patch.name.trim();
+    }
+    if (Object.keys(set).length === 0 && unset.length === 0) return [];
+    return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
+  });
 }

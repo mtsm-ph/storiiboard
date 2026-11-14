@@ -399,11 +399,22 @@ unreadable value reads as not set, as every prop does.
     plan with it. Trashing a wall trashes its openings in the same step, and restoring the wall brings those back.
   - `copied_from` (6.2b review): the item this one was copied from when a setup or a room was copied; never read except
     by History. A paste never writes it.
-  - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `set_piece`, `icon`, `camera`, `light`, `flag`, `diffusion`,
-    `mark`, `path`, `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and
-    not shown.
-  - `icon` (6.2 and 6.3): the plan icon library's id. `points` (6.2 and 6.3): a path's points (never a wall's), each
-    `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3): metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
+  - An `icon` (6.3) is one of the library's plan icons placed on a plan. `icon`: the icon's id, its kit folder and file
+    name without `.svg` (`set-art/sofa`, `grip/c-stand`); text, not empty. Its box as a wall's: `x` and `y` its top
+    left corner before rotation, `width` across and `height` its depth (both above 0; under 1 cm reads as 1 cm),
+    `rotation` round its middle; written at the library's default size for the icon (src/features/birdseye/plan/
+    iconSizes.ts: a sofa 2.0 × 0.9 m) and changed freely afterwards. `height_m` (its real height, kept, not drawn) and
+    `name` as a wall's; a zone draws its `name` inside its outline and a note as its text. Its level (decision 2) comes
+    from its icon's group, the part of the id before the `/`: a `set-art` icon (a set piece) is placed in the scene's
+    room, so every scene and setup set in the room shows it; a `cast` one in the scene's blocking; any other in the
+    setup's own plan, made in the same step when the setup has none. Its layer (6.8) is that group too, worked out,
+    never stored. "This setup only" moves a set piece into the setup's plan and back to the room. An `icon` whose id
+    this version's library doesn't have is shown as a plain outline with a "?" and kept exactly as it is; one with no
+    `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
+  - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
+    `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
+  - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
+    metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
     `width_m` (6.2b): a door or window in its wall, its distance along it and its width, metres; `hinge` and `swing`
     (6.2b): a door's (above).
   - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),

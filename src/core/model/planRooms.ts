@@ -2,6 +2,7 @@ import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
 import {
   blockingPlanOf,
+  iconGroup,
   lastKeyUnder,
   newRoomChanges,
   openingFields,
@@ -246,9 +247,23 @@ export function copySetupChanges(records: Records, fromSetupId: string, toSetupI
 /** The level an item of a kind belongs to (decision 2): the room's for the set, the scene's for blocking, else the setup's. */
 export function kindHome(kind: unknown): PlanLevel {
   if (kind === 'mark' || kind === 'path') return 'blocking';
-  if (kind === 'wall' || kind === 'door' || kind === 'window' || kind === 'set_piece' || kind === 'underlay' || kind === 'north') return 'room';
+  if (kind === 'wall' || kind === 'door' || kind === 'window' || kind === 'underlay' || kind === 'north') return 'room';
   return 'setup';
 }
+
+/**
+ * The level a library icon belongs to (6.3, decision 2), by its group: a set piece (set-art) the room's, so every scene
+ * and setup in the room shows it; a cast icon the scene's blocking; every other the setup's.
+ */
+export function iconHome(icon: string): PlanLevel {
+  const group = iconGroup(icon);
+  if (group === 'set-art') return 'room';
+  if (group === 'cast') return 'blocking';
+  return 'setup';
+}
+
+/** The level an item belongs to: an icon's by its group, any other's by its kind. */
+export const itemHome = (props: Props): PlanLevel => (props.kind === 'icon' && typeof props.icon === 'string' ? iconHome(props.icon) : kindHome(props.kind));
 
 /**
  * "This setup only" (6.2b), on: the items moved (`move` ops) from the room or the scene's blocking into the setup's
@@ -295,7 +310,7 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
   };
   const lastKeys = new Map<string, string | null>();
   for (const { record } of moving) {
-    const level = on ? 'setup' : kindHome(record.props.kind);
+    const level = on ? 'setup' : itemHome(record.props);
     if (level === 'setup' && !on) continue;
     const planId = target(level);
     if (planId === null) continue;
@@ -320,7 +335,7 @@ export function setupOnlyHeld(records: Records, sceneId: string, setupId: string
   const items = ids.flatMap((id) => (records[id] ? [records[id]] : []));
   if (!items.every((r) => r.parentId !== null && r.parentId === plans.setup?.id)) return null;
   if (items.some((r) => openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? ''))) return 'wallOnly';
-  if (plans.room === null && items.some((r) => kindHome(r.props.kind) === 'room')) return 'noRoom';
+  if (plans.room === null && items.some((r) => itemHome(r.props) === 'room')) return 'noRoom';
   return null;
 }
 

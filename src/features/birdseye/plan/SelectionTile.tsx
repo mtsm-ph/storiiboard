@@ -5,7 +5,9 @@ import { useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
 import { formatLength, hasGroupingComma, parseLength, type PlanUnit } from '../../../core/model/length';
 import {
+  isIcon,
   isOpening,
+  isWallFields,
   keptInWall,
   openingFields,
   parseDegrees,
@@ -17,16 +19,18 @@ import {
   shownFields,
   wallEnds,
   type Hinge,
+  type IconFields,
   type OpeningFields,
   type PlanItemFields,
   type Swing,
 } from '../../../core/model/plan';
-import { alsoInRoom, itemLevel, scenesLosing, setupOnlyHeld } from '../../../core/model/planRooms';
+import { alsoInRoom, itemHome, itemLevel, scenesLosing, setupOnlyHeld } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, TextField, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
-import { changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
-import { openingDistances, openingPatchChanges, viewKey, wallNeedOf, wallsTakeLength, type OpeningPatch, type WallPatch } from './planItems';
+import { iconLabel } from './iconWords';
+import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
+import { iconCentre, openingDistances, openingPatchChanges, viewKey, wallNeedOf, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
 
@@ -128,20 +132,25 @@ function SelectionContent() {
   });
   if (selected.length > 0) {
     const ids = selected.map((s) => s.id);
-    const walls = selected.flatMap((s) => (isOpening(s.fields) ? [] : [s.fields]));
+    const walls = selected.flatMap((s) => (isWallFields(s.fields) ? [s.fields] : []));
     const openings = selected.flatMap((s) => (isOpening(s.fields) ? [s.fields] : []));
+    const icons = selected.flatMap((s) => (isIcon(s.fields) ? [s.fields] : []));
+    // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its already.
+    const movable = ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
     return (
       <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
         {walls.length === selected.length ? (
           <WallFields ids={ids} walls={walls} unit={unit} records={records} view={live.view} />
         ) : openings.length === selected.length ? (
           <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
+        ) : icons.length === selected.length ? (
+          <IconFieldsView ids={ids} icons={icons} unit={unit} />
         ) : (
           <p className="sb-label" data-selection-kind="">
             {tn('selection.items', selected.length)}
           </p>
         )}
-        {live.view.setupId !== null && <SetupOnlySwitch view={{ sceneId: live.view.sceneId, setupId: live.view.setupId }} ids={ids} records={records} />}
+        {live.view.setupId !== null && movable && <SetupOnlySwitch view={{ sceneId: live.view.sceneId, setupId: live.view.setupId }} ids={ids} records={records} />}
       </div>
     );
   }
@@ -354,6 +363,59 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
         </div>
       )}
       <p className="text-[12px] text-text-muted">{t(doors ? 'selection.doorNote' : 'selection.openingNote')}</p>
+    </>
+  );
+}
+
+/**
+ * A library icon's fields (6.3): its name, width and depth, its real height, its rotation and its middle, each typed;
+ * a new size or rotation keeps its middle where it is. Several: the fields they share, and a change goes to each.
+ */
+function IconFieldsView({ ids, icons, unit }: { ids: readonly string[]; icons: readonly IconFields[]; unit: PlanUnit }) {
+  const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
+  const write = (patch: IconPatch): boolean => {
+    void changeIcons(ids, patch);
+    return true;
+  };
+  const length = (apply: (m: number) => IconPatch, opts: { signed?: boolean; empty?: IconPatch } = {}) => lengthCommit(unit, write, apply, opts);
+  const refused = t('selection.lengthRefused');
+  const keyed = (field: string) => `${ids.join(' ')}:${field}`;
+  const kind = shared(icons.map((i) => i.icon));
+  const label = ids.length === 1 && kind !== null ? iconLabel(kind) : tn('selection.items', ids.length);
+  const names = shared(icons.map((i) => i.name));
+  const rotations = shared(icons.map((i) => degreesText(i.rotation)));
+  const centres = icons.map((i) => iconCentre(i));
+  const widthText = text(icons.map((i) => i.width));
+  const depthText = text(icons.map((i) => i.height));
+  const heightText = text(icons.map((i) => i.heightM));
+  const xText = text(centres.map((c) => c.x));
+  const yText = text(centres.map((c) => c.y));
+  return (
+    <>
+      <p className="sb-label" data-selection-kind="">
+        {label}
+      </p>
+      <TypedField key={keyed('name')} label={t('selection.name')} mono={false} text={names ?? ''} mixed={names === null} onCommit={(typed) => write({ name: typed.trim() })} />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3">
+        <TypedField key={keyed('width')} label={t('selection.width')} text={widthText ?? ''} mixed={widthText === null} onCommit={length((m) => ({ width: m }))} refused={refused} />
+        <TypedField key={keyed('depth')} label={t('selection.depth')} text={depthText ?? ''} mixed={depthText === null} onCommit={length((m) => ({ depth: m }))} refused={refused} />
+        <TypedField key={keyed('height')} label={t('selection.height')} text={heightText ?? ''} mixed={heightText === null} onCommit={length((m) => ({ heightM: m }), { empty: { heightM: null } })} refused={refused} />
+        <TypedField
+          key={keyed('rotation')}
+          label={t('selection.rotation')}
+          text={rotations ?? ''}
+          mixed={rotations === null}
+          onCommit={(typed) => {
+            const degrees = parseDegrees(typed);
+            if (degrees === null) return false;
+            return write({ rotation: degrees });
+          }}
+          refused={t('selection.rotationRefused')}
+        />
+        <TypedField key={keyed('x')} label={t('selection.x')} text={xText ?? ''} mixed={xText === null} onCommit={length((m) => ({ centreX: m }), { signed: true })} refused={refused} />
+        <TypedField key={keyed('y')} label={t('selection.y')} text={yText ?? ''} mixed={yText === null} onCommit={length((m) => ({ centreY: m }), { signed: true })} refused={refused} />
+      </div>
+      <p className="text-[12px] text-text-muted">{t('selection.iconNote')}</p>
     </>
   );
 }

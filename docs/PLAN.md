@@ -2067,7 +2067,7 @@ Phase 1 planning numbers its milestones; the order above is the recommendation.
 | Where | What | Fix |
 |---|---|---|
 | src/ui/logo/SMark.tsx, Wordmark.tsx | The orange dots use the accent class, so a project theme would recolour them, which DESIGN.md forbids | A fixed brand token, Signal Orange #E0612B (decided Nov 2) |
-| src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes. The ink strokes already disappear on a dark plan | Phase 6 recolours them as they render: ink, oatmeal, white and orange become tokens, and department fills stay fixed |
+| src/ui/icons/plan (68 SVGs) | Literal ink strokes; oatmeal and white fills; 6 orange and 3 Truffle strokes | Superseded (docs/PHASE6_DECISIONS.md 13, 6.3): never recoloured. A plan is paper with ink in light and dark, so the icons are drawn exactly as the kit's SVGs, and the Library shows them on paper |
 | src/ui/theme.css | `--color-paper-fixed: #eee9df` | Move it into the fixed token set |
 | src-tauri/tauri.conf.json | Window `backgroundColor` #EEE9DF | Set it from the project theme at runtime, so resizing a dark project never shows paper at the edges |
 | public/theme-boot.js | Sets only `data-theme` before first paint | Also apply the last project's tokens, cached in settings |
