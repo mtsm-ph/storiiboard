@@ -1,6 +1,8 @@
+import { bodyFields, freeLetters, gearKind, isFocal, isSensorSize, isSqueeze, type GearKind } from '../../core/model/cameraGear';
 import { isDepartment } from '../../core/model/department';
 import { gearFields, MAX_QUANTITY } from '../../core/model/gear';
-import type { SbdRecord } from '../../core/model/record';
+import type { JsonValue, SbdRecord } from '../../core/model/record';
+import { SENSOR_MODES } from '../../core/model/sensorModes';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
@@ -96,4 +98,91 @@ export function gearListChange(records: Records, recordId: string, gearIds: read
   const next = on ? [...list, ...asked.filter((id) => !list.includes(id))] : list.filter((v) => typeof v !== 'string' || !gearIds.includes(v));
   if (next.length === list.length) return [];
   return next.length === 0 ? [{ kind: 'update', id: recordId, unset: ['gear_ids'] }] : [{ kind: 'update', id: recordId, set: { gear_ids: next } }];
+}
+
+// Camera bodies and lenses (6.1): what an item is, a body's recording mode and letter, a lens's range and squeeze.
+
+/**
+ * What an item is: gear, a camera body or a lens. Its other props are kept whatever it becomes, so turning it back
+ * loses nothing. A body with no letter takes the first free one in the same edit.
+ */
+export function gearKindChange(records: Records, id: string, kind: GearKind): Change[] {
+  const item = liveItem(records, id);
+  if (!item || gearKind(item.props) === kind) return [];
+  if (kind === 'gear') return [{ kind: 'update', id, unset: ['kind'] }];
+  const set: Record<string, JsonValue> = { kind };
+  if (kind === 'camera_body' && item.parentId) {
+    const own = bodyFields(item.props).letter;
+    const free = freeLetters(records, item.parentId, id);
+    const letter = own !== null && free.includes(own) ? own : free[0];
+    if (letter !== undefined && letter !== own) set.camera_letter = letter;
+  }
+  return [{ kind: 'update', id, set }];
+}
+
+const liveBody = (records: Records, id: string): SbdRecord | null => {
+  const item = liveItem(records, id);
+  return item && gearKind(item.props) === 'camera_body' ? item : null;
+};
+
+const liveLensItem = (records: Records, id: string): SbdRecord | null => {
+  const item = liveItem(records, id);
+  return item && gearKind(item.props) === 'lens' ? item : null;
+};
+
+/** A body's camera and recording mode picked from the table: its name, width and height, and whether it's a phone. */
+export function sensorModePick(records: Records, id: string, modeId: string): Change[] {
+  const item = liveBody(records, id);
+  const entry = SENSOR_MODES.find((m) => m.id === modeId);
+  if (!item || !entry) return [];
+  const set: Record<string, JsonValue> = {};
+  if (item.props.sensor_mode !== entry.mode) set.sensor_mode = entry.mode;
+  if (item.props.sensor_width_mm !== entry.widthMm) set.sensor_width_mm = entry.widthMm;
+  if (item.props.sensor_height_mm !== entry.heightMm) set.sensor_height_mm = entry.heightMm;
+  if (entry.focalEquivalent === true && item.props.focal_equivalent !== true) set.focal_equivalent = true;
+  const unset = entry.focalEquivalent !== true && item.props.focal_equivalent !== undefined ? ['focal_equivalent'] : [];
+  if (Object.keys(set).length === 0 && unset.length === 0) return [];
+  return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
+}
+
+/** A body's mode name typed by hand; '' takes it off. */
+export function sensorModeNameChange(records: Records, id: string, name: string): Change[] {
+  const item = liveBody(records, id);
+  if (!item) return [];
+  const next = name.trim();
+  const stored = item.props.sensor_mode;
+  if (stored !== undefined && typeof stored !== 'string') return [];
+  if ((stored ?? '') === next) return [];
+  return next === '' ? [{ kind: 'update', id, unset: ['sensor_mode'] }] : [{ kind: 'update', id, set: { sensor_mode: next } }];
+}
+
+/** A body's sensor width or height in mm, typed by hand; null takes it off. */
+export function sensorSizeChange(records: Records, id: string, prop: 'sensor_width_mm' | 'sensor_height_mm', mm: number | null): Change[] {
+  const item = liveBody(records, id);
+  if (!item || (mm !== null && !isSensorSize(mm))) return [];
+  const current = typeof item.props[prop] === 'number' ? item.props[prop] : null;
+  if (current === mm) return [];
+  return mm === null ? [{ kind: 'update', id, unset: [prop] }] : [{ kind: 'update', id, set: { [prop]: mm } }];
+}
+
+/** A body's camera letter: one no other live body of the project has. */
+export function cameraLetterChange(records: Records, id: string, letter: string): Change[] {
+  const item = liveBody(records, id);
+  if (!item?.parentId || !freeLetters(records, item.parentId, id).includes(letter) || item.props.camera_letter === letter) return [];
+  return [{ kind: 'update', id, set: { camera_letter: letter } }];
+}
+
+/** A lens's focal range in mm: from ≤ to, equal for a prime. Both ends in one edit. */
+export function lensRangeChange(records: Records, id: string, min: number, max: number): Change[] {
+  const item = liveLensItem(records, id);
+  if (!item || !isFocal(min) || !isFocal(max) || min > max) return [];
+  if (item.props.focal_min_mm === min && item.props.focal_max_mm === max) return [];
+  return [{ kind: 'update', id, set: { focal_min_mm: min, focal_max_mm: max } }];
+}
+
+/** A lens's squeeze, from 1 to 2.5. */
+export function lensSqueezeChange(records: Records, id: string, squeeze: number): Change[] {
+  const item = liveLensItem(records, id);
+  if (!item || !isSqueeze(squeeze) || item.props.squeeze === squeeze || (squeeze === 1 && item.props.squeeze === undefined)) return [];
+  return [{ kind: 'update', id, set: { squeeze } }];
 }

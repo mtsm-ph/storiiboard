@@ -101,6 +101,9 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         // A frame's setup (6.0), by its name as it was then.
         op.before?.props.setup_id,
         op.after?.props.setup_id,
+        // A frame's lens (6.1), by its name as it was then.
+        op.before?.props.lens_id,
+        op.after?.props.lens_id,
         // A live card on a board (5.4) is named by the frame or scene it shows, as it was then.
         op.before?.props.shot_id,
         op.after?.props.shot_id,

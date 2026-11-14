@@ -28,7 +28,7 @@ import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from '
 import { framesWithPictures } from './palette/read';
 import { locations, setCustomField, setFrameLocation, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
-import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo, type SetupPick } from './InspectorView';
+import { InspectorView, type FieldChange, type InspectorCopy, type InspectorFieldOfView, type InspectorPicture, type InspectorVideo, type SetupPick } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
 import { displayAspect, readClip, readFromVideo, videoFields } from '../../core/media/video';
 import { videoDriver } from '../../app/video';
@@ -44,6 +44,8 @@ import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
 import { frameShootDay } from '../../core/model/shootDay';
 import { frameSetupId, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, setupLabel } from '../../core/model/setup';
+import { defaultBody, frameLens, lensLabel, pickLens, projectLenses } from '../../core/model/cameraGear';
+import { aspectValue, fieldOfView, oneDecimal } from '../../core/model/fieldOfView';
 import { openShootDay } from '../schedule/shownDay';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { t, tn } from '../../core/i18n';
@@ -225,6 +227,44 @@ export function InspectorTile() {
         }
       : undefined;
 
+  // The frame's lens (6.1), from the project's lenses, and what the project's frame sees through it on the default body.
+  const lens = shot
+    ? (() => {
+        const picked = frameLens(records, shot);
+        const body = defaultBody(records, project.projectId);
+        const lensMm = shotFields(shot.props).lensMm;
+        const fov = body
+          ? fieldOfView({
+              sensorWidthMm: body.fields.sensorWidthMm,
+              sensorHeightMm: body.fields.sensorHeightMm,
+              squeeze: picked?.fields.squeeze ?? 1,
+              focalMm: lensMm,
+              aspect: aspectValue(projectStoryboard(records[project.projectId]?.props).aspectRatio),
+            })
+          : null;
+        const fieldOfViewLine: InspectorFieldOfView =
+          !body || body.fields.sensorWidthMm === null || body.fields.sensorHeightMm === null
+            ? { missing: body ? 'noSensor' : 'noBody' }
+            : fov === null
+              ? { missing: 'noLens' }
+              : {
+                  degrees: oneDecimal(fov.degrees),
+                  width: oneDecimal(fov.widthMm),
+                  sensorWidth: oneDecimal(body.fields.sensorWidthMm),
+                  sensorHeight: oneDecimal(body.fields.sensorHeightMm),
+                };
+        return {
+          value: picked?.record.id ?? '',
+          choices: projectLenses(records, project.projectId).map((l) => ({ id: l.record.id, label: lensLabel(l) })),
+          range: picked?.fields.range ?? null,
+          onChange: (id: string | null) => {
+            void projectStore.getState().applyWith((now) => ({ changes: pickLens(now, shot.id, id) }));
+          },
+          fieldOfView: fieldOfViewLine,
+        };
+      })()
+    : undefined;
+
   return (
     <ProjectPictures>
       <InspectorView
@@ -330,6 +370,7 @@ export function InspectorTile() {
         locationName={locationName}
         {...(frameLocation ? { frameLocation } : {})}
         {...(setup ? { setup } : {})}
+        {...(lens ? { lens } : {})}
         {...(shot
           ? {
               shootDay: shootDay

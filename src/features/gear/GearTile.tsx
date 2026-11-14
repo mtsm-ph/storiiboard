@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
+import { bodyFields, GEAR_KIND_LABEL, GEAR_KINDS, gearKind, lensFields, lensSpec, type GearKind } from '../../core/model/cameraGear';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
 import { CURRENCIES, currencyDigits, GEAR_SOURCE_LABEL, GEAR_SOURCES, moneyLabel, projectCurrency, projectGear, type GearFields } from '../../core/model/gear';
 import type { SbdRecord } from '../../core/model/record';
@@ -10,9 +11,11 @@ import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
+import { BodyFieldsEditor, LensFieldsEditor } from './BodyLensFields';
 import {
   currencyChange,
   gearDepartmentChange,
+  gearKindChange,
   gearQuantityChange,
   gearRateChange,
   gearSourceChange,
@@ -25,6 +28,8 @@ import {
 // whose it is (owned, or a rental house's), its day rate and its department. Shoot days and frames pick from it (3.9b).
 // The project's currency, for every price, sits at the foot of the list. Each field is one edit when it's left, so one
 // ⌘Z; Delete sends an item to the Trash. Narrow (Production gives it a column), the list sits above the item.
+// An item is gear, a camera body or a lens (6.1): a body and a lens have fields of their own (BodyLensFields.tsx), and
+// count in day lists, checks and totals as any gear does.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 type GearSourceChoice = (typeof GEAR_SOURCES)[number] | '';
@@ -114,6 +119,7 @@ export function GearTile() {
                     <span className="max-w-full truncate text-[13px] font-semibold">{fields.name || t('gear.unnamed')}</span>
                     <span className="sb-label">
                       <span className="font-mono">×{fields.quantity}</span>
+                      <KindNote props={record.props} />
                       {fields.source && ` · ${GEAR_SOURCE_LABEL[fields.source]}`}
                       {fields.department && ` · ${DEPARTMENT_LABELS[fields.department]}`}
                     </span>
@@ -146,6 +152,8 @@ export function GearTile() {
         <GearEditor
           key={selected.record.id}
           id={selected.record.id}
+          projectId={projectId}
+          records={records}
           props={selected.record.props}
           fields={selected.fields}
           currency={currency}
@@ -169,8 +177,38 @@ export function GearTile() {
   );
 }
 
+/** A body's letter or a lens's range, after its quantity in the list: "· A cam", "· 24–70 mm 2×". */
+function KindNote({ props }: { props: SbdRecord['props'] }) {
+  const kind = gearKind(props);
+  if (kind === 'camera_body') {
+    const letter = bodyFields(props).letter;
+    return (
+      <>
+        {` · ${GEAR_KIND_LABEL.camera_body}`}
+        {letter && (
+          <>
+            {' · '}
+            <span className="font-mono">{t('gear.cameraLetterOption', { letter })}</span>
+          </>
+        )}
+      </>
+    );
+  }
+  if (kind === 'lens') {
+    return (
+      <>
+        {' · '}
+        <span className="font-mono">{lensSpec(lensFields(props))}</span>
+      </>
+    );
+  }
+  return null;
+}
+
 interface GearEditorProps {
   id: string;
+  projectId: string;
+  records: Records;
   /** As stored: a field holding what this version can't read is shown read-only, never written over. */
   props: SbdRecord['props'];
   fields: GearFields;
@@ -180,7 +218,8 @@ interface GearEditorProps {
   onDelete: () => void;
 }
 
-function GearEditor({ id, props, fields, currency, nameField, edit, onDelete }: GearEditorProps) {
+function GearEditor({ id, projectId, records, props, fields, currency, nameField, edit, onDelete }: GearEditorProps) {
+  const kind = gearKind(props);
   const headingId = useId();
   const lockedId = useId();
   const digits = currencyDigits(currency);
@@ -222,6 +261,16 @@ function GearEditor({ id, props, fields, currency, nameField, edit, onDelete }: 
         {fields.name || t('gear.unnamed')}
       </h3>
       {text('name', t('gear.name'))}
+      <SegmentedControl<GearKind>
+        label={t('gear.kind')}
+        options={GEAR_KINDS.map((value) => ({ value, label: GEAR_KIND_LABEL[value] }))}
+        value={kind}
+        onChange={(next) => {
+          void edit((now) => gearKindChange(now, id, next));
+        }}
+      />
+      {kind === 'camera_body' && <BodyFieldsEditor id={id} projectId={projectId} records={records} props={props} edit={edit} />}
+      {kind === 'lens' && <LensFieldsEditor key={id} id={id} props={props} edit={edit} />}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
         <Select
           label={t('gear.department')}

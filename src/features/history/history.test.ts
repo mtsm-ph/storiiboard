@@ -10,6 +10,9 @@ import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../callsheets/callsheetEdits';
 import { dayPeopleAdd, dayPeopleRemove } from '../schedule/dayEdits';
 import { addSetup, joinSetup, renameSetup } from '../../core/model/setup';
+import { pickLens } from '../../core/model/cameraGear';
+import { setLocale } from '../../core/i18n';
+import { gearKindChange, lensRangeChange, lensSqueezeChange, sensorModePick, sensorSizeChange } from '../gear/gearEdits';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
@@ -346,6 +349,38 @@ describe('Put back', () => {
     const source = await lastChange('fx3', 'source');
     expect([changeLabel(department), changeValue(department, department.after)]).toEqual(['department', 'Grip & electric']);
     expect([changeValue(source, source.before), changeValue(source, source.after)]).toEqual(['Owned', 'Rental']);
+  });
+
+  it('says what bodies and lenses became, their modes and ranges, and a frame’s lens picked, in words (6.1)', async () => {
+    const make = (id: string, name: string) =>
+      store.getState().apply([{ kind: 'create', record: { id, type: 'gear_item', parentId: project.projectId, sortKey: id, props: { name, quantity: 1, source: 'owned' } } }]);
+    await make('fx3', 'FX3');
+    await store.getState().applyWith((now) => ({ changes: gearKindChange(now, 'fx3', 'camera_body') }));
+    expect((await lines()).at(-1)).toBe('FX3 is now: Camera body');
+    await store.getState().applyWith((now) => ({ changes: sensorModePick(now, 'fx3', 'minilf-43k-169') }));
+    expect((await lines()).at(-1)).toBe('FX3: recording mode 4.3K LF 16:9, 35.64 × 20.05 mm');
+    await store.getState().applyWith((now) => ({ changes: sensorSizeChange(now, 'fx3', 'sensor_width_mm', 35.6) }));
+    expect((await lines()).at(-1)).toBe('FX3: sensor width 35.64 mm → 35.6 mm');
+    await make('z', 'Angénieux');
+    await store.getState().applyWith((now) => ({ changes: gearKindChange(now, 'z', 'lens') }));
+    expect((await lines()).at(-1)).toBe('Angénieux is now: Lens');
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 70) }));
+    expect((await lines()).at(-1)).toBe('Angénieux: focal length 24–70 mm');
+    await store.getState().applyWith((now) => ({ changes: lensSqueezeChange(now, 'z', 2) }));
+    expect((await lines()).at(-1)).toBe('Angénieux: squeeze — → 2×');
+    const a = await frame();
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    const number = shotFields(records()[a]?.props ?? {}).number;
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux`);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    expect((await lines()).at(-1)).toBe(`${number}: no lens picked`);
+    // The item's own history names its fields; none shows an id.
+    const squeeze = await lastChange('z', 'squeeze');
+    expect([changeLabel(squeeze), changeValue(squeeze, squeeze.after)]).toEqual(['squeeze', '2×']);
+    expect((await lines()).join('\n')).not.toContain('camera_body');
+    setLocale('es');
+    expect((await lines()).at(-1)).toBe(`${number}: ninguna lente elegida`);
+    setLocale('en');
   });
 
   it('says a person’s Full view as on or off (3.6c)', async () => {
