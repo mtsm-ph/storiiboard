@@ -1,6 +1,7 @@
 import { t } from '../../../core/i18n';
 import { DEPARTMENTS, type Department } from '../../../core/model/department';
 import { sceneRoom, type PlanLayer, type PlanViewOf } from '../../../core/model/plan';
+import { LAYER_DEPARTMENT } from '../../../core/model/planLayers';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import type { GridSnap } from '../../../ui/canvas/scale';
@@ -17,15 +18,7 @@ import { toCanvas, toMetres } from './planScale';
 type Records = Readonly<Record<string, SbdRecord>>;
 
 /** The call sheet's department each icon group is listed under: lighting and grip are both grip and electric. */
-const GROUP_DEPARTMENT: Readonly<Record<PlanLayer, Department>> = {
-  camera: 'camera',
-  lighting: 'grip-electric',
-  grip: 'grip-electric',
-  'set-art': 'art',
-  cast: 'cast',
-  sound: 'sound',
-  production: 'production',
-};
+const GROUP_DEPARTMENT: Readonly<Record<PlanLayer, Department>> = LAYER_DEPARTMENT;
 
 const GROUP_WORDS = {
   camera: 'library.group.camera',

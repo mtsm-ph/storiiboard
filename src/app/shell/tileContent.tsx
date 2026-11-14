@@ -22,6 +22,7 @@ import { PlanTile } from '../../features/birdseye/plan/PlanTile';
 import { SelectionTile } from '../../features/birdseye/plan/SelectionTile';
 import { LibraryTile } from '../../features/birdseye/plan/LibraryTile';
 import { FramesTile } from '../../features/birdseye/plan/FramesTile';
+import { LayersTile } from '../../features/birdseye/plan/LayersTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -49,4 +50,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   selection: SelectionTile,
   library: LibraryTile,
   frames: FramesTile,
+  layers: LayersTile,
 };

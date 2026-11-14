@@ -4,7 +4,8 @@ import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
 import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind, type PlanLayer, type ShownItem } from '../../../core/model/plan';
+import { LAYER_ORDER, layeredItems, layerNote, layerOfItem, type LayerLook, type PlanLayerStates } from '../../../core/model/planLayers';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
@@ -55,6 +56,7 @@ import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { blockingLooks } from './markLooks';
+import { showAllLayers, soloLayer, usePlanLayerStates } from './layersStore';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -416,6 +418,36 @@ export function turnFor(event: { code: string; key: string; shiftKey?: boolean }
   return 0;
 }
 
+/**
+ * The layer keys on the plan (6.8): 1 to 7 solo the layers in the Layers tile's order (call-sheet order), 0 shows all.
+ * By the physical key, so AZERTY's unshifted digit row works too; never with a modifier or Shift (Shift+0, 1 and 2 are
+ * the canvas's zoom keys).
+ */
+export function layerKeyFor(event: { code: string; shiftKey?: boolean; altKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }): PlanLayer | 'all' | null {
+  if (event.shiftKey === true || event.altKey === true || event.metaKey === true || event.ctrlKey === true) return null;
+  const digit = /^(?:Digit|Numpad)([0-9])$/.exec(event.code)?.[1];
+  if (digit === undefined) return null;
+  return digit === '0' ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
+}
+
+/** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
+const layerData = (look: LayerLook | undefined) => ({ ...(look?.dim ? { dim: true } : {}), ...(look?.locked ? { locked: true } : {}) });
+
+/** "2 layers hidden · 1 locked" (6.8) and Show all, while any layer is hidden or locked, so a missing item isn't a mystery. */
+function LayersNote({ states }: { states: PlanLayerStates }) {
+  const { hidden, locked } = layerNote(states);
+  if (hidden === 0 && locked === 0) return null;
+  const parts = [hidden > 0 ? tn('layers.note.hidden', hidden) : null, locked > 0 ? tn('layers.note.locked', locked) : null].filter((p): p is string => p !== null);
+  return (
+    <p className="flex min-w-0 items-center gap-1.5 text-[12px]" data-layers-note="">
+      <span className="truncate">{parts.join(' · ')}</span>
+      <button type="button" data-layers-show-all="" className="sb-label h-7 shrink-0 px-1 underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4" onClick={showAllLayers}>
+        {t('layers.showAll')}
+      </button>
+    </p>
+  );
+}
+
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
 
 function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode; room: SbdRecord }) {
@@ -459,98 +491,106 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // or a lens changed on the board changes them with no edit to the plan.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const blocking = useMemo(() => blockingLooks(records, view, shown, unit, stored ?? []), [records, view.sceneId, view.setupId, shown, unit, stored, locale]);
-  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights, suns, blocking), [build, shown, unit, locale, looks, lights, suns, blocking]);
+  // The layers (6.8): a hidden layer's items are left out (a door or window with its wall), a dimmed one's drawn at the
+  // core's dim, a locked one's drawn and never picked. This computer's state, never the project's.
+  const layerStates = usePlanLayerStates();
+  const layered = useMemo(() => layeredItems(records, shown, layerStates), [records, shown, layerStates]);
+  const visible = layered.visible;
+  const built = useMemo(
+    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks),
+    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks],
+  );
   const scale = useMemo(() => planScale(unit), [unit]);
-  const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
+  const constrain = useMemo(() => planConstrain(visible, unit), [visible, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
   const [hover, setHover] = useState<Point | null>(null);
   const kind = openingKindOf(tool);
-  const spot = useMemo(() => (kind && hover ? openingSpot(shown, hover, kind, toMetres(scale.grid.step)) : null), [kind, hover, shown, scale]);
+  const spot = useMemo(() => (kind && hover ? openingSpot(visible, hover, kind, toMetres(scale.grid.step)) : null), [kind, hover, visible, scale]);
   const preview = useMemo((): CanvasItem | null => {
     if (!kind || !spot) return null;
     return openingItem('preview', { kind, wallId: spot.wallId, along: spot.along, width: OPENING_WIDTH[kind], hinge: 'start', swing: 'left', heightM: null, name: '' }, spot.wall, unit, true);
   }, [kind, spot, unit]);
   const items = useMemo(() => (preview ? [...built, preview] : built), [built, preview]);
-  // An undo that removed an item takes it out of the selection.
-  const selection = useMemo(() => (stored ?? []).filter((id) => built.some((item) => item.id === id)), [stored, built]);
+  // An undo that removed an item takes it out of the selection, and so does its layer hidden or locked (6.8).
+  const selection = useMemo(() => (stored ?? []).filter((id) => built.some((item) => item.id === id && item.locked !== true)), [stored, built]);
   const also = alsoInRoom(records, view.sceneId);
   const holder = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (takeFocus('canvas')) holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
   }, []);
   // What the plan holds, in metres, as plain data for the end-to-end tests (the canvas is pixels).
+  // Only what is drawn (6.8: a hidden layer's items are left out), each with how its layer draws it.
   const data = useMemo(() => {
-    const walls = new Map(shown.flatMap((item) => (isWallFields(item.fields) ? [[item.record.id, item.fields] as const] : [])));
-    return JSON.stringify(
-      shown.map(({ record, fields, level }) => {
-        // An icon (6.3): its box, its middle and its layer, worked out from its group.
-        if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
-        // A camera (6.4): an icon's, with what its cone and labels show.
-        if (isCamera(fields)) {
-          const look = looks.get(record.id);
-          // Its move (6.7): its positions' middles in order, from itself, and the move's length.
-          const path = blocking.paths.get(record.id);
-          const move = blocking.moves.get(record.id);
-          return {
-            id: record.id,
-            level,
-            layer: planItemLayer(record.props),
-            ...fields,
-            centre: iconCentre(fields),
-            cone: look?.degrees ?? null,
-            labels: look?.lines ?? [],
-            ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
-            ...(move !== undefined ? { moveM: Math.round(move * 10000) / 10000 } : {}),
-          };
-        }
-        // A mark (6.7): an icon's, with who it is, its number and its labels; an owner's first position carries the path.
-        if (isMark(fields)) {
-          const look = blocking.marks.get(record.id);
-          const of = viewBlocking(records, view.sceneId, view.setupId).numbers.get(record.id);
-          const path = blocking.paths.get(record.id);
-          return {
-            id: record.id,
-            level,
-            // On the camera layer only while its camera link reads (6.7 review: markLayer).
-            layer: itemLayer(records, record),
-            ...fields,
-            centre: iconCentre(fields),
-            owner: of?.owner ?? null,
-            number: of?.number ?? null,
-            count: of?.count ?? null,
-            drawnAs: look?.icon ?? null,
-            ghost: look?.ghost ?? false,
-            cone: look?.cone ?? null,
-            labels: look?.lines ?? [],
-            ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
-          };
-        }
-        // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
-        if (isLight(fields)) {
-          const look = lights.get(record.id);
-          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
-        }
-        if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
-        // The room's north (6.6): an icon's, its rotation the room's north.
-        if (isNorth(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
-        // A sun path (6.6): what it says (its label, or what it lacks) and, drawn, the sun's bearing and true height at its time.
-        if (isSun(fields)) {
-          const look = suns.get(record.id);
-          const numbers = sunNumbers(sunReading(records, record.id, zones), fields.time);
-          const sun = numbers ? { bearing: numbers.at.bearing, altitude: numbers.at.altitude, up: numbers.at.up, hours: numbers.path.hours.map((h) => h.hour) } : null;
-          const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
-          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun };
-        }
-        if (isWallFields(fields)) {
-          const [start, end] = wallEnds(fields);
-          return { id: record.id, level, ...fields, start, end, labels: heightLines(fields, unit, false) };
-        }
-        const wall = walls.get(fields.wallId);
-        return { id: record.id, level, ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
-      }),
-    );
+    const walls = new Map(visible.flatMap((item) => (isWallFields(item.fields) ? [[item.record.id, item.fields] as const] : [])));
+    const itemData = ({ record, fields, level }: ShownItem): Record<string, unknown> => {
+      // An icon (6.3): its box, its middle and its layer, worked out from its group.
+      if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
+      // A camera (6.4): an icon's, with what its cone and labels show.
+      if (isCamera(fields)) {
+        const look = looks.get(record.id);
+        // Its move (6.7): its positions' middles in order, from itself, and the move's length.
+        const path = blocking.paths.get(record.id);
+        const move = blocking.moves.get(record.id);
+        return {
+          id: record.id,
+          level,
+          layer: planItemLayer(record.props),
+          ...fields,
+          centre: iconCentre(fields),
+          cone: look?.degrees ?? null,
+          labels: look?.lines ?? [],
+          ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
+          ...(move !== undefined ? { moveM: Math.round(move * 10000) / 10000 } : {}),
+        };
+      }
+      // A mark (6.7): an icon's, with who it is, its number and its labels; an owner's first position carries the path.
+      if (isMark(fields)) {
+        const look = blocking.marks.get(record.id);
+        const of = viewBlocking(records, view.sceneId, view.setupId).numbers.get(record.id);
+        const path = blocking.paths.get(record.id);
+        return {
+          id: record.id,
+          level,
+          // On the camera layer only while its camera link reads (6.7 review: markLayer).
+          layer: itemLayer(records, record),
+          ...fields,
+          centre: iconCentre(fields),
+          owner: of?.owner ?? null,
+          number: of?.number ?? null,
+          count: of?.count ?? null,
+          drawnAs: look?.icon ?? null,
+          ghost: look?.ghost ?? false,
+          cone: look?.cone ?? null,
+          labels: look?.lines ?? [],
+          ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
+        };
+      }
+      // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
+      if (isLight(fields)) {
+        const look = lights.get(record.id);
+        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
+      }
+      if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
+      // The room's north (6.6): an icon's, its rotation the room's north.
+      if (isNorth(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+      // A sun path (6.6): what it says (its label, or what it lacks) and, drawn, the sun's bearing and true height at its time.
+      if (isSun(fields)) {
+        const look = suns.get(record.id);
+        const numbers = sunNumbers(sunReading(records, record.id, zones), fields.time);
+        const sun = numbers ? { bearing: numbers.at.bearing, altitude: numbers.at.altitude, up: numbers.at.up, hours: numbers.path.hours.map((h) => h.hour) } : null;
+        const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
+        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun };
+      }
+      if (isWallFields(fields)) {
+        const [start, end] = wallEnds(fields);
+        return { id: record.id, level, layer: layerOfItem(records, record), ...fields, start, end, labels: heightLines(fields, unit, false) };
+      }
+      const wall = walls.get(fields.wallId);
+      return { id: record.id, level, layer: layerOfItem(records, record), ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
+    };
+    return JSON.stringify(visible.map((item) => ({ ...itemData(item), ...layerData(layered.looks.get(item.record.id)) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
-  }, [shown, looks, lights, suns, blocking, unit, records, zonesKey]);
+  }, [visible, layered.looks, looks, lights, suns, blocking, unit, records, zonesKey]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -594,6 +634,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         <div className="flex h-7 empty:hidden">
           <SetupCopyOffer view={view} />
         </div>
+        <LayersNote states={layerStates} />
       </div>
       <div className="shrink-0" data-plan-tools="">
         <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
@@ -643,10 +684,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
               return false;
             }
             const point = { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
-            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, point, placing, toMetres(scale.grid.step));
+            const at = by === 'key' && walls[0] ? openingSpotInWall(visible, walls[0], placing) : openingSpot(visible, point, placing, toMetres(scale.grid.step));
             if (!at) {
               // Over a wall with no room left in it: it doesn't fit (6.2b review); over none: point at one.
-              showInfo(t(by === 'key' || wallAtPoint(shown, point) ? 'selection.openingRefused' : 'plan.pointAtWall'));
+              showInfo(t(by === 'key' || wallAtPoint(visible, point) ? 'selection.openingRefused' : 'plan.pointAtWall'));
               return false;
             }
             setHover(null);
@@ -666,6 +707,15 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));
           }}
           onKey={(event) => {
+            // 1 to 7 solo a layer, 0 shows all (6.8): the person's own view, never an edit.
+            const layerKey = layerKeyFor(event);
+            if (layerKey !== null) {
+              if (!event.repeat) {
+                if (layerKey === 'all') showAllLayers();
+                else soloLayer(layerKey);
+              }
+              return true;
+            }
             // [ and ] turn the selected cameras and lights 5° (Shift: 1°) the other way and clockwise (6.4, 6.5); with a modifier they
             // stay the canvas's order keys. Where [ needs AltGr (Spanish, German), comma and period do the same: free on
             // the plan (they step frames only in the Player), and on those layouts with no modifier at all.

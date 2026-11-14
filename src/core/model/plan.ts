@@ -523,8 +523,9 @@ export const boxFields = (props: Props): BoxFields | null =>
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
- * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door or window the set's (art). Null for
- * a kind this version doesn't show. A mark's needs its records (6.7 review): `cameraMark` says whether its camera link
+ * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door or window the set's (art); a measure
+ * production's. Null for the underlay (its own row, 6.9), an icon outside every group and a kind this version doesn't
+ * know: such an item is always drawn and picked, whatever the layers say (planLayers.ts). A mark's needs its records (6.7 review): `cameraMark` says whether its camera link
  * reads, which markLayer (planBlocking.ts) works out; read without it, a mark is cast blocking's.
  */
 export function planItemLayer(props: Props, cameraMark = false): PlanLayer | null {
@@ -537,7 +538,12 @@ export function planItemLayer(props: Props, cameraMark = false): PlanLayer | nul
   if (props.kind === 'sun') return 'lighting';
   // A mark (6.7): a camera's later position (its link reading) is the camera department's, any other cast blocking.
   if (props.kind === 'mark') return cameraMark ? 'camera' : 'cast';
+  // A stored path (none is written yet: 6.7's paths are worked out between positions) as its mark would be: a camera's
+  // the camera department's, any other (a character's, an eyeline) cast blocking's.
+  if (props.kind === 'path') return typeof props.camera_id === 'string' && props.camera_id !== '' ? 'camera' : 'cast';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
+  // A measure (6.9) is production's; the underlay (6.9) is its own row, never a department's: null.
+  if (props.kind === 'measure') return 'production';
   return null;
 }
 

@@ -58,6 +58,7 @@ import {
   type SunFields,
   type Swing,
 } from '../../../core/model/plan';
+import type { LayerLook } from '../../../core/model/planLayers';
 import { cameraMarks, markLayer, orderAfterLast, repointCamera, viewBlocking, type MarkOwner } from '../../../core/model/planBlocking';
 import { CONE_LENGTH_M, isCameraIcon, isTrackIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
@@ -250,6 +251,7 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
 
 /** No blocking worked out (a caller that draws no marks' looks): none, and no paths. */
 const NO_BLOCKING: BlockingLooks = { marks: new Map(), paths: new Map(), moves: new Map() };
+const NO_LAYERS: ReadonlyMap<string, LayerLook> = new Map();
 
 /** A camera with no look worked out yet: no cone, no label. */
 const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
@@ -484,10 +486,12 @@ export function planItemsBuilder(): (
   lights?: ReadonlyMap<string, LightLook>,
   suns?: ReadonlyMap<string, SunLook>,
   blocking?: BlockingLooks,
+  layers?: ReadonlyMap<string, LayerLook>,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
+  let layered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -620,7 +624,23 @@ export function planItemsBuilder(): (
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
-    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems];
+    // Each item's layer (6.8): a dimmed layer's drawn at the core's dim, a locked one's never picked. The state is part
+    // of the key: an item is made again only when it, or its layer's look, changed. A hidden layer's never come here.
+    const nextLayered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
+    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems].map((item) => {
+      const look = layers.get(item.id);
+      if (!look || (!look.dim && !look.locked)) return item;
+      const key = (look.dim ? 'dim' : '') + (look.locked ? 'locked' : '');
+      const was = layered.get(item.id);
+      if (was && was.from === item && was.look === key) {
+        nextLayered.set(item.id, was);
+        return was.item;
+      }
+      const made: CanvasItem = { ...item, ...(look.dim ? { dim: true } : {}), ...(look.locked ? { locked: true } : {}) };
+      nextLayered.set(item.id, { from: item, look: key, item: made });
+      return made;
+    });
+    layered = nextLayered;
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;

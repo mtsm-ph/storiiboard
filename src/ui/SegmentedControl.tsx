@@ -17,6 +17,8 @@ interface SegmentedControlProps<T extends string> {
   /** md: 30px cells, label above. sm: 18px cells, label beside, for the status bar. */
   size?: 'md' | 'sm';
   disabled?: boolean;
+  /** The label read by screen readers only, where the row around the control already shows what it is for (6.8's layers). */
+  hideLabel?: boolean;
 }
 
 export function SegmentedControl<T extends string>({
@@ -26,11 +28,12 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = 'md',
   disabled = false,
+  hideLabel = false,
 }: SegmentedControlProps<T>) {
   const labelId = useId();
   return (
     <div className={cx('flex', size === 'md' ? 'flex-col gap-[5px]' : 'items-center gap-2')}>
-      <span id={labelId} className={cx('sb-label', size === 'sm' && 'text-text-muted')}>
+      <span id={labelId} className={cx('sb-label', size === 'sm' && 'text-text-muted', hideLabel && 'sr-only')}>
         {label}
       </span>
       <div

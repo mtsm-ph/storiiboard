@@ -119,7 +119,8 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
   },
   {
     // Home of the bird's-eye view (CLAUDE.md, Navigation). Live from 6.0, with its Setups tile, the Plan and Selection
-    // tiles from 6.2a, the Library from 6.3 and the Frames tile from 6.4; the layers tile stays a placeholder until 6.8.
+    // tiles from 6.2a, the Library from 6.3, the Frames tile from 6.4 and the Layers tile from 6.8 (in the layout since 6.0,
+    // so no saved layout needs it added).
     id: 'setup',
     get label() {
       return t('workspace.setup');

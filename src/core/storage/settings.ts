@@ -2,6 +2,7 @@ import { DEFAULT_LOCALE, isLocaleId, type LocaleId } from '../i18n';
 import { isProjectRole, type ProjectRole } from '../model/departmentStatus';
 import { companyProfilesOf, type CompanyProfile } from '../model/company';
 import { DEPARTMENTS, type Department } from '../model/department';
+import { planLayerStatesOf, type PlanLayerStates } from '../model/planLayers';
 import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
 
@@ -135,6 +136,11 @@ export interface Settings {
    * the person then closes stays closed.
    */
   tilesOffered: string[];
+  /**
+   * The plan's layers (6.8), one state for every plan on this computer: each shown, dimmed or hidden, and locked or not.
+   * Null until the person first changes one (and in settings from before 6.8): then the start follows their department.
+   */
+  planLayers: PlanLayerStates | null;
 }
 
 export interface SavedCustomWorkspace {
@@ -226,6 +232,7 @@ export const DEFAULT_SETTINGS: Settings = {
   departmentWorkspaces: [],
   customWorkspaces: [],
   tilesOffered: [],
+  planLayers: null,
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -280,6 +287,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       tilesOffered: Array.isArray(saved.tilesOffered)
         ? [...new Set(saved.tilesOffered.filter((k): k is string => typeof k === 'string'))]
         : [],
+      planLayers: planLayerStatesOf(saved.planLayers),
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };
