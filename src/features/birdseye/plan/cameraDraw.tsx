@@ -104,9 +104,15 @@ export const HALO_PIXELS = 3;
 /**
  * A plan label's paper halo (6.6 review): the text stroked in the fixed paper colour under its ink, so a label stays
  * legible where it crosses a wall, a cone or a beam, with no box behind it. Plans only; the paper is the fixed one, as a
- * plan is never themed (decision 13). Spread into a Konva Text.
+ * plan is never themed (decision 13). Spread into a Konva Text drawn at `zoom`.
+ *
+ * Its width is worked out per zoom (6.6 second review): Konva's Text always scales its stroke with the view (its
+ * strokeScaleEnabled is ignored for text), so a fixed width was in plan units, too thin to show zoomed out and a slab of
+ * paper over walls and cones zoomed in. HALO_PIXELS / zoom is HALO_PIXELS on screen at every zoom.
  */
-export const LABEL_HALO = { stroke: PAPER, strokeWidth: HALO_PIXELS, strokeScaleEnabled: false, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
+export function labelHalo(zoom: number) {
+  return { stroke: PAPER, strokeWidth: HALO_PIXELS / zoom, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
+}
 
 /**
  * Labels under an item's middle, in mono, kept upright whatever way it is turned (a camera's, 6.4; a light's and any
@@ -146,7 +152,7 @@ export function UprightLabels({
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
-          {...LABEL_HALO}
+          {...labelHalo(zoom)}
           wrap="none"
           ellipsis
           listening={false}
@@ -272,7 +278,7 @@ export function BesideLabels({ width, height, zoom, rotation, colours, spec }: {
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
-          {...LABEL_HALO}
+          {...labelHalo(zoom)}
           wrap="none"
           listening={false}
         />

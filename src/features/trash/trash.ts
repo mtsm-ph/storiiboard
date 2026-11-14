@@ -288,8 +288,27 @@ export function restoreClash(records: Records, id: string): string | null {
  */
 export function northClash(records: Records, id: string): boolean {
   const record = records[id];
-  if (record?.type !== 'plan_item' || record.props.kind !== 'north' || record.trashedAt === null || record.parentId === null) return false;
-  return Object.values(records).some((r) => r.type === 'plan_item' && r.id !== id && r.trashedAt === null && r.parentId === record.parentId && r.props.kind === 'north');
+  if (!record || record.trashedAt === null) return false;
+  let top: SbdRecord | undefined = record;
+  while (top?.parentId) top = records[top.parentId];
+  return doublesNorth(records, restoreUnchecked(records, top?.id ?? '', id, NO_SLATE_NUMBERS));
+}
+
+/**
+ * Whether these changes would leave a room with more than one live north (6.6 second review). Worked out from the whole
+ * restore, not the north alone: a north restored while its room is in the Trash brings the room back with whatever
+ * north went with it, so looking only at the room's live items missed a second north coming back through it.
+ */
+function doublesNorth(records: Records, changes: readonly Change[]): boolean {
+  const back = new Set(changes.flatMap((c) => (c.kind === 'restore' ? [c.id] : [])));
+  const gone = new Set(changes.flatMap((c) => (c.kind === 'trash' ? [c.id] : [])));
+  const live = (r: SbdRecord) => !gone.has(r.id) && (r.trashedAt === null || back.has(r.id));
+  const isNorth = (r: SbdRecord | undefined): r is SbdRecord => r?.type === 'plan_item' && r.props.kind === 'north' && r.parentId !== null;
+  const rooms = new Set([...back].map((restoring) => records[restoring]).filter(isNorth).map((r) => r.parentId));
+  if (rooms.size === 0) return false;
+  const counts = new Map<string | null, number>();
+  for (const r of Object.values(records)) if (isNorth(r) && rooms.has(r.parentId) && live(r)) counts.set(r.parentId, (counts.get(r.parentId) ?? 0) + 1);
+  return [...counts.values()].some((count) => count > 1);
 }
 
 /**
@@ -341,6 +360,13 @@ export function trashItems(records: Records, projectId: string, unit: PlanUnit =
  * - the project's logo or key image comes back on its own; Settings → Theme makes it the theme's image again.
  */
 export function restoreChanges(records: Records, projectId: string, id: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
+  const changes = restoreUnchecked(records, projectId, id, slate);
+  // One north per room (6.6 review): whatever this brings back, never a room with two (northClash; the Trash says so).
+  return doublesNorth(records, changes) ? [] : changes;
+}
+
+/** restoreChanges' op group before the one-north check. */
+function restoreUnchecked(records: Records, projectId: string, id: string, slate: SlateNumbers): Change[] {
   const record = records[id];
   if (!record || record.trashedAt === null) return [];
   const parent = record.parentId ? records[record.parentId] : undefined;
@@ -392,8 +418,6 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       // A room comes back with the items that went to the Trash with it (6.2a), not ones deleted before.
       return restorePlanChanges(records, id);
     case 'plan_item': {
-      // A north whose room has one now stays in the Trash (northClash): never a second north.
-      if (northClash(records, id)) return [];
       // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
       const own: Change[] = parent?.type !== 'plan' || parent.trashedAt === null ? [{ kind: 'restore', id }] : restorePlanChanges(records, parent.id);
       // A wall comes back with the doors and windows that went with it; a door or window whose wall is in the Trash
@@ -401,7 +425,7 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       const openings = [...trashedWithWall(records, record), ...trashedWithCamera(records, record)].map((r): Change => ({ kind: 'restore', id: r.id }));
       const wallId = openingFields(record.props)?.wallId;
       const wall = wallId ? records[wallId] : undefined;
-      const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreChanges(records, projectId, wall.id, slate) : [];
+      const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreUnchecked(records, projectId, wall.id, slate) : [];
       const seen = new Set<string>();
       return [...withWall, ...own, ...openings, { kind: 'restore' as const, id }].filter((c) => {
         const key = c.kind === 'restore' ? c.id : null;

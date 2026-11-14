@@ -1,4 +1,5 @@
-import type { Geometry, Point, Rect } from './types';
+import type { Geometry, Point, Rect, Size, Viewport, ZoomLimits } from './types';
+import { FIT_PADDING, fitBounds, unionBounds } from './viewport';
 
 // Hit tests against rectangles that may be rotated (clockwise, round their centre), in world units.
 
@@ -49,6 +50,11 @@ export function fitBoundsOf(g: Geometry & { fitExtent?: Rect }): Rect {
   const x = Math.min(box.x, extent.x);
   const y = Math.min(box.y, extent.y);
   return { x, y, width: Math.max(box.x + box.width, extent.x + extent.width) - x, height: Math.max(box.y + box.height, extent.y + extent.height) - y };
+}
+
+/** The view Fit all and Fit selection give for these items (the canvas's own; each counted by fitBoundsOf). */
+export function fitViewOf(pool: readonly (Geometry & { fitExtent?: Rect })[], size: Size, limits: ZoomLimits): Viewport {
+  return fitBounds(unionBounds(pool.map(fitBoundsOf)), size, FIT_PADDING, limits.fitMax, limits);
 }
 
 const known = new WeakMap<object, { key: string; bounds: Rect }>();

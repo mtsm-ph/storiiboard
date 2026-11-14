@@ -343,6 +343,16 @@ test.describe('on a computer in Madrid', () => {
     await expect(current).toHaveAttribute('data-location-id', diner ?? '');
     await expect(current).toBeFocused();
     await expect(editor.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(/^diner$/i);
+    // The ask is cleared once the tile has used it (6.6 second review), so a later mount never reads it again.
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const load = async (path: string) => (await import(/* @vite-ignore */ path)) as Record<string, unknown>;
+          const { useShownLocation } = (await load('/src/features/locations/shownLocation.ts')) as { useShownLocation: { getState: () => { request: unknown } } };
+          return useShownLocation.getState().request;
+        }),
+      )
+      .toBeNull();
 
     // Its zone set there: New York's sun at 13:00, as USNO publishes it.
     await editor.getByRole('combobox', { name: 'Time zone' }).selectOption('America/New_York');

@@ -11,12 +11,16 @@ interface MenuProps {
   /** Which edge of the button the panel lines up with; right for menus at the window's right edge. */
   align?: 'left' | 'right';
   buttonClassName?: string;
+  /** The button's tooltip: its whole text where a narrow row cuts it short. */
+  buttonTitle?: string;
+  /** Added to the menu's own box (the button's and the panel's), so a row can let it shrink (min-w-0). */
+  className?: string;
   panelClassName?: string;
   /** The commands. `close` shuts the panel and returns focus to the button; call it from event handlers. */
   children: (close: () => void) => ReactNode;
 }
 
-export function Menu({ label, align = 'left', buttonClassName, panelClassName, children }: MenuProps) {
+export function Menu({ label, align = 'left', buttonClassName, buttonTitle, className, panelClassName, children }: MenuProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const triggerId = useId();
@@ -65,10 +69,11 @@ export function Menu({ label, align = 'left', buttonClassName, panelClassName, c
   };
 
   return (
-    <div ref={rootRef} className="relative flex h-full">
+    <div ref={rootRef} className={cx('relative flex h-full', className)}>
       <button
         id={triggerId}
         type="button"
+        title={buttonTitle}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => {

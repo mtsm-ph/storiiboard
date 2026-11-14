@@ -235,7 +235,18 @@ function RoomMenu({ sceneId, room, shared }: { sceneId: string; room: SbdRecord;
   const name = roomTitle(planFields(room.props));
   return (
     <>
-      <Menu label={<span data-user-text="">{t('plan.roomMenu', { name })}</span>} buttonClassName={MENU_BUTTON}>
+      {/* A long room name is cut short in a narrow tile (6.6 second review); the whole name stays its tooltip and its
+          accessible name (the text is all there, only clipped). */}
+      <Menu
+        label={
+          <span data-user-text="" className="min-w-0 truncate">
+            {t('plan.roomMenu', { name })}
+          </span>
+        }
+        buttonClassName={`${MENU_BUTTON} min-w-0 max-w-full`}
+        buttonTitle={t('plan.roomMenu', { name })}
+        className="min-w-0 max-w-full"
+      >
         {(close) => (
           <>
             <MenuGroup>
@@ -575,7 +586,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           box of its own height here, so nothing in the row can stretch it. */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
         {header}
-        <div className="flex h-7">
+        <div className="flex h-7 min-w-0 max-w-full">
           <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
         </div>
         <AlsoIn scenes={also} />
@@ -583,7 +594,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           <SetupCopyOffer view={view} />
         </div>
       </div>
-      <div data-plan-tools="">
+      <div className="shrink-0" data-plan-tools="">
         <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
       </div>
       <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>

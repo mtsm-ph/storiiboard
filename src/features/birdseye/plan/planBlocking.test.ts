@@ -13,7 +13,8 @@ import { DIM_OPACITY } from '../../../ui/canvas/ItemNodes';
 import { PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { restoreChanges, trashItems } from '../../trash/trash';
 import { cameraLooks } from './cameraLooks';
-import { blockingLooks } from './markLooks';
+import { iconNodes, iconNodesWith, type IconTexts } from './iconDraw';
+import { blockingLooks, characterInitial } from './markLooks';
 import { PathShape, segmentEnds } from './markDraw';
 import { markSizes, nextPosition, placeIcon, placeMark } from './planActions';
 import { cameraItem, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, trashPlanItemsChanges, turnChanges, turnsByKey, unreadableAfter } from './planItems';
@@ -324,5 +325,66 @@ describe('the builder’s rebuild rule (6.7)', () => {
     const spanish = items('feet', 'es');
     expect(find(spanish, first ?? '')).not.toBe(find(feet, first ?? ''));
     expect(find(spanish, first ?? '')?.label).toMatch(/posición 1 de 3/);
+  });
+});
+
+describe('the letter and number inside a character’s mark (6.7)', () => {
+  // The kit's cast-mark and next-position drawings print "A1" and "A2": a character's mark draws its own initial and
+  // number in their place, so BEN's first position never reads "A1" over a "BEN 1" label.
+  it('draws the character’s first letter and the position’s real number; a camera’s later position draws its icon', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const [a1, , a3] = await anaWalks(view);
+    expect(await placeMark(view, { x: 4, y: 4 }, project, store)).toBeNull();
+    const [b1] = selected(view);
+    await setMarkOwnerIn(view, b1 ?? '', 'ben');
+    const cam = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 6, y: 0 }, cam));
+    await nextPosition(view, cam, project, null, store);
+    const [ghost] = selected(view);
+    const build = planItemsBuilder();
+    const looks = () => blockingLooks(records(), view, shownItems(records(), sceneId, setupId), 'metres', []);
+    const items = () => {
+      const shown = shownItems(records(), sceneId, setupId);
+      return build(shown, 'metres', PAPER_COLOURS.ink, 'en', cameraLooks(records(), shown, 'metres', []), new Map(), new Map(), looks());
+    };
+    const textsOf = (id: string) => looks().marks.get(id)?.texts;
+    expect(textsOf(b1 ?? '')).toBe('B1');
+    expect(textsOf(a1 ?? '')).toBe('A1');
+    expect(textsOf(a3 ?? '')).toBe('A3');
+    expect(looks().marks.get(a3 ?? '')?.icon).toBe('cast/next-position');
+    // A camera's later position is the camera's own icon, with nothing replaced.
+    expect(looks().marks.get(ghost ?? '')).toMatchObject({ icon: 'camera/camera', ghost: true });
+    expect(textsOf(ghost ?? '')).toBeUndefined();
+
+    // Drawn: the icon's text part says "B1", "A3"; with no override (the Library's thumbnails), the kit's own.
+    const drawnText = (icon: string, texts: IconTexts | undefined) =>
+      (iconNodesWith(icon, texts) ?? []).flatMap((node) => {
+        const part = (node as ReactElement<{ part?: { text: string } }>).props.part;
+        return part ? [part.text] : [];
+      });
+    expect(drawnText('cast/cast-mark', 'B1')).toEqual(['B1']);
+    expect(drawnText('cast/next-position', 'A3')).toEqual(['A3']);
+    expect(drawnText('cast/cast-mark', undefined)).toEqual(['A1']);
+    expect(drawnText('cast/next-position', undefined)).toEqual(['A2']);
+    expect(iconNodesWith('cast/cast-mark', undefined)).toBe(iconNodes('cast/cast-mark'));
+    // A map replaces only the text it names.
+    expect(drawnText('cast/cast-mark', { A1: 'C1' })).toEqual(['C1']);
+    expect(drawnText('cast/cast-mark', { A2: 'C1' })).toEqual(['A1']);
+    const shape = (id: string) => {
+      const item = items().find((i) => i.id === id);
+      const drawn = item?.draw?.({ width: item.width, height: item.height, zoom: 1, colours: PAPER_COLOURS, inView: true });
+      return isValidElement(drawn) ? (drawn as ReactElement<{ texts?: string }>).props.texts : null;
+    };
+    expect(shape(b1 ?? '')).toBe('B1');
+
+    // Renamed, the mark is made again with the new initial; a character with no name draws "?".
+    const before = items().find((i) => i.id === b1);
+    await store.getState().apply([{ kind: 'update', id: 'ben', set: { name: 'zed' } }]);
+    expect(items().find((i) => i.id === b1)).not.toBe(before);
+    expect(shape(b1 ?? '')).toBe('Z1');
+    await store.getState().apply([{ kind: 'update', id: 'ben', set: { name: '  ' } }]);
+    expect(textsOf(b1 ?? '')).toBe('?1');
+    expect(characterInitial(records(), 'nobody')).toBe('?');
   });
 });

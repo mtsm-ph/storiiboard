@@ -4,7 +4,7 @@ import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konv
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
-import { boundsFor, boundsOf, fitBoundsOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
+import { boundsFor, boundsOf, fitViewOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 import { drawnItems } from './culling';
 import { beyondKey, ItemNodes, UPRIGHT, type RegisterNode } from './ItemNodes';
@@ -46,7 +46,7 @@ import {
   type ZoomLimits,
 } from './types';
 import { useCanvasColours } from './useCanvasColours';
-import { BOARD_ZOOM, centreOn, FIT_PADDING, fitBounds, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
+import { BOARD_ZOOM, centreOn, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
 
 // The canvas core (decision 11): a react-konva stage that pans, zooms, selects, moves, resizes and rotates rectangles in
 // world units and reports each finished gesture, never a half-done one. It knows nothing of boards: the host gives it
@@ -608,7 +608,7 @@ export function Canvas({
     if (which === 'selection' && pool.length === 0) return;
     const { limits: range } = latest.current;
     // An item's fit extent counts with its box (a plan's sun path, its circle); a board's items have none.
-    onViewportChange(fitBounds(unionBounds(pool.map(fitBoundsOf)), latest.current.size, FIT_PADDING, range.fitMax, range));
+    onViewportChange(fitViewOf(pool, latest.current.size, range));
   };
 
   const zoomTo = (zoom: number) => {

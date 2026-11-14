@@ -298,7 +298,8 @@ export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: M
   const ghost = look?.ghost === true;
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
-    const shape = icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
+    // A character's mark says its own letter and number in place of the kit's "A1" (look.texts).
+    const shape = icon ? createElement(IconShape, { icon, ...common, texts: look?.texts }) : createElement(UnknownIconShape, common);
     return ghost ? createElement(Group, { opacity: DIM_OPACITY, listening: false }, shape) : shape;
   };
   const cone = look?.cone ?? null;

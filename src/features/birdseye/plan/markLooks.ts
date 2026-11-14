@@ -29,6 +29,18 @@ export interface MarkLook {
   /** What it is called aloud. */
   say: string;
   selected: boolean;
+  /**
+   * The text drawn inside a character's mark in place of the kit's "A1" or "A2": the character's first letter and the
+   * position's number ("B1", "A3"), so it never contradicts the label beneath. Absent for a camera's and a plain mark.
+   */
+  texts?: string;
+}
+
+/** "B" for BEN: the first letter of the name as shown, upper case; "?" when it has none. */
+export function characterInitial(records: Records, id: string): string {
+  const character = records[id];
+  const first = Array.from((character ? characterName(character) : '').trim())[0];
+  return first === undefined ? '?' : first.toUpperCase();
 }
 
 export interface BlockingLooks {
@@ -104,6 +116,7 @@ export function blockingLooks(records: Records, view: { sceneId: string; setupId
         cone: null,
         say: t('plan.mark.say', { name: who, ...position }),
         selected: picked.has(id),
+        texts: `${characterInitial(records, owner.id)}${String(of.number)}`,
       });
       continue;
     }
