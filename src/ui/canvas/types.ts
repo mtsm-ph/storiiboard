@@ -89,6 +89,11 @@ export interface CanvasItem extends Geometry {
    * run's clicks join them too.
    */
   snapPoints?: readonly Point[];
+  /**
+   * Moved only, never resized or turned by the handles (6.2b: a door or window, whose shape and turn come from its
+   * wall). With one in the selection, the handles show its box and no anchors.
+   */
+  moveOnly?: boolean;
 }
 
 /** What makes an item a section: the name tab above its top left corner, and how the host draws it. */

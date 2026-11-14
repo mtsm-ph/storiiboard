@@ -351,6 +351,17 @@ unreadable value reads as not set, as every prop does.
   rooms only: "Start the room" makes one named after the scene's location (else the scene's name, else its slate label)
   with that `location_id`, and sets the scene's `room_id`, in one step. A setup's plan shows, back to front, the room's
   items, then the scene's blocking's, then the setup's own; a scene with no setup shows its room and blocking.
+  6.2b: a room is shared. "New room" makes one as above (whether or not the scene had a room); "Use a room already
+  drawn" sets the scene's `room_id` to a live room, in one step, leaving the room it had as it was. "Make a separate
+  copy" (only for a room another live scene uses) writes, in one step, a new room with every prop of the old one but
+  `name` ("<name> (SC 04)"), a copy of every live item in it (new ids, every prop kept; a door's or window's `wall_id`
+  points to the copied wall), and the scene's `room_id` set to the copy. "Delete room" (only for a room no other live
+  scene uses) trashes the room and its live items in one step; the scene keeps its `room_id`, which reads as no room.
+  "Start from another setup" copies a setup's live items into another setup's plan (made then, if it has none) in one
+  step, only while that setup has no items of its own; nothing links the two afterwards. "This setup only" moves
+  (a `move` op) an item from the room or the scene's blocking into the setup's plan (made then, if needed), and back
+  to the level its kind belongs to (the room for walls, doors, windows and set pieces; the blocking, made then if
+  needed, for marks and paths); a wall takes the doors and windows that sit in the same plan as it.
 - `plan_item`: an item's level is the plan it sits in.
   - Geometry reuses `board_item`'s names (see Boards), in metres instead of world units: `x` and `y` (the top left
     corner before rotation), `width` and `height`, `rotation` (degrees clockwise round the centre, 0 up to 360); z order
@@ -362,12 +373,25 @@ unreadable value reads as not set, as every prop does.
     end; its start and end are its middle line's ends. `height_m`: its real height, kept, not drawn; absent when not
     set. `name`: text, absent for none. A wall has no `points`. A run drawn point to point is one wall a segment, all
     in one step.
+  - A `door` or `window` (6.2b) has no `x`, `y`, `width`, `height` or `rotation`: its place is worked out from its
+    wall each time, so it moves, turns and stretches with it. `wall_id`: the `wall` it sits in (an opening whose wall
+    is missing, in the Trash or not shown in a view isn't shown there). `along_m`: metres from the wall's start (its
+    middle line's start) to the opening's middle, 0 or more (missing or negative: not read, kept unseen). `width_m`:
+    metres (missing or not above 0 reads as 0.9 for a door, 1.2 for a window). A door's `hinge` (6.2b): `start` or
+    `end`, the end of the opening, nearer the wall's start or its end, that its leaf turns on (anything else reads as
+    `start`); `swing` (6.2b): `left` or `right`, the side of the wall it opens to, seen going from the wall's start to
+    its end (anything else reads as `left`). Written with `hinge: "start"` and `swing: "left"`; a window has neither.
+    `height_m` and `name` as a wall's. An opening is kept inside its wall (half its width from each end) and clear of
+    the wall's other openings; a wall is never made shorter than its openings need (the largest `along_m` plus half
+    `width_m`). It sits in its wall's plan when put in; trashing a wall trashes its openings in the same step, and
+    restoring the wall brings those back.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `set_piece`, `icon`, `camera`, `light`, `flag`, `diffusion`,
     `mark`, `path`, `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and
     not shown.
   - `icon` (6.2 and 6.3): the plan icon library's id. `points` (6.2 and 6.3): a path's points (never a wall's), each
     `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3): metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
-    `width_m` (6.2 and 6.3): a door or window in its wall, its distance along it and its width, metres.
+    `width_m` (6.2b): a door or window in its wall, its distance along it and its width, metres; `hinge` and `swing`
+    (6.2b): a door's (above).
   - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),
     `shot_ids` (6.4: the frames shot from it), `shown_shot_id` (6.4: the frame whose field of view it draws),
     `lens_mm` and `lens_id` (6.4: only for a camera with no frame yet), `on_side` (6.4: true when turned for vertical

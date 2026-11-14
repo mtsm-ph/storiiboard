@@ -16,7 +16,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { setupFields } from '../../core/model/setup';
-import { planFields, planItemFields, restorePlanChanges, roomTitle } from '../../core/model/plan';
+import { openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -201,7 +201,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       // "Wall in Diner": what it is and the room, or the scene's plan, it was in.
       const plan = record.parentId ? records[record.parentId] : undefined;
       const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
-      const item = planItemFields(record.props) ? t('plan.item.wall') : t('trash.planItemUnknown');
+      const kind = shownFields(record.props)?.kind;
+      const item = kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }
@@ -278,6 +279,8 @@ export function trashItems(records: Records, projectId: string): TrashItem[] {
     if (isCompanyLogo(record)) continue;
     // A connector that went to the Trash with one of its items (5.2) comes back with it; the Trash lists the item.
     if (trashedWithItem(records, record)) continue;
+    // So does a door or window that went with its wall (6.2b): the Trash lists the wall.
+    if (record.type === 'plan_item' && openingTrashedWithWall(records, record)) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
@@ -360,9 +363,21 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       return restorePlanChanges(records, id);
     case 'plan_item': {
       // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
-      if (parent?.type !== 'plan' || parent.trashedAt === null) return [{ kind: 'restore', id }];
-      const plan = restorePlanChanges(records, parent.id);
-      return plan.some((c) => c.kind === 'restore' && c.id === id) ? plan : [...plan, { kind: 'restore', id }];
+      const own: Change[] = parent?.type !== 'plan' || parent.trashedAt === null ? [{ kind: 'restore', id }] : restorePlanChanges(records, parent.id);
+      // A wall comes back with the doors and windows that went with it; a door or window whose wall is in the Trash
+      // brings the wall back too, or it would come back into nothing (6.2b).
+      const openings = trashedWithWall(records, record).map((r): Change => ({ kind: 'restore', id: r.id }));
+      const wallId = openingFields(record.props)?.wallId;
+      const wall = wallId ? records[wallId] : undefined;
+      const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreChanges(records, projectId, wall.id, slate) : [];
+      const seen = new Set<string>();
+      return [...withWall, ...own, ...openings, { kind: 'restore' as const, id }].filter((c) => {
+        const key = c.kind === 'restore' ? c.id : null;
+        if (key === null) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.

@@ -34,11 +34,26 @@ test.afterEach(() => {
 
 interface Wall {
   id: string;
+  kind: string;
   width: number;
   height: number;
   rotation: number;
   start: { x: number; y: number };
   end: { x: number; y: number };
+}
+
+interface Opening {
+  id: string;
+  kind: string;
+  level: string;
+  wallId: string;
+  along: number;
+  width: number;
+  hinge: string;
+  swing: string;
+  fromStart: number;
+  fromEnd: number;
+  centre: { x: number; y: number };
 }
 
 const sections = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
@@ -47,7 +62,9 @@ const setupsTile = (page: Page) => page.getByRole('region', { name: 'Setups', ex
 const planTile = (page: Page) => page.getByRole('region', { name: 'Set plan', exact: true });
 const selectionTile = (page: Page) => page.getByRole('region', { name: 'Selection', exact: true });
 const canvas = (page: Page) => planTile(page).locator('[data-canvas]');
-const walls = async (page: Page): Promise<Wall[]> => JSON.parse((await planTile(page).locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as Wall[];
+const planData = async (page: Page): Promise<(Wall & Opening)[]> => JSON.parse((await planTile(page).locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as (Wall & Opening)[];
+const walls = async (page: Page): Promise<Wall[]> => (await planData(page)).filter((item) => item.kind === 'wall');
+const openings = async (page: Page): Promise<Opening[]> => (await planData(page)).filter((item) => item.kind !== 'wall');
 const widths = async (page: Page) => (await walls(page)).map((w) => w.width);
 const selection = async (page: Page): Promise<string[]> => JSON.parse((await canvas(page).getAttribute('data-selection')) ?? '[]') as string[];
 const mod = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
@@ -85,7 +102,7 @@ async function startRoom(page: Page) {
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 1');
   await expect(planTile(page)).toContainText('SC 01 has no room yet.');
-  await planTile(page).getByRole('button', { name: 'Start the room' }).click();
+  await planTile(page).getByRole('button', { name: 'New room' }).click();
   await expect(canvas(page)).toBeVisible();
   await expect(selectionTile(page)).toContainText('Used by 1 scene');
 }
@@ -201,7 +218,7 @@ test('a run of walls belongs to the view it began in: picking another setup writ
   await startRoom(page);
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 02' }).click();
   await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
-  await planTile(page).getByRole('button', { name: 'Start the room' }).click();
+  await planTile(page).getByRole('button', { name: 'New room' }).click();
   await expect(canvas(page)).toBeVisible();
 
   // Back on SC 01: a run of two fixed points, then SC 02's setup picked mid-run.
@@ -272,4 +289,236 @@ test('stays paper in dark, takes the keyboard, and passes axe on the Plan and Se
   expect(await canvas(page).evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(238, 233, 223)');
   await clickAt(page, 0, -150);
   await axe();
+});
+
+// 6.2b: doors and windows in walls, shared rooms and their copies.
+
+/** One 4 m wall across the middle of the view, from (-2 m, 0) to (2 m, 0). */
+async function drawWall(page: Page) {
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -200, 0);
+  await clickAt(page, 200, 0);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => widths(page)).toEqual([4]);
+}
+
+/** A drag on the canvas between two world points (canvas units). */
+async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
+  const a = await screen(page, from.x, from.y);
+  const b = await screen(page, to.x, to.y);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 10 });
+  await page.mouse.up();
+}
+
+test('puts a door and a window in a wall, slides and types the door’s place, flips it, and both follow the wall, through undo and a reload', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+
+  // The Door tool previews over the wall, and a click puts it there, snapped to the grid along it.
+  await canvas(page).focus();
+  await page.keyboard.press('d');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:door');
+  await moveTo(page, -100, 10);
+  await expect(planTile(page).locator('[data-plan-data]')).toHaveAttribute('data-plan-preview', /"along":1\b/);
+  await clickAt(page, -100, 10);
+  await expect.poll(async () => (await openings(page)).map((o) => [o.kind, o.along])).toEqual([['door', 1]]);
+  // Over no wall, the Window tool puts nothing; over the wall, a window.
+  await page.keyboard.press('n');
+  await clickAt(page, 100, 200);
+  await expect.poll(async () => (await openings(page)).length).toBe(1);
+  await page.keyboard.press('n');
+  await clickAt(page, 100, 0);
+  await expect.poll(async () => (await openings(page)).map((o) => [o.kind, o.along])).toEqual([
+    ['door', 1],
+    ['window', 3],
+  ]);
+
+  // The door slides along the wall by a drag (by its swing, clear of the wall), half a metre.
+  await drag(page, { x: -100, y: -40 }, { x: -50, y: 60 });
+  await expect.poll(async () => (await openings(page))[0]?.along).toBe(1.5);
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Door');
+  // Its distance from the wall's start, typed: its edge 0.50 m from the start.
+  await field(page, 'From wall start').fill('0.5 m');
+  await field(page, 'From wall start').press('Enter');
+  await expect.poll(async () => (await openings(page))[0]?.along).toBe(0.95);
+  await expect(field(page, 'From wall end')).toHaveValue('2.60 m');
+  // Over the window, refused, and nothing saved.
+  await field(page, 'From wall start').fill('2 m');
+  await field(page, 'From wall start').press('Enter');
+  await expect(page.getByText('That doesn’t fit: it would run off the wall or over another door or window.')).toBeVisible();
+  await expect.poll(async () => (await openings(page))[0]?.along).toBe(0.95);
+  // F flips its swing, Shift+F its hinge.
+  await canvas(page).focus();
+  await page.keyboard.press('f');
+  await expect.poll(async () => (await openings(page))[0]?.swing).toBe('right');
+  await page.keyboard.press('Shift+F');
+  await expect.poll(async () => (await openings(page))[0]?.hinge).toBe('end');
+  await expect(selectionTile(page).getByRole('combobox', { name: 'Opens to' })).toHaveValue('right');
+
+  // The wall moved a metre down: both follow.
+  await clickAt(page, 0, 0);
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Wall');
+  await drag(page, { x: 0, y: 0 }, { x: 0, y: 100 });
+  await expect.poll(async () => (await openings(page)).map((o) => Math.round(o.centre.y * 100) / 100)).toEqual([1, 1]);
+  // A wall can't be typed shorter than its openings need.
+  await field(page, 'Length').fill('3 m');
+  await field(page, 'Length').press('Enter');
+  await expect(page.getByText('Its doors and windows need the wall to be at least 3.60 m.')).toBeVisible();
+  await expect.poll(() => widths(page)).toEqual([4]);
+
+  // Undo takes the move back, and redo brings it again.
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await expect.poll(async () => (await openings(page)).map((o) => Math.round(o.centre.y * 100) / 100)).toEqual([0, 0]);
+  await page.keyboard.press(`${await mod(page)}+Shift+z`);
+  await expect.poll(async () => (await openings(page)).map((o) => Math.round(o.centre.y * 100) / 100)).toEqual([1, 1]);
+
+  // Deleting the wall takes its openings; the Trash lists the wall, and restoring it brings them back.
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await planData(page)).length).toBe(0);
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  const trash = page.getByRole('region', { name: 'Trash', exact: true });
+  await expect(trash.getByRole('button', { name: /^Restore plan item Door/ })).toHaveCount(0);
+  await trash.getByRole('button', { name: /^Restore plan item Wall in / }).click();
+  await expect.poll(async () => (await openings(page)).length).toBe(2);
+  const kept = await planData(page);
+
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await toSection(page, 'Setup');
+  await setupsTile(page).locator('[data-setup-select]').first().click();
+  await expect.poll(() => planData(page)).toEqual(kept);
+});
+
+test('the keyboard puts a door in the middle of the selected wall, and the Door and Window tools take their letters', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await clickAt(page, 0, 0);
+  await expect.poll(() => selection(page)).toHaveLength(1);
+  await page.keyboard.press('d');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await openings(page)).map((o) => [o.kind, o.along])).toEqual([['door', 2]]);
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  // The door is selected: arrows nudge it along the wall, a centimetre at a time.
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => (await openings(page))[0]?.along).toBe(2.01);
+  await page.keyboard.press('n');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:window');
+  await page.keyboard.press('Escape');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+});
+
+/** A frame in a scene, set at Diner from the "/" menu (a location typed is found by its name). */
+async function atDiner(page: Page, scene: string) {
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  await board.getByRole('button', { name: `+ Frame in ${scene}` }).click();
+  await expect(board.locator('[data-shot-id]').first()).toBeVisible();
+  await page.keyboard.press('/');
+  await page.keyboard.type('loc');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Diner');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('region', { name: 'Frame inspector', exact: true }).locator('span', { hasText: /^Diner$/ })).toBeVisible();
+}
+
+test('two scenes at one location share a room until one takes a separate copy, and a scene can use another room', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await atDiner(page, 'SC 01');
+  await atDiner(page, 'SC 02');
+  await startRoom(page);
+  await drawWall(page);
+
+  // SC 02's chooser offers the room already drawn at its location, with how many scenes use it; by the keyboard.
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 02' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 02 · Setup 1');
+  const choice = planTile(page).locator('[data-room-choice]');
+  await expect(choice).toHaveText(['DinerDiner · Used by 1 scene']);
+  await choice.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => widths(page)).toEqual([4]);
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+
+  // Drawn in one, seen in the other.
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, 200, 0);
+  await clickAt(page, 200, -100);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => widths(page)).toEqual([4, 1]);
+  const one = setupsTile(page).locator('section[aria-label="SC 01"] [data-setup-select]');
+  const two = setupsTile(page).locator('section[aria-label="SC 02"] [data-setup-select]');
+  await one.click();
+  await expect.poll(() => widths(page)).toEqual([4, 1]);
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 02');
+
+  // SC 02 takes a separate copy: a change there no longer reaches SC 01.
+  await two.click();
+  await planTile(page).getByRole('button', { name: 'Room: Diner', exact: true }).click();
+  await page.getByRole('button', { name: 'Make a separate copy' }).click();
+  await expect(planTile(page).getByRole('button', { name: 'Room: Diner (SC 02)', exact: true })).toBeVisible();
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveCount(0);
+  await clickAt(page, 0, 0);
+  await field(page, 'Length').fill('5 m');
+  await field(page, 'Length').press('Enter');
+  await expect.poll(() => widths(page)).toEqual([5, 1]);
+  await one.click();
+  await expect.poll(() => widths(page)).toEqual([4, 1]);
+
+  // Undo the length, then the copy: SC 02 is in the shared room again; redo both.
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await two.click();
+  await expect(planTile(page).getByRole('button', { name: 'Room: Diner', exact: true })).toBeVisible();
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+Shift+z`);
+  await page.keyboard.press(`${await mod(page)}+Shift+z`);
+  await expect(planTile(page).getByRole('button', { name: 'Room: Diner (SC 02)', exact: true })).toBeVisible();
+  await expect.poll(() => widths(page)).toEqual([5, 1]);
+
+  // "Use another room…": back to the shared one; the copy stays, offered in the list.
+  await planTile(page).getByRole('button', { name: 'Room: Diner (SC 02)', exact: true }).click();
+  await page.getByRole('button', { name: 'Use another room…' }).click();
+  const window = page.getByRole('dialog', { name: 'Use another room' });
+  await expect(window.locator('[data-room-choice]')).toHaveText(['DinerDiner · Used by 1 scene']);
+  await window.locator('[data-room-choice]').click();
+  await expect(window).toHaveCount(0);
+  await expect.poll(() => widths(page)).toEqual([4, 1]);
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[data-plan-tile]').withTags(tags).analyze()).violations).toEqual([]);
+  await planTile(page).getByRole('button', { name: 'Room: Diner', exact: true }).click();
+  await page.getByRole('button', { name: 'Use another room…' }).click();
+  await expect(window.locator('[data-room-choice]')).toHaveText(['Diner (SC 02)Diner · Used by 0 scenes']);
+  expect((await new AxeBuilder({ page }).include('dialog[open]').withTags(tags).analyze()).violations).toEqual([]);
+  await page.keyboard.press('Escape');
+
+  // After a reload, SC 02 is in the shared room and the copy is still there to use.
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await toSection(page, 'Setup');
+  await two.click();
+  await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+  await expect.poll(() => widths(page)).toEqual([4, 1]);
+});
+
+test('a door in the Selection tile passes axe', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  await canvas(page).focus();
+  await page.keyboard.press('d');
+  await clickAt(page, -100, 0);
+  await expect.poll(async () => (await openings(page)).length).toBe(1);
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Door');
+  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+  expect((await new AxeBuilder({ page }).include('[data-selection-tile]').withTags(tags).analyze()).violations).toEqual([]);
+  expect((await new AxeBuilder({ page }).include('[data-plan-tile]').withTags(tags).analyze()).violations).toEqual([]);
 });

@@ -43,10 +43,17 @@ export const PLAN_ZOOM: ZoomLimits = { min: 0.02, max: 20, fitMax: 4 };
 /** The Wall tool's id, a host tool of the canvas core. */
 export const WALL_TOOL = 'host:wall';
 
-/** The plan's tools (6.2a): Select, Hand and Wall; doors, windows and the library come in later milestones. */
+/** The Door and Window tools' ids (6.2b): a click on a wall puts one in it. */
+export const DOOR_TOOL = 'host:door';
+export const WINDOW_TOOL = 'host:window';
+
+/** The plan's tools (6.2a, 6.2b): Select, Hand, Wall, Door and Window; the library comes in 6.3. */
 export const PLAN_TOOLS: readonly ToolSpec[] = [
   { id: 'select', key: 'V', label: () => t('canvas.tool.select') },
   { id: 'hand', key: 'H', label: () => t('canvas.tool.hand') },
   // Drawn as thick as a wall is (10 cm), while it's drawn.
   { id: WALL_TOOL, key: 'W', label: () => t('plan.tool.wall'), pointToPoint: true, pathWidth: 10 },
+  // D for door; W is the wall's, so the window takes N (from "window"), which nothing else on a plan uses.
+  { id: DOOR_TOOL, key: 'D', label: () => t('plan.tool.door'), size: { width: 90, height: 10 } },
+  { id: WINDOW_TOOL, key: 'N', label: () => t('plan.tool.window'), size: { width: 120, height: 10 } },
 ];

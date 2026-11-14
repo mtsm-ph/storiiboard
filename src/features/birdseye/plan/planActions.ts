@@ -1,12 +1,31 @@
 import { projectStore } from '../../../app/projectStore';
-import { renamePlanChanges, sceneRoomId, shownItems, startRoomChanges } from '../../../core/model/plan';
+import { newRoomChanges, renamePlanChanges, sceneRoomId, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { copySetupChanges, deleteRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
-import { drawWallsChanges, planClipOf, planGeometryChanges, planNudgeChanges, planPasteChanges, reorderPlanChanges, trashPlanItemsChanges, viewKey, wallPatchChanges, type WallPatch } from './planItems';
+import {
+  drawWallsChanges,
+  flipDoorsChanges,
+  openingPatchChanges,
+  placeOpeningChanges,
+  planClipOf,
+  planGeometryChanges,
+  planNudgeChanges,
+  planPasteChanges,
+  reorderPlanChanges,
+  shownWalls,
+  trashPlanItemsChanges,
+  viewKey,
+  wallPatchChanges,
+  type OpeningPatch,
+  type OpeningSpot,
+  type WallPatch,
+} from './planItems';
 import { planStore } from './planStore';
 
-// What a person does on a plan (6.2a), as edits through projectStore.applyWith: each is one op group, so one ⌘Z, as a
-// board's are (src/features/moodboards/boardActions.ts). New items go into the scene's room in this milestone.
+// What a person does on a plan (6.2a, 6.2b), as edits through projectStore.applyWith: each is one op group, so one ⌘Z,
+// as a board's are (src/features/moodboards/boardActions.ts). New walls go into the scene's room; a door or window into
+// its wall's plan.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -33,8 +52,46 @@ export async function startRoom(sceneId: string): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: startRoomChanges(records, project.projectId, sceneId) }));
 }
 
+/** "New room" (6.2b): a new room for the scene, whether or not it had one; the old one is left as it is. */
+export async function newRoom(sceneId: string): Promise<boolean> {
+  const { project } = projectStore.getState();
+  if (!project) return false;
+  return projectStore.getState().applyWith((records) => ({ changes: newRoomChanges(records, project.projectId, sceneId) }));
+}
+
+/** "Use a room already drawn" (6.2b): the scene's `room_id`, one op. */
+export async function chooseRoom(sceneId: string, roomId: string): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: setRoomChanges(records, sceneId, roomId) }));
+}
+
+/** "Make a separate copy" (6.2b): the room and its items copied for this scene alone, one op group. */
+export async function separateCopy(sceneId: string): Promise<boolean> {
+  const { project } = projectStore.getState();
+  if (!project) return false;
+  return projectStore.getState().applyWith((records) => ({ changes: separateCopyChanges(records, project.projectId, sceneId) }));
+}
+
+/** "Delete room" (6.2b): only when no other scene uses it; the room and its items to the Trash. */
+export async function deleteRoom(sceneId: string): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: deleteRoomChanges(records, sceneId) }));
+}
+
 export async function renameRoom(roomId: string, name: string): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: renamePlanChanges(records, roomId, name) }));
+}
+
+/** "Start from another setup" (6.2b): that setup's items copied into this one, one op group. */
+export async function copySetup(view: PlanView, fromSetupId: string): Promise<boolean> {
+  const to = view.setupId;
+  if (to === null) return false;
+  return projectStore.getState().applyWith((records) => ({ changes: copySetupChanges(records, fromSetupId, to) }));
+}
+
+/** "This setup only" on or off (6.2b), for the selected items: moved into the setup's plan, or back to their level. */
+export async function setupOnly(view: PlanView, ids: readonly string[], on: boolean): Promise<boolean> {
+  const setupId = view.setupId;
+  if (setupId === null) return false;
+  return projectStore.getState().applyWith((records) => ({ changes: setupOnlyChanges(records, view.sceneId, setupId, ids, on) }));
 }
 
 /**
@@ -51,8 +108,16 @@ export async function drawWalls(view: PlanView, points: readonly Point[]): Promi
   if (written) select(view, ids);
 }
 
-export async function changePlanGeometry(changes: readonly GeometryChange[]): Promise<void> {
-  await projectStore.getState().applyWith((records) => ({ changes: planGeometryChanges(records, changes) }));
+/** A door or window put in a wall (6.2b), selected once it's written. */
+export async function placeOpening(view: PlanView, spot: OpeningSpot, kind: OpeningKind): Promise<void> {
+  const id = crypto.randomUUID();
+  const written = await projectStore.getState().applyWith((records) => ({ changes: placeOpeningChanges(records, spot, kind, id) }));
+  if (written) select(view, [id]);
+}
+
+/** A finished move, resize or turn; a door or window may land on any wall the view shows. */
+export async function changePlanGeometry(changes: readonly GeometryChange[], view?: PlanView): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: planGeometryChanges(records, changes, view ? shownWalls(shownItems(records, view.sceneId, view.setupId)) : undefined) }));
 }
 
 export async function nudgePlan(ids: readonly string[], dx: number, dy: number): Promise<void> {
@@ -102,4 +167,14 @@ export async function duplicatePlanSelection(view: PlanView): Promise<void> {
 /** A field changed in the Selection tile, on every selected wall it fits: one op group. */
 export async function changeWalls(ids: readonly string[], patch: WallPatch): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch) }));
+}
+
+/** A field changed on the selected doors and windows: one op group, nothing when it doesn't fit. */
+export async function changeOpenings(ids: readonly string[], patch: OpeningPatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: openingPatchChanges(records, ids, patch) ?? [] }));
+}
+
+/** F and Shift+F: the selected doors' swing or hinge flipped, one op group. */
+export async function flipDoors(ids: readonly string[], what: 'swing' | 'hinge'): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: flipDoorsChanges(records, ids, what) }));
 }

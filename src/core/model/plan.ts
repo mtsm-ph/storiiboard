@@ -24,9 +24,13 @@ export type PlanLevel = PlanKind;
 /** Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls only and keeps the rest unseen. */
 export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'set_piece', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws. */
-export type ShownKind = 'wall';
+/** The kinds this version draws: walls (6.2a), and the doors and windows in them (6.2b). */
+export type ShownKind = 'wall' | OpeningKind;
 const SHOWN_KINDS: readonly string[] = ['wall'];
+export const OPENING_KINDS = ['door', 'window'] as const;
+export type OpeningKind = (typeof OPENING_KINDS)[number];
+/** What a new door or window is: a standard interior door's width, a common window's (6.2b). */
+export const OPENING_WIDTH: Readonly<Record<OpeningKind, number>> = { door: 0.9, window: 1.2 };
 
 /** A wall's thickness when none is given: a typical interior wall. */
 export const WALL_THICKNESS = 0.1;
@@ -68,8 +72,9 @@ export function parseDegrees(typed: string): number | null {
   return /^-?(\d+(\.\d*)?|\.\d+)$/.test(text) ? normalDegrees(Number(text)) : null;
 }
 
+/** A wall's fields (6.2a). */
 export interface PlanItemFields {
-  kind: ShownKind;
+  kind: 'wall';
   /** The top left corner before rotation, metres. */
   x: number;
   y: number;
@@ -84,9 +89,9 @@ export interface PlanItemFields {
   name: string;
 }
 
-/** An item's props, or null when it isn't one this version shows (a later kind stays in the file, unseen). */
+/** A wall's props, or null when the item isn't a wall this version can read (doors and windows: `openingFields`). */
 export function planItemFields(props: Props): PlanItemFields | null {
-  const kind = typeof props.kind === 'string' && SHOWN_KINDS.includes(props.kind) ? (props.kind as ShownKind) : null;
+  const kind = typeof props.kind === 'string' && SHOWN_KINDS.includes(props.kind) ? 'wall' : null;
   if (kind === null) return null;
   const x = num(props.x);
   const y = num(props.y);
@@ -105,6 +110,58 @@ export function planItemFields(props: Props): PlanItemFields | null {
     name: text(props.name).trim(),
   };
 }
+
+export type Hinge = 'start' | 'end';
+export type Swing = 'left' | 'right';
+
+/**
+ * A door's or window's fields (6.2b). It has no place of its own: it sits in its wall (`wall_id`) with its middle
+ * `along_m` from the wall's start, `width_m` wide, so it moves, turns and stretches with the wall. A door's `hinge` is
+ * the end of the opening its leaf turns on (the one nearer the wall's start, or its end) and `swing` the side of the
+ * wall it opens to, seen walking from the wall's start to its end.
+ */
+export interface OpeningFields {
+  kind: OpeningKind;
+  wallId: string;
+  /** Metres from the wall's start to the opening's middle. */
+  along: number;
+  /** Metres. */
+  width: number;
+  hinge: Hinge;
+  swing: Swing;
+  /** Metres, when set: kept, not drawn (decision 11). */
+  heightM: number | null;
+  name: string;
+}
+
+/** A door's or window's props, or null when it isn't one that can be read (no wall, no place along it). */
+export function openingFields(props: Props): OpeningFields | null {
+  const kind = OPENING_KINDS.find((k) => k === props.kind);
+  if (!kind) return null;
+  const wallId = text(props.wall_id);
+  const along = num(props.along_m);
+  if (wallId === '' || along === null || along < 0) return null;
+  const width = num(props.width_m);
+  const heightM = num(props.height_m);
+  return {
+    kind,
+    wallId,
+    along,
+    width: width !== null && width > 0 ? Math.max(MIN_PLAN_SIZE, width) : OPENING_WIDTH[kind],
+    hinge: props.hinge === 'end' ? 'end' : 'start',
+    swing: props.swing === 'right' ? 'right' : 'left',
+    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    name: text(props.name).trim(),
+  };
+}
+
+/** Any item this version shows: a wall, a door or a window. */
+export type ShownFields = PlanItemFields | OpeningFields;
+
+/** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
+export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props);
+
+export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind !== 'wall';
 
 const livePlan = (records: Records, id: unknown, kind: PlanKind): SbdRecord | null => {
   if (typeof id !== 'string' || id === '') return null;
@@ -164,27 +221,57 @@ export function plansShown(records: Records, sceneId: string, setupId: string | 
 /** A plan's items, back to front: live ones of kinds this version shows (with `withTrashed`, those in the Trash too). */
 export function itemsOfPlan(records: Records, planId: string, withTrashed = false): SbdRecord[] {
   return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === planId && (withTrashed || r.trashedAt === null) && planItemFields(r.props) !== null)
+    .filter((r) => r.type === 'plan_item' && r.parentId === planId && (withTrashed || r.trashedAt === null) && shownFields(r.props) !== null)
     .sort(bySortKey);
 }
 
 export interface ShownItem {
   record: SbdRecord;
-  fields: PlanItemFields;
+  fields: ShownFields;
   level: PlanLevel;
 }
 
-/** What a setup's plan shows, back to front: the scene's room's items, then its blocking's, then the setup's own. */
+/**
+ * What a setup's plan shows, back to front: the scene's room's items, then its blocking's, then the setup's own. A door
+ * or window shows only while its wall is one the view shows, wherever either sits (a door made this setup's only, in a
+ * wall of the room).
+ */
 export function shownItems(records: Records, sceneId: string, setupId: string | null): ShownItem[] {
   const plans = plansShown(records, sceneId, setupId);
-  return (['room', 'blocking', 'setup'] as const).flatMap((level) => {
+  const all = (['room', 'blocking', 'setup'] as const).flatMap((level) => {
     const plan = plans[level];
     if (!plan) return [];
     return itemsOfPlan(records, plan.id).flatMap((record) => {
-      const fields = planItemFields(record.props);
+      const fields = shownFields(record.props);
       return fields ? [{ record, fields, level }] : [];
     });
   });
+  const walls = new Set(all.filter((item) => item.fields.kind === 'wall').map((item) => item.record.id));
+  return all.filter((item) => !isOpening(item.fields) || walls.has(item.fields.wallId));
+}
+
+/** The live openings in a wall, wherever they sit. */
+export function openingsOf(records: Records, wallId: string): { record: SbdRecord; fields: OpeningFields }[] {
+  return Object.values(records).flatMap((record) => {
+    if (record.type !== 'plan_item' || record.trashedAt !== null) return [];
+    const fields = openingFields(record.props);
+    return fields?.wallId === wallId ? [{ record, fields }] : [];
+  });
+}
+
+/** The openings that went to the Trash with their wall, in the same group (6.2b): they come back with it. */
+export function trashedWithWall(records: Records, wall: SbdRecord): SbdRecord[] {
+  if (wall.trashedAt === null) return [];
+  return Object.values(records).filter(
+    (r) => r.type === 'plan_item' && r.trashedAt === wall.trashedAt && r.trashedBy === wall.trashedBy && openingFields(r.props)?.wallId === wall.id,
+  );
+}
+
+/** Whether an opening went to the Trash with its wall: the Trash lists the wall, and the opening comes back with it. */
+export function openingTrashedWithWall(records: Records, record: SbdRecord): boolean {
+  const fields = record.trashedAt === null ? null : openingFields(record.props);
+  const wall = fields ? records[fields.wallId] : undefined;
+  return wall !== undefined && wall.trashedAt === record.trashedAt && wall.trashedBy === record.trashedBy;
 }
 
 /** The live scenes set in a room, in no particular order. */
@@ -213,8 +300,8 @@ export function trashedWithPlan(records: Records, plan: SbdRecord): SbdRecord[] 
 }
 
 /**
- * A plan (a room) and its live items to the Trash, in one group, so a restore brings it back whole (6.2b's Delete room;
- * nothing calls it yet). Items deleted before stay where they were. The scenes keep their `room_id`, which reads as no
+ * A plan (a room) and its live items to the Trash, in one group, so a restore brings it back whole (6.2b's Delete room,
+ * planRooms.ts). Items deleted before stay where they were. The scenes keep their `room_id`, which reads as no
  * room meanwhile.
  */
 export function trashPlanChanges(records: Records, planId: string): Change[] {
@@ -238,10 +325,24 @@ export function restorePlanChanges(records: Records, planId: string): Change[] {
 export function startRoomChanges(records: Records, projectId: string, sceneId: string, id: string = crypto.randomUUID()): Change[] {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null || sceneRoomId(records, scene) !== null) return [];
-  // After every plan under the project, the Trash's too, so a restored one never shares a key.
-  const last = Object.values(records)
-    .filter((r) => r.type === 'plan' && r.parentId === projectId)
+  return newRoomChanges(records, projectId, sceneId, id);
+}
+
+/** The last sort key among a parent's children of a type, the Trash's too, so a new one after it never ties with one coming back. */
+export function lastKeyUnder(records: Records, parentId: string, type: SbdRecord['type']): string | null {
+  return Object.values(records)
+    .filter((r) => r.type === type && r.parentId === parentId)
     .reduce<string | null>((key, r) => (key === null || r.sortKey > key ? r.sortKey : key), null);
+}
+
+/**
+ * "New room" (6.2b): a room under the project, named after the scene's place and taking its location, and the scene
+ * pointed at it, in one group, whether or not the scene had a room (the one it had is left as it is).
+ */
+export function newRoomChanges(records: Records, projectId: string, sceneId: string, id: string = crypto.randomUUID()): Change[] {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
+  const last = lastKeyUnder(records, projectId, 'plan');
   const { locationId } = sceneFields(scene.props);
   const location = locationId ? records[locationId] : undefined;
   const props: Props = { kind: 'room', name: defaultRoomName(records, scene) };
