@@ -113,6 +113,11 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         // A scene's room (6.2b), by its name as it was then; a plan item's plan, so a move says which level it went to.
         op.before?.props.room_id,
         op.after?.props.room_id,
+        // A mark's character and camera (6.7), by name as they were then.
+        op.before?.props.character_id,
+        op.after?.props.character_id,
+        op.before?.props.camera_id,
+        op.after?.props.camera_id,
         ...(op.before?.type === 'plan_item' || op.after?.type === 'plan_item' ? [op.before?.parentId, op.after?.parentId] : []),
       ]),
     );

@@ -5,7 +5,7 @@ import { closeSettings, openSettings } from './settings';
 
 // The library (6.3) in the memory build: a sofa dragged from the Library onto a scene's room reads 2.00 m by 0.90 m in
 // the Selection tile; a C-stand placed from the keyboard goes into the setup and the arrows nudge it; the scene's other
-// setup shows the sofa, not the C-stand; a table resized and turned by typing; a cast mark, not placeable yet, says why;
+// setup shows the sofa, not the C-stand; a table resized and turned by typing; the measure, not placeable yet, says why;
 // undo, redo and a reload; the plan stays paper in dark; and axe on the Library tile. The canvas is pixels, so the tests
 // read the plan from the data its tile keeps (data-plan-data, in metres).
 
@@ -194,18 +194,18 @@ test('resizes and turns a table by typing, refuses a light with words, and keeps
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await icons(page))[0]?.rotation).toBe(90);
 
-  // A cast mark comes later in this phase (cameras are placed from 6.4, lights from 6.5): greyed out, and it says so
-  // when dragged (with no ghost) or pressed.
-  const camera = libraryIcon(page, 'cast/cast-mark');
+  // The measure comes later in this phase (cameras are placed from 6.4, lights from 6.5, cast marks from 6.7): greyed
+  // out, and it says so when dragged (with no ghost) or pressed.
+  const camera = libraryIcon(page, 'production/measure');
   await expect(camera).toHaveAttribute('aria-disabled', 'true');
-  await expect(libraryTile(page).locator('[data-library-group="cast"]')).toContainText('Coming in this phase');
-  const comingNotice = page.getByText('Cast mark: coming in this phase.', { exact: true });
+  await expect(libraryTile(page).locator('[data-library-group="production"]')).toContainText('Greyed out: coming in this phase');
+  const comingNotice = page.getByText('Measure: coming in this phase.', { exact: true });
   await expect(comingNotice).toHaveCount(0);
   // The Library scrolled down to the table when it was placed.
   await camera.scrollIntoViewIfNeeded();
   const box = await camera.boundingBox();
   const target = await screen(page, 200, 200);
-  if (!box) throw new Error('no cast mark in the Library');
+  if (!box) throw new Error('no measure in the Library');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });

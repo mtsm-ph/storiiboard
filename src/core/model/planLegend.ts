@@ -1,4 +1,5 @@
-import { isCamera, isGrip, isLight, isOpening, isWallFields, PLAN_LAYERS, planItemLayer, shownItems, type GripFields, type PlanLayer } from './plan';
+import { isCamera, isGrip, isLight, isOpening, isWallFields, MARK_ICON, PLAN_LAYERS, planItemLayer, shownItems, type GripFields, type PlanLayer } from './plan';
+import { cameraPositions, moveLength, viewBlocking } from './planBlocking';
 import { cameraHeight, cameraTitle } from './planCamera';
 import { lightWatts } from './planLight';
 import { sceneNorth } from './planSun';
@@ -23,6 +24,14 @@ export interface LegendLine {
   height: LegendHeight | null;
   /** A light's watts, each; null when it has none (unknown). Absent for anything else. */
   watts?: number | null;
+  /** A camera's move (6.7), metres: from it through its later positions. Absent for one that doesn't move. */
+  move?: number;
+}
+
+/** A character's line (6.7): who, and how many positions the view shows for them. */
+export interface CastLine {
+  characterId: string;
+  positions: number;
 }
 
 export interface LegendGroup {
@@ -45,6 +54,8 @@ export interface PlanLegend {
   watts: { lights: number; known: number; unknown: number };
   /** The room's north (6.6), degrees clockwise from up the plan, when the room has one. Shown with the room. */
   north?: number;
+  /** The scene's characters with marks in the view (6.7), in the scene's order: the cast section. */
+  cast: CastLine[];
 }
 
 const heightKey = (h: LegendHeight | null): string => (h === null ? '' : 'metres' in h ? `m:${String(h.metres)}` : `f:${h.frame}`);
@@ -67,7 +78,10 @@ export function planLegend(
   const lines = new Map<PlanLayer, Map<string, LegendLine>>();
   const room = new Map<string, RoomLine>();
   const watts = { lights: 0, known: 0, unknown: 0 };
+  const blocking = viewBlocking(records, sceneId, setupId);
   for (const { record, fields } of shownItems(records, sceneId, setupId)) {
+    // A character's marks are its cast line (6.7), and a camera's later positions are its camera's move.
+    if (fields.kind === 'mark' && blocking.numbers.has(record.id)) continue;
     if (isWallFields(fields) || isOpening(fields)) {
       if (fields.heightM === null) continue;
       const key = `${fields.kind}\u0000${String(fields.heightM)}`;
@@ -91,9 +105,13 @@ export function planLegend(
       label = frameName(fields);
       height = fields.heightM === null ? null : { metres: fields.heightM };
     } else {
-      label = fields.name !== '' ? fields.name : iconName(fields.icon);
+      // A plain mark (6.7) is a tape mark whatever it was placed as.
+      label = fields.name !== '' ? fields.name : iconName(fields.kind === 'mark' ? MARK_ICON : fields.icon);
       height = fields.heightM === null ? null : { metres: fields.heightM };
     }
+    // A camera that moves (6.7): "moves 3.20 m" on its line; two cameras that move differently are two lines.
+    const positions = isCamera(fields) ? cameraPositions(records, { sceneId, setupId }, record.id) : [];
+    const move = positions.length > 1 ? Math.round(moveLength(positions) * 10000) / 10000 : undefined;
     let each: number | null | undefined;
     if (isLight(fields)) {
       each = lightWatts(records, record.id)?.watts ?? null;
@@ -101,12 +119,12 @@ export function planLegend(
       if (each === null) watts.unknown += 1;
       else watts.known += each;
     }
-    const key = `${label}\u0000${heightKey(height)}\u0000${each === undefined ? '-' : String(each)}`;
+    const key = `${label}\u0000${heightKey(height)}\u0000${each === undefined ? '-' : String(each)}\u0000${move === undefined ? '-' : String(move)}`;
     const group = lines.get(layer) ?? new Map<string, LegendLine>();
     lines.set(layer, group);
     const had = group.get(key);
     if (had) had.count += 1;
-    else group.set(key, { label, count: 1, height, ...(each === undefined ? {} : { watts: each }) });
+    else group.set(key, { label, count: 1, height, ...(each === undefined ? {} : { watts: each }), ...(move === undefined ? {} : { move }) });
   }
   const groups = PLAN_LAYERS.flatMap((layer): LegendGroup[] => {
     const group = lines.get(layer);
@@ -114,5 +132,6 @@ export function planLegend(
   });
   const roomLines = ROOM_ORDER.flatMap((kind) => [...room.values()].filter((line) => line.kind === kind));
   const north = sceneNorth(records, sceneId);
-  return { room: roomLines, groups, watts: { ...watts, known: Math.round(watts.known * 10) / 10 }, ...(north === null ? {} : { north }) };
+  const cast = blocking.characters.map((c): CastLine => ({ characterId: c.owner.id, positions: c.positions.length }));
+  return { room: roomLines, groups, watts: { ...watts, known: Math.round(watts.known * 10) / 10 }, ...(north === null ? {} : { north }), cast };
 }

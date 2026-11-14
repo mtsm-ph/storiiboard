@@ -19,6 +19,8 @@ export interface CameraLook {
   /** The label lines under the camera, top to bottom. */
   lines: readonly string[];
   selected: boolean;
+  /** Its edges alone, no fill (6.7: a camera's later position draws the same lens as thin edges). */
+  edgesOnly?: boolean;
 }
 
 const FILL_OPACITY = 0.08;
@@ -161,7 +163,7 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
     <>
       {points && (
         <>
-          <Line points={points} closed fill={colours.ink} opacity={FILL_OPACITY} listening={false} />
+          {look.edgesOnly !== true && <Line points={points} closed fill={colours.ink} opacity={FILL_OPACITY} listening={false} />}
           <Line
             points={[points[2], points[3], points[0], points[1], points[4], points[5]]}
             stroke={colours.ink}

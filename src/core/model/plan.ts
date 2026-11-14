@@ -30,9 +30,9 @@ export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'lig
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
 /**
  * The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras
- * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6).
+ * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6), and marks (6.7).
  */
-export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun';
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun' | 'mark';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -453,12 +453,47 @@ export function sunFields(props: Props): SunFields | null {
   return { kind: 'sun', icon: icon === '' ? SUN_ICON : icon, ...box, rotation: 0, time: CLOCK.test(time) ? time : DEFAULT_SUN_TIME };
 }
 
-/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
+/** The icon a plain mark (a T-mark on the floor) is drawn as, and the kit's drawings of a character's positions (6.7). */
+export const MARK_ICON = 'cast/tape-mark';
+export const CAST_MARK_ICON = 'cast/cast-mark';
+export const NEXT_POSITION_ICON = 'cast/next-position';
+
+/**
+ * A mark (6.7, decision 9): a box as an icon's, at the scene's blocking level when it is a character's or a plain one,
+ * at a setup's with its camera when it is one of a camera's later positions. Who it belongs to, as stored: a character
+ * (`character_id`) or a camera of its own plan (`camera_id`); planBlocking.ts reads them live, a stale one as none. Its
+ * number is worked out from plan order, never stored. `icon` says only what it was placed as: the drawing comes from
+ * who it belongs to and its number.
+ */
+export interface MarkFields {
+  kind: 'mark';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  characterId: string | null;
+  cameraId: string | null;
+}
+
+/** A mark's props, or null when it can't be read. */
+export function markFields(props: Props): MarkFields | null {
+  if (props.kind !== 'mark') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  return { kind: 'mark', icon: icon === '' ? MARK_ICON : icon, ...box, characterId: idOrNull(props.character_id), cameraId: idOrNull(props.camera_id) };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
 export const shownFields = (props: Props): ShownFields | null =>
-  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
+  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
@@ -468,10 +503,12 @@ export const isGrip = (fields: ShownFields): fields is GripFields => fields.kind
 export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
 export const isNorth = (fields: ShownFields): fields is NorthFields => fields.kind === 'north';
 export const isSun = (fields: ShownFields): fields is SunFields => fields.kind === 'sun';
+export const isMark = (fields: ShownFields): fields is MarkFields => fields.kind === 'mark';
 
-/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
-export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
-export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
+/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
+export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
+export const boxFields = (props: Props): BoxFields | null =>
+  iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
@@ -486,6 +523,8 @@ export function planItemLayer(props: Props): PlanLayer | null {
   // North and the sun path (6.6) by their icons' groups.
   if (props.kind === 'north') return 'production';
   if (props.kind === 'sun') return 'lighting';
+  // A mark (6.7): a camera's later position is the camera department's, any other cast blocking.
+  if (props.kind === 'mark') return typeof props.camera_id === 'string' && props.camera_id.trim() !== '' ? 'camera' : 'cast';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }

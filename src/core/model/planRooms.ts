@@ -17,6 +17,7 @@ import {
   trashPlanChanges,
   type PlanLevel,
 } from './plan';
+import { repointCamera } from './planBlocking';
 import { withoutFrameLinks } from './planCamera';
 import type { Props, SbdRecord } from './record';
 import { sceneSetups, type Setup } from './setup';
@@ -109,8 +110,9 @@ function copyItems(records: Records, fromPlanId: string, toPlanId: string, after
   const changes = items.map((r): Change => {
     const sortKey = keyBetween(previous, null);
     previous = sortKey;
-    // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
-    const props: Props = { ...withoutFrameLinks(r.props), copied_from: r.id };
+    // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame. A camera's mark
+    // (6.7) follows the camera's copy, or is a plain mark when its camera isn't copied with it.
+    const props: Props = { ...repointCamera(withoutFrameLinks(r.props), ids), copied_from: r.id };
     const wall = typeof props.wall_id === 'string' ? ids.get(props.wall_id) : undefined;
     if (wall) props.wall_id = wall;
     return { kind: 'create', record: { id: ids.get(r.id) ?? crypto.randomUUID(), type: 'plan_item', parentId: toPlanId, sortKey, props } };
@@ -285,8 +287,9 @@ export function iconHome(icon: string): PlanLevel {
   return 'setup';
 }
 
-/** The level an item belongs to: an icon's by its group, any other's by its kind. */
-export const itemHome = (props: Props): PlanLevel => (props.kind === 'icon' ? iconHome(iconIdOf(props)) : kindHome(props.kind));
+/** The level an item belongs to: an icon's by its group, a camera's mark (6.7) its camera's, any other's by its kind. */
+export const itemHome = (props: Props): PlanLevel =>
+  props.kind === 'icon' ? iconHome(iconIdOf(props)) : props.kind === 'mark' && typeof props.camera_id === 'string' && props.camera_id.trim() !== '' ? 'setup' : kindHome(props.kind);
 
 /**
  * "This setup only" (6.2b), on: the items moved (`move` ops) from the room or the scene's blocking into the setup's
@@ -351,6 +354,12 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
     if (level === 'setup' && !on) continue;
     const planId = target(level);
     if (planId === null) continue;
+    // A mark keeps its sort key (6.7): its number among its character's positions is its place in plan order, and a
+    // cheated mark is still the same position.
+    if (record.props.kind === 'mark') {
+      changes.push({ kind: 'move', id: record.id, parentId: planId, sortKey: record.sortKey });
+      continue;
+    }
     const previous = lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item');
     const sortKey = keyBetween(previous, null);
     lastKeys.set(planId, sortKey);

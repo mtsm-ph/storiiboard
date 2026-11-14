@@ -1,12 +1,14 @@
 import { useId, useMemo } from 'react';
 import { t, tn, type PluralBase } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
-import { planLegend, type LegendHeight, type RoomLine } from '../../../core/model/planLegend';
+import { PLAN_LAYERS } from '../../../core/model/plan';
+import { planLegend, type LegendGroup, type LegendHeight, type RoomLine } from '../../../core/model/planLegend';
 import type { SbdRecord } from '../../../core/model/record';
 import { choiceLabel, HEIGHT_LABEL } from '../../../core/model/storyboard';
 import { useLocale } from '../../../ui/useLocale';
 import { frameItemLabel, iconLabel } from './iconWords';
 import { groupName } from './library';
+import { characterTitle } from './markLooks';
 import { wattsLabel } from './lightLooks';
 import type { PlanView } from './planActions';
 import { degreesText } from './selectionFields';
@@ -106,19 +108,32 @@ export function LegendView({ records, view, unit }: { records: Records; view: Pl
           </ul>
         </div>
       )}
-      {legend.groups.length === 0 && legend.room.length === 0 && legend.north === undefined ? (
+      {legend.groups.length === 0 && legend.room.length === 0 && legend.north === undefined && legend.cast.length === 0 ? (
         <p className="text-[12px] text-text-muted">{t('legend.empty')}</p>
       ) : (
-        legend.groups.map((group) => (
+        // The cast section (6.7) heads the cast group: each character with how many positions it has, then the rest.
+        PLAN_LAYERS.flatMap((layer): LegendGroup[] => {
+          const group = legend.groups.find((g) => g.layer === layer);
+          if (group) return [group];
+          return layer === 'cast' && legend.cast.length > 0 ? [{ layer, lines: [] }] : [];
+        }).map((group) => (
           <div key={group.layer} className="flex flex-col gap-0.5" data-legend-group={group.layer}>
             <h4 className="sb-label">{groupName(group.layer)}</h4>
             <ul className="flex flex-col gap-0.5 text-[13px]">
+              {group.layer === 'cast' &&
+                legend.cast.map((line) => (
+                  <li key={line.characterId} data-legend-line="" data-legend-cast={line.characterId}>
+                    <span data-user-text="">{characterTitle(records, line.characterId)}</span>
+                    <span className="font-mono"> · {tn('legend.positions', line.positions)}</span>
+                  </li>
+                ))}
               {group.lines.map((line, i) => (
                 <li key={`${line.label}:${String(i)}`} data-legend-line="">
                   <span data-user-text="">{line.label}</span>
                   {line.count > 1 && <span className="font-mono"> {t('legend.count', { count: line.count })}</span>}
                   {line.height && <span className="font-mono"> · {heightText(line.height, unit)}</span>}
                   {line.watts !== undefined && <span className="font-mono"> · {line.watts === null ? t('legend.wattsNone') : wattsLabel(line.watts)}</span>}
+                  {line.move !== undefined && <span className="font-mono"> · {t('legend.moves', { length: formatLength(line.move, unit) })}</span>}
                 </li>
               ))}
             </ul>

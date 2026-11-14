@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ReactNode } from 'react';
-import { Line, Rect } from 'react-konva';
+import { Group, Line, Rect } from 'react-konva';
 import { getLocale, t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
@@ -9,6 +9,7 @@ import {
   isGrip,
   isIcon,
   isLight,
+  isMark,
   isNorth,
   isOpening,
   isSun,
@@ -32,7 +33,9 @@ import {
   wallsAlong,
   CAMERA_ICON,
   DEFAULT_SUN_TIME,
+  CAST_MARK_ICON,
   LIGHT_ICON,
+  MARK_ICON,
   NORTH_ICON,
   SUN_ICON,
   type BoxFields,
@@ -41,6 +44,7 @@ import {
   type Hinge,
   type IconFields,
   type LightFields,
+  type MarkFields,
   type NorthFields,
   type OpeningFields,
   type OpeningKind,
@@ -52,7 +56,8 @@ import {
   type SunFields,
   type Swing,
 } from '../../../core/model/plan';
-import { CONE_LENGTH_M, isCameraIcon, withoutFrameLinks } from '../../../core/model/planCamera';
+import { cameraMarks, repointCamera } from '../../../core/model/planBlocking';
+import { CONE_LENGTH_M, isCameraIcon, isTrackIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
 import { iconHome } from '../../../core/model/planRooms';
 import { roomNorthItem } from '../../../core/model/planSun';
@@ -64,11 +69,14 @@ import { keyBetween } from '../../../core/ops/order';
 import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
+import { DIM_OPACITY } from '../../../ui/canvas/ItemNodes';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
 import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cameraDraw';
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
+import { joinBeyond, pathBeyond, type PathLook } from './markDraw';
+import type { BlockingLooks, MarkLook } from './markLooks';
 import { sunBeyond, sunFitExtent, type SunLook } from './sunDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
 import { frameLabel, iconLabel, planIconOf } from './iconWords';
@@ -238,6 +246,9 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
   };
 }
 
+/** No blocking worked out (a caller that draws no marks' looks): none, and no paths. */
+const NO_BLOCKING: BlockingLooks = { marks: new Map(), paths: new Map(), moves: new Map() };
+
 /** A camera with no look worked out yet: no cone, no label. */
 const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
 
@@ -252,7 +263,7 @@ export const cameraAnnounce = (fields: CameraFields, unit: PlanUnit, look: Camer
  * A camera for the canvas (6.4): its icon at its real size, keeping its proportions, and past its box its field of view
  * and its labels (cameraDraw.tsx), which the canvas keeps drawn while the box is off screen.
  */
-export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, look: CameraLook): CanvasItem {
+export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, look: CameraLook, path: PathLook | null = null): CanvasItem {
   const icon = planIconOf(fields.icon) ?? planIconOf(CAMERA_ICON);
   const g = toCanvasGeometry(fields);
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
@@ -260,7 +271,47 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
-  return { id, ...g, label: cameraAnnounce(fields, unit, look), keepRatio: true, draw, beyond: cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min) };
+  // A camera that moves (6.7) carries its move's path, from it through each later position; Fit all takes them all in.
+  const beyond = joinBeyond(cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min), path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
+  // A track, a slider or a jib's arm (6.7) stretches along its length: its proportions aren't kept.
+  return {
+    id,
+    ...g,
+    label: cameraAnnounce(fields, unit, look),
+    ...(isTrackIcon(fields.icon) ? {} : { keepRatio: true }),
+    draw,
+    ...(beyond ? { beyond } : {}),
+    ...(path ? { fitExtent: path.fit } : {}),
+  };
+}
+
+/**
+ * A mark for the canvas (6.7): the kit's drawing for what it is, at its box (a character's first position, a later one,
+ * a plain tape mark; a camera's later position the camera's own icon, dimmed as the core dims a layer, its label at full
+ * ink so it stays legible), its upright label past its box, a camera's later position's cone as thin edges, and on an
+ * owner's first position the path through every position, which the canvas keeps drawn while the box is off screen.
+ */
+export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: MarkLook | null, path: PathLook | null = null): CanvasItem {
+  const icon = planIconOf(look?.icon ?? MARK_ICON) ?? planIconOf(MARK_ICON);
+  const g = toCanvasGeometry(fields);
+  const lines = look?.lines ?? (fields.name !== '' ? [fields.name] : []);
+  const ghost = look?.ghost === true;
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
+    const shape = icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
+    return ghost ? createElement(Group, { opacity: DIM_OPACITY, listening: false }, shape) : shape;
+  };
+  const cone = look?.cone ?? null;
+  const own =
+    ghost && cone !== null
+      ? cameraBeyond(g, { degrees: cone, lines, selected: look.selected, edgesOnly: true }, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min)
+      : lines.length > 0
+        ? labelsBeyond(g, lines, PLAN_ZOOM.min)
+        : undefined;
+  const beyond = joinBeyond(own, path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
+  const what = look?.say ?? iconLabel(MARK_ICON);
+  const label = t('plan.announce.icon', { what, width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) });
+  return { id, ...g, label, keepRatio: true, draw, ...(beyond ? { beyond } : {}), ...(path ? { fitExtent: path.fit } : {}) };
 }
 
 /** What the room's north is called aloud: "North, 35°". */
@@ -413,6 +464,7 @@ const isLightItem = (item: ShownItem): item is ShownItem & { fields: LightFields
 const isGripItem = (item: ShownItem): item is ShownItem & { fields: GripFields } => isGrip(item.fields);
 const isNorthItem = (item: ShownItem): item is ShownItem & { fields: NorthFields } => isNorth(item.fields);
 const isSunItem = (item: ShownItem): item is ShownItem & { fields: SunFields } => isSun(item.fields);
+const isMarkItem = (item: ShownItem): item is ShownItem & { fields: MarkFields } => isMark(item.fields);
 
 /**
  * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
@@ -428,10 +480,11 @@ export function planItemsBuilder(): (
   looks?: ReadonlyMap<string, CameraLook>,
   lights?: ReadonlyMap<string, LightLook>,
   suns?: ReadonlyMap<string, SunLook>,
+  blocking?: BlockingLooks,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map()) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -505,10 +558,12 @@ export function planItemsBuilder(): (
     // project's frame shape, the selection: read from other records) changed.
     const cameraItems = shown.filter(isCameraItem).map((item): CanvasItem => {
       const look = looks.get(item.record.id) ?? NO_LOOK;
-      const key = JSON.stringify(look);
+      // A camera that moves (6.7) is made again when any of its later positions moves too: it carries their path.
+      const path = blocking.paths.get(item.record.id) ?? null;
+      const key = JSON.stringify([look, path]);
       const same = kept(item, [], key);
       if (same) return same;
-      const made = cameraItem(item.record.id, item.fields, unit, look);
+      const made = cameraItem(item.record.id, item.fields, unit, look, path);
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
@@ -549,7 +604,20 @@ export function planItemsBuilder(): (
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
-    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems];
+    // Marks (6.7) over the set and under the setup's own items, so a camera's later positions draw under the cameras.
+    // Each is made again when its look changed (its number, its owner's name, a ghost camera's icon and lens, the
+    // selection, the language) or, on an owner's first position, any position of the path it carries.
+    const markItems = shown.filter(isMarkItem).map((item): CanvasItem => {
+      const look = blocking.marks.get(item.record.id) ?? null;
+      const path = blocking.paths.get(item.record.id) ?? null;
+      const key = JSON.stringify([look, path]);
+      const same = kept(item, [], key);
+      if (same) return same;
+      const made = markItem(item.record.id, item.fields, unit, look, path);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
+      return made;
+    });
+    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems];
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;
@@ -591,7 +659,7 @@ export function runRoomId(records: Records, sceneId: string): string | null {
 }
 
 /** The kinds of plan item an edit here writes: each must still read (shownFields) once the edit is written. */
-const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun'];
+const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun', 'mark'];
 
 /**
  * Whether these changes would leave a wall, door, window, icon or camera unreadable (6.3 review, M5): past the plan's
@@ -922,13 +990,17 @@ function nudgeUpdates(records: Records, ids: readonly string[], dx: number, dy: 
   });
 }
 
-/** The items to the Trash, in one group: a wall with the doors and windows in it, so a restore brings them back; an icon on its own. */
+/**
+ * The items to the Trash, in one group: a wall with the doors and windows in it, a camera with its later positions
+ * (6.7), so a restore brings them back; an icon on its own.
+ */
 export function trashPlanItemsChanges(records: Records, ids: readonly string[]): Change[] {
   const going = new Set<string>();
   for (const id of ids) {
     if (!liveBoxed(records, id) && !liveOpening(records, id)) continue;
     going.add(id);
     if (liveItem(records, id)) for (const o of openingsOf(records, id)) going.add(o.record.id);
+    if (records[id]?.props.kind === 'camera') for (const mark of cameraMarks(records, id)) going.add(mark.id);
   }
   return [...going].map((id): Change => ({ kind: 'trash', id }));
 }
@@ -1061,6 +1133,8 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     const wall = copies.get(item.fields.wallId);
     if (wall) make(item, { ...item.props, wall_id: wall });
   }
+  // A camera's mark (6.7) follows its camera's copy when the camera is pasted with it; else it is a plain mark.
+  for (const change of changes) if (change.kind === 'create' && change.record.props?.kind === 'mark') change.record.props = repointCamera(change.record.props, copies);
   // Pasted at a pointer past the plan's reach, the copies would never show: nothing is pasted.
   return unreadableAfter(records, changes) ? { ids: [], changes: [] } : { ids, changes };
 }
@@ -1300,8 +1374,10 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
   if (planId === null) return [];
   const tidy = (m: number) => Math.round(m * 10000) / 10000;
   // A camera icon is placed as a camera (6.4), a light as a light and a flag or diffusion frame as one (6.5), the icon it
-  // was placed as kept; north as the room's north and the sun path as a setup's, at noon (6.6); any other as an icon.
-  const kind = isCameraIcon(icon) ? 'camera' : isLightIcon(icon) ? 'light' : icon === NORTH_ICON ? 'north' : icon === SUN_ICON ? 'sun' : (gripKindOf(icon) ?? 'icon');
+  // was placed as kept; north as the room's north and the sun path as a setup's, at noon (6.6); a cast mark or a tape
+  // mark as a plain mark in the scene's blocking (6.7), given its character in the Selection tile; any other as an icon.
+  const markIcon = icon === CAST_MARK_ICON || icon === MARK_ICON;
+  const kind = isCameraIcon(icon) ? 'camera' : isLightIcon(icon) ? 'light' : icon === NORTH_ICON ? 'north' : icon === SUN_ICON ? 'sun' : markIcon ? 'mark' : (gripKindOf(icon) ?? 'icon');
   const props: Props = { kind, icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
   if (kind === 'sun') props.time = DEFAULT_SUN_TIME;
   const sortKey = keyBetween(changes.length > 0 ? null : lastKeyUnder(records, planId, 'plan_item'), null);
@@ -1321,6 +1397,7 @@ export function planPasteInView(
   clip: readonly PlanClip[],
   at: Point | null,
   newPlanId: string = crypto.randomUUID(),
+  newBlockingId: string = crypto.randomUUID(),
 ): { ids: string[]; changes: Change[]; leftOut: number; northKept?: number } {
   const base = pasteTarget(records, view);
   const plans = plansShown(records, view.sceneId, view.setupId);
@@ -1329,6 +1406,8 @@ export function planPasteInView(
   const hasSetup = setup?.type === 'setup' && setup.trashedAt === null && setup.parentId === view.sceneId;
   // Holders, since the target sets them as the paste reads each item.
   const made: { id: string | null } = { id: null };
+  const madeBlocking: { id: string | null } = { id: null };
+  const clipIds = new Set(clip.map((item) => item.id));
   const out = { count: 0, north: 0 };
   // One north per room (6.6): a paste never makes a second, into a room that has one or twice in one paste.
   const northIn = new Set<string>();
@@ -1350,9 +1429,19 @@ export function planPasteInView(
     if (isNorth(item.fields)) return roomFor(plans.room?.id ?? null);
     const from = item.planId ?? null;
     const fromSetup = planKindOf(records, from) === 'setup';
+    // A mark (6.7): a camera's goes with its camera when that is pasted too (into the setup shown, below); any other is a
+    // character's or a plain mark, into the scene's blocking (made now when it has none), or into the setup shown when
+    // it was a mark of that setup's only.
+    const withCamera = isMark(item.fields) && item.fields.cameraId !== null && clipIds.has(item.fields.cameraId);
+    if (isMark(item.fields) && !withCamera) {
+      if (item.fields.cameraId === null && from !== null && from === plans.setup?.id) return from;
+      if (plans.blocking) return plans.blocking.id;
+      madeBlocking.id = newBlockingId;
+      return newBlockingId;
+    }
     // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown; a sun path (6.6) too.
     const setupLevel =
-      fromSetup || item.fields.kind === 'camera' || isLight(item.fields) || isGrip(item.fields) || isSun(item.fields) || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
+      fromSetup || withCamera || item.fields.kind === 'camera' || isLight(item.fields) || isGrip(item.fields) || isSun(item.fields) || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
     if (!setupLevel || (from !== null && shown.has(from) && fromSetup)) return base(item);
     if (!hasSetup || view.setupId === null) {
       out.count += 1;
@@ -1367,8 +1456,11 @@ export function planPasteInView(
   // How many norths were left out, only when some were (the room has its one).
   const north = out.north > 0 ? { northKept: out.north } : {};
   if (pasted.changes.length === 0) return { ids: [], changes: [], leftOut: out.count, ...north };
-  const changes = made.id !== null && view.setupId !== null ? [newPlanChange(records, view.setupId, 'setup', made.id), ...pasted.changes] : pasted.changes;
-  return { ids: pasted.ids, changes, leftOut: out.count, ...north };
+  const plansMade = [
+    ...(madeBlocking.id !== null ? [newPlanChange(records, view.sceneId, 'blocking', madeBlocking.id)] : []),
+    ...(made.id !== null && view.setupId !== null ? [newPlanChange(records, view.setupId, 'setup', made.id)] : []),
+  ];
+  return { ids: pasted.ids, changes: [...plansMade, ...pasted.changes], leftOut: out.count, ...north };
 }
 
 /** What the Selection tile changes on icons (6.3); each field it leaves out stays as it is. */
@@ -1444,7 +1536,13 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
  * (6.5 review), set at an angle to a light, and the room's north (6.6), whose turn is the room's north. Never a sun path.
  */
 export const turnsByKey = (fields: ShownFields): boolean =>
-  fields.kind === 'camera' || fields.kind === 'light' || fields.kind === 'flag' || fields.kind === 'diffusion' || fields.kind === 'north';
+  fields.kind === 'camera' ||
+  fields.kind === 'light' ||
+  fields.kind === 'flag' ||
+  fields.kind === 'diffusion' ||
+  fields.kind === 'north' ||
+  // A camera's later position (6.7) points, as its camera does.
+  (fields.kind === 'mark' && fields.cameraId !== null);
 
 /** [ and ] or comma and period (6.4): each selected camera, light or frame turned by `by` degrees from where it points now, round its middle; one group. */
 export function turnChanges(records: Records, ids: readonly string[], by: number): Change[] {

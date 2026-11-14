@@ -30,6 +30,13 @@ export const CONE_LENGTH_M = 6;
 export const CAMERA_ICONS = ['camera/camera', 'camera/sticks', 'camera/dolly-track', 'camera/slider', 'camera/jib-crane', 'camera/gimbal', 'camera/handheld', 'camera/steadicam', 'camera/drone'] as const;
 export const isCameraIcon = (icon: string): boolean => (CAMERA_ICONS as readonly string[]).includes(icon);
 
+/**
+ * The cameras placed as a length of track (6.7): a dolly track, a slider, a jib's arm. Its longer side is its real
+ * length, labelled "3.00 m track", and it resizes along it without keeping its proportions.
+ */
+export const TRACK_ICONS: ReadonlySet<string> = new Set(['camera/dolly-track', 'camera/slider', 'camera/jib-crane']);
+export const isTrackIcon = (icon: string): boolean => TRACK_ICONS.has(icon);
+
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** A live camera, with its fields. */

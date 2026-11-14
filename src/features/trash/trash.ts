@@ -19,7 +19,9 @@ import { setupFields } from '../../core/model/setup';
 import { frameLabel, iconLabel } from '../birdseye/plan/iconWords';
 import { planUnitNow } from '../../app/planUnits';
 import type { PlanUnit } from '../../core/model/length';
-import { isGrip, openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
+import { isGrip, isMark, MARK_ICON, openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
+import { markOwner, markTrashedWithCamera, trashedWithCamera } from '../../core/model/planBlocking';
+import { characterTitle } from '../birdseye/plan/markLooks';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -211,7 +213,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind, unit: Pla
       // A camera (6.4) or a light (6.5) by the icon it was placed as: "Dolly track", "Fresnel"; a flag or diffusion
       // frame by its kind and size, never its icon's ("Diffusion · 8×8", in the unit the plan shows: 6.5 review).
       const grip = shown && isGrip(shown) ? shown : null;
-      const item = grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      // A mark (6.7) by whose it is: "ANA's mark", a camera's position, else a tape mark.
+      const owner = shown && isMark(shown) ? markOwner(records, record) : null;
+      const mark = shown && isMark(shown) ? (owner?.kind === 'character' ? t('plan.mark.ofCharacter', { name: characterTitle(records, owner.id) }) : owner?.kind === 'camera' ? t('plan.mark.cameraKind') : iconLabel(MARK_ICON)) : null;
+      const item = mark !== null ? mark : grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }
@@ -304,6 +309,8 @@ export function trashItems(records: Records, projectId: string, unit: PlanUnit =
     if (trashedWithItem(records, record)) continue;
     // So does a door or window that went with its wall (6.2b): the Trash lists the wall.
     if (record.type === 'plan_item' && openingTrashedWithWall(records, record)) continue;
+    // And a camera's later position that went with its camera (6.7): the Trash lists the camera.
+    if (record.type === 'plan_item' && markTrashedWithCamera(records, record)) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
@@ -391,7 +398,7 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       const own: Change[] = parent?.type !== 'plan' || parent.trashedAt === null ? [{ kind: 'restore', id }] : restorePlanChanges(records, parent.id);
       // A wall comes back with the doors and windows that went with it; a door or window whose wall is in the Trash
       // brings the wall back too, or it would come back into nothing (6.2b).
-      const openings = trashedWithWall(records, record).map((r): Change => ({ kind: 'restore', id: r.id }));
+      const openings = [...trashedWithWall(records, record), ...trashedWithCamera(records, record)].map((r): Change => ({ kind: 'restore', id: r.id }));
       const wallId = openingFields(record.props)?.wallId;
       const wall = wallId ? records[wallId] : undefined;
       const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreChanges(records, projectId, wall.id, slate) : [];

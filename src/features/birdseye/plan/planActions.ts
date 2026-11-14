@@ -3,7 +3,8 @@ import { showInfo } from '../../../app/notice';
 import { projectStore, type ProjectState } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
-import { NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
+import { markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
 import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import {
@@ -49,6 +50,7 @@ import {
   type OpeningSpot,
   type WallPatch,
 } from './planItems';
+import { iconSize } from './iconSizes';
 import { planStore } from './planStore';
 
 // What a person does on a plan (6.2a, 6.2b), as edits through projectStore.applyWith: each is one op group, so one ⌘Z,
@@ -252,7 +254,7 @@ export async function flipDoors(ids: readonly string[], what: 'swing' | 'hinge')
  * Why a placement wrote nothing: a refusal the Library says, the drag or key ended in another project than it began, or
  * (6.6) north placed in a room that has one, which is selected instead.
  */
-export type PlaceOutcome = IconRefusal | 'otherProject' | 'hasNorth' | null;
+export type PlaceOutcome = IconRefusal | 'otherProject' | 'hasNorth' | 'noOwner' | 'saidAlready' | null;
 
 /**
  * A library icon placed in a view (6.3), its middle at `centre` (metres): one op group, the setup's plan made in it
@@ -263,6 +265,8 @@ export type PlaceOutcome = IconRefusal | 'otherProject' | 'hasNorth' | null;
 export async function placeIcon(view: PlanView, icon: string, centre: { x: number; y: number }, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<PlaceOutcome> {
   // Checked before the edit is queued: applyWith takes the project open when it's called as the one the edit is for.
   if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
+  // The Library's next position (6.7) follows the one mark or camera selected: dropped, where it was dropped.
+  if (icon === NEXT_POSITION_ICON) return nextFromSelection(view, madeIn, centre, store);
   const id = crypto.randomUUID();
   const refused: { why: IconRefusal | null; north: string | null } = { why: null, north: null };
   const written = await store.getState().applyWith((records) => {
@@ -279,6 +283,79 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
   if (written && store.getState().project === madeIn) select(view, [id]);
   return null;
 }
+
+// Marks (6.7), each one op group, worked out from the records as it lands and through the one check every plan write
+// makes (unreadableAfter). A placement writes only into the project it began in (`madeIn`), as placeIcon's does.
+
+/** Why a mark wasn't placed: no room shown (a plan needs one), a plain mark has no next position, or nothing to follow. */
+export type MarkOutcome = 'noRoom' | 'plainMark' | 'nothing' | 'otherProject' | null;
+
+/** The Mark tool (6.7): a plain mark, its middle at `centre` (metres), in the scene's blocking (made in the same step); selected. */
+export async function placeMark(view: PlanView, centre: Point, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<MarkOutcome> {
+  if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
+  const id = crypto.randomUUID();
+  const size = iconSize(MARK_ICON) ?? { width: 0.3, depth: 0.3 };
+  const why: { refused: MarkOutcome } = { refused: null };
+  const written = await store.getState().applyWith((records) => {
+    if (runRoomId(records, view.sceneId) === null) {
+      why.refused = 'noRoom';
+      return { changes: [] };
+    }
+    const changes = placeMarkChanges(records, view, centre, size, null, id);
+    return { changes: unreadableAfter(records, changes) ? [] : changes };
+  });
+  if (why.refused !== null) return why.refused;
+  if (written && store.getState().project === madeIn) select(view, [id]);
+  return null;
+}
+
+/**
+ * "Next position" (6.7) for the mark or camera `fromId`: a new position 1 m to the right of its owner's last one (or at
+ * `at`, metres, when dropped from the Library), selected, so the arrows and a drag put it in place. A plain mark has no
+ * next position: said.
+ */
+export async function nextPosition(view: PlanView, fromId: string, madeIn: Project | null, at: Point | null = null, store: StoreApi<ProjectState> = projectStore): Promise<MarkOutcome> {
+  if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
+  const id = crypto.randomUUID();
+  const size = iconSize(NEXT_POSITION_ICON) ?? { width: 0.5, depth: 0.5 };
+  const why: { refused: MarkOutcome } = { refused: null };
+  const written = await store.getState().applyWith((records) => {
+    if (ownerIn(records, view, fromId) === null) {
+      why.refused = records[fromId]?.props.kind === 'mark' ? 'plainMark' : 'nothing';
+      return { changes: [] };
+    }
+    const changes = nextPositionChanges(records, view, fromId, size, at, id);
+    return { changes: unreadableAfter(records, changes) ? [] : changes };
+  });
+  if (why.refused !== null) {
+    if (store.getState().project === madeIn) showInfo(t(why.refused === 'plainMark' ? 'plan.mark.plainNoNext' : 'plan.mark.selectFirst'));
+    return why.refused;
+  }
+  if (written && store.getState().project === madeIn) select(view, [id]);
+  return null;
+}
+
+/**
+ * The Library's next position (6.7): after the one mark or camera selected, 1 m to the right of its last position, or
+ * where it was dropped (`at`). With no one mark or camera selected, nothing: the Library says so ('noOwner').
+ */
+export async function nextFromSelection(view: PlanView, madeIn: Project | null, at: Point | null, store: StoreApi<ProjectState> = projectStore): Promise<PlaceOutcome> {
+  const picked = planSelection(store.getState().records, view);
+  const [from] = picked;
+  if (picked.length !== 1 || from === undefined) return 'noOwner';
+  const outcome = await nextPosition(view, from, madeIn, at, store);
+  return outcome === null ? null : outcome === 'otherProject' ? 'otherProject' : 'saidAlready';
+}
+
+/** The selected marks given to a character, a camera or no one (6.7): one op group. */
+export const setMarkOwner = (view: PlanView, ids: readonly string[], choice: OwnerChoice) =>
+  plannedEdit((r) => markOwnerChanges(r, view, ids, choice, markSizes()));
+
+/** The sizes a mark takes when it becomes a character's or a plain one (iconSizes.ts). */
+export const markSizes = () => ({ character: iconSize(CAST_MARK_ICON) ?? { width: 0.5, depth: 0.5 }, plain: iconSize(MARK_ICON) ?? { width: 0.3, depth: 0.3 } });
+
+/** A position moved earlier or later among its owner's (6.7): one op group. */
+export const movePosition = (view: PlanView, id: string, by: -1 | 1) => plannedEdit((r) => movePositionChanges(r, view, id, by));
 
 /** A field changed on the selected icons in the Selection tile: one op group. */
 export async function changeIcons(ids: readonly string[], patch: IconPatch): Promise<boolean> {

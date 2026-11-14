@@ -365,3 +365,51 @@ describe('History for north and the sun path (6.6)', () => {
     expect(tell([op('update', sun(), sun({ time: '14:30' }))])).toBe('Se puso la hora del recorrido del sol en 14:30');
   });
 });
+
+// 6.7: a mark placed (a character's, a next position, a tape mark), given to someone or made plain, moved earlier or
+// later among its owner's positions, deleted and restored; a camera deleted with its later positions as the camera.
+describe('History for marks (6.7)', () => {
+  const blk = record('blk', 'plan', 'sc4', { kind: 'blocking', name: '' });
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const ana = record('ana', 'character', 'p', { name: 'ANA' });
+  const cam = record('cam', 'plan_item', 'own', { kind: 'camera', icon: 'camera/dolly-track', x: 0, y: 0, width: 1, height: 3, rotation: 0 });
+  const box = { x: 0, y: 0, width: 0.5, height: 0.5, rotation: 0 };
+  const mark = (props: Props = {}, sortKey = 'm', parentId = 'blk') => ({ ...record('k', 'plan_item', parentId, { kind: 'mark', icon: 'cast/tape-mark', ...box, ...props }), sortKey });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['blk', blk], ['own', own], ['ana', ana], ['cam', cam]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+
+  it('says a mark was placed, named by whose it is', () => {
+    expect(tell([op('create', null, blk), op('create', null, mark())])).toBe('Placed a tape mark');
+    expect(tell([op('create', null, mark({ icon: 'cast/cast-mark', character_id: 'ana' }))])).toBe('Placed ANA’s mark');
+    expect(tell([op('create', null, mark({ icon: 'cast/next-position', character_id: 'ana' }))])).toBe('Added a next position for ANA');
+    expect(tell([op('create', null, mark({ icon: 'cast/next-position', camera_id: 'cam' }, 'm', 'own'))])).toBe('Added a next position for a dolly and track');
+  });
+
+  it('says it was given to someone, made plain, moved earlier or later, deleted and restored', () => {
+    expect(tell([op('update', mark(), mark({ character_id: 'ana' }))])).toBe('Gave a mark to ANA');
+    expect(tell([op('update', mark(), mark({ camera_id: 'cam' })), op('move', mark({ camera_id: 'cam' }), mark({ camera_id: 'cam' }, 'm', 'own'))])).toBe('Gave a mark to a dolly and track');
+    expect(tell([op('update', mark({ character_id: 'ana' }), mark())])).toBe('Made a mark plain');
+    expect(tell([op('move', mark({ character_id: 'ana' }, 'm'), mark({ character_id: 'ana' }, 'c'))])).toBe('Moved a position of ANA earlier');
+    expect(tell([op('move', mark({ character_id: 'ana' }, 'c'), mark({ character_id: 'ana' }, 'm'))])).toBe('Moved a position of ANA later');
+    expect(tell([op('update', mark({ character_id: 'ana' }), mark({ character_id: 'ana', x: 2 }))])).toBe('Moved ANA’s mark');
+    expect(tell([op('trash', mark({ character_id: 'ana' }), { ...mark({ character_id: 'ana' }), trashedAt: at })])).toBe('Deleted ANA’s mark');
+    expect(tell([op('restore', { ...mark(), trashedAt: at }, mark())])).toBe('Restored a tape mark');
+    // Into one setup's plan alone: "This setup only"'s line.
+    expect(tell([op('move', mark({ character_id: 'ana' }), mark({ character_id: 'ana' }, 'm', 'own'))])).toBe('Put a plan item in one setup only');
+    expect(changeLabel(fieldChanges(mark(), mark({ character_id: 'ana' }))[0] ?? { prop: '', before: '', after: '' })).toBe('character');
+  });
+
+  it('says a camera deleted with its later positions as the camera alone', () => {
+    const m = mark({ camera_id: 'cam' }, 'm', 'own');
+    expect(tell([op('trash', cam, { ...cam, trashedAt: at }), op('trash', m, { ...m, trashedAt: at })])).toBe('Deleted a dolly and track');
+    expect(tell([op('restore', { ...cam, trashedAt: at }, cam), op('restore', { ...m, trashedAt: at }, m)])).toBe('Restored a dolly and track');
+  });
+
+  it('says it in Spanish too', () => {
+    setLocale('es');
+    expect(tell([op('create', null, mark({ icon: 'cast/cast-mark', character_id: 'ana' }))])).toBe('Se colocó la marca de ANA');
+    expect(tell([op('create', null, mark({ icon: 'cast/next-position', character_id: 'ana' }))])).toBe('Se agregó una siguiente posición para ANA');
+    expect(tell([op('move', mark({ character_id: 'ana' }, 'm'), mark({ character_id: 'ana' }, 'c'))])).toBe('Se movió antes una posición de ANA');
+    expect(tell([op('update', mark({ character_id: 'ana' }), mark())])).toBe('Una marca quedó simple');
+  });
+});

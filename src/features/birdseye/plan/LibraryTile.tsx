@@ -11,9 +11,10 @@ import { TextField } from '../../../ui/fields';
 import { iconHome } from '../../../core/model/planRooms';
 import { BEAM_ICON } from '../../../core/model/planLight';
 import { IconSvg } from './IconSvg';
-import { TOOL_ICONS } from './iconSizes';
+import { TOOL_ICONS, WALK_PATH_ICON } from './iconSizes';
 import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
-import { placeIcon, type PlaceOutcome, type PlanView } from './planActions';
+import { NEXT_POSITION_ICON } from '../../../core/model/plan';
+import { nextFromSelection, placeIcon, type PlaceOutcome, type PlanView } from './planActions';
 import { viewKey, type IconRefusal } from './planItems';
 import { planScale } from './planScale';
 import { planStore, planViewportOf } from './planStore';
@@ -56,7 +57,9 @@ const snapOf = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }):
 /** Why an icon wasn't placed, in words, as a notice; nothing for a drop after the project was switched. */
 function sayRefusal(why: PlaceOutcome, label: string, icon = ''): void {
   if (why === 'coming') showInfo(t('library.comingNotice', { what: label }));
-  else if (why === 'shown') showInfo(t(icon === BEAM_ICON ? 'library.drawnByLight' : 'library.drawnByCamera', { what: label }));
+  else if (why === 'shown') showInfo(t(icon === BEAM_ICON ? 'library.drawnByLight' : icon === WALK_PATH_ICON ? 'library.drawnByMarks' : 'library.drawnByCamera', { what: label }));
+  // The next position (6.7) follows the one mark or camera selected.
+  else if (why === 'noOwner') showInfo(t('plan.mark.selectFirst'));
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
   else if (why === 'noScene') showInfo(t('library.pick'));
@@ -199,7 +202,7 @@ function LibraryGroupView({
       )}
       {shownOnly && (
         <p id={shownId} className="text-[11px] text-text-muted">
-          {t(group === 'lighting' ? 'library.shownNoteLight' : 'library.shownNote')}
+          {t(group === 'lighting' ? 'library.shownNoteLight' : group === 'cast' ? 'library.shownNoteCast' : 'library.shownNote')}
         </p>
       )}
       <ul ref={list} aria-labelledby={headingId} className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
@@ -309,6 +312,14 @@ function IconButton({
     }
     if (refused !== null || !view) {
       sayRefusal(refused ?? 'noScene', entry.label, entry.icon.id);
+      return;
+    }
+    // The next position (6.7) goes 1 m past its owner's last one, not to the middle of the view.
+    if (entry.icon.id === NEXT_POSITION_ICON) {
+      void nextFromSelection(view, madeIn, null).then((why) => {
+        if (why !== null) sayRefusal(why, entry.label, entry.icon.id);
+        if (why === null) focusPlan();
+      });
       return;
     }
     const at = dropView(view, planCanvas());

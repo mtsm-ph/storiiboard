@@ -744,8 +744,9 @@ async function toolsShown(page: Page) {
   const canvasBox = await canvas(page).boundingBox();
   if (!tile || !canvasBox) throw new Error('no tile');
   const tools = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button');
-  await expect(tools).toHaveCount(7);
-  for (const name of ['Select', 'Hand', 'Wall', 'Door', 'Window', 'Camera', 'Light']) {
+  // 6.7 adds the Mark tool.
+  await expect(tools).toHaveCount(8);
+  for (const name of ['Select', 'Hand', 'Wall', 'Door', 'Window', 'Camera', 'Light', 'Mark']) {
     const button = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: new RegExp(`^${name}`) });
     await expect(button).toBeVisible();
     const box = await button.boundingBox();
