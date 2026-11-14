@@ -1,5 +1,6 @@
 import { formatDate, t } from '../i18n';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { frameSetupId } from './setup';
 import { shotFields } from './storyboard';
 
 // Shoot days (3.7, docs/PHASE3_DECISIONS.md 8 and 9). A `shoot_day` record under the project is one day of the shoot:
@@ -146,19 +147,22 @@ export function hmuMinutes(projectProps: Props | undefined): number {
 export interface DayTotals {
   /** Frames still to shoot ("Need to shoot"): one marked Have or Source since it was put in the day isn't counted. */
   frames: number;
-  /** Frames sharing a setup (`setup_id`, Phase 6's plans) count once; a frame without one is a setup of its own. */
+  /**
+   * Frames sharing a setup (6.0) count once; a frame without one is a setup of its own, and so is one whose setup is
+   * in the Trash, in another scene or gone (frameSetupId, the one reader of `setup_id`).
+   */
   setups: number;
   /** Setups times the minutes per setup. */
   minutes: number;
 }
 
-export function dayTotals(frames: readonly { shot: SbdRecord }[], minutesPerSetup: number): DayTotals {
+export function dayTotals(records: Records, frames: readonly { shot: SbdRecord }[], minutesPerSetup: number): DayTotals {
   const shared = new Set<string>();
   let alone = 0;
   const toShoot = frames.filter(({ shot }) => shotFields(shot.props).status === 'need');
   for (const { shot } of toShoot) {
-    const setup = shot.props.setup_id;
-    if (typeof setup === 'string' && setup !== '') shared.add(setup);
+    const setup = frameSetupId(records, shot);
+    if (setup !== null) shared.add(setup);
     else alone += 1;
   }
   const setups = shared.size + alone;

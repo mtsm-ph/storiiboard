@@ -124,7 +124,7 @@ export function DaysTile() {
           <ul id={listId} aria-label={t('days.list')} className="min-h-0 flex-1 overflow-y-auto">
             {days.map((day) => {
               const current = day.record.id === selected?.record.id;
-              const totals = dayTotals(dayFrames(records, projectId, day.record.id), minutes);
+              const totals = dayTotals(records, dayFrames(records, projectId, day.record.id), minutes);
               return (
                 <li key={day.record.id}>
                   <button
@@ -301,7 +301,7 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
   const id = day.record.id;
   const label = dayLabel(day);
   const frames = dayFrames(records, projectId, id);
-  const totals = dayTotals(frames, minutes);
+  const totals = dayTotals(records, frames, minutes);
   const waiting = unscheduledFrames(records, projectId);
   // The "Need to shoot" frames by scene, in board order, for Add all.
   const byScene: { scene: SbdRecord; shots: SbdRecord[] }[] = [];

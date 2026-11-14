@@ -38,6 +38,7 @@ describe('backup settings', () => {
       companies: [],
       departmentWorkspaces: [],
       customWorkspaces: [],
+      tilesOffered: [],
     });
     expect(loadSettings(memoryStorage('{"backups":{"recent":0,"days":2.5}}')).backups).toEqual({ recent: 12, days: 14 });
   });
@@ -98,6 +99,7 @@ describe('backup settings', () => {
       companies: [],
       departmentWorkspaces: [],
       customWorkspaces: [],
+      tilesOffered: [],
     });
   });
 });

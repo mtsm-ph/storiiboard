@@ -81,6 +81,65 @@ describe('a saved layout holding tiles this version no longer has', () => {
 
 });
 
+describe('a tile added to a built-in default since a layout was saved (6.0: Setups)', () => {
+  // Every key kept, so the offered flag in the settings survives a restart as the layouts do.
+  function machine(layouts: unknown) {
+    const values = new Map([[LAYOUTS_KEY, JSON.stringify(layouts)]]);
+    return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, next: string) => void values.set(key, next) };
+  }
+  // The Setup section's default before 6.0: the placeholders only.
+  const before = () => ({
+    root: split('row', [split('column', [stack(['layers']), stack(['library'])]), split('column', [stack(['plan']), stack(['frames'])]), stack(['selection'])]),
+    maximized: null,
+  });
+
+  it('is put into a saved layout that lacks it, once, above Layers as the default has it', () => {
+    const storage = machine({ setup: { current: before(), saved: before() } });
+    const layouts = layoutsOf(createLayoutStore(storage).getState().layouts, 'setup');
+    expect(tilesIn(layouts.saved)).toEqual(['setups', 'layers', 'library', 'plan', 'frames', 'selection']);
+    expect(tilesIn(layouts.current)).toEqual(tilesIn(layouts.saved));
+    expect(isUnsaved(layouts)).toBe(false);
+    // Asked again, it is not added a second time.
+    expect(tilesIn(layoutsOf(createLayoutStore(storage).getState().layouts, 'setup').current).filter((t) => t === 'setups')).toHaveLength(1);
+  });
+
+  it('stays closed once the person closes it, across restarts', () => {
+    const storage = machine({ setup: { current: before(), saved: before() } });
+    const store = createLayoutStore(storage);
+    store.getState().change('setup', removeTile(layoutsOf(store.getState().layouts, 'setup').current, 'setups'));
+    store.getState().save('setup');
+    const reopened = layoutsOf(createLayoutStore(storage).getState().layouts, 'setup');
+    expect(tilesIn(reopened.current)).not.toContain('setups');
+    expect(tilesIn(reopened.saved)).not.toContain('setups');
+  });
+
+  it('stays closed when closed from the default on a computer that never saved the Setup layout', () => {
+    const storage = machine({});
+    const store = createLayoutStore(storage);
+    store.getState().change('setup', removeTile(layoutsOf(store.getState().layouts, 'setup').current, 'setups'));
+    expect(tilesIn(layoutsOf(createLayoutStore(storage).getState().layouts, 'setup').current)).not.toContain('setups');
+  });
+
+  it('leaves a saved layout that has it, and other workspaces, as they were', () => {
+    const has = { root: split('row', [stack(['plan', 'setups']), stack(['layers'])]), maximized: null };
+    const storyboard = { root: split('row', [stack(['scenes']), stack(['board'])]), maximized: null };
+    const storage = machine({ setup: { current: has, saved: has }, storyboard: { current: storyboard, saved: storyboard } });
+    const layouts = createLayoutStore(storage).getState().layouts;
+    expect(sameLayout(layoutsOf(layouts, 'setup').current, has)).toBe(true);
+    expect(layoutsOf(layouts, 'setup').current.root).toEqual(has.root);
+    expect(layoutsOf(layouts, 'storyboard').current.root).toEqual(storyboard.root);
+    for (const workspace of WORKSPACES.filter((w) => w.id !== 'setup' && w.id !== 'storyboard')) {
+      expect(sameLayout(layoutsOf(layouts, workspace.id).current, workspace.defaultLayout())).toBe(true);
+    }
+  });
+
+  it('is placed as opening it would be when the saved layout has no Layers tile', () => {
+    const plain = { root: split('row', [stack(['plan']), stack(['selection'])]), maximized: null };
+    const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: plain, saved: plain } })).getState().layouts, 'setup');
+    expect(tilesIn(layouts.current)).toEqual(['plan', 'selection', 'setups']);
+  });
+});
+
 describe('department workspaces (3.6a)', () => {
   it('each keep a layout of their own, their default for one saved before they existed', () => {
     // Saved by a version with the sections alone.

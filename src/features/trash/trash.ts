@@ -15,6 +15,7 @@ import { pageNumberOf } from '../moodboards/pages';
 import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
+import { setupFields } from '../../core/model/setup';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -23,11 +24,12 @@ import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attach
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment' | 'board' | 'boardItem';
+export type TrashKind = 'scene' | 'frame' | 'setup' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment' | 'board' | 'boardItem';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
   frame: 'trash.kind.frame',
+  setup: 'trash.kind.setup',
   note: 'trash.kind.note',
   picture: 'trash.kind.picture',
   location: 'trash.kind.location',
@@ -43,6 +45,7 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
 export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kinds.scene',
   frame: 'trash.kinds.frame',
+  setup: 'trash.kinds.setup',
   note: 'trash.kinds.note',
   picture: 'trash.kinds.picture',
   location: 'trash.kinds.location',
@@ -58,6 +61,7 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
 export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kindLower.scene',
   frame: 'trash.kindLower.frame',
+  setup: 'trash.kindLower.setup',
   note: 'trash.kindLower.note',
   picture: 'trash.kindLower.picture',
   location: 'trash.kindLower.location',
@@ -101,6 +105,7 @@ function sceneOf(records: Records, record: SbdRecord): SbdRecord | null {
 function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'scene') return 'scene';
   if (record.type === 'shot') return 'frame';
+  if (record.type === 'setup') return 'setup';
   if (record.type === 'note') return 'note';
   // A PDF or a link (3.11) is an attachment, not a picture.
   if (record.type === 'media') return attachmentFields(record.props) ? 'attachment' : 'picture';
@@ -125,6 +130,11 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
     case 'frame': {
       const number = shotFields(record.props).number;
       return [number ? mono(number) : plain(t('trash.unnumberedFrame'))];
+    }
+    case 'setup': {
+      // By its name (6.0): its number belongs to the order the scene's live setups are in, which it has left.
+      const { name } = setupFields(record.props);
+      return [plain(name === '' ? t('trash.unnamedSetup') : t('trash.setupNamed', { name }))];
     }
     case 'note': {
       const text = typeof record.props.text === 'string' ? record.props.text.trim().replace(/\s+/g, ' ') : '';
@@ -204,9 +214,11 @@ function trashedWithParent(records: Records, record: SbdRecord): boolean {
   return parent !== undefined && parent.trashedAt !== null && parent.trashedAt === record.trashedAt && parent.trashedBy === record.trashedBy;
 }
 
-/** A scene's frames and notes that went to the Trash with it. */
+/** A scene's frames, notes and setups (6.0) that went to the Trash with it. */
 function trashedWith(records: Records, scene: SbdRecord): SbdRecord[] {
-  return Object.values(records).filter((r) => r.parentId === scene.id && (r.type === 'shot' || r.type === 'note') && trashedWithParent(records, r));
+  return Object.values(records).filter(
+    (r) => r.parentId === scene.id && (r.type === 'shot' || r.type === 'note' || r.type === 'setup') && trashedWithParent(records, r),
+  );
 }
 
 /** What an item is called now, as the list names it: after a restore, under the number it came back with. */
@@ -290,6 +302,10 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       return withScene(parent, id);
     case 'note':
       return parent?.type === 'scene' ? withScene(parent, id) : [{ kind: 'restore', id }];
+    case 'setup':
+      // A setup comes back into its scene (6.0), bringing the scene back whole if that's in the Trash too. Its frames
+      // kept their `setup_id`, so they're in it again without being touched.
+      return parent?.type === 'scene' && parent.trashedAt !== null ? withScene(parent, id) : [{ kind: 'restore', id }];
     case 'media': {
       // A location's photo comes back with its location if that's in the Trash too, so it's seen again (3.3).
       if (parent?.type === 'location') return [...(parent.trashedAt !== null ? [{ kind: 'restore' as const, id: parent.id }] : []), { kind: 'restore', id }];

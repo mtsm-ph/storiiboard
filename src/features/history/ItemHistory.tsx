@@ -6,7 +6,7 @@ import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { canPutBack, putBackChange } from './putBack';
 import { changeLabel, changeText, frameRows, isMono, who, type FieldChange } from './summary';
-import { t } from '../../core/i18n';
+import { t, type MessageKey } from '../../core/i18n';
 
 // One item's own history (1.22): a frame, a scene or a note, every change to it newest first, field by field, each
 // with its old value to put back. Values show in full, line breaks and all: an old action or dialogue is read here
@@ -14,7 +14,7 @@ import { t } from '../../core/i18n';
 
 /**
  * Every change to one item, newest first. `title` names it in a sentence ("frame 4A", "scene SC 05", "this note");
- * `places` names a location by its id, as the board has it now.
+ * `places` names a location, a shoot day or a setup by its id, as the board has it now (summary.ts, namedById).
  */
 export function ItemHistory({
   item,
@@ -44,10 +44,15 @@ export function ItemHistory({
       });
     });
   };
-  // A scene keeps its location by id, and a frame its shoot day (3.7), which mean nothing to a person.
+  // A scene keeps its location by id, and a frame its shoot day (3.7) and its setup (6.0), which mean nothing to a person.
+  const named: Readonly<Record<'location_id' | 'shoot_day_id' | 'setup_id', MessageKey>> = {
+    location_id: 'history.aLocation',
+    shoot_day_id: 'history.aShootDay',
+    setup_id: 'history.aSetup',
+  };
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
-    (field.prop === 'location_id' || field.prop === 'shoot_day_id') && typeof v === 'string' && v !== ''
-      ? (places(v) ?? t(field.prop === 'shoot_day_id' ? 'history.aShootDay' : 'history.aLocation'))
+    field.key === undefined && Object.hasOwn(named, field.prop) && typeof v === 'string' && v !== ''
+      ? (places(v) ?? t(named[field.prop as keyof typeof named]))
       : changeText(field, v);
   return (
     <table ref={table} tabIndex={-1} aria-busy={busy} className="w-full border-collapse text-[12px]">

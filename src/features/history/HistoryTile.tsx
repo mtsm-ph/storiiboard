@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { confirmForGood } from '../../app/confirm';
 import { localDateTime } from '../../app/format';
 import { useOpeningVersion } from '../../app/openingVersion';
@@ -17,7 +16,7 @@ import { useSelection } from '../storyboard/selection';
 import { ItemHistory } from './ItemHistory';
 import { putBackChange } from './putBack';
 import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
-import { lineText, who, type FieldChange, type Line } from './summary';
+import { lineText, namedById, who, type FieldChange, type Line } from './summary';
 import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
 import { t, type MessageKey } from '../../core/i18n';
@@ -235,12 +234,7 @@ export function HistoryTile() {
   ) : (
     t('history.onlySelected')
   );
-  const places = (id: string): string | null => {
-    const place = records[id];
-    // A shoot day (3.7) by its date, as History names one.
-    if (place?.type === 'shoot_day') return dayDateLabel(shootDayFields(place.props).date) || t('history.undatedDay');
-    return place?.type === 'location' && typeof place.props.name === 'string' && place.props.name !== '' ? place.props.name : null;
-  };
+  const places = (id: string): string | null => namedById(records[id]);
   const versionNamed = versionName(naming);
   const saveVersion = () => {
     if (!versionNamed || !loaded?.newest || savingVersion.current) return;
