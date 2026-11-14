@@ -170,6 +170,11 @@ export interface InspectorViewProps {
   focus?: Focus;
   /** Opens a department's workspace from its name in the department table (3.6a). */
   onOpenDepartment?: (department: Department) => void;
+  /**
+   * The frame's shoot day (5.11): "Day 2 · Tue, Nov 18" and what opens it, or null when the frame is in no live day.
+   * Left out, with no frame shown, so the row isn't drawn.
+   */
+  shootDay?: { label: string; onOpen: () => void } | null;
 }
 
 const NOTHING_SEEN: readonly string[] = [];
@@ -533,6 +538,7 @@ export function InspectorView({
   seen = NOTHING_SEEN,
   palette,
   boards,
+  shootDay,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -1011,15 +1017,29 @@ export function InspectorView({
               </Select>
             </li>
           )}
-          {[
-            [t('inspector.shootDay'), t('phase.number', { phase: 3 })],
-            [t('inspector.birdsEye'), t('phase.number', { phase: 6 })],
-          ].map(([name, phase]) => (
-            <li key={name} className="flex justify-between">
-              <span>{name}</span>
-              <span className="sb-label text-text-muted">{phase}</span>
+          {shootDay !== undefined && (
+            // The frame's day (5.11), read from its records, never copied: a button that opens the Shoot days tile on
+            // it; muted words, not a button, when the frame is in no live day.
+            <li data-inspector-shoot-day="" className="flex justify-between gap-3">
+              <span>{t('inspector.shootDay')}</span>
+              {shootDay ? (
+                <button
+                  type="button"
+                  aria-label={t('inspector.openDay', { day: shootDay.label })}
+                  onClick={shootDay.onOpen}
+                  className="truncate text-right font-mono font-semibold hover:underline focus-visible:underline focus-visible:outline-offset-1"
+                >
+                  {shootDay.label}
+                </button>
+              ) : (
+                <span className="sb-label text-text-muted">{t('inspector.notScheduled')}</span>
+              )}
             </li>
-          ))}
+          )}
+          <li className="flex justify-between">
+            <span>{t('inspector.birdsEye')}</span>
+            <span className="sb-label text-text-muted">{t('phase.number', { phase: 6 })}</span>
+          </li>
         </ul>
       </Section>
     </div>

@@ -95,6 +95,37 @@ test('days made and dated, frames added by scene and one by one, moved and taken
   await expect(editor(page).getByRole('list', { name: 'Unscheduled frames in SC 01' })).not.toContainText('1C');
 });
 
+test('the Inspector shows a frame’s day and opens Shoot days on it; a frame in none reads Not scheduled (5.11)', async ({ page }) => {
+  const list = days(page).getByRole('list', { name: 'Shoot days' });
+  await days(page).getByRole('button', { name: '+ New day' }).click();
+  await editor(page).getByLabel('Date').fill('2026-11-16');
+  await editor(page).getByLabel('Date').blur();
+  await days(page).getByRole('button', { name: '+ New day' }).click();
+  await expect(list.getByRole('button').nth(1)).toContainText('Day 2 · Tue, Nov 17');
+  await list.getByRole('button').nth(1).click();
+  await editor(page).getByRole('button', { name: 'Add 1B to Day 2 · Tue, Nov 17' }).click();
+  // Back on Day 1, so opening from the Inspector has to move the tile to Day 2.
+  await list.getByRole('button').first().click();
+
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  const row = page.getByRole('region', { name: 'Frame inspector', exact: true }).locator('[data-inspector-shoot-day]');
+  await board.locator('[data-shot-id]').nth(1).click();
+  const open = row.getByRole('button', { name: 'Open Day 2 · Tue, Nov 17 in Shoot days' });
+  await expect(open).toHaveText('Day 2 · Tue, Nov 17');
+  await open.click();
+  // The Shoot days tile, in front in this workspace, on that day, with focus on its row.
+  const shown = days(page).getByRole('list', { name: 'Shoot days' }).getByRole('button', { name: /^Day 2/ });
+  await expect(shown).toHaveAttribute('aria-current', 'true');
+  await expect(shown).toBeFocused();
+  await expect(editor(page).getByRole('list', { name: 'Frames on Day 2 · Tue, Nov 17' })).toContainText('1B');
+
+  // A frame in no day: muted words, not a button.
+  await board.locator('[data-shot-id]').first().click();
+  await expect(row).toContainText('Not scheduled');
+  await expect(row.getByRole('button')).toHaveCount(0);
+});
+
 test('a half-typed date leaves the day’s date as it was', async ({ page }) => {
   await days(page).getByRole('button', { name: '+ New day' }).click();
   const date = editor(page).getByLabel('Date');
