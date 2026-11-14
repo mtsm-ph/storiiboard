@@ -115,6 +115,87 @@ test('setups made and named, filled from the board and the Inspector, reordered,
   expect(results.violations).toEqual([]);
 });
 
+test('a setup dragged by its handle to a new place, the numbers following', async ({ page }) => {
+  await toSection(page, 'Setup');
+  const addSetup = setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' });
+  for (let i = 0; i < 3; i += 1) await addSetup.click();
+  await expect(rows(page)).toHaveCount(3);
+  await setupsTile(page).getByRole('button', { name: 'Edit name of Setup 1 in SC 01' }).click();
+  await page.keyboard.type('Door');
+  await page.keyboard.press('Enter');
+  await expect(rows(page).nth(0)).toHaveAccessibleName('Setup 1, 0 frames, “Door”, in SC 01');
+
+  // From the first row's handle to below the last row, with the mouse: Door becomes Setup 3.
+  const handle = setupsTile(page).locator('[data-setup-handle]').first();
+  const from = await handle.boundingBox();
+  const last = await setupsTile(page).locator('[data-setup-row]').nth(2).boundingBox();
+  if (!from || !last) throw new Error('no rows');
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2, last.y + last.height - 4, { steps: 8 });
+  await expect(page.locator('[data-setup-drop-bar]')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('[data-setup-drop-bar]')).toHaveCount(0);
+  await expect(setupsTile(page).locator('[data-setup-row]').nth(2)).toContainText('Door');
+  await expect(rows(page).nth(2)).toContainText('Setup 3');
+  await expect(rows(page).nth(2)).toHaveAccessibleName('Setup 3, 0 frames, “Door”, in SC 01');
+  await expect(setupsTile(page).locator('[data-setup-row]').nth(0)).not.toContainText('Door');
+
+  // One undo puts it back.
+  await page.keyboard.press(await undoKey(page));
+  await expect(setupsTile(page).locator('[data-setup-row]').nth(0)).toContainText('Door');
+  await expect(rows(page).nth(0)).toContainText('Setup 1');
+});
+
+test('the frame menu from the keyboard: arrows move through it, Right opens Add to setup and Left comes back', async ({ page }) => {
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await toSection(page, 'Storyboard');
+  await frame(page, '1A').click();
+  await expect(setupField(page)).toHaveValue('');
+  await frame(page, '1A').focus();
+  await page.keyboard.press('Shift+F10');
+  const menu = page.locator('[data-add-to-board-menu]');
+  await expect(menu.getByRole('button', { name: 'Add to board…' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('button', { name: 'New setup from selection' })).toBeFocused();
+  await page.keyboard.press('End');
+  // 1A is in no setup, so Add to setup is the last command.
+  await expect(menu.getByRole('button', { name: 'Add to setup' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(menu.getByRole('button', { name: 'Setup 1', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(menu.getByRole('button', { name: 'Add to setup' })).toBeFocused();
+  await expect(menu.getByRole('button', { name: 'New setup from selection' })).toBeVisible();
+  // And in again, Enter puts the frame in.
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(menu).toBeHidden();
+  await expect(page.getByText('1A is in Setup 1 now.')).toBeVisible();
+});
+
+test('a deleted setup in the Trash, found with the type filter', async ({ page }) => {
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await setupsTile(page).getByRole('button', { name: 'Delete Setup 1 in SC 01' }).click();
+  await expect(rows(page)).toHaveCount(0);
+  await toSection(page, 'Storyboard');
+  await frame(page, '1C').click();
+  await page.keyboard.press('Delete');
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('button', { name: 'Trash', exact: true }).click();
+  const trash = page.getByRole('region', { name: 'Trash', exact: true });
+  await expect(trash.getByRole('button', { name: /^Restore/ })).toHaveCount(2);
+  const type = trash.getByRole('combobox', { name: /^Type/ });
+  await expect(type.getByRole('option', { name: 'Setups' })).toHaveCount(1);
+  await type.selectOption({ label: 'Setups' });
+  await expect(trash.getByRole('button', { name: /^Restore/ })).toHaveCount(1);
+  await expect(trash.getByRole('row', { name: /Setup with no name/ })).toContainText('SC 01');
+  await type.selectOption({ label: 'Frames' });
+  await expect(trash.getByRole('button', { name: /^Restore/ })).toHaveCount(1);
+  await expect(trash.getByRole('button', { name: 'Restore frame 1C' })).toBeVisible();
+});
+
 test('setups added, named and reordered from the keyboard alone', async ({ page }) => {
   await toSection(page, 'Setup');
   const addSetup = setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' });

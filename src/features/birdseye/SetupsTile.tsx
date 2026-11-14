@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { isMac } from '../../app/shell/undoShortcuts';
@@ -21,6 +21,8 @@ import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotField
 import type { Change } from '../../core/ops/ops';
 import { cx } from '../../ui/cx';
 import { EditableTitle } from '../../ui/EditableTitle';
+import { Trans } from '../../ui/Trans';
+import { useSetupDrag } from './useSetupDrag';
 import { scenesOf } from '../../app/shell/sidebar/scenes';
 import { headingOf } from '../storyboard/ScenesView';
 import { FrameImage } from '../storyboard/FrameImage';
@@ -29,7 +31,7 @@ import { ProjectPictures } from '../storyboard/ProjectPictures';
 
 // The Setups tile (6.0), in the Setup workspace: the scenes in board order, each with its setups (Setup 1, Setup 2,
 // numbered by their order, never lettered), how many frames each has and their shot numbers. Add a setup, name it in
-// place, reorder by drag or with Up and Down, delete it to the Trash. Picking a setup shows its frames, live from the
+// place, reorder by dragging its handle (useSetupDrag) or with Up and Down, delete it to the Trash. Picking a setup shows its frames, live from the
 // board's records, each with Take out of setup, and the scene's frames in no setup to add. Every change is one edit.
 
 type Records = Readonly<Record<string, SbdRecord>>;
@@ -49,7 +51,9 @@ export function SetupsTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
+  const { drag, handleProps } = useSetupDrag((id, to) => {
+    void edit((now) => moveSetup(now, id, to));
+  });
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('setups.noProject')}</p>;
   const projectId = project.projectId;
   const scenes = scenesOf(records, projectId);
@@ -104,14 +108,10 @@ export function SetupsTile() {
                         sceneName={sceneName}
                         current={setup.record.id === selected?.record.id}
                         last={i === setups.length - 1}
-                        dragging={dragging}
-                        onDrag={setDragging}
+                        dragged={drag?.id === setup.record.id}
+                        handle={handleProps(setup.record.id, scene.id)}
                         onPick={() => {
                           setChosen(setup.record.id);
-                        }}
-                        onDrop={(id) => {
-                          if (records[id]?.parentId !== scene.id) return;
-                          void edit((now) => moveSetup(now, id, i));
                         }}
                         onDeleted={() => {
                           if (chosen === setup.record.id) setChosen(null);
@@ -135,8 +135,24 @@ export function SetupsTile() {
           )}
         </div>
       </div>
+      {drag && (
+        // Where the dragged setup will land: an ink bar between rows.
+        <div
+          aria-hidden="true"
+          data-setup-drop-bar=""
+          className="pointer-events-none fixed z-40 h-[3.5px] bg-text"
+          style={{ left: drag.bar.left, top: drag.bar.top, width: drag.bar.width }}
+        />
+      )}
     </ProjectPictures>
   );
+}
+
+/** A setup row's accessible name: "Setup 2, 1 frame: 4A, “Window side”, in SC 04". */
+function rowNameOf(setup: Setup, scene: string, count: string, numbers: string): string {
+  const parts = { setup: t('setup.label', { number: setup.number }), count, numbers, scene, name: setup.fields.name };
+  if (setup.fields.name === '') return t(numbers === '' ? 'setups.rowName' : 'setups.rowNameFrames', parts);
+  return t(numbers === '' ? 'setups.rowNameNamed' : 'setups.rowNameNamedFrames', parts);
 }
 
 interface SetupRowProps {
@@ -145,18 +161,24 @@ interface SetupRowProps {
   sceneName: string;
   current: boolean;
   last: boolean;
-  dragging: string | null;
-  onDrag: (id: string | null) => void;
+  /** This row is the one being dragged. */
+  dragged: boolean;
+  /** The drag handle's pointer handlers (useSetupDrag). */
+  handle: { onPointerDown: (event: PointerEvent<HTMLElement>) => void };
   onPick: () => void;
-  onDrop: (id: string) => void;
   onDeleted: () => void;
 }
 
-function SetupRow({ records, setup, sceneName, current, last, dragging, onDrag, onPick, onDrop, onDeleted }: SetupRowProps) {
+function SetupRow({ records, setup, sceneName, current, last, dragged, handle, onPick, onDeleted }: SetupRowProps) {
   const id = setup.record.id;
   const frames = setupFrames(records, id);
   const label = setupLabel(setup);
   const named = { setup: label, scene: sceneName };
+  const numbers = frames.map((shot) => shotFields(shot.props).number).join(' ');
+  const count = tn('count.frames', frames.length);
+  // One name for the whole row, its scene included, so two scenes' Setup 1 never sound the same. It starts with what the
+  // row shows, in that order, so the words on screen are the start of its name (label-in-name, WCAG 2.5.3).
+  const rowName = rowNameOf(setup, sceneName, count, numbers);
   const first = setup.number === 1;
   const move = (to: number, which: 'up' | 'down') => {
     void edit((now) => moveSetup(now, id, to)).then((written) => {
@@ -165,48 +187,41 @@ function SetupRow({ records, setup, sceneName, current, last, dragging, onDrag, 
     });
   };
   return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- a row is dragged to reorder; Up and Down do the same from the keyboard
-    <li
-      data-setup-row={id}
-      draggable
-      onDragStart={(event) => {
-        onDrag(id);
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', id);
-      }}
-      onDragOver={(event) => {
-        if (dragging !== null) event.preventDefault();
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const from = dragging;
-        onDrag(null);
-        if (from !== null && from !== id) onDrop(from);
-      }}
-      onDragEnd={() => {
-        onDrag(null);
-      }}
-      className="border-b border-border px-2 py-1.5"
-    >
-      <button
-        type="button"
-        data-setup-select={id}
-        aria-current={current || undefined}
-        onClick={onPick}
-        // Selection is an ink fill; on it the focus ring is paper (DESIGN.md: never ink on ink).
-        className={cx(
-          'flex w-full flex-col items-start gap-0.5 px-1.5 py-1 text-left focus-visible:-outline-offset-2',
-          current ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
-        )}
-      >
-        <span className="text-[13px] font-semibold">
-          {t('setup.word')} <span className="font-mono">{setup.number}</span>
+    <li data-setup-row={id} data-scene={setup.record.parentId ?? ''} className={cx('border-b border-border px-2 py-1.5', dragged && 'border-dashed')}>
+      <div className="flex items-stretch gap-1">
+        {/* The mouse's way to reorder; Up and Down below are the keyboard's, so the handle is no stop of its own. */}
+        <span
+          aria-hidden="true"
+          data-setup-handle={id}
+          title={t('setups.dragHandle')}
+          {...handle}
+          className="flex w-4 shrink-0 cursor-grab touch-none items-center justify-center font-mono text-[12px] text-text-muted select-none"
+        >
+          {t('setups.dragMark')}
         </span>
-        <span className="flex w-full flex-wrap gap-x-2 text-[12px]">
-          <span>{tn('count.frames', frames.length)}</span>
-          {frames.length > 0 && <span className="font-mono">{frames.map((shot) => shotFields(shot.props).number).join(' ')}</span>}
-        </span>
-      </button>
+        <button
+          type="button"
+          data-setup-select={id}
+          aria-current={current || undefined}
+          aria-label={rowName}
+          onClick={onPick}
+          // Selection is an ink fill; on it the focus ring is paper (DESIGN.md: never ink on ink).
+          className={cx(
+            'flex min-w-0 flex-1 flex-col items-start gap-0.5 px-1.5 py-1 text-left focus-visible:-outline-offset-2',
+            current ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+          )}
+        >
+          <span className="text-[13px] font-semibold">
+            <Trans k="setup.label" parts={{ number: <span className="font-mono">{setup.number}</span> }} />
+          </span>{' '}
+          <span className="flex w-full flex-wrap gap-x-2 text-[12px]">
+            <span>{count}</span>
+            {/* Spaces the layout stands for on screen, so the words read apart, as the row's name has them. */}
+            {frames.length > 0 && ' '}
+            {frames.length > 0 && <span className="font-mono">{numbers}</span>}
+          </span>
+        </button>
+      </div>
       <div className="mt-1 flex items-center gap-1 px-1.5 text-[13px]">
         <EditableTitle
           value={setup.fields.name}
@@ -351,7 +366,7 @@ function SetupFrames({ records, projectId, setup, scene }: { records: Records; p
                   }}
                   className={cx(ACTION, 'normal-case')}
                 >
-                  {t('setups.addFrame')} <span className="font-mono">{number}</span>
+                  <Trans k="setups.addFrame" parts={{ frame: <span className="font-mono">{number}</span> }} />
                 </button>
               </li>
             );

@@ -56,14 +56,31 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
   const scene = frame?.parentId ? records[frame.parentId] : undefined;
   const sceneName = scene ? sceneLabel(sceneFields(scene.props).number) : '';
 
+  // Back from the setups' list, focus returns to Add to setup rather than to the first command.
+  const backFromSetups = useRef(false);
+
   // Focus goes to the first command as it opens, and again when a list replaces the menu.
   useEffect(() => {
+    const back = backFromSetups.current ? panel.current?.querySelector<HTMLElement>('[data-add-to-setup]') : null;
+    backFromSetups.current = false;
     // With no boards there is no button: focus stays in the panel, on its message.
-    (panel.current?.querySelector<HTMLElement>('button') ?? panel.current?.querySelector<HTMLElement>('[data-menu-message]'))?.focus();
+    (back ?? panel.current?.querySelector<HTMLElement>('button') ?? panel.current?.querySelector<HTMLElement>('[data-menu-message]'))?.focus();
   }, [view]);
 
   // Up, Down, Home and End move between the commands; each is out of the Tab order, so Tab leaves the menu and closes it.
+  // Right on Add to setup opens its list, as a submenu opens; Left in the list goes back to it.
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowRight' && view === 'root' && document.activeElement?.hasAttribute('data-add-to-setup')) {
+      event.preventDefault();
+      setView('setups');
+      return;
+    }
+    if (event.key === 'ArrowLeft' && view === 'setups') {
+      event.preventDefault();
+      backFromSetups.current = true;
+      setView('root');
+      return;
+    }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') return;
     const buttons = [...(panel.current?.querySelectorAll<HTMLElement>('button') ?? [])];
     const at = buttons.findIndex((button) => button === document.activeElement);

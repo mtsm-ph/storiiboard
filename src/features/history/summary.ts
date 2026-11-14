@@ -563,6 +563,31 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
 const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
   change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
 
+/** Props that keep another record by id, and what a step calls it when that record can't be named. */
+const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
+  ['location_id', 'history.aLocation'],
+  ['cast_id', 'history.aPerson'],
+  ['shoot_day_id', 'history.aShootDay'],
+  ['setup_id', 'history.aSetup'],
+]);
+
+/** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
+export function setupName(record: SbdRecord): string {
+  const name = typeof record.props.name === 'string' ? record.props.name.trim() : '';
+  return name === '' ? t('history.aSetup') : t('history.setupCalled', { name });
+}
+
+/**
+ * What an item's own history calls a record a frame or a scene keeps by id (`location_id`, `shoot_day_id`,
+ * `setup_id`), as the board has it now; null when it has no name to give.
+ */
+export function namedById(record: SbdRecord | undefined): string | null {
+  // A shoot day (3.7) by its date, as History names one.
+  if (record?.type === 'shoot_day') return dayDateLabel(shootDayFields(record.props).date) || t('history.undatedDay');
+  if (record?.type === 'setup') return setupName(record);
+  return record?.type === 'location' && typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : null;
+}
+
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord> = new Map()): Part {
   if (!record) return t('history.anItem');
@@ -583,11 +608,8 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aPerson');
     case 'gear_item':
       return typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : t('history.aGearItem');
-    case 'setup': {
-      // By its name (6.0): its number is its place among the scene's setups now, not then.
-      const name = typeof record.props.name === 'string' ? record.props.name.trim() : '';
-      return name === '' ? t('history.aSetup') : t('history.setupCalled', { name });
-    }
+    case 'setup':
+      return setupName(record);
     case 'shoot_day': {
       // By its date (3.7); its number belongs to the order the days are in now.
       const date = dayDateLabel(shootDayFields(record.props).date);
@@ -930,9 +952,10 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
-          if ((only.prop !== 'location_id' && only.prop !== 'cast_id' && only.prop !== 'shoot_day_id') || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          const fallback = KEPT_BY_ID.get(only.prop);
+          if (fallback === undefined || typeof v !== 'string' || v === '') return changeValuePart(only, v);
           const named = around.get(v);
-          return named ? nameOf(named) : t(only.prop === 'cast_id' ? 'history.aPerson' : only.prop === 'shoot_day_id' ? 'history.aShootDay' : 'history.aLocation');
+          return named ? nameOf(named) : t(fallback);
         };
         return [...line('history.fieldChange', { who, before: value(only.before), after: value(only.after) }, { field: changeLabel(only, around) }), tag];
       }

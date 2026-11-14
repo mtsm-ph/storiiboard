@@ -147,7 +147,11 @@
       starts empty or from another setup's state, copied.
     - Anything can also be placed in one setup only (a cheated mark, an extra set piece).
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
-    number comes from the order, never stored.
+    number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
+    reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile
+    (src/features/birdseye), the frame menu and the Inspector's Setup row. A tile new to a built-in workspace is
+    added once to a saved layout (`TILES_ADDED` in src/app/shell/docking/layoutStore.ts). Lists reorder by pointer
+    events, never HTML5 drag and drop (it is off in the Windows app while file drop is on).
   - Camera bodies and lenses are `gear_item` records: a body has its recording mode's sensor width and height in mm
     (a short table from the makers' spec pages; phones use 36 × 24 mm, "Focal lengths as full-frame equivalents"); a
     lens has its focal range and squeeze.

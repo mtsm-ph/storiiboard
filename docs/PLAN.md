@@ -11,7 +11,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 13, 2026 (Phase 5 merged, #135 to #145; Kevin's Nov 11 answers built, #146 to #149 open; Phase 6 planned, #150, waiting for his answers; models changed) |
+| Last updated | Nov 13, 2026 (#146 to #150 merged; checkpoint `checkpoint/nov13-v2` green; 5.11 #152, 5.12 and the desktop gap audit #153, 6.0 #154 open, stacked; Phase 6 under way) |
 
 | Phase | State |
 |---|---|
@@ -20,7 +20,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 2 · Video and images | Built (Nov 7); the gate is Kevin's |
 | 3 · Production data | Built (Nov 9), follow-ups merged (Nov 10); the gate is Kevin's |
 | 4 · Call sheets | **Built** and merged (Nov 10, #120 to #134); the gate is Kevin's |
-| 5 · Canvas flow (moodboards and decks) | **Built** (Nov 11): #136 to #145 stacked, waiting to merge (#136's baselines need Kevin); the gate is Kevin's |
+| 5 · Canvas flow (moodboards and decks) | **Built** and merged (Nov 13, #135 to #150); follow-ups 5.11 (#152) and 5.12 (#153) open; the gate is Kevin's |
 | 6 · Bird's-eye view | **Under way** (Kevin answered Nov 13 and said go: `docs/PHASE6_DECISIONS.md`); milestones below |
 | 7 · AI assistant | Not started |
 | 8 · Cloud links and release | Not started |
@@ -44,7 +44,7 @@ kind `blocking` under the scene) and the **setup** (cameras, lights, grip, sound
 
 | Milestone | Scope | PR | State |
 |---|---|---|---|
-| 6.0 Setups | `setup` records under a scene, numbered within the scene (Setup 1, 2, 3; the number from its order, never stored); frames join one from the board or the Setup section (`setup_id`; Shoot days' totals already count them); the Setup section goes live and lists setups by scene; the Trash and History (decision 3) | | Not started |
+| 6.0 Setups | `setup` records under a scene, numbered within the scene (Setup 1, 2, 3; the number from its order, never stored); frames join one from the board or the Setup section (`setup_id`; Shoot days' totals already count them); the Setup section goes live and lists setups by scene; the Trash and History (decision 3) | #154 | Built Nov 13, stacked on #153; two review rounds; the Setups tile (reorder by pointer drag or keys), the frame menu and the Inspector's Setup row; a saved layout gains a new tile once; all 60 baselines changed (Setup live in the sidebar), waiting for Kevin |
 | 6.1 Bodies and lenses | The schema version, with every prop Phase 6 needs listed in SBD_FORMAT.md (decision 16). Camera bodies in Gear with the sensor size of the recording mode, from a short table (each entry from the maker's spec page, plus 36 × 24 mm "Focal lengths as full-frame equivalents") and A/B letters (decision 4); lenses in Gear with focal range and squeeze; a frame picks its lens, `lens_mm` kept inside the range (decision 5); the field of view as one function in src/core/model, fitting the project's frame inside the de-squeezed mode, with "on its side" (decision 6, Kevin's three test values) | | Not started |
 | 6.2 The plan in real units | The canvas core given a scale in metres: grid, rulers, a scale bar, lengths typed in metres, feet, or feet and inches (decision 7); the three levels (decision 2): a scene starts from a new room or one already drawn (its location's first), "Make a separate copy"; a new setup starts empty or copied from another setup; walls drawn point to point with typed lengths and a height, doors and windows that sit in a wall; paper in both themes (decision 13) | | Not started |
 | 6.3 The library | The 68 plan icons as items with real sizes, by department: set pieces (the room's), grip, sound, production (the setup's), each placeable in this setup only (decision 8); the Library tile, drag or keyboard to place | | Not started |
