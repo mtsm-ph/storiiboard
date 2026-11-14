@@ -1,5 +1,5 @@
 import { t } from '../../../core/i18n';
-import { FEET_TO_METRES, formatLength, parseLength, roundLengthLabel, type PlanUnit } from '../../../core/model/length';
+import { FEET_TO_METRES, formatLength, hasGroupingComma, parseLength, roundLengthLabel, type PlanUnit } from '../../../core/model/length';
 import type { CanvasScale, ToolSpec, ZoomLimits } from '../../../ui/canvas/types';
 
 // Where the plan meets the canvas core (6.2a). The file holds metres; the canvas works in its own world units, and the
@@ -27,6 +27,7 @@ export function planScale(unit: PlanUnit): CanvasScale {
       const m = parseLength(text, unit);
       return m === null ? null : toCanvas(m);
     },
+    refusal: (text) => (hasGroupingComma(text) ? t('plan.groupingComma') : null),
     label: (units) => roundLengthLabel(toMetres(units), unit),
     grid: metres ? { step: 50, major: 2, fine: 5 } : { step: FOOT, major: 5, fine: FOOT / 12 },
     // Down to 1 cm and 1 inch, so the scale bar always has a round length that fits, at every zoom the plan allows.

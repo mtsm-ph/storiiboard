@@ -3,7 +3,7 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
-import { formatLength, parseLength, type PlanUnit } from '../../../core/model/length';
+import { formatLength, hasGroupingComma, parseLength, type PlanUnit } from '../../../core/model/length';
 import {
   isOpening,
   openingFields,
@@ -72,8 +72,10 @@ function TypedField({ label, text, mixed = false, mono = true, onCommit, refused
   const commit = (field: HTMLInputElement) => {
     if (field.value.trim() === text) return;
     const taken = onCommit(field.value);
-    if (taken === true) return;
+    // Taken: the field shows the value as the plan has it ("3.50 m" for "3.5"), even when it's the one already stored,
+    // which changes nothing the field would hear of. A new value comes back through `text` once it's written.
     field.value = text;
+    if (taken === true) return;
     const words = typeof taken === 'string' ? taken : refused;
     if (words !== undefined) showInfo(words);
   };
@@ -192,6 +194,7 @@ const lengthCommit =
   <P,>(unit: PlanUnit, write: (patch: P) => boolean | string, apply: (m: number) => P, opts: { signed?: boolean; empty?: P } = {}) =>
   (typed: string): boolean | string => {
     if (typed.trim() === '' && opts.empty) return write(opts.empty);
+    if (hasGroupingComma(typed)) return t('plan.groupingComma');
     const m = parseLength(typed, unit, opts.signed ?? false);
     if (m === null || (!opts.signed && m <= 0)) return false;
     return write(apply(m));
@@ -291,6 +294,7 @@ function OpeningFieldsView({ ids, openings, unit, records }: { ids: readonly str
   const heightText = text(openings.map((o) => o.heightM));
   // A distance from an end may be 0 (the opening against the wall's end), never less.
   const distance = (apply: (m: number) => OpeningPatch) => (typed: string) => {
+    if (hasGroupingComma(typed)) return t('plan.groupingComma');
     const m = parseLength(typed, unit, true);
     if (m === null || m < 0) return false;
     return write(apply(m));

@@ -39,6 +39,18 @@ export const tidy = (value: number): number => Math.round(value * 100) / 100;
 export const normalisedRotation = (degrees: number): number => tidy(((degrees % 360) + 360) % 360) % 360;
 
 /**
+ * An item where a gesture's draft has it. A move (same size and turn) takes its snap points along by the same offset,
+ * so a run's click joins the ends where the item is drawn now, not where it was; a resize or turn keeps the item's own.
+ */
+export function withDraft<T extends Geometry & { snapPoints?: readonly Point[] }>(item: T, draft: Geometry): T {
+  const next = { ...item, ...draft };
+  if (!item.snapPoints || draft.width !== item.width || draft.height !== item.height || draft.rotation !== item.rotation) return next;
+  const dx = draft.x - item.x;
+  const dy = draft.y - item.y;
+  return { ...next, snapPoints: item.snapPoints.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
+}
+
+/**
  * Items pasted: with a point (the pointer over the canvas), the group's middle lands on it; without, each is offset by
  * 16 units from its original.
  */

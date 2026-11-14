@@ -159,6 +159,8 @@ export interface CanvasScale {
   format: (world: number) => string;
   /** A typed distance in world units, or null when it can't be read. */
   parse: (text: string) => number | null;
+  /** Why a typed distance was refused, when the host can say better than the canvas's own words; null for those. */
+  refusal?: (text: string) => string | null;
   /** A round length's short label: "1 m", "10 ft". */
   label: (world: number) => string;
   grid: GridSpec;

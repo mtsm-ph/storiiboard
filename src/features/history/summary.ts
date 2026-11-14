@@ -16,7 +16,7 @@ import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
-import { formatLength } from '../../core/model/length';
+import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -594,17 +594,18 @@ const OPENING_WORDS: Readonly<Record<string, string>> = labels({
   'swing:left': 'selection.swing.left',
   'swing:right': 'selection.swing.right',
 });
-function planItemValue(change: FieldChange, value: JsonValue | undefined): string | null {
+function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): string | null {
   if (change.planItem !== true || change.key !== undefined) return null;
   if (typeof value === 'string' && (change.prop === 'hinge' || change.prop === 'swing')) return OPENING_WORDS[`${change.prop}:${value}`] ?? null;
   if (typeof value !== 'number') return null;
-  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, planUnitNow());
+  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
   if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
   return null;
 }
 
-export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  planItemValue(change, value) ??
+/** `unit`: the plan's unit, which the History tile reads with usePlanUnit so its words follow a change of the setting. */
+export const changeValue = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit = planUnitNow()): string =>
+  planItemValue(change, value, unit) ??
   (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
@@ -617,8 +618,8 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
         ? deliverableText(value, false)
         : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value));
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
-export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  planItemValue(change, value) ??
+export const changeText = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit = planUnitNow()): string =>
+  planItemValue(change, value, unit) ??
   (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
@@ -630,11 +631,11 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
       : isDeliverable(change)
         ? deliverableText(value, true)
         : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value));
-const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part => {
+const changeValuePart = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): Part => {
   // A wall's length is a technical value: mono.
-  const planned = planItemValue(change, value);
+  const planned = planItemValue(change, value, unit);
   if (planned !== null) return { mono: planned };
-  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value, unit);
 };
 
 /** Props that keep another record by id, and what a step calls it when that record can't be named. */
@@ -949,7 +950,7 @@ function peopleLine(change: FieldChange, day: Part, around: ReadonlyMap<string, 
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then.
  */
-export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
+export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map(), unit: PlanUnit = planUnitNow()): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.
@@ -1174,7 +1175,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
           const fallback = KEPT_BY_ID.get(only.prop);
-          if (fallback === undefined || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          if (fallback === undefined || typeof v !== 'string' || v === '') return changeValuePart(only, v, unit);
           const named = around.get(v);
           return named ? nameOf(named) : t(fallback);
         };
@@ -1262,10 +1263,11 @@ export function describeGroup(
   titles: ReadonlyMap<string, Line>,
   stored: ReadonlySet<string>,
   around: ReadonlyMap<string, SbdRecord> = new Map(),
+  unit: PlanUnit = planUnitNow(),
 ): Line {
   switch (group.kind) {
     case 'edit':
-      return describeEdit(ops, stored, around);
+      return describeEdit(ops, stored, around, unit);
     case 'undo':
       return [t('history.undid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'redo':

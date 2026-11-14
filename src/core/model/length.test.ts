@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
-import { formatLength, parseLength, roundLengthLabel } from './length';
+import { formatLength, hasGroupingComma, parseLength, roundLengthLabel } from './length';
 
 // Lengths on a plan (6.2a): every form a length can be typed in, in both units, what's refused, and how they're shown.
 
@@ -48,11 +48,25 @@ describe('parseLength', () => {
     expect(parseLength('6 1/0"', 'metres')).toBeNull();
   });
 
+  it('takes 12-6 with whole inches before a fraction, and refuses a fraction straight after the dash', () => {
+    expect(parseLength('12-6 1/2', 'feet')).toBe(3.8227);
+    expect(parseLength('12-0 1/2', 'feet')).toBe(3.6703);
+    // 4-1/2 reads as four and a half, never as 4' 0½": refused, nothing saved.
+    expect(parseLength('4-1/2', 'feet')).toBeNull();
+    expect(parseLength('4 - 1/2', 'feet')).toBeNull();
+  });
+
   it('refuses a grouping comma rather than guess it, and anything over a kilometre', () => {
     expect(parseLength('1,500 mm', 'metres')).toBeNull();
     expect(parseLength('1,500', 'metres')).toBeNull();
     expect(parseLength('2,000 m', 'feet')).toBeNull();
-    // A decimal comma is still read.
+    expect(hasGroupingComma('1,500 mm')).toBe(true);
+    expect(hasGroupingComma('3,5 m')).toBe(false);
+    // A decimal comma is still read; after a 0 it can only be one.
+    expect(parseLength('0,125 m', 'metres')).toBe(0.125);
+    expect(parseLength('0,125', 'feet')).toBe(0.0381);
+    expect(hasGroupingComma('0,125 m')).toBe(false);
+    expect(parseLength('10,125 m', 'metres')).toBeNull();
     expect(parseLength('3,5 m', 'metres')).toBe(3.5);
     expect(parseLength('3,50 m', 'metres')).toBe(3.5);
     expect(parseLength('1000 m', 'metres')).toBe(1000);

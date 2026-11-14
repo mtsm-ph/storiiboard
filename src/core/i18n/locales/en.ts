@@ -2870,6 +2870,8 @@ export const en = {
   'plan.announce.window': 'Window, {width}',
   'plan.announce.windowNamed': '{name}, window, {width}',
   'plan.newRoom': 'New room',
+  'plan.groupingComma': 'Write 3500 or 3.5, without a thousands comma.',
+  'plan.wallsNotDrawn': 'The walls weren’t drawn: their room is no longer there.',
   'plan.chooseRoom': 'Use a room already drawn',
   'plan.roomMenu': 'Room: {name}',
   'plan.renameRoom': 'Rename…',

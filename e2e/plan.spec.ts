@@ -522,3 +522,80 @@ test('a door in the Selection tile passes axe', async ({ page }) => {
   expect((await new AxeBuilder({ page }).include('[data-selection-tile]').withTags(tags).analyze()).violations).toEqual([]);
   expect((await new AxeBuilder({ page }).include('[data-plan-tile]').withTags(tags).analyze()).violations).toEqual([]);
 });
+
+test('a run’s keys: Backspace takes the last point off, Enter writes the rest, and the wall selected before is kept', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  const [before] = await walls(page);
+  // The wall just drawn is selected.
+  await expect.poll(() => selection(page)).toEqual([before?.id]);
+  await page.keyboard.press('w');
+  await clickAt(page, -200, 100);
+  await clickAt(page, 0, 100);
+  await clickAt(page, 0, 250);
+  // Backspace takes the third point off (never the selected wall), and Enter writes the two left: one wall, not two.
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => widths(page)).toEqual([4, 2]);
+  expect((await walls(page))[0]).toEqual(before);
+});
+
+test('a double-click whose second press jitters 4 px finishes the run with no short stub', async ({ page }) => {
+  await startRoom(page);
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -100, -100);
+  await clickAt(page, 100, -100);
+  // The double-click: its first press fixes the corner, its second, 4 px off, adds nothing and ends the run.
+  const corner = await screen(page, 100, 100);
+  await page.mouse.move(corner.x, corner.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.mouse.move(corner.x + 4, corner.y);
+  await page.mouse.down({ clickCount: 2 });
+  await page.mouse.up({ clickCount: 2 });
+  await expect.poll(() => widths(page)).toEqual([2, 2]);
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  await expect(canvas(page)).not.toHaveAttribute('data-path', /.*/);
+});
+
+test('a run never ends in another project: a version opened mid-run takes no walls, and the original’s room is as it was', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  // A named version with that one wall, from the top bar's History.
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  const history = page.getByRole('region', { name: 'History', exact: true });
+  await history.getByLabel('Name this point').fill('One wall');
+  await history.getByRole('button', { name: 'Name version' }).click();
+  await expect(history.getByRole('list', { name: 'Named versions' })).toContainText('One wall');
+  const kept = await walls(page);
+
+  // Two points of a second run fixed, then the version opened mid-run: the copy keeps every id.
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -100, 100);
+  await clickAt(page, 100, 100);
+  await expect(canvas(page)).toHaveAttribute('data-path', /.+/);
+  await history.getByRole('button', { name: 'Open version One wall' }).click();
+  await expect(page.getByRole('status').getByText(/Opened version “One wall”/)).toBeVisible();
+
+  // The copy shows no plan until one is picked; there, no run, and Enter writes nothing.
+  await expect(planTile(page)).toContainText('Pick a setup, or a scene’s heading, in the Setups tile to see its plan.');
+  await setupsTile(page).locator('[data-setup-select]').first().click();
+  await expect.poll(() => walls(page)).toEqual(kept);
+  await expect(canvas(page)).not.toHaveAttribute('data-path', /.*/);
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  await canvas(page).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect(await walls(page)).toEqual(kept);
+
+  // The original, from the switcher: its room has the one wall, and no run was written into it.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Project: / }).click();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County$/ }).click();
+  await expect(planTile(page)).toContainText('Pick a setup, or a scene’s heading, in the Setups tile to see its plan.');
+  await setupsTile(page).locator('[data-setup-select]').first().click();
+  await expect.poll(() => walls(page)).toEqual(kept);
+  await page.waitForTimeout(300);
+  expect(await walls(page)).toEqual(kept);
+});

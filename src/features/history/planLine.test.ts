@@ -93,6 +93,15 @@ describe('History for plans', () => {
     expect(changeText(turn, turn.after)).toBe('36.87°');
   });
 
+  it('shows a wall’s lengths in the unit it is handed (the History tile reads it with usePlanUnit and hands it on), whatever the setting', () => {
+    setPlanUnitsChoice('metres');
+    const [length] = fieldChanges(wall('a'), wall('a', { width: 3.81 }));
+    if (!length) throw new Error('no change');
+    expect([changeText(length, length.after, 'feet'), changeValue(length, length.after, 'feet')]).toEqual(['12\' 6"', '12\' 6"']);
+    setPlanUnitsChoice('feet');
+    expect(changeText(length, length.after, 'metres')).toBe('3.81 m');
+  });
+
   it('says a scene was set in a room already drawn, a room copied for a scene, and one deleted and restored (6.2b)', () => {
     const lobby = record('r2', 'plan', 'p', { kind: 'room', name: 'Lobby' });
     const set = lineText(describeEdit([op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r2' } })], none, new Map([['sc4', scene], ['r2', lobby]])));

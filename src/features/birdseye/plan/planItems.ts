@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactNode } from 'react';
 import { Line, Rect } from 'react-konva';
-import { t } from '../../../core/i18n';
+import { getLocale, t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
 import {
@@ -164,11 +164,15 @@ export function openingItem(id: string, fields: OpeningFields, wall: PlanItemFie
   };
 }
 
-/** What a built item depended on: the same record, unit and ink, and the same walls at its ends (or its wall), give the same item. */
+/**
+ * What a built item depended on: the same record, unit, ink and language (its label is in words), and the same walls at
+ * its ends (or its wall), give the same item.
+ */
 interface Built {
   record: SbdRecord;
   unit: PlanUnit;
   ink: string;
+  locale: string;
   neighbours: readonly SbdRecord[];
   item: CanvasItem;
 }
@@ -182,10 +186,10 @@ const isOpeningItem = (item: ShownItem): item is ShownItem & { fields: OpeningFi
  * or its wall changed, so an edit elsewhere in the project rebuilds nothing and the canvas keeps what it drew; when
  * nothing changed, the same list comes back. Doors and windows come after the walls, so they are drawn over them.
  */
-export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit, ink: string) => readonly CanvasItem[] {
+export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit, ink: string, locale?: string) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink) => {
+  return (shown, unit, ink, locale = getLocale()) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -193,7 +197,7 @@ export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit
     const next = new Map<string, Built>();
     const kept = (item: ShownItem, neighbours: readonly SbdRecord[]): CanvasItem | null => {
       const was = built.get(item.record.id);
-      if (was && was.record === item.record && was.unit === unit && was.ink === ink && was.neighbours.length === neighbours.length && was.neighbours.every((r, k) => r === neighbours[k])) {
+      if (was && was.record === item.record && was.unit === unit && was.ink === ink && was.locale === locale && was.neighbours.length === neighbours.length && was.neighbours.every((r, k) => r === neighbours[k])) {
         next.set(item.record.id, was);
         return was.item;
       }
@@ -214,7 +218,7 @@ export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit
         snapPoints: [line.start, line.end],
         draw: () => createElement(Line, { points: outline, closed: true, fill: ink, listening: false }),
       };
-      next.set(item.record.id, { record: item.record, unit, ink, neighbours, item: made });
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours, item: made });
       return made;
     });
     const wallById = new Map(walls.map((item) => [item.record.id, item]));
@@ -224,7 +228,7 @@ export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit
       const same = kept(item, [wall.record]);
       if (same) return [same];
       const made = openingItem(item.record.id, item.fields, wall.fields, unit);
-      next.set(item.record.id, { record: item.record, unit, ink, neighbours: [wall.record], item: made });
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [wall.record], item: made });
       return [made];
     });
     const items = [...wallItems, ...openingItems];
@@ -261,14 +265,41 @@ export function shownItemsKeeper(): (records: Records, sceneId: string, setupId:
   };
 }
 
+/** The room a run drawn in a scene's view goes into: the live scene's live room, or null (a scene in the Trash takes none). */
+export function runRoomId(records: Records, sceneId: string): string | null {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return null;
+  return sceneRoomId(records, scene);
+}
+
 /** A run of walls drawn in a view (canvas units): one wall a segment, into that view's scene's room, never another's. */
 export function drawWallsChanges(records: Records, sceneId: string, points: readonly Point[]): { ids: string[]; changes: Change[] } {
-  const roomId = sceneRoomId(records, records[sceneId]);
+  const roomId = runRoomId(records, sceneId);
   if (roomId === null) return { ids: [], changes: [] };
   return wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
 }
 
 const sameGeometry = (a: PlanItemFields, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
+
+/** Closer than this to what's stored is what's stored: the canvas's own rounding (0.1 mm, hundredths of a degree). */
+const SAME_METRES = 0.00005;
+const SAME_DEGREES = 0.005;
+
+/**
+ * A gesture's box with the stored values kept wherever it differs from them by no more than the canvas's rounding, so a
+ * handle pressed without a drag writes nothing, and a resize keeps a wall's rotation to the millionth of a degree.
+ */
+function keptWhereSame(was: PlanItemFields, next: PlanGeometry): PlanGeometry {
+  const near = (a: number, b: number) => (Math.abs(a - b) <= SAME_METRES + 1e-12 ? a : b);
+  const turn = Math.abs(((((next.rotation - was.rotation) % 360) + 540) % 360) - 180);
+  return {
+    x: near(was.x, next.x),
+    y: near(was.y, next.y),
+    width: near(was.width, next.width),
+    height: near(was.height, next.height),
+    rotation: turn < SAME_DEGREES ? was.rotation : next.rotation,
+  };
+}
 
 /** A box in metres, its length and thickness never under a centimetre. */
 const metresOf = (g: Geometry): PlanGeometry => ({
@@ -411,7 +442,7 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
     }
     const live = liveItem(records, c.id);
     if (!live) return [];
-    const next = heldAtNeed(live.fields, metresOf(c), wallNeedOf(records, c.id));
+    const next = keptWhereSame(live.fields, heldAtNeed(live.fields, keptWhereSame(live.fields, metresOf(c)), wallNeedOf(records, c.id)));
     if (sameGeometry(live.fields, next)) return [];
     return [{ kind: 'update', id: c.id, set: { x: next.x, y: next.y, width: next.width, height: next.height, rotation: next.rotation } }];
   });

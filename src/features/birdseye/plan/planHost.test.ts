@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { planUnitFor } from '../../../app/planUnits';
 import { createProjectStore } from '../../../app/projectStore';
-import { setLocale } from '../../../core/i18n';
+import { setLocale, t } from '../../../core/i18n';
 import { openingFields, planItemFields, sceneRoomId, shownItems, startRoomChanges, trashPlanChanges, wallBetween, wallEnds, wallProps, wallsAlong } from '../../../core/model/plan';
 import { separateCopyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
-import { log, purgeIds, trashedRoots } from '../../../core/ops/ops';
+import { log, loadRecords, purgeIds, trashedRoots } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
-import { createProject, type Project } from '../../../core/storage/project';
+import { createProject, openProject, type Project } from '../../../core/storage/project';
+import { noticeStore } from '../../../app/notice';
+import { normalisedRotation, tidy } from '../../../ui/canvas/placement';
+import { drawWalls } from './planActions';
 import { loadSettings, saveSettings } from '../../../core/storage/settings';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { restoreChanges, trashItems } from '../../trash/trash';
@@ -121,12 +124,15 @@ describe('a wall’s corners', () => {
     expect(wallOutline(a, [a, c]).map((p) => Math.round(p.x))).toEqual([0, 100, 100, 0]);
   });
 
-  it('mitre on a 20 m wall at 37°, its stored end coming back within 0.1 mm', () => {
+  it('mitre on a 20 m wall at 36.869898° (not whole hundredths), its rotation kept and its stored end coming back within 0.1 mm', () => {
     const start = { x: 1.2345, y: 2.5 };
-    const corner = { x: start.x + 20 * Math.cos((37 * Math.PI) / 180), y: start.y + 20 * Math.sin((37 * Math.PI) / 180) };
+    const angle = 36.869898;
+    const corner = { x: start.x + 20 * Math.cos((angle * Math.PI) / 180), y: start.y + 20 * Math.sin((angle * Math.PI) / 180) };
     const long = planItemFields(wallProps(wallBetween(start, corner)));
     const next = planItemFields(wallProps(wallBetween(corner, { x: corner.x - 4, y: corner.y + 3 })));
     if (!long || !next) throw new Error('no walls');
+    // Kept to the millionth of a degree, never rounded to hundredths (36.87°).
+    expect(Math.abs(long.rotation - angle)).toBeLessThan(1e-6);
     const [, end] = wallEnds(long);
     const [nextStart] = wallEnds(next);
     expect(Math.hypot(end.x - corner.x, end.y - corner.y)).toBeLessThanOrEqual(0.0001);
@@ -513,5 +519,91 @@ describe('shared rooms in the store', () => {
     await store.getState().undo();
     expect(sceneRoomId(records(), records()[sceneId])).toBe(roomId);
     expect(Object.values(records()).filter((r) => r.type === 'plan' && r.trashedAt === null)).toHaveLength(1);
+  });
+});
+
+describe('a run’s project and room (6.2a review)', () => {
+  const run = [{ x: 0, y: 500 }, { x: 300, y: 500 }, { x: 300, y: 800 }];
+  const wallsIn = (list: readonly SbdRecord[]) => list.filter((r) => r.type === 'plan_item' && r.trashedAt === null).length;
+
+  it('writes nothing to either file when it ends after a switch to a copy with the same ids', async () => {
+    const { sceneId } = await room();
+    const madeIn = store.getState().project;
+    // A copy of the file keeps every id, as Open version and Open backup do; opened, it replaces the original.
+    const copyPath = folder.path('Bey County (copy).sbd');
+    await project.file.saveCopy(copyPath);
+    const copy = await openProject(copyPath, { driver: nodeDriver, backups: false });
+    await store.getState().open(copy);
+    const copyGroups = (await log(copy.file)).length;
+    // The run drawn in the original ends now (Enter, or the canvas going away): it is not written.
+    expect(await drawWalls({ sceneId, setupId: null }, run, madeIn, store)).toBe(false);
+    expect(wallsIn(Object.values(store.getState().records))).toBe(2);
+    expect((await log(copy.file)).length).toBe(copyGroups);
+    // Nor into the original, which still has its two walls and the steps it had.
+    await store.getState().close();
+    const original = await openProject(project.file.path, { driver: nodeDriver, backups: false });
+    try {
+      expect(wallsIn(await loadRecords(original.file))).toBe(2);
+    } finally {
+      await original.close();
+    }
+  });
+
+  it('writes the run in the project it was drawn in, and says so when its scene went to the Trash', async () => {
+    const { sceneId } = await room();
+    const madeIn = store.getState().project;
+    expect(await drawWalls({ sceneId, setupId: null }, run, madeIn, store)).toBe(true);
+    expect(shownItems(records(), sceneId, null)).toHaveLength(4);
+    // The scene to the Trash mid-run: its room is kept (another scene may use it), but the run doesn't go into it.
+    await store.getState().apply([{ kind: 'trash', id: sceneId }]);
+    const before = await groups();
+    expect(await drawWalls({ sceneId, setupId: null }, run, madeIn, store)).toBe(false);
+    expect(await groups()).toBe(before);
+    expect(noticeStore.getState().message).toBe(t('plan.wallsNotDrawn'));
+  });
+});
+
+describe('a handle pressed or dragged (6.2a review)', () => {
+  /** A 3-4-5 wall: 5 m long, turned 36.869898° (atan2 of 3 over 4), not whole hundredths of a degree. */
+  async function slanted(): Promise<string> {
+    const { roomId } = await room();
+    const made = wallsAlong(records(), roomId, [{ x: 0, y: 10 }, { x: 4, y: 13 }]);
+    await store.getState().apply(made.changes);
+    return made.ids[0] ?? '';
+  }
+  /** The box the canvas reports for a wall: its units rounded to hundredths, its rotation too. */
+  const reported = (id: string) => {
+    const f = fieldsOf(id);
+    if (!f) throw new Error('no wall');
+    return { id, x: tidy(toCanvas(f.x)), y: tidy(toCanvas(f.y)), width: tidy(toCanvas(f.width)), height: tidy(toCanvas(f.height)), rotation: normalisedRotation(f.rotation) };
+  };
+
+  it('writes no step for a press without a drag', async () => {
+    const wall = await slanted();
+    expect(fieldsOf(wall)?.rotation).not.toBe(normalisedRotation(fieldsOf(wall)?.rotation ?? 0));
+    expect(planGeometryChanges(records(), [reported(wall)])).toEqual([]);
+  });
+
+  it('keeps the rotation to a millionth of a degree through a resize', async () => {
+    const wall = await slanted();
+    const exact = (Math.atan2(3, 4) * 180) / Math.PI;
+    const box = reported(wall);
+    await store.getState().apply(planGeometryChanges(records(), [{ ...box, x: box.x - 250, width: box.width + 500 }]));
+    expect(fieldsOf(wall)?.width).toBe(10);
+    expect(Math.abs((fieldsOf(wall)?.rotation ?? 0) - exact)).toBeLessThan(1e-6);
+  });
+});
+
+describe('a wall’s words (6.2a review)', () => {
+  it('follow a change of language', async () => {
+    const { sceneId, walls } = await room();
+    const build = planItemsBuilder();
+    const keep = shownItemsKeeper();
+    const label = (list: readonly { id: string; label?: string }[]) => list.find((item) => item.id === walls[0])?.label;
+    expect(label(build(keep(records(), sceneId, null), 'metres', '#16150F', 'en'))).toBe('Wall, 3.50 m');
+    setLocale('es');
+    const spanish = label(build(keep(records(), sceneId, null), 'metres', '#16150F', 'es'));
+    expect(spanish).toBe(t('plan.announce.wall', { length: '3.50 m' }));
+    expect(spanish).not.toBe('Wall, 3.50 m');
   });
 });

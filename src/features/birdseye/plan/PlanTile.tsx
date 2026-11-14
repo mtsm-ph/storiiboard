@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { usePlanUnit } from '../../../app/planUnits';
-import { useProject } from '../../../app/projectStore';
+import { projectStore, useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
 import { isOpening, OPENING_WIDTH, planFields, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
@@ -17,6 +17,7 @@ import { TextField } from '../../../ui/fields';
 import { InAppWindow } from '../../../ui/InAppWindow';
 import { Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
 import { Trans } from '../../../ui/Trans';
+import { useLocale } from '../../../ui/useLocale';
 import {
   changePlanGeometry,
   copyPlanSelection,
@@ -40,7 +41,7 @@ import {
 import { openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey } from './planItems';
 import { DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
-import { useShownPlan } from './shownPlan';
+import { openingKey, useShownPlan } from './shownPlan';
 
 // The Plan tile (6.2a, 6.2b), in the Setup workspace: the setup picked in the Setups tile (or a scene picked by its
 // heading) as a top-down plan in real units, on paper in light and dark (decision 13). A scene's room is started new or
@@ -154,9 +155,10 @@ export function PlanTile() {
       </div>
     );
   }
-  // A canvas per view: nothing it holds (a run of walls being drawn above all) carries into another view. A run in
-  // progress when the view changes ends as Escape ends it, written into the room it was drawn in.
-  return <PlanCanvas key={viewKey(live.view.sceneId, live.view.setupId)} view={live.view} header={header} room={room} />;
+  // A canvas per view and per opening of a project: nothing it holds (a run of walls being drawn above all) carries into
+  // another view, nor into another project that shares the ids (a version, a backup). A run in progress when the view
+  // changes ends as Escape ends it, written into the room it was drawn in; when the project changes, it writes nothing.
+  return <PlanCanvas key={`${openingKey(project)}:${viewKey(live.view.sceneId, live.view.setupId)}`} view={live.view} header={header} room={room} />;
 }
 
 const MENU_BUTTON = 'sb-label flex h-7 items-center gap-1.5 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4';
@@ -308,6 +310,9 @@ const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL 
 function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode; room: SbdRecord }) {
   const records = useProject((s) => s.records);
   const unit = usePlanUnit();
+  const locale = useLocale();
+  // The project this canvas was opened in (it is keyed by it): a run it hands back is written there or nowhere.
+  const [madeIn] = useState(() => projectStore.getState().project);
   const key = viewKey(view.sceneId, view.setupId);
   const stored = usePlan((s) => s.selections[key]);
   const viewports = usePlan((s) => s.viewports);
@@ -318,7 +323,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const [keepShown] = useState(shownItemsKeeper);
   const [build] = useState(planItemsBuilder);
   const shown = useMemo(() => keepShown(records, view.sceneId, view.setupId), [keepShown, records, view.sceneId, view.setupId]);
-  const built = useMemo(() => build(shown, unit, INK), [build, shown, unit]);
+  const built = useMemo(() => build(shown, unit, INK, locale), [build, shown, unit, locale]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -412,7 +417,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             setHover(null);
             return at ? placeOpening(view, at, placing) : undefined;
           }}
-          onPath={(points, used) => (used === WALL_TOOL ? drawWalls(view, points) : undefined)}
+          onPath={(points, used) => (used === WALL_TOOL ? drawWalls(view, points, madeIn) : undefined)}
           onCommand={run}
           canPaste={clipboard.length > 0}
           fixedColours={PAPER_COLOURS}

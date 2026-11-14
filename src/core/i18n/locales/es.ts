@@ -2869,6 +2869,8 @@ export const es: Messages = {
   'plan.announce.window': 'Ventana, {width}',
   'plan.announce.windowNamed': '{name}, ventana, {width}',
   'plan.newRoom': 'Espacio nuevo',
+  'plan.groupingComma': 'Escribe 3500 o 3.5, sin coma de miles.',
+  'plan.wallsNotDrawn': 'Los muros no se dibujaron: su espacio ya no existe.',
   'plan.chooseRoom': 'Usar un espacio ya dibujado',
   'plan.roomMenu': 'Espacio: {name}',
   'plan.renameRoom': 'Cambiar nombre…',

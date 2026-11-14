@@ -12,12 +12,12 @@ import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
-import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
+import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy, withDraft } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
 import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
-import { END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
+import { DOUBLE_PRESS_MS, END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
 import { Rulers, RULER_SIZE } from './Rulers';
 import { gridLines, gridPull, pointAlong, scaleBarLength, snapMoveByPoints, snapToGrid, type GridSnap } from './scale';
 import {
@@ -297,6 +297,8 @@ export function Canvas({
     pathRef.current = next;
     setPathState(next);
   };
+  // When a double-click's second press finished a run, so the dblclick right after it isn't taken as another.
+  const doubleFinished = useRef<number | null>(null);
   // What the run said last for a screen reader (a typed length taken or refused).
   const [pathSaid, setPathSaid] = useState('');
   const describedBy = useId();
@@ -307,7 +309,7 @@ export function Canvas({
       draft
         ? items.map((item) => {
             const moved = draft.get(item.id);
-            return moved ? { ...item, ...moved } : item;
+            return moved ? withDraft(item, moved) : item;
           })
         : items,
     [items, draft],
@@ -752,9 +754,14 @@ export function Canvas({
     if (spec?.pointToPoint && isHostTool(current)) {
       const run = pathRef.current;
       const at = pathPoint(world, event, run);
-      // A double-click's second press adds nothing, however far it jittered: the double-click finishes the run.
-      const next = run ? runClick(run, at, now.zoom, event.detail) : runStart(current, at);
-      if (next !== run) setPath(next);
+      const press = { time: event.timeStamp, x: screen.x, y: screen.y };
+      const next = run ? runClick(run, at, now.zoom, press) : runStart(current, at, at, press);
+      // A double-click's second press adds nothing, however far it jittered, and finishes the run; the dblclick that
+      // follows it then finds no run and does nothing.
+      if (next === 'double') {
+        doubleFinished.current = press.time;
+        finishPath();
+      } else if (next !== run) setPath(next);
       return;
     }
     if (current === 'connector') {
@@ -983,7 +990,7 @@ export function Canvas({
     if (ran) {
       event.preventDefault();
       if (ran.kind === 'finish') finishPath();
-      else if (ran.kind === 'refused') setPathSaid(t('canvas.path.refused', { typed: ran.typed }));
+      else if (ran.kind === 'refused') setPathSaid(latest.current.scale?.refusal?.(ran.typed) ?? t('canvas.path.refused', { typed: ran.typed }));
       else if (ran.kind === 'taken') {
         setPath(ran.run);
         setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(ran.length) : String(tidy(ran.length)) }));
@@ -1260,9 +1267,13 @@ export function Canvas({
       }}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
-        // A double-click finishes a run (6.2a).
+        // A double-click finishes a run (6.2a); once its second press has finished it, the double-click does nothing more.
         if (pathRef.current) {
           finishPath();
+          return;
+        }
+        if (doubleFinished.current !== null && event.timeStamp - doubleFinished.current <= DOUBLE_PRESS_MS) {
+          doubleFinished.current = null;
           return;
         }
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;

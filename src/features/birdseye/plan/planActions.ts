@@ -1,4 +1,8 @@
-import { projectStore } from '../../../app/projectStore';
+import type { StoreApi } from 'zustand/vanilla';
+import { showInfo } from '../../../app/notice';
+import { projectStore, type ProjectState } from '../../../app/projectStore';
+import { t } from '../../../core/i18n';
+import type { Project } from '../../../core/storage/project';
 import { newRoomChanges, renamePlanChanges, sceneRoomId, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { copySetupChanges, deleteRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
@@ -13,6 +17,7 @@ import {
   planNudgeChanges,
   planPasteChanges,
   reorderPlanChanges,
+  runRoomId,
   shownWalls,
   trashPlanItemsChanges,
   viewKey,
@@ -96,16 +101,32 @@ export async function setupOnly(view: PlanView, ids: readonly string[], on: bool
 
 /**
  * A run of walls drawn (canvas units): one wall a segment, the whole run one op group, the new walls selected. Always
- * into the room of the view the run was drawn in, even when it ends because another view was picked.
+ * into the room of the view the run was drawn in, even when it ends because another view was picked; and only into the
+ * open project it was drawn in (`madeIn`): a run that ends after a switch (to a version or a backup that shares its
+ * ids) writes nothing anywhere. A room gone meanwhile (to the Trash, or its scene) is said, never silently dropped.
  */
-export async function drawWalls(view: PlanView, points: readonly Point[]): Promise<void> {
+export async function drawWalls(view: PlanView, points: readonly Point[], madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<boolean> {
+  // Checked before the edit is queued: applyWith takes the project open when it's called as the one the edit is for.
+  if (madeIn === null || store.getState().project !== madeIn) return false;
   let ids: string[] = [];
-  const written = await projectStore.getState().applyWith((records) => {
+  // A holder, since the build sets it inside a callback.
+  const room = { gone: false };
+  const written = await store.getState().applyWith((records) => {
+    if (runRoomId(records, view.sceneId) === null) {
+      room.gone = true;
+      return { changes: [] };
+    }
     const made = drawWallsChanges(records, view.sceneId, points);
     ids = made.ids;
     return { changes: made.changes };
   });
+  // An edit with no changes counts as written: a room gone is told apart by the build.
+  if (room.gone) {
+    if (written && points.length >= 2 && store.getState().project === madeIn) showInfo(t('plan.wallsNotDrawn'));
+    return false;
+  }
   if (written) select(view, ids);
+  return written;
 }
 
 /** A door or window put in a wall (6.2b), selected once it's written. */
