@@ -133,11 +133,36 @@
 - Video: play proxies, never originals. Comma and period step frames; I and O set in and out.
   - Crop, then grab a still or a short clip straight into a frame.
   - Proxies are H.264 from the hardware encoder (VideoToolbox on Mac, Media Foundation on Windows).
-- Bird's-eye view: top-down plan in real units (meters or feet, a setting).
-  - Items: walls, doors, windows, set pieces, cast marks and paths, cameras, lights, flags, diffusion.
-  - Camera field of view = 2 * atan(sensor_width / (2 * focal_length)).
-  - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking.
-  - One plan per scene setup, linked to its shots.
+- Bird's-eye view (Phase 6; docs/PHASE6_DECISIONS.md, Kevin, Nov 13): top-down plan in real units. The file is
+  always metres; the screen shows metres or feet by this computer's region (a Settings override), and lengths can be
+  typed as "3.5m", "12ft" or 12' 6".
+  - Items: walls, doors, windows, set pieces, cast marks and paths, cameras, lights, flags, diffusion. Each is a
+    `plan_item` record under its `plan`, every change an op.
+  - Three levels, each drawn once and shown live, never copied; an item's level is the `plan` it sits in:
+    - The room (walls, doors, windows, set pieces, the underlay and its scale, north): a `plan` of kind `room` that
+      scenes point to (`room_id`). A scene starts from a new room or one already drawn (its location's first); "Make
+      a separate copy" gives a scene its own version.
+    - Blocking (cast marks and paths): a `plan` of kind `blocking` under the scene, shown in each of its setups.
+    - Cameras, lights, grip, sound and production items: a `plan` of kind `setup` under its setup. A new setup
+      starts empty or from another setup's state, copied.
+    - Anything can also be placed in one setup only (a cheated mark, an extra set piece).
+  - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
+    number comes from the order, never stored.
+  - Camera bodies and lenses are `gear_item` records: a body has its recording mode's sensor width and height in mm
+    (a short table from the makers' spec pages; phones use 36 × 24 mm, "Focal lengths as full-frame equivalents"); a
+    lens has its focal range and squeeze.
+  - Camera field of view = 2 * atan(width / (2 * focal_length)), where width is what the project's frame sees, not
+    the whole sensor: the mode's area after de-squeeze (sensor_width × squeeze, by sensor_height), with the project's
+    `aspect_ratio` fitted inside. "On its side" swaps the mode's width and height. One function in src/core/model.
+    A camera reads its lens live from its frame, never a copy.
+  - A light carries its watts (from its gear item, or typed); the legend totals the setup's watts. A height that's
+    set shows as a small label by its item and in the legend.
+  - North is one per room. The sun path draws the real sun for the frames' location and shoot day (SunCalc, the
+    location's time zone); with no location, day or north it says what's missing and draws nothing.
+  - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking. A focus view, not access control.
+  - A plan is never themed, as boards: paper and ink in light and dark.
+  - Export: PDF and PNG per setup, and two packets, each one PDF: a scene (a page per setup) and a shoot day (every
+    setup with a frame that day, in the day's order). Paper by region, as call sheets.
 - Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
   scene (3.6b), only by the director or the DP, showing "Changed since approval" once what that department touches
   (3.15: picture, sketch, action, dialogue, shot size, lens and movement for every department; its own notes and

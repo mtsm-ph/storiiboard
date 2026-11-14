@@ -347,6 +347,37 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 13, second chat: Phase 6 under way)
+
+- **Models checked:** the first builder and reviewer runs of this chat both recorded `claude-opus-5-5` in their
+  transcripts (`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`, the `"model"` field). In a new chat,
+  check the first builder run the same way; anything else, stop and tell Kevin.
+- **Merged Nov 13 (second chat):** #146 to #150 into `v2`, in order. Because `v2` had moved under the stack (#151),
+  each PR was retargeted to `v2`, then brought up to date with GitHub's "Update branch" (`gh pr update-branch`),
+  which starts the pull-request CI on exactly the tree the merge gives; `git merge-tree` confirmed it, and the merge
+  waited for green (#146 run 43542617514, #147 43543138468, #148 43543582454, #149 43544092691; #150 docs only, no
+  CI). `v2`'s tree is #150's. The checkpoint for Kevin's by-hand pass: `checkpoint/nov13-v2` at bc1c880, run
+  43544879092 (result in the status line at the end of this section).
+- **Kevin's Nov 13 answers:** Bodoni Moda: one optical size accepted, no generated files. The Inspector shows the
+  frame's shoot day (5.11). A desktop gap audit, report only (docs/DESKTOP_GAPS.md), with one small certain fix
+  (5.12). Phase 6: go, 6.0 to the gate, with his answers in docs/PHASE6_DECISIONS.md, CLAUDE.md ("Bird's-eye view")
+  and PLAN.md ("Phase 6 milestones": 6.0 to 6.11; 6.6 is the new north-and-sun milestone).
+- **The stack, each based on the one before; nothing here is merged until Kevin says** (he named #146 to #150 only):
+  see PLAN.md's Phase 6 table and the status line below for PR numbers and states. Order: `polish/inspector-shoot-day`
+  (5.11), `fix/5.12-company-logo` (5.12 and the audit), `phase6/6.0-setups` (the answers' docs, then 6.0), then one
+  branch per milestone. A PR that changes baselines (6.0 changes all 60: Setup goes live in the sidebar) gets them
+  regenerated on its branch (Windows here; Linux and the Mac from a `checkpoint/baselines-<name>` run's artifacts)
+  with a PR comment.
+- **How a milestone runs:** brief in docs/briefs (complete: the builder knows nothing else), one builder at a time,
+  commit by explicit paths, a diff file in test-results/ for the reviewer, fixes back to a builder until nothing
+  high or medium is left, push, PR, PLAN.md and this section updated.
+- **Schema (decision 16, approved):** props only, one version, in 6.1, listing every prop Phase 6 needs in
+  SBD_FORMAT.md. A new table or record type waits for Kevin.
+- **Waiting for Kevin:** the audit's go-aheads (docs/DESKTOP_GAPS.md, "Waiting for Kevin"); merges of the stack.
+- Run npm and npx from PowerShell, or from Bash with the folder spelled `C:/Users/...`.
+- **Status line (keep current):** 5.11 built and reviewed (nothing high or medium), pushed. 5.12 built, pushed,
+  review pending. 6.0: brief written (docs/briefs/6.0-setups.md), not started. Checkpoint 43544879092: running.
+
 ### Next session: start here (Nov 13: Phase 5 merged; Kevin's Nov 11 answers built; Phase 6 planned)
 
 - **Models (Kevin, Nov 13; CLAUDE.md, Who does what):** the main session runs on Fable 5.2 and does what it did:
@@ -431,6 +462,13 @@ Lows deferred (noted, not planned yet):
     original is in Desktop or Documents: does selecting it raise the folder-access prompt?
 12. Once #148 is merged: a deck PDF with Outfit Bold, Archivo Light Italic, Jost at several weights and a large
     Bodoni Moda title: each prints in its own face and weight, with no notice.
+13. A large Bodoni Moda title, screen against PDF (Kevin, Nov 13: the one optical size is accepted; the PDF's is
+    about 2% wider with less contrast).
+14. From docs/DESKTOP_GAPS.md, on the `checkpoint/nov13-v2` installers (made before 5.12): attach a company that
+    has a logo to a project (expected to fail there, A1; fixed by 5.12); Windows: drag a page in a deck's Pages
+    panel to reorder it (B1); Mac: Assets, Copy link, then paste somewhere (B2).
+15. The Inspector's Shoot day row (5.11, once merged): a frame in a day shows "Day 2 · date" and opens Shoot days
+    on it; a frame in none reads "Not scheduled".
 
 ### Waiting for Kevin (Phase 5)
 
