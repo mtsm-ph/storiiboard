@@ -14,7 +14,7 @@ import {
   unscheduledFrames,
   type ShootDay,
 } from '../../core/model/shootDay';
-import { sceneSetups } from '../../core/model/setup';
+import { sceneSetups, setupLabel } from '../../core/model/setup';
 import { sceneFields, sceneLabel, shotFields, specLine } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
@@ -565,6 +565,7 @@ function planPlace(records: Readonly<Record<string, SbdRecord>>, setupId: string
   const setup = records[setupId];
   const scene = setup?.parentId ? records[setup.parentId] : undefined;
   if (scene?.type !== 'scene') return null;
-  const number = sceneSetups(records, scene.id).find((s) => s.record.id === setupId)?.number;
-  return { scene: sceneLabel(sceneFields(scene.props).number), setup: number === undefined ? t('history.aSetup') : t('setup.label', { number: String(number) }) };
+  // Named as setups are everywhere else (setupLabel: its number, and its name when it has one).
+  const live = sceneSetups(records, scene.id).find((s) => s.record.id === setupId);
+  return { scene: sceneLabel(sceneFields(scene.props).number), setup: live ? setupLabel(live) : t('history.aSetup') };
 }

@@ -298,7 +298,8 @@ describe('History for cameras (6.4)', () => {
   });
 });
 
-// 6.5: lights, flags and diffusion, named as the icon they were placed as; a gear item never by its id.
+// 6.5: lights named as the icon they were placed as, flags and diffusion by their kind and size as the step left
+// them (6.5 review); a gear item never by its id.
 describe('History for lights, flags and diffusion (6.5)', () => {
   const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
   const box = { x: 0, y: 0, width: 0.4, height: 0.4, rotation: 0 };
@@ -309,7 +310,8 @@ describe('History for lights, flags and diffusion (6.5)', () => {
 
   it('says a light was placed, turned, its gear item picked and taken off, its watts typed and taken off, its beam set; a frame resized', () => {
     expect(tell([op('create', null, light())])).toBe('Placed a Fresnel');
-    expect(tell([op('create', null, frame())])).toBe('Placed a 4×4 diffusion');
+    // A frame by its kind and size, never the icon it was placed as (6.5 review).
+    expect(tell([op('create', null, frame())])).toBe('Placed a diffusion · 4×4');
     expect(tell([op('update', light(), light({ rotation: 45 }))])).toBe('Turned a Fresnel');
     expect(tell([op('update', light(), light({ gear_id: 'k1' }))])).toBe('Picked the gear item for a Fresnel');
     expect(tell([op('update', light({ gear_id: 'k1' }), light())])).toBe('Took the gear item off a Fresnel');
@@ -317,7 +319,7 @@ describe('History for lights, flags and diffusion (6.5)', () => {
     expect(tell([op('update', light({ watts: 650 }), light())])).toBe('Took the typed watts off a Fresnel');
     expect(tell([op('update', light(), light({ beam_deg: 25 }))])).toBe('Set the beam of a Fresnel to 25°');
     expect(tell([op('update', light({}, 'lighting/practical'), light({ beam_deg: 360 }, 'lighting/practical'))])).toBe('Set the beam of a practical to all round');
-    expect(tell([op('update', frame(), frame({ x: -0.61, width: 2.44 }))])).toBe('Resized a 4×4 diffusion');
+    expect(tell([op('update', frame(), frame({ x: -0.61, width: 2.44 }))])).toBe('Resized a diffusion · 8×8');
     expect(tell([op('trash', light(), { ...light(), trashedAt: at })])).toBe('Deleted a Fresnel');
   });
 

@@ -6,7 +6,7 @@ import { parseDegrees, type GripFields, type LightFields } from '../../../core/m
 import { ALL_ROUND, beamOf, FRAME_SIZES, frameSizeOf, isAllRound, isBeam, isWatts, liesFlat, lightWatts, liveGear } from '../../../core/model/planLight';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select } from '../../../ui/fields';
-import { iconLabel } from './iconWords';
+import { frameLabel, iconLabel } from './iconWords';
 import { wattsLabel } from './lightLooks';
 import { changeIcons, setFrameSize, setLightBeam, setLightWatts, setPlanGear } from './planActions';
 import { iconCentre, iconPatchRefused, type IconPatch } from './planItems';
@@ -70,6 +70,8 @@ export function parseWatts(typed: string): number | null {
 export function parseBeam(typed: string): number | null {
   const text = typed.trim();
   if (text.toLocaleLowerCase() === t('selection.light.allRound').toLocaleLowerCase()) return ALL_ROUND;
+  // A beam is never negative: parseDegrees would wrap "-30" to 330° (6.5 review).
+  if (/^[-−]/.test(text)) return null;
   // 360 is all round, never a turn's 0: read before parseDegrees, which folds it.
   const plain = text.replace(/°$/, '').trim().replace(',', '.');
   if (/^(\d+(\.\d*)?|\.\d+)$/.test(plain)) {
@@ -176,8 +178,9 @@ export function GripFieldsView({ ids, frames, unit, records }: { ids: readonly s
   const length = (apply: (m: number) => IconPatch, opts: { signed?: boolean; empty?: IconPatch } = {}) => lengthCommit(unit, write, apply, opts);
   const refused = t('selection.lengthRefused');
   const keyed = (field: string) => `${ids.join(' ')}:${field}`;
-  const kind = shared(frames.map((f) => f.icon));
-  const label = ids.length === 1 && kind !== null ? iconLabel(kind) : tn('selection.items', ids.length);
+  // By its kind and size, never the icon it was placed as (6.5 review): "Diffusion · 8×8".
+  const only = ids.length === 1 ? frames[0] : undefined;
+  const label = only ? frameLabel(only, unit) : tn('selection.items', ids.length);
   const names = shared(frames.map((f) => f.name));
   const rotations = shared(frames.map((f) => degreesText(f.rotation)));
   const centres = frames.map((f) => iconCentre(f));

@@ -1,19 +1,26 @@
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { gripFields, lightFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
-import { lightWatts } from '../../../core/model/planLight';
+import { BEAM_FACING, BEAM_LENGTH_M, beamDirection, beamFacing, LIGHT_ICONS, lightWatts } from '../../../core/model/planLight';
 import { copySetupChanges, separateCopyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { gearWattsChange } from '../../gear/gearEdits';
-import { beamWedge } from './lightDraw';
+import { beamAxis, beamWedge } from './lightDraw';
 import { lightLooks, wattsLabel } from './lightLooks';
 import { parseBeam, parseWatts } from './LightSelection';
-import { frameSizeChanges, heightLines, iconCentre, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, turnChanges, unreadableAfter } from './planItems';
-import { LIGHT_TOOL, PLAN_TOOLS } from './planScale';
+import { frameSizeChanges, gripAnnounce, heightLines, iconCentre, placeIconChanges, planClipOf, planItemsBuilder, planGeometryChanges, planPasteInView, turnChanges, unreadableAfter } from './planItems';
+import { aFrame, frameLabel, iconLabel } from './iconWords';
+import { planLegend } from '../../../core/model/planLegend';
+import { LIGHT_TOOL, PLAN_TOOLS, toCanvas } from './planScale';
+import { pickBoxOf } from '../../../ui/canvas/hitTest';
+import { PAPER_COLOURS } from '../../../ui/canvas/paperColours';
+import { itemAt } from '../../../ui/canvas/picking';
+import { handledSize, MIN_SIZE, shrunkBelow } from '../../../ui/canvas/placement';
 
 // Lights, flags and diffusion on a plan (6.5): placed from the Library or the L tool into the setup shown, drawn with
 // their beam (or soft circle) and labels past their box, turned by the turn keys, sized by the names crews use, and
@@ -120,11 +127,75 @@ describe('a light on the canvas (6.5)', () => {
     expect(beamWedge(360)).toBeNull();
   });
 
-  it('turns by the turn keys, as a camera does; a flag doesn’t', async () => {
+  // Which way each lighting icon's own drawing shines, read from its vectors (iconBoxes.ts) for this test, apart from
+  // BEAM_FACING: the lens's rays up the box, the HMI's and the RGB light's beam and gel to the right, the window's rays
+  // down out of it; the all-round ones none.
+  const SHINES: Readonly<Record<string, { x: number; y: number } | null>> = {
+    'lighting/fresnel': { x: 0, y: -1 },
+    'lighting/led-panel': { x: 0, y: -1 },
+    'lighting/tube': { x: 0, y: -1 },
+    'lighting/cob-softbox': { x: 0, y: -1 },
+    'lighting/hmi-par': { x: 1, y: 0 },
+    'lighting/china-ball': null,
+    'lighting/practical': null,
+    'lighting/spacelight': null,
+    'lighting/rgb-gel': { x: 1, y: 0 },
+    'lighting/window-light': { x: 0, y: 1 },
+  };
+
+  it('has a facing for every light it places', () => {
+    expect(Object.keys(BEAM_FACING).sort()).toEqual([...LIGHT_ICONS].sort());
+    expect(Object.keys(SHINES).sort()).toEqual([...LIGHT_ICONS].sort());
+  });
+
+  for (const icon of LIGHT_ICONS) {
+    it(`draws ${icon}’s beam the way its drawing shines, turned with the light (6.5 review)`, async () => {
+      const { sceneId, setupId } = await scene();
+      const id = await place({ sceneId, setupId }, icon);
+      const shown = shownItems(records(), sceneId, setupId);
+      const item = planItemsBuilder()(shown, 'metres', '#16150F', 'en', new Map(), lightLooks(records(), shown, 'metres', [])).find((i) => i.id === id);
+      const drawn = item?.beyond?.draw({ width: item.width, height: item.height, zoom: 1, inView: true, rotation: 0, colours: PAPER_COLOURS }) as ReactElement<{ facing: number; look: { degrees: number } }> | undefined;
+      expect(drawn?.props.facing).toBe(beamFacing(icon));
+      const axis = beamAxis(drawn?.props.look.degrees ?? 0, drawn?.props.facing ?? 0);
+      expect(axis).toEqual(SHINES[icon]);
+      // The plan's direction is the light's rotation plus that facing: turned 90°, an up-facing beam points right.
+      await store.getState().apply(turnChanges(records(), [id], 90));
+      const fields = lightFields(records()[id]?.props ?? {});
+      expect(fields && beamDirection(fields)).toBe((90 + beamFacing(icon)) % 360);
+    });
+  }
+
+  it('draws an all-round light’s soft circle 4 m round its middle, inside its bounds', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = await place({ sceneId, setupId }, 'lighting/china-ball', { x: 1, y: 2 });
+    const shown = shownItems(records(), sceneId, setupId);
+    const item = planItemsBuilder()(shown, 'metres', '#16150F', 'en', new Map(), lightLooks(records(), shown, 'metres', [])).find((i) => i.id === id);
+    if (!item?.beyond) throw new Error('no beyond');
+    expect(beamWedge(360)).toBeNull();
+    const radius = toCanvas(BEAM_LENGTH_M);
+    expect(radius).toBe(400);
+    const cx = item.x + item.width / 2;
+    const cy = item.y + item.height / 2;
+    const b = item.beyond.bounds;
+    expect(b.x).toBeLessThanOrEqual(cx - radius);
+    expect(b.y).toBeLessThanOrEqual(cy - radius);
+    expect(b.x + b.width).toBeGreaterThanOrEqual(cx + radius);
+    expect(b.y + b.height).toBeGreaterThanOrEqual(cy + radius);
+    // No further than the circle and its box round it: the beam's bounds don't grow with nothing to draw.
+    expect(b.width).toBeLessThanOrEqual(2 * radius + item.width + 1);
+  });
+
+  it('turns by the turn keys, as a camera does, and so do flags and diffusion (6.5 review); a set piece doesn’t', async () => {
     const { sceneId, setupId } = await scene();
     const light = await place({ sceneId, setupId }, 'lighting/led-panel');
     const flag = await place({ sceneId, setupId }, 'grip/flag');
-    expect(turnChanges(records(), [light, flag], 5)).toEqual([{ kind: 'update', id: light, set: { rotation: 5 } }]);
+    const frame = await place({ sceneId, setupId }, 'grip/diffusion-4x4');
+    const stand = await place({ sceneId, setupId }, 'grip/c-stand');
+    expect(turnChanges(records(), [light, flag, frame, stand], 5)).toEqual([
+      { kind: 'update', id: light, set: { rotation: 5 } },
+      { kind: 'update', id: flag, set: { rotation: 5 } },
+      { kind: 'update', id: frame, set: { rotation: 5 } },
+    ]);
     expect(turnChanges(records(), [light], -5)).toEqual([{ kind: 'update', id: light, set: { rotation: 355 } }]);
   });
 
@@ -155,6 +226,51 @@ describe('a frame’s size (6.5)', () => {
     await store.getState().undo();
     expect(gripFields(records()[frame]?.props ?? {})).toMatchObject({ width: 1.22 });
     expect(frameSizeChanges(records(), [frame], 'nope')).toEqual([]);
+  });
+});
+
+describe('a standing frame under the handles (6.5 review, M1)', () => {
+  it('keeps a 4×4’s 5 cm depth through a turn and a stretch by the handles, and never takes it under a centimetre', async () => {
+    const { sceneId, setupId } = await scene();
+    const frame = await place({ sceneId, setupId }, 'grip/diffusion-4x4', { x: 1, y: 1 });
+    const g = gripFields(records()[frame]?.props ?? {});
+    if (!g) throw new Error('no frame');
+    const box = { x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height) };
+    // What the canvas reports for a pure turn (no scale on either side), and for a stretch along its length only.
+    const turned = { id: frame, ...box, width: handledSize(box.width, 1, 1), height: handledSize(box.height, 1, 1), rotation: 30 };
+    expect(turned).toMatchObject({ width: 122, height: 5 });
+    expect(planGeometryChanges(records(), [turned])).toEqual([{ kind: 'update', id: frame, set: { x: g.x, y: g.y, width: 1.22, height: 0.05, rotation: 30 } }]);
+    const stretched = { id: frame, ...box, width: handledSize(box.width, 1.5, 1), height: handledSize(box.height, 1, 1), rotation: 0 };
+    expect(planGeometryChanges(records(), [stretched])).toEqual([{ kind: 'update', id: frame, set: expect.objectContaining({ width: 1.83, height: 0.05 }) as unknown }]);
+    // Squeezed: the plan's least, a centimetre, where a board's least would be 8 units (8 cm here).
+    expect(handledSize(box.height, 0.01, 1)).toBe(1);
+    expect(handledSize(box.height, 0.01)).toBe(MIN_SIZE);
+  });
+
+  it('turns a standing frame by the handles at any zoom: only a side shrunk under the least is refused', () => {
+    // 5 cm at 200% is 10 px, under the least (8 units) on screen: a turn keeps it 10 px, and is allowed.
+    expect(shrunkBelow(10, 10, 16)).toBe(false);
+    expect(shrunkBelow(10, 9, 16)).toBe(true);
+    expect(shrunkBelow(10, 12, 16)).toBe(false);
+    expect(shrunkBelow(40, 20, 16)).toBe(false);
+  });
+
+  it('is picked at least 8 screen pixels thick, about its middle, at any zoom; drawn with its whole box', async () => {
+    const { sceneId, setupId } = await scene();
+    const frame = await place({ sceneId, setupId }, 'grip/flag', { x: 0, y: 0 });
+    const over = await place({ sceneId, setupId }, 'grip/overhead-8x8', { x: 5, y: 5 });
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    const item = built.find((i) => i.id === frame);
+    expect(item?.pickThickness).toBe(8);
+    expect(built.find((i) => i.id === over)?.pickThickness).toBeUndefined();
+    if (!item) throw new Error('no item');
+    // At 20% the 5 cm bar is 1 px: a click 3 px off its line (15 cm) still picks it; 5 px off doesn't.
+    expect(itemAt(built, { x: 0, y: 15 }, 0.2)?.id).toBe(frame);
+    expect(itemAt(built, { x: 0, y: 25 }, 0.2)).toBeUndefined();
+    // Exactly, without the zoom (a board's rule).
+    expect(itemAt(built, { x: 0, y: 15 })).toBeUndefined();
+    // At 400% it is 20 px: picked by its box.
+    expect(pickBoxOf(item, 4)).toBe(item);
   });
 });
 
@@ -214,6 +330,10 @@ describe('typed watts and beams (6.5)', () => {
     expect(parseBeam('all round')).toBe(360);
     expect(parseBeam('0')).toBeNull();
     expect(parseBeam('400')).toBeNull();
+    // Never negative, never wrapped round (6.5 review).
+    expect(parseBeam('-30')).toBeNull();
+    expect(parseBeam('−30°')).toBeNull();
+    expect(parseBeam('-0')).toBeNull();
     setLocale('es');
     expect(parseBeam('En todas direcciones')).toBe(360);
   });
@@ -224,5 +344,103 @@ describe('typed watts and beams (6.5)', () => {
     expect(gearWattsChange(records(), 'k1', 1200)).toEqual([]);
     expect(gearWattsChange(records(), 'k1', null)).toEqual([{ kind: 'update', id: 'k1', unset: ['watts'] }]);
     expect(gearWattsChange(records(), 'k1', -1)).toEqual([]);
+  });
+
+  it('refuses watts the Gear tile’s field would refuse, and keeps watts this version can’t read (6.5 review)', async () => {
+    await scene();
+    for (const bad of [0, -5, 100_001, Number.NaN, Number.POSITIVE_INFINITY]) expect(gearWattsChange(records(), 'k1', bad)).toEqual([]);
+    expect(gearWattsChange(records(), 'k1', 100_000)).toEqual([{ kind: 'update', id: 'k1', set: { watts: 100000 } }]);
+    await store.getState().apply([{ kind: 'update', id: 'k1', set: { watts: '1.2 kW' } }]);
+    expect(gearWattsChange(records(), 'k1', 650)).toEqual([]);
+    expect(gearWattsChange(records(), 'k1', null)).toEqual([]);
+    expect(records().k1?.props.watts).toBe('1.2 kW');
+  });
+});
+
+describe('a frame named by its kind and size, never the icon it was placed as (6.5 review)', () => {
+  it('reads "Diffusion · 8×8" for a 4×4 made an 8×8, a typed size in the unit shown, in every label', async () => {
+    const { sceneId, setupId } = await scene();
+    const frame = await place({ sceneId, setupId }, 'grip/diffusion-4x4');
+    const bounce = await place({ sceneId, setupId }, 'grip/bounce');
+    await store.getState().apply(frameSizeChanges(records(), [frame], '8x8'));
+    await store.getState().apply([{ kind: 'update', id: bounce, set: { width: 1.5 } }]);
+    const fieldsOf = (id: string) => {
+      const fields = gripFields(records()[id]?.props ?? {});
+      if (!fields) throw new Error('no frame');
+      return fields;
+    };
+    expect(frameLabel(fieldsOf(frame), 'metres')).toBe('Diffusion · 8×8');
+    expect(frameLabel(fieldsOf(bounce), 'metres')).toBe('Bounce · 1.50 m');
+    expect(frameLabel(fieldsOf(bounce), 'feet')).toMatch(/^Bounce · 4' 11"$/);
+    expect(frameLabel({ icon: 'grip/flag', width: 0.91, height: 0.05 }, 'metres')).toBe('Flag · 2×3');
+    expect(frameLabel({ icon: 'grip/overhead-8x8', width: 2, height: 3 }, 'metres')).toBe('Overhead · 2.00 m × 3.00 m');
+    // Aloud, and the Trash and History.
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    expect(built.find((i) => i.id === frame)?.label).toBe('Diffusion · 8×8, 2.44 m by 0.05 m');
+    expect(aFrame(fieldsOf(frame), 'metres')).toBe('a diffusion · 8×8');
+    setLocale('es');
+    expect(frameLabel(fieldsOf(frame), 'metres')).toBe('Difusión · 8×8');
+    expect(gripAnnounce(fieldsOf(bounce), 'metres')).toBe('Rebote · 1.50 m, 1.50 m por 0.05 m');
+  });
+
+  it('keeps a light’s gear item, watts and beam through Duplicate', async () => {
+    const { sceneId, setupId } = await scene();
+    const id = await place({ sceneId, setupId }, 'lighting/fresnel');
+    await store.getState().apply([{ kind: 'update', id, set: { gear_id: 'k1', watts: 650, beam_deg: 25 } }]);
+    // Duplicate is a paste of the selection's clip taken in its view, with no point (planActions.duplicatePlanSelection).
+    const view = { sceneId, setupId };
+    const made = planPasteInView(records(), view, planClipOf(records(), [id], view), null);
+    await store.getState().apply(made.changes);
+    expect(made.ids).toHaveLength(1);
+    const copy = records()[made.ids[0] ?? ''];
+    expect([copy?.props.gear_id, copy?.props.watts, copy?.props.beam_deg]).toEqual(['k1', 650, 25]);
+  });
+});
+
+describe('a wall’s, a door’s and a window’s height (6.5 review, decision 11)', () => {
+  async function room() {
+    const { sceneId, setupId } = await scene();
+    const roomId = sceneRoomId(records(), records()[sceneId]) ?? '';
+    const wall = (id: string, y: number, heightM?: number) => ({
+      kind: 'create' as const,
+      record: { id, type: 'plan_item' as const, parentId: roomId, sortKey: id, props: { kind: 'wall', x: 0, y, width: 3, height: 0.1, rotation: 0, ...(heightM ? { height_m: heightM } : {}) } },
+    });
+    await store.getState().apply([
+      wall('w1', 0, 2.4),
+      wall('w2', 2, 2.4),
+      wall('w3', 4, 3),
+      wall('w4', 6),
+      { kind: 'create', record: { id: 'door', type: 'plan_item', parentId: roomId, sortKey: 'x', props: { kind: 'door', wall_id: 'w1', along_m: 1, width_m: 0.9, height_m: 2.1 } } },
+      { kind: 'create', record: { id: 'win', type: 'plan_item', parentId: roomId, sortKey: 'y', props: { kind: 'window', wall_id: 'w2', along_m: 1, width_m: 1.2 } } },
+    ]);
+    return { sceneId, setupId };
+  }
+
+  it('draws a set height as a label: at a wall’s middle, upright, over its ink; by a door; none without one', async () => {
+    const { sceneId, setupId } = await room();
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    const drawnBy = (id: string) => {
+      const item = built.find((i) => i.id === id);
+      return item?.draw?.({ width: item.width, height: item.height, zoom: 1, inView: true, colours: PAPER_COLOURS }) as ReactElement<{ children?: ReactElement[] }> | undefined;
+    };
+    // A wall with a height draws its bar and, over it, the label at its middle.
+    const labelled = drawnBy('w1')?.props.children ?? [];
+    const label = labelled[1] as ReactElement<{ lines: string[]; at: string; rotation: number }> | undefined;
+    expect(label?.props).toMatchObject({ lines: ['2.40 m'], at: 'middle', rotation: 0 });
+    // One without draws its bar alone.
+    expect(drawnBy('w4')?.props.children).toBeUndefined();
+    // A door's height is a label by it, past its box; a window without one has none.
+    expect(built.find((i) => i.id === 'door')?.beyond).toBeDefined();
+    expect(built.find((i) => i.id === 'win')?.beyond).toBeUndefined();
+  });
+
+  it('lists the room first in the legend: walls by height with a count, then openings with a height', async () => {
+    const { sceneId, setupId } = await room();
+    const legend = planLegend(records(), sceneId, setupId, iconLabel);
+    expect(legend.room).toEqual([
+      { kind: 'wall', metres: 2.4, count: 2 },
+      { kind: 'wall', metres: 3, count: 1 },
+      { kind: 'door', metres: 2.1, count: 1 },
+    ]);
   });
 });

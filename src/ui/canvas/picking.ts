@@ -21,9 +21,12 @@ export const pickOrder = (sections: readonly CanvasItem[], links: readonly strin
   ...pickable(plain).map((item) => item.id),
 ];
 
-/** What a double-click lands on: the topmost item there that can be picked, never a locked one. */
-export const itemAt = (plain: readonly CanvasItem[], point: Point): CanvasItem | undefined => topmostAt(pickable(plain), point);
+/**
+ * What a click or double-click lands on: the topmost item there that can be picked, never a locked one. With the zoom,
+ * a thin item with a `pickThickness` is picked that many screen pixels thick (pickBoxOf).
+ */
+export const itemAt = (plain: readonly CanvasItem[], point: Point, zoom?: number): CanvasItem | undefined => topmostAt(pickable(plain), point, zoom);
 
 /** What a right-click picks: the topmost item there, else a section by its tab or edge band; never a locked one. */
 export const menuPickAt = (plain: readonly CanvasItem[], sections: readonly CanvasItem[], point: Point, zoom: number): CanvasItem | undefined =>
-  itemAt(plain, point) ?? topmostSectionAt(pickable(sections), point, zoom);
+  itemAt(plain, point, zoom) ?? topmostSectionAt(pickable(sections), point, zoom);

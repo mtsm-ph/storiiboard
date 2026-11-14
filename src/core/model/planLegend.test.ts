@@ -83,6 +83,38 @@ describe('a setup’s legend (6.5)', () => {
 
   it('is empty for a setup with no items, and says no watts', () => {
     const empty = recordsOf(record('p', 'project', null, {}), record('sc', 'scene', 'p', { number: '1' }), record('su', 'setup', 'sc', { name: '' }));
-    expect(planLegend(empty, 'sc', 'su', name)).toEqual({ groups: [], watts: { lights: 0, known: 0, unknown: 0 } });
+    expect(planLegend(empty, 'sc', 'su', name)).toEqual({ room: [], groups: [], watts: { lights: 0, known: 0, unknown: 0 } });
+  });
+
+  it('names frames by kind and size, so a 4×4 and an 8×8 of one icon are two lines, never "×2" (6.5 review)', () => {
+    const records = {
+      ...base(),
+      d2: item('d2', 'own', { kind: 'diffusion', icon: 'grip/diffusion-4x4', width: 2.44, height: 0.05, height_m: 2 }),
+      d3: item('d3', 'own', { kind: 'diffusion', icon: 'grip/diffusion-4x4', width: 1.22, height: 0.05, height_m: 2 }),
+      d4: item('d4', 'own', { kind: 'diffusion', icon: 'grip/diffusion-4x4', width: 1.22, height: 0.05, height_m: 2, name: 'Key diff' }),
+    };
+    const sized = (fields: { icon: string; width: number; name: string }) =>
+      fields.icon === 'grip/flag' ? 'Flag' : `${fields.name !== '' ? fields.name : 'Diffusion'} · ${fields.width === 2.44 ? '8×8' : '4×4'}`;
+    const grip = planLegend(records, 'sc', 'su', name, sized).groups.find((g) => g.layer === 'grip');
+    expect(grip?.lines.filter((line) => line.label.includes('·'))).toEqual([
+      { label: 'Diffusion · 4×4', count: 2, height: { metres: 2 } },
+      { label: 'Diffusion · 8×8', count: 1, height: { metres: 2 } },
+      { label: 'Key diff · 4×4', count: 1, height: { metres: 2 } },
+    ]);
+  });
+
+  it('lists the room’s walls, doors and windows that have a height first, one line per height (6.5 review)', () => {
+    const records = {
+      ...base(),
+      wall: item('wall', 'room', { kind: 'wall', width: 3, height: 0.1, height_m: 2.4 }),
+      wall2: item('wall2', 'room', { kind: 'wall', width: 3, height: 0.1, height_m: 2.4 }),
+      wall3: item('wall3', 'room', { kind: 'wall', width: 3, height: 0.1 }),
+      door: item('door', 'room', { kind: 'door', wall_id: 'wall', along_m: 1, width_m: 0.9, height_m: 2.1 }),
+      win: item('win', 'room', { kind: 'window', wall_id: 'wall2', along_m: 1, width_m: 1.2 }),
+    };
+    expect(planLegend(records, 'sc', 'su', name).room).toEqual([
+      { kind: 'wall', metres: 2.4, count: 2 },
+      { kind: 'door', metres: 2.1, count: 1 },
+    ]);
   });
 });

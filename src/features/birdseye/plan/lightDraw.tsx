@@ -1,4 +1,4 @@
-import { Circle, Line, Wedge } from 'react-konva';
+import { Circle, Line, Rect, Wedge } from 'react-konva';
 import { isAllRound } from '../../../core/model/planLight';
 import { DEPT_LIGHTING } from '../../../ui/canvas/paperColours';
 import type { Beyond, CanvasColours } from '../../../ui/canvas/types';
@@ -25,12 +25,21 @@ const EDGE_OPACITY = 0.7;
 const GLOW_OPACITY = 0.3;
 
 /**
- * The beam's wedge in the light's own box, as Konva's Wedge draws one (clockwise from +x, degrees): it points up the
- * box (−90°), so it starts half its angle before that. Null for a light that shines all round.
+ * The beam's wedge in the light's own box, as Konva's Wedge draws one (clockwise from +x, degrees): it points the way
+ * the icon's drawing does (`facing`, clockwise from up the box: BEAM_FACING), so it starts half its angle before that.
+ * Null for a light that shines all round.
  */
-export function beamWedge(degrees: number): { rotation: number; angle: number } | null {
+export function beamWedge(degrees: number, facing = 0): { rotation: number; angle: number } | null {
   if (isAllRound(degrees)) return null;
-  return { rotation: -90 - degrees / 2, angle: degrees };
+  return { rotation: -90 + facing - degrees / 2, angle: degrees };
+}
+
+/** The beam's axis in the light's own box, as a unit vector (y down): where the middle of its wedge points. */
+export function beamAxis(degrees: number, facing = 0): { x: number; y: number } | null {
+  const wedge = beamWedge(degrees, facing);
+  if (!wedge) return null;
+  const middle = ((wedge.rotation + wedge.angle / 2) * Math.PI) / 180;
+  return { x: Math.round(Math.cos(middle) * 1e9) / 1e9, y: Math.round(Math.sin(middle) * 1e9) / 1e9 };
 }
 
 interface BeamProps {
@@ -41,11 +50,13 @@ interface BeamProps {
   colours: CanvasColours;
   look: LightLook;
   length: number;
+  /** Which way the icon's drawing points, degrees clockwise from up its box (BEAM_FACING). */
+  facing: number;
 }
 
 /** The beam (or the soft circle) and the labels, in the light's own box. */
-export function LightBeyond({ width, height, zoom, rotation, colours, look, length }: BeamProps) {
-  const wedge = beamWedge(look.degrees);
+export function LightBeyond({ width, height, zoom, rotation, colours, look, length, facing }: BeamProps) {
+  const wedge = beamWedge(look.degrees, facing);
   const centre = { x: width / 2, y: height / 2 };
   return (
     <>
@@ -86,12 +97,15 @@ export function LightBeyond({ width, height, zoom, rotation, colours, look, leng
 
 /**
  * The canvas's drawing past a light's box, and how far it reaches: the whole circle its beam can sweep (`length` round
- * its box, whichever way it points) and its labels, reckoned for the plan's least zoom as a camera's are.
+ * its box, whichever way it points and whatever its icon's facing) and its labels, reckoned for the plan's least zoom as
+ * a camera's are.
  */
-export function lightBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: LightLook, length: number, leastZoom: number): Beyond {
+export function lightBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: LightLook, length: number, leastZoom: number, facing = 0): Beyond {
   return {
     bounds: cameraReach(box, null, 0, length, labelReach(box, look.lines.length, leastZoom)),
-    draw: (context) => <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} />,
+    draw: (context) => (
+      <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} facing={facing} />
+    ),
   };
 }
 
@@ -110,6 +124,8 @@ export function StandingFrameShape({ width, height, zoom, dashed, colours }: { w
   const ink = { stroke: colours.ink, strokeScaleEnabled: false, listening: false, lineCap: 'round' as const };
   return (
     <>
+      {/* The whole box, clear: the handles take the item's box from what it draws, and the bar and ticks alone are narrower. */}
+      <Rect width={width} height={height} fill="transparent" listening={false} />
       <Line points={[0, y, width, y]} strokeWidth={BAR_PIXELS} {...(dashed ? { dash: [3, 2] } : {})} {...ink} />
       <Line points={[0, y - tick, 0, y + tick]} strokeWidth={1.5} {...ink} />
       <Line points={[width, y - tick, width, y + tick]} strokeWidth={1.5} {...ink} />

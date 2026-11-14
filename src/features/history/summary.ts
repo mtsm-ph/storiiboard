@@ -18,8 +18,8 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, iconIdOf, LIGHT_ICON, planFields } from '../../core/model/plan';
-import { anIcon } from '../birdseye/plan/iconWords';
+import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, planFields } from '../../core/model/plan';
+import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -558,6 +558,9 @@ const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'f
 function aBoxed(props: Props): string {
   const icon = iconIdOf(props);
   if (props.kind === 'icon') return icon !== '' ? anIcon(icon) : t('history.aPlanItem');
+  // A flag or diffusion frame by its kind and size, never the icon it was placed as (6.5 review): "a diffusion · 8×8".
+  const frame = props.kind === 'flag' || props.kind === 'diffusion' ? gripFields(props) : null;
+  if (frame) return aFrame(frame, planUnitNow());
   const fallback = props.kind === 'camera' ? CAMERA_ICON : props.kind === 'light' ? LIGHT_ICON : props.kind === 'flag' ? FLAG_ICON : DIFFUSION_ICON;
   return anIcon(icon || fallback);
 }
@@ -800,6 +803,21 @@ function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): P
     return line('history.lensRange', { who, range: { mono: focalLabel(lensFields(after.props).range) || '—' } });
   }
   return null;
+}
+
+/**
+ * The one lens update of a step that changed a lens's range and, beside it, only plan cameras' `lens_mm` (the cameras
+ * lensRangeChange brings inside the new range); null for any other step.
+ */
+function rangeBesideCameras(updates: readonly LoggedOp[]): LoggedOp | null {
+  const lenses = updates.filter((op) => op.after?.type === 'gear_item');
+  const lens = lenses.length === 1 ? lenses[0] : undefined;
+  if (!lens?.before || !lens.after || lenses.length === updates.length) return null;
+  if (!changedProps(lens.before, lens.after).every((prop) => prop === 'focal_min_mm' || prop === 'focal_max_mm')) return null;
+  const clamped = updates.every(
+    (op) => op === lens || (op.before?.type === 'plan_item' && op.after?.props.kind === 'camera' && changedProps(op.before, op.after).every((prop) => prop === 'lens_mm')),
+  );
+  return clamped ? lens : null;
 }
 
 /** A room as History names one (6.2a): by its name as the step left it. */
@@ -1377,9 +1395,12 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   // Frames put into a setup, or taken out of theirs (6.0), together.
   const joining = framesSetupLine(updates, around);
   if (joining) return [...joining, tag];
-  if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
-    const op = updates[0];
-    const camera = updates.length === 1 && op ? cameraGearLine(op, around) : null;
+  // A lens's range that also brought plan cameras' typed focal lengths inside it (6.4 review): read as the range change.
+  const ranged = rangeBesideCameras(updates);
+  const lead = ranged ? [ranged] : updates;
+  if (lead.length === 1 || new Set(lead.map((op) => op.recordId)).size === 1) {
+    const op = lead[0];
+    const camera = lead.length === 1 && op ? cameraGearLine(op, around) : null;
     if (camera) return [...camera, tag];
     if (op?.before && op.after) {
       const changes = fieldChanges(op.before, op.after);

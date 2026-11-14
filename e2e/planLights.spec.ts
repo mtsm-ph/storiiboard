@@ -144,9 +144,12 @@ test('lights with their gear item’s watts, a height and a beam; a frame sized 
   expect((await frames(page))[0]).toMatchObject({ kind: 'diffusion', layer: 'grip', width: 1.22, height: 0.05 });
   const size = selectionTile(page).getByRole('combobox', { name: 'Size', exact: true });
   await expect(size).toHaveValue('4x4');
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Diffusion · 4×4');
   await size.selectOption({ label: '8×8' });
   await expect.poll(async () => (await frames(page))[0]?.width).toBe(2.44);
   await expect(field(page, 'Width')).toHaveValue('2.44 m');
+  // Named by its size now, never the icon it was placed as (6.5 review).
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Diffusion · 8×8');
 
   // A second light with no wattage: the legend's total says it's unknown.
   await placeLight(page);
@@ -156,7 +159,8 @@ test('lights with their gear item’s watts, a height and a beam; a frame sized 
   const legend = selectionTile(page).locator('[data-plan-legend]');
   await expect(legend.locator('[data-legend-total]')).toContainText('650 W + 1 unknown');
   await expect(legend.locator('[data-legend-group="lighting"]')).toContainText('Fresnel · 2.40 m · 650 W');
-  await expect(legend.locator('[data-legend-group="grip"]')).toContainText('Diffusion 4×4');
+  await expect(legend.locator('[data-legend-group="grip"]')).toContainText('Diffusion · 8×8');
+  await expect(legend.locator('[data-legend-group="grip"]')).not.toContainText('4×4');
   expect((await new AxeBuilder({ page }).include('[data-selection-tile]').withTags(tags).analyze()).violations).toEqual([]);
 
   // The frame in a shoot day whose list lacks the light: Shoot days says so, from the plan.
@@ -164,7 +168,7 @@ test('lights with their gear item’s watts, a height and a beam; a frame sized 
   const day = days(page).locator('[data-day-editor]');
   await days(page).getByRole('button', { name: '+ New day' }).click();
   await day.getByRole('button', { name: /^Add 1A to Day 1/ }).click();
-  const missing = day.getByRole('list', { name: 'Frames needing gear not on this day’s list' });
+  const missing = day.getByRole('list', { name: 'Gear needed that isn’t on this day’s list' });
   await expect(missing.locator('[data-gear-from="plan"]')).toHaveText(/SC 01: Setup 1’s plan needs Fresnel 1K/);
   expect((await new AxeBuilder({ page }).include('[aria-label="Shoot days"]').withTags(tags).analyze()).violations).toEqual([]);
 
@@ -185,4 +189,48 @@ test('lights with their gear item’s watts, a height and a beam; a frame sized 
   await expect.poll(async () => (await lights(page)).find((l) => l.id === key)).toMatchObject({ watts: 650, beamDeg: 25, heightM: 2.4, labels: ['650 W', '2.40 m'] });
   expect((await lights(page)).find((l) => l.id === key)?.gearId).not.toBeNull();
   expect((await frames(page))[0]?.width).toBe(2.44);
+});
+
+/** Where a world point (canvas units: cm) is on screen, from the view the canvas reports. */
+async function screen(page: Page, x: number, y: number) {
+  const box = await canvas(page).boundingBox();
+  if (!box) throw new Error('no canvas');
+  const attr = async (name: string) => Number(await canvas(page).getAttribute(name));
+  const zoom = await attr('data-zoom');
+  return { x: box.x + box.width / 2 + (x - (await attr('data-cx'))) * zoom, y: box.y + box.height / 2 + (y - (await attr('data-cy'))) * zoom };
+}
+
+test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept (6.5 review)', async ({ page }) => {
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await closeSettings(page);
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await planTile(page).getByRole('button', { name: 'New room' }).click();
+  await expect(canvas(page)).toBeVisible();
+  const flag = libraryTile(page).locator('[data-library-icon="grip/flag"]');
+  await flag.scrollIntoViewIfNeeded();
+  await flag.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await frames(page)).length).toBe(1);
+  const placed = (await frames(page))[0] as Item & { rotation: number; centre: { x: number; y: number } };
+  expect(placed).toMatchObject({ kind: 'flag', width: 0.91, height: 0.05, rotation: 0 });
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+  // Zoomed in to about 200%: the 5 cm bar is 10 px thick, under the boards' least size of 8 units (16 px) there.
+  await canvas(page).focus();
+  for (let i = 0; i < 12 && Number(await canvas(page).getAttribute('data-zoom')) < 1.95; i += 1) await page.keyboard.press('+');
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-zoom'))).toBeGreaterThanOrEqual(1.95);
+  const cx = placed.centre.x * 100;
+  const cy = placed.centre.y * 100;
+  // The rotate handle sits 24 px above the top edge's middle; dragged to 45° clockwise of straight up, the flag turns 45°.
+  const top = await screen(page, cx, cy - 2.5);
+  const centre = await screen(page, cx, cy);
+  const reach = 400;
+  await page.mouse.move(top.x, top.y - 24);
+  await page.mouse.down();
+  await page.mouse.move(centre.x + reach * Math.SQRT1_2, centre.y - reach * Math.SQRT1_2, { steps: 14 });
+  await page.mouse.up();
+  // Turned about 45° (the handle follows the pointer's angle round the box's middle on screen, to a degree or two).
+  await expect.poll(async () => Math.abs((((await frames(page))[0] as (Item & { rotation: number }) | undefined)?.rotation ?? 0) - 45)).toBeLessThanOrEqual(3);
+  expect((await frames(page))[0]).toMatchObject({ width: 0.91, height: 0.05 });
 });

@@ -16,8 +16,9 @@ import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { setupFields } from '../../core/model/setup';
-import { iconLabel } from '../birdseye/plan/iconWords';
-import { openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
+import { frameLabel, iconLabel } from '../birdseye/plan/iconWords';
+import { planUnitNow } from '../../app/planUnits';
+import { isGrip, openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -205,8 +206,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const shown = shownFields(record.props);
       const kind = shown?.kind;
       // A library icon (6.3) by what it is: "Sofa in Diner".
-      // A camera (6.4), a light, a flag or a diffusion frame (6.5) by the icon it was placed as: "Dolly track", "Fresnel".
-      const item = shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      // A camera (6.4) or a light (6.5) by the icon it was placed as: "Dolly track", "Fresnel"; a flag or diffusion
+      // frame by its kind and size, never its icon's ("Diffusion · 8×8", in the unit the plan shows: 6.5 review).
+      const grip = shown && isGrip(shown) ? shown : null;
+      const item = grip ? frameLabel(grip, planUnitNow()) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }

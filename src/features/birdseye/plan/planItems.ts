@@ -46,7 +46,7 @@ import {
   type Swing,
 } from '../../../core/model/plan';
 import { CONE_LENGTH_M, isCameraIcon, withoutFrameLinks } from '../../../core/model/planCamera';
-import { BEAM_LENGTH_M, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
+import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
 import { iconHome } from '../../../core/model/planRooms';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import { sceneSetups, setupLabel } from '../../../core/model/setup';
@@ -57,12 +57,12 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
-import { cameraBeyond, labelsBeyond, type CameraLook } from './cameraDraw';
+import { cameraBeyond, labelsBeyond, UprightLabels, type CameraLook } from './cameraDraw';
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
-import { iconLabel, planIconOf } from './iconWords';
+import { frameLabel, iconLabel, planIconOf } from './iconWords';
 import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
 import { wallOutline, type WallLine } from './wallShape';
 
@@ -186,12 +186,25 @@ export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look:
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
-  return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...(look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min) } : {}) };
+  // Its beam leaves the side its icon's drawing shines from (BEAM_FACING), turned with the light.
+  const beyond = look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(fields.icon)) } : {};
+  return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...beyond };
 }
+
+/** What a flag or diffusion frame is called aloud: by its kind and size, never the icon it was placed as ("Diffusion · 8×8, 2.44 m by 0.05 m"). */
+export const gripAnnounce = (fields: GripFields, unit: PlanUnit): string => {
+  const sizes = { width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) };
+  const what = frameLabel(fields, unit);
+  return fields.name === '' ? t('plan.announce.icon', { what, ...sizes }) : t('plan.announce.iconNamed', { name: fields.name, what, ...sizes });
+};
+
+/** How thick, in screen pixels, a standing frame is picked by at least (6.5 review): its 5 cm bar is 1 px at 20%. */
+const FRAME_PICK_PIXELS = 8;
 
 /**
  * A flag or diffusion frame for the canvas (6.5): a standing one a line its width long (StandingFrameShape), resized
- * freely, since its depth stays 5 cm whatever its width; the overhead lying flat as its icon, its proportions kept.
+ * freely, since its depth stays 5 cm whatever its width, and picked at least FRAME_PICK_PIXELS thick; the overhead
+ * lying flat as its icon, its proportions kept.
  */
 export function gripItem(id: string, fields: GripFields, unit: PlanUnit): CanvasItem {
   const icon = planIconOf(fields.icon);
@@ -209,8 +222,8 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
   return {
     id,
     ...g,
-    label: iconAnnounce({ ...fields, kind: 'icon' }, unit),
-    ...(flat ? { keepRatio: true } : {}),
+    label: gripAnnounce(fields, unit),
+    ...(flat ? { keepRatio: true } : { pickThickness: FRAME_PICK_PIXELS }),
     draw,
     ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
   };
@@ -309,9 +322,13 @@ function drawOpening(o: OpeningFields, frame: OpeningFrame, colours: CanvasColou
 /** A door or window for the canvas, from its wall: moved only, never resized or turned by the handles. */
 export function openingItem(id: string, fields: OpeningFields, wall: PlanItemFields, unit: PlanUnit, preview = false): CanvasItem {
   const frame = openingFrame(wall, fields);
+  const g = toCanvasGeometry(frame.box);
+  // A set height (decision 11, 6.5 review): a label by it, upright, as every item's is.
+  const lines = heightLines(fields, unit, false);
   return {
     id,
-    ...toCanvasGeometry(frame.box),
+    ...g,
+    ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
     label: openingLabel(fields, unit),
     // It snaps along its wall (planConstrain), never by its box.
     snapPoints: [],
@@ -389,13 +406,21 @@ export function planItemsBuilder(): (
       const same = kept(item, neighbours);
       if (same) return same;
       const outline = wallOutline(line, [line, ...near]).flatMap((p) => [p.x, p.y]);
+      const g = toCanvasGeometry(item.fields);
+      // A set height (decision 11, 6.5 review) is a label at the wall's middle, upright, over its ink.
+      const heights = heightLines(item.fields, unit, false);
       const made: CanvasItem = {
         id: item.record.id,
-        ...toCanvasGeometry(item.fields),
+        ...g,
         label: wallLabel(item.fields, unit),
         // A wall snaps by its middle line's ends, never by its box (a move keeps it on the grid line it was on).
         snapPoints: [line.start, line.end],
-        draw: () => createElement(Line, { points: outline, closed: true, fill: ink, listening: false }),
+        draw: (context) => {
+          const bar = createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false });
+          if (heights.length === 0) return bar;
+          const label = createElement(UprightLabels, { key: 'height', width: g.width, height: g.height, zoom: context.zoom, rotation: g.rotation, colours: context.colours, lines: heights, at: 'middle' });
+          return createElement(Fragment, null, bar, label);
+        },
       };
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours, item: made });
       return made;
@@ -1309,10 +1334,13 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
   });
 }
 
-/** Whether the turn keys turn an item: a camera (6.4) or a light (6.5), both of which point. */
-export const turnsByKey = (fields: ShownFields): boolean => fields.kind === 'camera' || fields.kind === 'light';
+/**
+ * Whether the turn keys turn an item: a camera (6.4) or a light (6.5), both of which point, and a flag or diffusion
+ * frame (6.5 review), set at an angle to a light.
+ */
+export const turnsByKey = (fields: ShownFields): boolean => fields.kind === 'camera' || fields.kind === 'light' || fields.kind === 'flag' || fields.kind === 'diffusion';
 
-/** [ and ] or comma and period (6.4): each selected camera or light turned by `by` degrees from where it points now, round its middle; one group. */
+/** [ and ] or comma and period (6.4): each selected camera, light or frame turned by `by` degrees from where it points now, round its middle; one group. */
 export function turnChanges(records: Records, ids: readonly string[], by: number): Change[] {
   return ids.flatMap((id) => {
     const live = liveIcon(records, id);

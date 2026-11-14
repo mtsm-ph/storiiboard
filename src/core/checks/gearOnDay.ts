@@ -33,17 +33,48 @@ const liveGearId = (records: Records, id: string): boolean => liveGear(records, 
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/**
+ * Each plan's live items by the plan they sit in, back to front: worked out once per set of records (6.5 review), not
+ * by a scan of every record for each setup on each day.
+ */
+const itemIndex = new WeakMap<Records, Map<string, SbdRecord[]>>();
+function liveItemsIn(records: Records, planId: string): readonly SbdRecord[] {
+  let index = itemIndex.get(records);
+  if (!index) {
+    index = new Map<string, SbdRecord[]>();
+    for (const r of Object.values(records)) {
+      if (r.type !== 'plan_item' || r.trashedAt !== null || r.parentId === null) continue;
+      const here = index.get(r.parentId);
+      if (here) here.push(r);
+      else index.set(r.parentId, [r]);
+    }
+    for (const list of index.values()) list.sort(bySortKey);
+    itemIndex.set(records, index);
+  }
+  return index.get(planId) ?? [];
+}
+
+/** Each setup's plan gear, once per set of records: a setup shot on several days is read once. */
+const planGearKnown = new WeakMap<Records, Map<string, { itemId: string; gearId: string }[]>>();
+
 /** A setup's own plan's live items that are live gear, back to front, with the gear each is. */
 function planGear(records: Records, setupId: string): { itemId: string; gearId: string }[] {
+  let known = planGearKnown.get(records);
+  if (!known) {
+    known = new Map();
+    planGearKnown.set(records, known);
+  }
+  const had = known.get(setupId);
+  if (had) return had;
   const plan = setupPlanOf(records, setupId);
-  if (!plan) return [];
-  return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === plan.id && r.trashedAt === null)
-    .sort(bySortKey)
-    .flatMap((r) => {
-      const gearId = (lightFields(r.props) ?? gripFields(r.props))?.gearId ?? null;
-      return gearId !== null && liveGearId(records, gearId) ? [{ itemId: r.id, gearId }] : [];
-    });
+  const found = plan
+    ? liveItemsIn(records, plan.id).flatMap((r) => {
+        const gearId = (lightFields(r.props) ?? gripFields(r.props))?.gearId ?? null;
+        return gearId !== null && liveGearId(records, gearId) ? [{ itemId: r.id, gearId }] : [];
+      })
+    : [];
+  known.set(setupId, found);
+  return found;
 }
 
 /** Worked out once per set of records: the Inspector and the day both read it on every draw. */

@@ -463,8 +463,12 @@ unreadable value reads as not set, as every prop does.
   - A `light` (6.5) is a light placed on a setup's own plan. `icon`: the light it was placed as (`lighting/fresnel`,
     `led-panel`, `tube`, `cob-softbox`, `hmi-par`, `china-ball`, `practical`, `spacelight`, `rgb-gel`,
     `window-light`; missing reads as `lighting/fresnel`; `lighting/beam-cone` is the beam's picture, never placed). Its
-    box as an icon's, at the library's size for its icon (a fresnel 0.4 × 0.4 m, a tube 1.2 × 0.1 m); `rotation` is
-    where it points, 0 up the plan, clockwise, as a camera's. `height_m` and `name` as an icon's. `beam_deg`: its beam
+    box as an icon's, at the library's size for its icon (a fresnel 0.4 × 0.4 m, a tube 1.2 × 0.1 m); `rotation` turns
+    its icon, clockwise from upright, and the beam follows the icon's own facing (6.5 review): it leaves the side the
+    icon's drawing shines from, so its direction is `rotation` plus the icon's facing (src/core/model/planLight.ts
+    `BEAM_FACING`: fresnel, led-panel, tube and cob-softbox 0°, up the plan at rotation 0; hmi-par and rgb-gel 90°, to
+    the right; window-light 180°, down; china-ball, practical and spacelight shine all round). Nothing is stored for
+    the facing. `height_m` and `name` as an icon's. `beam_deg`: its beam
     angle, above 0 up to 360, 360 meaning all round; absent (or out of range) reads as its icon's own (fresnel 40,
     led-panel 100, tube 120, cob-softbox 90, hmi-par 30, rgb-gel 60, window-light 90; china-ball, practical and
     spacelight 360), never written at placement. `watts`: typed on the light, above 0 up to 100 000; absent, the
@@ -480,8 +484,18 @@ unreadable value reads as not set, as every prop does.
     naming a gear item in the Trash or nothing, reads as none; the id stays, so a restore brings the link back. The
     gear check (src/core/checks/gearOnDay.ts) reads it: such an item on a setup's own plan, in a setup with a "Need to
     shoot" frame in a live shoot day, needs its gear item on that day's `gear_ids`, as a frame's `gear_ids` do; the
-    finding has no frame and names the setup. Copies (a setup started from another, a paste, a duplicate, a separate
-    copy) keep `gear_id`, `watts` and `beam_deg`.
+    finding has no frame and names the setup. The check reads a setup's own plan only: a light, flag or frame with a
+    `gear_id` in a room's plan (possible only by an import; the app places them in a setup's) counts in the legend but
+    not in the check. Copies (a setup started from another, a paste, a duplicate, a separate copy) keep `gear_id`,
+    `watts` and `beam_deg`.
+  - Drawing order (6.5): walls, then doors and windows, then icons, then flags and diffusion, then lights, then
+    cameras, whatever the front-to-back order: the plan items' order (`sort_key`) decides only within a kind, so a
+    light, a flag or a camera always draws above the set pieces.
+  - A flag's or diffusion frame's label (6.5 review), everywhere it is named (the legend, History, the Trash, the
+    Selection tile, aloud), is its kind and size, never the icon it was placed as: "Diffusion · 8×8", "Flag · 2×3",
+    or the typed width in the unit shown when it matches no size ("Bounce · 1.50 m"). Words only: nothing is stored.
+  - Heights (decision 11, 6.5 review): a wall's, door's or window's `height_m`, when set, is drawn as a label (a
+    wall's at its middle) and listed first in the legend, under "Room", one line per height with a count.
   - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
     of the plan.
   - A mark's `character_id` (6.7): the `character` it is for.

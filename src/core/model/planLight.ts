@@ -58,6 +58,39 @@ export const BEAM_DEFAULTS: Readonly<Record<string, number>> = {
   'lighting/window-light': 90,
 };
 
+/**
+ * Which way each light's own drawing points (6.5 review), degrees clockwise from up its box: added to the item's
+ * rotation, it is the beam's direction. A light's `rotation` turns its icon, and the beam follows the icon's facing, so
+ * the beam always leaves the side the drawing shines from. Read from each icon's vectors (src/features/birdseye/plan/
+ * iconBoxes.ts, the kit's 32-unit box, y down).
+ */
+export const BEAM_FACING: Readonly<Record<string, number>> = {
+  // The lens (the circles low in the box) with its rays fanning out above it, to the top: up.
+  'lighting/fresnel': 0,
+  // A flat panel, wider than deep, its grid the same both ways: no side drawn as the front, so up, across its width.
+  'lighting/led-panel': 0,
+  // A long tube lying across the box: it lights to either side of its length; up, across it.
+  'lighting/tube': 0,
+  // An octagon round a centre dot, the same every way: up.
+  'lighting/cob-softbox': 0,
+  // The lamp (the circle) on the left, its dashed beam widening to the right edge: right, +x.
+  'lighting/hmi-par': 90,
+  // All round (a soft circle, no beam): the facing never shows; up.
+  'lighting/china-ball': 0,
+  'lighting/practical': 0,
+  'lighting/spacelight': 0,
+  // The lamp (the filled box) on the left, its gel (the orange box) on the right it shines through: right, +x.
+  'lighting/rgb-gel': 90,
+  // The window's frame across the box, its rays coming through it out of the bottom edge: down, +y.
+  'lighting/window-light': 180,
+};
+
+/** Which way an icon's drawing points, degrees clockwise from up: the table's, else up (an icon this version doesn't know). */
+export const beamFacing = (icon: string): number => (Object.hasOwn(BEAM_FACING, icon) ? (BEAM_FACING[icon] ?? 0) : 0);
+
+/** Where a light's beam points on the plan, degrees clockwise from up: its rotation plus its icon's facing, 0 up to 360. */
+export const beamDirection = (fields: Pick<LightFields, 'icon' | 'rotation'>): number => (((fields.rotation + beamFacing(fields.icon)) % 360) + 360) % 360;
+
 /** An icon's own beam: the table's, else a fresnel's (an icon this version doesn't know). */
 export const defaultBeam = (icon: string): number => (Object.hasOwn(BEAM_DEFAULTS, icon) ? (BEAM_DEFAULTS[icon] ?? 40) : 40);
 
@@ -178,7 +211,10 @@ export function lightWattsChanges(records: Records, ids: readonly string[], watt
 /** Whether a beam angle can be typed: above 0, up to 360 (all round). */
 export const isBeam = (degrees: number): boolean => Number.isFinite(degrees) && degrees > 0 && degrees <= ALL_ROUND;
 
-/** A beam typed on each selected light, to a tenth of a degree; its icon's own angle is written too, so it stays put. */
+/**
+ * A beam typed on each selected light, to a tenth of a degree. A light whose beam already reads so writes nothing: typing
+ * its icon's own angle on a light with none typed leaves it with none, so it follows the icon's.
+ */
 export function lightBeamChanges(records: Records, ids: readonly string[], degrees: number): Change[] {
   if (!isBeam(degrees)) return [];
   const next = Math.round(degrees * 10) / 10;

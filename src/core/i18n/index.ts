@@ -134,9 +134,13 @@ export function formatMoney(amount: number, currency: string): string {
   }
 }
 
-/** A number the way the current language writes it ("4,200", "1.5"), to `digits` decimals at most. */
+/**
+ * A number the way the app's language writes it ("4,200", "1.5"), to `digits` decimals at most, grouped. By the
+ * language's own tag (the one t() and plural rules use), never the computer's region: a German-region computer in
+ * English reads "1,200 W" as the English words around it do (6.5 review).
+ */
 export function formatNumber(value: number, digits = 1): string {
-  return new Intl.NumberFormat(current.dateTag, { maximumFractionDigits: digits }).format(value);
+  return new Intl.NumberFormat(current.tag, { maximumFractionDigits: digits, useGrouping: true }).format(value);
 }
 
 /** A date or time the way the current language writes it. */

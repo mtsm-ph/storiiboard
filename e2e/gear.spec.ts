@@ -112,7 +112,7 @@ test('gear on a day and on a frame: the check says what the day lacks, and one c
   await expect(onDay.getByRole('button', { name: 'FX3 package' })).toHaveAttribute('aria-pressed', 'true');
   await expect(day).toContainText('Rentals: $350.00 this day');
   await onDay.getByRole('button', { name: 'Slider' }).click();
-  const missing = day.getByRole('list', { name: 'Frames needing gear not on this day’s list' });
+  const missing = day.getByRole('list', { name: 'Gear needed that isn’t on this day’s list' });
   await expect(missing).toContainText('1A needs Slider');
   const results = await new AxeBuilder({ page }).include('[aria-label="Shoot days"]').analyze();
   expect(results.violations).toEqual([]);

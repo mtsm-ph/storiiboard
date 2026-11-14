@@ -13,7 +13,7 @@ import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
-import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy, withDraft } from './placement';
+import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy, withDraft } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
@@ -184,6 +184,11 @@ export interface CanvasProps {
   onHover?: (at: Point | null) => void;
   /** A key the canvas has no use for, offered to the host first: true when it took it (6.2b: F flips a door's swing). */
   onKey?: (event: KeyLike & { repeat: boolean }) => boolean;
+  /**
+   * The least size, world units, the handles make an item (6.5 review: a plan's 1 cm, where a flag is 5 cm deep). Left
+   * out (a board), it is 8 as it always was.
+   */
+  minSize?: number;
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -251,6 +256,7 @@ export function Canvas({
   constrainMove,
   onHover,
   onKey,
+  minSize = MIN_SIZE,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -552,9 +558,10 @@ export function Canvas({
   };
 
   // The handles' live geometry for the nodes they hold, as onTransformEnd would write it.
+  // An axis the gesture didn't scale keeps its size (a turn never grows a thin item), one it did is at least the host's least.
   const nodeGeometry = (g: Geometry, node: Konva.Group): Geometry => {
-    const width = tidy(atLeastMinimum(g.width * node.scaleX()));
-    const height = tidy(atLeastMinimum(g.height * node.scaleY()));
+    const width = handledSize(g.width, node.scaleX(), minSize);
+    const height = handledSize(g.height, node.scaleY(), minSize);
     return { x: tidy(node.x() - width / 2), y: tidy(node.y() - height / 2), width, height, rotation: normalisedRotation(node.rotation()) };
   };
   const onTransform = () => {
@@ -582,8 +589,8 @@ export function Canvas({
       const node = nodes.current.get(item.id);
       if (!node || !latest.current.selection.includes(item.id)) continue;
       const g = latest.current.draft?.get(item.id) ?? item;
-      const width = tidy(atLeastMinimum(g.width * node.scaleX()));
-      const height = tidy(atLeastMinimum(g.height * node.scaleY()));
+      const width = handledSize(g.width, node.scaleX(), minSize);
+      const height = handledSize(g.height, node.scaleY(), minSize);
       // The node's position is its middle (it is offset by half its size), whatever the handles did.
       changes.push({ id: item.id, x: tidy(node.x() - width / 2), y: tidy(node.y() - height / 2), width, height, rotation: normalisedRotation(node.rotation()) });
       node.scale({ x: 1, y: 1 });
@@ -800,7 +807,7 @@ export function Canvas({
     }
     // The topmost item; else a connector near the pointer; else a section, but only by its name or its edge band, so a
     // click on its empty middle starts a marquee and what is inside stays easy to pick.
-    const item = topmostAt(plain, world);
+    const item = topmostAt(plain, world, now.zoom);
     const line = item ? undefined : [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
     const top = item ?? (line ? undefined : topmostSectionAt(sections, world, now.zoom));
     if (top) {
@@ -893,7 +900,7 @@ export function Canvas({
         // it is picked, or nothing is.
         if (g.id !== null) {
           const { pickPlain: plain, resolved: lines, viewport: now } = latest.current;
-          const top = topmostAt(plain, world);
+          const top = topmostAt(plain, world, now.zoom);
           const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
           onSelectionChange(top ? [top.id] : line ? [line.link.id] : []);
         }
@@ -1291,7 +1298,7 @@ export function Canvas({
         const at = worldOf(local(event));
         const { itemsShown: plain, pickSections: sections, viewport: now } = latest.current;
         // A locked item is never picked, by a double-click either.
-        const top = itemAt(plain, at);
+        const top = itemAt(plain, at, now.zoom);
         if (top?.editable) onEdit?.(top.id);
         else if (top?.openable) onOpen?.(top.id);
         else if (!top) {
@@ -1475,7 +1482,9 @@ export function Canvas({
             rotateEnabled={!moveOnly && !handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
-            boundBoxFunc={(was, next) => (next.width < MIN_SIZE * view.zoom || next.height < MIN_SIZE * view.zoom ? was : next)}
+            // Only a side the gesture shrinks below the least size is refused: a thin item (a plan's 5 cm flag, thinner than
+            // the least on screen up close) still turns and stretches along its length (6.5 review).
+            boundBoxFunc={(was, next) => (shrunkBelow(was.width, next.width, minSize * view.zoom) || shrunkBelow(was.height, next.height, minSize * view.zoom) ? was : next)}
             onTransform={onTransform}
             onTransformEnd={onTransformEnd}
           />

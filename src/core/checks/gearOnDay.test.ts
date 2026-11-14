@@ -143,4 +143,28 @@ describe('gear on a setup’s plan, not on the day’s list (6.5)', () => {
       { kind: 'gear-not-on-day', shotId: null, dayId: 'd', gearIds: ['k1'], setupId: 'su', itemIds: ['l1'] },
     ]);
   });
+
+  it('never reads another scene’s setup for a frame that names it (6.5 review)', () => {
+    const records = {
+      ...planned(),
+      s2: record('s2', 'scene', 'p', { number: '2' }),
+      b: record('b', 'shot', 's2', { number: '2A', status: 'need', shoot_day_id: 'd2', setup_id: 'su' }, 'b'),
+    };
+    // 2A sits in SC 2 but names SC 1's setup: the setup is no frame of SC 2's, so its plan's gear isn't 2A's day's.
+    expect(gearNotOnDay(records, 'p').filter((f) => f.dayId === 'd2')).toEqual([]);
+  });
+
+  it('leaves out a setup whose own plan is in the Trash', () => {
+    const records = planned();
+    const trashedPlan = { ...records, own: { ...(records.own as SbdRecord), trashedAt: at } };
+    expect(gearNotOnDay(trashedPlan, 'p')).toEqual([]);
+  });
+
+  it('reads the same findings each time from the same records, and new ones from new records', () => {
+    const records = planned();
+    expect(gearNotOnDay(records, 'p')).toBe(gearNotOnDay(records, 'p'));
+    const more = { ...records, l3: record('l3', 'plan_item', 'own', { kind: 'light', icon: 'lighting/fresnel', x: 3, y: 0, width: 0.4, height: 0.4, gear_id: 'k1' }, '0') };
+    // Back to front: the new light's sort key is before the first's.
+    expect(gearNotOnDay(more, 'p')).toEqual([{ kind: 'gear-not-on-day', shotId: null, dayId: 'd', gearIds: ['k1'], setupId: 'su', itemIds: ['l3', 'l1'] }]);
+  });
 });

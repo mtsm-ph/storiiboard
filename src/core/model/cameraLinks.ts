@@ -11,23 +11,26 @@ import type { JsonValue, SbdRecord } from './record';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-const idsOf = (value: JsonValue | undefined): string[] => (Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : []);
+/** `shot_ids` as stored: every entry, whatever it is (one this version can't read is kept as it is, never dropped). */
+const entriesOf = (value: JsonValue | undefined): JsonValue[] => (Array.isArray(value) ? value : []);
 
 /**
- * The frames taken off every camera that lists any of them, but `keep`, as one update per camera: its `shot_ids` without
- * them (unset once empty), and its `shown_shot_id` taken off when it names one. Nothing for a camera that lists none.
+ * The frames taken off every camera that lists any of them, but `keep`, as one update per camera: its `shot_ids`
+ * without them and with every other entry as stored (6.4 review: a newer version's entry survives), unset once
+ * empty, and its `shown_shot_id` taken off when it names one. Nothing for a camera that lists none.
  */
 export function framesOffCameras(records: Records, shotIds: readonly string[], keep: string | null = null): Change[] {
   const off = new Set(shotIds);
   if (off.size === 0) return [];
   return Object.values(records).flatMap((camera): Change[] => {
     if (camera.type !== 'plan_item' || camera.props.kind !== 'camera' || camera.id === keep) return [];
-    const ids = idsOf(camera.props.shot_ids);
+    const ids = entriesOf(camera.props.shot_ids);
     const shown = camera.props.shown_shot_id;
-    const listed = ids.some((id) => off.has(id));
+    const gone = (id: JsonValue) => typeof id === 'string' && off.has(id);
+    const listed = ids.some(gone);
     const showing = typeof shown === 'string' && off.has(shown);
     if (!listed && !showing) return [];
-    const left = ids.filter((id) => !off.has(id));
+    const left = ids.filter((id) => !gone(id));
     const unset = [...(listed && left.length === 0 ? ['shot_ids'] : []), ...(showing ? ['shown_shot_id'] : [])];
     return [{ kind: 'update', id: camera.id, ...(listed && left.length > 0 ? { set: { shot_ids: left } } : {}), ...(unset.length > 0 ? { unset } : {}) }];
   });

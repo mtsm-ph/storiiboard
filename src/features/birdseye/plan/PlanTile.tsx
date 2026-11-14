@@ -3,9 +3,10 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isWallFields, LIGHT_ICON, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
+import { beamDirection } from '../../../core/model/planLight';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -46,7 +47,7 @@ import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
-import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -370,14 +371,19 @@ function SetupCopyOffer({ view }: { view: PlanView }) {
   );
 }
 
+const TURN_CODES: Readonly<Record<string, 1 | -1>> = { BracketRight: 1, Period: 1, BracketLeft: -1, Comma: -1 };
+const TURN_KEYS: Readonly<Record<string, 1 | -1>> = { ']': 1, '.': 1, '[': -1, ',': -1 };
+
 /**
- * Which way a turn key turns a camera (6.4): 1 clockwise (] or period), -1 the other way ([ or comma), 0 for any other
- * key. Matched by the key's place (`code`) and by what it types (`key`), so Shift (which types < or : there) still turns.
+ * Which way a turn key turns a camera, light or frame (6.4, 6.5): 1 clockwise (] or period), -1 the other way ([ or
+ * comma), 0 for any other key. The physical key (`code`) decides first, so Shift on it (< or : on QWERTY; "." on
+ * AZERTY's ; key) turns the same way; but never where that key types a letter (Dvorak's v and w sit there, and are the
+ * Select and Wall tools). A key with another code turns by what it types (`key`), as Dvorak's own . and , do.
  */
 export function turnFor(event: { code: string; key: string }): -1 | 0 | 1 {
-  if (event.code === 'BracketRight' || event.code === 'Period' || event.key === '.') return 1;
-  if (event.code === 'BracketLeft' || event.code === 'Comma' || event.key === ',') return -1;
-  return 0;
+  const byCode = Object.hasOwn(TURN_CODES, event.code) ? TURN_CODES[event.code] : undefined;
+  if (byCode !== undefined) return /^\p{L}$/u.test(event.key) ? 0 : byCode;
+  return (Object.hasOwn(TURN_KEYS, event.key) ? TURN_KEYS[event.key] : undefined) ?? 0;
 }
 
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
@@ -441,15 +447,15 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
         if (isLight(fields)) {
           const look = lights.get(record.id);
-          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, labels: look?.lines ?? [] };
+          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
         }
         if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
         if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
-          return { id: record.id, level, ...fields, start, end };
+          return { id: record.id, level, ...fields, start, end, labels: heightLines(fields, unit, false) };
         }
         const wall = walls.get(fields.wallId);
-        return { id: record.id, level, ...fields, ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
+        return { id: record.id, level, ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
       }),
     );
   }, [shown, looks, lights, unit]);
@@ -543,6 +549,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           tools={PLAN_TOOLS}
           scale={scale}
           zoomLimits={PLAN_ZOOM}
+          // The plan's own least size, a centimetre (6.5 review): a board's 8 units would be 8 cm here, deeper than a flag.
+          minSize={toCanvas(MIN_PLAN_SIZE)}
           constrainMove={constrain}
           onHover={(at) => {
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));

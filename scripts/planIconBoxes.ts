@@ -621,6 +621,9 @@ export function iconDrawing(svg: string): IconDrawing {
     const lineJoin = p['stroke-linejoin'] ?? 'miter';
     if (!(CAPS as readonly string[]).includes(lineCap)) throw new Error(`<${el.name}> stroke-linecap "${lineCap}" can't be read`);
     if (!(JOINS as readonly string[]).includes(lineJoin)) throw new Error(`<${el.name}> stroke-linejoin "${lineJoin}" can't be read`);
+    // A mitred stroke (said, or SVG's default) isn't drawn exactly: a canvas's miter limit is 10, SVG's 4, so a sharp
+    // corner would spike on the plan where the kit shows it cut (6.4 review). The kit draws round or bevelled joins.
+    if (lineJoin === 'miter' && stroke !== null) throw new Error(`<${el.name}> stroke-linejoin "miter" can't be drawn exactly (a canvas's miter limit isn't SVG's)`);
     const d = pathData(pathSegments(outlineOf(el.name, el.attrs)), transformOf(el.attrs.transform, el.name));
     shapes.push({
       kind: 'path',
