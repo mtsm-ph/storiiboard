@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from 'react';
+import { useRef, type PointerEvent } from 'react';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { isMac } from '../../app/shell/undoShortcuts';
@@ -23,6 +23,7 @@ import { cx } from '../../ui/cx';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { Trans } from '../../ui/Trans';
 import { useSetupDrag } from './useSetupDrag';
+import { showPlan, useShownPlan } from './plan/shownPlan';
 import { scenesOf } from '../../app/shell/sidebar/scenes';
 import { headingOf } from '../storyboard/ScenesView';
 import { FrameImage } from '../storyboard/FrameImage';
@@ -50,7 +51,9 @@ function focusSoon(selector: string, fallback?: string) {
 export function SetupsTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [chosen, setChosen] = useState<string | null>(null);
+  // What the Setup workspace shows (6.2a): the Plan and Selection tiles read it too.
+  const shown = useShownPlan();
+  const chosen = shown.setupId;
   const { drag, handleProps } = useSetupDrag((id, to) => {
     void edit((now) => moveSetup(now, id, to));
   });
@@ -76,9 +79,24 @@ export function SetupsTile() {
               <section key={scene.id} aria-label={sceneName} data-setups-scene={scene.id} className="border-b border-border">
                 <div className="flex items-center gap-2 border-b border-border px-2 py-1.5 text-[13px]">
                   <span className="shrink-0 font-mono font-bold">{sceneName}</span>
-                  <span data-user-text="" className="min-w-0 flex-1 truncate">
-                    {headingOf(fields)}
-                  </span>
+                  {/* Picking the heading shows the scene on the plan with no setup (6.2a): its room and blocking. */}
+                  <button
+                    type="button"
+                    data-setups-scene-pick={scene.id}
+                    aria-label={`${sceneName} ${headingOf(fields)}`}
+                    aria-current={shown.sceneId === scene.id && chosen === null ? true : undefined}
+                    onClick={() => {
+                      showPlan(scene.id, null);
+                    }}
+                    className={cx(
+                      'flex min-w-0 flex-1 px-1 text-left focus-visible:-outline-offset-2',
+                      shown.sceneId === scene.id && chosen === null ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : 'hover:bg-surface-raised',
+                    )}
+                  >
+                    <span data-user-text="" className="min-w-0 flex-1 truncate">
+                      {headingOf(fields)}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     data-add-setup={scene.id}
@@ -87,7 +105,7 @@ export function SetupsTile() {
                       const id = crypto.randomUUID();
                       void edit((now) => addSetup(now, scene.id, id)).then((made) => {
                         if (!made) return;
-                        setChosen(id);
+                        showPlan(scene.id, id);
                         focusSoon(`[data-setup-select="${CSS.escape(id)}"]`);
                       });
                     }}
@@ -111,10 +129,10 @@ export function SetupsTile() {
                         dragged={drag?.id === setup.record.id}
                         handle={handleProps(setup.record.id, scene.id)}
                         onPick={() => {
-                          setChosen(setup.record.id);
+                          showPlan(scene.id, setup.record.id);
                         }}
                         onDeleted={() => {
-                          if (chosen === setup.record.id) setChosen(null);
+                          if (chosen === setup.record.id) showPlan(scene.id, null);
                           // The row that takes its place, else the one before, else the scene's Add setup.
                           const next = setups[i + 1] ?? setups[i - 1];
                           focusSoon(next ? `[data-setup-select="${CSS.escape(next.record.id)}"]` : `[data-add-setup="${CSS.escape(scene.id)}"]`);

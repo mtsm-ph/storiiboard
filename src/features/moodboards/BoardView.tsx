@@ -13,7 +13,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { Canvas } from '../../ui/canvas/Canvas';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
-import type { CanvasCommand, Point } from '../../ui/canvas/types';
+import { isHostTool, type CanvasCommand, type Point } from '../../ui/canvas/types';
 import { fitBounds, toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useMissingVideos } from '../video/videoStatus';
@@ -539,7 +539,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
           }}
           onGeometry={(changes) => changeGeometry(changes)}
           onNudge={(ids, dx, dy) => nudge(ids, dx, dy)}
-          onCreate={(geometry, placing) => placeItem(board.id, geometry, placing)}
+          // A board has no host tools of its own (6.2a), so every tool it places is a board's.
+          onCreate={(geometry, placing) => (isHostTool(placing) ? undefined : placeItem(board.id, geometry, placing))}
           links={links}
           onConnect={(drop) => connect(board.id, drop)}
           onQuickCreate={(id, side) => {

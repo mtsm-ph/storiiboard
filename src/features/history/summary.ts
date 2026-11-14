@@ -363,6 +363,8 @@ export interface FieldChange {
   sheet?: true;
   /** A board item's (5.0): its x and y are one position and its width and height one size, which a video's width isn't. */
   item?: true;
+  /** A plan item's prop (6.2a), named as the Selection tile names it. */
+  planItem?: true;
   /** A connector's (5.2): its width is a line's, not a size, and its route and heads have words of their own. */
   connector?: true;
 }
@@ -412,6 +414,7 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
+  if (after.type === 'plan_item') return changes.map((change) => ({ ...change, planItem: true as const }));
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
   }
@@ -491,6 +494,17 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   name: 'history.field.sectionName',
 });
 
+/** A plan item's props by the Selection tile's words (6.2a). */
+const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
+  x: 'history.field.position',
+  y: 'history.field.position',
+  width: 'history.field.wallLength',
+  height: 'history.field.wallThickness',
+  height_m: 'history.field.wallHeight',
+  rotation: 'history.field.rotation',
+  name: 'history.field.planName',
+});
+
 /** A connector's props by the words a person uses (5.2). */
 const CONNECTOR_FIELD: Readonly<Record<string, string>> = labels({
   route: 'history.field.route',
@@ -530,6 +544,8 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
   change.connector === true && Object.hasOwn(CONNECTOR_FIELD, change.prop)
     ? (CONNECTOR_FIELD[change.prop] ?? change.prop)
+    : change.planItem === true && Object.hasOwn(PLAN_ITEM_FIELD, change.prop)
+    ? (PLAN_ITEM_FIELD[change.prop] ?? change.prop)
     : change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
     ? (BOARD_ITEM_FIELD[change.prop] ?? change.prop)
     : change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
@@ -650,6 +666,51 @@ function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): P
   return null;
 }
 
+/** A room as History names one (6.2a): by its name as the step left it. */
+function roomName(record: SbdRecord | null | undefined): string {
+  const name = typeof record?.props.name === 'string' ? record.props.name.trim() : '';
+  return name === '' ? t('history.aRoom') : t('history.roomCalled', { name });
+}
+
+/**
+ * One line for a plan's step (6.2a), or null when the step isn't only a plan's: a room started (with its scene's
+ * `room_id`) or renamed; walls drawn, moved, turned, resized, changed, reordered, deleted or restored, counted.
+ */
+function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const isPlan = (op: LoggedOp) => record(op)?.type === 'plan' || record(op)?.type === 'plan_item';
+  if (!ops.some(isPlan)) return null;
+  const roomLink = (op: LoggedOp) =>
+    op.kind === 'update' && op.before?.type === 'scene' && op.after !== null && changedProps(op.before, op.after).every((prop) => prop === 'room_id');
+  if (!ops.every((op) => isPlan(op) || roomLink(op))) return null;
+  const started = ops.find((op) => op.kind === 'create' && op.after?.type === 'plan');
+  if (started) {
+    const linked = ops.find(roomLink);
+    const scene = linked ? record(linked) : null;
+    return line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+  }
+  const renamed = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null);
+  if (renamed?.before && renamed.after) {
+    const name = typeof renamed.after.props.name === 'string' ? renamed.after.props.name.trim() : '';
+    return [t('history.roomRenamed', { from: roomName(renamed.before), name })];
+  }
+  const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  const n = new Set(items.map((op) => op.recordId)).size;
+  if (n === 0) return null;
+  const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
+  if (all('create')) return [tn('history.wallsDrawn', n)];
+  if (all('trash')) return [tn('history.wallsDeleted', n)];
+  if (all('restore')) return [tn('history.wallsRestored', n)];
+  if (all('move')) return [tn('history.planItemsReordered', n)];
+  if (!all('update')) return null;
+  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+  if (only(['x', 'y'])) return [tn('history.wallsMoved', n)];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', n)];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', n)];
+  return [tn('history.wallsChanged', n)];
+}
+
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord> = new Map()): Part {
   if (!record) return t('history.anItem');
@@ -682,6 +743,10 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       const day = record.parentId ? around.get(record.parentId) : undefined;
       return day ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') }) : t('history.aCallsheet');
     }
+    case 'plan':
+      return roomName(record);
+    case 'plan_item':
+      return t('history.aWall');
     case 'board':
       return boardTitle(record);
     case 'board_item': {
@@ -733,6 +798,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   gear_item: 'count.gearItems',
   board: 'count.boards',
   board_item: 'count.rectangles',
+  plan_item: 'count.planItems',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -803,6 +869,9 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
   );
   const record = (op: LoggedOp) => op.after ?? op.before;
+  // A plan's steps (6.2a): a room started or renamed, walls drawn, moved, turned, resized, deleted or restored.
+  const planned = planLine(ops, around);
+  if (planned) return planned;
   // An issued call sheet (4.7): one line for the group (the PDF, the call sheet made with it, the scenes it locked),
   // named by its day and version, never by what the PDF holds.
   const issued = ops.find((op) => op.kind === 'create' && op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');

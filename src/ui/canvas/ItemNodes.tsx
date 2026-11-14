@@ -10,6 +10,9 @@ import type { CanvasColours, CanvasItem } from './types';
 
 export type RegisterNode = (id: string, node: Konva.Group | null) => void;
 
+/** How strongly a dimmed item is drawn (6.2a; DESIGN.md's locked layer at 45%). */
+export const DIM_OPACITY = 0.45;
+
 interface ItemNodeProps {
   item: CanvasItem;
   colours: CanvasColours;
@@ -25,7 +28,7 @@ interface ItemNodeProps {
 const ItemNode = memo(function ItemNode({ item, colours, zoom, inView, register }: ItemNodeProps) {
   // `ratio` is not read here: `draw` reads window.devicePixelRatio, and it is a prop only so that a change of it draws again.
   return (
-    <Group>
+    <Group opacity={item.dim ? DIM_OPACITY : 1}>
       <Group
         ref={(node) => {
           register(item.id, node);

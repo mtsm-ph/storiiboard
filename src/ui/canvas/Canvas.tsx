@@ -1,11 +1,11 @@
 import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Circle, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
+import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
-import { boundsFor, boundsOf, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
-import { arrangeForKey, commandForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
+import { boundsFor, boundsOf, rectFromCorners, topmostAt } from './hitTest';
+import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
 import { ItemNodes, type RegisterNode } from './ItemNodes';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
@@ -16,9 +16,35 @@ import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy 
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
-import { isAttached, isPlaceTool, type CanvasColours, type CanvasCommand, type CanvasItem, type CanvasLink, type ConnectDrop, type Geometry, type GeometryChange, type LinkEnd, type PlaceTool, type Point, type Rect as WorldRect, type Side, type Size, type Tool, type Viewport } from './types';
+import { marqueePicks, pickable, pickOrder } from './picking';
+import { Rulers, RULER_SIZE } from './Rulers';
+import { constrainAngle, gridLines, gridPull, nearestPoint, pointAlong, scaleBarLength, snapToGrid, type GridSnap } from './scale';
+import {
+  isAttached,
+  isHostTool,
+  isPlaceTool,
+  type CanvasColours,
+  type CanvasCommand,
+  type CanvasItem,
+  type CanvasLink,
+  type CanvasScale,
+  type ConnectDrop,
+  type Geometry,
+  type GeometryChange,
+  type HostToolId,
+  type LinkEnd,
+  type PlaceTool,
+  type Point,
+  type Rect as WorldRect,
+  type Side,
+  type Size,
+  type Tool,
+  type ToolSpec,
+  type Viewport,
+  type ZoomLimits,
+} from './types';
 import { useCanvasColours } from './useCanvasColours';
-import { centreOn, fitBounds, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
+import { BOARD_ZOOM, centreOn, FIT_PADDING, fitBounds, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
 
 // The canvas core (decision 11): a react-konva stage that pans, zooms, selects, moves, resizes and rotates rectangles in
 // world units and reports each finished gesture, never a half-done one. It knows nothing of boards: the host gives it
@@ -51,6 +77,11 @@ const QUICK_SIZE = 12;
 const END_GRAB = 9;
 /** A section's name is typed in room for this many world units at least, however short the name was. */
 const EDITING_NAME_WIDTH = 180;
+/** How near (screen pixels) a point-to-point run's click must be to another end to join it (6.2a). */
+const END_SNAP = 10;
+/** The grid's light and strong lines (6.2a): ink this strong on the paper. */
+const GRID_LIGHT = 0.1;
+const GRID_STRONG = 0.24;
 const QUICK_LABEL: Readonly<Record<Side, () => string>> = {
   top: () => t('canvas.quick.top'),
   right: () => t('canvas.quick.right'),
@@ -63,9 +94,33 @@ type Gesture =
   // `origins` is everything that moves (a section's contents too); `lead` the ones picked, which snap, and `targets` the lines they snap to.
   | { kind: 'move'; start: Point; screen: Point; origins: Map<string, Geometry>; lead: string[]; targets: WorldRect[] | null; moved: boolean; collapseTo: string | null }
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
-  | { kind: 'draw'; tool: PlaceTool; start: Point; screen: Point; targets: WorldRect[] | null; moved: boolean }
+  | { kind: 'draw'; tool: PlaceTool | HostToolId; start: Point; screen: Point; targets: WorldRect[] | null; moved: boolean }
   // A connector drawn (the tool, or a "+" handle) or one of its ends dragged: `fixed` stays, the other end follows the pointer.
   | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null };
+
+/**
+ * A run being drawn point to point (6.2a, a plan's walls): the points fixed so far, where the next would go (the pointer,
+ * snapped), the direction a typed length goes in (radians), and what has been typed.
+ */
+interface PathDraft {
+  tool: HostToolId;
+  points: Point[];
+  cursor: Point | null;
+  angle: number;
+  typed: string;
+}
+
+/** Ctrl (⌘ on a Mac) turns snapping off, as for items; Alt snaps to the grid's fine step. */
+const gridModeOf = (event: { ctrlKey: boolean; metaKey: boolean; altKey: boolean }): GridSnap => (event.ctrlKey || event.metaKey ? 'off' : event.altKey ? 'fine' : 'magnet');
+
+/** The direction the next segment goes: towards the pointer, else the run's last direction. */
+const pathAngle = (draft: PathDraft): number => {
+  const last = draft.points.at(-1);
+  if (last && draft.cursor && Math.hypot(draft.cursor.x - last.x, draft.cursor.y - last.y) > 1e-6) return Math.atan2(draft.cursor.y - last.y, draft.cursor.x - last.x);
+  return draft.angle;
+};
+
+const ARROW_ANGLE: Readonly<Record<string, number>> = { ArrowRight: 0, ArrowDown: Math.PI / 2, ArrowLeft: Math.PI, ArrowUp: -Math.PI / 2 };
 
 /** A connector being drawn or re-ended: the ends as the pointer makes them, and the side it would join. */
 interface ConnectDraft {
@@ -91,7 +146,7 @@ export interface CanvasProps {
   /** An arrow key's nudge, as a distance: the host adds it to the items as they are when the edit is written. */
   onNudge: (ids: string[], dx: number, dy: number) => unknown;
   /** An item drawn, clicked into place or placed with Enter, by the tool that placed it. */
-  onCreate: (geometry: Geometry, tool: PlaceTool) => unknown;
+  onCreate: (geometry: Geometry, tool: PlaceTool | HostToolId) => unknown;
   /** Enter or a double-click on an editable item (text, sticky): the host edits it in place. */
   onEdit?: (id: string) => void;
   /** The item being edited in place, if any: the host draws its editor over it (renderEditor). */
@@ -127,6 +182,16 @@ export interface CanvasProps {
    * whose content is never themed (a board) gives its own paper and ink. The controls around the canvas still follow the theme.
    */
   fixedColours?: CanvasColours;
+  /** A host's own tools (6.2a): their letters take the place of a board's. */
+  tools?: readonly ToolSpec[];
+  /** A real scale (6.2a): a grid, rulers and a scale bar, grid snapping, and the scale bar as the zoom label. */
+  scale?: CanvasScale;
+  /** How far the view zooms (a board's 10% to 800% without). */
+  zoomLimits?: ZoomLimits;
+  /** A point-to-point tool's run finished (Enter, a double-click, Escape): its points, two or more, world units. */
+  onPath?: (points: Point[], tool: HostToolId) => unknown;
+  /** Points a point-to-point run's clicks join when near (a plan's wall ends), world units. */
+  snapPoints?: readonly Point[];
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -187,7 +252,13 @@ export function Canvas({
   canPaste,
   announcement = '',
   fixedColours,
+  tools,
+  scale,
+  zoomLimits,
+  onPath,
+  snapPoints,
 }: CanvasProps) {
+  const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
   const colours = fixedColours ?? themed;
   const frame = useRef<HTMLDivElement>(null);
@@ -229,6 +300,15 @@ export function Canvas({
   const [guides, setGuides] = useState<readonly Guide[]>([]);
   // Where the items being resized or turned by the handles are right now, so the connectors follow before the gesture ends.
   const [transforming, setTransforming] = useState<{ key: string; live: ReadonlyMap<string, Geometry> } | null>(null);
+  // A point-to-point run (6.2a), in a ref too so the handlers always read it as it is now.
+  const [path, setPathState] = useState<PathDraft | null>(null);
+  const pathRef = useRef<PathDraft | null>(null);
+  const setPath = (next: PathDraft | null) => {
+    pathRef.current = next;
+    setPathState(next);
+  };
+  // What the run said last for a screen reader (a typed length taken or refused).
+  const [pathSaid, setPathSaid] = useState('');
   const describedBy = useId();
 
   // Only an item the gesture moves is a new object: the others stay the items they were, so what is drawn for them is kept (5.7).
@@ -245,6 +325,9 @@ export function Canvas({
   // Sections are drawn under the connectors and the other items; each group keeps the board's order among itself (5.3).
   const sectionsShown = useMemo(() => drawOrder(shown.filter((item) => item.section)), [shown]);
   const itemsShown = useMemo(() => shown.filter((item) => !item.section), [shown]);
+  // What a click, a marquee, Tab and Select all can pick: a locked item is drawn, never picked (6.2a).
+  const pickSections = useMemo(() => pickable(sectionsShown), [sectionsShown]);
+  const pickPlain = useMemo(() => pickable(itemsShown), [itemsShown]);
   // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
   // The handles' live geometry counts only for the selection it was made on.
   const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
@@ -324,10 +407,10 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
-  const latest = useRef({ items, shown, sectionsShown, itemsShown, resolved, selection, tool, viewport, size, draft, onViewportChange });
+  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, limits, scale, snapPoints });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, sectionsShown, itemsShown, resolved, selection, tool, viewport, size, draft, onViewportChange };
+    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, limits, scale, snapPoints };
   });
 
   // The canvas follows the tile's size.
@@ -386,12 +469,12 @@ export function Canvas({
     let pinching = false;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const { viewport: view, size: box, onViewportChange: change } = latest.current;
+      const { viewport: view, size: box, onViewportChange: change, limits: range } = latest.current;
       const lines = event.deltaMode === 1 ? 16 : 1;
       if (event.ctrlKey || event.metaKey) {
         if (pinching) return;
         wheeledAt.current = performance.now();
-        change(zoomAround(view, box, view.zoom * Math.exp(-event.deltaY * lines * WHEEL_ZOOM), at(event)));
+        change(zoomAround(view, box, view.zoom * Math.exp(-event.deltaY * lines * WHEEL_ZOOM), at(event), range));
       } else if (event.shiftKey && event.deltaX === 0) {
         change(panBy(view, -event.deltaY * lines, 0));
       } else {
@@ -407,8 +490,8 @@ export function Canvas({
       event.preventDefault();
       const pinch = event as PinchEvent;
       wheeledAt.current = performance.now();
-      const { viewport: view, size: box, onViewportChange: change } = latest.current;
-      change(zoomAround(view, box, startZoom * pinch.scale, at(pinch)));
+      const { viewport: view, size: box, onViewportChange: change, limits: range } = latest.current;
+      change(zoomAround(view, box, startZoom * pinch.scale, at(pinch), range));
     };
     const onPinchEnd = (event: Event) => {
       event.preventDefault();
@@ -510,12 +593,13 @@ export function Canvas({
     const pool = which === 'all' ? latest.current.shown : latest.current.shown.filter((i) => latest.current.selection.includes(i.id));
     // Fitting the selection with nothing selected does nothing.
     if (which === 'selection' && pool.length === 0) return;
-    onViewportChange(fitBounds(unionBounds(pool.map(boundsOf)), latest.current.size));
+    const { limits: range } = latest.current;
+    onViewportChange(fitBounds(unionBounds(pool.map(boundsOf)), latest.current.size, FIT_PADDING, range.fitMax, range));
   };
 
   const zoomTo = (zoom: number) => {
-    const { viewport: view, size: box } = latest.current;
-    onViewportChange(zoomAround(view, box, zoom, { x: box.width / 2, y: box.height / 2 }));
+    const { viewport: view, size: box, limits: range } = latest.current;
+    onViewportChange(zoomAround(view, box, zoom, { x: box.width / 2, y: box.height / 2 }, range));
   };
 
   const cancelGesture = () => {
@@ -537,8 +621,11 @@ export function Canvas({
     return all.filter((item) => !moving.has(item.id)).map(boundsOf).filter((b) => rectsMeet(b, seen));
   };
 
-  /** How far a move has gone and the guides it snaps to; Ctrl (⌘ on a Mac) held turns snapping off. */
-  const movement = (g: Extract<Gesture, { kind: 'move' }>, world: Point, off: boolean): { dx: number; dy: number; guides: Guide[] } => {
+  /**
+   * How far a move has gone and the guides it snaps to; Ctrl (⌘ on a Mac) held turns snapping off. With a scale (6.2a),
+   * an axis no item line took snaps to the grid; Alt (`fine`) snaps to its fine step.
+   */
+  const movement = (g: Extract<Gesture, { kind: 'move' }>, world: Point, off: boolean, fine = false): { dx: number; dy: number; guides: Guide[] } => {
     const dx = tidy(world.x - g.start.x);
     const dy = tidy(world.y - g.start.y);
     if (off || g.lead.length === 0) return { dx, dy, guides: [] };
@@ -547,8 +634,71 @@ export function Canvas({
       const o = g.origins.get(id);
       return o ? [boundsOf({ ...o, x: o.x + dx, y: o.y + dy })] : [];
     });
-    const snap = snapMove(unionBounds(lead), dx, dy, g.targets, latest.current.viewport.zoom, off);
-    return { dx: tidy(snap.dx), dy: tidy(snap.dy), guides: snap.guides };
+    const zoom = latest.current.viewport.zoom;
+    const bounds = unionBounds(lead);
+    const snap = snapMove(bounds, dx, dy, g.targets, zoom, off);
+    const grid = latest.current.scale?.grid;
+    if (!grid || !bounds) return { dx: tidy(snap.dx), dy: tidy(snap.dy), guides: snap.guides };
+    const pulled = gridPull({ ...bounds, x: bounds.x + snap.dx - dx, y: bounds.y + snap.dy - dy }, grid, zoom, fine ? 'fine' : 'magnet');
+    const onX = snap.guides.some((guide) => guide.axis === 'x');
+    const onY = snap.guides.some((guide) => guide.axis === 'y');
+    return { dx: tidy(snap.dx + (onX ? 0 : pulled.dx)), dy: tidy(snap.dy + (onY ? 0 : pulled.dy)), guides: snap.guides };
+  };
+
+  /** A point onto the grid on the axes no item line took (6.2a); unchanged without a scale. */
+  const gridded = (point: Point, guides: readonly Guide[]): Point => {
+    const grid = latest.current.scale?.grid;
+    if (!grid) return point;
+    const onGrid = snapToGrid(point, grid, latest.current.viewport.zoom, 'magnet');
+    return {
+      x: guides.some((guide) => guide.axis === 'x' && Math.abs(guide.at - point.x) < 0.01) ? point.x : onGrid.x,
+      y: guides.some((guide) => guide.axis === 'y' && Math.abs(guide.at - point.y) < 0.01) ? point.y : onGrid.y,
+    };
+  };
+
+  /** Where a point-to-point run's next point goes (6.2a): another end near it, else the grid; Shift holds to 15° steps. */
+  const pathPoint = (raw: Point, mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean }, draft: PathDraft | null): Point => {
+    const last = draft?.points.at(-1);
+    const tidied = (p: Point): Point => ({ x: tidy(p.x), y: tidy(p.y) });
+    if (last && mods.shiftKey) return tidied(constrainAngle(last, raw));
+    const mode = gridModeOf(mods);
+    if (mode !== 'off') {
+      const end = nearestPoint(raw, [...(latest.current.snapPoints ?? []), ...(draft?.points ?? [])], END_SNAP / latest.current.viewport.zoom);
+      if (end) return end;
+    }
+    const grid = latest.current.scale?.grid;
+    return tidied(grid ? snapToGrid(raw, grid, latest.current.viewport.zoom, mode) : raw);
+  };
+
+  /** The run ends: its segments are the host's to write (one edit), and the tool is Select again unless another was picked. */
+  const finishPath = (toSelect = true) => {
+    const draft = pathRef.current;
+    if (!draft) return;
+    setPath(null);
+    setPathSaid('');
+    if (draft.points.length >= 2) void onPath?.(draft.points, draft.tool);
+    if (toSelect) onToolChange('select');
+  };
+
+  // Another tool picked mid-run finishes the run as it stands.
+  useEffect(() => {
+    if (pathRef.current && pathRef.current.tool !== tool) finishPath(false);
+    // finishPath reads the run through its ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool]);
+
+  /** The run's next point, the typed length along its direction; refused (and said) when it isn't a length. */
+  const takeTyped = (draft: PathDraft) => {
+    const length = latest.current.scale ? latest.current.scale.parse(draft.typed) : Number(draft.typed.replace(',', '.'));
+    const last = draft.points.at(-1);
+    if (length === null || !Number.isFinite(length) || length <= 0 || !last) {
+      setPathSaid(t('canvas.path.refused', { typed: draft.typed }));
+      return;
+    }
+    const angle = pathAngle(draft);
+    const next = pointAlong(last, angle, length);
+    setPath({ ...draft, points: [...draft.points, { x: tidy(next.x), y: tidy(next.y) }], cursor: null, angle, typed: '' });
+    setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(length) : String(tidy(length)) }));
   };
 
   /** The rectangle a drawing drag makes, its corners snapped to other items' lines unless snapping is off. */
@@ -558,7 +708,9 @@ export function Canvas({
     const zoom = latest.current.viewport.zoom;
     const a = snapPoint(g.start, g.targets, zoom);
     const b = snapPoint(world, g.targets, zoom);
-    return { rect: rectFromCorners({ x: tidy(a.point.x), y: tidy(a.point.y) }, { x: tidy(b.point.x), y: tidy(b.point.y) }), guides: mergeGuides([...a.guides, ...b.guides]) };
+    const ga = gridded(a.point, a.guides);
+    const gb = gridded(b.point, b.guides);
+    return { rect: rectFromCorners({ x: tidy(ga.x), y: tidy(ga.y) }, { x: tidy(gb.x), y: tidy(gb.y) }), guides: mergeGuides([...a.guides, ...b.guides]) };
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -579,7 +731,22 @@ export function Canvas({
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const world = worldOf(screen);
-    const { shown: all, itemsShown: plain, sectionsShown: sections, selection: picked, tool: current, resolved: lines, viewport: now } = latest.current;
+    const { shown: all, pickPlain: plain, pickSections: sections, selection: picked, tool: current, resolved: lines, viewport: now } = latest.current;
+    const spec = tools?.find((each) => each.id === current);
+    // A point-to-point tool (6.2a): the first click starts a run, each one after ends a segment and starts the next.
+    if (spec?.pointToPoint && isHostTool(current)) {
+      const run = pathRef.current;
+      const at = pathPoint(world, event, run);
+      const last = run?.points.at(-1);
+      if (!run || !last) {
+        setPath({ tool: current, points: [at], cursor: at, angle: 0, typed: '' });
+        return;
+      }
+      // A second click where the last one was (a double-click's) adds nothing.
+      if (Math.hypot(at.x - last.x, at.y - last.y) * now.zoom < 2) return;
+      setPath({ ...run, points: [...run.points, at], cursor: at, angle: Math.atan2(at.y - last.y, at.x - last.x), typed: '' });
+      return;
+    }
     if (current === 'connector') {
       // Drag from an item (or empty space) to an item (or empty space): the first end snaps as the second does. A section is no end.
       const start = snapEnd(boxesOf(plain), world, now.zoom);
@@ -601,7 +768,7 @@ export function Canvas({
         }
       }
     }
-    if (isPlaceTool(current)) {
+    if (isPlaceTool(current) || isHostTool(current)) {
       gesture.current = { kind: 'draw', tool: current, start: world, screen, targets: null, moved: false };
       return;
     }
@@ -647,6 +814,8 @@ export function Canvas({
     const screen = local(event);
     const world = worldOf(screen);
     pointer.current = screen;
+    const run = pathRef.current;
+    if (run) setPath({ ...run, cursor: pathPoint(world, event, run) });
     const g = gesture.current;
     if (!g) return;
     if (g.kind === 'pan') {
@@ -664,7 +833,7 @@ export function Canvas({
     }
     const off = event.ctrlKey || event.metaKey;
     if (g.kind === 'move') {
-      const { dx, dy, guides: aligned } = movement(g, world, off);
+      const { dx, dy, guides: aligned } = movement(g, world, off, event.altKey);
       setGuides(aligned);
       setDraft(new Map([...g.origins].map(([id, o]) => [id, { ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) }])));
     } else if (g.kind === 'draw') {
@@ -694,7 +863,7 @@ export function Canvas({
         // A press on a selected connector's end that doesn't drag is an ordinary click there: the item or connector under
         // it is picked, or nothing is.
         if (g.id !== null) {
-          const { itemsShown: plain, resolved: lines, viewport: now } = latest.current;
+          const { pickPlain: plain, resolved: lines, viewport: now } = latest.current;
           const top = topmostAt(plain, world);
           const line = [...lines].reverse().find((r) => linkHit(r, world, now.zoom));
           onSelectionChange(top ? [top.id] : line ? [line.link.id] : []);
@@ -712,7 +881,7 @@ export function Canvas({
         if (g.collapseTo) onSelectionChange([g.collapseTo]);
         return;
       }
-      const { dx, dy } = movement(g, world, off);
+      const { dx, dy } = movement(g, world, off, event.altKey);
       commit([...g.origins].map(([id, o]) => ({ id, ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) })));
     } else if (g.kind === 'marquee') {
       setPreview(null);
@@ -721,7 +890,7 @@ export function Canvas({
       const touched = [
         ...latest.current.resolved.filter((r) => pathTouchesRect(r.path, box)).map((r) => r.link.id),
         // A section is picked by a marquee only when it holds the whole of it: one drawn inside a section picks what is inside.
-        ...latest.current.shown.filter((item) => (item.section ? marqueeHolds(item, box) : marqueeTouches(item, box))).map((item) => item.id),
+        ...marqueePicks(latest.current.shown, box),
       ];
       onSelectionChange([...new Set([...g.base, ...touched])]);
     } else {
@@ -731,7 +900,7 @@ export function Canvas({
       void onCreate(
         g.moved
           ? { x: tidy(box.x), y: tidy(box.y), width: tidy(Math.max(MIN_SIZE, box.width)), height: tidy(Math.max(MIN_SIZE, box.height)), rotation: 0 }
-          : placedAt(g.start, g.tool),
+          : placedAt(g.start, isPlaceTool(g.tool) ? g.tool : 'rect', tools?.find((each) => each.id === g.tool)?.size),
         g.tool,
       );
       onToolChange('select');
@@ -770,7 +939,7 @@ export function Canvas({
 
   const cycle = (direction: 1 | -1) => {
     // Sections draw first, then the connectors, then the items: Tab goes back to front like the rest.
-    const ids = [...latest.current.sectionsShown.map((i) => i.id), ...latest.current.resolved.map((r) => r.link.id), ...latest.current.itemsShown.map((i) => i.id)];
+    const ids = pickOrder(latest.current.sectionsShown, latest.current.resolved.map((r) => r.link.id), latest.current.itemsShown);
     if (ids.length === 0) return;
     const picked = ids.map((id, i) => (latest.current.selection.includes(id) ? i : -1)).filter((i) => i >= 0);
     const from = direction === 1 ? Math.max(...picked) : Math.min(...picked);
@@ -793,6 +962,40 @@ export function Canvas({
     const mac = isMac();
     const modifiers = event.metaKey || event.ctrlKey || event.altKey;
     const picked = latest.current.selection;
+    // A run in progress (6.2a) takes typed lengths, Enter, Escape and the arrows (its direction) first.
+    const run = pathRef.current;
+    if (run && !event.metaKey && !event.ctrlKey) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (run.typed !== '') setPath({ ...run, typed: '' });
+        else finishPath();
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        if (run.typed !== '') takeTyped(run);
+        else finishPath();
+        return;
+      }
+      if (event.key === 'Backspace' && run.typed !== '') {
+        event.preventDefault();
+        setPath({ ...run, typed: run.typed.slice(0, -1) });
+        return;
+      }
+      // A digit or a decimal mark starts a length; once started, anything printable is part of it (12' 6", 3.5 m).
+      if (event.key.length === 1 && (run.typed !== '' || /[0-9.,]/.test(event.key))) {
+        event.preventDefault();
+        setPath({ ...run, typed: run.typed + event.key });
+        return;
+      }
+      const turn = ARROW_ANGLE[event.key];
+      if (turn !== undefined && run.typed === '') {
+        // From the keyboard, the next segment's direction.
+        event.preventDefault();
+        setPath({ ...run, cursor: null, angle: turn });
+        return;
+      }
+    }
     if (event.key === ' ' && !modifiers) {
       event.preventDefault();
       space.current = true;
@@ -832,7 +1035,7 @@ export function Canvas({
     }
     if (isCommand(event, mac) && event.key.toLowerCase() === 'a' && !event.shiftKey) {
       event.preventDefault();
-      onSelectionChange([...latest.current.sectionsShown.map((i) => i.id), ...latest.current.resolved.map((r) => r.link.id), ...latest.current.itemsShown.map((i) => i.id)]);
+      onSelectionChange(pickOrder(latest.current.sectionsShown, latest.current.resolved.map((r) => r.link.id), latest.current.itemsShown));
       return;
     }
     // The layout keys (5.3) need a selection to act on: with none, they are the page's again.
@@ -918,10 +1121,21 @@ export function Canvas({
         }
         return;
       }
-      if (event.key === 'Enter' && isPlaceTool(latest.current.tool)) {
+      const pointTool = tools?.find((each) => each.id === latest.current.tool);
+      if (event.key === 'Enter' && pointTool?.pointToPoint && isHostTool(pointTool.id)) {
+        // From the keyboard: a run starts at the middle of the view; typed lengths and the arrows draw it.
         event.preventDefault();
-        const { viewport: view, tool: placing } = latest.current;
-        void onCreate(placedAt({ x: view.cx, y: view.cy }, placing), placing);
+        const { viewport: view } = latest.current;
+        const start = pathPoint({ x: view.cx, y: view.cy }, { shiftKey: false, ctrlKey: false, metaKey: false, altKey: false }, null);
+        setPath({ tool: pointTool.id, points: [start], cursor: null, angle: 0, typed: '' });
+        setPathSaid(t('canvas.path.started'));
+        return;
+      }
+      const placing = latest.current.tool;
+      if (event.key === 'Enter' && (isPlaceTool(placing) || isHostTool(placing))) {
+        event.preventDefault();
+        const { viewport: view } = latest.current;
+        void onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing);
         onToolChange('select');
         return;
       }
@@ -948,7 +1162,7 @@ export function Canvas({
           return;
         }
       }
-      const next = toolForKey(event);
+      const next = tools ? hostToolForKey(event, tools) : toolForKey(event);
       if (next) {
         event.preventDefault();
         onToolChange(next);
@@ -956,7 +1170,7 @@ export function Canvas({
     }
   };
 
-  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : tool === 'connector' ? 'crosshair' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
+  const cursor = panning ? 'grabbing' : spaceHeld || tool === 'hand' ? 'grab' : tool === 'connector' || isHostTool(tool) ? 'crosshair' : isPlaceTool(tool) ? (tool === 'text' ? 'text' : 'crosshair') : 'default';
   // The item being typed into, or a connector's label (its patch, as wide as the words need and no less than 120).
   const editingLine = editing ? resolved.find((r) => r.link.id === editing) : undefined;
   const editingBox = editing ? shown.find((i) => i.id === editing) : undefined;
@@ -969,6 +1183,24 @@ export function Canvas({
       (editingLine?.patch ? { id: editingLine.link.id, label: editingLine.link.label, ...editingLine.patch, rotation: 0, editable: true } : undefined)
     : undefined;
   const percent = Math.round(view.zoom * 100);
+  // A real scale (6.2a): the grid in view, the scale bar's round length, and the run being drawn with its next segment.
+  const grid = scale ? gridLines(view, size, scale.grid) : [];
+  const bar = scale ? scaleBarLength(view.zoom, scale.rounds) : 0;
+  const barLabel = scale ? scale.label(bar) : '';
+  const runSpec = path ? tools?.find((each) => each.id === path.tool) : undefined;
+  const runLast = path?.points.at(-1);
+  const typedLength = path && path.typed !== '' ? (scale ? scale.parse(path.typed) : Number(path.typed)) : null;
+  const runNext =
+    path && runLast
+      ? typedLength !== null && Number.isFinite(typedLength) && typedLength > 0
+        ? pointAlong(runLast, pathAngle(path), typedLength)
+        : path.cursor && (path.cursor.x !== runLast.x || path.cursor.y !== runLast.y)
+          ? path.cursor
+          : null
+      : null;
+  const segmentLength = runLast && runNext ? Math.hypot(runNext.x - runLast.x, runNext.y - runLast.y) : 0;
+  const lengthAt = runLast && (runNext || path?.typed) ? toScreen(view, size, runNext ? { x: (runLast.x + runNext.x) / 2, y: (runLast.y + runNext.y) / 2 } : runLast) : null;
+  const runWidth = runSpec?.pathWidth;
   // One item that can be copied with a connector selected, at rest: its four "+" handles show.
   const quickItem =
     tool === 'select' && selection.length === 1 && !editing && !draft && !connecting && !liveBoxes && onQuickCreate
@@ -1013,6 +1245,7 @@ export function Canvas({
       data-links={lineData}
       data-guides={guideData}
       data-tool={tool}
+      data-path={path ? JSON.stringify(path.points) : undefined}
       style={{ cursor, ...(fixedColours ? { background: fixedColours.paper, outlineColor: fixedColours.ink } : {}) }}
       className="relative h-full min-h-60 w-full touch-none overflow-hidden bg-surface select-none focus-visible:-outline-offset-4"
       onPointerDown={onPointerDown}
@@ -1024,9 +1257,14 @@ export function Canvas({
       }}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
+        // A double-click finishes a run (6.2a).
+        if (pathRef.current) {
+          finishPath();
+          return;
+        }
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
         const at = worldOf(local(event));
-        const { itemsShown: plain, sectionsShown: sections, viewport: now } = latest.current;
+        const { pickPlain: plain, pickSections: sections, viewport: now } = latest.current;
         const top = topmostAt(plain, at);
         if (top?.editable) onEdit?.(top.id);
         else if (top?.openable) onOpen?.(top.id);
@@ -1089,7 +1327,7 @@ export function Canvas({
         if (event.button !== 2 && !event.ctrlKey) return;
         const screen = local(event);
         const there = worldOf(screen);
-        const top = topmostAt(latest.current.itemsShown, there) ?? topmostSectionAt(latest.current.sectionsShown, there, latest.current.viewport.zoom);
+        const top = topmostAt(latest.current.pickPlain, there) ?? topmostSectionAt(latest.current.pickSections, there, latest.current.viewport.zoom);
         if (top && !latest.current.selection.includes(top.id)) onSelectionChange([top.id]);
         openMenu(screen);
       }}
@@ -1098,10 +1336,36 @@ export function Canvas({
         {t('canvas.keys')}
       </p>
       <p role="status" className="sr-only">
-        {announcement !== '' ? announcement : live}
+        {pathSaid !== '' ? pathSaid : announcement !== '' ? announcement : live}
       </p>
       <Stage ref={stage} width={size.width} height={size.height} listening>
         <Layer x={size.width / 2 - view.cx * view.zoom} y={size.height / 2 - view.cy * view.zoom} scaleX={view.zoom} scaleY={view.zoom}>
+          {grid.length > 0 && (
+            <Shape
+              listening={false}
+              sceneFunc={(context) => {
+                // World lines, a hairline at any zoom: light every step, stronger every major step.
+                const world = visibleWorld(view, size);
+                for (const strong of [false, true]) {
+                  context.beginPath();
+                  for (const line of grid) {
+                    if (line.strong !== strong) continue;
+                    if (line.axis === 'x') {
+                      context.moveTo(line.at, world.y);
+                      context.lineTo(line.at, world.y + world.height);
+                    } else {
+                      context.moveTo(world.x, line.at);
+                      context.lineTo(world.x + world.width, line.at);
+                    }
+                  }
+                  context.setAttr('globalAlpha', strong ? GRID_STRONG : GRID_LIGHT);
+                  context.setAttr('strokeStyle', colours.ink);
+                  context.setAttr('lineWidth', 1 / view.zoom);
+                  context.stroke();
+                }
+              }}
+            />
+          )}
           <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} register={register} />
           {resolved.map((r) => (
             <LinkShape
@@ -1117,6 +1381,31 @@ export function Canvas({
           <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} register={register} />
           {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
           {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
+          {path && path.points.length > 1 && (
+            <Line
+              points={path.points.flatMap((p) => [p.x, p.y])}
+              stroke={colours.ink}
+              strokeWidth={runWidth ?? 1.5}
+              strokeScaleEnabled={runWidth !== undefined}
+              lineCap="square"
+              lineJoin="miter"
+              listening={false}
+            />
+          )}
+          {runLast && runNext && (
+            <Line
+              points={[runLast.x, runLast.y, runNext.x, runNext.y]}
+              stroke={colours.ink}
+              strokeWidth={runWidth ?? 1.5}
+              strokeScaleEnabled={runWidth !== undefined}
+              lineCap="square"
+              opacity={0.5}
+              listening={false}
+            />
+          )}
+          {path?.points.map((p, i) => (
+            <Circle key={i} x={p.x} y={p.y} radius={3 / view.zoom} fill={colours.paper} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
+          ))}
           {preview && (
             <Rect
               x={preview.rect.x}
@@ -1166,13 +1455,34 @@ export function Canvas({
           />
         </Layer>
       </Stage>
-      <div className="absolute bottom-2 left-2 flex items-center border border-text bg-surface">
+      {scale && <Rulers view={view} size={size} scale={scale} colours={colours} />}
+      {lengthAt && (
+        // The segment's length as it is drawn, or what is being typed for it (6.2a).
+        <div
+          aria-hidden="true"
+          data-path-length={path?.typed !== '' ? (path?.typed ?? '') : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
+          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-[calc(100%+10px)] border-[1.5px] px-1.5 py-0.5 font-mono text-[11px] leading-none whitespace-nowrap"
+          style={{ left: lengthAt.x, top: lengthAt.y, background: colours.paper, color: colours.ink, borderColor: colours.ink }}
+        >
+          {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
+        </div>
+      )}
+      {/* Clear of the left ruler when there is one. */}
+      <div className={cx('absolute bottom-2 flex items-center border border-text bg-surface', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
         <button type="button" aria-label={t('canvas.zoomOut')} className={ZOOM_BUTTON} onClick={() => { zoomTo(view.zoom / ZOOM_STEP); }}>
           −
         </button>
-        <button type="button" aria-label={t('canvas.zoomReset', { percent })} className={cx(ZOOM_BUTTON, 'min-w-14 font-mono')} onClick={() => { zoomTo(1); }}>
-          {percent}%
-        </button>
+        {scale ? (
+          // With a real scale (6.2a), the zoom's label is the scale bar: a round length and a bar that long on screen.
+          <button type="button" data-scale-bar={barLabel} aria-label={t('canvas.zoomResetScale', { length: barLabel })} className={cx(ZOOM_BUTTON, 'min-w-14 gap-1.5 font-mono normal-case')} onClick={() => { zoomTo(1); }}>
+            <span aria-hidden="true" className="block h-1.5 border-x-[1.5px] border-b-[1.5px] border-text" style={{ width: bar * view.zoom }} />
+            {barLabel}
+          </button>
+        ) : (
+          <button type="button" aria-label={t('canvas.zoomReset', { percent })} className={cx(ZOOM_BUTTON, 'min-w-14 font-mono')} onClick={() => { zoomTo(1); }}>
+            {percent}%
+          </button>
+        )}
         <button type="button" aria-label={t('canvas.zoomIn')} className={ZOOM_BUTTON} onClick={() => { zoomTo(view.zoom * ZOOM_STEP); }}>
           +
         </button>
