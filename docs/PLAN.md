@@ -7,11 +7,11 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 
 | | |
 |---|---|
-| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); 5.0 built (#136, waiting for Kevin's baseline comparison), 5.1a (#137), 5.1b (#138), 5.2 (#139), 5.3 (#140), 5.4 (#141), 5.5 (#142), 5.6a (#143), 5.6b (#144) and 5.7 (#145) built: every milestone built and reviewed, stacked #136 to #145; the gate is Kevin's. **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
+| **Current phase** | **Phase 5 · Canvas flow**: Kevin answered Nov 10 and said go (docs/PHASE5_DECISIONS.md); 5.0 built (#136, waiting for Kevin's baseline comparison), 5.1a (#137), 5.1b (#138), 5.2 (#139), 5.3 (#140), 5.4 (#141), 5.5 (#142), 5.6a (#143), 5.6b (#144) and 5.7 (#145) built: every milestone built and reviewed, merged into `v2` Nov 13 (#135 to #145); the gate is Kevin's. **Phase 6 · Bird's-eye view** is planned and waits for his answers (#150). **Phase 4 · Call sheets**: built Nov 10, 4.0 to 4.13 (Kevin's follow-ups 4.11 to 4.13 included), merged into `v2` Nov 10 (#120 to #134); the gate is Kevin's |
 | Phase 0 state | **Done.** Gate passed on the installers, Nov 2 (Mac: every step; Windows: create and double-click) |
 | Branch | `v2` |
 | Planned start | Nov 2, 2026 |
-| Last updated | Nov 10, 2026 (Phase 4 merged, #120 to #134; Phase 5 answered; Windows 10 22H2 supported) |
+| Last updated | Nov 13, 2026 (Phase 5 merged, #135 to #145; Kevin's Nov 11 answers built, #146 to #149 open; Phase 6 planned, #150, waiting for his answers; models changed) |
 
 | Phase | State |
 |---|---|
