@@ -10,6 +10,15 @@ import type { CanvasColours, CanvasItem } from './types';
 
 export type RegisterNode = (id: string, node: Konva.Group | null) => void;
 
+/** The key an item's drawing past its box is registered under: the handles turn it with the item while they turn it. */
+export const beyondKey = (id: string): string => `${id}\u0000beyond`;
+
+/**
+ * The Konva name a node drawn past an item's box takes to stay upright (6.4 review: a camera's labels): while the
+ * handles turn the item, the canvas turns such nodes back by the live turn, so they never spin with the gesture.
+ */
+export const UPRIGHT = 'sb-upright';
+
 /** How strongly a dimmed item is drawn (6.2a; DESIGN.md's locked layer at 45%). */
 export const DIM_OPACITY = 0.45;
 
@@ -29,6 +38,22 @@ const ItemNode = memo(function ItemNode({ item, colours, zoom, inView, register 
   // `ratio` is not read here: `draw` reads window.devicePixelRatio, and it is a prop only so that a change of it draws again.
   return (
     <Group opacity={item.dim ? DIM_OPACITY : 1}>
+      {item.beyond && (
+        // Past the box (6.4: a camera's cone), under it, in a group of its own so the handles hold only the box.
+        <Group
+          ref={(node) => {
+            register(beyondKey(item.id), node);
+          }}
+          x={item.x + item.width / 2}
+          y={item.y + item.height / 2}
+          offsetX={item.width / 2}
+          offsetY={item.height / 2}
+          rotation={item.rotation}
+          listening={false}
+        >
+          {item.beyond.draw({ width: item.width, height: item.height, colours, zoom, inView, rotation: item.rotation })}
+        </Group>
+      )}
       <Group
         ref={(node) => {
           register(item.id, node);

@@ -4,7 +4,8 @@ import { getLocale, t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { centreOfBox, fitAlong, fitsAt, onStep, openingFrame, projectOnWall, swingSign, wallAxes, wallNeeds, wallUnder, type OpeningFrame } from '../../../core/model/openings';
 import {
-  iconFields,
+  boxFields,
+  isCamera,
   isIcon,
   isOpening,
   keptInWall,
@@ -25,6 +26,9 @@ import {
   wallEnds,
   wallProps,
   wallsAlong,
+  CAMERA_ICON,
+  type BoxFields,
+  type CameraFields,
   type Hinge,
   type IconFields,
   type OpeningFields,
@@ -36,6 +40,7 @@ import {
   type ShownItem,
   type Swing,
 } from '../../../core/model/plan';
+import { CONE_LENGTH_M, isCameraIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { iconHome } from '../../../core/model/planRooms';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import { sceneSetups, setupLabel } from '../../../core/model/setup';
@@ -46,10 +51,11 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
+import { cameraBeyond, type CameraLook } from './cameraDraw';
 import { IconShape, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
 import { iconLabel, planIconOf } from './iconWords';
-import { planScale, toCanvas, toMetres } from './planScale';
+import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
 import { wallOutline, type WallLine } from './wallShape';
 
 // A plan's items for the canvas core and back (6.2a, 6.2b): records in metres become CanvasItems in canvas units
@@ -80,16 +86,16 @@ function liveOpening(records: Records, id: string): { record: SbdRecord; fields:
   return fields && wall ? { record, fields: keptInWall(fields, wall.fields.width), wall } : null;
 }
 
-/** A live library icon (6.3), with its fields. */
-function liveIcon(records: Records, id: string): { record: SbdRecord; fields: IconFields } | null {
+/** A live library icon (6.3) or camera (6.4), with its fields: both are a box that moves, turns and resizes freely. */
+function liveIcon(records: Records, id: string): { record: SbdRecord; fields: BoxFields } | null {
   const record = records[id];
   if (record?.type !== 'plan_item' || record.trashedAt !== null) return null;
-  const fields = iconFields(record.props);
+  const fields = boxFields(record.props);
   return fields ? { record, fields } : null;
 }
 
-/** A live item with a box of its own: a wall or an icon (a door or window takes its place from its wall). */
-const liveBoxed = (records: Records, id: string): { record: SbdRecord; fields: PlanItemFields | IconFields } | null => liveItem(records, id) ?? liveIcon(records, id);
+/** A live item with a box of its own: a wall, an icon or a camera (a door or window takes its place from its wall). */
+const liveBoxed = (records: Records, id: string): { record: SbdRecord; fields: PlanItemFields | BoxFields } | null => liveItem(records, id) ?? liveIcon(records, id);
 
 const toCanvasGeometry = (g: PlanGeometry): Geometry => ({ x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height), rotation: g.rotation });
 
@@ -118,20 +124,45 @@ export const iconAnnounce = (fields: IconFields, unit: PlanUnit): string => {
 };
 
 /**
- * A library icon for the canvas (6.3): its box at its real size, drawn from its SVG; a zone and a note resize freely,
+ * A library icon for the canvas (6.3): its box at its real size, drawn as the kit's vectors; a zone and a note resize freely,
  * every other icon keeps its proportions (corner handles). An icon id this version doesn't have is an outline with "?".
  */
 export function iconItem(id: string, fields: IconFields, unit: PlanUnit): CanvasItem {
   const icon = planIconOf(fields.icon);
   const g = toCanvasGeometry(fields);
-  const draw = (context: { zoom: number; colours: CanvasColours; inView: boolean }): ReactNode => {
-    const common = { width: g.width, height: g.height, zoom: context.zoom, name: fields.name, colours: context.colours, inView: context.inView };
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: fields.name, colours: context.colours };
     if (!icon) return createElement(UnknownIconShape, common);
-    if (icon.id === 'production/zone') return createElement(ZoneShape, common);
+    if (icon.id === 'production/zone') return createElement(ZoneShape, { icon, ...common });
     if (icon.id === 'production/note') return createElement(NoteShape, { icon, ...common });
     return createElement(IconShape, { icon, ...common });
   };
   return { id, ...g, label: iconAnnounce(fields, unit), ...(icon && !FREE_RESIZE.has(icon.id) ? { keepRatio: true } : {}), draw };
+}
+
+/** A camera with no look worked out yet: no cone, no label. */
+const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
+
+/** What a camera is called aloud: "Camera A · 50 mm · 51.1°, 0.40 m by 0.40 m". */
+export const cameraAnnounce = (fields: CameraFields, unit: PlanUnit, look: CameraLook): string => {
+  const sizes = { width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) };
+  const what = [iconLabel(fields.icon), ...look.lines].join(' · ');
+  return t('plan.announce.icon', { what, ...sizes });
+};
+
+/**
+ * A camera for the canvas (6.4): its icon at its real size, keeping its proportions, and past its box its field of view
+ * and its labels (cameraDraw.tsx), which the canvas keeps drawn while the box is off screen.
+ */
+export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, look: CameraLook): CanvasItem {
+  const icon = planIconOf(fields.icon) ?? planIconOf(CAMERA_ICON);
+  const g = toCanvasGeometry(fields);
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    // Its name is drawn with its labels, upright, past its box; its icon as every icon is (iconDraw.tsx).
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
+    return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
+  };
+  return { id, ...g, label: cameraAnnounce(fields, unit, look), keepRatio: true, draw, beyond: cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min) };
 }
 
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
@@ -224,12 +255,15 @@ interface Built {
   ink: string;
   locale: string;
   neighbours: readonly SbdRecord[];
+  /** A camera's look (6.4), as a string: what its cone and labels were drawn from, read from other records. */
+  look?: string;
   item: CanvasItem;
 }
 
 const isWall = (item: ShownItem): item is ShownItem & { fields: PlanItemFields } => item.fields.kind === 'wall';
 const isOpeningItem = (item: ShownItem): item is ShownItem & { fields: OpeningFields } => isOpening(item.fields);
 const isIconItem = (item: ShownItem): item is ShownItem & { fields: IconFields } => isIcon(item.fields);
+const isCameraItem = (item: ShownItem): item is ShownItem & { fields: CameraFields } => isCamera(item.fields);
 
 /**
  * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
@@ -237,18 +271,27 @@ const isIconItem = (item: ShownItem): item is ShownItem & { fields: IconFields }
  * or its wall changed, so an edit elsewhere in the project rebuilds nothing and the canvas keeps what it drew; when
  * nothing changed, the same list comes back. Doors and windows come after the walls, so they are drawn over them.
  */
-export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit, ink: string, locale?: string) => readonly CanvasItem[] {
+export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit, ink: string, locale?: string, looks?: ReadonlyMap<string, CameraLook>) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale()) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map()) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
     const joined = joinedTo(lines);
     const next = new Map<string, Built>();
-    const kept = (item: ShownItem, neighbours: readonly SbdRecord[]): CanvasItem | null => {
+    const kept = (item: ShownItem, neighbours: readonly SbdRecord[], look?: string): CanvasItem | null => {
       const was = built.get(item.record.id);
-      if (was && was.record === item.record && was.unit === unit && was.ink === ink && was.locale === locale && was.neighbours.length === neighbours.length && was.neighbours.every((r, k) => r === neighbours[k])) {
+      if (
+        was &&
+        was.record === item.record &&
+        was.unit === unit &&
+        was.ink === ink &&
+        was.locale === locale &&
+        was.look === look &&
+        was.neighbours.length === neighbours.length &&
+        was.neighbours.every((r, k) => r === neighbours[k])
+      ) {
         next.set(item.record.id, was);
         return was.item;
       }
@@ -291,7 +334,18 @@ export function planItemsBuilder(): (shown: readonly ShownItem[], unit: PlanUnit
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], item: made });
       return made;
     });
-    const items = [...wallItems, ...openingItems, ...iconItems];
+    // Cameras (6.4) over the icons, each made again when its record or its look (its frames' lenses, its body, the
+    // project's frame shape, the selection: read from other records) changed.
+    const cameraItems = shown.filter(isCameraItem).map((item): CanvasItem => {
+      const look = looks.get(item.record.id) ?? NO_LOOK;
+      const key = JSON.stringify(look);
+      const same = kept(item, [], key);
+      if (same) return same;
+      const made = cameraItem(item.record.id, item.fields, unit, look);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
+      return made;
+    });
+    const items = [...wallItems, ...openingItems, ...iconItems, ...cameraItems];
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;
@@ -332,11 +386,43 @@ export function runRoomId(records: Records, sceneId: string): string | null {
   return sceneRoomId(records, scene);
 }
 
+/** The kinds of plan item an edit here writes: each must still read (shownFields) once the edit is written. */
+const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera'];
+
+/**
+ * Whether these changes would leave a wall, door, window, icon or camera unreadable (6.3 review, M5): past the plan's
+ * reach or size (PLAN_REACH, PLAN_MAX_SIZE in src/core/model/plan.ts), where the reader keeps it unseen, so it would
+ * vanish from the plan. The one check every write path here makes (typed fields, nudges, drags, pastes, runs of walls,
+ * placements): refused, nothing is written.
+ */
+export function unreadableAfter(records: Records, changes: readonly Change[]): boolean {
+  const after = new Map<string, Props>();
+  const made: Props[] = [];
+  for (const change of changes) {
+    if (change.kind === 'create') {
+      if (change.record.type !== 'plan_item') continue;
+      const props = change.record.props ?? {};
+      if (change.record.id === undefined) made.push(props);
+      else after.set(change.record.id, props);
+    } else if (change.kind === 'update') {
+      const before = after.get(change.id) ?? (records[change.id]?.type === 'plan_item' ? records[change.id]?.props : undefined);
+      if (before === undefined) continue;
+      const gone = new Set(change.unset ?? []);
+      after.set(change.id, Object.fromEntries(Object.entries({ ...before, ...change.set }).filter(([name]) => !gone.has(name))));
+    }
+  }
+  return [...after.values(), ...made].some((props) => typeof props.kind === 'string' && WRITTEN_KINDS.includes(props.kind) && shownFields(props) === null);
+}
+
+/** The changes, or none when they would leave an item unreadable. */
+const readableOnly = (records: Records, changes: Change[]): Change[] => (unreadableAfter(records, changes) ? [] : changes);
+
 /** A run of walls drawn in a view (canvas units): one wall a segment, into that view's scene's room, never another's. */
 export function drawWallsChanges(records: Records, sceneId: string, points: readonly Point[]): { ids: string[]; changes: Change[] } {
   const roomId = runRoomId(records, sceneId);
   if (roomId === null) return { ids: [], changes: [] };
-  return wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
+  const run = wallsAlong(records, roomId, points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })));
+  return unreadableAfter(records, run.changes) ? { ids: [], changes: [] } : run;
 }
 
 const sameGeometry = (a: PlanGeometry, b: PlanGeometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
@@ -552,6 +638,10 @@ const planKindOf = (records: Records, planId: string | null): string | null => (
  * only goes into that setup's plan with it.
  */
 export function planGeometryChanges(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null): Change[] {
+  return readableOnly(records, geometryUpdates(records, changes, walls, view));
+}
+
+function geometryUpdates(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null): Change[] {
   const changed = new Set(changes.map((c) => c.id));
   return changes.flatMap((c): Change[] => {
     const opening = liveOpening(records, c.id);
@@ -603,6 +693,10 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
  * points across); one whose wall is nudged too moves with it.
  */
 export function planNudgeChanges(records: Records, ids: readonly string[], dx: number, dy: number, view?: PlanViewOf | null): Change[] {
+  return readableOnly(records, nudgeUpdates(records, ids, dx, dy, view));
+}
+
+function nudgeUpdates(records: Records, ids: readonly string[], dx: number, dy: number, view?: PlanViewOf | null): Change[] {
   const picked = new Set(ids);
   return ids.flatMap((id): Change[] => {
     const opening = liveOpening(records, id);
@@ -620,7 +714,7 @@ export function planNudgeChanges(records: Records, ids: readonly string[], dx: n
     const live = liveBoxed(records, id);
     if (!live) return [];
     const g = toCanvasGeometry(live.fields);
-    return planGeometryChanges(records, [{ id, ...g, x: g.x + dx, y: g.y + dy }], undefined, view);
+    return geometryUpdates(records, [{ id, ...g, x: g.x + dx, y: g.y + dy }], undefined, view);
   });
 }
 
@@ -651,7 +745,7 @@ export function reorderPlanChanges(records: Records, ids: readonly string[], mod
   return [...byPlan].flatMap(([planId, chosenIds]) => {
     // Every sibling holds a key, the Trash's too, so a new key never ties with one coming back.
     const all = Object.values(records).filter((r) => r.type === 'plan_item' && r.parentId === planId).sort(bySortKey);
-    const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || iconFields(r.props) !== null)).map((r) => r.id);
+    const live = all.filter((r) => r.trashedAt === null && (planItemFields(r.props) !== null || boxFields(r.props) !== null)).map((r) => r.id);
     const chosen = new Set(chosenIds);
     const nextLive = reordered(live, chosen, mode);
     if (nextLive.every((id, i) => id === live[i])) return [];
@@ -732,7 +826,7 @@ export function pasteTarget(records: Records, view: PlanViewOf): (item: PlanClip
 export function planPasteChanges(records: Records, into: string | ((item: PlanClip) => string | null), clip: readonly PlanClip[], at: Point | null): { ids: string[]; changes: Change[] } {
   const planOf = typeof into === 'string' ? () => into : into;
   // Walls and icons keep their places to each other, all moved as one.
-  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields | IconFields } => item.fields.kind === 'wall' || item.fields.kind === 'icon');
+  const walls = clip.filter((item): item is PlanClip & { fields: PlanItemFields | BoxFields } => item.fields.kind === 'wall' || item.fields.kind === 'icon' || item.fields.kind === 'camera');
   const placed = pasted(walls.map((item) => toCanvasGeometry(item.fields)), at);
   const lastKeys = new Map<string, string | null>();
   const ids: string[] = [];
@@ -745,7 +839,8 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     const sortKey = keyBetween(lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item'), null);
     lastKeys.set(planId, sortKey);
     ids.push(id);
-    const own: Props = { ...props };
+    // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
+    const own: Props = withoutFrameLinks({ ...props });
     delete own.copied_from;
     changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props: own } });
     return id;
@@ -762,7 +857,8 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     const wall = copies.get(item.fields.wallId);
     if (wall) make(item, { ...item.props, wall_id: wall });
   }
-  return { ids, changes };
+  // Pasted at a pointer past the plan's reach, the copies would never show: nothing is pasted.
+  return unreadableAfter(records, changes) ? { ids: [], changes: [] } : { ids, changes };
 }
 
 /** What the Selection tile changes on walls; each field it leaves out stays as it is. */
@@ -790,6 +886,13 @@ export const wallsTakeLength = (records: Records, ids: readonly string[], length
 /** A field changed on the selected walls (6.2a Selection tile): one update per wall that changes, one op group. */
 export function wallPatchChanges(records: Records, ids: readonly string[], patch: WallPatch): Change[] {
   if (patch.length !== undefined && !wallsTakeLength(records, ids, patch.length)) return [];
+  return readableOnly(records, wallUpdates(records, ids, patch));
+}
+
+/** Whether the Selection tile refuses a change to the selected walls: one that would leave a wall past the plan's reach or size. */
+export const wallPatchRefused = (records: Records, ids: readonly string[], patch: WallPatch): boolean => unreadableAfter(records, wallUpdates(records, ids, patch));
+
+function wallUpdates(records: Records, ids: readonly string[], patch: WallPatch): Change[] {
   return ids.flatMap((id): Change[] => {
     const live = liveItem(records, id);
     if (!live) return [];
@@ -882,7 +985,8 @@ export function openingPatchChanges(records: Records, ids: readonly string[], pa
     if (Object.keys(set).length === 0 && unset.length === 0) continue;
     changes.push({ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) });
   }
-  return changes;
+  // A width past the plan's size reads as nothing: refused as one that doesn't fit.
+  return unreadableAfter(records, changes) ? null : changes;
 }
 
 /** F flips the selected doors' swing to the wall's other side; Shift+F moves their hinge to the opening's other end. */
@@ -938,7 +1042,7 @@ export function placeOpeningChanges(records: Records, spot: OpeningSpot, kind: O
   const others = openingsInView(records, spot.wallId, view).map((o) => o.fields);
   if (!fitsAt(wall.fields.width, { along: spot.along, width: OPENING_WIDTH[kind] }, others)) return [];
   const planId = wall.record.parentId;
-  return [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyBetween(lastKeyUnder(records, planId, 'plan_item'), null), props: openingProps(kind, spot.wallId, spot.along) } }];
+  return readableOnly(records, [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyBetween(lastKeyUnder(records, planId, 'plan_item'), null), props: openingProps(kind, spot.wallId, spot.along) } }]);
 }
 
 /** A plan made under a parent for a level, in the same group as what needs it (6.2a's rule: never ahead). */
@@ -947,7 +1051,7 @@ function newPlanChange(records: Records, parentId: string, kind: 'blocking' | 's
 }
 
 /** Why an icon can't be placed in a view, or null when it can (6.3): the Library says it in words. */
-export type IconRefusal = 'coming' | 'tool' | 'noRoom' | 'noSetup' | 'noScene';
+export type IconRefusal = 'coming' | 'tool' | 'shown' | 'noRoom' | 'noSetup' | 'noScene';
 
 export function iconRefusal(records: Records, view: PlanViewOf | null, icon: string): IconRefusal | null {
   const use = iconUse(icon);
@@ -989,10 +1093,12 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
   }
   if (planId === null) return [];
   const tidy = (m: number) => Math.round(m * 10000) / 10000;
-  const props: Props = { kind: 'icon', icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
+  // A camera icon is placed as a camera (6.4), the icon it was placed as kept; any other as an icon.
+  const props: Props = { kind: isCameraIcon(icon) ? 'camera' : 'icon', icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
   const sortKey = keyBetween(changes.length > 0 ? null : lastKeyUnder(records, planId, 'plan_item'), null);
   changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
-  return changes;
+  // Placed in a view centred past the plan's reach, it would never show: nothing is placed (the plan made for it neither).
+  return readableOnly(records, changes);
 }
 
 /**
@@ -1013,7 +1119,7 @@ export function planPasteInView(records: Records, view: PlanViewOf, clip: readon
     const from = item.planId ?? null;
     const fromSetup = planKindOf(records, from) === 'setup';
     // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown.
-    const setupLevel = fromSetup || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
+    const setupLevel = fromSetup || item.fields.kind === 'camera' || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
     if (!setupLevel || (from !== null && shown.has(from) && fromSetup)) return base(item);
     if (!hasSetup || view.setupId === null) {
       out.count += 1;
@@ -1024,6 +1130,8 @@ export function planPasteInView(records: Records, view: PlanViewOf, clip: readon
     return newPlanId;
   };
   const pasted = planPasteChanges(records, target, clip, at);
+  // Nothing pasted (refused past the plan's reach, or all left out): no setup plan made for it either.
+  if (pasted.changes.length === 0) return { ids: [], changes: [], leftOut: out.count };
   const changes = made.id !== null && view.setupId !== null ? [newPlanChange(records, view.setupId, 'setup', made.id), ...pasted.changes] : pasted.changes;
   return { ids: pasted.ids, changes, leftOut: out.count };
 }
@@ -1055,10 +1163,7 @@ type IconUpdate = Change & { kind: 'update' };
  */
 export function iconPatchRefused(records: Records, ids: readonly string[], patch: IconPatch): boolean {
   if ((patch.width !== undefined && patch.width < MIN_PLAN_SIZE) || (patch.depth !== undefined && patch.depth < MIN_PLAN_SIZE)) return true;
-  return iconUpdates(records, ids, patch).some((change) => {
-    const record = records[change.id];
-    return record !== undefined && iconFields({ ...record.props, ...change.set }) === null;
-  });
+  return unreadableAfter(records, iconUpdates(records, ids, patch));
 }
 
 /** A field changed on the selected icons: one update per icon that changes, one op group; its middle stays where it is. Nothing when refused. */
@@ -1096,5 +1201,13 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
     }
     if (Object.keys(set).length === 0 && unset.length === 0) return [];
     return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
+  });
+}
+
+/** [ and ] (6.4): each selected camera turned by `by` degrees from where it points now, round its middle; one group. */
+export function turnChanges(records: Records, ids: readonly string[], by: number): Change[] {
+  return ids.flatMap((id) => {
+    const live = liveIcon(records, id);
+    return live?.fields.kind === 'camera' ? iconPatchChanges(records, [id], { rotation: normalDegrees(live.fields.rotation + by) }) : [];
   });
 }

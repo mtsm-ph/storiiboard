@@ -1,188 +1,121 @@
+import { createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
+import type { IconFields } from '../../../core/model/plan';
 import { PLAN_ICONS, type PlanIcon } from '../../../ui/icons/plan/planIcons';
-import { createIconRasters, createRasterCache, croppedIconSvg, iconContentBox, RASTER_MAX, rasterKey, rasterSpec, type RasterSpec } from './iconDraw';
-import { ICON_BOXES } from './iconBoxes';
+import { IconShape, iconContentBox, iconFit, iconNodes, iconShapesOf, paintOf, UnknownIconShape } from './iconDraw';
+import { ICON_BOXES, ICON_SHAPES } from './iconBoxes';
+import { cameraItem, iconItem } from './planItems';
 
-// How a plan icon is drawn (6.3 review): its SVG cut to the committed box, its lines counted in the raster's pixels so
-// they stay at the kit's weight however large the item is; rasters sized to the screen in powers of two, made in the
-// background, kept in a cache bounded by pixels; an icon the engine can't decode drawn as the "?" outline.
+// How a plan icon is drawn (third review round): as vectors from the committed table, one Konva Path a shape with
+// non-scaling strokes in the kit's hex, inside one Group mapping the ink's box to the item's; an icon's nodes made once
+// and shared by every item, so 300 items make no copies of its shape data; an id the table lacks draws the "?" outline.
+// (The raster cache it replaced, and its tests, are gone.)
 
 const iconOf = (id: string): PlanIcon => {
   const icon = PLAN_ICONS.find((i) => i.id === id);
   if (!icon) throw new Error(id);
   return icon;
 };
-const shapes = (svg: string) => [...svg.matchAll(/<(rect|circle|ellipse|line|polyline|polygon|path)\b[^>]*>/g)].map((m) => m[0]);
 
-describe('the SVG an icon is rasterised from', () => {
-  it('is cut to the table’s box, at the raster’s size, every shape non-scaling with the kit’s stroke widths', () => {
+type Props = Record<string, unknown>;
+const propsOf = (node: ReactNode): Props => (isValidElement(node) ? (node.props as Props) : {});
+/** A function component's element rendered one level, as React would (no hooks in these). */
+const renderOnce = (node: ReactNode): ReactNode => {
+  if (!isValidElement(node) || typeof node.type !== 'function') return node;
+  return (node.type as (p: Props) => ReactNode)(node.props as Props);
+};
+const childrenOf = (node: ReactNode): ReactNode[] => {
+  const kids = propsOf(node).children as ReactNode;
+  return Array.isArray(kids) ? (kids as ReactNode[]) : kids === undefined ? [] : [kids];
+};
+const context = { zoom: 0.5, colours: { ink: '#16150F', paper: '#EEE9DF', raised: '#C9C1B1' }, inView: true, width: 0, height: 0 };
+
+describe('an icon’s shapes and box', () => {
+  it('come from the committed table, the box of the ink with no stroke padding', () => {
     const sofa = iconOf('set-art/sofa');
-    const svg = croppedIconSvg(sofa, { width: 64, height: 32, strokeScale: 1 });
-    const box = ICON_BOXES['set-art/sofa'];
-    expect(iconContentBox(sofa)).toEqual(box);
-    expect(svg).toContain(`viewBox="${String(box?.x)} ${String(box?.y)} ${String(box?.width)} ${String(box?.height)}"`);
-    expect(svg).toMatch(/<svg[^>]* width="64" height="32" [^>]*preserveAspectRatio="none"/);
-    // Only once each.
-    expect(svg.match(/\swidth="64"/g)).toHaveLength(1);
-    const drawn = shapes(svg);
-    expect(drawn).toHaveLength(3);
-    for (const shape of drawn) expect(shape).toContain('vector-effect="non-scaling-stroke"');
-    // The root's 1.5 and the back's 3, as the kit has them; the colours too.
-    expect(svg).toMatch(/<svg[^>]*stroke-width="1.5"/);
-    expect(svg).toContain('<path vector-effect="non-scaling-stroke" d="M3 8h26" stroke-width="3"/>');
-    expect(svg).toContain('fill="#8FA38E"');
+    expect(iconContentBox(sofa)).toEqual(ICON_BOXES['set-art/sofa']);
+    expect(iconContentBox(sofa)).toEqual({ x: 3, y: 8, width: 26, height: 16 });
+    expect(iconShapesOf('set-art/sofa')).toBe(ICON_SHAPES['set-art/sofa']);
+    expect(iconShapesOf('set-art/hovercraft')).toBeNull();
   });
 
-  it('scales stroke widths and dashes for a raster that is shrunk onto the screen', () => {
-    const svg = croppedIconSvg(iconOf('production/zone'), { width: 256, height: 256, strokeScale: 2 });
-    expect(svg).toMatch(/<svg[^>]*stroke-width="3"/);
-    expect(svg).toContain('stroke-dasharray="6 6"');
+  it('map the ink’s box onto the item’s, stretched; a line with no depth keeps its scale, in the middle', () => {
+    // The sofa's 26 by 16 ink onto a 200 by 90 item.
+    const fit = iconFit({ x: 3, y: 8, width: 26, height: 16 }, 200, 90);
+    expect(fit.scaleX).toBeCloseTo(200 / 26, 9);
+    expect(fit.scaleY).toBeCloseTo(90 / 16, 9);
+    expect(fit.x).toBeCloseTo(-3 * (200 / 26), 9);
+    expect(fit.y).toBeCloseTo(-8 * (90 / 16), 9);
+    // The wall's bar, 26 wide and no deeper than a line, onto 260 by 10: scale 10 both ways, on the item's middle.
+    expect(iconFit({ x: 3, y: 16, width: 26, height: 0 }, 260, 10)).toEqual({ x: -30, y: 5 - 160, scaleX: 10, scaleY: 10 });
   });
 
-  it('for the Library’s buttons keeps the kit’s strokes in its grid', () => {
-    const svg = croppedIconSvg(iconOf('set-art/sofa'));
-    expect(svg).not.toContain('vector-effect');
-    expect(svg).toMatch(/<svg[^>]* width="29" height="19"/);
+  it('keep the kit’s hex, an opacity under 1 as rgba of the same colour', () => {
+    expect(paintOf('#16150F', 1)).toBe('#16150F');
+    expect(paintOf('#16150F', 0.45)).toBe('rgba(22, 21, 15, 0.45)');
+    expect(paintOf('#fff', 0.5)).toBe('rgba(255, 255, 255, 0.5)');
   });
 });
 
-describe('a raster’s size', () => {
-  it('is the screen size rounded up to powers of two, at most 1024 px and the window on its long side', () => {
-    expect(rasterSpec(300, 100, 1, 2000)).toMatchObject({ width: 512, height: 128 });
-    expect(rasterSpec(3, 2, 1, 2000)).toMatchObject({ width: 8, height: 8 });
-    // A 6 m basecamp up close: capped, its proportions kept.
-    expect(rasterSpec(6000, 3000, 2, 4000)).toMatchObject({ width: RASTER_MAX, height: RASTER_MAX / 2 });
-    // A small window caps it sooner.
-    expect(rasterSpec(900, 300, 1, 500)).toMatchObject({ width: 512, height: 256 });
+describe('the nodes an icon is drawn with', () => {
+  it('are one Path a shape, lines at the kit’s weight in screen pixels, dashes as the kit’s, never listening', () => {
+    const nodes = iconNodes('production/zone') ?? [];
+    expect(nodes).toHaveLength(2);
+    const [outline, corner] = nodes.map(propsOf);
+    expect(outline).toMatchObject({ data: 'M4 4L28 4L28 28L4 28Z', stroke: '#16150F', strokeWidth: 1.5, strokeScaleEnabled: false, dash: [3, 3], lineCap: 'round', lineJoin: 'round', perfectDrawEnabled: false, listening: false });
+    // No fill in the kit: none drawn.
+    expect(outline).not.toHaveProperty('fill');
+    expect(corner).not.toHaveProperty('dash');
+    // The sofa's seat in the kit's green, its seams at 45%.
+    const sofa = (iconNodes('set-art/sofa') ?? []).map(propsOf);
+    expect(sofa[0]).toMatchObject({ fill: '#8FA38E', stroke: '#16150F' });
+    expect(sofa[1]).toMatchObject({ strokeWidth: 3 });
+    expect(sofa[2]).toMatchObject({ stroke: 'rgba(22, 21, 15, 0.45)' });
   });
 
-  it('keeps a line within a fifth of the kit’s weight on screen at any size, on any display', () => {
-    for (const ratio of [1, 1.25, 2]) {
-      for (let px = 4; px < 20000; px *= 1.37) {
-        const spec = rasterSpec(px, px / 2, ratio, 3000 * ratio);
-        const shrink = Math.sqrt((spec.width / px) * (spec.height / (px / 2)));
-        const onScreen = spec.strokeScale / shrink / ratio;
-        expect(onScreen).toBeGreaterThan(0.84);
-        expect(onScreen).toBeLessThan(1.19);
-      }
+  it('set a text from its own shape, in the bundled face', () => {
+    const [, letter] = iconNodes('production/parking') ?? [];
+    expect(propsOf(letter).part).toBe(ICON_SHAPES['production/parking']?.[1]);
+    expect(propsOf(letter).part).toMatchObject({ text: 'P', family: 'JetBrains Mono', weight: 700 });
+  });
+
+  it('draw an icon the table doesn’t have as the “?” outline', () => {
+    const odd: PlanIcon = { id: 'set-art/hovercraft', group: 'set-art', label: 'Hovercraft', svg: '<svg/>' };
+    const drawn = renderOnce(createElement(IconShape, { icon: odd, width: 10, height: 10, zoom: 1, name: '', colours: context.colours }));
+    expect(isValidElement(drawn) && drawn.type).toBe(UnknownIconShape);
+  });
+});
+
+describe('300 icon items', () => {
+  const ids = ['set-art/sofa', 'set-art/table', 'grip/c-stand', 'production/parking', 'production/basecamp', 'sound/boom'];
+  const fields = (id: string, i: number): IconFields => ({ kind: 'icon', icon: id, x: i, y: i, width: 1 + (i % 3), height: 0.5 + (i % 2), rotation: 0, heightM: null, name: '' });
+
+  it('share each icon’s nodes and shape data, making no copies per item', () => {
+    const groups: ReactElement[] = [];
+    for (let i = 0; i < 300; i += 1) {
+      const id = ids[i % ids.length] ?? '';
+      const item = i % 50 === 0 ? cameraItem(`c${String(i)}`, { ...fields('camera/sticks', i), kind: 'camera', icon: 'camera/sticks', bodyId: null, shotIds: [], shownShotId: null, lensMm: null, lensId: null, onSide: false }, 'metres', { degrees: null, lines: [], selected: false }) : iconItem(`i${String(i)}`, fields(id, i), 'metres');
+      const shape = renderOnce(item.draw?.(context));
+      const group = renderOnce(childrenOf(shape)[0]);
+      expect(isValidElement(group)).toBe(true);
+      groups.push(group as ReactElement);
     }
-  });
-});
-
-describe('the raster cache', () => {
-  it('stays inside its pixel budget, the least recently used out first', () => {
-    const cache = createRasterCache<string>(1000);
-    cache.put('a', 'A', 400);
-    cache.put('b', 'B', 400);
-    expect(cache.get('a')).toBe('A');
-    cache.put('c', 'C', 400);
-    // b was used least recently.
-    expect(cache.keys()).toEqual(['a', 'c']);
-    expect(cache.pixels()).toBe(800);
-    cache.put('d', 'D', 900);
-    expect(cache.keys()).toEqual(['d']);
-    expect(cache.pixels()).toBe(900);
-    // One larger than the budget is still kept alone, so the item that asked for it draws.
-    cache.put('e', 'E', 5000);
-    expect(cache.keys()).toEqual(['e']);
-  });
-});
-
-/** Rasters with the page's work run by hand: `idle()` runs what waits for an idle moment. */
-function harness(fail: ReadonlySet<string> = new Set(), maxPixels?: number) {
-  const waiting: (() => void)[] = [];
-  const made: string[] = [];
-  const rasters = createIconRasters<string>(
-    {
-      make: (svg, width, height) => {
-        const id = /<title>([^<]+)<\/title>/.exec(svg)?.[1] ?? '';
-        made.push(`${id} ${String(width)}x${String(height)}`);
-        return fail.has(id) ? Promise.reject(new Error('bad')) : Promise.resolve(`${id}@${String(width)}`);
-      },
-      schedule: (run) => waiting.push(run),
-    },
-    maxPixels,
-  );
-  /** One idle moment: what waits for it now, and nothing it schedules. */
-  const step = () => {
-    for (const run of waiting.splice(0)) run();
-  };
-  /** Every idle moment until nothing more waits, rasters underway finished in between. */
-  const idle = async () => {
-    for (;;) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      if (waiting.length === 0) return;
-      step();
+    const byIcon = new Map<readonly ReactElement[], number>();
+    for (const group of groups) {
+      const kids = (group.props as Props).children as readonly ReactElement[];
+      byIcon.set(kids, (byIcon.get(kids) ?? 0) + 1);
     }
-  };
-  return { rasters, made, idle, step };
-}
-
-describe('rasters for the plan', () => {
-  const sofa = iconOf('set-art/sofa');
-  const small: RasterSpec = { width: 64, height: 32, strokeScale: 1 };
-  const large: RasterSpec = { width: 256, height: 128, strokeScale: 1 };
-
-  it('are made in the background, a few at a time; the last one drawn stands in while a new size is made', async () => {
-    const { rasters, made, idle } = harness();
-    rasters.want(sofa, small, 1, true);
-    // Nothing is made while asking.
-    expect(made).toEqual([]);
-    expect(rasters.best(sofa.id, rasterKey(sofa.id, small))).toBeNull();
-    await idle();
-    expect(rasters.best(sofa.id, rasterKey(sofa.id, small))?.value).toBe('Sofa@64');
-    const release = rasters.hold(rasterKey(sofa.id, small));
-    rasters.want(sofa, large, 4, true);
-    // Until the larger one is made, the smaller one is drawn.
-    expect(rasters.best(sofa.id, rasterKey(sofa.id, large))?.value).toBe('Sofa@64');
-    await idle();
-    expect(rasters.best(sofa.id, rasterKey(sofa.id, large))?.value).toBe('Sofa@256');
-    // Kept while drawn; let go, a size no item wants at this zoom goes.
-    expect(rasters.keys()).toContain(rasterKey(sofa.id, small));
-    release();
-    expect(rasters.keys()).toEqual([rasterKey(sofa.id, large)]);
-  });
-
-  it('let go of sizes no item wants once the zoom settles, and ask for nothing out of view', async () => {
-    const { rasters, made, idle } = harness();
-    rasters.want(sofa, small, 1, true);
-    await idle();
-    rasters.want(sofa, large, 2, true);
-    await idle();
-    expect(rasters.keys()).toEqual([rasterKey(sofa.id, large)]);
-    rasters.want(iconOf('set-art/table'), small, 2, false);
-    await idle();
-    expect(made).toEqual(['Sofa 64x32', 'Sofa 256x128']);
-  });
-
-  it('start at most three each idle moment, and four at once', async () => {
-    const { rasters, made, step, idle } = harness();
-    const ids = ['set-art/sofa', 'set-art/table', 'set-art/chair', 'set-art/bed', 'set-art/car'];
-    for (const id of ids) rasters.want(iconOf(id), small, 1, true);
-    expect(made).toHaveLength(0);
-    step();
-    expect(made).toHaveLength(3);
-    step();
-    // Four are underway: the fifth waits for one of them.
-    expect(made).toHaveLength(4);
-    await idle();
-    expect(made).toHaveLength(5);
-  });
-
-  it('keep to their pixel budget', async () => {
-    const { rasters, idle } = harness(new Set(), 64 * 32 * 2);
-    for (const id of ['set-art/sofa', 'set-art/table', 'set-art/chair']) rasters.want(iconOf(id), small, 1, true);
-    await idle();
-    expect(rasters.pixels()).toBeLessThanOrEqual(64 * 32 * 2);
-    expect(rasters.keys()).toHaveLength(2);
-  });
-
-  it('mark an icon the engine can’t decode, so it is drawn as the “?” outline, never as nothing', async () => {
-    const { rasters, idle } = harness(new Set(['Sofa']));
-    expect(rasters.failed(sofa.id)).toBe(false);
-    rasters.want(sofa, small, 1, true);
-    await idle();
-    expect(rasters.failed(sofa.id)).toBe(true);
-    expect(rasters.best(sofa.id, rasterKey(sofa.id, small))).toBeNull();
+    // One node array an icon, the very one iconNodes keeps: 6 icons and the camera's sticks.
+    expect(byIcon.size).toBe(7);
+    for (const id of [...ids, 'camera/sticks']) expect(byIcon.has(iconNodes(id) ?? [])).toBe(true);
+    // And each node's data is the table's own: a text node holds the table's shape object, not a copy.
+    for (const id of ids) {
+      const shapes = ICON_SHAPES[id] ?? [];
+      (iconNodes(id) ?? []).forEach((node, i) => {
+        const shape = shapes[i];
+        if (shape?.kind === 'text') expect(propsOf(node).part).toBe(shape);
+        else expect(propsOf(node).data).toBe(shape?.d);
+      });
+    }
   });
 });

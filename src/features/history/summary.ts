@@ -18,7 +18,7 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { iconIdOf, planFields } from '../../core/model/plan';
+import { CAMERA_ICON, iconIdOf, planFields } from '../../core/model/plan';
 import { anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -286,6 +286,11 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'lens_id') return t('history.aLens');
   if (prop === 'room_id') return t('history.aRoom');
   if (prop === 'wall_id') return t('history.aWall');
+  if (prop === 'body_id') return t('history.aCameraBody');
+  if (prop === 'shown_shot_id') return t('history.aFrame');
+  // A camera's frames (6.4), kept by id: said as how many.
+  if (prop === 'shot_ids' && Array.isArray(value)) return tn('count.frames', value.filter((id) => typeof id === 'string').length);
+  if (prop === 'on_side' && typeof value === 'boolean') return t(value ? 'history.onSideValue' : 'history.uprightValue');
   // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
   if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
   // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
@@ -425,8 +430,10 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
   if (after.type === 'plan_item') {
-    const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(after.props.kind === 'icon' ? { planIcon: true as const } : {}) }));
-    return after.props.kind === 'icon' ? iconMiddles(before, after, marked) : marked;
+    // A camera's box (6.4) reads as an icon's: across and deep, its place its middle.
+    const boxed = after.props.kind === 'icon' || after.props.kind === 'camera';
+    const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(boxed ? { planIcon: true as const } : {}) }));
+    return boxed ? iconMiddles(before, after, marked) : marked;
   }
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
@@ -553,6 +560,13 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   hinge: 'history.field.hinge',
   swing: 'history.field.swing',
   wall_id: 'history.field.wall',
+  // A camera's (6.4).
+  body_id: 'history.field.cameraBody',
+  shot_ids: 'history.field.cameraFrames',
+  shown_shot_id: 'history.field.shownFrame',
+  lens_mm: 'history.field.lensMm',
+  lens_id: 'history.field.lensId',
+  on_side: 'history.field.onSide',
 });
 
 /** A library icon's own props by the Selection tile's words (6.3); the rest are a wall's. */
@@ -645,6 +659,7 @@ function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: 
   if (typeof value === 'string' && (change.prop === 'hinge' || change.prop === 'swing')) return OPENING_WORDS[`${change.prop}:${value}`] ?? null;
   if (typeof value !== 'number') return null;
   if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
+  if (change.prop === 'lens_mm') return t('history.mmValue', { mm: value });
   if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
   return null;
 }
@@ -694,6 +709,9 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   ['room_id', 'history.aRoom'],
   // A door's or window's wall (6.2b): never shown by its id.
   ['wall_id', 'history.aWall'],
+  // A camera's body and the frame its cone draws (6.4).
+  ['body_id', 'history.aCameraBody'],
+  ['shown_shot_id', 'history.aFrame'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -843,7 +861,7 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     return say('history.openingsChanged');
   }
   // Library icons (6.3), named as what they are: "Placed a sofa in Diner"; several, or mixed with walls, counted.
-  if (kinds.has('icon')) return iconLine(items, n, around);
+  if (kinds.has('icon') || kinds.has('camera')) return cameraLine(items, around) ?? iconLine(items, n, around);
   const walls = items.filter((op) => record(op)?.props.kind === 'wall');
   const w = new Set(walls.map((op) => op.recordId)).size;
   if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
@@ -874,7 +892,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
   const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
   const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
   const first = items[0] ? record(items[0]) : null;
-  if (n > 1 || !first || first.props.kind !== 'icon') {
+  if (n > 1 || !first || (first.props.kind !== 'icon' && first.props.kind !== 'camera')) {
     if (all('create')) return [tn('history.planItemsPlaced', n)];
     if (all('trash')) return [tn('history.planItemsDeleted', n)];
     if (all('restore')) return [tn('history.planItemsRestored', n)];
@@ -885,7 +903,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
     if (only(['x', 'y', 'width', 'height', 'rotation', 'along_m', 'width_m'])) return [tn('history.planItemsResized', n)];
     return [tn('history.planItemsChanged', n)];
   }
-  const what = iconIdOf(first.props) !== '' ? anIcon(iconIdOf(first.props)) : t('history.aPlanItem');
+  const what = first.props.kind === 'camera' ? anIcon(iconIdOf(first.props) || CAMERA_ICON) : iconIdOf(first.props) !== '' ? anIcon(iconIdOf(first.props)) : t('history.aPlanItem');
   if (all('create')) {
     const plan = first.parentId ? around.get(first.parentId) : undefined;
     const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
@@ -903,6 +921,52 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
   if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.iconTurned', { what })];
   if (only(['x', 'y', 'width', 'height', 'rotation'])) return [t('history.iconResized', { what })];
   return [t('history.iconChanged', { what })];
+}
+
+/** The ids a camera's step put in its `shot_ids` and took out (6.4). */
+function linkedIds(op: LoggedOp): { added: string[]; removed: string[] } {
+  const ids = (r: SbdRecord | null) => (r && Array.isArray(r.props.shot_ids) ? r.props.shot_ids.filter((id): id is string => typeof id === 'string') : []);
+  const was = ids(op.before);
+  const now = ids(op.after);
+  return { added: now.filter((id) => !was.includes(id)), removed: was.filter((id) => !now.includes(id)) };
+}
+
+/**
+ * A camera's own step (6.4), or null for one iconLine says: a frame linked (taken from another camera in the same step
+ * when it had one), unlinked or shown; its body changed; set on its side or upright; a lens typed on it, or taken off
+ * so it uses its frame's.
+ */
+function cameraLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  if (items.length === 0 || !items.every((op) => op.kind === 'update' && op.before && op.after && op.after.props.kind === 'camera')) return null;
+  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+  const frame = (id: string | undefined): Part => {
+    const shot = id ? around.get(id) : undefined;
+    return shot ? nameOf(shot) : t('history.aFrame');
+  };
+  const cameraOf = (op: LoggedOp): Part => anIcon(iconIdOf(op.after?.props ?? {}) || CAMERA_ICON);
+  if (only(['shot_ids', 'shown_shot_id'])) {
+    const linked = items.find((op) => linkedIds(op).added.length > 0);
+    if (linked) return line('history.cameraFrameLinked', { frame: frame(linkedIds(linked).added[0]), camera: cameraOf(linked) });
+    const unlinked = items.find((op) => linkedIds(op).removed.length > 0);
+    if (unlinked) return line('history.cameraFrameUnlinked', { frame: frame(linkedIds(unlinked).removed[0]), camera: cameraOf(unlinked) });
+    const shown = items[0];
+    const id = shown?.after?.props.shown_shot_id;
+    if (shown && typeof id === 'string') return line('history.cameraFrameShown', { frame: frame(id), camera: cameraOf(shown) });
+    return null;
+  }
+  const [op] = items;
+  if (items.length !== 1 || !op?.after) return null;
+  const camera = cameraOf(op);
+  if (only(['body_id'])) return line('history.cameraBodyChanged', { camera });
+  if (only(['on_side'])) return line(op.after.props.on_side === true ? 'history.cameraOnSide' : 'history.cameraUpright', { camera });
+  if (only(['lens_mm', 'lens_id'])) {
+    const mm = op.after.props.lens_mm;
+    if (typeof mm === 'number') return line('history.cameraLensTyped', { camera, lens: { mono: t('lens.prime', { mm }) } });
+    const frames = Array.isArray(op.after.props.shot_ids) && op.after.props.shot_ids.length > 0;
+    return line(frames ? 'history.cameraUsesFrameLens' : 'history.cameraLensRemoved', { camera });
+  }
+  return null;
 }
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
@@ -942,6 +1006,7 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     case 'plan_item':
       // A library icon (6.3) by what it is: "a sofa".
       if (record.props.kind === 'icon') return iconIdOf(record.props) !== '' ? anIcon(iconIdOf(record.props)) : t('history.aPlanItem');
+      if (record.props.kind === 'camera') return anIcon(iconIdOf(record.props) || CAMERA_ICON);
       return t(record.props.kind === 'door' ? 'history.aDoor' : record.props.kind === 'window' ? 'history.aWindow' : 'history.aWall');
     case 'board':
       return boardTitle(record);
@@ -1337,7 +1402,11 @@ function setupStep(kind: 'create' | 'trash' | 'restore', found: readonly LoggedO
  * Frames into one setup, or out of theirs, and nothing else changed: "Added 4A to setup “Window side” in SC 04",
  * "Took 2 frames out of a setup in SC 04". Null for any other step.
  */
-function framesSetupLine(updates: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+function framesSetupLine(all: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+  // The cameras that let the frames go in the same step (6.4 review) are not the news: the frames are.
+  const linksOnly = (op: LoggedOp) =>
+    op.before?.type === 'plan_item' && op.after?.props.kind === 'camera' && changedProps(op.before, op.after).every((prop) => prop === 'shot_ids' || prop === 'shown_shot_id');
+  const updates = all.filter((op) => !linksOnly(op));
   if (updates.length === 0) return null;
   const only = updates.every((op) => op.before?.type === 'shot' && op.after && changedProps(op.before, op.after).every((prop) => prop === 'setup_id'));
   if (!only) return null;

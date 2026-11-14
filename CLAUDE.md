@@ -151,6 +151,11 @@
       rotated rectangle that snaps by its middle line's ends), the Plan and Selection tiles. The canvas core's
       scale, host tools and point-to-point runs (src/ui/canvas: scale.ts, pathRun.ts) are optional props: a board
       passes none and must behave exactly as before.
+    - Built in 6.2b to 6.4: doors and windows sit in a wall (src/core/model/openings.ts); shared rooms and copies
+      (planRooms.ts); the Library places the kit's icons, drawn as vectors from a generated table (scripts/
+      planIconBoxes.ts writes iconBoxes.ts; never rasters); cameras (planCamera.ts, cameraLinks.ts: a frame is on
+      one camera only), the Frames tile, the lens check (src/core/checks/planLens.ts). A deferred write (a wall run,
+      a Library drop) carries the project it began in and writes nothing into another.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile

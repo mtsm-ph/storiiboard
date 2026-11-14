@@ -1,3 +1,4 @@
+import { framesOffCameras } from '../../core/model/cameraLinks';
 import { hiddenFieldNames, withField, withoutField } from '../../core/model/customFields';
 import type { SbdRecord } from '../../core/model/record';
 import { lettersOf, NO_SLATE_NUMBERS, sceneNumberBetween, shotNumbers, type SlateNumbers } from '../../core/model/shotNumbers';
@@ -389,12 +390,14 @@ export function moveItem(
     props: changesScene ? { ...item.props, number: slatedBack(records, slate, item.id, targetSceneId) } : item.props,
   };
   const back = changesScene ? shotFields(moved.props).number : '';
-  // A frame's setup is in its own scene (6.0): into another scene, it leaves it in the same step.
+  // A frame's setup is in its own scene (6.0): into another scene, it leaves it in the same step, and the cameras that
+  // list it let it go (6.4 review), so moving it back never links it to one of them again unasked.
   const leaves = changesScene && item.props.setup_id !== undefined;
   return [
     move,
     ...(back !== '' ? [{ kind: 'update' as const, id, set: { number: back } }] : []),
     ...(leaves ? [{ kind: 'update' as const, id, unset: ['setup_id'] }] : []),
+    ...(changesScene ? framesOffCameras(records, [id]) : []),
     ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved), { slate }),
     ...(changesScene
       ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id), { slate })

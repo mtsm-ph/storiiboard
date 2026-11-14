@@ -8,7 +8,7 @@ import { cameraLabel, matchingMode, modeLabel, SENSOR_MODES, type SensorMode } f
 import type { Change } from '../../core/ops/ops';
 import { Select, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
-import { cameraLetterChange, framesOutsideRange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from './gearEdits';
+import { camerasOutsideRange, cameraLetterChange, framesOutsideRange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from './gearEdits';
 
 // A camera body's and a lens's own fields in the Gear tile (6.1). A body: the camera and recording mode picked from
 // the short table (src/core/model/sensorModes.ts), which fills the mode's name, width and height, each still typed
@@ -169,18 +169,26 @@ const OTHER_SQUEEZE = 'other';
  * when no live frame would change: frames only in the Trash are set in the same edit without asking.
  */
 export function clampQuestion(records: Records, id: string, min: number, max: number): string | null {
-  const outside = framesOutsideRange(records, id, min, max);
-  const count = outside.filter((f) => !f.trashed).length;
-  if (count === 0) return null;
-  const trashed = outside.length - count;
+  const frames = framesOutsideRange(records, id, min, max);
+  // The cameras on a plan that picked the lens with a typed length outside it (6.4 review) change in the same edit.
+  const cameras = camerasOutsideRange(records, id, min, max);
+  const count = frames.filter((f) => !f.trashed).length;
+  const liveCameras = cameras.filter((c) => !c.trashed).length;
+  if (count === 0 && liveCameras === 0) return null;
+  const outside = [...frames, ...cameras];
+  const trashed = outside.filter((each) => each.trashed).length;
   const props = records[id]?.props ?? {};
   const named = typeof props.name === 'string' ? props.name.trim() : '';
   const lens = named === '' ? lensSpec(lensFields(props)) : named;
-  const first = min === max ? tn('gear.clampOther', count, { lens }) : tn('gear.clampOutside', count, { lens, range: focalLabel({ min, max }) });
+  const range = focalLabel({ min, max });
+  const first =
+    count > 0
+      ? [min === max ? tn('gear.clampOther', count, { lens }) : tn('gear.clampOutside', count, { lens, range }), ...(liveCameras > 0 ? [tn('gear.clampCameras', liveCameras)] : [])]
+      : [min === max ? tn('gear.clampCamerasOther', liveCameras, { lens }) : tn('gear.clampCamerasOutside', liveCameras, { lens, range })];
   const also = trashed > 0 ? [tn('gear.clampTrashed', trashed)] : [];
   const ends = new Set(outside.map((f) => f.mm));
   const then = ends.size === 1 ? tn('gear.clampTo', outside.length, { mm: [...ends][0] ?? min }) : t('gear.clampNearest', { from: min, to: max });
-  return [first, ...also, then].join(' ');
+  return [...first, ...also, then].join(' ');
 }
 
 /** A lens's range as a key, so the editor can tell when it changed. */

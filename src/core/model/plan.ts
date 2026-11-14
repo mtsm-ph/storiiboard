@@ -22,13 +22,13 @@ export type PlanKind = (typeof PLAN_KINDS)[number];
 export type PlanLevel = PlanKind;
 
 /**
- * Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls, doors, windows and icons and keeps the
- * rest unseen. A set piece is an `icon` whose icon is in the set-art group (6.3), never a kind of its own.
+ * Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls, doors, windows, icons and cameras,
+ * and keeps the rest unseen. A set piece is an `icon` whose icon is in the set-art group (6.3), never a kind of its own.
  */
 export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), and the library's icons (6.3). */
-export type ShownKind = 'wall' | OpeningKind | 'icon';
+/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3) and cameras (6.4). */
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -229,22 +229,92 @@ export function iconFields(props: Props): IconFields | null {
   };
 }
 
-/** Any item this version shows: a wall, a door, a window or an icon. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields;
+/** The icon a camera is drawn as when it names none, or one that isn't a camera's. */
+export const CAMERA_ICON = 'camera/camera';
+
+/**
+ * A camera on a setup's plan (6.4, docs/PHASE6_DECISIONS.md 4 to 6): a box as an icon's, `icon` the camera icon it was
+ * placed as (sticks, a dolly track, a drone…), its rotation where it points (0 is up the plan, as the icon's lens is,
+ * turned clockwise). What it shoots and sees is read live (planCamera.ts): never copied from its frames.
+ */
+export interface CameraFields {
+  kind: 'camera';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  /** Its own height, metres, when set; a linked frame's height wins (planCamera.ts). */
+  heightM: number | null;
+  name: string;
+  /** The `gear_item` body it is, as stored; null for the project's default body. */
+  bodyId: string | null;
+  /** The frames shot from it, as stored: planCamera.ts decides which of them count. */
+  shotIds: string[];
+  shownShotId: string | null;
+  /** A lens typed on it while it has no frame, mm; null for none. */
+  lensMm: number | null;
+  lensId: string | null;
+  /** Turned for vertical shooting. */
+  onSide: boolean;
+}
+
+const idOrNull = (value: JsonValue | undefined): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
+
+/** A camera's props, or null when it isn't one that can be read (no place or size, or past the plan's reach). */
+export function cameraFields(props: Props): CameraFields | null {
+  if (props.kind !== 'camera') return null;
+  const x = num(props.x);
+  const y = num(props.y);
+  const width = num(props.width);
+  const height = num(props.height);
+  if (x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || !notHuge(height)) return null;
+  const heightM = num(props.height_m);
+  const lensMm = num(props.lens_mm);
+  const icon = iconIdOf(props);
+  return {
+    kind: 'camera',
+    icon: icon === '' ? CAMERA_ICON : icon,
+    x,
+    y,
+    width: Math.max(MIN_PLAN_SIZE, width),
+    height: Math.max(MIN_PLAN_SIZE, height),
+    rotation: normalDegrees(num(props.rotation) ?? 0),
+    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    name: text(props.name).trim(),
+    bodyId: idOrNull(props.body_id),
+    shotIds: Array.isArray(props.shot_ids) ? [...new Set(props.shot_ids.filter((id): id is string => typeof id === 'string' && id !== ''))] : [],
+    shownShotId: idOrNull(props.shown_shot_id),
+    lensMm: lensMm !== null && lensMm > 0 ? lensMm : null,
+    lensId: idOrNull(props.lens_id),
+    onSide: props.on_side === true,
+  };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon or a camera. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
-export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props) ?? iconFields(props);
+export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
+export const isCamera = (fields: ShownFields): fields is CameraFields => fields.kind === 'camera';
 export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
 
+/** An item with a box of its own that moves, turns and resizes freely: an icon or a camera. */
+export type BoxFields = IconFields | CameraFields;
+export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props);
+
 /**
- * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a wall, door or window
- * the set's (art). Null for a kind this version doesn't show.
+ * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
+ * department's; a wall, door or window the set's (art). Null for a kind this version doesn't show.
  */
 export function planItemLayer(props: Props): PlanLayer | null {
   if (props.kind === 'icon') return iconGroup(iconIdOf(props));
+  if (props.kind === 'camera') return 'camera';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }
