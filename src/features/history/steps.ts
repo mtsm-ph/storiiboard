@@ -1,3 +1,4 @@
+import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
 import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
@@ -23,8 +24,8 @@ export interface Steps {
   versionLines: Map<string, Line>;
 }
 
-/** The newest `count` steps, each with its line, and the named versions with theirs. */
-export async function loadSteps(file: ProjectFile, count: number): Promise<Steps> {
+/** The newest `count` steps, each with its line, and the named versions with theirs; a plan's lengths in `unit`. */
+export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUnit): Promise<Steps> {
   const [groups, versions] = await Promise.all([log(file), listVersions(file)]);
   const shown = groups.slice(-count);
   // Undo, redo and restore name the step they point at, which may be older than the page, and may itself point at
@@ -46,7 +47,7 @@ export async function loadSteps(file: ProjectFile, count: number): Promise<Steps
   const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => byId.get(id)?.kind === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
-  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id)));
+  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit));
   return {
     steps: shown.reverse().map((group) => ({
       group,
@@ -109,6 +110,10 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         op.after?.props.shot_id,
         op.before?.props.scene_id,
         op.after?.props.scene_id,
+        // A scene's room (6.2b), by its name as it was then; a plan item's plan, so a move says which level it went to.
+        op.before?.props.room_id,
+        op.after?.props.room_id,
+        ...(op.before?.type === 'plan_item' || op.after?.type === 'plan_item' ? [op.before?.parentId, op.after?.parentId] : []),
       ]),
     );
     // The people added to or taken off a shoot day (4.2), and those a call sheet's times name: by name as they were then.

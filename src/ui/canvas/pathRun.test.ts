@@ -81,14 +81,32 @@ describe('a run’s keys', () => {
 });
 
 describe('a run’s clicks', () => {
-  it('fixes a point with each click, but none for a double-click’s second press, however far it jittered', () => {
-    const run = runAt([{ x: 0, y: 0 }]);
-    const two = runClick(run, { x: 300, y: 0 }, 1, 1);
+  /** A press during a run that must fix a point (not a double-click's second). */
+  const clicked = (run: PathDraft, at: { x: number; y: number }, press: { time: number; x: number; y: number }, zoom = 1): PathDraft => {
+    const next = runClick(run, at, zoom, press);
+    if (next === 'double') throw new Error('read as a double-click');
+    return next;
+  };
+
+  it('fixes a point with each click, and knows a double-click’s second press by its time and place, not by `detail`', () => {
+    // Started by a press at screen (100, 100), at 1000 ms.
+    const run = runStart('host:wall', { x: 0, y: 0 }, { x: 0, y: 0 }, { time: 1000, x: 100, y: 100 });
+    // A second click 2 s later and 300 px away: a point.
+    const two = clicked(run, { x: 300, y: 0 }, { time: 3000, x: 400, y: 100 });
     expect(two.points).toEqual([{ x: 0, y: 0 }, { x: 300, y: 0 }]);
-    // The second press of a double-click, 4 px off: no short wall.
-    expect(runClick(two, { x: 304, y: 2 }, 1, 2)).toBe(two);
-    // A click where the last point is adds nothing either.
-    expect(runClick(two, { x: 300.5, y: 0 }, 1, 1)).toBe(two);
+    // The second press of a double-click, 120 ms later and 4 px off: no point, however it jittered; the run ends.
+    expect(runClick(two, { x: 304, y: 2 }, 1, { time: 3120, x: 404, y: 100 })).toBe('double');
+    // As far off as 6 px, at as much as 500 ms: still the double-click's.
+    expect(runClick(two, { x: 306, y: 0 }, 1, { time: 3500, x: 406, y: 100 })).toBe('double');
+    // Later than 500 ms, or further than 6 px: a click of its own, which fixes a point.
+    expect(clicked(two, { x: 304, y: 0 }, { time: 3501, x: 404, y: 100 }).points).toHaveLength(3);
+    expect(clicked(two, { x: 307, y: 0 }, { time: 3100, x: 407, y: 100 }).points).toHaveLength(3);
+    // A click where the last point is (but not soon enough to be a double-click's) adds nothing, and is remembered.
+    const same = clicked(two, { x: 300.5, y: 0 }, { time: 5000, x: 400, y: 100 });
+    expect(same.points).toEqual(two.points);
+    expect(same.press).toEqual({ time: 5000, x: 400, y: 100 });
+    // A run started from the keyboard has no press before: its first click is never a double-click's second.
+    expect(clicked(runStart('host:wall', { x: 0, y: 0 }, null), { x: 300, y: 0 }, { time: 10, x: 0, y: 0 }).points).toHaveLength(2);
   });
 
   it('holds Shift’s direction to 15° steps from the last point', () => {

@@ -213,6 +213,48 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries a shared room, its copy, doors and windows, and a setup’s own plan out and back (6.2b)', async () => {
+    const file = project.file;
+    const room = { kind: 'room', name: 'Diner', location_id: 'loc1' };
+    const copied = { kind: 'room', name: 'Diner (SC 04)', location_id: 'loc1' };
+    const wall = { kind: 'wall', x: 0, y: -0.05, width: 4, height: 0.1, rotation: 0 };
+    const door = { kind: 'door', wall_id: 'w1', along_m: 1, width_m: 0.9, hinge: 'end', swing: 'right', height_m: 2.1, name: 'Kitchen door' };
+    const window = { kind: 'window', wall_id: 'w1', along_m: 2.8, width_m: 1.2 };
+    const copiedDoor = { ...door, wall_id: 'w2' };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'r1', type: 'plan', parentId: project.projectId, sortKey: 'a', props: room } },
+        { kind: 'create', record: { id: 'r2', type: 'plan', parentId: project.projectId, sortKey: 'b', props: copied } },
+        { kind: 'update', id: 'sc4', set: { room_id: 'r2' } },
+        { kind: 'create', record: { id: 'w1', type: 'plan_item', parentId: 'r1', sortKey: 'a', props: wall } },
+        { kind: 'create', record: { id: 'd1', type: 'plan_item', parentId: 'r1', sortKey: 'b', props: door } },
+        { kind: 'create', record: { id: 'n1', type: 'plan_item', parentId: 'r1', sortKey: 'c', props: window } },
+        { kind: 'create', record: { id: 'w2', type: 'plan_item', parentId: 'r2', sortKey: 'a', props: wall } },
+        { kind: 'create', record: { id: 'd2', type: 'plan_item', parentId: 'r2', sortKey: 'b', props: copiedDoor } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'n1' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (rooms).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('sc4')?.props))).toMatchObject({ room_id: 'r2' });
+      expect(JSON.parse(String(row('r2')?.props))).toEqual(copied);
+      expect(JSON.parse(String(row('d1')?.props))).toEqual(door);
+      expect(JSON.parse(String(row('d2')?.props))).toEqual(copiedDoor);
+      expect(JSON.parse(String(row('n1')?.props))).toEqual(window);
+      expect(row('n1')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('carries camera bodies, lenses and a frame’s lens out and back, every Phase 6 prop as written (6.1)', async () => {
     const file = project.file;
     const body = { name: 'FX3', kind: 'camera_body', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20, camera_letter: 'A' };

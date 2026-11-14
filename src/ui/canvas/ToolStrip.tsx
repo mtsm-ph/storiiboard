@@ -121,7 +121,8 @@ export function ToolStrip({ tool, onTool, children, pages = false, tools: own }:
   return (
     <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">
       {children}
-      <div role="group" aria-label={t('canvas.tools')} className="ml-auto flex">
+      {/* The tools wrap in a narrow tile rather than run out of it (6.2b review); at any usual width they are one row. */}
+      <div role="group" aria-label={t('canvas.tools')} className="ml-auto flex max-w-full min-w-0 flex-wrap">
         {tools.map(({ tool: id, key, aria, label }, i) => {
           const on = id === tool;
           return (
