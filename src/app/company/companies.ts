@@ -85,8 +85,29 @@ export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | '
   }
 }
 
-/** A logo's data URL as a file, for the project's own picture of it. */
-export async function logoFile(logo: string, name: string): Promise<File> {
-  const blob = await (await fetch(logo)).blob();
-  return new File([blob], name, { type: 'image/png' });
+/** A logo's data URL as a file, for the project's own picture of it. Rejects a string that isn't a base64 data URL. */
+export function logoFile(logo: string, name: string): Promise<File> {
+  // A throw inside the executor becomes the rejection, so callers' await sees it as before.
+  return new Promise((resolve) => {
+    resolve(decodeLogo(logo, name));
+  });
+}
+
+function decodeLogo(logo: string, name: string): File {
+  // Decoded by hand, never fetched: the installed app's CSP (connect-src) refuses a fetch of a data: URL, and the dev
+  // server sends no CSP, so a fetch here worked in every test and failed for everyone with a logo.
+  // The English of error.notAnImage, as prepareImage raises it, so localizeError shows it in the person's language.
+  const unreadable = 'This file isn’t an image Storiiboard can read. JPEG, PNG and WebP work.';
+  const match = /^data:([^;,]*)((?:;[^;,]*)*);base64,(.*)$/s.exec(logo);
+  const [, type, , data] = match ?? [];
+  if (!data) throw new Error(unreadable);
+  let binary: string;
+  try {
+    binary = atob(data);
+  } catch {
+    throw new Error(unreadable);
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], name, { type: type || 'image/png' });
 }

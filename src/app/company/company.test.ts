@@ -199,3 +199,33 @@ describe('a company attached to a project (3.2)', () => {
     expect(detachCompany(records, 'p')).toEqual([{ kind: 'update', id: 'p', unset: ['company'] }]);
   });
 });
+
+describe('a logo made into a file (5.12)', () => {
+  // A 1 × 1 PNG. The installed app's CSP refuses a fetch of a data: URL, so fetch throws here to catch its return.
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  it('decodes the data URL itself, to the exact bytes and type, without fetch', async () => {
+    const { logoFile } = await import('./companies');
+    vi.stubGlobal('fetch', () => {
+      throw new Error('fetch was used: the installed app’s CSP refuses a fetch of a data: URL');
+    });
+    try {
+      const file = await logoFile(`data:image/png;base64,${png}`, 'logo.png');
+      expect(file.name).toBe('logo.png');
+      expect(file.type).toBe('image/png');
+      expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array(Buffer.from(png, 'base64')));
+      // The type comes from the URL's header; PNG when the header names none.
+      expect((await logoFile(`data:image/jpeg;base64,${png}`, 'logo.jpg')).type).toBe('image/jpeg');
+      expect((await logoFile(`data:;base64,${png}`, 'logo.png')).type).toBe('image/png');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('rejects a string that is not a base64 data URL', async () => {
+    const { logoFile } = await import('./companies');
+    await expect(logoFile('https://example.com/logo.png', 'logo.png')).rejects.toThrow(Error);
+    await expect(logoFile('data:image/png,plain', 'logo.png')).rejects.toThrow(Error);
+    await expect(logoFile('data:image/png;base64,!!!', 'logo.png')).rejects.toThrow(Error);
+  });
+});
