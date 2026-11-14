@@ -25,10 +25,16 @@ export const MISSING_WORDS: Readonly<Record<SunMissing, MessageKey>> = {
 /** "212°", a whole degree. */
 const degrees = (value: number): string => t('plan.degrees', { value: formatNumber(Math.round(value) % 360, 0) });
 
+/**
+ * The sun's height as said while it is up, whole degrees and never below 0 (6.6 review): it counts as up down to its
+ * rising height (−0.83°, refraction and its half width), where its true height rounds to "-1° high".
+ */
+export const shownHeight = (altitude: number): number => Math.max(0, Math.round(altitude));
+
 /** "14:30 · 212° · 38° high", or "21:10 · the sun is down". */
 export function sunLabel(sun: SunAt): string {
   if (!sun.up) return t('plan.sun.down', { time: sun.time });
-  return t('plan.sun.at', { time: sun.time, bearing: degrees(sun.bearing), height: formatNumber(Math.round(sun.altitude), 0) });
+  return t('plan.sun.at', { time: sun.time, bearing: degrees(sun.bearing), height: formatNumber(shownHeight(sun.altitude), 0) });
 }
 
 /** The day's path and the sun at the item's time, for a reading with everything; null otherwise. */
@@ -80,6 +86,8 @@ export function sunLookOf(records: Records, sunId: string, zones: ReadonlyMap<st
   const sun = liveSun(records, sunId);
   if (!sun) return null;
   const reading = sunReading(records, sunId, zones);
+  // While its zone's lookup is on its way, the icon alone: no "No time zone" for a moment (6.6 review).
+  if (reading && 'missing' in reading && reading.pending) return { kind: 'missing', lines: [], selected };
   if (!reading || 'missing' in reading) return { kind: 'missing', lines: [t(MISSING_WORDS[reading?.missing ?? 'noFrames'])], selected };
   const numbers = sunNumbers(reading, sun.fields.time);
   // A date or place SunCalc can't read (an import's): said as no place.

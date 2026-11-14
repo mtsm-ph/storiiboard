@@ -1,19 +1,25 @@
+import { isValidElement, type ReactElement, type ReactNode } from 'react';
+import { Line, Text } from 'react-konva';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { northFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges, sunFields } from '../../../core/model/plan';
-import { roomNorth } from '../../../core/model/planSun';
+import { itemSetupId } from '../../../core/model/planCamera';
+import { setupOnlyChanges } from '../../../core/model/planRooms';
+import { roomNorth, sunReading, sunSetupId } from '../../../core/model/planSun';
+import type { SbdRecord } from '../../../core/model/record';
 import { planVector } from '../../../core/model/sunPath';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
-import { PAPER_COLOURS } from '../../../ui/canvas/paperColours';
-import { restoreChanges, trashItems } from '../../trash/trash';
+import { GOLDEN_HOUR, PAPER, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
+import { northClash, restoreChanges, trashItems } from '../../trash/trash';
+import { HALO_PIXELS, UprightLabels } from './cameraDraw';
 import { iconRefusal, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, trashPlanItemsChanges, turnChanges, turnsByKey, unreadableAfter } from './planItems';
 import { placeIcon } from './planActions';
 import { planStore } from './planStore';
-import { sunLooks } from './sunLooks';
-import type { SunLook } from './sunDraw';
+import { shownHeight, sunLabel, sunLooks } from './sunLooks';
+import { SunBeyond, type SunLook } from './sunDraw';
 
 // North and the sun path on a plan (6.6): north placed in the room's plan, one per room (a second placed selects the
 // first, a paste never makes a second); a sun path placed in the setup's own plan at noon; the turn keys turn north and
@@ -70,7 +76,9 @@ describe('placing north and the sun path (6.6)', () => {
     const north = await place({ sceneId, setupId }, 'production/north', { x: 1, y: 1 });
     const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
     expect(records()[north]?.parentId).toBe(sceneRoomId(records(), records()[sceneId]));
-    expect(northFields(records()[north]?.props ?? {})).toMatchObject({ kind: 'north', icon: 'production/north', x: 0.7, y: 0.7, width: 0.6, height: 0.6, rotation: 0 });
+    expect(northFields(records()[north]?.props ?? {})).toMatchObject({ kind: 'north', icon: 'production/north', y: 0.7, width: 0.28, height: 0.6, rotation: 0 });
+    // Its arrow's proportions (6.6 review): 0.28 m wide, its middle at 1 m, so its left edge at 0.86 m.
+    expect(northFields(records()[north]?.props ?? {})?.x).toBeCloseTo(0.86, 6);
     expect(records()[sun]?.parentId).toBe(setupPlanOf(records(), setupId)?.id);
     expect(sunFields(records()[sun]?.props ?? {})).toMatchObject({ kind: 'sun', width: 0.8, height: 0.8, time: '12:00' });
     expect(records()[sun]?.props.time).toBe('12:00');
@@ -266,5 +274,288 @@ describe('the look’s words (6.6)', () => {
     expect(lines()).toEqual(['No shoot day']);
     setLocale('es');
     expect(lines()).toEqual(['Sin día de rodaje']);
+  });
+});
+
+// The 6.6 review's fixes: one north per room through the Trash, undo and "This setup only"; a north pasted where there
+// is no room; a sun path never turned; Fit all taking in its circle; the drawing's words inside the arc, with a paper
+// halo; the golden stretches edged in ink; the arc's orientation; no stand-in zone; the height never below 0.
+
+/** Every part of a drawing, its own and its children's, as elements (the drawing is never rendered here). */
+function partsOf(node: ReactNode): ReactElement<Record<string, unknown>>[] {
+  const out: ReactElement<Record<string, unknown>>[] = [];
+  const visit = (n: ReactNode) => {
+    if (Array.isArray(n)) {
+      for (const child of n as ReactNode[]) visit(child);
+      return;
+    }
+    if (!isValidElement<Record<string, unknown>>(n)) return;
+    out.push(n);
+    visit(n.props.children as ReactNode);
+  };
+  visit(node);
+  return out;
+}
+
+/** A word's text element as its component draws it (MonoText is a function of its props). */
+const drawnText = (element: ReactElement<Record<string, unknown>>): ReactElement<Record<string, unknown>> =>
+  (element.type as (props: Record<string, unknown>) => ReactElement<Record<string, unknown>>)(element.props);
+
+const liveNorths = () => Object.values(records()).filter((r) => r.type === 'plan_item' && r.props.kind === 'north' && r.trashedAt === null);
+
+describe('one north per room, whatever comes back (6.6 review)', () => {
+  it('never restores a north into a room that has one: the Trash says so, and the room keeps the north it has', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const roomId = sceneRoomId(records(), records()[sceneId]);
+    const first = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: first, set: { rotation: 35 } }]);
+    await store.getState().apply(trashPlanItemsChanges(records(), [first]));
+    const second = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: second, set: { rotation: 90 } }]);
+    expect(northClash(records(), first)).toBe(true);
+    expect(northClash(records(), second)).toBe(false);
+    expect(restoreChanges(records(), project.projectId, first)).toEqual([]);
+    expect(roomNorth(records(), roomId)).toBe(90);
+    // With the room's north deleted too, it comes back.
+    await store.getState().apply(trashPlanItemsChanges(records(), [second]));
+    expect(northClash(records(), first)).toBe(false);
+    await store.getState().apply(restoreChanges(records(), project.projectId, first));
+    expect(roomNorth(records(), roomId)).toBe(35);
+    expect(liveNorths()).toHaveLength(1);
+  });
+
+  it('undo walks back the later north before the delete it followed: never two at once', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const roomId = sceneRoomId(records(), records()[sceneId]);
+    const first = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: first, set: { rotation: 35 } }]);
+    await store.getState().apply(trashPlanItemsChanges(records(), [first]));
+    const second = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: second, set: { rotation: 90 } }]);
+    await store.getState().undo();
+    expect(roomNorth(records(), roomId)).toBe(0);
+    await store.getState().undo();
+    // The later placement undone: no north at all, the first still in the Trash.
+    expect(liveNorths()).toHaveLength(0);
+    await store.getState().undo();
+    expect(liveNorths().map((r) => r.id)).toEqual([first]);
+    expect(roomNorth(records(), roomId)).toBe(35);
+  });
+
+  it('"This setup only" off moves a setup’s north to its room only where the room has none, and only one', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const roomId = sceneRoomId(records(), records()[sceneId]);
+    const inRoom = await place(view, 'production/north');
+    // An imported file's: norths in the setup's own plan.
+    await place(view, 'lighting/sun-path');
+    const planId = setupPlanOf(records(), setupId)?.id ?? '';
+    const north = (id: string, sortKey: string) => ({ kind: 'create' as const, record: { id, type: 'plan_item' as const, parentId: planId, sortKey, props: { kind: 'north', icon: 'production/north', x: 0, y: 0, width: 0.28, height: 0.6, rotation: 50 } } });
+    await store.getState().apply([north('n2', 'x1'), north('n3', 'x2')]);
+    expect(setupOnlyChanges(records(), sceneId, setupId, ['n2'], false)).toEqual([]);
+    await store.getState().apply(trashPlanItemsChanges(records(), [inRoom]));
+    const back = setupOnlyChanges(records(), sceneId, setupId, ['n2', 'n3'], false);
+    expect(back.filter((c) => c.kind === 'move')).toEqual([expect.objectContaining({ id: 'n2', parentId: roomId })]);
+  });
+
+  it('a north pasted into a scene with no room is left out, as any item with nowhere to go', async () => {
+    const { sceneId, setupId } = await scene();
+    const north = await place({ sceneId, setupId }, 'production/north');
+    const other = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: other, type: 'scene', parentId: project.projectId, sortKey: '3', props: { number: '3' } } }]);
+    const pasted = planPasteInView(records(), { sceneId: other, setupId: null }, planClipOf(records(), [north]), null);
+    expect(pasted).toEqual({ ids: [], changes: [], leftOut: 1 });
+  });
+});
+
+describe('a sun path’s reading (6.6 review)', () => {
+  it('reads its rotation as 0, so one imported turned is drawn upright', async () => {
+    const { sceneId, setupId } = await scene();
+    const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
+    await store.getState().apply([{ kind: 'update', id: sun, set: { rotation: 30 } }]);
+    expect(sunFields(records()[sun]?.props ?? {})?.rotation).toBe(0);
+    const shown = shownItems(records(), sceneId, setupId);
+    const item = planItemsBuilder()(shown, 'metres', PAPER_COLOURS.ink, 'en', new Map(), new Map(), sunLooks(records(), shown, new Map(), [])).find((i) => i.id === sun);
+    expect(item?.rotation).toBe(0);
+  });
+
+  it('reads only from the setup’s own plan, its first live one, as a camera does', async () => {
+    const { sceneId, setupId } = await scene();
+    const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
+    expect(sunSetupId(records(), records()[sun] as SbdRecord)).toBe(setupId);
+    const props = records()[sun]?.props ?? {};
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'plan2', type: 'plan', parentId: setupId, sortKey: 'zz', props: { kind: 'setup', name: '' } } },
+      { kind: 'create', record: { id: 'sun2', type: 'plan_item', parentId: 'plan2', sortKey: 'a', props } },
+    ]);
+    const copy = 'sun2';
+    expect(sunSetupId(records(), records()[copy] as SbdRecord)).toBeNull();
+    expect(sunSetupId(records(), records()[sun] as SbdRecord)).toBe(itemSetupId(records(), records()[sun] as SbdRecord));
+  });
+
+  it('never takes a stand-in zone: no entry is the lookup on its way (icon alone), null is "No time zone"', async () => {
+    const { sceneId, setupId } = await scene();
+    const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
+    await place({ sceneId, setupId }, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: 'diner', unset: ['time_zone'] }]);
+    expect(sunReading(records(), sun, new Map())).toMatchObject({ missing: 'noZone', pending: true });
+    expect(sunReading(records(), sun, new Map([['diner', null]]))).toEqual({ missing: 'noZone', locationId: 'diner' });
+    const look = (zones: ReadonlyMap<string, string | null>) => sunLooks(records(), shownItems(records(), sceneId, setupId), zones, []).get(sun);
+    expect(look(new Map())).toEqual({ kind: 'missing', lines: [], selected: false });
+    expect(look(new Map([['diner', null]]))).toEqual({ kind: 'missing', lines: ['No time zone'], selected: false });
+    expect(look(new Map([['diner', 'America/New_York']]))?.kind).toBe('drawn');
+  });
+
+  it('draws for the earliest of two days with one date and one sort key by their ids, whatever order they were read in', async () => {
+    const { sceneId, setupId } = await scene();
+    await place({ sceneId, setupId }, 'production/north');
+    const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z-day', type: 'shoot_day', parentId: project.projectId, sortKey: 'k', props: { date: '2026-06-01' } } },
+      { kind: 'create', record: { id: 'b-day', type: 'shoot_day', parentId: project.projectId, sortKey: 'k', props: { date: '2026-06-01' } } },
+      { kind: 'update', id: 'a', set: { shoot_day_id: 'z-day' } },
+      { kind: 'create', record: { id: 'b', type: 'shot', parentId: sceneId, sortKey: 'b', props: { number: '1B', setup_id: setupId, shoot_day_id: 'b-day' } } },
+    ]);
+    const reading = sunReading(records(), sun, new Map());
+    expect(reading && 'source' in reading ? reading.source.day.record.id : null).toBe('b-day');
+  });
+
+  it('says the height in whole degrees, never below 0 while the sun counts as up', () => {
+    expect(shownHeight(-0.6)).toBe(0);
+    expect(shownHeight(-0.4)).toBe(0);
+    expect(Object.is(shownHeight(-0.4), -0)).toBe(false);
+    expect(shownHeight(37.6)).toBe(38);
+    const at = { time: '05:26', instant: new Date(0), bearing: 58.2, altitude: -0.7, apparent: -0.2, up: true };
+    expect(sunLabel(at)).toBe('05:26 · 58° · 0° high');
+    expect(sunLabel({ ...at, up: false })).toBe('05:26 · the sun is down');
+  });
+});
+
+describe('the sun path’s drawing (6.6 review)', () => {
+  const ny = new Map<string, string | null>();
+
+  /** Scene 1's sun path at 14:30 and its room's north, placed once per test. */
+  async function placed() {
+    const { sceneId, setupId } = await scene();
+    const sun = await place({ sceneId, setupId }, 'lighting/sun-path');
+    const north = await place({ sceneId, setupId }, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: sun, set: { time: '14:30' } }]);
+    return { sceneId, setupId, sun, north };
+  }
+
+  /** The sun path drawn with the room's north turned to `turn`. */
+  async function drawn(turn: number, at?: Awaited<ReturnType<typeof placed>>) {
+    const { sceneId, setupId, sun, north } = at ?? (await placed());
+    await store.getState().apply([{ kind: 'update', id: north, set: { rotation: turn } }]);
+    const shown = shownItems(records(), sceneId, setupId);
+    const looks = sunLooks(records(), shown, ny, []);
+    const look = looks.get(sun);
+    if (look?.kind !== 'drawn') throw new Error('not drawn');
+    const item = planItemsBuilder()(shown, 'metres', PAPER_COLOURS.ink, 'en', new Map(), new Map(), looks).find((i) => i.id === sun);
+    return { look, item };
+  }
+
+  it('turns the arc with north: up the plan, rise on the right and set on the left; north at 90°, rise below and set above', async () => {
+    // New York, 21 June: sunrise bears about 58°, sunset about 302° (clockwise from north). With north up the plan, 58°
+    // is up and to the right (x = sin 58° > 0) and 302° up and to the left (x < 0). With north turned 90° clockwise,
+    // they turn with it: 148° from up the plan is down and to the right (y = −cos 148° > 0, y down) and 392° = 32° up
+    // and to the right (y < 0).
+    const at = await placed();
+    const up = (await drawn(0, at)).look;
+    expect(up.rise?.x).toBeGreaterThan(0.5);
+    expect(up.set?.x).toBeLessThan(-0.5);
+    // The arc starts at sunrise and ends at sunset.
+    const first = up.segments[0]?.points ?? [];
+    const last = up.segments.at(-1)?.points ?? [];
+    expect(first[0]).toBeCloseTo((up.rise?.x ?? 0) * up.radius, 0);
+    expect(last.at(-2)).toBeCloseTo((up.set?.x ?? 0) * up.radius, 0);
+    const turned = (await drawn(90, at)).look;
+    expect(turned.rise?.y).toBeGreaterThan(0.5);
+    expect(turned.set?.y).toBeLessThan(-0.5);
+  });
+
+  it('draws the shadows line straight opposite the sun’s', async () => {
+    const { look } = await drawn(30);
+    const parts = partsOf(SunBeyond({ width: 80, height: 80, zoom: 1, rotation: 0, colours: PAPER_COLOURS, look }));
+    const lines = parts.filter((p) => p.type === Line);
+    const fromMiddle = (p: ReactElement<Record<string, unknown>>) => {
+      const points = p.props.points as number[];
+      return points[0] === 0 && points[1] === 0 ? points : null;
+    };
+    const sunLine = lines.find((p) => fromMiddle(p) && p.props.dash === undefined);
+    const shadowLine = lines.find((p) => fromMiddle(p) && p.props.dash !== undefined);
+    const s = sunLine?.props.points as number[];
+    const d = shadowLine?.props.points as number[];
+    const sunLength = Math.hypot(s[2] ?? 0, s[3] ?? 0);
+    const shadowLength = Math.hypot(d[2] ?? 0, d[3] ?? 0);
+    expect((d[2] ?? 0) / shadowLength).toBeCloseTo(-(s[2] ?? 0) / sunLength, 6);
+    expect((d[3] ?? 0) / shadowLength).toBeCloseTo(-(s[3] ?? 0) / sunLength, 6);
+  });
+
+  it('edges each golden stretch in ink: ink 5 px under gold 3 px, at every zoom', async () => {
+    const { look } = await drawn(0);
+    const parts = partsOf(SunBeyond({ width: 80, height: 80, zoom: 0.5, rotation: 0, colours: PAPER_COLOURS, look }));
+    const gold = parts.filter((p) => p.type === Line && p.props.stroke === GOLDEN_HOUR);
+    const casings = parts.filter((p) => p.type === Line && p.props.name === 'golden-casing');
+    expect(gold.length).toBe(look.segments.filter((s) => s.golden).length);
+    expect(gold.length).toBeGreaterThan(0);
+    expect(casings).toHaveLength(gold.length);
+    for (const [i, line] of gold.entries()) {
+      expect(line.props).toMatchObject({ strokeWidth: 3, strokeScaleEnabled: false });
+      expect(casings[i]?.props).toMatchObject({ stroke: PAPER_COLOURS.ink, strokeWidth: 5, strokeScaleEnabled: false, points: line.props.points });
+      // The casing first, so the gold is drawn over it.
+      expect(parts.indexOf(casings[i] as ReactElement<Record<string, unknown>>)).toBeLessThan(parts.indexOf(line));
+    }
+  });
+
+  it('lays every word inside the arc, each with a paper halo', async () => {
+    const at = await placed();
+    // Up close and zoomed out, where the sun's label takes a line per part to stay inside.
+    for (const [north, zoom] of [[0, 1], [90, 1], [200, 1], [0, 0.4], [135, 0.4]] as const) {
+      const { look } = await drawn(north, at);
+      const parts = partsOf(SunBeyond({ width: 80, height: 80, zoom, rotation: 0, colours: PAPER_COLOURS, look }));
+      const texts = parts.filter((p) => typeof p.type === 'function' && 'text' in p.props).map(drawnText);
+      // The hours, sunrise and sunset, the sun's label and "shadows".
+      expect(texts.length).toBe(look.hours.length + 2 + 2);
+      for (const text of texts) {
+        const size = text.props.fontSize as number;
+        const word = text.props.text as string;
+        const lines = word.split('\n');
+        const half = (Math.max(...lines.map((l) => l.length)) * 0.6 * size) / 2;
+        const tall = lines.length === 1 ? size : lines.length * size * 1.2;
+        const cx = (text.props.x as number) + (text.props.width as number) / 2;
+        const cy = (text.props.y as number) + tall / 2;
+        // Every corner of the word's box inside the circle.
+        for (const [dx, dy] of [[-half, -tall / 2], [half, -tall / 2], [half, tall / 2], [-half, tall / 2]] as const) {
+          expect(Math.hypot(cx + dx, cy + dy), `${word} at north ${String(north)}, zoom ${String(zoom)}`).toBeLessThan(look.radius);
+        }
+        expect(text.props).toMatchObject({ stroke: PAPER, strokeWidth: HALO_PIXELS, strokeScaleEnabled: false, fillAfterStrokeEnabled: true, fill: PAPER_COLOURS.ink });
+      }
+      const label = zoom === 1 ? look.label : look.label.split(' · ').join('\n');
+      expect(texts.map((t) => t.props.text)).toEqual(expect.arrayContaining([label, look.shadows, look.rise?.label, look.set?.label]));
+    }
+  });
+
+  it('gives an upright label a paper halo through the shared label code', () => {
+    const labels = UprightLabels({ width: 40, height: 40, zoom: 1, rotation: 30, colours: PAPER_COLOURS, lines: ['A · 35 mm · 54.4°', '1.20 m'] });
+    const texts = partsOf(labels).filter((p) => p.type === Text);
+    expect(texts).toHaveLength(2);
+    for (const text of texts) expect(text.props).toMatchObject({ stroke: PAPER, strokeWidth: HALO_PIXELS, fillAfterStrokeEnabled: true });
+  });
+
+  it('counts its whole 3 m circle for Fit all; with something missing, its box alone', async () => {
+    const at = await placed();
+    const { item, look } = await drawn(0, at);
+    const centre = { x: (item?.x ?? 0) + (item?.width ?? 0) / 2, y: (item?.y ?? 0) + (item?.height ?? 0) / 2 };
+    expect(item?.fitExtent).toEqual({ x: centre.x - look.radius, y: centre.y - look.radius, width: 2 * look.radius, height: 2 * look.radius });
+    // Far smaller than what is kept drawn for culling.
+    expect(item?.beyond?.bounds.width ?? 0).toBeGreaterThan(item?.fitExtent?.width ?? 0);
+    // With no north, nothing drawn: its box alone.
+    await store.getState().apply(trashPlanItemsChanges(records(), [at.north]));
+    const shown = shownItems(records(), at.sceneId, at.setupId);
+    const missing = planItemsBuilder()(shown, 'metres', PAPER_COLOURS.ink, 'en', new Map(), new Map(), sunLooks(records(), shown, ny, [])).find((i) => i.id === at.sun);
+    expect(missing?.fitExtent).toBeUndefined();
   });
 });

@@ -412,7 +412,11 @@ unreadable value reads as not set, as every prop does.
     name without `.svg` (`set-art/sofa`, `grip/c-stand`); text, not empty. Its box as a wall's: `x` and `y` its top
     left corner before rotation, `width` across and `height` its depth (both above 0; under 1 cm reads as 1 cm),
     `rotation` round its middle; written at the library's default size for the icon (src/features/birdseye/plan/
-    iconSizes.ts: a sofa 2.0 × 0.9 m) and changed freely afterwards. `height_m` (its real height, kept, not drawn) and
+    iconSizes.ts: a sofa 2.0 × 0.9 m) and changed freely afterwards. A footprint's default is its real width by depth;
+    a symbol's (6.6 review: the cameras but the dolly track, slider and jib; every light; the C-stand, combo stand,
+    sandbag and apple box; every cast and sound icon; first aid, hazard, snap point, north and the sun path) is its
+    longer side, the other in its drawing's own proportions, to the centimetre (a C-stand 0.90 × 0.71 m), so it is never
+    drawn stretched. Items already in a file keep the size they were placed at. `height_m` (its real height, kept, not drawn) and
     `name` as a wall's; a zone draws its `name` inside its outline and a note as its text. Its level (decision 2) comes
     from its icon's group, the part of the id before the `/`: a `set-art` icon (a set piece) is placed in the scene's
     room, so every scene and setup set in the room shows it; a `cast` one in the scene's blocking; any other in the
@@ -441,7 +445,7 @@ unreadable value reads as not set, as every prop does.
     icon it was placed as (`camera/camera`, `camera/sticks`, `camera/dolly-track`, `camera/slider`,
     `camera/jib-crane`, `camera/gimbal`, `camera/handheld`, `camera/steadicam`, `camera/drone`; missing reads as
     `camera/camera`; `camera/field-of-view` is the cone's picture, never placed). Its box as an icon's, at the library's
-    size for its icon (a camera 0.4 × 0.4 m, a dolly track 1.0 × 3.0 m); `rotation` is where it points, 0 up the plan
+    size for its icon (a camera 0.35 × 0.4 m, a dolly track 1.0 × 3.0 m); `rotation` is where it points, 0 up the plan
     (−y), clockwise. `height_m` and `name` as an icon's. `body_id`: the `gear_item` body it is; absent, or naming no live
     body of the project, reads as the project's default body, live. `shot_ids`: the frames shot from it, ids of `shot`
     records; only live frames of its own setup (as `setup_id` reads) count, and a frame counts only for the first live
@@ -465,7 +469,7 @@ unreadable value reads as not set, as every prop does.
   - A `light` (6.5) is a light placed on a setup's own plan. `icon`: the light it was placed as (`lighting/fresnel`,
     `led-panel`, `tube`, `cob-softbox`, `hmi-par`, `china-ball`, `practical`, `spacelight`, `rgb-gel`,
     `window-light`; missing reads as `lighting/fresnel`; `lighting/beam-cone` is the beam's picture, never placed). Its
-    box as an icon's, at the library's size for its icon (a fresnel 0.4 × 0.4 m, a tube 1.2 × 0.1 m); `rotation` turns
+    box as an icon's, at the library's size for its icon (a fresnel 0.31 × 0.4 m, a tube 1.2 × 0.18 m); `rotation` turns
     its icon, clockwise from upright, and the beam follows the icon's own facing (6.5 review): it leaves the side the
     icon's drawing shines from, so its direction is `rotation` plus the icon's facing (src/core/model/planLight.ts
     `BEAM_FACING`: fresnel, led-panel, tube and cob-softbox 0°, up the plan at rotation 0; hmi-par and rgb-gel 90°, to
@@ -503,18 +507,24 @@ unreadable value reads as not set, as every prop does.
     of the plan.
   - A `north` (6.6) is the room's north, in the room's plan (never a scene's or a setup's: "This setup only" leaves it
     where it is), so every scene and setup set in the room shares it. `icon` `production/north` (missing reads so),
-    its box as an icon's (placed 0.6 × 0.6 m). Its `rotation` IS the room's north, clockwise as every rotation: 0
+    its box as an icon's (placed 0.28 × 0.6 m, its arrow's proportions). Its `rotation` IS the room's north, clockwise as every rotation: 0
     means north is up the plan (−y), 90 that it points right; its place only says where its arrow is drawn. One per
     room: the app never writes a second (placing one where the room has one selects it; a paste leaves a second out);
-    a file with more reads the first live one in plan order (`sort_key`). A room with none has no north. A room's
-    separate copy copies it; it goes to the Trash and back as any item. Its layer (6.8) is production's.
+    a file with more reads the first live one in plan order (`sort_key`), and says of the others, selected, that they
+    aren't used. A room with none has no north. A room's separate copy copies it. It goes to the Trash as any item,
+    and comes back only into a room with no live north (6.6 review): the Trash refuses it while the room has one, so a
+    restore never makes a second north nor turns the room's; undo walks back a north placed since first. "This setup
+    only" off moves a north out of a setup's plan (only an import puts one there) only into a room with none, and only
+    one. Its layer (6.8) is production's.
   - A `sun` (6.6) is a sun path, in a setup's own plan. `icon` `lighting/sun-path` (missing reads so), its box as an
     icon's (placed 0.8 × 0.8 m); its position is the middle of its drawing, and its `rotation` is never used (written
     0; the handles never turn it). `time`: written "12:00" when placed; missing or not a 24-hour "HH:mm" reads as
     12:00. What it draws is read live, never stored (src/core/model/planSun.ts, sunPath.ts): the setup's frames, of
     those with a live shoot day that has a `date` and a location (the frame's `location_id`, else its scene's) with a
-    place on the map, the one with the earliest day, then board order; the location's `time_zone`, else the zone looked
-    up from its place (never this computer's); and the room's north. Lacking one, it draws nothing and says which. The
+    place on the map, the one with the earliest day (days with one date by `sort_key`, then id), then board order; the
+    location's `time_zone`, else the zone the desktop app looks up from its place, never this computer's (6.6 review:
+    outside the desktop app there is no lookup, so such a location reads "No time zone"); and the room's north. Its
+    `rotation` is read as 0 whatever is stored. Lacking one, it draws nothing and says which. The
     arc is drawn 3 m out (a constant). Copies (a setup started from another, a paste, a duplicate) keep `time`. Its
     layer (6.8) is lighting's.
   - A mark's `character_id` (6.7): the `character` it is for.

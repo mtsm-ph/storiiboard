@@ -107,6 +107,12 @@ export interface CanvasItem extends Geometry {
    */
   beyond?: Beyond;
   /**
+   * What the item counts for when the view is fitted to it and in the minimap (6.6 review: a plan's sun path, whose 3 m
+   * circle reaches far past its box), world units, absolute, together with its own box. Not `beyond.bounds`, which is
+   * sized for culling at the least zoom and far too big to fit to. Left out (a board's items), its box alone counts.
+   */
+  fitExtent?: Rect;
+  /**
    * The least thickness, in screen pixels, a click picks it by (6.5 review: a plan's standing flag, 5 cm deep, is 1 px at
    * 20%): its box is picked at least this thick on each side, about its middle, at any zoom. Left out (a board's items),
    * a click picks the box exactly.

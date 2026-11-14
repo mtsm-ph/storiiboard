@@ -1,5 +1,6 @@
 import { Group, Line, Text } from 'react-konva';
 import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
+import { PAPER } from '../../../ui/canvas/paperColours';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
 
@@ -95,6 +96,16 @@ interface ConeProps {
 /** JetBrains Mono's advance, in font sizes: every character is this wide, so a label's width is known without measuring. */
 const MONO_ADVANCE = 0.6;
 
+/** How wide a label's paper halo is drawn, screen pixels (half of it shows round each letter). */
+export const HALO_PIXELS = 3;
+
+/**
+ * A plan label's paper halo (6.6 review): the text stroked in the fixed paper colour under its ink, so a label stays
+ * legible where it crosses a wall, a cone or a beam, with no box behind it. Plans only; the paper is the fixed one, as a
+ * plan is never themed (decision 13). Spread into a Konva Text.
+ */
+export const LABEL_HALO = { stroke: PAPER, strokeWidth: HALO_PIXELS, strokeScaleEnabled: false, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
+
 /**
  * Labels under an item's middle, in mono, kept upright whatever way it is turned (a camera's, 6.4; a light's and any
  * item's height, 6.5, decision 11): clear of its box at half its diagonal, as labelReach reckons them.
@@ -133,6 +144,7 @@ export function UprightLabels({
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
+          {...LABEL_HALO}
           wrap="none"
           ellipsis
           listening={false}
@@ -258,6 +270,7 @@ export function BesideLabels({ width, height, zoom, rotation, colours, spec }: {
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
+          {...LABEL_HALO}
           wrap="none"
           listening={false}
         />

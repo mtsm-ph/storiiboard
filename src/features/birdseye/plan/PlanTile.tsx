@@ -8,7 +8,7 @@ import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
 import { sunReading, sunZonePoint } from '../../../core/model/planSun';
-import { useZonesAt, type ZonePoint } from '../../../app/timeZone';
+import { useSunZonesAt, type ZonePoint } from '../../../app/timeZone';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -429,13 +429,14 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const lights = useMemo(() => lightLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
   // Each sun path's day (6.6), read live from the setup's frames, their day, their location's place and zone and the
-  // room's north. A location with a place and no zone of its own has its zone looked up (Rust; this computer's in the
-  // browser build), as a call sheet's is; while that answer is on its way the path says it has no zone.
+  // room's north. A location with a place and no zone of its own has its zone looked up by Rust on the desktop; while that
+  // answer is on its way the path shows its icon alone. The browser build has no lookup and never takes this computer's
+  // zone in its place (6.6 review): there, such a location reads "No time zone".
   const zonePoints = useMemo(
     () => shown.flatMap((item): ZonePoint[] => (isSun(item.fields) ? [sunZonePoint(records, item.record.id)].filter((p): p is ZonePoint => p !== null) : [])),
     [records, shown],
   );
-  const zones = useZonesAt(zonePoints);
+  const zones = useSunZonesAt(zonePoints);
   const zonesKey = JSON.stringify([...zones]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t(); the zones by value
   const suns = useMemo(() => sunLooks(records, shown, zones, stored ?? []), [records, shown, zonesKey, stored, locale]);
@@ -526,12 +527,23 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   };
   return (
     <div className="flex h-full min-h-80 flex-col" data-plan-tile="">
-      <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS}>
+      {/* The heading, the room's menu and the notes on one row, the tools on their own below it, each wrapping in a narrow
+          tile (6.6 review). Sharing one wrapping row, the menu's wrapper (h-full, sized for the top bar) took the row's
+          whole height, and the tools wrapped past the strip's foot, under the canvas, out of sight. Each menu sits in a
+          box of its own height here, so nothing in the row can stretch it. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
         {header}
-        <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
+        <div className="flex h-7">
+          <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
+        </div>
         <AlsoIn scenes={also} />
-        <SetupCopyOffer view={view} />
-      </ToolStrip>
+        <div className="flex h-7 empty:hidden">
+          <SetupCopyOffer view={view} />
+        </div>
+      </div>
+      <div data-plan-tools="">
+        <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
+      </div>
       <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
         <Canvas
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}

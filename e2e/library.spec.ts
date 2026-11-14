@@ -156,7 +156,8 @@ test('drags a sofa into the room, places a C-stand from the keyboard into the se
   await page.keyboard.press('Enter');
   await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa', 'grip/c-stand']);
   const stand = (await icons(page)).find((i) => i.icon === 'grip/c-stand');
-  expect(stand).toMatchObject({ level: 'setup', layer: 'grip', width: 0.9, height: 0.9 });
+  // A symbol in its drawing's proportions (6.6 review): its longer side 0.9 m.
+  expect(stand).toMatchObject({ level: 'setup', layer: 'grip', width: 0.9, height: 0.71 });
   await expect.poll(() => selection(page)).toEqual([stand?.id]);
   await expect(canvas(page)).toBeFocused();
   await page.keyboard.press('ArrowRight');

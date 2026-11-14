@@ -1,7 +1,7 @@
 import type { Change } from '../ops/ops';
 import { frameLocationId, locationFields, mapPlace } from './location';
 import { northFields, planFields, sceneRoomId, sunFields, type NorthFields, type SunFields } from './plan';
-import { cameraSetupFrames } from './planCamera';
+import { cameraSetupFrames, itemSetupId } from './planCamera';
 import type { SbdRecord } from './record';
 import { frameDayId, projectShootDays, type ShootDay } from './shootDay';
 import { isTimeZone } from './sunTimes';
@@ -71,13 +71,11 @@ export function liveSun(records: Records, id: string): { record: SbdRecord; fiel
   return fields ? { record, fields } : null;
 }
 
-/** The live setup a sun path's plan belongs to, or null (one in a room or a blocking plan has no frames to read). */
-export function sunSetupId(records: Records, sun: SbdRecord): string | null {
-  const plan = sun.parentId ? records[sun.parentId] : undefined;
-  if (plan?.type !== 'plan' || plan.trashedAt !== null || planFields(plan.props)?.kind !== 'setup' || !plan.parentId) return null;
-  const setup = records[plan.parentId];
-  return setup?.type === 'setup' && setup.trashedAt === null ? setup.id : null;
-}
+/**
+ * The live setup a sun path's plan belongs to, or null (one in a room or a blocking plan has no frames to read): the
+ * same rule as a camera's (itemSetupId), the setup's first live plan only (6.6 review).
+ */
+export const sunSetupId = itemSetupId;
 
 /** What a sun path lacks, the first of them in this order. */
 export type SunMissing = 'noFrames' | 'noDay' | 'noDate' | 'noLocation' | 'noPlace' | 'noNorth' | 'noZone';
@@ -176,7 +174,8 @@ export interface SunZone {
 /**
  * The zone a source's times are in: its location's own `time_zone`, else the one looked up from its place (`zones`, by
  * location id: a zone, null for none, no entry while the answer is on its way); null for none. Unlike a call sheet, this
- * computer's zone never stands in: a sun drawn in the wrong zone would be hours off.
+ * computer's zone never stands in: a sun drawn in the wrong zone would be hours off. Outside the desktop app, where there
+ * is no lookup, the caller gives null for every place (useSunZonesAt), so only a location's own zone counts there.
  */
 export function sourceZone(source: SunSource, zones: ReadonlyMap<string, string | null>): SunZone | null {
   const own = locationFields(source.location.props).time_zone;
@@ -185,15 +184,20 @@ export function sourceZone(source: SunSource, zones: ReadonlyMap<string, string 
   return looked !== null && isTimeZone(looked) ? { zone: looked, source: 'map' } : null;
 }
 
-/** A sun path's whole reading: what's missing, or its source with the zone its times are in. */
-export type SunReading = { missing: SunMissing; frameId?: string; dayId?: string; locationId?: string } | { source: SunSource; zone: SunZone };
+/**
+ * A sun path's whole reading: what's missing, or its source with the zone its times are in. `pending`: no zone yet, the
+ * lookup's answer on its way (no entry in `zones`), so nothing is said about it yet (6.6 review: no "No time zone" flash).
+ */
+export type SunReading = { missing: SunMissing; frameId?: string; dayId?: string; locationId?: string; pending?: true } | { source: SunSource; zone: SunZone };
 
 export function sunReading(records: Records, sunId: string, zones: ReadonlyMap<string, string | null>): SunReading | null {
   const base = sunBase(records, sunId);
   if (!base) return null;
   if ('missing' in base) return base;
   const zone = sourceZone(base.source, zones);
-  return zone ? { source: base.source, zone } : { missing: 'noZone', locationId: base.source.location.id };
+  if (zone) return { source: base.source, zone };
+  const pending = locationFields(base.source.location.props).time_zone === '' && !zones.has(base.source.location.id);
+  return { missing: 'noZone', locationId: base.source.location.id, ...(pending ? { pending: true as const } : {}) };
 }
 
 /** The place whose zone a sun path needs looked up: its location's, when it has a place and no zone of its own; else null. */

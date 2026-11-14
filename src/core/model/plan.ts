@@ -448,7 +448,9 @@ export function sunFields(props: Props): SunFields | null {
   if (!box) return null;
   const icon = iconIdOf(props);
   const time = text(props.time);
-  return { kind: 'sun', icon: icon === '' ? SUN_ICON : icon, ...box, time: CLOCK.test(time) ? time : DEFAULT_SUN_TIME };
+  // Its rotation is read as 0 always (6.6 review): its drawing is the compass's, and nothing turns it, so one imported
+  // with a turn would be stuck turned.
+  return { kind: 'sun', icon: icon === '' ? SUN_ICON : icon, ...box, rotation: 0, time: CLOCK.test(time) ? time : DEFAULT_SUN_TIME };
 }
 
 /** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */

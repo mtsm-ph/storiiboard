@@ -67,14 +67,19 @@ const ALL_ZONES: readonly string[] = [...Intl.supportedValuesOf('timeZone')].sor
 export function LocationsTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [chosen, setChosen] = useState<string | null>(null);
-  // Asked to show a location from elsewhere (6.6: a sun path's "Open Locations"): picked as the person would pick it.
+  // Asked to show a location from elsewhere (6.6: a sun path's "Open Locations"): picked as the person would pick it. Read
+  // on the first draw too (6.6 review): the ask may be what mounted the tile, and taken as seen there, the tile showed its
+  // first location while the focus went to the one asked for. Cleared once used, so a later mount never reads it again.
   const request = useShownLocation((s) => s.request);
+  const [chosen, setChosen] = useState<string | null>(() => request?.id ?? null);
   const [seenRequest, setSeenRequest] = useState(request);
   if (request !== seenRequest) {
     setSeenRequest(request);
     if (request?.id) setChosen(request.id);
   }
+  useEffect(() => {
+    if (request) useShownLocation.setState({ request: null });
+  }, [request]);
   const listId = useId();
   const nameField = useRef<HTMLInputElement>(null);
   const newButton = useRef<HTMLButtonElement>(null);

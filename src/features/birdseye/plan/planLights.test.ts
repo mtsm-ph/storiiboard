@@ -81,7 +81,8 @@ describe('placing lights, flags and diffusion (6.5)', () => {
     const flag = await place({ sceneId, setupId }, 'grip/flag');
     const frame = await place({ sceneId, setupId }, 'grip/overhead-8x8');
     expect(records()[fresnel]?.parentId).toBe(setupPlanOf(records(), setupId)?.id);
-    expect(lightFields(records()[fresnel]?.props ?? {})).toMatchObject({ kind: 'light', icon: 'lighting/fresnel', x: 0.8, y: 1.8, width: 0.4, height: 0.4, gearId: null, watts: null, beamDeg: null });
+    expect(lightFields(records()[fresnel]?.props ?? {})).toMatchObject({ kind: 'light', icon: 'lighting/fresnel', y: 1.8, width: 0.31, height: 0.4, gearId: null, watts: null, beamDeg: null });
+    expect(lightFields(records()[fresnel]?.props ?? {})?.x).toBeCloseTo(0.845, 6);
     expect(gripFields(records()[flag]?.props ?? {})).toMatchObject({ kind: 'flag', icon: 'grip/flag', width: 0.91, height: 0.05 });
     expect(gripFields(records()[frame]?.props ?? {})).toMatchObject({ kind: 'diffusion', icon: 'grip/overhead-8x8', width: 2.44, height: 2.44 });
     // The beam is a picture, and with only the scene shown a light has no setup to go in. (The sun path is placed since

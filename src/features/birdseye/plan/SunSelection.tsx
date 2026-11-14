@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
+import { focusWhenShown } from '../../../app/focusWhenShown';
 import { showInfo } from '../../../app/notice';
 import { layoutsOf, layoutStore } from '../../../app/shell/docking/layoutStore';
 import { openTile } from '../../../app/shell/docking/layout';
 import { useWorkspaceId } from '../../../app/shell/workspaceContext';
-import { useZonesAt } from '../../../app/timeZone';
+import { useSunZonesAt } from '../../../app/timeZone';
 import { t } from '../../../core/i18n';
 import { locationFields } from '../../../core/model/location';
 import { NORTH_ICON, parseDegrees, type NorthFields, type SunFields } from '../../../core/model/plan';
-import { parseSunTime, steppedTime, sunReading, sunZonePoint, type SunMissing, type SunReading } from '../../../core/model/planSun';
+import { parseSunTime, roomNorthItem, steppedTime, sunReading, sunZonePoint, type SunMissing, type SunReading } from '../../../core/model/planSun';
 import type { SbdRecord } from '../../../core/model/record';
 import { dayLabel } from '../../../core/model/shootDay';
 import type { SunBand, SunRange } from '../../../core/model/sunTimes';
@@ -17,7 +18,7 @@ import { openLocation } from '../../locations/shownLocation';
 import { openShootDay, openShootDays } from '../../schedule/shownDay';
 import { changeIcons, setSunTime } from './planActions';
 import { degreesText, TypedField } from './selectionFields';
-import { MISSING_WORDS, sunNumbers } from './sunLooks';
+import { MISSING_WORDS, shownHeight, sunNumbers } from './sunLooks';
 
 // The room's north and a sun path in the Selection tile (6.6). North: its angle typed ("35°"), the room's north for every
 // scene and setup set there. A sun path: its time (typed, or stepped from the keyboard: the arrows 15 minutes, Shift an
@@ -27,12 +28,20 @@ import { MISSING_WORDS, sunNumbers } from './sunLooks';
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export function NorthFieldsView({ id, fields }: { id: string; fields: NorthFields }) {
+export function NorthFieldsView({ id, fields, records }: { id: string; fields: NorthFields; records: Records }) {
+  // A second north in its room (only an imported file has one): the first in plan order is the room's north, not this.
+  const used = roomNorthItem(records, records[id]?.parentId ?? null);
+  const unused = used !== null && used.record.id !== id;
   return (
     <div className="flex flex-col gap-3" data-north={id}>
       <p className="sb-label" data-selection-kind="">
         {t('selection.north.field')}
       </p>
+      {unused && (
+        <p className="text-[13px] font-bold" data-north-unused="">
+          {t('selection.north.unused')}
+        </p>
+      )}
       <TypedField
         key={`${id}:north`}
         label={t('selection.north.field')}
@@ -58,7 +67,7 @@ const MINUTES_STEP = 15;
 const HOUR_STEP = 60;
 
 /** The sun path's time: typed and left (or Enter) is one edit; the up and down arrows step it, each step one edit. */
-function SunTimeField({ id, time }: { id: string; time: string }) {
+function SunTimeField({ id, time, describedBy }: { id: string; time: string; describedBy: string }) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (input.current) input.current.value = time;
@@ -82,6 +91,7 @@ function SunTimeField({ id, time }: { id: string; time: string }) {
       inputMode="numeric"
       defaultValue={time}
       data-sun-time=""
+      aria-describedby={describedBy}
       onBlur={(event) => {
         commit(event.currentTarget);
       }}
@@ -162,9 +172,9 @@ function Missing({ reading }: { reading: Extract<SunReading, { missing: SunMissi
           const { layouts, change } = layoutStore.getState();
           change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'library'));
         }
-        requestAnimationFrame(() => {
-          button()?.scrollIntoView({ block: 'nearest' });
-          button()?.focus();
+        // The Library mounts a frame or more later when it wasn't open.
+        focusWhenShown(button, (found) => {
+          found.scrollIntoView({ block: 'nearest' });
         });
       },
     };
@@ -186,17 +196,21 @@ function Missing({ reading }: { reading: Extract<SunReading, { missing: SunMissi
 
 export function SunFieldsView({ id, fields, records }: { id: string; fields: SunFields; records: Records }) {
   const point = sunZonePoint(records, id);
-  const zones = useZonesAt(point ? [point] : []);
+  const zones = useSunZonesAt(point ? [point] : []);
   const reading = sunReading(records, id, zones);
   const numbers = sunNumbers(reading, fields.time);
+  const noteId = useId();
   return (
     <div className="flex flex-col gap-3" data-sun={id}>
       <p className="sb-label" data-selection-kind="">
         {t('planIcon.lighting.sun-path')}
       </p>
-      <SunTimeField id={id} time={fields.time} />
-      <p className="text-[12px] text-text-muted">{t('selection.sun.timeNote')}</p>
-      {!reading ? null : 'missing' in reading ? (
+      <SunTimeField id={id} time={fields.time} describedBy={noteId} />
+      <p id={noteId} className="text-[12px] text-text-muted">
+        {t('selection.sun.timeNote')}
+      </p>
+      {/* While its zone's lookup is on its way, nothing is said about it yet. */}
+      {!reading || ('missing' in reading && reading.pending) ? null : 'missing' in reading ? (
         <Missing reading={reading} />
       ) : (
         <>
@@ -231,7 +245,7 @@ export function SunFieldsView({ id, fields, records }: { id: string; fields: Sun
                 <span>
                   <span className="sb-label">{t('selection.sun.height')} </span>
                   <span className="font-mono" data-sun-height="">
-                    {numbers.at.up ? t('selection.sun.heightValue', { height: String(Math.round(numbers.at.altitude)) }) : t('selection.sun.downValue')}
+                    {numbers.at.up ? t('selection.sun.heightValue', { height: String(shownHeight(numbers.at.altitude)) }) : t('selection.sun.downValue')}
                   </span>
                 </span>
               </p>

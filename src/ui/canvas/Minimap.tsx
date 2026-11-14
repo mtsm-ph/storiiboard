@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { t } from '../../core/i18n';
-import { boundsOf, centreOf } from './hitTest';
+import { centreOf, fitBoundsOf } from './hitTest';
 import type { Geometry, Point, Rect, Size, Viewport } from './types';
 import { unionBounds, visibleWorld } from './viewport';
 
@@ -11,15 +11,15 @@ export const MINIMAP_WIDTH = 176;
 export const MINIMAP_HEIGHT = 120;
 
 interface MinimapProps {
-  items: readonly (Geometry & { id: string })[];
+  items: readonly (Geometry & { id: string; fitExtent?: Rect })[];
   view: Viewport;
   size: Size;
   onCentre: (world: Point) => void;
 }
 
 /** What the minimap shows: all the items and the view, with some air. */
-export function minimapBounds(items: readonly Geometry[], view: Viewport, size: Size): Rect {
-  const all = unionBounds([...items.map(boundsOf), visibleWorld(view, size)]) ?? visibleWorld(view, size);
+export function minimapBounds(items: readonly (Geometry & { fitExtent?: Rect })[], view: Viewport, size: Size): Rect {
+  const all = unionBounds([...items.map(fitBoundsOf), visibleWorld(view, size)]) ?? visibleWorld(view, size);
   const air = Math.max(all.width, all.height) * 0.05;
   return { x: all.x - air, y: all.y - air, width: all.width + air * 2, height: all.height + air * 2 };
 }

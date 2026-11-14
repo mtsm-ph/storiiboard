@@ -100,7 +100,7 @@ function SelectionContent() {
           <LightFieldsView id={light.id} fields={light.fields} unit={unit} records={records} />
         ) : north && selected.length === 1 ? (
           // The room's north (6.6): its angle.
-          <NorthFieldsView id={north.id} fields={north.fields} />
+          <NorthFieldsView id={north.id} fields={north.fields} records={records} />
         ) : sun && selected.length === 1 ? (
           // A sun path (6.6): its time, what it is drawn for, the sun then.
           <SunFieldsView id={sun.id} fields={sun.fields} records={records} />

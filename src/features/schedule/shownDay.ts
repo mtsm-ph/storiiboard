@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { focusWhenShown } from '../../app/focusWhenShown';
 import { openTile } from '../../app/shell/docking/layout';
 import { layoutsOf, layoutStore } from '../../app/shell/docking/layoutStore';
 import type { WorkspaceId } from '../../app/shell/workspaces';
@@ -18,16 +19,12 @@ export function openShootDay(workspaceId: WorkspaceId, dayId: string): void {
   showDay(dayId);
   const { layouts, change } = layoutStore.getState();
   change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'days'));
-  requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(`[data-day-id="${CSS.escape(dayId)}"]`)?.focus();
-  });
+  focusWhenShown(() => document.querySelector<HTMLElement>(`[data-day-id="${CSS.escape(dayId)}"]`));
 }
 
 /** The Shoot days tile, in front in this workspace, as it was (6.6: a sun path whose frames are in no day), focus on its list. */
 export function openShootDays(workspaceId: WorkspaceId): void {
   const { layouts, change } = layoutStore.getState();
   change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'days'));
-  requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>('[data-day-id]')?.focus();
-  });
+  focusWhenShown(() => document.querySelector<HTMLElement>('[data-day-id]'));
 }

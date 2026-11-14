@@ -8,7 +8,7 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { trashFocus, useTrashAsk } from './trashFocus';
-import { oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { northClash, oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
@@ -95,6 +95,11 @@ export function TrashTile() {
     const clash = restoreClash(projectStore.getState().records, id);
     if (clash) {
       showNotice(new Error(t('trash.locationClash', { name: clash })));
+      return;
+    }
+    // One north per room (6.6 review): never brought back beside the north the room has now.
+    if (northClash(projectStore.getState().records, id)) {
+      showNotice(new Error(t('trash.northClash')));
       return;
     }
     restoring.current = true;

@@ -1,9 +1,10 @@
 import { BEAM_ICON } from '../../../core/model/planLight';
+import { ICON_BOXES } from './iconBoxes';
 import { DOOR_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
 
 // What each library icon is when it is placed (6.3, docs/PHASE6_DECISIONS.md 8): its real default size in metres,
-// width by depth, editable once it's down. Three set-art icons are 6.2's tools instead (the Library picks the tool),
-// and the icons later milestones make live (cameras 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 are
+// width by depth (a symbol's longer side, its other in its drawing's proportions), editable once it's down. Three
+// set-art icons are 6.2's tools instead (the Library picks the tool), and the icons later milestones make live (cameras 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 are
 // placed now; cast marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
 // here, and nothing else does (iconSizes.test.ts).
 
@@ -14,28 +15,37 @@ export interface IconSize {
   depth: number;
 }
 
-export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
-  // Cameras (6.4): placed as `camera` items, each the icon it was placed as.
-  'camera/camera': { width: 0.4, depth: 0.4 },
-  'camera/sticks': { width: 1.0, depth: 1.0 },
+/**
+ * How an icon's size is stated (6.6 review): a footprint's real width by depth (a sofa, a dolly track, a flag's frame),
+ * or a symbol's longer side alone (a camera, a light, a C-stand, north), the other side following its drawing's own
+ * proportions (iconBoxes.ts), so a symbol is never stretched to a box of another shape: north's tall arrow drawn fat, a
+ * C-stand's round hub an ellipse.
+ */
+type StatedSize = IconSize | { side: number };
+
+const STATED_SIZES: Readonly<Record<string, StatedSize>> = {
+  // Cameras (6.4): placed as `camera` items, each the icon it was placed as. Symbols, but for the track, the slider and
+  // the jib, whose length is real.
+  'camera/camera': { side: 0.4 },
+  'camera/sticks': { side: 1.0 },
   'camera/dolly-track': { width: 1.0, depth: 3.0 },
   'camera/slider': { width: 1.2, depth: 0.3 },
   'camera/jib-crane': { width: 1.5, depth: 4.0 },
-  'camera/gimbal': { width: 0.5, depth: 0.5 },
-  'camera/handheld': { width: 0.6, depth: 0.6 },
-  'camera/steadicam': { width: 0.7, depth: 0.7 },
-  'camera/drone': { width: 0.6, depth: 0.6 },
-  // Lights (6.5): placed as `light` items, each the icon it was placed as.
-  'lighting/fresnel': { width: 0.4, depth: 0.4 },
-  'lighting/led-panel': { width: 0.7, depth: 0.4 },
-  'lighting/tube': { width: 1.2, depth: 0.1 },
-  'lighting/cob-softbox': { width: 0.9, depth: 0.9 },
-  'lighting/hmi-par': { width: 0.5, depth: 0.6 },
-  'lighting/china-ball': { width: 0.6, depth: 0.6 },
-  'lighting/practical': { width: 0.3, depth: 0.3 },
-  'lighting/spacelight': { width: 0.8, depth: 0.8 },
-  'lighting/rgb-gel': { width: 0.4, depth: 0.4 },
-  'lighting/window-light': { width: 1.2, depth: 0.3 },
+  'camera/gimbal': { side: 0.5 },
+  'camera/handheld': { side: 0.6 },
+  'camera/steadicam': { side: 0.7 },
+  'camera/drone': { side: 0.6 },
+  // Lights (6.5): placed as `light` items, each the icon it was placed as; all symbols.
+  'lighting/fresnel': { side: 0.4 },
+  'lighting/led-panel': { side: 0.7 },
+  'lighting/tube': { side: 1.2 },
+  'lighting/cob-softbox': { side: 0.9 },
+  'lighting/hmi-par': { side: 0.6 },
+  'lighting/china-ball': { side: 0.6 },
+  'lighting/practical': { side: 0.3 },
+  'lighting/spacelight': { side: 0.8 },
+  'lighting/rgb-gel': { side: 0.4 },
+  'lighting/window-light': { side: 1.2 },
   // Flags and diffusion (6.5): a standing frame is a line from above, 5 cm deep; the overhead lies flat, a square.
   'grip/flag': { width: 0.91, depth: 0.05 },
   'grip/floppy': { width: 1.22, depth: 0.05 },
@@ -44,8 +54,8 @@ export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
   'grip/bounce': { width: 1.22, depth: 0.05 },
   'grip/overhead-8x8': { width: 2.44, depth: 2.44 },
   // North and the sun path (6.6): placed as `north` (in the room's plan) and `sun` (in the setup's) items.
-  'production/north': { width: 0.6, depth: 0.6 },
-  'lighting/sun-path': { width: 0.8, depth: 0.8 },
+  'production/north': { side: 0.6 },
+  'lighting/sun-path': { side: 0.8 },
   'set-art/table': { width: 1.5, depth: 0.8 },
   'set-art/chair': { width: 0.5, depth: 0.5 },
   'set-art/sofa': { width: 2.0, depth: 0.9 },
@@ -55,27 +65,52 @@ export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
   'set-art/column': { width: 0.4, depth: 0.4 },
   'set-art/plant-tree': { width: 0.6, depth: 0.6 },
   'set-art/counter-bar': { width: 2.4, depth: 0.6 },
-  'grip/c-stand': { width: 0.9, depth: 0.9 },
-  'grip/combo-stand': { width: 1.2, depth: 1.2 },
-  'grip/sandbag': { width: 0.4, depth: 0.25 },
-  'grip/apple-box': { width: 0.5, depth: 0.3 },
+  'grip/c-stand': { side: 0.9 },
+  'grip/combo-stand': { side: 1.2 },
+  'grip/sandbag': { side: 0.4 },
+  'grip/apple-box': { side: 0.5 },
   'grip/ladder': { width: 0.6, depth: 1.2 },
   'grip/rostrum': { width: 1.2, depth: 2.4 },
-  'sound/boom': { width: 0.6, depth: 0.6 },
-  'sound/lav': { width: 0.3, depth: 0.3 },
-  'sound/sound-cart': { width: 0.6, depth: 0.9 },
-  'sound/playback': { width: 0.4, depth: 0.4 },
+  'sound/boom': { side: 0.6 },
+  'sound/lav': { side: 0.3 },
+  'sound/sound-cart': { side: 0.9 },
+  'sound/playback': { side: 0.4 },
   'production/video-village': { width: 2.0, depth: 1.5 },
   'production/generator': { width: 0.9, depth: 0.6 },
   'production/distro-cable': { width: 0.6, depth: 0.4 },
   'production/basecamp': { width: 6.0, depth: 3.0 },
-  'production/first-aid': { width: 0.5, depth: 0.5 },
+  'production/first-aid': { side: 0.5 },
   'production/parking': { width: 2.5, depth: 5.0 },
-  'production/hazard': { width: 0.6, depth: 0.6 },
+  'production/hazard': { side: 0.6 },
   'production/zone': { width: 3.0, depth: 3.0 },
   'production/note': { width: 1.5, depth: 0.5 },
-  'production/snap-point': { width: 0.2, depth: 0.2 },
+  'production/snap-point': { side: 0.2 },
 };
+
+/** To the centimetre, never less than one. */
+const toCentimetre = (metres: number): number => Math.max(0.01, Math.round(metres * 100) / 100);
+
+/**
+ * A symbol's size from its longer side: that side as stated, the other in its drawing's proportions (its ink box in
+ * iconBoxes.ts, width across and height down the plan). A drawing with no box (none should lack one) is a square.
+ */
+export function symbolSize(id: string, side: number): IconSize {
+  const box = Object.hasOwn(ICON_BOXES, id) ? ICON_BOXES[id] : undefined;
+  if (!box || !(box.width > 0) || !(box.height > 0)) return { width: side, depth: side };
+  const ratio = box.width / box.height;
+  return ratio >= 1 ? { width: side, depth: toCentimetre(side / ratio) } : { width: toCentimetre(side * ratio), depth: side };
+}
+
+/** Whether an icon's size is stated as a symbol's longer side (its other side from its drawing). */
+export const isSymbolSize = (id: string): boolean => Object.hasOwn(STATED_SIZES, id) && 'side' in (STATED_SIZES[id] ?? {});
+
+/**
+ * Each placeable icon's default size, metres, worked out once from STATED_SIZES. Items already in a file keep the size
+ * they were placed at: this is read only when one is placed.
+ */
+export const ICON_SIZES: Readonly<Record<string, IconSize>> = Object.fromEntries(
+  Object.entries(STATED_SIZES).map(([id, stated]): [string, IconSize] => [id, 'side' in stated ? symbolSize(id, stated.side) : { width: stated.width, depth: stated.depth }]),
+);
 
 /** The set-art icons that are 6.2's tools: in the Library they pick the tool. */
 export const TOOL_ICONS: Readonly<Record<string, string>> = {

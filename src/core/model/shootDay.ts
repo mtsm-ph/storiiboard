@@ -66,7 +66,9 @@ export function projectShootDays(records: Records, projectId: string): ShootDay[
         if (b.fields.date === '') return -1;
         return a.fields.date < b.fields.date ? -1 : 1;
       }
-      return bySortKey(a.record, b.record);
+      // Then the record id (6.6 review): two days an import gave the same date and sort key are numbered the same way
+      // every time, so the day a sun path draws for never depends on the order records were read in.
+      return bySortKey(a.record, b.record) || (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0);
     })
     .map((day, i) => ({ ...day, number: i + 1 }));
 }

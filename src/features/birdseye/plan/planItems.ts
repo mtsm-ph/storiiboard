@@ -69,7 +69,7 @@ import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cam
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
-import { sunBeyond, type SunLook } from './sunDraw';
+import { sunBeyond, sunFitExtent, type SunLook } from './sunDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
 import { frameLabel, iconLabel, planIconOf } from './iconWords';
 import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
@@ -294,12 +294,15 @@ export const sunAnnounce = (look: SunLook | null): string => {
  */
 export function sunItem(id: string, fields: SunFields, look: SunLook | null): CanvasItem {
   const icon = planIconOf(fields.icon) ?? planIconOf(SUN_ICON);
-  const g = toCanvasGeometry(fields);
+  // Never turned (6.6 review): one imported with a turn of its own is drawn upright, as nothing could turn it back.
+  const g = { ...toCanvasGeometry(fields), rotation: 0 };
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
-  return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}) };
+  // Fit all takes in its whole circle (sunFitExtent), never the far wider reach kept for culling.
+  const fit = look ? sunFitExtent(g, look) : null;
+  return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}), ...(fit ? { fitExtent: fit } : {}) };
 }
 
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
@@ -1330,7 +1333,12 @@ export function planPasteInView(
   // One north per room (6.6): a paste never makes a second, into a room that has one or twice in one paste.
   const northIn = new Set<string>();
   const roomFor = (planId: string | null): string | null => {
-    if (planId === null || northIn.has(planId) || roomNorthItem(records, planId) !== null) {
+    // A scene with no room has nowhere for it: left out, as any item with no plan to go to (6.6 review).
+    if (planId === null || planKindOf(records, planId) !== 'room') {
+      out.count += 1;
+      return null;
+    }
+    if (northIn.has(planId) || roomNorthItem(records, planId) !== null) {
       out.north += 1;
       return null;
     }
@@ -1338,7 +1346,8 @@ export function planPasteInView(
     return planId;
   };
   const target = (item: PlanClip): string | null => {
-    if (isNorth(item.fields)) return roomFor(base(item));
+    // North is the room's alone: into the room shown, whatever plan it was copied from.
+    if (isNorth(item.fields)) return roomFor(plans.room?.id ?? null);
     const from = item.planId ?? null;
     const fromSetup = planKindOf(records, from) === 'setup';
     // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown; a sun path (6.6) too.

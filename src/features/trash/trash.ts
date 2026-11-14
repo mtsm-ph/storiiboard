@@ -277,6 +277,17 @@ export function restoreClash(records: Records, id: string): string | null {
 }
 
 /**
+ * Whether bringing back this north would give its room a second one (6.6 review): one north per room, and the room's
+ * north is its first in plan order, so a second restored would silently turn every scene's north. The Trash says so
+ * rather than restore it; restoreChanges gives nothing for it.
+ */
+export function northClash(records: Records, id: string): boolean {
+  const record = records[id];
+  if (record?.type !== 'plan_item' || record.props.kind !== 'north' || record.trashedAt === null || record.parentId === null) return false;
+  return Object.values(records).some((r) => r.type === 'plan_item' && r.id !== id && r.trashedAt === null && r.parentId === record.parentId && r.props.kind === 'north');
+}
+
+/**
  * Everything in the project's Trash, the most recently deleted first; a scene's frames deleted with it are in its row.
  * `unit`: the plan's unit a frame's size is named in (the tile passes usePlanUnit's, so the list follows the setting).
  */
@@ -374,6 +385,8 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       // A room comes back with the items that went to the Trash with it (6.2a), not ones deleted before.
       return restorePlanChanges(records, id);
     case 'plan_item': {
+      // A north whose room has one now stays in the Trash (northClash): never a second north.
+      if (northClash(records, id)) return [];
       // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
       const own: Change[] = parent?.type !== 'plan' || parent.trashedAt === null ? [{ kind: 'restore', id }] : restorePlanChanges(records, parent.id);
       // A wall comes back with the doors and windows that went with it; a door or window whose wall is in the Trash
