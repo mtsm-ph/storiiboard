@@ -1,9 +1,13 @@
-// The kit's 68 bird's-eye plan icons (see INDEX.md here): 32px grid, 1.5px ink stroke, department fill.
-// Phase 5 draws them on the plan canvas; for now the catalogue shows them.
+import { PLAN_LAYERS, type PlanLayer } from '../../../core/model/plan';
 
-export const PLAN_ICON_GROUPS = ['camera', 'lighting', 'grip', 'set-art', 'cast', 'sound', 'production'] as const;
+// The kit's 68 bird's-eye plan icons (see INDEX.md here): 32px grid, 1.5px ink stroke, department fill. Phase 6 (6.3)
+// places them on plans from the Library tile, drawn exactly as these SVGs are, never recoloured, in light and dark
+// (docs/PHASE6_DECISIONS.md 13); the catalogue shows them too.
 
-export type PlanIconGroup = (typeof PLAN_ICON_GROUPS)[number];
+/** The icons' groups, which are the plan's layers (src/core/model/plan.ts). */
+export const PLAN_ICON_GROUPS = PLAN_LAYERS;
+
+export type PlanIconGroup = PlanLayer;
 
 export interface PlanIcon {
   /** "camera/dolly-track": the file path inside this folder, without .svg. */

@@ -18,6 +18,8 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
+import { iconIdOf, planFields } from '../../core/model/plan';
+import { anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -371,6 +373,8 @@ export interface FieldChange {
   item?: true;
   /** A plan item's prop (6.2a), named as the Selection tile names it. */
   planItem?: true;
+  /** A library icon's (6.3): its width is across and its height its depth, not a wall's length and thickness. */
+  planIcon?: true;
   /** A connector's (5.2): its width is a line's, not a size, and its route and heads have words of their own. */
   connector?: true;
 }
@@ -420,11 +424,45 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
-  if (after.type === 'plan_item') return changes.map((change) => ({ ...change, planItem: true as const }));
+  if (after.type === 'plan_item') {
+    const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(after.props.kind === 'icon' ? { planIcon: true as const } : {}) }));
+    return after.props.kind === 'icon' ? iconMiddles(before, after, marked) : marked;
+  }
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
   }
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
+}
+
+/**
+ * A library icon's place as the Selection tile shows it (6.3 review): its middle, not its corner. Its x and y entries
+ * read the middle before and after, there whenever the middle moved (a resize from a corner too), gone when it didn't
+ * (a size typed about the middle).
+ */
+function iconMiddles(before: SbdRecord, after: SbdRecord, changes: FieldChange[]): FieldChange[] {
+  const middle = (props: Props, at: string, size: string): number | null => {
+    const a = props[at];
+    const b = props[size];
+    return typeof a === 'number' && typeof b === 'number' ? Math.round((a + b / 2) * 10000) / 10000 : null;
+  };
+  const axes = [
+    { at: 'x', size: 'width' },
+    { at: 'y', size: 'height' },
+  ] as const;
+  const out = changes.filter((change) => change.prop !== 'x' && change.prop !== 'y');
+  for (const { at, size } of axes) {
+    const was = middle(before.props, at, size);
+    const now = middle(after.props, at, size);
+    const touched = changes.some((change) => change.prop === at || change.prop === size);
+    if (!touched) continue;
+    // Not both numbers (an import's): the corner as it was stored.
+    if (was === null || now === null) {
+      out.push(...changes.filter((change) => change.prop === at));
+      continue;
+    }
+    if (was !== now) out.push({ prop: at, before: was, after: now, planItem: true, planIcon: true });
+  }
+  return out;
 }
 
 /** A call sheet's two notes: private, said only as set, changed or removed. */
@@ -517,6 +555,12 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   wall_id: 'history.field.wall',
 });
 
+/** A library icon's own props by the Selection tile's words (6.3); the rest are a wall's. */
+const PLAN_ICON_FIELD: Readonly<Record<string, string>> = labels({
+  width: 'history.field.openingWidth',
+  height: 'history.field.depth',
+});
+
 /** A connector's props by the words a person uses (5.2). */
 const CONNECTOR_FIELD: Readonly<Record<string, string>> = labels({
   route: 'history.field.route',
@@ -556,6 +600,8 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
   change.connector === true && Object.hasOwn(CONNECTOR_FIELD, change.prop)
     ? (CONNECTOR_FIELD[change.prop] ?? change.prop)
+    : change.planIcon === true && Object.hasOwn(PLAN_ICON_FIELD, change.prop)
+    ? (PLAN_ICON_FIELD[change.prop] ?? change.prop)
     : change.planItem === true && Object.hasOwn(PLAN_ITEM_FIELD, change.prop)
     ? (PLAN_ITEM_FIELD[change.prop] ?? change.prop)
     : change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
@@ -796,6 +842,8 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     if (only(['hinge', 'swing'])) return say('history.openingsFlipped');
     return say('history.openingsChanged');
   }
+  // Library icons (6.3), named as what they are: "Placed a sofa in Diner"; several, or mixed with walls, counted.
+  if (kinds.has('icon')) return iconLine(items, n, around);
   const walls = items.filter((op) => record(op)?.props.kind === 'wall');
   const w = new Set(walls.map((op) => op.recordId)).size;
   if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
@@ -814,6 +862,47 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', m)];
   if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', m)];
   return [tn('history.wallsChanged', m)];
+}
+
+/**
+ * A step of library icons (6.3), or of icons with walls, doors and windows: one icon by what it is ("Placed a sofa in
+ * Diner", the room named when it went into one), several counted as plan items.
+ */
+function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<string, SbdRecord>): Line {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
+  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+  const first = items[0] ? record(items[0]) : null;
+  if (n > 1 || !first || first.props.kind !== 'icon') {
+    if (all('create')) return [tn('history.planItemsPlaced', n)];
+    if (all('trash')) return [tn('history.planItemsDeleted', n)];
+    if (all('restore')) return [tn('history.planItemsRestored', n)];
+    if (all('move')) return [tn('history.planItemsReordered', n)];
+    if (!all('update')) return [tn('history.planItemsChanged', n)];
+    if (only(['x', 'y', 'along_m', 'wall_id'])) return [tn('history.planItemsMoved', n)];
+    if (props.has('rotation') && only(['x', 'y', 'rotation', 'along_m'])) return [tn('history.planItemsTurned', n)];
+    if (only(['x', 'y', 'width', 'height', 'rotation', 'along_m', 'width_m'])) return [tn('history.planItemsResized', n)];
+    return [tn('history.planItemsChanged', n)];
+  }
+  const what = iconIdOf(first.props) !== '' ? anIcon(iconIdOf(first.props)) : t('history.aPlanItem');
+  if (all('create')) {
+    const plan = first.parentId ? around.get(first.parentId) : undefined;
+    const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
+    return fields?.kind === 'room' && fields.name !== '' ? [t('history.iconPlacedIn', { what, room: fields.name })] : [t('history.iconPlaced', { what })];
+  }
+  if (all('trash')) return [t('history.iconDeleted', { what })];
+  if (all('restore')) return [t('history.iconRestored', { what })];
+  if (all('move')) return [tn('history.planItemsReordered', 1)];
+  if (!all('update')) return [t('history.iconChanged', { what })];
+  if (only(['name'])) {
+    const name = typeof first.props.name === 'string' ? first.props.name.trim() : '';
+    return [name === '' ? t('history.iconUnnamed', { what }) : t('history.iconNamed', { what, name })];
+  }
+  if (only(['x', 'y'])) return [t('history.iconMoved', { what })];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.iconTurned', { what })];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [t('history.iconResized', { what })];
+  return [t('history.iconChanged', { what })];
 }
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
@@ -851,6 +940,8 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     case 'plan':
       return roomName(record);
     case 'plan_item':
+      // A library icon (6.3) by what it is: "a sofa".
+      if (record.props.kind === 'icon') return iconIdOf(record.props) !== '' ? anIcon(iconIdOf(record.props)) : t('history.aPlanItem');
       return t(record.props.kind === 'door' ? 'history.aDoor' : record.props.kind === 'window' ? 'history.aWindow' : 'history.aWall');
     case 'board':
       return boardTitle(record);

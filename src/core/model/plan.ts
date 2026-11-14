@@ -21,11 +21,27 @@ export const PLAN_KINDS = ['room', 'blocking', 'setup'] as const;
 export type PlanKind = (typeof PLAN_KINDS)[number];
 export type PlanLevel = PlanKind;
 
-/** Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls only and keeps the rest unseen. */
-export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'set_piece', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
+/**
+ * Every kind a later milestone writes (SBD_FORMAT.md); this version shows walls, doors, windows and icons and keeps the
+ * rest unseen. A set piece is an `icon` whose icon is in the set-art group (6.3), never a kind of its own.
+ */
+export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'mark', 'path', 'north', 'sun', 'underlay', 'measure'] as const;
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
-/** The kinds this version draws: walls (6.2a), and the doors and windows in them (6.2b). */
-export type ShownKind = 'wall' | OpeningKind;
+/** The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), and the library's icons (6.3). */
+export type ShownKind = 'wall' | OpeningKind | 'icon';
+
+/**
+ * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
+ * group, the first part of its id ("set-art/sofa"): worked out, never stored.
+ */
+export const PLAN_LAYERS = ['camera', 'lighting', 'grip', 'set-art', 'cast', 'sound', 'production'] as const;
+export type PlanLayer = (typeof PLAN_LAYERS)[number];
+
+/** An icon id's group ("set-art" for "set-art/sofa"), or null for an id outside every group. */
+export function iconGroup(icon: string): PlanLayer | null {
+  const group = icon.split('/')[0] ?? '';
+  return PLAN_LAYERS.find((layer) => layer === group) ?? null;
+}
 const SHOWN_KINDS: readonly string[] = ['wall'];
 export const OPENING_KINDS = ['door', 'window'] as const;
 export type OpeningKind = (typeof OPENING_KINDS)[number];
@@ -36,6 +52,15 @@ export const OPENING_WIDTH: Readonly<Record<OpeningKind, number>> = { door: 0.9,
 export const WALL_THICKNESS = 0.1;
 /** The least a length or thickness reads as: a centimetre. */
 export const MIN_PLAN_SIZE = 0.01;
+/**
+ * How far from the plan's origin an item's place may be, and how large it may be, metres (6.3 review): past them (an
+ * import's 1e308) the item is unreadable, kept in the file as it is but never shown or rewritten, as one of no size is,
+ * so the canvas never works in infinite units and Fit always finds a view.
+ */
+export const PLAN_REACH = 10000;
+export const PLAN_MAX_SIZE = 1000;
+const inReach = (v: number): boolean => Math.abs(v) <= PLAN_REACH;
+const notHuge = (v: number): boolean => v <= PLAN_MAX_SIZE;
 
 const num = (value: JsonValue | undefined): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -98,6 +123,7 @@ export function planItemFields(props: Props): PlanItemFields | null {
   const width = num(props.width);
   if (x === null || y === null || width === null || width <= 0) return null;
   const height = num(props.height);
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || (height !== null && !notHuge(height))) return null;
   const heightM = num(props.height_m);
   return {
     kind,
@@ -140,8 +166,9 @@ export function openingFields(props: Props): OpeningFields | null {
   if (!kind) return null;
   const wallId = text(props.wall_id);
   const along = num(props.along_m);
-  if (wallId === '' || along === null || along < 0) return null;
+  if (wallId === '' || along === null || along < 0 || !inReach(along)) return null;
   const width = num(props.width_m);
+  if (width !== null && !notHuge(width)) return null;
   const heightM = num(props.height_m);
   return {
     kind,
@@ -155,13 +182,72 @@ export function openingFields(props: Props): OpeningFields | null {
   };
 }
 
-/** Any item this version shows: a wall, a door or a window. */
-export type ShownFields = PlanItemFields | OpeningFields;
+/**
+ * A library icon on a plan (6.3): the kit's icon id (`set-art/sofa`), and a box in metres as a wall's, `width` across
+ * and `height` its depth, turned round its middle. Its real height (`height_m`) is kept, not drawn (decision 11). An id
+ * this version doesn't know is still an icon: drawn as a plain outline, its record untouched.
+ */
+export interface IconFields {
+  kind: 'icon';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+}
+
+/**
+ * An item's icon id as every reader takes it (6.3 review): its `icon` trimmed, so an imported " set-art/sofa" is a sofa
+ * to the drawing, its level and its layer alike; '' when it has none.
+ */
+export const iconIdOf = (props: Props): string => text(props.icon).trim();
+
+/** An icon's props, or null when it isn't one that can be read (no icon id, no place or size). */
+export function iconFields(props: Props): IconFields | null {
+  if (props.kind !== 'icon') return null;
+  const icon = iconIdOf(props);
+  const x = num(props.x);
+  const y = num(props.y);
+  const width = num(props.width);
+  const height = num(props.height);
+  if (icon === '' || x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || !notHuge(height)) return null;
+  const heightM = num(props.height_m);
+  return {
+    kind: 'icon',
+    icon,
+    x,
+    y,
+    width: Math.max(MIN_PLAN_SIZE, width),
+    height: Math.max(MIN_PLAN_SIZE, height),
+    rotation: normalDegrees(num(props.rotation) ?? 0),
+    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    name: text(props.name).trim(),
+  };
+}
+
+/** Any item this version shows: a wall, a door, a window or an icon. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
-export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props);
+export const shownFields = (props: Props): ShownFields | null => planItemFields(props) ?? openingFields(props) ?? iconFields(props);
 
-export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind !== 'wall';
+export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
+export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
+export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
+
+/**
+ * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a wall, door or window
+ * the set's (art). Null for a kind this version doesn't show.
+ */
+export function planItemLayer(props: Props): PlanLayer | null {
+  if (props.kind === 'icon') return iconGroup(iconIdOf(props));
+  if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
+  return null;
+}
 
 const livePlan = (records: Records, id: unknown, kind: PlanKind): SbdRecord | null => {
   if (typeof id !== 'string' || id === '') return null;
@@ -256,8 +342,8 @@ export function shownItems(records: Records, sceneId: string, setupId: string | 
 
 /**
  * An opening as it reads in a wall of this length (6.2b review): inside it, half its width from each end, no wider than
- * the wall. A wall may be shortened past an opening that only another scene's view shows (each view checks only what it
- * shows); that opening is read inside the wall, never rewritten and never dropped.
+ * the wall. No edit shortens a wall past any of its openings (6.2b second review), but one may arrive so otherwise (an
+ * import, a History put-back); that opening is read inside the wall, never rewritten and never dropped.
  */
 export function keptInWall(o: OpeningFields, wallLength: number): OpeningFields {
   const width = Math.min(o.width, wallLength);
@@ -282,9 +368,9 @@ export interface PlanViewOf {
 
 /**
  * The openings that share a view with a wall (6.2b review): those in the wall's own plan and in the plans the view shows
- * (the scene's room, its blocking, the setup's own), read inside the wall. Every check on a wall's openings (a door put
- * in, nudged, dragged, typed; the wall's least length) sees these, exactly what the person sees, never a door that only
- * another scene's setup shows. With no view, every plan's.
+ * (the scene's room, its blocking, the setup's own), read inside the wall. Where a door goes (put in, nudged, dragged,
+ * typed) sees these, exactly what the person sees, never a door that only another scene's setup shows. With no view,
+ * every plan's: the wall's least length counts those (6.2b second review), so no door loses its place.
  */
 export function openingsInView(records: Records, wallId: string, view?: PlanViewOf | null): { record: SbdRecord; fields: OpeningFields }[] {
   const all = openingsOf(records, wallId);
@@ -301,7 +387,8 @@ export function openingsInView(records: Records, wallId: string, view?: PlanView
 export function trashedWithWall(records: Records, wall: SbdRecord): SbdRecord[] {
   if (wall.trashedAt === null) return [];
   return Object.values(records).filter(
-    (r) => r.type === 'plan_item' && r.trashedAt === wall.trashedAt && r.trashedBy === wall.trashedBy && openingFields(r.props)?.wallId === wall.id,
+    // Any item in the wall (a kind a later version writes too), as a scene leaving its room trashes them all.
+    (r) => r.type === 'plan_item' && r.id !== wall.id && r.trashedAt === wall.trashedAt && r.trashedBy === wall.trashedBy && r.props.wall_id === wall.id,
   );
 }
 
@@ -349,11 +436,26 @@ export function trashPlanChanges(records: Records, planId: string): Change[] {
   return [{ kind: 'trash', id: planId }, ...items.map((r): Change => ({ kind: 'trash', id: r.id }))];
 }
 
-/** A trashed plan and the items that went to the Trash with it, brought back; not the ones deleted before it. */
+/**
+ * A trashed plan and the items that went to the Trash with it, brought back; not the ones deleted before it. Each wall
+ * it brings back brings the doors and windows that went with that wall, whatever plan they sit in (6.2b review: a
+ * scene's own door in a room wall, trashed by Delete room, sits in the scene's setup's plan, not the room's).
+ */
 export function restorePlanChanges(records: Records, planId: string): Change[] {
   const plan = records[planId];
   if (plan?.type !== 'plan' || plan.trashedAt === null) return [];
-  return [{ kind: 'restore', id: planId }, ...trashedWithPlan(records, plan).map((r): Change => ({ kind: 'restore', id: r.id }))];
+  const items = trashedWithPlan(records, plan);
+  const ids = new Set([planId, ...items.map((r) => r.id)]);
+  const openings: SbdRecord[] = [];
+  for (const wall of items) {
+    if (wall.props.kind !== 'wall') continue;
+    for (const r of trashedWithWall(records, wall)) {
+      if (ids.has(r.id)) continue;
+      ids.add(r.id);
+      openings.push(r);
+    }
+  }
+  return [{ kind: 'restore', id: planId }, ...[...items, ...openings].map((r): Change => ({ kind: 'restore', id: r.id }))];
 }
 
 /**

@@ -658,12 +658,18 @@ test('a wall made this setup’s only leaves the scene’s other setup and the s
   await sceneSetup(page, 'SC 02').first().click();
   await expect.poll(() => widths(page)).toEqual([4]);
 
-  // A narrow tile: the header and the tools wrap, nothing runs out of it.
+  // A narrow tile: the header and the tools wrap, nothing runs out of it. 150 px is narrower than the tool group's own
+  // row (measured here, so the test fails if the tools stop wrapping): they must take more than one row.
   const strip = planTile(page).locator('[data-plan-tile] > div').first();
+  const group = strip.getByRole('group', { name: 'Tools' });
+  const row = await group.evaluate((el) => [...el.querySelectorAll('button')].reduce((sum, b) => sum + b.getBoundingClientRect().width, 0));
   await planTile(page).locator('[data-plan-tile]').evaluate((tile) => {
-    (tile as HTMLElement).style.width = '320px';
+    (tile as HTMLElement).style.width = '150px';
   });
   await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
+  expect(row).toBeGreaterThan(await strip.evaluate((el) => el.clientWidth));
+  const rows = await group.evaluate((el) => new Set([...el.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+  expect(rows).toBeGreaterThan(1);
   expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   const tools = await strip.evaluate((el) => [...el.querySelectorAll('button')].every((b) => b.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1));
   expect(tools).toBe(true);

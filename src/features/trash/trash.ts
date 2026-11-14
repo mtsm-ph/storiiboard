@@ -16,6 +16,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { setupFields } from '../../core/model/setup';
+import { iconLabel } from '../birdseye/plan/iconWords';
 import { openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
@@ -201,8 +202,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       // "Wall in Diner": what it is and the room, or the scene's plan, it was in.
       const plan = record.parentId ? records[record.parentId] : undefined;
       const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
-      const kind = shownFields(record.props)?.kind;
-      const item = kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      const shown = shownFields(record.props);
+      const kind = shown?.kind;
+      // A library icon (6.3) by what it is: "Sofa in Diner".
+      const item = shown?.kind === 'icon' ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }
