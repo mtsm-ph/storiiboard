@@ -3465,6 +3465,11 @@ export const en = {
   'layers.said.mine': 'Your department’s layers shown, the rest dimmed',
   'layers.said.locked': '{layer}: locked',
   'layers.said.unlocked': '{layer}: unlocked',
+  'layers.said.soloEndedBy': '{layer} solo ended',
+  'layers.said.then': '{first}. {then}',
+  'layers.note.solo': '{layer} solo',
+  'layers.endSolo': 'End solo',
+  'layers.dimmedBySolo': 'Dimmed while {layer} is solo',
   // src/features/birdseye/plan (6.9): the room's underlays and measures
   'plan.tool.measure': 'Measure',
   'plan.tool.scale': 'Set scale',

@@ -15,6 +15,7 @@ import { TOOL_ICONS, WALK_PATH_ICON } from './iconSizes';
 import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
 import { NEXT_POSITION_ICON } from '../../../core/model/plan';
 import { nextFromSelection, placeIcon, type PlaceOutcome, type PlanView } from './planActions';
+import { choosePlanTool } from './layersStore';
 import { viewKey, type IconRefusal } from './planItems';
 import { planScale } from './planScale';
 import { planStore, planViewportOf } from './planStore';
@@ -307,7 +308,7 @@ function IconButton({
   /** Enter, Space or a click without a drag: a tool picked, or the icon in the middle of the view. */
   const activate = () => {
     if (tool) {
-      planStore.getState().setTool(tool);
+      choosePlanTool(tool);
       focusPlan();
       return;
     }

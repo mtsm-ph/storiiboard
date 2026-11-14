@@ -3464,6 +3464,11 @@ export const es: Messages = {
   'layers.said.mine': 'Las capas de tu departamento visibles, las demás atenuadas',
   'layers.said.locked': '{layer}: bloqueada',
   'layers.said.unlocked': '{layer}: desbloqueada',
+  'layers.said.soloEndedBy': 'Terminó el solo de {layer}',
+  'layers.said.then': '{first}. {then}',
+  'layers.note.solo': 'Solo de {layer}',
+  'layers.endSolo': 'Terminar el solo',
+  'layers.dimmedBySolo': 'Atenuada mientras {layer} está en solo',
   // src/features/birdseye/plan (6.9): las imágenes de fondo y las medidas del espacio
   'plan.tool.measure': 'Medida',
   'plan.tool.scale': 'Fijar escala',

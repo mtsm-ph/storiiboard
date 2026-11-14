@@ -46,7 +46,7 @@ import { Canvas } from '../../../ui/canvas/Canvas';
 import { toWorld } from '../../../ui/canvas/viewport';
 import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
-import type { CanvasCommand, CanvasItem, Point, Tool } from '../../../ui/canvas/types';
+import type { CanvasCommand, CanvasItem, Point } from '../../../ui/canvas/types';
 import { useDrawnLevels } from '../../moodboards/PictureNode';
 import { TextField } from '../../../ui/fields';
 import { InAppWindow } from '../../../ui/InAppWindow';
@@ -89,7 +89,8 @@ import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, o
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, MEASURE_TOOL, PLAN_CANVAS_TOOLS, PLAN_TOOLS, PLAN_ZOOM, planScale, SCALE_TOOL, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { roomUnderlays, scaleTarget, underlayPictures, unscaledIn } from './underlayEdits';
 import { blockingLooks } from './markLooks';
-import { clearLayersSaid, revealLayers, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates } from './layersStore';
+import { choosePlanTool, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -503,17 +504,6 @@ export function layerKeyFor(event: { code: string; key?: string; shiftKey?: bool
   return digit === '0' ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
 }
 
-/**
- * A tool chosen (6.8 review, L7): the Wall, Door and Window tools draw on the set's layer, so that layer is shown and
- * unlocked first (with the usual notice), as placing on it would: a door is never refused for walls out of sight.
- */
-function choosePlanTool(next: Tool): void {
-  if (next === WALL_TOOL || next === DOOR_TOOL || next === WINDOW_TOOL) revealLayers(['set-art']);
-  // A measure (6.9) is production's.
-  if (next === MEASURE_TOOL) revealLayers(['production']);
-  planStore.getState().setTool(next);
-}
-
 /** The two points Set scale's clicks left (6.9, metres), for its question, with the underlay and the project they were made in. */
 interface ScaleAsk {
   underlayId: string;
@@ -588,9 +578,30 @@ function ScaleWindow({ ask, onClose, onScale }: { ask: ScaleAsk; onClose: () => 
 /** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
 const layerData = (look: LayerLook | undefined) => ({ ...(look?.dim ? { dim: true } : {}), ...(look?.locked ? { locked: true } : {}) });
 
-/** "2 layers hidden · 1 locked" (6.8) and Show all, while any layer is hidden or locked, so a missing item isn't a mystery. */
+/**
+ * "2 layers hidden · 1 locked" (6.8) and Show all, while any layer is hidden or locked, so a missing item isn't a mystery.
+ * During a solo (L2) "Camera solo" and End solo instead: the solo's locks are its own, not a count to clear.
+ */
 function LayersNote({ states }: { states: PlanLayerStates }) {
+  const solo = useSoloLayer();
   const { hidden, locked } = layerNote(states);
+  if (solo !== null) {
+    return (
+      <p className="flex min-w-0 items-center gap-1.5 text-[12px]" data-layers-note="" data-layers-solo={solo}>
+        <span className="truncate">{t('layers.note.solo', { layer: groupName(solo) })}</span>
+        <button
+          type="button"
+          data-layers-end-solo=""
+          className="sb-label h-7 shrink-0 px-1 underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4"
+          onClick={() => {
+            soloLayer(solo, 'plan');
+          }}
+        >
+          {t('layers.endSolo')}
+        </button>
+      </p>
+    );
+  }
   if (hidden === 0 && locked === 0) return null;
   const parts = [hidden > 0 ? tn('layers.note.hidden', hidden) : null, locked > 0 ? tn('layers.note.locked', locked) : null].filter((p): p is string => p !== null);
   return (
@@ -918,7 +929,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           items={items}
           selection={selection}
           onSelectionChange={(ids) => {
-            clearLayersSaid();
+            // The layer words leave the spoken line with it (layersStore.ts, L3).
             planStore.getState().select(key, ids);
           }}
           announcement={layersSaid}

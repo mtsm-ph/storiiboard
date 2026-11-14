@@ -56,7 +56,7 @@ import {
   type WallPatch,
 } from './planItems';
 import { iconSize } from './iconSizes';
-import { layerStatesNow, revealLayersOf, showUnderlayRow } from './layersStore';
+import { layerStatesNow, ownEdit, revealLayersOf, showUnderlayRow } from './layersStore';
 import { addUnderlayChanges, isPdfName, setScaleChanges } from './underlayEdits';
 import { prepare, reason } from '../../storyboard/addPictures';
 import { picturesBusy } from '../../storyboard/picturesBusy';
@@ -77,9 +77,10 @@ export interface PlanView {
 /**
  * What a step made or picked is selected; every placement goes through here, so an item placed on a hidden or locked
  * layer has that layer shown and unlocked first, and said (6.8): nothing is placed that can't then be seen and picked.
+ * `lead`: what else the step says, in the same notice before the reveal's (L4).
  */
-const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records) => {
-  revealLayersOf(ids, records);
+const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records, lead: readonly string[] = []) => {
+  revealLayersOf(ids, records, lead);
   planStore.getState().select(viewKey(view.sceneId, view.setupId), ids);
 };
 
@@ -212,16 +213,14 @@ export async function deletePlanSelection(view: PlanView): Promise<void> {
   if (written) select(view, []);
 }
 
-/** A door or window selected without its wall is copied only with it: said, as the usual notice. */
-function sayLeftOut(records: Records, ids: readonly string[]): void {
-  if (openingsLeftOut(records, ids)) showInfo(t('plan.openingCopiedWithWall'));
-}
+/** A door or window selected without its wall is copied only with it: the words for it, or none. */
+const leftOutWords = (records: Records, ids: readonly string[]): string[] => (openingsLeftOut(records, ids) ? [t('plan.openingCopiedWithWall')] : []);
 
 export function copyPlanSelection(view: PlanView): number {
   const { records } = projectStore.getState();
   const ids = planSelection(records, view);
   const clip = planClipOf(records, ids, view);
-  sayLeftOut(records, ids);
+  for (const words of leftOutWords(records, ids)) showInfo(words);
   if (clip.length > 0) planStore.getState().copy(clip);
   return clip.length;
 }
@@ -233,10 +232,14 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
 /**
  * Paste, each copy into the plan its original sits in (a setup's only wall stays that setup's), or the view's plan of
  * that level; at the pointer or 16 cm from the originals; the pasted are selected. A setup's icon pasted into a scene
- * with no setup shown is left out, and said.
+ * with no setup shown is left out, and said. Everything the paste says is one notice (L4), in order: `lead` (what a
+ * Duplicate left out), what was left out or not pasted, then what the reveal showed or unlocked and a solo ended.
  */
-export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard): Promise<void> {
-  if (clip.length === 0) return;
+export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard, lead: readonly string[] = []): Promise<void> {
+  if (clip.length === 0) {
+    if (lead.length > 0) showInfo(lead.join(' '));
+    return;
+  }
   let ids: string[] = [];
   const out = { count: 0, north: 0 };
   const written = await projectStore.getState().applyWith((records) => {
@@ -246,21 +249,20 @@ export async function pastePlan(view: PlanView, at: Point | null, clip = planSto
     out.north = made.northKept ?? 0;
     return { changes: made.changes };
   });
-  if (out.count > 0) showInfo(t('library.noSetup'));
   // One north per room (6.6): a pasted north the room already has is left out, and said; the room's own is selected
   // with what was pasted, and its layer shown and unlocked, as placing a north does (6.8 review, L6).
-  if (out.north > 0) showInfo(t('plan.north.notPasted'));
+  const said = [...lead, ...(out.count > 0 ? [t('library.noSetup')] : []), ...(out.north > 0 ? [t('plan.north.notPasted')] : [])];
   const records = projectStore.getState().records;
   const kept = out.north > 0 ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
-  if (written) select(view, kept === null ? ids : [...ids, kept]);
+  if (written) select(view, kept === null ? ids : [...ids, kept], records, said);
+  else if (said.length > 0) showInfo(said.join(' '));
 }
 
-/** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
+/** Duplicate is Copy then Paste offset from the originals, without touching the clipboard; one notice for both. */
 export async function duplicatePlanSelection(view: PlanView): Promise<void> {
   const { records } = projectStore.getState();
   const ids = planSelection(records, view);
-  sayLeftOut(records, ids);
-  await pastePlan(view, null, planClipOf(records, ids, view));
+  await pastePlan(view, null, planClipOf(records, ids, view), leftOutWords(records, ids));
 }
 
 /** A field changed in the Selection tile, on every selected wall it fits (every plan's doors counted): one op group. */
@@ -408,9 +410,12 @@ export async function nextFromSelection(view: PlanView, madeIn: Project | null, 
   return outcome === null ? null : outcome === 'otherProject' ? 'otherProject' : 'saidAlready';
 }
 
-/** The selected marks given to a character, a camera or no one (6.7): one op group. */
+/**
+ * The selected marks given to a character, a camera or no one (6.7): one op group. A mark given a camera moves to the
+ * camera's layer: hidden or locked, that layer is shown and unlocked, and said, so the mark stays selected (L1).
+ */
 export const setMarkOwner = (view: PlanView, ids: readonly string[], choice: OwnerChoice) =>
-  plannedEdit((r) => markOwnerChanges(r, view, ids, choice, markSizes()));
+  ownEdit(ids, () => plannedEdit((r) => markOwnerChanges(r, view, ids, choice, markSizes())));
 
 /** The sizes a mark takes when it becomes a character's or a plain one (iconSizes.ts). */
 export const markSizes = () => ({ character: iconSize(CAST_MARK_ICON) ?? { width: 0.5, depth: 0.5 }, plain: iconSize(MARK_ICON) ?? { width: 0.3, depth: 0.3 } });
