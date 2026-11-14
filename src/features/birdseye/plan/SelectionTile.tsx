@@ -30,7 +30,7 @@ import { Select, TextField, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
 import { changeIcons, changeOpenings, changeWalls, renameRoom, setupOnly, type PlanView } from './planActions';
-import { iconCentre, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
+import { iconCentre, iconPatchRefused, openingDistances, openingPatchChanges, viewKey, wallNeedIn, wallsTakeLength, type IconPatch, type OpeningPatch, type WallPatch } from './planItems';
 import { usePlan } from './planStore';
 import { AlsoIn, useLiveView } from './PlanTile';
 
@@ -144,7 +144,7 @@ function SelectionContent() {
         ) : openings.length === selected.length ? (
           <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
         ) : icons.length === selected.length ? (
-          <IconFieldsView ids={ids} icons={icons} unit={unit} />
+          <IconFieldsView ids={ids} icons={icons} unit={unit} records={records} />
         ) : (
           <p className="sb-label" data-selection-kind="">
             {tn('selection.items', selected.length)}
@@ -411,9 +411,11 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
  * A library icon's fields (6.3): its name, width and depth, its real height, its rotation and its middle, each typed;
  * a new size or rotation keeps its middle where it is. Several: the fields they share, and a change goes to each.
  */
-function IconFieldsView({ ids, icons, unit }: { ids: readonly string[]; icons: readonly IconFields[]; unit: PlanUnit }) {
+function IconFieldsView({ ids, icons, unit, records }: { ids: readonly string[]; icons: readonly IconFields[]; unit: PlanUnit; records: Records }) {
   const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
   const write = (patch: IconPatch): boolean => {
+    // Under a centimetre, or past the plan's reach or size: refused, nothing saved (6.3 review).
+    if (iconPatchRefused(records, ids, patch)) return false;
     void changeIcons(ids, patch);
     return true;
   };

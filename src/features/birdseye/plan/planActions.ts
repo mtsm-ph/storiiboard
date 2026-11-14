@@ -228,19 +228,26 @@ export async function flipDoors(ids: readonly string[], what: 'swing' | 'hinge')
   return projectStore.getState().applyWith((records) => ({ changes: flipDoorsChanges(records, ids, what) }));
 }
 
+/** Why a placement wrote nothing: a refusal the Library says, or the drag or key ended in another project than it began. */
+export type PlaceOutcome = IconRefusal | 'otherProject' | null;
+
 /**
  * A library icon placed in a view (6.3), its middle at `centre` (metres): one op group, the setup's plan made in it
  * when needed; the new icon is selected. Refused, nothing is written and the refusal comes back for the Library to say.
+ * Only into the open project the drag or key began in (`madeIn`, as drawWalls has it): one dropped after a switch (to a
+ * version or a backup sharing its ids) writes nothing anywhere.
  */
-export async function placeIcon(view: PlanView, icon: string, centre: { x: number; y: number }): Promise<IconRefusal | null> {
+export async function placeIcon(view: PlanView, icon: string, centre: { x: number; y: number }, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<PlaceOutcome> {
+  // Checked before the edit is queued: applyWith takes the project open when it's called as the one the edit is for.
+  if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
   const id = crypto.randomUUID();
   const refused: { why: IconRefusal | null } = { why: null };
-  const written = await projectStore.getState().applyWith((records) => {
+  const written = await store.getState().applyWith((records) => {
     refused.why = iconRefusal(records, view, icon);
     return { changes: refused.why === null ? placeIconChanges(records, view, icon, centre, id) : [] };
   });
   if (refused.why !== null) return refused.why;
-  if (written) select(view, [id]);
+  if (written && store.getState().project === madeIn) select(view, [id]);
   return null;
 }
 

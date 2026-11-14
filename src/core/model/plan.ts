@@ -52,6 +52,15 @@ export const OPENING_WIDTH: Readonly<Record<OpeningKind, number>> = { door: 0.9,
 export const WALL_THICKNESS = 0.1;
 /** The least a length or thickness reads as: a centimetre. */
 export const MIN_PLAN_SIZE = 0.01;
+/**
+ * How far from the plan's origin an item's place may be, and how large it may be, metres (6.3 review): past them (an
+ * import's 1e308) the item is unreadable, kept in the file as it is but never shown or rewritten, as one of no size is,
+ * so the canvas never works in infinite units and Fit always finds a view.
+ */
+export const PLAN_REACH = 10000;
+export const PLAN_MAX_SIZE = 1000;
+const inReach = (v: number): boolean => Math.abs(v) <= PLAN_REACH;
+const notHuge = (v: number): boolean => v <= PLAN_MAX_SIZE;
 
 const num = (value: JsonValue | undefined): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
@@ -114,6 +123,7 @@ export function planItemFields(props: Props): PlanItemFields | null {
   const width = num(props.width);
   if (x === null || y === null || width === null || width <= 0) return null;
   const height = num(props.height);
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || (height !== null && !notHuge(height))) return null;
   const heightM = num(props.height_m);
   return {
     kind,
@@ -156,8 +166,9 @@ export function openingFields(props: Props): OpeningFields | null {
   if (!kind) return null;
   const wallId = text(props.wall_id);
   const along = num(props.along_m);
-  if (wallId === '' || along === null || along < 0) return null;
+  if (wallId === '' || along === null || along < 0 || !inReach(along)) return null;
   const width = num(props.width_m);
+  if (width !== null && !notHuge(width)) return null;
   const heightM = num(props.height_m);
   return {
     kind,
@@ -188,15 +199,22 @@ export interface IconFields {
   name: string;
 }
 
+/**
+ * An item's icon id as every reader takes it (6.3 review): its `icon` trimmed, so an imported " set-art/sofa" is a sofa
+ * to the drawing, its level and its layer alike; '' when it has none.
+ */
+export const iconIdOf = (props: Props): string => text(props.icon).trim();
+
 /** An icon's props, or null when it isn't one that can be read (no icon id, no place or size). */
 export function iconFields(props: Props): IconFields | null {
   if (props.kind !== 'icon') return null;
-  const icon = text(props.icon).trim();
+  const icon = iconIdOf(props);
   const x = num(props.x);
   const y = num(props.y);
   const width = num(props.width);
   const height = num(props.height);
   if (icon === '' || x === null || y === null || width === null || height === null || width <= 0 || height <= 0) return null;
+  if (!inReach(x) || !inReach(y) || !notHuge(width) || !notHuge(height)) return null;
   const heightM = num(props.height_m);
   return {
     kind: 'icon',
@@ -226,7 +244,7 @@ export const isWallFields = (fields: ShownFields): fields is PlanItemFields => f
  * the set's (art). Null for a kind this version doesn't show.
  */
 export function planItemLayer(props: Props): PlanLayer | null {
-  if (props.kind === 'icon') return typeof props.icon === 'string' ? iconGroup(props.icon) : null;
+  if (props.kind === 'icon') return iconGroup(iconIdOf(props));
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }

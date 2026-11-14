@@ -81,11 +81,14 @@ const byId = new Map(PLAN_ICONS.map((icon) => [icon.id, icon]));
 /** The kit's icon with this id, or null for one this version doesn't have. */
 export const planIconOf = (id: string): PlanIcon | null => byId.get(id) ?? null;
 
-/** An icon's name in the app's language: "Sofa"; its SVG's title when it has no words, its id when there's no icon. */
+/**
+ * An icon's name in the app's language: "Sofa"; its SVG's title when it has no words; for an id this version has no icon
+ * for (a newer version's, or an import's), "Unknown plan item (set-art/grand-piano)", so it is never shown bare.
+ */
 export function iconLabel(id: string): string {
   const words = Object.hasOwn(WORDS, id) ? WORDS[id] : undefined;
   if (words) return t(words.label);
-  return byId.get(id)?.label ?? id;
+  return byId.get(id)?.label ?? t('library.unknownIcon', { id });
 }
 
 /** An icon as a line in History names it: "a sofa". */

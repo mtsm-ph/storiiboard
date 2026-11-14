@@ -144,7 +144,7 @@ describe('History for plans', () => {
     const copied = [op('create', null, own), op('create', null, { ...wall('c', { copied_from: 'a' }), parentId: 'own' })];
     expect(lineText(describeEdit(copied, none, around))).toBe('Copied a plan item from another setup');
     setLocale('es');
-    expect(lineText(describeEdit(into, none, around))).toBe('Se dejaron 2 elementos de planta solo en un emplazamiento');
+    expect(lineText(describeEdit(into, none, around))).toBe('Se dejaron 2 elementos de la planta solo en un emplazamiento');
     expect(say([op('create', null, record('d', 'plan_item', 'r', { kind: 'door', wall_id: 'a', along_m: 1 }))])).toBe('Se puso una puerta');
   });
 
@@ -161,7 +161,7 @@ describe('History for plans', () => {
     expect(say(roomCopy)).toBe('Made a separate copy of the room for SC 04: room “Diner (SC 04)”');
     setLocale('es');
     expect(lineText(describeEdit([op('create', null, door)], none, around))).toBe('Se puso una puerta');
-    expect(lineText(describeEdit(setupCopy, none, around))).toBe('Se copiaron 2 elementos de planta de otro emplazamiento');
+    expect(lineText(describeEdit(setupCopy, none, around))).toBe('Se copiaron 2 elementos de la planta de otro emplazamiento');
     expect(say(roomCopy)).toBe('Se hizo una copia aparte del espacio para ESC 04: el espacio “Diner (SC 04)”');
   });
 
@@ -222,14 +222,36 @@ describe('History for library icons (6.3)', () => {
 
   it('names an icon’s width and depth as the Selection tile does', () => {
     const sofa = icon('s', 'set-art/sofa');
-    const changes = fieldChanges(sofa, icon('s', 'set-art/sofa', { width: 2.2, height: 1 }));
+    // Typed about its middle, as the Selection tile does: its place didn't change, so it isn't listed.
+    const changes = fieldChanges(sofa, icon('s', 'set-art/sofa', { width: 2.2, height: 1, x: -0.1, y: -0.05 }));
     expect(changes.map((c) => changeLabel(c))).toEqual(['width', 'depth']);
+  });
+
+  it('gives an icon’s place as its middle, as the Selection tile does, in the unit shown (6.3 review)', () => {
+    setPlanUnitsChoice('metres');
+    // A 2 m by 0.9 m sofa with its corner at (0, 0): its middle is (1, 0.45). Moved by 1 m and 2 m.
+    const sofa = icon('s', 'set-art/sofa');
+    const moved = fieldChanges(sofa, icon('s', 'set-art/sofa', { x: 1, y: 2 }));
+    expect(moved.map((c) => [c.prop, c.before, c.after])).toEqual([
+      ['x', 1, 2],
+      ['y', 0.45, 2.45],
+    ]);
+    expect(moved.map((c) => `${changeValue(c, c.before, 'metres')} → ${changeValue(c, c.after, 'metres')}`)).toEqual(['1.00 m → 2.00 m', '0.45 m → 2.45 m']);
+    expect(changeText(moved[0] ?? { prop: 'x', before: 0, after: 0 }, 2, 'feet')).toBe(`6' 6.5"`);
+    // Stretched from its far corner: its corner stayed, its middle moved, so its place is listed.
+    const stretched = fieldChanges(sofa, icon('s', 'set-art/sofa', { width: 3 }));
+    expect(stretched.map((c) => [c.prop, c.before, c.after])).toEqual([
+      ['width', 2, 3],
+      ['x', 1, 1.5],
+    ]);
+    // A wall's place is still its corner.
+    expect(fieldChanges(wall('a'), wall('a', { x: 1 })).map((c) => [c.prop, c.before, c.after])).toEqual([['x', 0, 1]]);
   });
 
   it('says it in Spanish too', () => {
     setLocale('es');
     expect(tell([op('create', null, icon('s', 'set-art/sofa'))])).toBe('Se colocó un sofá en Diner');
     expect(tell([op('update', icon('t', 'set-art/table'), icon('t', 'set-art/table', { rotation: 45 }))])).toBe('Se giró una mesa');
-    expect(tell([op('create', null, icon('a', 'set-art/sofa')), op('create', null, icon('b', 'set-art/table'))])).toBe('Se colocaron 2 elementos de planta');
+    expect(tell([op('create', null, icon('a', 'set-art/sofa')), op('create', null, icon('b', 'set-art/table'))])).toBe('Se colocaron 2 elementos de la planta');
   });
 });

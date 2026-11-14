@@ -18,7 +18,7 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { planFields } from '../../core/model/plan';
+import { iconIdOf, planFields } from '../../core/model/plan';
 import { anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -424,11 +424,45 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
-  if (after.type === 'plan_item') return changes.map((change) => ({ ...change, planItem: true as const, ...(after.props.kind === 'icon' ? { planIcon: true as const } : {}) }));
+  if (after.type === 'plan_item') {
+    const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(after.props.kind === 'icon' ? { planIcon: true as const } : {}) }));
+    return after.props.kind === 'icon' ? iconMiddles(before, after, marked) : marked;
+  }
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
   }
   return after.type === 'person' ? changes.map((change) => (PERSON_PRIVATE.has(change.prop) ? { ...change, private: true } : change)) : changes;
+}
+
+/**
+ * A library icon's place as the Selection tile shows it (6.3 review): its middle, not its corner. Its x and y entries
+ * read the middle before and after, there whenever the middle moved (a resize from a corner too), gone when it didn't
+ * (a size typed about the middle).
+ */
+function iconMiddles(before: SbdRecord, after: SbdRecord, changes: FieldChange[]): FieldChange[] {
+  const middle = (props: Props, at: string, size: string): number | null => {
+    const a = props[at];
+    const b = props[size];
+    return typeof a === 'number' && typeof b === 'number' ? Math.round((a + b / 2) * 10000) / 10000 : null;
+  };
+  const axes = [
+    { at: 'x', size: 'width' },
+    { at: 'y', size: 'height' },
+  ] as const;
+  const out = changes.filter((change) => change.prop !== 'x' && change.prop !== 'y');
+  for (const { at, size } of axes) {
+    const was = middle(before.props, at, size);
+    const now = middle(after.props, at, size);
+    const touched = changes.some((change) => change.prop === at || change.prop === size);
+    if (!touched) continue;
+    // Not both numbers (an import's): the corner as it was stored.
+    if (was === null || now === null) {
+      out.push(...changes.filter((change) => change.prop === at));
+      continue;
+    }
+    if (was !== now) out.push({ prop: at, before: was, after: now, planItem: true, planIcon: true });
+  }
+  return out;
 }
 
 /** A call sheet's two notes: private, said only as set, changed or removed. */
@@ -851,7 +885,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
     if (only(['x', 'y', 'width', 'height', 'rotation', 'along_m', 'width_m'])) return [tn('history.planItemsResized', n)];
     return [tn('history.planItemsChanged', n)];
   }
-  const what = typeof first.props.icon === 'string' ? anIcon(first.props.icon) : t('history.aPlanItem');
+  const what = iconIdOf(first.props) !== '' ? anIcon(iconIdOf(first.props)) : t('history.aPlanItem');
   if (all('create')) {
     const plan = first.parentId ? around.get(first.parentId) : undefined;
     const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
@@ -907,7 +941,7 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       return roomName(record);
     case 'plan_item':
       // A library icon (6.3) by what it is: "a sofa".
-      if (record.props.kind === 'icon') return typeof record.props.icon === 'string' ? anIcon(record.props.icon) : t('history.aPlanItem');
+      if (record.props.kind === 'icon') return iconIdOf(record.props) !== '' ? anIcon(iconIdOf(record.props)) : t('history.aPlanItem');
       return t(record.props.kind === 'door' ? 'history.aDoor' : record.props.kind === 'window' ? 'history.aWindow' : 'history.aWall');
     case 'board':
       return boardTitle(record);

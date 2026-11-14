@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
-import { iconFields, planItemLayer, plansShown, sceneRoomId, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
+import { iconFields, openingFields, planItemFields, planItemLayer, plansShown, sceneRoomId, setupPlanOf, shownItems, startRoomChanges } from '../../../core/model/plan';
+import type { Props, SbdRecord } from '../../../core/model/record';
 import { iconHome, itemHome, itemLevel, setRoomChanges, setupOnlyChanges } from '../../../core/model/planRooms';
-import { log } from '../../../core/ops/ops';
+import { loadRecords, log } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
-import { createProject, type Project } from '../../../core/storage/project';
+import { createProject, openProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { restoreChanges, trashItems } from '../../trash/trash';
+import { boundsOf } from '../../../ui/canvas/hitTest';
+import { fitBounds, unionBounds } from '../../../ui/canvas/viewport';
+import { placeIcon } from './planActions';
 import { anIcon, iconLabel } from './iconWords';
 import { dropAt, libraryGroups, libraryState } from './library';
 import {
   iconPatchChanges,
+  iconPatchRefused,
   iconRefusal,
   planCanvasItems,
   planClipOf,
@@ -22,7 +27,7 @@ import {
   placeIconChanges,
   trashPlanItemsChanges,
 } from './planItems';
-import { planScale } from './planScale';
+import { PLAN_ZOOM, planScale } from './planScale';
 
 // The library (6.3): icons placed at their real sizes, at the level they belong to (a set piece in the room, so every
 // scene and setup in it shows it; the rest in the setup shown, its plan made in the same step), edited, copied, sent
@@ -202,7 +207,7 @@ describe('an icon on the canvas', () => {
     const props = { kind: 'icon', icon: 'set-art/grand-piano', x: 0, y: 0, width: 1.6, height: 1.5, rotation: 0, finish: 'gloss' };
     await store.getState().apply([{ kind: 'create', record: { id, type: 'plan_item', parentId: roomId, sortKey: 'm', props } }]);
     const item = planCanvasItems(records(), sceneId, setups[0], 'metres', '#16150F').find((i) => i.id === id);
-    expect(item).toMatchObject({ width: 160, height: 150, label: 'set-art/grand-piano, 1.60 m by 1.50 m' });
+    expect(item).toMatchObject({ width: 160, height: 150, label: 'Unknown plan item (set-art/grand-piano), 1.60 m by 1.50 m' });
     expect(item?.keepRatio).toBeUndefined();
     expect(records()[id]?.props).toEqual(props);
     const clip = planClipOf(records(), [id]);
@@ -283,5 +288,153 @@ describe('the Library', () => {
     expect(spot?.screen).toMatchObject({ width: 200, height: 90 });
     expect(dropAt('set-art/sofa', { x: 403, y: 300 }, view, grid, 'off')?.centre).toEqual({ x: 0.03, y: 0 });
     expect(dropAt('camera/camera', { x: 400, y: 300 }, view, grid, 'magnet')).toBeNull();
+  });
+});
+
+// 6.3 review.
+describe('a drop and the project it began in', () => {
+  const sofasIn = (list: readonly SbdRecord[]) => list.filter((r) => r.type === 'plan_item' && r.trashedAt === null && r.props.kind === 'icon').length;
+
+  it('writes nothing to either file when it ends after a switch to a copy with the same ids', async () => {
+    const { sceneId, setups } = await scene();
+    const madeIn = store.getState().project;
+    // A copy keeps every id, as Open version and Open backup do; opened, it replaces the original.
+    const copyPath = folder.path('Bey County (copy).sbd');
+    await project.file.saveCopy(copyPath);
+    const copy = await openProject(copyPath, { driver: nodeDriver, backups: false });
+    await store.getState().open(copy);
+    const copyGroups = (await log(copy.file)).length;
+    // The drag began in the original and is let go now.
+    expect(await placeIcon({ sceneId, setupId: setups[0] }, 'set-art/sofa', { x: 0, y: 0 }, madeIn, store)).toBe('otherProject');
+    expect(sofasIn(Object.values(store.getState().records))).toBe(0);
+    expect((await log(copy.file)).length).toBe(copyGroups);
+    await store.getState().close();
+    const original = await openProject(project.file.path, { driver: nodeDriver, backups: false });
+    try {
+      expect(sofasIn(await loadRecords(original.file))).toBe(0);
+    } finally {
+      await original.close();
+    }
+  });
+
+  it('writes the icon in the project it began in, in one step', async () => {
+    const { sceneId, setups } = await scene();
+    const before = await groups();
+    expect(await placeIcon({ sceneId, setupId: setups[0] }, 'set-art/sofa', { x: 0, y: 0 }, store.getState().project, store)).toBeNull();
+    expect(await groups()).toBe(before + 1);
+    expect(sofasIn(Object.values(records()))).toBe(1);
+    // With no project open when the press began, nothing.
+    expect(await placeIcon({ sceneId, setupId: setups[0] }, 'set-art/sofa', { x: 0, y: 0 }, null, store)).toBe('otherProject');
+  });
+});
+
+describe('reading an icon (6.3 review)', () => {
+  const base: Props = { kind: 'icon', icon: 'set-art/sofa', x: 0, y: 0, width: 2, height: 0.9, rotation: 0 };
+  const without = (prop: string): Props => Object.fromEntries(Object.entries(base).filter(([key]) => key !== prop));
+
+  it('needs a place and a size above nothing, as numbers', () => {
+    expect(iconFields(base)).not.toBeNull();
+    for (const prop of ['x', 'y', 'width', 'height']) {
+      expect(iconFields(without(prop)), `missing ${prop}`).toBeNull();
+      expect(iconFields({ ...base, [prop]: '1' }), `text ${prop}`).toBeNull();
+      expect(iconFields({ ...base, [prop]: null }), `null ${prop}`).toBeNull();
+    }
+    for (const prop of ['width', 'height']) {
+      expect(iconFields({ ...base, [prop]: 0 }), `zero ${prop}`).toBeNull();
+      expect(iconFields({ ...base, [prop]: -1 }), `negative ${prop}`).toBeNull();
+    }
+    // A place may be negative or nought; a missing rotation is none.
+    expect(iconFields({ ...without('rotation'), x: -3, y: 0 })).toMatchObject({ x: -3, y: 0, rotation: 0 });
+    expect(iconFields({ ...base, icon: '  ' })).toBeNull();
+  });
+
+  it('takes its icon id trimmed everywhere: its drawing, its level and its layer', () => {
+    const spaced = { ...base, icon: ' set-art/sofa ' };
+    expect(iconFields(spaced)?.icon).toBe('set-art/sofa');
+    expect(itemHome(spaced)).toBe('room');
+    expect(planItemLayer(spaced)).toBe('set-art');
+    expect(itemHome({ ...base, icon: ' grip/c-stand' })).toBe('setup');
+  });
+
+  it('names an id this version doesn’t have as an unknown plan item, in the app’s language', () => {
+    expect(iconLabel('set-art/grand-piano')).toBe('Unknown plan item (set-art/grand-piano)');
+    setLocale('es');
+    expect(iconLabel('set-art/grand-piano')).toBe('Elemento de la planta desconocido (set-art/grand-piano)');
+  });
+
+  it('keeps an item placed or sized past the plan’s reach unread and untouched, and Fit still finds a view', async () => {
+    const { sceneId, roomId, setups } = await scene();
+    const far = crypto.randomUUID();
+    const huge = crypto.randomUUID();
+    const wall = crypto.randomUUID();
+    const door = crypto.randomUUID();
+    const sofa = crypto.randomUUID();
+    const good = crypto.randomUUID();
+    const farProps = { ...base, x: 1e308 };
+    const hugeProps = { ...base, width: 1e308 };
+    const wallProps = { kind: 'wall', x: 0, y: 0, width: 2000, height: 0.1, rotation: 0 };
+    await store.getState().apply([
+      { kind: 'create', record: { id: far, type: 'plan_item', parentId: roomId, sortKey: 'm', props: farProps } },
+      { kind: 'create', record: { id: huge, type: 'plan_item', parentId: roomId, sortKey: 'n', props: hugeProps } },
+      { kind: 'create', record: { id: wall, type: 'plan_item', parentId: roomId, sortKey: 'o', props: wallProps } },
+      { kind: 'create', record: { id: sofa, type: 'plan_item', parentId: roomId, sortKey: 'p', props: base } },
+      { kind: 'create', record: { id: good, type: 'plan_item', parentId: roomId, sortKey: 'q', props: { kind: 'wall', x: 0, y: 5, width: 4, height: 0.1, rotation: 0 } } },
+      // A door far along a wall that reads.
+      { kind: 'create', record: { id: door, type: 'plan_item', parentId: roomId, sortKey: 'r', props: { kind: 'door', wall_id: good, along_m: 1e308, width_m: 0.9 } } },
+    ]);
+    expect(iconFields(farProps)).toBeNull();
+    expect(iconFields({ ...base, y: -10001 })).toBeNull();
+    expect(iconFields({ ...base, x: 9999 })).not.toBeNull();
+    expect(iconFields(hugeProps)).toBeNull();
+    expect(iconFields({ ...base, height: 1000.5 })).toBeNull();
+    expect(planItemFields(wallProps)).toBeNull();
+    expect(planItemFields({ ...wallProps, width: 4, height: 1e300 })).toBeNull();
+    expect(openingFields({ kind: 'window', wall_id: good, along_m: 1, width_m: 5000 })).toBeNull();
+    expect(shownItems(records(), sceneId, setups[0]).map((i) => i.record.id).sort()).toEqual([sofa, good].sort());
+    // Fit to view over the plan: a finite view.
+    const items = planCanvasItems(records(), sceneId, setups[0], 'metres', '#16150F');
+    const fit = fitBounds(unionBounds(items.map(boundsOf)), { width: 800, height: 600 }, 48, PLAN_ZOOM.fitMax, PLAN_ZOOM);
+    for (const value of [fit.cx, fit.cy, fit.zoom]) expect(Number.isFinite(value)).toBe(true);
+    // Kept as they are, and nothing changes them: a nudge, a copy.
+    expect(records()[far]?.props).toEqual(farProps);
+    expect(planNudgeChanges(records(), [far, huge, wall, door], 1, 0)).toEqual([]);
+    expect(planClipOf(records(), [far, huge, wall])).toEqual([]);
+  });
+});
+
+describe('typed sizes (6.3 review)', () => {
+  it('refuse a width or depth under a centimetre, or past the plan’s size, writing nothing', async () => {
+    const { sceneId, setups } = await scene();
+    const id = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), { sceneId, setupId: setups[0] }, 'set-art/table', { x: 0, y: 0 }, id));
+    expect(iconPatchRefused(records(), [id], { width: 0.005 })).toBe(true);
+    expect(iconPatchChanges(records(), [id], { width: 0.005 })).toEqual([]);
+    expect(iconPatchChanges(records(), [id], { depth: 0.009 })).toEqual([]);
+    expect(iconPatchChanges(records(), [id], { width: 2000 })).toEqual([]);
+    expect(iconPatchChanges(records(), [id], { centreX: 20000 })).toEqual([]);
+    // A centimetre is taken, its middle kept.
+    expect(iconPatchRefused(records(), [id], { width: 0.01 })).toBe(false);
+    await store.getState().apply(iconPatchChanges(records(), [id], { width: 0.01 }));
+    expect(iconFields(records()[id]?.props ?? {})).toMatchObject({ width: 0.01, x: -0.005 });
+  });
+
+  it('go to every selected icon in one step', async () => {
+    const { sceneId, setups } = await scene();
+    const view = { sceneId, setupId: setups[0] };
+    const table = crypto.randomUUID();
+    const sofa = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'set-art/table', { x: 0, y: 0 }, table));
+    await store.getState().apply(placeIconChanges(records(), view, 'set-art/sofa', { x: 4, y: 0 }, sofa));
+    const before = await groups();
+    const changes = iconPatchChanges(records(), [table, sofa], { width: 3, rotation: 30 });
+    expect(changes).toHaveLength(2);
+    await store.getState().apply(changes);
+    expect(await groups()).toBe(before + 1);
+    expect(iconFields(records()[table]?.props ?? {})).toMatchObject({ width: 3, x: -1.5, rotation: 30 });
+    expect(iconFields(records()[sofa]?.props ?? {})).toMatchObject({ width: 3, x: 2.5, rotation: 30 });
+    // One that refuses refuses the step for all.
+    expect(iconPatchChanges(records(), [table, sofa], { depth: 0 })).toEqual([]);
+    await store.getState().undo();
+    expect(iconFields(records()[sofa]?.props ?? {})?.width).toBe(2);
   });
 });

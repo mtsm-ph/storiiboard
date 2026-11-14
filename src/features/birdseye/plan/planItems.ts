@@ -124,8 +124,8 @@ export const iconAnnounce = (fields: IconFields, unit: PlanUnit): string => {
 export function iconItem(id: string, fields: IconFields, unit: PlanUnit): CanvasItem {
   const icon = planIconOf(fields.icon);
   const g = toCanvasGeometry(fields);
-  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
-    const common = { width: g.width, height: g.height, zoom: context.zoom, name: fields.name, colours: context.colours };
+  const draw = (context: { zoom: number; colours: CanvasColours; inView: boolean }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: fields.name, colours: context.colours, inView: context.inView };
     if (!icon) return createElement(UnknownIconShape, common);
     if (icon.id === 'production/zone') return createElement(ZoneShape, common);
     if (icon.id === 'production/note') return createElement(NoteShape, { icon, ...common });
@@ -1046,10 +1046,29 @@ export interface IconPatch {
 /** An icon's middle, metres. */
 export const iconCentre = (fields: PlanGeometry): Point => ({ x: Math.round((fields.x + fields.width / 2) * 10000) / 10000, y: Math.round((fields.y + fields.height / 2) * 10000) / 10000 });
 
-/** A field changed on the selected icons: one update per icon that changes, one op group; its middle stays where it is. */
+type IconUpdate = Change & { kind: 'update' };
+
+/**
+ * Whether the Selection tile refuses a change to the selected icons (6.3 review): a width or depth under a centimetre
+ * (stored as a centimetre, its middle would be worked out from a size it doesn't have), or one that would leave an icon
+ * past the plan's reach or size (PLAN_REACH, PLAN_MAX_SIZE), where it could no longer be read.
+ */
+export function iconPatchRefused(records: Records, ids: readonly string[], patch: IconPatch): boolean {
+  if ((patch.width !== undefined && patch.width < MIN_PLAN_SIZE) || (patch.depth !== undefined && patch.depth < MIN_PLAN_SIZE)) return true;
+  return iconUpdates(records, ids, patch).some((change) => {
+    const record = records[change.id];
+    return record !== undefined && iconFields({ ...record.props, ...change.set }) === null;
+  });
+}
+
+/** A field changed on the selected icons: one update per icon that changes, one op group; its middle stays where it is. Nothing when refused. */
 export function iconPatchChanges(records: Records, ids: readonly string[], patch: IconPatch): Change[] {
+  return iconPatchRefused(records, ids, patch) ? [] : iconUpdates(records, ids, patch);
+}
+
+function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch): IconUpdate[] {
   const tidy = (m: number) => Math.round(m * 10000) / 10000;
-  return ids.flatMap((id): Change[] => {
+  return ids.flatMap((id): IconUpdate[] => {
     const live = liveIcon(records, id);
     if (!live) return [];
     const now = live.fields;
@@ -1060,8 +1079,8 @@ export function iconPatchChanges(records: Records, ids: readonly string[], patch
     const cy = patch.centreY ?? centre.y;
     const set: Props = {};
     const unset: string[] = [];
-    if (patch.width !== undefined && Math.abs(width - now.width) > 1e-6) set.width = tidy(Math.max(MIN_PLAN_SIZE, width));
-    if (patch.depth !== undefined && Math.abs(height - now.height) > 1e-6) set.height = tidy(Math.max(MIN_PLAN_SIZE, height));
+    if (patch.width !== undefined && Math.abs(width - now.width) > 1e-6) set.width = tidy(width);
+    if (patch.depth !== undefined && Math.abs(height - now.height) > 1e-6) set.height = tidy(height);
     const x = tidy(cx - width / 2);
     const y = tidy(cy - height / 2);
     if (Math.abs(x - now.x) > 1e-6) set.x = x;

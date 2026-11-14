@@ -3016,6 +3016,8 @@ export const en = {
   'library.needsSetup': '{what} goes in a setup: pick one in the Setups tile.',
   'library.needsRoom': 'Start the room first: New room in the Set plan tile.',
   'library.none': 'No icon is called that.',
+  'library.selectsTool': '{what}: selects the {tool} tool',
+  'library.unknownIcon': 'Unknown plan item ({id})',
   'library.group.camera': 'Camera',
   'library.group.lighting': 'Lighting',
   'library.group.grip': 'Grip',

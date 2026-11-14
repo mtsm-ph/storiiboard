@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
-import { useProject } from '../../../app/projectStore';
-import { t } from '../../../core/i18n';
+import { projectStore, useProject } from '../../../app/projectStore';
+import { t, type MessageKey } from '../../../core/i18n';
+import type { Project } from '../../../core/storage/project';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
@@ -11,7 +12,7 @@ import { iconHome } from '../../../core/model/planRooms';
 import { croppedIconUrl } from './iconDraw';
 import { TOOL_ICONS } from './iconSizes';
 import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
-import { placeIcon, type PlanView } from './planActions';
+import { placeIcon, type PlaceOutcome, type PlanView } from './planActions';
 import { viewKey, type IconRefusal } from './planItems';
 import { planScale } from './planScale';
 import { planStore, planViewportOf } from './planStore';
@@ -20,8 +21,12 @@ import { useLiveView } from './PlanTile';
 // The Library tile (6.3), in the Setup workspace: the kit's plan icons by department, each placed on the plan shown at
 // its real size by a drag (pointer events, a ghost at real size under the pointer, snapped to the grid as a moved item
 // is; never HTML drag and drop, which the Windows app turns off) or from the keyboard (Enter puts it in the middle of
-// the view, selected, and the plan takes the focus so the arrows nudge it). Escape during a drag drops nothing. Wall,
-// door and window pick 6.2's tools; what comes later in this phase shows greyed out and says so.
+// the view, selected, and the plan takes the focus so the arrows nudge it). Escape, a cancelled pointer, a lost capture
+// or the window losing focus during a drag drop nothing, and the click that follows places nothing either. Wall, door
+// and window pick 6.2's tools; what comes later in this phase shows greyed out and says so, pressed or dragged.
+//
+// Touch never starts a drag (6.3 review): a finger scrolls the Library, and a tap places as Enter does; the mouse, a
+// pen and the keyboard place by drag or key. Each group is one tab stop, its icons reached with the arrows.
 
 /** How far the pointer moves before a press on an icon is a drag, screen pixels. */
 const DRAG_FROM = 4;
@@ -42,8 +47,8 @@ function dropView(view: PlanView, canvas: HTMLElement | null): DropView {
 
 const snapOf = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): GridSnap => (event.metaKey || event.ctrlKey ? 'off' : event.altKey ? 'fine' : 'magnet');
 
-/** Why an icon can't be placed, in words, as a notice. */
-function sayRefusal(why: IconRefusal, label: string): void {
+/** Why an icon wasn't placed, in words, as a notice; nothing for a drop after the project was switched. */
+function sayRefusal(why: PlaceOutcome, label: string): void {
   if (why === 'coming') showInfo(t('library.comingNotice', { what: label }));
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
@@ -55,6 +60,13 @@ const focusPlan = () => {
   planCanvas()?.focus();
 };
 
+/** The name of the tool a wall, door or window entry picks, as the plan's toolbar has it. */
+const TOOL_WORDS: Readonly<Record<string, MessageKey>> = {
+  'set-art/wall': 'plan.tool.wall',
+  'set-art/door': 'plan.tool.door',
+  'set-art/window': 'plan.tool.window',
+};
+
 interface Ghost {
   url: string;
   /** Screen pixels, the window's. */
@@ -63,6 +75,19 @@ interface Ghost {
   width: number;
   height: number;
   over: boolean;
+}
+
+/** A press on an icon that may become a drag. */
+interface Drag {
+  pointer: number;
+  start: { x: number; y: number };
+  moving: boolean;
+  /** Dropped or cancelled: the click that follows places nothing. */
+  dropped: boolean;
+  /** The open project when the press began: a drop writes only into it. */
+  madeIn: Project | null;
+  /** Takes the window's listeners off. */
+  stop: () => void;
 }
 
 function stateWords(state: LibraryState): string | null {
@@ -105,10 +130,38 @@ export function LibraryTile() {
   );
 }
 
+/** The arrow keys within a group: left and right one icon, up and down a row, Home and End its ends. */
+function rovingTarget(key: string, index: number, count: number, columns: number): number | null {
+  if (key === 'ArrowRight') return Math.min(count - 1, index + 1);
+  if (key === 'ArrowLeft') return Math.max(0, index - 1);
+  if (key === 'ArrowDown') return index + columns < count ? index + columns : null;
+  if (key === 'ArrowUp') return index - columns >= 0 ? index - columns : null;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
 function LibraryGroupView({ group, entries, view, state, stateId }: { group: LibraryEntry['icon']['group']; entries: readonly LibraryEntry[]; view: PlanView | null; state: LibraryState; stateId: string }) {
   const headingId = useId();
   const noteId = useId();
+  const list = useRef<HTMLUListElement>(null);
+  // The one icon of the group Tab reaches; the arrows move it.
+  const [active, setActive] = useState(0);
+  const current = Math.min(active, entries.length - 1);
   const coming = entries.filter((e) => e.use === 'coming').length;
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[data-library-icon]') ?? [])];
+    const index = buttons.findIndex((b) => b === document.activeElement);
+    if (index < 0) return;
+    // As many columns as icons sit on the first row, as the grid lays them out.
+    const top = buttons[0]?.offsetTop ?? 0;
+    const columns = Math.max(1, buttons.filter((b) => b.offsetTop === top).length);
+    const to = rovingTarget(event.key, index, buttons.length, columns);
+    if (to === null) return;
+    event.preventDefault();
+    setActive(to);
+    buttons[to]?.focus();
+  };
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-1.5" data-library-group={group}>
       <h3 id={headingId} className="sb-label">
@@ -119,10 +172,20 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
           {coming === entries.length ? t('library.coming') : t('library.comingSome')}
         </p>
       )}
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
-        {entries.map((entry) => (
+      <ul ref={list} aria-labelledby={headingId} className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
+        {entries.map((entry, i) => (
           <li key={entry.icon.id} className="flex">
-            <IconButton entry={entry} view={view} state={state} describedBy={entry.use === 'coming' ? noteId : stateId} />
+            <IconButton
+              entry={entry}
+              view={view}
+              state={state}
+              describedBy={entry.use === 'coming' ? noteId : stateId}
+              tabStop={i === current}
+              onKeyDown={onKeyDown}
+              onFocus={() => {
+                setActive(i);
+              }}
+            />
           </li>
         ))}
       </ul>
@@ -139,33 +202,65 @@ function refusalNow(entry: LibraryEntry, view: PlanView | null, state: LibrarySt
   return null;
 }
 
-function IconButton({ entry, view, state, describedBy }: { entry: LibraryEntry; view: PlanView | null; state: LibraryState; describedBy: string }) {
+function IconButton({
+  entry,
+  view,
+  state,
+  describedBy,
+  tabStop,
+  onFocus,
+  onKeyDown,
+}: {
+  entry: LibraryEntry;
+  view: PlanView | null;
+  state: LibraryState;
+  describedBy: string;
+  tabStop: boolean;
+  onFocus: () => void;
+  /** The group's arrow keys. */
+  onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+}) {
   const unit = usePlanUnit();
   const [ghost, setGhost] = useState<Ghost | null>(null);
-  const drag = useRef<{ pointer: number; start: { x: number; y: number }; moving: boolean; dropped: boolean } | null>(null);
+  const drag = useRef<Drag | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const refused = refusalNow(entry, view, state);
   const muted = refused !== null;
   const tool = TOOL_ICONS[entry.icon.id] as Tool | undefined;
+  const toolWords = Object.hasOwn(TOOL_WORDS, entry.icon.id) ? TOOL_WORDS[entry.icon.id] : undefined;
 
-  // Escape during a drag drops nothing.
-  useEffect(() => {
-    if (!ghost) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      drag.current = null;
-      setGhost(null);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [ghost]);
+  /** The press over: its listeners off, and no longer the press under way. */
+  const end = (now: Drag) => {
+    now.stop();
+    if (drag.current === now) drag.current = null;
+  };
+  /** A drag that drops nothing: no ghost, the capture let go; the click that follows finds it dropped. */
+  const cancel = (now: Drag) => {
+    if (drag.current !== now || now.dropped) return;
+    now.dropped = true;
+    setGhost(null);
+    const el = button.current;
+    if (el?.hasPointerCapture(now.pointer)) el.releasePointerCapture(now.pointer);
+  };
+  /** After the press's release, wherever it happened: kept until the click it brings (if any) has come and gone. */
+  const settle = (now: Drag) => {
+    setTimeout(() => {
+      end(now);
+    }, 0);
+  };
 
-  const place = async (centre: { x: number; y: number }) => {
+  // Nothing lingers past the button: a press under way when it goes away takes its listeners with it.
+  useEffect(
+    () => () => {
+      const now = drag.current;
+      if (now) end(now);
+    },
+    [],
+  );
+
+  const place = async (centre: { x: number; y: number }, madeIn: Project | null) => {
     if (!view) return;
-    const why = await placeIcon(view, entry.icon.id, centre);
+    const why = await placeIcon(view, entry.icon.id, centre, madeIn);
     if (why !== null) sayRefusal(why, entry.label);
     else focusPlan();
   };
@@ -181,77 +276,155 @@ function IconButton({ entry, view, state, describedBy }: { entry: LibraryEntry; 
       sayRefusal(refused ?? 'noScene', entry.label);
       return;
     }
+    const madeIn = projectStore.getState().project;
     const at = dropView(view, planCanvas());
     const spot = dropAt(entry.icon.id, { x: at.width / 2, y: at.height / 2 }, at, planScale(unit).grid, 'magnet');
-    if (spot) void place(spot.centre);
+    if (spot) void place(spot.centre, madeIn);
   };
 
   /** The ghost and where it lands, for the pointer at a window point. */
   const follow = (event: { clientX: number; clientY: number; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): Ghost & { centre: { x: number; y: number } | null } => {
-    const url = croppedIconUrl(entry.icon);
     const canvas = planCanvas();
     const box = canvas?.getBoundingClientRect();
     const inside = box !== undefined && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
     if (canvas && box && inside && view) {
       const spot = dropAt(entry.icon.id, { x: event.clientX - box.left, y: event.clientY - box.top }, dropView(view, canvas), planScale(unit).grid, snapOf(event));
-      if (spot) return { url, x: box.left + spot.screen.x, y: box.top + spot.screen.y, width: spot.screen.width, height: spot.screen.height, over: true, centre: spot.centre };
+      if (spot) {
+        // Drawn at its size on screen, its lines at the kit's weight as the plan draws them.
+        const size = { width: Math.max(1, Math.round(spot.screen.width)), height: Math.max(1, Math.round(spot.screen.height)), strokeScale: 1 };
+        return { url: croppedIconUrl(entry.icon, size), x: box.left + spot.screen.x, y: box.top + spot.screen.y, width: spot.screen.width, height: spot.screen.height, over: true, centre: spot.centre };
+      }
     }
-    return { url, x: event.clientX - 16, y: event.clientY - 16, width: 32, height: 32, over: false, centre: null };
+    return { url: croppedIconUrl(entry.icon, { width: 32, height: 32, strokeScale: 1 }), x: event.clientX - 16, y: event.clientY - 16, width: 32, height: 32, over: false, centre: null };
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0 || muted || tool) return;
-    drag.current = { pointer: event.pointerId, start: { x: event.clientX, y: event.clientY }, moving: false, dropped: false };
+    // A tool's entry is a button; a finger scrolls the Library (a tap still places, as Enter does).
+    if (event.button !== 0 || tool || event.pointerType === 'touch') return;
+    const previous = drag.current;
+    if (previous) end(previous);
+    const listeners: [string, (e: Event) => void, boolean][] = [];
+    const now: Drag = {
+      pointer: event.pointerId,
+      start: { x: event.clientX, y: event.clientY },
+      moving: false,
+      dropped: false,
+      madeIn: projectStore.getState().project,
+      stop: () => {
+        for (const [type, fn, capture] of listeners) window.removeEventListener(type, fn, capture);
+        listeners.length = 0;
+      },
+    };
+    const on = (type: string, fn: (e: Event) => void, capture: boolean) => {
+      listeners.push([type, fn, capture]);
+      window.addEventListener(type, fn, capture);
+    };
+    on(
+      'keydown',
+      (e) => {
+        if (!(e instanceof KeyboardEvent) || e.key !== 'Escape' || now.dropped) return;
+        e.preventDefault();
+        e.stopPropagation();
+        cancel(now);
+      },
+      true,
+    );
+    // Released anywhere (the capture let go by Escape sends it to whatever is under the pointer).
+    on(
+      'pointerup',
+      (e) => {
+        if (e instanceof PointerEvent && e.pointerId === now.pointer && now.dropped) settle(now);
+      },
+      true,
+    );
+    on(
+      'pointercancel',
+      (e) => {
+        if (!(e instanceof PointerEvent) || e.pointerId !== now.pointer) return;
+        cancel(now);
+        settle(now);
+      },
+      true,
+    );
+    on(
+      'blur',
+      () => {
+        cancel(now);
+        settle(now);
+      },
+      false,
+    );
+    drag.current = now;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const now = drag.current;
-    if (now?.pointer !== event.pointerId) return;
+    if (now?.pointer !== event.pointerId || now.dropped) return;
     if (!now.moving && Math.hypot(event.clientX - now.start.x, event.clientY - now.start.y) < DRAG_FROM) return;
     now.moving = true;
+    // An icon that can't be placed has no ghost: let go, it says why.
+    if (muted) return;
     const at = follow(event);
     setGhost({ url: at.url, x: at.x, y: at.y, width: at.width, height: at.height, over: at.over });
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const now = drag.current;
     if (now?.pointer !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    setGhost(null);
+    if (now.dropped) return;
     if (!now.moving) {
-      drag.current = null;
+      // A press without a drag is a click: it activates as Enter does.
+      end(now);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
       return;
     }
-    // The click that follows a drag places nothing more; one that never comes leaves nothing behind.
+    // Marked before the capture is let go, so the lost capture that follows isn't taken for a cancel.
     now.dropped = true;
-    setTimeout(() => {
-      if (drag.current === now) drag.current = null;
-    }, 0);
-    const { centre } = follow(event);
-    if (centre) void place(centre);
-  };
-  const onPointerCancel = () => {
-    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     setGhost(null);
+    // The click that follows a drag places nothing more; one that never comes leaves nothing behind.
+    settle(now);
+    if (refused !== null) {
+      sayRefusal(refused, entry.label);
+      return;
+    }
+    const { centre } = follow(event);
+    if (centre) void place(centre, now.madeIn);
   };
 
   return (
     <>
       <button
+        ref={button}
         type="button"
         data-library-icon={entry.icon.id}
         data-library-use={entry.use}
+        tabIndex={tabStop ? 0 : -1}
+        aria-label={toolWords ? t('library.selectsTool', { what: entry.label, tool: t(toolWords) }) : undefined}
         aria-disabled={muted ? true : undefined}
         aria-describedby={muted ? describedBy : undefined}
         title={entry.label}
-        className="flex min-w-0 flex-1 touch-none flex-col items-center gap-1 border border-text px-1 py-1.5 text-center text-[11px] leading-tight select-none hover:bg-surface-raised focus-visible:-outline-offset-4"
+        className="flex min-w-0 flex-1 touch-pan-y flex-col items-center gap-1 border border-text px-1 py-1.5 text-center text-[11px] leading-tight select-none hover:bg-surface-raised focus-visible:-outline-offset-4"
+        onFocus={onFocus}
+        onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerCancel}
+        onPointerCancel={() => {
+          const now = drag.current;
+          if (!now) return;
+          cancel(now);
+          settle(now);
+        }}
+        onLostPointerCapture={(event) => {
+          const now = drag.current;
+          if (now?.pointer === event.pointerId) cancel(now);
+        }}
         onClick={() => {
           const now = drag.current;
-          drag.current = null;
-          if (now?.dropped) return;
+          if (now) {
+            end(now);
+            if (now.dropped) return;
+          }
           activate();
         }}
       >
@@ -278,4 +451,3 @@ function IconButton({ entry, view, state, describedBy }: { entry: LibraryEntry; 
     </>
   );
 }
-

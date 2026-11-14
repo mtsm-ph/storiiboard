@@ -119,8 +119,30 @@ test('drags a sofa into the room, places a C-stand from the keyboard into the se
   // A set piece can be made this setup's only.
   await expect(selectionTile(page).locator('[data-setup-only]')).toHaveAttribute('data-setup-only', 'off');
 
-  // A C-stand from the keyboard: in the middle of the view, selected, and the plan takes the focus.
-  await libraryIcon(page, 'grip/c-stand').focus();
+  // A C-stand from the keyboard: Tab from the filter reaches each group once, the arrows move within it, and Enter
+  // puts it in the middle of the view, selected, and the plan takes the focus (6.3 review).
+  await libraryTile(page).getByRole('searchbox', { name: 'Filter' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(libraryIcon(page, 'camera/camera')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(libraryIcon(page, 'camera/sticks')).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(libraryIcon(page, 'camera/camera')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(libraryIcon(page, 'camera/dolly-track')).toBeFocused();
+  // Lighting, then grip, each one stop.
+  await page.keyboard.press('Tab');
+  await expect(libraryIcon(page, 'lighting/beam-cone')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(libraryIcon(page, 'grip/apple-box')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(libraryIcon(page, 'grip/c-stand')).toBeFocused();
+  // A row down and back.
+  await page.keyboard.press('ArrowDown');
+  await expect(libraryIcon(page, 'grip/c-stand')).not.toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(libraryIcon(page, 'grip/c-stand')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa', 'grip/c-stand']);
   const stand = (await icons(page)).find((i) => i.icon === 'grip/c-stand');
@@ -161,20 +183,27 @@ test('resizes and turns a table by typing, refuses a camera with words, and keep
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await icons(page))[0]?.rotation).toBe(90);
 
-  // A camera comes later in this phase: greyed out, and it says so when pressed or dragged.
+  // A camera comes later in this phase: greyed out, and it says so when dragged (with no ghost) or pressed.
   const camera = libraryIcon(page, 'camera/camera');
   await expect(camera).toHaveAttribute('aria-disabled', 'true');
   await expect(libraryTile(page).locator('[data-library-group="camera"]')).toContainText('Coming in this phase');
-  await camera.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByText('Camera: coming in this phase.', { exact: true })).toBeVisible();
+  const comingNotice = page.getByText('Camera: coming in this phase.', { exact: true });
+  await expect(comingNotice).toHaveCount(0);
+  // The Library scrolled down to the table when it was placed.
+  await camera.scrollIntoViewIfNeeded();
   const box = await camera.boundingBox();
   const target = await screen(page, 200, 200);
   if (!box) throw new Error('no camera in the Library');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
+  await expect(page.locator('[data-library-ghost]')).toHaveCount(0);
   await page.mouse.up();
+  await expect(comingNotice).toBeVisible();
+  expect(await iconNames(page)).toEqual(['set-art/table']);
+  await camera.focus();
+  await page.keyboard.press('Enter');
+  await expect(comingNotice).toBeVisible();
   expect(await iconNames(page)).toEqual(['set-art/table']);
 
   // Undo the turn, then redo it.
@@ -224,4 +253,118 @@ test('says what a scene with no setup takes, filters by name, stays paper in dar
   });
   expect(await canvas(page).evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(238, 233, 223)');
   await axe();
+});
+
+// 6.3 review: a drag cancelled places nothing, its click included; "This setup only" for a set piece; several icons
+// selected; the Library in Spanish; the tool entries' names.
+
+const historyTile = (page: Page) => page.getByRole('region', { name: 'History', exact: true });
+const steps = (page: Page) => historyTile(page).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+
+/** The sofa pressed and dragged over the plan, its ghost there, the button still held. */
+async function holdSofaOverPlan(page: Page) {
+  const button = libraryIcon(page, 'set-art/sofa');
+  await button.scrollIntoViewIfNeeded();
+  const box = await button.boundingBox();
+  if (!box) throw new Error('no sofa in the Library');
+  const target = await screen(page, 0, 0);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x, target.y, { steps: 8 });
+  await expect(page.locator('[data-library-ghost="set-art/sofa"]')).toHaveAttribute('data-library-ghost-over', 'plan');
+  return { box, target };
+}
+
+test('a drag cancelled by Escape or by the system places nothing, not even with the click that follows', async ({ page }) => {
+  await startRoom(page);
+  // Escape mid-drag: the ghost goes, and letting go over the plan places nothing.
+  await holdSofaOverPlan(page);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-library-ghost]')).toHaveCount(0);
+  await page.mouse.up();
+  // Let go back over the button it began on: still nothing.
+  const { box } = await holdSofaOverPlan(page);
+  await page.keyboard.press('Escape');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  // The system cancels the pointer (a palm, a dialog): nothing either.
+  await holdSofaOverPlan(page);
+  await libraryIcon(page, 'set-art/sofa').evaluate((el) => {
+    el.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', bubbles: true }));
+  });
+  await expect(page.locator('[data-library-ghost]')).toHaveCount(0);
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  expect(await iconNames(page)).toEqual([]);
+  // No step was written: the newest in History is still the room's.
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(steps(page).first()).toContainText('Started room');
+  await page.keyboard.press('Escape');
+  // And the button still places from the keyboard afterwards.
+  await libraryIcon(page, 'set-art/sofa').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
+});
+
+test('makes a set piece this setup’s only and back, and edits several icons at once', async ({ page }) => {
+  await startRoom(page);
+  await libraryIcon(page, 'set-art/sofa').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
+  const setupOnly = selectionTile(page).getByRole('switch', { name: 'This setup only' });
+  await setupOnly.click();
+  await expect(selectionTile(page).locator('[data-setup-only]')).toHaveAttribute('data-setup-only', 'on');
+  await expect.poll(async () => (await icons(page))[0]?.level).toBe('setup');
+  // The scene's other setup doesn't show it; Setup 1 still does.
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 2');
+  await expect.poll(() => iconNames(page)).toEqual([]);
+  await setupsTile(page).locator('[data-setup-select]').first().click();
+  await expect(planTile(page).locator('[data-plan-header]')).toHaveText('SC 01 · Setup 1');
+  await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
+  // Off again: back in the room, so Setup 2 shows it.
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+a`);
+  await selectionTile(page).getByRole('switch', { name: 'This setup only' }).click();
+  await expect.poll(async () => (await icons(page))[0]?.level).toBe('room');
+
+  // Two icons selected: the fields they share, a typed width goes to both, one step that one undo takes back.
+  await libraryIcon(page, 'set-art/table').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa', 'set-art/table']);
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+a`);
+  await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('2 items');
+  await expect(field(page, 'Width')).toHaveValue('');
+  await expect(field(page, 'Rotation')).toHaveValue('0°');
+  await field(page, 'Width').fill('3');
+  await field(page, 'Width').press('Enter');
+  await expect.poll(async () => (await icons(page)).map((i) => i.width)).toEqual([3, 3]);
+  await expect(field(page, 'Width')).toHaveValue('3.00 m');
+  // Under a centimetre: refused, nothing saved.
+  await field(page, 'Depth').fill('0.005');
+  await field(page, 'Depth').press('Enter');
+  expect((await icons(page)).map((i) => i.height)).toEqual([0.9, 0.8]);
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+z`);
+  await expect.poll(async () => (await icons(page)).map((i) => i.width)).toEqual([2, 1.5]);
+});
+
+test('the Library in Spanish: its labels, its filter finds “sofá”, and the tools say what they pick', async ({ page }) => {
+  await startRoom(page);
+  await expect(libraryIcon(page, 'set-art/wall')).toHaveAccessibleName('Wall: selects the Wall tool');
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
+  await page.keyboard.press('Escape');
+  const biblioteca = page.getByRole('region', { name: 'Íconos', exact: true });
+  await expect(biblioteca.locator('[data-library-says]')).toHaveText('Arrastra un ícono a la planta, o pulsa Intro sobre él para colocarlo en el centro de la vista.');
+  await expect(biblioteca.locator('[data-library-group="set-art"] h3')).toHaveText('Escenografía y arte');
+  await expect(biblioteca.locator('[data-library-icon="set-art/chair"]')).toContainText('Silla');
+  await expect(biblioteca.locator('[data-library-icon="set-art/wall"]')).toHaveAccessibleName('Muro: elige la herramienta Muro');
+  await biblioteca.getByRole('searchbox', { name: 'Filtrar' }).fill('sofá');
+  await expect(biblioteca.locator('[data-library-icon]')).toHaveCount(1);
+  await expect(biblioteca.locator('[data-library-icon="set-art/sofa"]')).toContainText('Sofá');
+  // Without the accent, and by the kit's English name, too.
+  await biblioteca.getByRole('searchbox', { name: 'Filtrar' }).fill('sofa');
+  await expect(biblioteca.locator('[data-library-icon]')).toHaveCount(1);
 });

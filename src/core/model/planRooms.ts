@@ -2,6 +2,7 @@ import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
 import {
   iconGroup,
+  iconIdOf,
   lastKeyUnder,
   newRoomChanges,
   openingFields,
@@ -280,7 +281,7 @@ export function iconHome(icon: string): PlanLevel {
 }
 
 /** The level an item belongs to: an icon's by its group, any other's by its kind. */
-export const itemHome = (props: Props): PlanLevel => (props.kind === 'icon' && typeof props.icon === 'string' ? iconHome(props.icon) : kindHome(props.kind));
+export const itemHome = (props: Props): PlanLevel => (props.kind === 'icon' ? iconHome(iconIdOf(props)) : kindHome(props.kind));
 
 /**
  * "This setup only" (6.2b), on: the items moved (`move` ops) from the room or the scene's blocking into the setup's
