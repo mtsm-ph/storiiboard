@@ -35,6 +35,18 @@ interface DepartmentTagProps {
   label?: string;
 }
 
+/**
+ * A department's colour alone, as a small square tag beside a name that sits in ink (6.8's layer rows, where a tag
+ * holding the name wouldn't fit): the tag's fill (and its outline, for the uncoloured three), never its padding or text.
+ */
+export function DepartmentSwatch({ department }: { department: Department }) {
+  const fill = DEPARTMENT_TAG[department]
+    .split(' ')
+    .filter((c) => !c.startsWith('px-') && !c.startsWith('py-') && !c.startsWith('text-'))
+    .join(' ');
+  return <span aria-hidden="true" className={cx('inline-block h-2.5 w-2.5 shrink-0', fill)} />;
+}
+
 export function DepartmentTag({ department, label }: DepartmentTagProps) {
   return (
     <span className={cx('sb-label inline-block', DEPARTMENT_TAG[department])}>

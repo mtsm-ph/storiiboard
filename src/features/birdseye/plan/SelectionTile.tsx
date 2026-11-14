@@ -184,6 +184,8 @@ function SetupOnlySwitch({ view, ids, records }: { view: PlanView & { setupId: s
           t('selection.setupOnlyNoRoom')
         ) : held === 'wallOnly' ? (
           t('selection.setupOnlyWallOnly')
+        ) : held === 'staleCamera' ? (
+          t('selection.setupOnlyStaleCamera')
         ) : held === 'others' ? (
           <Trans k="selection.setupOnlyOthers" parts={{ places: <PlaceList places={others} /> }} />
         ) : (

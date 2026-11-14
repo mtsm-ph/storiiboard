@@ -17,7 +17,7 @@ import {
   trashPlanChanges,
   type PlanLevel,
 } from './plan';
-import { markLayer, repointCamera } from './planBlocking';
+import { markLayer, repointCamera, soundOrders, staleLink } from './planBlocking';
 import { withoutFrameLinks } from './planCamera';
 import type { Props, SbdRecord } from './record';
 import { sceneSetups, type Setup } from './setup';
@@ -260,11 +260,45 @@ export function copySetupChanges(records: Records, fromSetupId: string, toSetupI
   const from = setupPlanOf(records, fromSetupId);
   if (to?.type !== 'setup' || to.trashedAt !== null || !from || fromSetupId === toSetupId || setupHasItems(records, toSetupId)) return [];
   const existing = setupPlanOf(records, toSetupId);
-  if (existing) return copyItemsChanges(records, from.id, existing.id);
-  return [
-    { kind: 'create', record: { id: planId, type: 'plan', parentId: toSetupId, sortKey: keyBetween(lastKeyUnder(records, toSetupId, 'plan'), null), props: { kind: 'setup', name: '' } } },
-    ...copyItemsChanges(records, from.id, planId, null),
-  ];
+  const copied: Change[] = existing
+    ? copyItemsChanges(records, from.id, existing.id)
+    : [
+        { kind: 'create', record: { id: planId, type: 'plan', parentId: toSetupId, sortKey: keyBetween(lastKeyUnder(records, toSetupId, 'plan'), null), props: { kind: 'setup', name: '' } } },
+        ...copyItemsChanges(records, from.id, planId, null),
+      ];
+  return to.parentId === null ? copied : [...cheatedCopyOrders(records, to.parentId, copied), ...copied];
+}
+
+/**
+ * A copied cheated character mark's `order` (6.7 second review, M3): never its original's, which would make two of
+ * that character's marks one position; a fresh one just after the original's, below the next of that character's
+ * marks in the scene (the Trash's too), so the copy sits at the same number in its own setup. The character's orders
+ * are made sound first (soundOrders): the updates come back, for the same group. Writes into the copies' props.
+ */
+function cheatedCopyOrders(records: Records, sceneId: string, changes: readonly Change[]): Change[] {
+  // Per character: its marks' sound orders, and every order taken so far, the copies' too.
+  const sounded = new Map<string, { orders: ReadonlyMap<string, string>; taken: string[] }>();
+  const updates: Change[] = [];
+  for (const change of changes) {
+    const props = change.kind === 'create' ? change.record.props : undefined;
+    const original = typeof props?.copied_from === 'string' ? props.copied_from : null;
+    if (!props || props.kind !== 'mark' || typeof props.character_id !== 'string' || typeof props.camera_id === 'string' || original === null) continue;
+    const character = props.character_id;
+    let known = sounded.get(character);
+    if (!known) {
+      const sound = soundOrders(records, sceneId, { kind: 'character', id: character });
+      updates.push(...sound.changes);
+      known = { orders: sound.orders, taken: [...sound.orders.values()] };
+      sounded.set(character, known);
+    }
+    const from = known.orders.get(original) ?? null;
+    const sorted = [...known.taken].sort();
+    // An original that isn't one of the scene's marks of that character can't be told: a fresh one after the last.
+    const order = from === null ? keyBetween(sorted.at(-1) ?? null, null) : keyBetween(from, sorted.find((o) => o > from) ?? null);
+    props.order = order;
+    known.taken.push(order);
+  }
+  return updates;
 }
 
 /** The level an item of a kind belongs to (decision 2): the room's for the set, the scene's for blocking, else the setup's. */
@@ -345,6 +379,9 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
       if (!on && r.props.kind === 'north' && !northFits()) return [];
       // A door or window in a wall that is this setup's only stays with its wall (it would show nowhere else).
       if (!on && openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? '')) return [];
+      // A camera's mark whose camera link doesn't read stays in the setup (6.7 second review, L3): in the blocking its
+      // link could never read again, were its camera restored (setupOnlyHeld says so).
+      if (!on && staleCameraMark(records, r)) return [];
       return [{ record: r, level }];
     })
     .sort((a, b) => order.indexOf(a.level) - order.indexOf(b.level) || bySortKey(a.record, b.record));
@@ -376,6 +413,9 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
   }
   return changes.some((c) => c.kind === 'move') ? changes : [];
 }
+
+/** Whether an item is a camera's mark whose camera link doesn't read (its camera in the Trash, gone, or another plan's). */
+const staleCameraMark = (records: Records, r: SbdRecord): boolean => r.props.kind === 'mark' && staleLink(records, r) === 'camera';
 
 /** Whether a door or window sits in a wall that is in this setup's own plan. */
 function openingOnSetupWall(records: Records, setupPlanId: string | null, r: SbdRecord): boolean {
@@ -422,14 +462,15 @@ export function setupOnlyOthers(records: Records, sceneId: string, setupId: stri
 /**
  * Why "This setup only" can't be turned on or off for these items in this view, or null when it can (6.2b review): on,
  * not for a wall other places' doors and windows sit in; off, not with no room to go back to, nor for a door or window
- * alone whose wall is this setup's only.
+ * alone whose wall is this setup's only, nor for a camera's mark whose camera isn't on this plan (6.7 second review, L3).
  */
-export function setupOnlyHeld(records: Records, sceneId: string, setupId: string, ids: readonly string[]): 'noRoom' | 'wallOnly' | 'others' | null {
+export function setupOnlyHeld(records: Records, sceneId: string, setupId: string, ids: readonly string[]): 'noRoom' | 'wallOnly' | 'others' | 'staleCamera' | null {
   const plans = plansShown(records, sceneId, setupId);
   const picked = new Set(ids);
   const items = ids.flatMap((id) => (records[id] ? [records[id]] : []));
   if (!items.every((r) => r.parentId !== null && r.parentId === plans.setup?.id)) return setupOnlyOthers(records, sceneId, setupId, ids).length > 0 ? 'others' : null;
   if (items.some((r) => openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? ''))) return 'wallOnly';
+  if (items.some((r) => staleCameraMark(records, r))) return 'staleCamera';
   if (plans.room === null && items.some((r) => homeOf(records, r) === 'room')) return 'noRoom';
   return null;
 }

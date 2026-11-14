@@ -862,7 +862,7 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   }
   if (!ops.some(isPlan)) return null;
   if (!ops.every((op) => isPlan(op) || roomLink(op))) return null;
-  const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  const items = withoutRenumbering(ops.filter((op) => record(op)?.type === 'plan_item'));
   // Items made by a copy (a setup's or a room's) say what they were copied from; ones put in by hand don't (6.2b review).
   const created = items.filter((op) => op.kind === 'create');
   const copies = created.length > 0 && created.every((op) => typeof op.after?.props.copied_from === 'string');
@@ -945,6 +945,28 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   return [tn('history.wallsChanged', m)];
 }
 
+/** Whether an op only changed a mark's `order`. */
+const orderOnlyOp = (op: LoggedOp): boolean =>
+  op.kind === 'update' && !!op.before && !!op.after && op.after.props.kind === 'mark' && changedProps(op.before, op.after).every((prop) => prop === 'order');
+
+/**
+ * A step's plan ops without the marks given a sound `order` along the way (6.7 second review, L5: soundOrders gives an
+ * owner's marks without one, or sharing one, theirs in the same group as the edit that needs them). The step reads as
+ * that edit: "Added a next position for ANA", never "Reordered 3 plan items". A mark renumbered so is an `order`-only
+ * update with no other op in the step; when the whole step is such updates (Earlier or Later), the mark moved is the
+ * last op's, written after the others.
+ */
+function withoutRenumbering(items: readonly LoggedOp[]): LoggedOp[] {
+  if (!items.some(orderOnlyOp)) return [...items];
+  if (items.every(orderOnlyOp)) {
+    const moved = items.at(-1)?.recordId;
+    return items.filter((op) => op.recordId === moved);
+  }
+  const ops = new Map<string, number>();
+  for (const op of items) ops.set(op.recordId, (ops.get(op.recordId) ?? 0) + 1);
+  return items.filter((op) => !orderOnlyOp(op) || (ops.get(op.recordId) ?? 0) > 1);
+}
+
 /** Who a mark is for in a step (6.7), as it was then: a character by name, a camera as what it is; null for neither. */
 function markWho(props: Props, around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Part | null {
   const camera = typeof props.camera_id === 'string' ? around.get(props.camera_id) : undefined;
@@ -994,11 +1016,10 @@ function markLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRec
     if (onlyCameras) return [tn(kind === 'trash' ? 'history.camerasDeleted' : 'history.camerasRestored', counted.size)];
     return [tn(kind === 'trash' ? 'history.planItemsDeleted' : 'history.planItemsRestored', counted.size)];
   }
-  // Earlier or Later (6.7 review): only the marks' `order` changed. Several (positions without one, given theirs in
-  // their new order) can't say which moved: counted as a reorder.
+  // Earlier or Later (6.7 review): only the mark's `order` changed (the others renumbered along the way are left out
+  // by withoutRenumbering).
   const orderOnly = marks.every((op) => op.kind === 'update' && op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'order'));
   const ids = new Set(marks.map((op) => op.recordId));
-  if (orderOnly && ids.size > 1) return [tn('history.planItemsReordered', ids.size)];
   if (ids.size !== 1) return null;
   const first = marks[0];
   const last = marks.at(-1);
@@ -1027,7 +1048,9 @@ function markLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRec
     return to === null ? [t('history.markMadePlain')] : line('history.markGiven', { who: to });
   }
   if (orderOnly && changed.length > 0) {
-    const was = typeof before.props.order === 'string' ? before.props.order : null;
+    // The last op's before: a mark given a sound `order` first, then moved, moved from that one.
+    const from = last?.before ?? before;
+    const was = typeof from.props.order === 'string' ? from.props.order : null;
     const now = typeof after.props.order === 'string' ? after.props.order : null;
     return line(was !== null && now !== null && now < was ? 'history.positionEarlier' : 'history.positionLater', { who: who(after.props) });
   }

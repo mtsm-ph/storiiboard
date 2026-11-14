@@ -132,7 +132,7 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
         split(
           'row',
           [
-            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [400, 120, 288]),
+            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [272, 288, 248]),
             split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
             stack(['selection']),
           ],
