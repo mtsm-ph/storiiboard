@@ -172,9 +172,7 @@ pub struct Pointers {
     stored: Vec<String>,
 }
 
-/// The pointers the open project has for the picture with this SHA-256: a query and nothing more, so it can run under the
-/// lock. `Ok(None)`: no pointer, or the project's path isn't absolute (a path can't be resolved against it).
-pub fn pointers(file: &SbdFile, sha256: &str) -> Result<Option<Pointers>, String> {
+fn check_hash(sha256: &str) -> Result<(), String> {
     if sha256.len() != 64
         || !sha256
             .bytes()
@@ -182,6 +180,47 @@ pub fn pointers(file: &SbdFile, sha256: &str) -> Result<Option<Pointers>, String
     {
         return Err("That isn't a picture's hash.".into());
     }
+    Ok(())
+}
+
+/// The pointer of one `media` record, for showing its original (src-tauri/src/open.rs): the record the page's board item
+/// holds, not every record of the same picture (another board's, a frame's, a trashed one's, a pasted copy of the same
+/// bytes), and not one in the Trash. It must be an image record whose `file` is this hash and whose `source_path` is set; else none. A query only.
+pub(crate) fn record_pointer(
+    file: &SbdFile,
+    record_id: &str,
+    sha256: &str,
+) -> Result<Option<Pointers>, String> {
+    check_hash(sha256)?;
+    let rows = file.query(
+        "SELECT json_extract(props, '$.source_path') AS path FROM records
+          WHERE id = ? AND type = 'media' AND trashed_at IS NULL AND json_extract(props, '$.kind') = 'image'
+            AND json_extract(props, '$.file') = ?",
+        &[
+            Json::String(record_id.to_owned()),
+            Json::String(sha256.to_owned()),
+        ],
+    )?;
+    let Some(folder) = file.folder() else {
+        return Ok(None);
+    };
+    let stored: Vec<String> = rows
+        .into_iter()
+        .filter_map(|row| match row.get("path") {
+            Some(Json::String(path)) if !path.is_empty() => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    Ok((!stored.is_empty()).then(|| Pointers {
+        folder: folder.to_path_buf(),
+        stored,
+    }))
+}
+
+/// The pointers the open project has for the picture with this SHA-256: a query and nothing more, so it can run under the
+/// lock. `Ok(None)`: no pointer, or the project's path isn't absolute (a path can't be resolved against it).
+pub fn pointers(file: &SbdFile, sha256: &str) -> Result<Option<Pointers>, String> {
+    check_hash(sha256)?;
     let rows = file.query(
         "SELECT json_extract(props, '$.source_path') AS path FROM records
           WHERE type = 'media' AND json_extract(props, '$.kind') = 'image'
@@ -241,11 +280,10 @@ fn read_head(file: &mut fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(got)
 }
 
-fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
-    let path = resolve(folder, stored)?;
-    // Looked at without following a link, before it is opened: opening a pipe or a device can block for good, and a
-    // link or a junction may lead anywhere.
-    let meta = match fs::symlink_metadata(&path) {
+/// A resolved path looked at without following a link and without opening it: opening a pipe or a device can block for good,
+/// and a link or a junction may lead anywhere. `Ok(None)`: it isn't there. Otherwise a plain file's metadata, or a refusal.
+fn plain_file_meta(path: &Path) -> Result<Option<fs::Metadata>, String> {
+    let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(_) => return Ok(None),
     };
@@ -255,6 +293,14 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
     if !meta.is_file() {
         return Err("That isn't a plain file.".into());
     }
+    Ok(Some(meta))
+}
+
+fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
+    let path = resolve(folder, stored)?;
+    let Some(meta) = plain_file_meta(&path)? else {
+        return Ok(None);
+    };
     if meta.len() > MAX_BYTES {
         return Err("That picture is too large to print from its original.".into());
     }
@@ -282,6 +328,52 @@ fn read_path(folder: &Path, stored: &str) -> Result<Option<Vec<u8>>, String> {
         return Err("That picture is too large to print from its original.".into());
     }
     Ok(Some(bytes))
+}
+
+/// Whether a file's name ends as a picture's does (for showing, where its bytes are not read), in any letter case.
+fn picture_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "jpg"
+                    | "jpeg"
+                    | "png"
+                    | "gif"
+                    | "webp"
+                    | "bmp"
+                    | "tif"
+                    | "tiff"
+                    | "heic"
+                    | "heif"
+                    | "avif"
+            )
+        })
+}
+
+/// The path of the first pointer that is a plain file, for showing it in its folder (src-tauri/src/open.rs). The path rules
+/// and the plain-file check of reading, from the disk's metadata alone: the file is never opened or read, so showing an
+/// online-only file (OneDrive, Dropbox, iCloud) is not downloaded by it. Only metadata is read; whether macOS prompts for a
+/// protected folder is checked by hand. With no content check, only a picture's name is let through (`picture_name`), so a
+/// project that records a program's path can't have it selected. `Ok(None)`: none is there; `Err`: refused.
+pub(crate) fn existing_path(pointers: &Pointers) -> Result<Option<PathBuf>, String> {
+    let mut refused = None;
+    for stored in &pointers.stored {
+        let looked = resolve(&pointers.folder, stored).and_then(|path| {
+            // The stored name's last part, as `resolve` stops at the first part that isn't there.
+            if !picture_name(Path::new(stored.rsplit(['/', '\\']).next().unwrap_or(""))) {
+                return Err("That file isn't a picture.".to_owned());
+            }
+            plain_file_meta(&path).map(|found| found.map(|_| path))
+        });
+        match looked {
+            Ok(Some(path)) => return Ok(Some(path)),
+            Ok(None) => {}
+            Err(reason) => refused = Some(reason),
+        }
+    }
+    refused.map_or(Ok(None), Err)
 }
 
 /// The original of a picture, raw (an ArrayBuffer on the page); empty when the project has none to read, which the page
@@ -416,6 +508,8 @@ mod tests {
         big.set_len(MAX_BYTES + 1).unwrap();
         let file = project(&dir, "huge.jpg");
         assert!(read_original(&file, SHA).is_err());
+        // The sparse file may take real space on some disks: not left in the temp folder.
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

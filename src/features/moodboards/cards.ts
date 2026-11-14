@@ -45,8 +45,8 @@ export function cardInfo(records: Records, itemId: string, fields: ItemFields, m
 }
 
 /** The item's original file name for the properties strip, and whether a path is kept to show it by. */
-export function originalOf(records: Records, itemId: string): { name: string; path: string; sha256: string } | null {
+export function originalOf(records: Records, itemId: string): { name: string; path: string; sha256: string; recordId: string } | null {
   const media = mediaChildOf(records, itemId, 'image');
   const picture = media ? mediaFields(media.props) : null;
-  return picture ? { name: picture.sourceName, path: picture.sourcePath, sha256: picture.sha256 } : null;
+  return media && picture ? { name: picture.sourceName, path: picture.sourcePath, sha256: picture.sha256, recordId: media.id } : null;
 }

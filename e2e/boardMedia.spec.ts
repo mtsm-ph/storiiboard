@@ -87,6 +87,7 @@ function files(page: Page, list: { name: string; type: string; data: number[] }[
 }
 
 const jpeg = (name = 'srgb.jpg') => ({ name, type: 'image/jpeg', data: [...readFileSync(imagePath)] });
+const photo = () => ({ name: 'photo-a.jpg', type: 'image/jpeg', data: [...readFileSync(fileURLToPath(new URL('./fixtures/images/photo-a.jpg', import.meta.url)))] });
 const clip = () => ({ name: 'A001_C003_2398.mp4', type: 'video/mp4', data: [...readFileSync(clipPath)] });
 
 /** A drop of files on the board, at a world point. */
@@ -213,6 +214,117 @@ test('deletes a picture and brings it back with ⌘Z', async ({ page }) => {
   await page.keyboard.press(`${await mod(page)}+z`);
   await expect.poll(async () => (await data(page)).map((i) => i.kind)).toEqual(['picture']);
   await expect.poll(async () => Object.values(await levels(page))).toEqual(['thumbnail']);
+});
+
+// Show in Finder / Explorer (5.9). The memory build has no Rust and no disk: window.__sbdDevOriginals (src/app/opener.ts) says
+// which pictures' originals "exist", opted in by hash, and records the hashes it was asked about and the reveal was asked for.
+// A picture's stored hash isn't its file's (it is redrawn when stored), so a test learns it from `asked`, then opts in and
+// lets the window "regain focus", which is when the page asks again.
+interface DevOriginals {
+  shown: string[];
+  asked: string[];
+  revealed: string[];
+  failing?: boolean;
+}
+type DevWindow = { __sbdDevOriginals: DevOriginals };
+const standIn = (page: Page, value: Partial<DevOriginals> = {}) =>
+  page.evaluate((value) => {
+    (window as unknown as DevWindow).__sbdDevOriginals = { shown: [], asked: [], revealed: [], ...value };
+  }, value);
+const standInState = (page: Page) => page.evaluate(() => (window as unknown as DevWindow).__sbdDevOriginals);
+const revealed = async (page: Page) => (await standInState(page)).revealed;
+/** The hash the page asked about last, which is the selected picture's. */
+async function lastAsked(page: Page): Promise<string> {
+  await expect.poll(async () => (await standInState(page)).asked.length).toBeGreaterThan(0);
+  const asked = (await standInState(page)).asked;
+  return asked[asked.length - 1] ?? '';
+}
+async function allow(page: Page, hash: string) {
+  await page.evaluate((hash) => {
+    (window as unknown as DevWindow).__sbdDevOriginals.shown.push(hash);
+    window.dispatchEvent(new Event('focus'));
+  }, hash);
+}
+const showOriginal = (page: Page) => properties(page).getByRole('button', { name: /^(Show in Explorer|Show in Finder|Show in folder)$/ });
+
+/** From the tile's first button, forwards with Tab until the button has focus: it is in the tab order, ahead of the canvas. */
+async function tabToShowOriginal(page: Page) {
+  await tile(page).getByRole('button').first().focus();
+  const seen: string[] = [];
+  for (let i = 0; i < 30; i += 1) {
+    await page.keyboard.press('Tab');
+    if (await showOriginal(page).evaluate((button) => button === document.activeElement)) return;
+    seen.push(await page.evaluate(() => (document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.textContent ?? '').slice(0, 24)));
+  }
+  throw new Error(`the Show in folder button is not in the tab order: ${seen.join(' | ')}`);
+}
+
+test('Show in folder is a button for a picture whose original exists, reached with Tab and pressed from the keyboard, and asks for that picture by its hash', async ({ page }) => {
+  await openCamera(page);
+  await standIn(page);
+  await dropFiles(page, [jpeg()], -300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(1);
+  await expect(showOriginal(page)).toHaveCount(0);
+  const first = await lastAsked(page);
+  expect(first).toMatch(/^[0-9a-f]{64}$/);
+  await allow(page, first);
+  await expect(showOriginal(page)).toBeVisible();
+  await tabToShowOriginal(page);
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => revealed(page)).toEqual([first]);
+
+  // Another picture, selected on its own: its own hash. Two items selected: no action at all.
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await dropFiles(page, [photo()], 300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(2);
+  const second = await lastAsked(page);
+  expect(second).not.toBe(first);
+  await allow(page, second);
+  await tabToShowOriginal(page);
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => revealed(page)).toEqual([first, second]);
+  await canvas(page).focus();
+  await page.keyboard.press(`${await mod(page)}+a`);
+  await expect(showOriginal(page)).toHaveCount(0);
+});
+
+test('a picture whose original is not recorded or is not there shows no such action, and a selected video card none either', async ({ page }) => {
+  await openCamera(page);
+  await standIn(page);
+  await dropFiles(page, [jpeg()], -300, 0);
+  await expect.poll(async () => (await data(page)).length).toBe(1);
+  await expect(properties(page).locator('[data-picture-original]')).toHaveText('Pasted, no original file');
+  await expect(showOriginal(page)).toHaveCount(0);
+  // Another picture's original exists, not this one's.
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await dropFiles(page, [photo()], -300, 200);
+  await expect.poll(async () => (await data(page)).length).toBe(2);
+  await allow(page, await lastAsked(page));
+  await expect(showOriginal(page)).toBeVisible();
+
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await dropFiles(page, [clip()], 300, 0);
+  await expect.poll(async () => (await data(page)).map((i) => i.kind)).toEqual(['picture', 'picture', 'video']);
+  // The video card is the selection: the strip names its file, and has no such action.
+  await expect(properties(page).getByText('A001_C003_2398.mp4')).toBeVisible();
+  await expect(properties(page).locator('[data-picture-original]')).toHaveCount(0);
+  await expect(properties(page).getByRole('button', { name: /^Show in / })).toHaveCount(0);
+});
+
+test('a reveal that fails says so, the action goes, and focus moves to the board', async ({ page }) => {
+  await openCamera(page);
+  await standIn(page, { failing: true });
+  await dropFiles(page, [jpeg()]);
+  await allow(page, await lastAsked(page));
+  await expect(showOriginal(page)).toBeVisible();
+  await tabToShowOriginal(page);
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('alert').getByText("That picture's original isn't where it was.")).toBeVisible();
+  await expect(showOriginal(page)).toHaveCount(0);
+  await expect(canvas(page)).toBeFocused();
 });
 
 test('a video card opens the Player on a double-click and plays; in and out are for storyboard frames', async ({ page }) => {

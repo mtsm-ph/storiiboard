@@ -110,6 +110,8 @@ pub fn run() {
             services::services_status,
             open::open_link,
             open::open_pdf,
+            open::original_shown,
+            open::reveal_original,
             region::region_week,
             fonts::fonts_list,
             fonts::font_bytes,
