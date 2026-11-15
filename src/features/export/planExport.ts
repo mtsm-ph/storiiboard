@@ -24,7 +24,7 @@ import { writingStatus } from './pdfStoryboardFormat';
 import { dayPlanViews, departmentViews, planPages, printableViews, projectCandidates, sceneCandidates, scaleWords, type LeftOut, type PlanDepartments, type PlanPage, type PlanView } from './planPages';
 import { bundledMeasure, planDrawing, planPrintPage, preparePlanFonts, preparePlanPictures } from './planRender';
 import type { ExportContext, ExportFormat, ExportResult } from './registry';
-import { drawWatermark } from './renderFrame';
+import { drawPlanStamp, drawWatermark } from './renderFrame';
 import type { ExportScope } from './scope';
 import { watermarkFor, type Watermark } from './watermark';
 
@@ -210,11 +210,13 @@ export async function paintPage(page: PrintPage, file: ProjectFile, watermark: W
   ctx.fillStyle = page.background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   const { unprintable } = paintOps(ctx, page.ops, [scale, 0, 0, scale, 0, 0], (sha) => decodedPicture(file, sha, 'original') ?? decodedPicture(file, sha, 'thumbnail') ?? null);
-  if (watermark) {
+  if (watermark && page.watermarkRoom !== null) {
     // In the picture's own pixels, as deckPng.ts does: whatever transform the painting left is put back first.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
-    drawWatermark(ctx, watermark, canvas.width, canvas.height);
+    // A plan's page: inside its plan box, where the PDF puts it (Kevin, Nov 15); any other page, as before.
+    if (page.watermarkRoom) drawPlanStamp(ctx, watermark, page.watermarkRoom, { width: page.width, height: page.height }, scale);
+    else drawWatermark(ctx, watermark, canvas.width, canvas.height);
   }
   const blob = await canvasBlob(canvas, 'image/png');
   if (!blob) throw new Error(t('export.plan.cantDraw'));

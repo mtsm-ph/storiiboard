@@ -7,6 +7,8 @@ import type { ProjectFile } from '../../core/storage/driver';
 import { pictureView } from '../storyboard/framePictures';
 import { arrowHead, pressureOutline, strokesOf, type Stroke } from '../storyboard/sketch/strokes';
 import type { Watermark } from './watermark';
+import { planStampBox, type WatermarkRoom } from './planStamp';
+import type { Size } from '../../ui/canvas/types';
 import { t } from '../../core/i18n';
 
 // A frame drawn as the board shows it (1.24), for PNG and PDF exports: its picture framed as the person framed it,
@@ -105,6 +107,32 @@ export function drawWatermark(ctx: Canvas2D, watermark: Watermark, width: number
   ctx.strokeText(watermark.text, x, y, width - 2 * margin);
   ctx.fillStyle = INK;
   ctx.fillText(watermark.text, x, y, width - 2 * margin);
+  ctx.restore();
+}
+
+/**
+ * The watermark on a plan page's PNG (Kevin, Nov 15): in the box planStampBox gives inside the plan box, the very box the
+ * PDF's is drawn in, measured in the page's points and painted `scale` pixels a point; drawn as drawWatermark draws it.
+ */
+export function drawPlanStamp(ctx: Canvas2D, watermark: Watermark, room: WatermarkRoom, page: Size, scale: number) {
+  const measureAt = (size: number) => {
+    ctx.font = WATERMARK_FONT(size * scale);
+    return ctx.measureText(watermark.text).width / scale;
+  };
+  ctx.save();
+  const stamp = planStampBox(room, page, watermark.position, measureAt);
+  const size = stamp.size * scale;
+  ctx.globalAlpha = watermark.opacity;
+  ctx.font = WATERMARK_FONT(size);
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = watermarkOutline(stamp.size) * scale;
+  ctx.strokeStyle = PAPER;
+  const fits = (stamp.width - watermarkOutline(stamp.size)) * scale;
+  ctx.strokeText(watermark.text, stamp.textX * scale, stamp.baseline * scale, fits);
+  ctx.fillStyle = INK;
+  ctx.fillText(watermark.text, stamp.textX * scale, stamp.baseline * scale, fits);
   ctx.restore();
 }
 

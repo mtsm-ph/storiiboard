@@ -281,7 +281,9 @@ export function planPrintPage(page: PlanPage, drawing: readonly DisplayOp[] | nu
   const ops: DisplayOp[] = [...headerOps(page, measure)];
   if (page.plan) ops.push(...planBoxOps(page.plan, drawing ?? [], words, measure));
   ops.push(...legendOps(page, words.legend));
-  return { format: page.paper, orientation: 'landscape', width: page.size.width, height: page.size.height, background: WHITE, ops };
+  // A watermark goes inside the plan box (Kevin, Nov 15: planStamp.ts), above its foot band; a legend's own page has none.
+  const watermarkRoom = page.plan ? { box: page.plan.box, footTop: footBand(page.plan).y } : null;
+  return { format: page.paper, orientation: 'landscape', width: page.size.width, height: page.size.height, background: WHITE, ops, watermarkRoom };
 }
 
 /** Where a world point of a plan page lands on the page, points (for the tests: a wall's ends on paper). */
