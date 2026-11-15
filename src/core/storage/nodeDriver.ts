@@ -4,7 +4,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isBackupName, isMigrationBackupName } from './backups';
-import { blobOf, CHANGED_ON_DISK, refuseBytes, type BackupKind, type LockHolder, type ProjectFile, type Row, type SqlDriver } from './driver';
+import { blobOf, CHANGED_ON_DISK, refuseBytes, type BackupKind, type LockHolder, type ProjectFile, type Row, type SqlDriver, type SqlValue } from './driver';
 import { fileStem } from './paths';
 
 // The same contract as the Rust commands in src-tauri/src/sbd.rs, on Node's built-in SQLite: Vitest runs on it now,
@@ -32,14 +32,39 @@ function configure(db: DatabaseSync): void {
   db.exec('PRAGMA secure_delete = ON');
 }
 
-function toRow(row: Record<string, unknown>): Row {
-  const out: Row = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (typeof value === 'bigint') out[key] = Number(value);
-    else if (typeof value === 'string' || typeof value === 'number' || value === null || value instanceof Uint8Array) out[key] = value;
-    else throw new Error(`Unexpected value in column ${key}.`);
-  }
-  return out;
+function toValue(value: unknown, column: string): Row[string] {
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string' || typeof value === 'number' || value === null || value instanceof Uint8Array) return value;
+  throw new Error(`Unexpected value in column ${column}.`);
+}
+
+/**
+ * A query's rows as sbd.rs makes them: every value checked by its position, before rows become objects, so bytes behind
+ * a later column of the same name (`SELECT bytes AS v, id AS v`) are refused as Rust refuses them; then by name, the
+ * later of two same-named columns winning, as Rust's map insert does.
+ */
+function queryRows(db: DatabaseSync, sql: string, params: readonly SqlValue[]): Row[] {
+  const statement = db.prepare(sql);
+  statement.setReturnArrays(true);
+  const names = statement.columns().map((column) => column.name);
+  const rows = statement.all(...params) as unknown as unknown[][];
+  refuseBytes(rows);
+  return rows.map((values) => {
+    const row: Row = {};
+    values.forEach((value, i) => {
+      const name = names[i] ?? String(i);
+      row[name] = toValue(value, name);
+    });
+    return row;
+  });
+}
+
+/** A blob read's value: the first column of the first row by position, as sbd.rs reads it (undefined: no row). */
+function firstValue(db: DatabaseSync, sql: string, params: readonly SqlValue[]): unknown {
+  const statement = db.prepare(sql);
+  statement.setReturnArrays(true);
+  const row = statement.get(...params) as unknown as unknown[] | undefined;
+  return row?.[0];
 }
 
 /**
@@ -171,12 +196,8 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
           lastWrite = fingerprint(path);
         }
       }),
-    query: (sql, params) => settle(() => refuseBytes(db.prepare(sql).all(...(params ?? [])).map(toRow))),
-    readBlob: (sql, params) =>
-      settle(() => {
-        const row = db.prepare(sql).get(...(params ?? []));
-        return blobOf(row ? Object.values(row)[0] : undefined);
-      }),
+    query: (sql, params) => settle(() => queryRows(db, sql, params ?? [])),
+    readBlob: (sql, params) => settle(() => blobOf(firstValue(db, sql, params ?? []))),
     backup: (kind, name) =>
       settle(() => {
         checkUnchanged();

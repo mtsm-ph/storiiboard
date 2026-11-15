@@ -9,6 +9,8 @@ declare module 'sql.js' {
     getAsObject(): Record<string, SqlJsValue>;
     /** The current row's values by column index, so the first column is read even when two share a name. */
     get(): SqlJsValue[];
+    /** The statement's column names by index, two that share a name included. */
+    getColumnNames(): string[];
     free(): boolean;
   }
 

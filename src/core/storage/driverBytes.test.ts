@@ -66,4 +66,23 @@ describe.each(drivers)('%s, as sbd.rs', (_name, make) => {
     await expect(file.readBlob("SELECT id, bytes FROM media_files WHERE id = 'full'")).rejects.toThrow(NOT_BYTES);
     await file.close();
   });
+
+  it('reads a blob from the first column by position, whatever the columns are named', async () => {
+    const file = await mediaFile(make);
+    // A column named "1" would come first among an object's keys; the first column is still bytes.
+    expect(await file.readBlob("SELECT bytes, 1 FROM media_files WHERE id = 'full'")).toEqual(new Uint8Array([1, 2]));
+    // Two columns of one name: by name the later would win; by position the first is read, as sbd.rs reads it.
+    expect(await file.readBlob("SELECT bytes AS b, id AS b FROM media_files WHERE id = 'full'")).toEqual(new Uint8Array([1, 2]));
+    await expect(file.readBlob("SELECT id AS b, bytes AS b FROM media_files WHERE id = 'full'")).rejects.toThrow(NOT_BYTES);
+    await file.close();
+  });
+
+  it('refuses bytes in a query by position, even behind a later column of the same name', async () => {
+    const file = await mediaFile(make);
+    await expect(file.query("SELECT bytes AS v, id AS v FROM media_files WHERE id = 'full'")).rejects.toThrow(QUERY_RETURNED_BYTES);
+    await expect(file.query("SELECT id AS v, bytes AS v FROM media_files WHERE id = 'full'")).rejects.toThrow(QUERY_RETURNED_BYTES);
+    // Without bytes, the later of two same-named columns is the one kept, as Rust's map insert keeps it.
+    expect(await file.query("SELECT id AS v, 7 AS v FROM media_files WHERE id = 'text'")).toEqual([{ v: 7 }]);
+    await file.close();
+  });
 });

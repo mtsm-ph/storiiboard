@@ -10,7 +10,11 @@
 //!   names the picture's media record and its SHA-256; the path comes from that record in the open .sbd
 //!   (src-tauri/src/originals.rs, with its path rules), the file is looked at by its metadata and name alone (never
 //!   opened or read, so an online-only file isn't downloaded; whether macOS prompts for a protected folder is checked by
-//!   hand), only a picture's name is let through, and no error here holds a path or a file name.
+//!   hand), only a picture's name is let through, and no error here holds a path or a file name;
+//! - `show_backups` (B5, 6.15), behind sbd.rs's `sbd_show_backups`: the open project's own backups folder, opened in
+//!   Finder or Explorer. The page names only the open project's handle; the folder is the one sbd.rs keeps for it, and
+//!   it is opened only when it is that project's backups folder (`Backups` next to it, or its own under the app's local
+//!   backups folder) and a real folder, never a link.
 
 use std::{
     fs,
@@ -34,6 +38,7 @@ const NOT_A_PDF: &str = "That attachment isn't a PDF, so Storiiboard won't open 
 const PDF_GONE: &str = "That PDF isn't in this project any more.";
 const ORIGINAL_GONE: &str = "That picture's original isn't where it was.";
 const COULD_NOT_OPEN: &str = "Storiiboard couldn't open it. Save a copy and open that instead.";
+const BACKUPS_NOT_SHOWN: &str = "Storiiboard couldn't show this project's backups folder.";
 
 /// The longest link opened: longer is no address a person typed.
 const MAX_LINK: usize = 2048;
@@ -326,6 +331,57 @@ pub async fn reveal_original(
     })
     .await
     .map_err(|_| COULD_NOT_OPEN.to_owned())?
+}
+
+/// Whether `name` is a local backups folder's name for the project `stem`: `<stem> <8 hex digits>`, as sbd.rs's
+/// place_backups makes it.
+fn local_backups_name(stem: &str, name: &str) -> bool {
+    name.strip_prefix(stem)
+        .and_then(|rest| rest.strip_prefix(' '))
+        .is_some_and(|key| key.len() == 8 && key.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The folder Show backups may open for the project at `project`: `dir` only when it is that project's backups folder
+/// (`Backups` beside it, or its own folder directly under `local_root`), made first if no backup has been made yet, and
+/// a real folder there, not a link to one. Everything before the plugin call, so the tests can reach it.
+fn backups_folder_to_open(
+    project: &Path,
+    dir: &Path,
+    local_root: &Path,
+) -> Result<PathBuf, String> {
+    let refused = || BACKUPS_NOT_SHOWN.to_owned();
+    let stem = project
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(refused)?;
+    let beside = project.parent().map(|folder| folder.join("Backups"));
+    let local = dir.parent() == Some(local_root)
+        && dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| local_backups_name(stem, name));
+    if !(dir.is_absolute() && (beside.as_deref() == Some(dir) || local)) {
+        return Err(refused());
+    }
+    fs::create_dir_all(dir).map_err(|_| refused())?;
+    // By the link itself, not what it points at: a link put in the folder's place is never followed.
+    if !fs::symlink_metadata(dir).is_ok_and(|meta| meta.is_dir()) {
+        return Err(refused());
+    }
+    Ok(dir.to_path_buf())
+}
+
+/// Show backups: opens the open project's backups folder (sbd.rs keeps where it is) in Finder or Explorer.
+pub(crate) fn show_backups(app: &AppHandle, files: &OpenFiles, handle: u32) -> Result<(), String> {
+    let (project, dir) = files.with(handle, |file| {
+        Ok((file.file_path().to_path_buf(), file.backups_dir()?))
+    })?;
+    let local_root =
+        crate::sbd::local_backups_root(app).map_err(|_| BACKUPS_NOT_SHOWN.to_owned())?;
+    let dir = backups_folder_to_open(&project, &dir, &local_root)?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|_| BACKUPS_NOT_SHOWN.to_owned())
 }
 
 #[cfg(test)]
@@ -709,6 +765,75 @@ mod tests {
         assert!(!first.exists() && !second.exists());
         assert!(root.join("keep").exists());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn shows_only_the_open_projects_own_backups_folder() {
+        let dir = temp_dir("backups");
+        let local_root = dir.join("app data").join("Backups");
+        let project = dir.join("Bey County.sbd");
+        let mut file = SbdFile::create(&project).unwrap();
+        // Next to the project, as sbd.rs keeps it: made first, since no backup has been made yet.
+        let beside = file.backups_dir().unwrap();
+        assert_eq!(
+            backups_folder_to_open(file.file_path(), &beside, &local_root),
+            Ok(beside.clone())
+        );
+        assert!(beside.is_dir());
+        // A synced project's own folder under the app's local backups folder.
+        let local = file.place_backups(Some(&local_root)).unwrap();
+        assert_eq!(
+            backups_folder_to_open(file.file_path(), &local, &local_root),
+            Ok(local.clone())
+        );
+        assert!(local.is_dir());
+        // Anything else is refused, and made nowhere.
+        let elsewhere = [
+            dir.join("Other"),
+            dir.join("Backups").join("inner"),
+            dir.clone(),
+            local_root.clone(),
+            local_root.join("Bey County"),
+            local_root.join("Bey County 0123abcd").join("x"),
+            local_root.join("Other 0123abcd"),
+            local_root.join("Bey County 0123abcg"),
+            dir.join("elsewhere").join("Bey County 0123abcd"),
+            PathBuf::from("Backups"),
+        ];
+        for path in elsewhere {
+            assert_eq!(
+                backups_folder_to_open(file.file_path(), &path, &local_root),
+                Err(BACKUPS_NOT_SHOWN.to_owned()),
+                "{}",
+                path.display()
+            );
+        }
+        assert!(!dir.join("Other").exists() && !dir.join("elsewhere").exists());
+        // A file where the folder should be is refused too.
+        let other = temp_dir("backups-file");
+        fs::write(other.join("Backups"), b"not a folder").unwrap();
+        assert!(backups_folder_to_open(
+            &other.join("Bey County.sbd"),
+            &other.join("Backups"),
+            &local_root
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_the_backups_folder_is_refused() {
+        let dir = temp_dir("backups-link");
+        let target = temp_dir("backups-link-target");
+        std::os::unix::fs::symlink(&**target, dir.join("Backups")).unwrap();
+        assert_eq!(
+            backups_folder_to_open(
+                &dir.join("Bey County.sbd"),
+                &dir.join("Backups"),
+                &dir.join("local")
+            ),
+            Err(BACKUPS_NOT_SHOWN.to_owned())
+        );
     }
 
     #[test]

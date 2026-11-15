@@ -36,8 +36,13 @@ function checkExtension(path: string): void {
   if (!/\.sbd$/i.test(path)) throw new Error('A Storiiboard project file ends in .sbd.');
 }
 
-function toRow(row: Record<string, SqlJsValue>): Row {
-  return { ...row };
+/** A row by name, the later of two same-named columns winning, as sbd.rs's map insert does. */
+function toRow(names: string[], values: SqlJsValue[]): Row {
+  const row: Row = {};
+  values.forEach((value, i) => {
+    row[names[i] ?? String(i)] = value;
+  });
+  return row;
 }
 
 /** Runs a synchronous sql.js call and settles a promise with it, so refusals reject as the other drivers' do. */
@@ -186,9 +191,13 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
           const statement = db.prepare(sql);
           try {
             statement.bind(params ?? []);
-            const rows: Row[] = [];
-            while (statement.step()) rows.push(toRow(statement.getAsObject()));
-            return refuseBytes(rows);
+            // Every value by its position first, as sbd.rs checks them: by name, bytes behind a later column of the
+            // same name (`SELECT bytes AS v, id AS v`) would be hidden and get through.
+            const names = statement.getColumnNames();
+            const rows: SqlJsValue[][] = [];
+            while (statement.step()) rows.push(statement.get());
+            refuseBytes(rows);
+            return rows.map((values) => toRow(names, values));
           } finally {
             statement.free();
           }

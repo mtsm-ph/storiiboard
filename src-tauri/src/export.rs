@@ -660,6 +660,61 @@ mod tests {
         .is_err());
     }
 
+    /// B6 (6.15): a set written file by file (stage then commit each, as PNG frames are) never commits as a whole; the
+    /// page ends it with "finish" when the export ends, and Rust then holds nothing of the run: its token is gone and
+    /// writes nothing more. A run that wrote nothing, or one ended by remove_folder, is gone the same way.
+    #[test]
+    fn a_finished_folder_export_leaves_no_token_behind() {
+        let dir = temp("set-ended");
+        let chosen = Chosen::default();
+        let alive = |chosen: &Chosen| {
+            (
+                chosen.parents.lock().unwrap().len(),
+                chosen.made.lock().unwrap().len(),
+            )
+        };
+        let tok = begin_run(&chosen, &dir);
+        for name in ["SC001_1A.png", "SC001_1B.png"] {
+            folder_write(&chosen, &set_header(&tok, &dir, Some(name), "stage"), b"x").unwrap();
+            folder_write(&chosen, &set_header(&tok, &dir, Some(name), "commit"), b"").unwrap();
+        }
+        assert_eq!(alive(&chosen), (1, 1));
+        assert_eq!(
+            folder_write(&chosen, &set_header(&tok, &dir, None, "finish"), b"").unwrap(),
+            "Pitch"
+        );
+        assert_eq!(alive(&chosen), (0, 0));
+        for action in ["stage", "commit", "remove_file", "finish"] {
+            assert!(
+                folder_write(
+                    &chosen,
+                    &set_header(&tok, &dir, Some("SC001_1C.png"), action),
+                    b"x"
+                )
+                .is_err(),
+                "{action}"
+            );
+        }
+        // The files written stay; nothing else was made.
+        assert_eq!(
+            names_in(&dir.join("Pitch")),
+            ["SC001_1A.png", "SC001_1B.png"]
+        );
+        // A run that wrote nothing, finished or removed: gone too.
+        for end in ["finish", "remove_folder"] {
+            let tok = begin_run(&chosen, &dir);
+            folder_write(&chosen, &set_header(&tok, &dir, None, end), b"").unwrap();
+            assert_eq!(alive(&chosen), (0, 0), "{end}");
+            assert!(folder_write(
+                &chosen,
+                &set_header(&tok, &dir, Some("a.png"), "stage"),
+                b"x"
+            )
+            .is_err());
+        }
+        assert_eq!(names_in(&dir), ["Pitch"]);
+    }
+
     #[test]
     fn two_runs_into_the_same_folder_each_get_a_folder_of_their_own() {
         let dir = temp("set-twice");

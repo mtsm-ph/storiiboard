@@ -24,30 +24,84 @@ function filesUnder(dir: string, keep: (name: string) => boolean, out: string[] 
 // ---------------------------------------------------------------------------------------------------------------------
 // Rust's side
 
-/** Rust source without comments, and without the test module each file ends with (its strings are fixtures). */
+/**
+ * Where the string, raw string, char literal or comment starting at `i` ends (its last character), with whether it is
+ * a comment; null when none starts there. Shared by the comment stripper and the test-module finder, so a quote or a
+ * brace inside one never counts.
+ */
+function rustToken(code: string, i: number): { end: number; comment: boolean } | null {
+  const c = code.charAt(i);
+  const raw = /^r(#*)"/.exec(code.slice(i, i + 64));
+  if (raw && !/[\w]/.test(code[i - 1] === 'b' ? (code[i - 2] ?? '') : (code[i - 1] ?? ''))) {
+    // r"…", r#"…"#, br#"…"#: no escapes, ended by a quote and as many hashes.
+    const close = `"${raw[1] ?? ''}`;
+    const end = code.indexOf(close, i + raw[0].length);
+    return { end: end < 0 ? code.length - 1 : end + close.length - 1, comment: false };
+  }
+  if (c === "'") {
+    // A char literal such as '"' or '\u{2019}', which mustn't start a string; anything else is a lifetime.
+    if (code[i + 1] === '\\') {
+      const end = code.indexOf("'", i + 3);
+      return end < 0 ? null : { end, comment: false };
+    }
+    return code[i + 2] === "'" ? { end: i + 2, comment: false } : null;
+  }
+  if (c === '"') {
+    // A string, kept as it is; a backslash escapes the next character.
+    let end = i + 1;
+    while (end < code.length && code[end] !== '"') end += code[end] === '\\' ? 2 : 1;
+    return { end, comment: false };
+  }
+  if (c === '/' && code[i + 1] === '/') {
+    const end = code.indexOf('\n', i);
+    return { end: (end < 0 ? code.length : end) - 1, comment: true };
+  }
+  if (c === '/' && code[i + 1] === '*') {
+    const end = code.indexOf('*/', i + 2);
+    return { end: end < 0 ? code.length - 1 : end + 1, comment: true };
+  }
+  return null;
+}
+
+/**
+ * Rust source without its `#[cfg(test)] mod … { }` blocks (their strings are fixtures), wherever they sit: code after a
+ * test module is kept and read. A test module whose braces don't close fails loudly rather than hiding what follows.
+ */
+function withoutTestModules(text: string): string {
+  let code = text;
+  for (;;) {
+    const start = /^[ \t]*#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{/m.exec(code);
+    if (!start) return code;
+    let depth = 0;
+    let end = -1;
+    for (let i = start.index + start[0].length - 1; i < code.length; i += 1) {
+      const token = rustToken(code, i);
+      if (token) {
+        i = token.end;
+        continue;
+      }
+      if (code[i] === '{') depth += 1;
+      else if (code[i] === '}' && (depth -= 1) === 0) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) throw new Error(`A #[cfg(test)] module's braces don't close (at "${start[0].trim()}"); the contract test can't tell where it ends`);
+    code = code.slice(0, start.index) + code.slice(end + 1);
+  }
+}
+
+/** Rust source without comments and test modules; strings are kept as they are. */
 function rustCode(text: string): string {
-  const code = text.split(/^#\[cfg\(test\)\]\r?\nmod tests/m)[0] ?? '';
+  const code = withoutTestModules(text);
   let out = '';
   for (let i = 0; i < code.length; i += 1) {
-    const c = code.charAt(i);
-    if (c === "'" && (code[i + 2] === "'" || (code[i + 1] === '\\' && code[i + 3] === "'"))) {
-      // A char literal such as '"', which mustn't start a string.
-      const end = code[i + 2] === "'" ? i + 2 : i + 3;
-      out += code.slice(i, end + 1);
-      i = end;
-    } else if (c === '"') {
-      // A string, kept as it is; a backslash escapes the next character.
-      let end = i + 1;
-      while (end < code.length && code[end] !== '"') end += code[end] === '\\' ? 2 : 1;
-      out += code.slice(i, end + 1);
-      i = end;
-    } else if (c === '/' && code[i + 1] === '/') {
-      const end = code.indexOf('\n', i);
-      i = (end < 0 ? code.length : end) - 1;
-    } else if (c === '/' && code[i + 1] === '*') {
-      i = code.indexOf('*/', i + 2) + 1;
+    const token = rustToken(code, i);
+    if (token) {
+      if (!token.comment) out += code.slice(i, token.end + 1);
+      i = token.end;
     } else {
-      out += c;
+      out += code.charAt(i);
     }
   }
   return out;
@@ -153,13 +207,17 @@ function rustConstant(name: string, code: string, crate: string): string | null 
   return constant.exec(code)?.[1] ?? constant.exec(crate)?.[1] ?? null;
 }
 
-/** The events one Rust file emits by name (`emit`, `emit_to`, `emit_filter`, `emit_str`), or what it couldn't read. */
+/**
+ * The events one Rust file emits by name (`emit`, `emit_to`, `emit_filter`, `emit_str`), as a method or as a function
+ * call (`Emitter::emit(&app, …)`, whose first argument is the emitter), or what it couldn't read.
+ */
 function rustEmits(file: string, text: string, crate = ''): { name: string | null; file: string; said: string }[] {
   const code = rustCode(text);
   const out: { name: string | null; file: string; said: string }[] = [];
-  for (const match of code.matchAll(/\.(emit|emit_to|emit_str|emit_str_to|emit_filter|emit_str_filter)\s*\(/g)) {
+  for (const match of code.matchAll(/(\.|\bEmitter\s*>?\s*::\s*)(emit|emit_to|emit_str|emit_str_to|emit_filter|emit_str_filter)\s*\(/g)) {
     const { parts } = splitTopLevel(code, match.index + match[0].length);
-    const arg = (match[1]?.endsWith('_to') ? parts[1] : parts[0]) ?? '';
+    const at = (match[1] === '.' ? 0 : 1) + (match[2]?.endsWith('_to') ? 1 : 0);
+    const arg = parts[at] ?? '';
     const literal = /^"([^"]*)"$/.exec(arg)?.[1];
     const name = literal ?? (/^[A-Za-z_][\w:]*$/.test(arg) ? rustConstant(arg.split('::').pop() ?? '', code, crate) : null);
     out.push({ name, file, said: arg });
@@ -196,17 +254,36 @@ const UNREADABLE: Record<string, Record<string, string>> = {
 /** Registered commands the page never calls, each with why (called only from Rust, or kept on purpose). None today. */
 const NEVER_CALLED: Record<string, string> = {};
 
-/** Events Tauri emits itself, which Rust never names; the page may listen to these. */
-const BUILT_IN_EVENTS: Record<string, string> = {
-  'tauri://drag-enter': 'Tauri’s own file-drag event (onDragDropEvent)',
-  'tauri://drag-over': 'Tauri’s own file-drag event (onDragDropEvent)',
-  'tauri://drag-drop': 'Tauri’s own file-drag event (onDragDropEvent)',
-  'tauri://drag-leave': 'Tauri’s own file-drag event (onDragDropEvent)',
-  'tauri://close-requested': 'Tauri’s own window event (onCloseRequested)',
-  'tauri://resize': 'Tauri’s own window event (onResized)',
-  'tauri://focus': 'Tauri’s own window event (onFocusChanged)',
-  'tauri://blur': 'Tauri’s own window event (onFocusChanged)',
+/**
+ * Events Tauri emits itself, which Rust never names, that the page listens to, each with why. None today (the page
+ * hears dropped pictures through Rust's own events): a first use adds its entry, and an entry nothing listens to fails.
+ */
+const BUILT_IN_EVENTS: Record<string, string> = {};
+
+/**
+ * What the page may import from @tauri-apps/api, by module: the names this test reads (invoke, listen, once and the
+ * window getters whose listeners it follows) and ones that never reach a command of ours. Any other import from the
+ * package, its root included (`import { core } from '@tauri-apps/api'`), and any re-export from it, fails, so no way of
+ * reaching `invoke` goes unread.
+ */
+const KNOWN_TAURI_IMPORTS: Record<string, Record<string, string>> = {
+  '@tauri-apps/api/core': {
+    invoke: 'read: every call is checked',
+    Channel: 'made by the page and sent as an argument; it calls no command',
+    convertFileSrc: 'turns a path into an asset URL; it calls no command',
+    isTauri: 'says whether the page runs in the app; it calls no command',
+  },
+  '@tauri-apps/api/event': { listen: 'read: every event name is checked', once: 'read, as listen' },
+  '@tauri-apps/api/path': {
+    appDataDir: 'Tauri’s own path plugin, not a command of ours',
+    join: 'Tauri’s own path plugin, not a command of ours',
+  },
+  '@tauri-apps/api/webviewWindow': { getCurrentWebviewWindow: 'read: its listen, once and on… helpers are followed' },
+  '@tauri-apps/api/webview': { getCurrentWebview: 'read: its listen, once and on… helpers are followed' },
+  '@tauri-apps/api/window': { getCurrentWindow: 'read: its listen, once and on… helpers are followed' },
 };
+
+const isTauriApi = (from: string) => from === '@tauri-apps/api' || from.startsWith('@tauri-apps/api/');
 
 /** The window helpers that listen to Tauri's built-in events, and which. */
 const WINDOW_HELPERS: Record<string, string[]> = {
@@ -290,26 +367,44 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
   const ownWrappers = new Set(Object.keys(WRAPPERS[file] ?? {}));
   let windowApi = false;
   for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) && isTauriApi(statement.moduleSpecifier.text)) {
+      // `export { invoke } from '@tauri-apps/api/core'`, `export * from …`: a call through the re-export couldn't be read.
+      if (!statement.isTypeOnly) scan.uncovered.push(`${file}: re-exports from ${statement.moduleSpecifier.text}, which this test can't follow`);
+      continue;
+    }
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const from = statement.moduleSpecifier.text;
-    if (!from.startsWith('@tauri-apps/api/')) continue;
+    if (!isTauriApi(from)) continue;
+    const clause = statement.importClause;
+    if (!clause || clause.phaseModifier === ts.SyntaxKind.TypeKeyword) continue;
+    const known = KNOWN_TAURI_IMPORTS[from];
+    if (known === undefined) {
+      scan.uncovered.push(`${file}: imports from ${from}, which this test doesn't read; list what it may import in KNOWN_TAURI_IMPORTS with why`);
+      continue;
+    }
     if (/^@tauri-apps\/api\/(window|webview|webviewWindow)$/.test(from)) windowApi = true;
-    const bindings = statement.importClause?.namedBindings;
+    if (clause.name) scan.uncovered.push(`${file}: imports ${from}'s default, which this test can't follow`);
+    const bindings = clause.namedBindings;
     if (bindings && ts.isNamespaceImport(bindings)) {
       scan.uncovered.push(`${file}: imports all of ${from} as one name, which this test can't follow`);
       continue;
     }
     for (const element of bindings && ts.isNamedImports(bindings) ? bindings.elements : []) {
+      if (element.isTypeOnly) continue;
       const imported = (element.propertyName ?? element.name).text;
-      if (from === '@tauri-apps/api/core' && imported === 'invoke') invokeNames.add(element.name.text);
+      if (known[imported] === undefined) scan.uncovered.push(`${file}: imports ${imported} from ${from}, which this test doesn't read; list it in KNOWN_TAURI_IMPORTS with why`);
+      else if (from === '@tauri-apps/api/core' && imported === 'invoke') invokeNames.add(element.name.text);
       else if (from === '@tauri-apps/api/event' && (imported === 'listen' || imported === 'once')) listenNames.add(element.name.text);
-      else if (from === '@tauri-apps/api/event') scan.uncovered.push(`${file}: imports ${imported} from ${from}, which this test doesn't cover yet`);
     }
   }
   const reach = new Set([...invokeNames, ...ownWrappers, ...importedWrappers]);
   const line = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
 
   const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const from = literalText(node.arguments[0]);
+      if (from === null || isTauriApi(from)) scan.uncovered.push(`${file}:${String(line(node))}: imports ${from ?? 'a module named at run time'} dynamically, which this test can't follow`);
+    }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && reach.has(node.expression.text)) {
       const [nameArg, argsArg] = node.arguments;
       const name = literalText(nameArg);
@@ -337,6 +432,10 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
       // invoke handed on as a value (kept, renamed, passed): a call through it couldn't be read.
       const callee = ts.isCallExpression(node.parent) && node.parent.expression === node;
       if (!callee) scan.uncovered.push(`${file}:${String(line(node))}: invoke is used other than as a call`);
+    } else if (ts.isIdentifier(node) && importedWrappers.has(node.text) && !ts.isImportSpecifier(node.parent) && !isPropertyName(node)) {
+      // An imported wrapper handed on (re-exported, kept, passed), as invoke above.
+      const callee = ts.isCallExpression(node.parent) && node.parent.expression === node;
+      if (!callee) scan.uncovered.push(`${file}:${String(line(node))}: the wrapper ${node.text} is used other than as a call`);
     }
     ts.forEachChild(node, visit);
   };
@@ -344,19 +443,55 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
   return scan;
 }
 
-/** The wrappers a file imports from WRAPPERS' files, by their local names. */
-function importedWrappers(file: string, text: string): Set<string> {
+/** A name that is a property's (`x.call`, `{ command: … }`), not a reference to a variable. */
+const isPropertyName = (node: ts.Identifier) =>
+  (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) ||
+  ((ts.isPropertyAssignment(node.parent) || ts.isMethodDeclaration(node.parent) || ts.isPropertyDeclaration(node.parent) || ts.isPropertySignature(node.parent)) && node.parent.name === node);
+
+/** The file a relative module specifier names, as WRAPPERS keys it, or null when it names no file of src. */
+function wrapperFile(file: string, from: string): string | null {
+  if (!from.startsWith('.')) return null;
+  const target = rel(resolve(dirname(join(root, file)), from)).replace(/\.(ts|tsx|js)$/, '');
+  return [`${target}.ts`, `${target}.tsx`].find((path) => path in WRAPPERS) ?? null;
+}
+
+/**
+ * The wrappers a file imports from WRAPPERS' files, by their local names, and every way it reaches one the test can't
+ * follow: a WRAPPERS name imported from anywhere but the listed wrapper's own file (a barrel, a path that isn't
+ * relative), a wrapper file's namespace or default, and a re-export of a wrapper.
+ */
+function importedWrappers(file: string, text: string): { names: Set<string>; uncovered: string[] } {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const wrapperNames = new Set(Object.values(WRAPPERS).flatMap((names) => Object.keys(names)));
   const names = new Set<string>();
-  for (const match of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(\.[^']*)'/g)) {
-    const target = rel(resolve(dirname(join(root, file)), match[2] ?? ''));
-    const wrappers = WRAPPERS[`${target}.ts`] ?? WRAPPERS[`${target}.tsx`];
-    if (!wrappers) continue;
-    for (const part of (match[1] ?? '').split(',')) {
-      const [imported, local] = part.trim().split(/\s+as\s+/);
-      if (imported && imported in wrappers) names.add(local ?? imported);
+  const uncovered: string[] = [];
+  for (const statement of source.statements) {
+    const declaration = ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement) ? statement : null;
+    if (!declaration?.moduleSpecifier || !ts.isStringLiteral(declaration.moduleSpecifier)) continue;
+    const from = declaration.moduleSpecifier.text;
+    const target = wrapperFile(file, from);
+    const wrappers = target === null ? undefined : WRAPPERS[target];
+    if (ts.isExportDeclaration(declaration)) {
+      if (declaration.isTypeOnly) continue;
+      const clause = declaration.exportClause;
+      const named = clause && ts.isNamedExports(clause) ? clause.elements.map((element) => (element.propertyName ?? element.name).text) : null;
+      if (wrappers && named === null) uncovered.push(`${file}: re-exports all of ${from}, a wrapper's file, which this test can't follow`);
+      for (const name of named ?? []) if (wrapperNames.has(name)) uncovered.push(`${file}: re-exports ${name} from ${from}, which this test can't follow`);
+      continue;
+    }
+    const clause = declaration.importClause;
+    if (!clause || clause.phaseModifier === ts.SyntaxKind.TypeKeyword) continue;
+    const bindings = clause.namedBindings;
+    if (wrappers && (clause.name || (bindings && ts.isNamespaceImport(bindings)))) uncovered.push(`${file}: imports ${from}, a wrapper's file, other than by name, which this test can't follow`);
+    for (const element of bindings && ts.isNamedImports(bindings) ? bindings.elements : []) {
+      if (element.isTypeOnly) continue;
+      const imported = (element.propertyName ?? element.name).text;
+      if (!wrapperNames.has(imported)) continue;
+      if (wrappers?.[imported] !== undefined) names.add(element.name.text);
+      else uncovered.push(`${file}: imports ${imported} from ${from}, which isn't the listed wrapper's own file (WRAPPERS); import it from there`);
     }
   }
-  return names;
+  return { names, uncovered };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -383,7 +518,10 @@ const pageFiles = filesUnder(join(root, 'src'), (name) => /\.tsx?$/.test(name) &
 const pages = pageFiles.map((path) => {
   const file = rel(path);
   const text = readFileSync(path, 'utf8');
-  return scanPage(file, text, importedWrappers(file, text));
+  const wrappers = importedWrappers(file, text);
+  const scan = scanPage(file, text, wrappers.names);
+  scan.uncovered.push(...wrappers.uncovered);
+  return scan;
 });
 const calls = pages.flatMap((page) => page.calls);
 const where = (call: PageCall | PageListen) => `${call.file}:${String(call.line)}`;
@@ -471,6 +609,9 @@ describe('the contract between the page and Rust (6.14)', () => {
       ...rustEvents
         .filter((event) => event.name !== null && !heard.has(event.name))
         .map((event) => `${event.file}: emits ${String(event.name)}, which the page never listens to`),
+      ...Object.keys(BUILT_IN_EVENTS)
+        .filter((name) => !heard.has(name))
+        .map((name) => `BUILT_IN_EVENTS lists ${name}, which the page doesn’t listen to; take it out`),
     ];
     expect(problems).toEqual([]);
   });
@@ -572,5 +713,69 @@ listen(DROPPED, () => {});`,
 
   it('say so when invoke is kept or passed rather than called', () => {
     expect(scanPage('src/app/x.ts', `import { invoke } from '@tauri-apps/api/core';\nconst run = invoke;`).uncovered).toEqual(['src/app/x.ts:2: invoke is used other than as a call']);
+  });
+
+  // 6.14's review: ways of reaching invoke the first version didn't see.
+  it('refuse a re-export of invoke, or of anything from @tauri-apps/api', () => {
+    expect(scanPage('src/app/x.ts', `export { invoke } from '@tauri-apps/api/core';`).uncovered).toEqual(["src/app/x.ts: re-exports from @tauri-apps/api/core, which this test can't follow"]);
+    expect(scanPage('src/app/x.ts', `export * from '@tauri-apps/api/core';`).uncovered).toHaveLength(1);
+    expect(scanPage('src/app/x.ts', `export { Channel as Pipe } from "@tauri-apps/api/core";`).uncovered).toHaveLength(1);
+    expect(scanPage('src/app/x.ts', `import { invoke } from '@tauri-apps/api/core';\nexport { invoke };`).uncovered).toEqual(['src/app/x.ts:2: invoke is used other than as a call']);
+  });
+
+  it('refuse an import from the root package or from a module, or of a name, it doesn’t know', () => {
+    expect(scanPage('src/app/x.ts', `import { core } from '@tauri-apps/api';\nawait core.invoke('sbd_close', { handel });`).uncovered).toEqual([
+      "src/app/x.ts: imports from @tauri-apps/api, which this test doesn't read; list what it may import in KNOWN_TAURI_IMPORTS with why",
+    ]);
+    expect(scanPage('src/app/x.ts', `import { Resource } from '@tauri-apps/api/core';`).uncovered).toEqual([
+      "src/app/x.ts: imports Resource from @tauri-apps/api/core, which this test doesn't read; list it in KNOWN_TAURI_IMPORTS with why",
+    ]);
+    expect(scanPage('src/app/x.ts', `import { emit } from '@tauri-apps/api/event';`).uncovered).toHaveLength(1);
+    expect(scanPage('src/app/x.ts', `import { open } from '@tauri-apps/api/dpi';`).uncovered).toHaveLength(1);
+    expect(scanPage('src/app/x.ts', `import * as core from '@tauri-apps/api/core';`).uncovered).toHaveLength(1);
+    expect(scanPage('src/app/x.ts', `const core = await import('@tauri-apps/api/core');`).uncovered).toEqual(["src/app/x.ts:1: imports @tauri-apps/api/core dynamically, which this test can't follow"]);
+    // What it knows, and types, pass; double quotes are read as single ones.
+    expect(scanPage('src/app/x.ts', `import { invoke, isTauri, type InvokeArgs } from "@tauri-apps/api/core";\nimport type { UnlistenFn } from '@tauri-apps/api/event';\nawait invoke("sbd_close", { handle });`)).toMatchObject({
+      uncovered: [],
+      calls: [{ name: 'sbd_close', keys: ['handle'] }],
+    });
+  });
+
+  it('follow a wrapper only from its own file, by a relative path in either quotes, and refuse a barrel', () => {
+    const driver = 'src/core/storage/tauriDriver.ts';
+    expect(WRAPPERS[driver]?.command).toBeDefined();
+    // From its own file, in single or double quotes, with or without an extension, renamed or not.
+    expect(importedWrappers('src/app/x.ts', `import { command } from '../core/storage/tauriDriver';`)).toEqual({ names: new Set(['command']), uncovered: [] });
+    expect(importedWrappers('src/app/x.ts', `import { command as run } from "../core/storage/tauriDriver.ts";`)).toEqual({ names: new Set(['run']), uncovered: [] });
+    // Through a barrel, a path that isn't relative, or the wrong wrapper's file: refused.
+    expect(importedWrappers('src/app/x.ts', `import { command } from '../core/storage';`).uncovered).toEqual([
+      "src/app/x.ts: imports command from ../core/storage, which isn't the listed wrapper's own file (WRAPPERS); import it from there",
+    ]);
+    expect(importedWrappers('src/app/x.ts', `import { command } from '@/core/storage/tauriDriver';`).uncovered).toHaveLength(1);
+    expect(importedWrappers('src/app/x.ts', `import { call } from '../core/storage/tauriDriver';`).uncovered).toHaveLength(1);
+    expect(importedWrappers('src/app/x.ts', `import * as driver from '../core/storage/tauriDriver';`).uncovered).toHaveLength(1);
+    // A barrel's own re-exports: refused where they're written.
+    expect(importedWrappers('src/core/storage/index.ts', `export * from './tauriDriver';`).uncovered).toHaveLength(1);
+    expect(importedWrappers('src/core/storage/index.ts', `export { command } from './tauriDriver';`).uncovered).toHaveLength(1);
+    // A wrapper imported, then handed on: refused as invoke is; a property of the same name isn't the wrapper.
+    expect(scanPage('src/app/x.ts', `export { command };\nconst x = { command: 1 };\nx.command;\nawait command('sbd_close', { handle });`, new Set(['command'])).uncovered).toEqual([
+      'src/app/x.ts:1: the wrapper command is used other than as a call',
+    ]);
+  });
+
+  it('read code after a test module, refuse one whose braces never close, and read Emitter::emit as a call', () => {
+    const text = `#[cfg(test)]
+mod tests {
+    fn f() { let s = "}"; let r = r#"{ "quoted" }"#; let c = '}'; }
+}
+
+#[tauri::command]
+pub fn after(path: String) {}
+fn g(app: &AppHandle) { let _ = Emitter::emit(app, "late", ()); let _ = tauri::Emitter::emit_to(&app, "main", "later", ()); }`;
+    expect(rustCommands('x.rs', text, '').map((c) => c.name)).toEqual(['after']);
+    expect(rustEmits('x.rs', text).map((e) => e.name)).toEqual(['late', 'later']);
+    expect(() => rustCode('#[cfg(test)]\nmod tests {\n    fn f() {\n')).toThrow(/braces don't close/);
+    // A test module's own commands and emits are fixtures, never read.
+    expect(rustEmits('x.rs', '#[cfg(test)]\nmod tests {\n    fn f() { app.emit("fixture", ()); }\n}\n')).toEqual([]);
   });
 });
