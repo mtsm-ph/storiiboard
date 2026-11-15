@@ -205,3 +205,27 @@ describe('drawings sized on screen, after the 6.11 review', () => {
     for (const ref of refs) ref(null);
   });
 });
+
+describe('drawings sized on screen, held through a remake (6.18 second review, item 8)', () => {
+  it('a node the handles hold stays held when it is drawn again mid-gesture through a new ref', () => {
+    // A plan's cone remade as its camera turns draws the camera's labels again: React lets the old ref go and gives the
+    // same node to a new one. Held at the turn's start, it stays at scale 1 for a zoom until the turn ends.
+    const stage = {} as Konva.Stage;
+    const label = fake(stage, { x: 10, y: 30 });
+    const parent = { getParent: () => null, getStage: () => stage } as unknown as Konva.Node;
+    Object.assign(label.node, { getParent: () => parent });
+    const first = screenSizedRef(0.5, { x: 10, y: 30 }, { x: 10, y: 20 });
+    first(label.node);
+    holdScreenSized([parent]);
+    first(null);
+    const again = screenSizedRef(0.5, { x: 10, y: 30 }, { x: 10, y: 20 });
+    again(label.node);
+    fitScreenSized(stage, 2);
+    expect(label.state).toMatchObject({ sx: 1, sy: 1, px: 10, py: 30 });
+    // Let go: the next fit scales it for the zoom again.
+    releaseScreenSized();
+    fitScreenSized(stage, 2);
+    expect(label.state).toMatchObject({ sx: 0.25, sy: 0.25 });
+    again(null);
+  });
+});

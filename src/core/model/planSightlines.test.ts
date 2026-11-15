@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlanItemFields, Point } from './plan';
-import { blockersKeeper, sightline, sightlineKeeper, SIGHT_TOLERANCE_M, wallBlocker, wallSolids, type Blocker, type Sight, type Wedge } from './planSightlines';
+import { blockersKeeper, END_REACH_M, sightline, sightlineKeeper, SIGHT_TOLERANCE_M, wallBlocker, wallSolids, type Blocker, type Sight, type Solid, type Wedge } from './planSightlines';
 
 // Walls stop cones and beams (6.18). Every case is in metres with its numbers worked by hand in its comment. The plan's
 // y grows down, so "up" is -y; a wedge's facing is degrees clockwise from up. Walls are 0.1 m thick unless said, so a
@@ -267,5 +267,396 @@ describe('kept between calls (decision 7)', () => {
     const moved = keep([{ ...walls[0], key: record, openings: [{ fields: { along: 4, width: 0.9 }, key: {} }] } as (typeof walls)[number]]);
     expect(moved).not.toBe(first);
     expect(moved[0]?.solids).toHaveLength(2);
+  });
+});
+
+// The shape as 6.18 first worked it out, kept here to measure the review's simplification against (6.18 review, item 1):
+// a ray every 2° across a light's whole span, three at every corner in reach, hidden or not, nothing merged. It reads
+// the solids as they are now (a wall's ends reach END_REACH_M), so the two differ only by the simplification.
+const RAD = Math.PI / 180;
+const TAU = 2 * Math.PI;
+const dirOf = (angle: number): Point => ({ x: Math.sin(angle), y: -Math.cos(angle) });
+const wrapped = (angle: number): number => ((angle % TAU) + TAU) % TAU;
+interface RefFrame {
+  a: Point;
+  ux: number;
+  uy: number;
+  hv: number;
+  lo: number;
+  hi: number;
+  corners: Point[];
+}
+function refFrame(s: Solid): RefFrame {
+  const length = Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y);
+  const ux = (s.b.x - s.a.x) / length;
+  const uy = (s.b.y - s.a.y) / length;
+  const hv = s.half - Math.min(SIGHT_TOLERANCE_M, s.half / 4);
+  const lo = -(s.reach?.[0] ?? 1e-7);
+  const hi = length + (s.reach?.[1] ?? 1e-7);
+  const at = (u: number, v: number): Point => ({ x: s.a.x + ux * u - uy * v, y: s.a.y + uy * u + ux * v });
+  return { a: s.a, ux, uy, hv, lo, hi, corners: [at(lo, -hv), at(hi, -hv), at(hi, hv), at(lo, hv)] };
+}
+function refHit(frames: readonly RefFrame[], p: Point, d: Point): number {
+  let best = Infinity;
+  for (const f of frames) {
+    const pu = (p.x - f.a.x) * f.ux + (p.y - f.a.y) * f.uy;
+    const pv = -(p.x - f.a.x) * f.uy + (p.y - f.a.y) * f.ux;
+    const du = d.x * f.ux + d.y * f.uy;
+    const dv = -d.x * f.uy + d.y * f.ux;
+    let lo = -Infinity;
+    let hi = Infinity;
+    const slab = (from: number, step: number, min: number, max: number): boolean => {
+      if (Math.abs(step) < 1e-12) return from >= min && from <= max;
+      lo = Math.max(lo, Math.min((min - from) / step, (max - from) / step));
+      hi = Math.min(hi, Math.max((min - from) / step, (max - from) / step));
+      return lo <= hi;
+    };
+    if (!slab(pu, du, f.lo, f.hi) || !slab(pv, dv, -f.hv, f.hv) || hi <= SIGHT_TOLERANCE_M) continue;
+    best = Math.min(best, Math.max(0, lo));
+  }
+  return best;
+}
+function refCross(p1: Point, p2: Point, p3: Point, p4: Point): Point | null {
+  const d1x = p2.x - p1.x;
+  const d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x;
+  const d2y = p4.y - p3.y;
+  const den = d1x * d2y - d1y * d2x;
+  if (Math.abs(den) < 1e-15) return null;
+  const s = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / den;
+  const u = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / den;
+  return s < 0 || s > 1 || u < 0 || u > 1 ? null : { x: p1.x + d1x * s, y: p1.y + d1y * s };
+}
+function refCircle(p1: Point, p2: Point, c: Point, r: number): Point[] {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const a = dx * dx + dy * dy;
+  const b = 2 * ((p1.x - c.x) * dx + (p1.y - c.y) * dy);
+  const disc = b * b - 4 * a * ((p1.x - c.x) ** 2 + (p1.y - c.y) ** 2 - r * r);
+  if (a === 0 || disc < 0) return [];
+  return [(-b - Math.sqrt(disc)) / (2 * a), (-b + Math.sqrt(disc)) / (2 * a)].filter((s) => s >= 0 && s <= 1).map((s) => ({ x: p1.x + dx * s, y: p1.y + dy * s }));
+}
+/** The unsimplified shape's corners (the apex first unless all round). */
+function unsimplified(w: Wedge, blockers: readonly Blocker[]): Point[] {
+  const frames = blockers.flatMap((b) => b.solids.map(refFrame));
+  const all = w.degrees >= 360;
+  const span = all ? TAU : w.degrees * RAD;
+  const start = all ? (w.facing - 180) * RAD : w.facing * RAD - span / 2;
+  const farAt = (phi: number) => (w.far === 'arc' ? w.length : (w.length * Math.cos(span / 2)) / Math.cos(phi - span / 2));
+  const angles = [0, span];
+  const add = (p: Point, nudged: boolean) => {
+    const phi = wrapped(Math.atan2(p.x - w.apex.x, -(p.y - w.apex.y)) - start);
+    for (const a of nudged ? [phi - 1e-6, phi, phi + 1e-6] : [phi]) {
+      if (a >= 0 && a <= span) angles.push(a);
+      else if (all) angles.push(wrapped(a));
+    }
+  };
+  const chord = w.far === 'chord' ? [dirOf(start), dirOf(start + span)].map((d) => ({ x: w.apex.x + d.x * w.length, y: w.apex.y + d.y * w.length })) : null;
+  const sides = frames.flatMap((f) => f.corners.map((c, i): [Point, Point] => [c, f.corners[(i + 1) % 4] ?? c]));
+  for (const f of frames) for (const c of f.corners) add(c, true);
+  for (const [p, q] of sides) {
+    if (chord) {
+      const at = refCross(p, q, chord[0] as Point, chord[1] as Point);
+      if (at) add(at, false);
+    } else for (const at of refCircle(p, q, w.apex, w.length)) add(at, false);
+  }
+  for (let i = 0; i < sides.length; i += 1) {
+    for (let j = i + 1; j < sides.length; j += 1) {
+      const [p, q] = sides[i] as [Point, Point];
+      const [r, s] = sides[j] as [Point, Point];
+      const at = refCross(p, q, r, s);
+      if (at) add(at, false);
+    }
+  }
+  if (w.far === 'arc') {
+    const steps = Math.max(1, Math.ceil(span / (2 * RAD)));
+    for (let i = 1; i < steps; i += 1) angles.push((span * i) / steps);
+  }
+  angles.sort((a, b) => a - b);
+  const phis: number[] = [];
+  for (const a of angles) if (phis.length === 0 || a - (phis[phis.length - 1] ?? 0) > 1e-10) phis.push(a);
+  if (all && phis.length > 1 && TAU - (phis[phis.length - 1] ?? 0) < 1e-10) phis.pop();
+  const rays = phis.map((phi) => {
+    const d = dirOf(start + phi);
+    const far = farAt(phi);
+    const hit = refHit(frames, w.apex, d);
+    const r = Math.min(far, hit);
+    return { phi, point: { x: w.apex.x + d.x * r, y: w.apex.y + d.y * r }, far: hit >= far - 1e-9 };
+  });
+  // A ray at a corner beyond a light's reach lands on its arc between two 2° steps, where the arc is all there is on both
+  // sides: a finer chord than the beam is drawn with anywhere else (uncut, it has its 2° steps alone), not a cut. Those
+  // are left out, so what is compared is what was cut.
+  const step = span / Math.max(1, Math.ceil(span / (2 * RAD)));
+  const onStep = (phi: number) => Math.abs(phi / step - Math.round(phi / step)) < 1e-6;
+  const hits = rays
+    .filter((h, i) => {
+      if (w.far !== 'arc' || !h.far || onStep(h.phi)) return true;
+      const before = rays[i - 1] ?? (all ? rays[rays.length - 1] : undefined);
+      const after = rays[i + 1] ?? (all ? rays[0] : undefined);
+      return !(before?.far === true && after?.far === true);
+    })
+    .map((h) => h.point);
+  return all ? hits : [w.apex, ...hits];
+}
+
+/** A closed room of four 0.1 m walls round the middle lines' corners (x1, y1) and (x2, y2), drawn round in order. */
+const room = (x1: number, y1: number, x2: number, y2: number, door: { along: number; width: number }[] = []) => [
+  blocker(wall(x1, y1, x2, y1), door),
+  blocker(wall(x2, y1, x2, y2)),
+  blocker(wall(x2, y2, x1, y2)),
+  blocker(wall(x1, y2, x1, y1)),
+];
+
+describe('corners kept few (6.18 review, item 1)', () => {
+  const light = (over: Partial<Wedge> = {}): Wedge => ({ apex: { x: 0, y: 0 }, facing: 0, degrees: 360, length: 4, far: 'arc', ...over });
+
+  it('a wedge against one long straight wall is its apex and two corners on the face', () => {
+    // The wall straight across at y = -3 (face -2.95): every ray lands on the one face, so the shape is a triangle: the
+    // apex and the two edges' hits at x = ±1.7032.
+    const s = sightline(camera(), [blocker(wall(-50, -3, 50, -3))]);
+    expect(s.points.length).toBeLessThanOrEqual(4);
+    expect(s.points).toHaveLength(3);
+    // A 90° beam, 4 m, on the same wall: its edges at ±45° meet the face at x = ±2.95, 4.17 out, past its 4 m, so it
+    // follows its arc each side to where the circle crosses the face, x = ±√(16 - 2.95²) = ±2.701: arc steps at the
+    // sides, one straight run along the face, never a corner on it in between.
+    const beam = sightline(light({ degrees: 90 }), [blocker(wall(-50, -3, 50, -3))]);
+    const onFace = beam.points.filter((p) => Math.abs(p.y + 2.95) < MM2);
+    expect(onFace).toHaveLength(2);
+    expect(Math.max(...xs(onFace))).toBeCloseTo(2.701, 2);
+    expect(beam.points.length).toBeLessThanOrEqual(12);
+  });
+
+  it('an all-round light in a closed room is the room’s four inner corners', () => {
+    // A 3 × 2 m room (middle lines), the light in its middle, its 4 m reaching every wall: the faces at x = ±1.45 and
+    // y = ±0.95, a rectangle of four corners; blocking reads each face 1 mm in, so 2.902 × 1.902 = 5.5196 m².
+    const s = sightline(light(), room(-1.5, -1, 1.5, 1));
+    expect(s.points.length).toBeLessThanOrEqual(6);
+    for (const p of s.points) expect(Math.abs(Math.abs(p.x) - 1.45) < MM2 || Math.abs(Math.abs(p.y) - 0.95) < MM2).toBe(true);
+    expect(area(s.points)).toBeCloseTo(2.902 * 1.902, 4);
+  });
+
+  it('an all-round light with a door follows its arc only where it reaches it', () => {
+    // The same room with a 0.9 m door in its top wall (gap x = -0.45 to 0.45, middle line at y = -1): the light reaches
+    // its arc only through the gap, between the rays through the gap's far corners (±0.45, -1.05): ±23.2°, so about 23
+    // arc steps of 2°, with the room's corners and the jambs; well under the 180 its arc alone came to.
+    const s = sightline(light(), room(-1.5, -1, 1.5, 1, [{ along: 1.5, width: 0.9 }]));
+    expect(s.points.length).toBeLessThanOrEqual(40);
+    expect(s.points.filter((p) => Math.abs(Math.hypot(p.x, p.y) - 4) < 1e-9).length).toBeGreaterThan(10);
+  });
+
+  it('the simplification leaves every shape’s area as it was, within 1e-6 m²', () => {
+    const cases: [string, Wedge, Blocker[]][] = [
+      ['a wedge against a long wall', camera(), [blocker(wall(-50, -3, 50, -3))]],
+      ['a wall across half the wedge', camera(), [blocker(wall(0, -3, 5, -3))]],
+      ['a door in a wall', camera(), [blocker(wall(-5, -3, 5, -3), [{ along: 5, width: 0.9 }])]],
+      ['two walls at a corner', camera({ facing: 45 }), [blocker(wall(-5, -3, 2, -3)), blocker(wall(2, -3, 2, 3))]],
+      ['a 90° beam against a long wall', light({ degrees: 90 }), [blocker(wall(-50, -3, 50, -3))]],
+      ['a 270° beam and a wall', light({ degrees: 270 }), [blocker(wall(-5, -2, 5, -2))]],
+      ['an all-round light and a wall', light(), [blocker(wall(-5, -2, 5, -2))]],
+      ['an all-round light in a closed room', light(), room(-1.5, -1, 1.5, 1)],
+      ['an all-round light in a room with a door', light(), room(-1.5, -1, 1.5, 1, [{ along: 1.5, width: 0.9 }])],
+      ['an all-round light off the middle of a bigger room', light({ apex: { x: 0.7, y: -0.4 } }), room(-3, -2, 3, 2, [{ along: 2, width: 0.9 }])],
+    ];
+    for (const [name, w, walls] of cases) {
+      const now = sightline(w, walls);
+      const before = unsimplified(w, walls);
+      expect(now.cut, name).toBe(true);
+      expect(now.points.length, name).toBeLessThanOrEqual(before.length);
+      expect(Math.abs(area(now.points) - area(before)), name).toBeLessThan(1e-6);
+    }
+  });
+});
+
+describe('walls at any angle (6.18 review, item 6)', () => {
+  /**
+   * A 20 m wall whose middle line runs through (0, -3) at `degrees` from the plan's x axis (y down, so clockwise), the
+   * camera at the origin facing up. The near face is the line n·p = -(3 cos θ - 0.05), n = (-sin θ, cos θ); a ray at φ
+   * from up, d = (sin φ, -cos φ), has n·d = -cos(θ - φ), so it meets the face at t = (3 cos θ - 0.05) / cos(θ - φ).
+   */
+  const angled = (degrees: number) => {
+    const th = degrees * RAD;
+    return blocker(wall(-10 * Math.cos(th), -3 - 10 * Math.sin(th), 10 * Math.cos(th), -3 + 10 * Math.sin(th)));
+  };
+  const onFace = (degrees: number, p: Point) => {
+    const th = degrees * RAD;
+    return Math.abs(-Math.sin(th) * p.x + Math.cos(th) * p.y + (3 * Math.cos(th) - 0.05)) < MM2;
+  };
+  const near = (s: Sight, x: number, y: number) => s.points.some((p) => Math.hypot(p.x - x, p.y - y) < MM2);
+
+  it('at 30°: both edges end on the face', () => {
+    // 3 cos 30° - 0.05 = 2.5481. The right edge (φ = 30°): cos 0° = 1, t = 2.5481, at (1.2741, -2.2067). The left (φ =
+    // -30°): cos 60° = 0.5, t = 5.0962 (inside the cone's 6 m), at (-2.5481, -4.4134).
+    const s = sightline(camera(), [angled(30)]);
+    expect(near(s, 1.2741, -2.2067)).toBe(true);
+    expect(near(s, -2.5481, -4.4134)).toBe(true);
+    for (const p of s.points.slice(1)) expect(onFace(30, p)).toBe(true);
+    expect(s.points).toHaveLength(3);
+  });
+
+  it('at 45°: the right edge ends on the face, the left reaches the chord, which the face crosses', () => {
+    // 3 cos 45° - 0.05 = 2.0713. The right edge: cos 15° = 0.96593, t = 2.1444, at (1.0722, -1.8571). The left: cos 75° =
+    // 0.25882, t = 8.003, past 6 m: it ends at the chord's end (-3, -5.196). The face crosses the chord (y = -5.196) where
+    // -0.70711 x + 0.70711 × -5.196 = -2.0713: x = -2.2668.
+    const s = sightline(camera(), [angled(45)]);
+    expect(near(s, 1.0722, -1.8571)).toBe(true);
+    expect(near(s, -3, CHORD_Y)).toBe(true);
+    expect(near(s, -2.2668, CHORD_Y)).toBe(true);
+    for (const p of s.points.slice(1)) expect(onFace(45, p) || Math.abs(p.y - CHORD_Y) < 1e-6).toBe(true);
+  });
+
+  it('at 73°: the right edge ends on the face, the left runs clear', () => {
+    // 3 cos 73° - 0.05 = 0.82711. The right edge: cos 43° = 0.73135, t = 1.1309, at (0.56547, -0.97940). The left: cos
+    // 103° is negative, so it never meets the face: the chord's end (-3, -5.196). The face crosses the chord where
+    // -0.95630 x + 0.29237 × -5.196 = -0.82711: x = -0.72366.
+    const s = sightline(camera(), [angled(73)]);
+    expect(near(s, 0.56547, -0.9794)).toBe(true);
+    expect(near(s, -3, CHORD_Y)).toBe(true);
+    expect(near(s, -0.72366, CHORD_Y)).toBe(true);
+    for (const p of s.points.slice(1)) expect(onFace(73, p) || Math.abs(p.y - CHORD_Y) < 1e-6).toBe(true);
+  });
+
+  it('an apex 100 m from the origin cuts as one at the origin does', () => {
+    // The wall-straight-across case moved by (100, 0): the face at y = -2.95, the edges' hits at x = 100 ± 1.7032, area
+    // 5.0244 (as at the origin, to 1e-6).
+    const here = sightline(camera(), [blocker(wall(-5, -3, 5, -3))]);
+    const there = sightline(camera({ apex: { x: 100, y: 0 } }), [blocker(wall(95, -3, 105, -3))]);
+    for (const p of there.points.slice(1)) expect(Math.abs(p.y + 2.95)).toBeLessThan(MM2);
+    expect(Math.min(...xs(there.points))).toBeCloseTo(100 - 1.7032, 2);
+    expect(Math.max(...xs(there.points))).toBeCloseTo(100 + 1.7032, 2);
+    expect(Math.abs(area(there.points) - area(here.points))).toBeLessThan(1e-6);
+  });
+});
+
+describe('openings that overlap or run past the wall (6.18 review, item 6)', () => {
+  it('overlapping openings make one gap', () => {
+    // A 0.9 m door centred 5 m along (4.55 to 5.45) and a 1.2 m window centred 5.3 m (4.7 to 5.9) on the 10 m wall from
+    // x = -5: one gap, 4.55 to 5.9 along, x = -0.45 to 0.9. A window inside a wider door adds nothing.
+    const both = [
+      { along: 5, width: 0.9 },
+      { along: 5.3, width: 1.2 },
+    ];
+    const solids = wallSolids(wall(-5, -3, 5, -3), both);
+    expect(solids).toHaveLength(2);
+    expect(solids[0]?.b.x).toBeCloseTo(-0.45, 9);
+    expect(solids[1]?.a.x).toBeCloseTo(0.9, 9);
+    const inside = wallSolids(wall(-5, -3, 5, -3), [
+      { along: 5, width: 2 },
+      { along: 5, width: 0.5 },
+    ]);
+    expect(inside.map((s) => [s.a.x, s.b.x])).toEqual([
+      [-5, -1],
+      [1, 5],
+    ]);
+    // The cone through it: the strip's edges through the gap's far corners (-0.45, -3.05) and (0.9, -3.05), at the chord
+    // (5.196 up) x = -0.45 × 5.196 / 3.05 = -0.7666 and 0.9 × 5.196 / 3.05 = 1.5333.
+    const far = onChord(sightline(camera(), [blocker(wall(-5, -3, 5, -3), both)]));
+    expect(Math.min(...xs(far))).toBeCloseTo(-0.7666, 2);
+    expect(Math.max(...xs(far))).toBeCloseTo(1.5333, 2);
+  });
+
+  it('wallSolids holds an opening to the wall itself', () => {
+    // A 10 m wall from x = 0. A 0.9 m door centred 12 m along is wholly past its end: no gap, one solid 0 to 10. One centred
+    // -1 m is wholly before its start: no gap. One centred 9.8 m runs past the end (9.35 to 10.25): open from 9.35 to the
+    // end, the solid 0 to 9.35.
+    for (const along of [12, -1]) {
+      const solids = wallSolids(wall(0, 0, 10, 0), [{ along, width: 0.9 }]);
+      expect(solids.map((s) => [s.a.x, s.b.x]), String(along)).toEqual([[0, 10]]);
+    }
+    const past = wallSolids(wall(0, 0, 10, 0), [{ along: 9.8, width: 0.9 }]);
+    expect(past).toHaveLength(1);
+    expect(past[0]?.a.x).toBeCloseTo(0, 9);
+    expect(past[0]?.b.x).toBeCloseTo(9.35, 9);
+  });
+});
+
+describe('seams the drawing joins (6.18 review, item 5)', () => {
+  it('two walls in line whose stored ends are 0.1 mm apart leave no slit', () => {
+    // The wall across at y = -3 in two pieces, -5 to 0 and 0.0001 to 5: the drawing joins ends within 1 mm, and so does
+    // blocking (each end reaches END_REACH_M, 1 mm, past where it is stored): the shape is the one wall's.
+    expect(END_REACH_M).toBe(0.001);
+    const one = sightline(camera(), [blocker(wall(-5, -3, 5, -3))]);
+    const two = sightline(camera(), [blocker(wall(-5, -3, 0, -3)), blocker(wall(0.0001, -3, 5, -3))]);
+    for (const p of two.points.slice(1)) expect(Math.abs(p.y + 2.95)).toBeLessThan(MM2);
+    expect(Math.abs(area(two.points) - area(one.points))).toBeLessThan(1e-4);
+  });
+
+  it('a T whose stem ends exactly on the other wall’s face leaves no band open under it', () => {
+    // The wall across at y = -3 (face y = -2.95, blocking 1 mm in at -2.951); the stem along x = 2 from that face (2,
+    // -2.95) down to (2, 2). A camera standing on the wall's face at (-1, -2.9505), facing right along it, 20° wide: its
+    // middle ray runs in the millimetre between the face as blocking reads it and the stem's end. The stem's end reaches
+    // 1 mm past where it is stored, to -2.951, so that ray stops at the stem's face (x = 1.951): nothing past x = 2.05.
+    const s = sightline(camera({ apex: { x: -1, y: -2.9505 }, facing: 90, degrees: 20 }), [blocker(wall(-5, -3, 5, -3)), blocker(wall(2, -2.95, 2, 2))]);
+    expect(s.cut).toBe(true);
+    expect(Math.max(...xs(s.points))).toBeLessThan(2.05);
+  });
+});
+
+describe('a light standing inside a wall (6.18 review, item 4)', () => {
+  // The wall across at y = -3, x from -5 to 5, 0.1 m thick; the light on its middle line at (0, -3).
+  const across = () => [blocker(wall(-5, -3, 5, -3))];
+
+  it('a beam shines out from the face it points to', () => {
+    // A 90° beam facing down (180°), 4 m: out of the wall's lower face into the room, never behind the wall; it reaches
+    // 4 m out, (0, 1) on its arc.
+    const s = sightline({ apex: { x: 0, y: -3 }, facing: 180, degrees: 90, length: 4, far: 'arc' }, across());
+    expect(s.empty).toBe(false);
+    expect(s.points.length).toBeGreaterThan(3);
+    for (const p of s.points) expect(p.y).toBeGreaterThan(-3 - MM2);
+    expect(s.points.some((p) => Math.abs(p.y - 1) < 0.01 && Math.abs(p.x) < 0.2)).toBe(true);
+    // Facing up (0°), out of the other face: everything is on that side of y = -3, reaching (0, -7).
+    const up = sightline({ apex: { x: 0, y: -3 }, facing: 0, degrees: 90, length: 4, far: 'arc' }, across());
+    for (const p of up.points) expect(p.y).toBeLessThan(-3 + MM2);
+    expect(up.points.some((p) => Math.abs(p.y + 7) < 0.01)).toBe(true);
+  });
+
+  it('an all-round light shines out from both faces', () => {
+    // With its own wall not cutting it, the 4 m circle round (0, -3) reaches y = 1 and y = -7: both sides lit.
+    const s = sightline({ apex: { x: 0, y: -3 }, facing: 0, degrees: 360, length: 4, far: 'arc' }, across());
+    expect(s.empty).toBe(false);
+    expect(s.points.some((p) => p.y > 0.9)).toBe(true);
+    expect(s.points.some((p) => p.y < -6.9)).toBe(true);
+  });
+
+  it('a camera inside a wall still sees nothing', () => {
+    expect(sightline(camera({ apex: { x: 0, y: -3 }, facing: 180 }), across()).empty).toBe(true);
+  });
+});
+
+describe('a light inside a wall, at the edges (6.18 second review, item 7)', () => {
+  const beam = (apex: Point, facing: number, degrees = 90): Wedge => ({ apex, facing, degrees, length: 4, far: 'arc' });
+
+  it('a beam pointing exactly along the wall shines out of both faces, whichever way the wall was drawn', () => {
+    // The light on the middle line at (0, -3), its 60° beam facing right (90°), along the wall: neither face is behind it,
+    // so the wall doesn't stop it: it lights both sides, 4 m out to (4, -3), and the same drawn left to right or right to
+    // left.
+    const w = beam({ x: 0, y: -3 }, 90, 60);
+    const ltr = sightline(w, [blocker(wall(-5, -3, 5, -3))]);
+    const rtl = sightline(w, [blocker(wall(5, -3, -5, -3))]);
+    expect(ltr.empty).toBe(false);
+    expect(ltr.points.some((p) => p.y < -3.1)).toBe(true);
+    expect(ltr.points.some((p) => p.y > -2.9)).toBe(true);
+    expect(area(ltr.points)).toBeCloseTo(area(rtl.points), 9);
+    expect(area(ltr.points)).toBeGreaterThan(0.5 * 16 * (Math.PI / 3) - 0.05);
+  });
+
+  it('a light within 2 mm of a face, inside it, stands on that face', () => {
+    // The wall across at y = -3, 0.1 m thick: its lower face at -2.95, read 1 mm in at -2.951. A light 1.5 mm and 1.9 mm
+    // in from that reading (y = -2.9525, -2.9529), its 90° beam facing down (180°): out of that face, 4 m to (0, 1.05).
+    for (const y of [-2.9525, -2.9529]) {
+      const s = sightline(beam({ x: 0, y }, 180), [blocker(wall(-5, -3, 5, -3))]);
+      expect(s.empty, String(y)).toBe(false);
+      expect(s.points.some((p) => Math.abs(p.y - (y + 4)) < 0.01)).toBe(true);
+      for (const p of s.points) expect(p.y).toBeGreaterThan(-3);
+    }
+  });
+
+  it('a light 1 to 2 mm in from a jamb’s end stands on that end', () => {
+    // A 0.9 m door in the middle of the wall: its jambs at x = -0.45 and 0.45. A light shining all round on the middle line
+    // 1.5 mm into the left jamb (x = -0.4515): it shines out through the gap, up and down, 4 m: (−0.45, -7) and (−0.45, 1)
+    // are about where its rays through the gap reach.
+    const s = sightline(beam({ x: -0.4515, y: -3 }, 0, 360), [blocker(wall(-5, -3, 5, -3), [{ along: 5, width: 0.9 }])]);
+    expect(s.empty).toBe(false);
+    expect(s.points.some((p) => p.y < -6.9)).toBe(true);
+    expect(s.points.some((p) => p.y > 0.9)).toBe(true);
   });
 });

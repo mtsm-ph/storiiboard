@@ -139,6 +139,13 @@ export interface CanvasItem extends Geometry {
   pickThickness?: number;
 }
 
+/**
+ * What a gesture's live geometry comes from (6.18 review, `CanvasProps.liveItems`): a drag's draft, which the canvas
+ * draws its items at (their size included, as a resize's edit is being written), or the handles turning or resizing
+ * them, which scale and turn the nodes while the items keep their size as built.
+ */
+export type LiveBy = 'drag' | 'handles';
+
 /** An item's drawing past its box: drawn in the item's own box coordinates and turned with it, as `draw` is. */
 export interface Beyond {
   bounds: Rect;

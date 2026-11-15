@@ -14,7 +14,8 @@ import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
-import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy, withDraft } from './placement';
+import { remadeFor, shownWith } from './liveShown';
+import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, runSnapEnds, snapMove, snapPoint, snapTargetItems, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
@@ -36,6 +37,7 @@ import {
   type GeometryChange,
   type HostToolId,
   type LinkEnd,
+  type LiveBy,
   type PlaceTool,
   type Point,
   type Rect as WorldRect,
@@ -200,6 +202,16 @@ export interface CanvasProps {
    * out (a board), it is 8 as it always was.
    */
   minSize?: number;
+  /**
+   * Items the host draws anew while a gesture is under way (6.18 review: a plan's cones and beams cut by the walls live):
+   * given the live geometry of what a drag moves (its draft) or the handles turn or resize, the items that draw
+   * differently now, by id, each with its geometry as the host has it (the canvas puts a dragged one where the drag
+   * has it). Asked on every step of a gesture, and with null when none is under way. Nothing is written: the gesture
+   * still ends in one onGeometry. Left out (a board), nothing is drawn anew.
+   */
+  liveItems?: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy) => ReadonlyMap<string, CanvasItem>;
+  /** What liveItems drew anew, told after the canvas drew it (null for none): the host's tests read it there. */
+  onLiveDrawn?: (made: ReadonlyMap<string, CanvasItem> | null) => void;
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -269,6 +281,8 @@ export function Canvas({
   onHover,
   onKey,
   minSize = MIN_SIZE,
+  liveItems,
+  onLiveDrawn,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -327,17 +341,17 @@ export function Canvas({
   const [pathSaid, setPathSaid] = useState('');
   const describedBy = useId();
 
-  // Only an item the gesture moves is a new object: the others stay the items they were, so what is drawn for them is kept (5.7).
-  const shown = useMemo(
-    () =>
-      draft
-        ? items.map((item) => {
-            const moved = draft.get(item.id);
-            return moved ? withDraft(item, moved) : item;
-          })
-        : items,
-    [items, draft],
-  );
+  // The handles' live geometry counts only for the selection it was made on.
+  const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
+  // What the host draws anew for the gesture under way (a plan's cut cones: liveItems), none for a board.
+  const remade = useMemo(() => remadeFor(liveItems, draft, liveBoxes), [liveItems, draft, liveBoxes]);
+  // Only an item the gesture moves (or the host draws anew for it) is a new object: the others stay the items they were,
+  // so what is drawn for them is kept (5.7).
+  const shown = useMemo(() => shownWith(items, draft, remade), [items, draft, remade]);
+  // The host told what was drawn anew once it is drawn (for its tests), never while drawing.
+  useLayoutEffect(() => {
+    onLiveDrawn?.(remade && remade.size > 0 ? remade : null);
+  }, [remade, onLiveDrawn]);
   // Sections are drawn under the connectors and the other items; each group keeps the board's order among itself (5.3).
   const sectionsShown = useMemo(() => drawOrder(shown.filter((item) => item.section)), [shown]);
   const itemsShown = useMemo(() => shown.filter((item) => !item.section), [shown]);
@@ -345,8 +359,6 @@ export function Canvas({
   const pickSections = useMemo(() => pickable(sectionsShown), [sectionsShown]);
   const pickPlain = useMemo(() => pickable(itemsShown), [itemsShown]);
   // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
-  // The handles' live geometry counts only for the selection it was made on.
-  const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
   // A cache the render fills as it goes: it only saves routing and making shapes again, never changes what is drawn.
   const [routes] = useState(() => new Map<string, RouteEntry>());
   const resolved = useMemo(

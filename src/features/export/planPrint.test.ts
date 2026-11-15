@@ -1334,6 +1334,37 @@ describe('walls stop the cone on paper (6.18)', () => {
     for (const q of others.filter((p) => p.y < -0.55 - 0.01)) expect(Math.abs(q.x)).toBeLessThan(1.147 + 0.02);
   });
 
+  it('prints a cut all-round light’s glow as bands, each its circle cut flat at the wall (6.18 second review, item 2)', async () => {
+    // A china ball (all round, 4 m) at (3, 0.5), under the 10 m wall across at y = -0.5 (face -0.45, 0.95 m above it) and
+    // over furnished()'s 8 m wall at y = 3 (face 2.95, 2.45 m below). Its 8 bands are 0.5 m to 4 m. The 0.5 m band meets
+    // no wall: a whole circle. The 1.5 m band is cut flat at the near face (nothing above y = -0.45) and is its circle
+    // elsewhere: before the review every band's corners were the shape's own brought in, a flat chord in every band.
+    const { sceneId, setupId } = await furnished();
+    await apply(
+      drawWallsChanges(records(), sceneId, [
+        { x: -500, y: -50 },
+        { x: 500, y: -50 },
+      ]).changes,
+    );
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'lighting/china-ball', { x: 3, y: 0.5 }, 'ball'));
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const s = (page?.plan?.pointsPerUnit ?? 0) * 100;
+    const paths = await pdfFilledPaths((await write([printed(page as PlanPage)])).bytes);
+    const { toWorld } = mapping(paths, s);
+    const from = (q: { x: number; y: number }) => Math.hypot(q.x - 3, q.y - 0.5);
+    const bands = paths.map((p) => p.map(toWorld)).filter((p) => p.length > 100 && p.every((q) => from(q) < 4.02));
+    const reach = (p: readonly { x: number; y: number }[]) => Math.max(...p.map(from));
+    expect(bands).toHaveLength(8);
+    const smallest = bands.find((p) => Math.abs(reach(p) - 0.5) < 0.01);
+    if (!smallest) throw new Error('no 0.5 m band');
+    for (const q of smallest) expect(Math.abs(from(q) - 0.5)).toBeLessThan(0.005);
+    const third = bands.find((p) => Math.abs(reach(p) - 1.5) < 0.01);
+    if (!third) throw new Error('no 1.5 m band');
+    for (const q of third) expect(q.y).toBeGreaterThan(-0.45 - 0.01);
+    expect(third.some((q) => Math.abs(q.y + 0.45) < 0.01)).toBe(true);
+    for (const q of third.filter((p) => p.y > -0.4)) expect(Math.abs(from(q) - 1.5)).toBeLessThan(0.005);
+  });
+
   it('prints the whole cone with Stop at walls off', async () => {
     const { sceneId, setupId, camera } = await furnished();
     await apply(drawWallsChanges(records(), sceneId, [

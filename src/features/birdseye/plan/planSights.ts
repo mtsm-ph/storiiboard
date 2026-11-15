@@ -1,7 +1,7 @@
 import { isOpening, isWallFields, stopsAtWalls, type ShownItem } from '../../../core/model/plan';
 import { CONE_LENGTH_M } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamDirection } from '../../../core/model/planLight';
-import { blockersKeeper, sightlineKeeper, type Sight, type SightEdge, type Wedge } from '../../../core/model/planSightlines';
+import { ARC_STEP_DEG, blockersKeeper, sightlineKeeper, type Sight, type SightEdge, type Wedge } from '../../../core/model/planSightlines';
 import type { CameraLook } from './cameraDraw';
 import type { LightLook } from './lightDraw';
 import type { MarkLook } from './markLooks';
@@ -21,11 +21,15 @@ export interface LocalSight {
   fill: number[];
   /** The edges drawn as lines, each a run of corners (along the walls none is drawn). */
   strokes: number[][];
-  /** For an all-round light's glow: the shape cut at each band's radius, outermost first. */
-  bands: number[][];
+  /**
+   * For an all-round light's glow on paper: the shape cut at each band's radius, outermost first, worked out when first
+   * asked for. The screen fills the shape once with the uncut glow's radial gradient (6.18 review); a PDF path can't hold
+   * a canvas gradient (deckDisplay.ts prints a circle's as rings), so a print lays these bands over one another instead.
+   */
+  bands: () => number[][];
 }
 
-/** How many bands an all-round light's glow is drawn in when walls cut it (as many as a print's rings, deckDisplay.ts). */
+/** How many bands an all-round light's glow is printed in when walls cut it (as many as a print's rings, deckDisplay.ts). */
 export const GLOW_BANDS = 8;
 
 const middleOf = (f: { x: number; y: number; width: number; height: number }) => ({ x: f.x + f.width / 2, y: f.y + f.height / 2 });
@@ -96,6 +100,30 @@ export function sightsKeeper(): (
   };
 }
 
+/** What the end-to-end tests read of a shape (metres): whether walls cut it, whether it's empty, its corner count and box. */
+export interface SightSummary {
+  cut: boolean;
+  empty: boolean;
+  /** Where it is seen from (6.18 second review): the camera's or light's middle. */
+  apex: { x: number; y: number };
+  corners: number;
+  box: { minX: number; minY: number; maxX: number; maxY: number } | null;
+}
+
+/**
+ * A cone's or a beam's shape as the tests read it from the page: whether walls cut it, whether it is empty (its apex in a
+ * wall), where it is seen from, how many corners it has and the box round them, to 0.1 mm. Never the corners themselves (6.18 review): this is
+ * written into the page on every edit, and a cut all-round light has dozens. Null for an item with no cone.
+ */
+export function sightSummary(sight: Sight | undefined): SightSummary | null {
+  if (!sight) return null;
+  const round = (n: number) => Math.round(n * 10000) / 10000;
+  const xs = sight.points.map((p) => p.x);
+  const ys = sight.points.map((p) => p.y);
+  const box = sight.points.length === 0 ? null : { minX: round(Math.min(...xs)), minY: round(Math.min(...ys)), maxX: round(Math.max(...xs)), maxY: round(Math.max(...ys)) };
+  return { cut: sight.cut, empty: sight.empty, apex: { x: round(sight.apex.x), y: round(sight.apex.y) }, corners: sight.points.length, box };
+}
+
 /** Runs of consecutive edges of the kinds drawn, each as the corners it joins. */
 function runs(sight: Sight, drawn: ReadonlySet<SightEdge>): number[][][] {
   const n = sight.points.length;
@@ -143,22 +171,78 @@ export function localSight(sight: Sight | undefined, box: { width: number; heigh
   const flat = (points: readonly { x: number; y: number }[]) => points.flatMap((p) => local(p.x, p.y));
   const drawn = new Set<SightEdge>(kind === 'cone' ? ['side'] : ['side', 'far']);
   const strokes = runs(sight, drawn).map((run) => run.flatMap(([x, y]) => local(x ?? 0, y ?? 0)));
-  // The glow's bands, for an all-round light: the shape with every corner brought in to the band's radius.
-  const bands: number[][] = [];
-  if (kind === 'beam' && sight.ring && !sight.empty) {
-    const outer = Math.max(...sight.reach);
-    for (let k = GLOW_BANDS; k >= 1; k -= 1) {
-      const r = (outer * k) / GLOW_BANDS;
-      bands.push(
-        flat(
-          sight.points.map((p, i) => {
-            const d = sight.reach[i] ?? 0;
-            const f = d > r && d > 0 ? r / d : 1;
-            return { x: centre.x + (p.x - centre.x) * f, y: centre.y + (p.y - centre.y) * f };
-          }),
-        ),
-      );
+  // The glow's bands, for an all-round light on paper: each the circle of its radius clipped by the shape (glowBand).
+  let bands: number[][] | null = null;
+  const bandsOf = (): number[][] => {
+    if (bands) return bands;
+    bands = [];
+    if (kind === 'beam' && sight.ring && !sight.empty) {
+      const outer = Math.max(...sight.reach);
+      for (let k = GLOW_BANDS; k >= 1; k -= 1) bands.push(flat(glowBand(sight, (outer * k) / GLOW_BANDS)));
     }
+    return bands;
+  };
+  return { fill: flat(sight.points), strokes, bands: bandsOf };
+}
+
+/** How far a ray from a ring's apex along `angle` (radians clockwise from up) goes before it leaves the shape. */
+function rayOut(sight: Sight, angle: number): number {
+  const d = { x: Math.sin(angle), y: -Math.cos(angle) };
+  const n = sight.points.length;
+  let best = Infinity;
+  for (let i = 0; i < n; i += 1) {
+    const p = sight.points[i] as { x: number; y: number };
+    const q = sight.points[(i + 1) % n] as { x: number; y: number };
+    const ex = q.x - p.x;
+    const ey = q.y - p.y;
+    const den = d.x * ey - d.y * ex;
+    if (Math.abs(den) < 1e-15) continue;
+    const ax = p.x - sight.apex.x;
+    const ay = p.y - sight.apex.y;
+    const t = (ax * ey - ay * ex) / den;
+    const s = (ax * d.y - ay * d.x) / den;
+    if (t > 1e-12 && s >= -1e-12 && s <= 1 + 1e-12) best = Math.min(best, t);
   }
-  return { fill: flat(sight.points), strokes, bands };
+  return best;
+}
+
+/**
+ * An all-round light's cut glow as a print band (6.18 second review): the circle of radius `r` round its apex, clipped by
+ * the cut shape (metres), the shape seen from the apex being star-shaped: along every ray it ends at the nearer of the
+ * circle and the shape's edge. Followed every ARC_STEP_DEG round the circle, at every corner of the shape and wherever
+ * an edge crosses the circle, so a wall's face is a straight chord where it cuts the band and the band is a whole circle
+ * where nothing does. For paper only, where a PDF can't hold the screen's gradient: worked out when asked, never per frame.
+ */
+export function glowBand(sight: Sight, r: number): { x: number; y: number }[] {
+  const { apex, points } = sight;
+  const angleOf = (p: { x: number; y: number }) => Math.atan2(p.x - apex.x, -(p.y - apex.y));
+  const steps = Math.ceil(360 / ARC_STEP_DEG);
+  const angles: number[] = Array.from({ length: steps }, (_, k) => (2 * Math.PI * k) / steps);
+  const n = points.length;
+  for (let i = 0; i < n; i += 1) {
+    const p = points[i] as { x: number; y: number };
+    const q = points[(i + 1) % n] as { x: number; y: number };
+    angles.push(angleOf(p));
+    // Where the edge from p to q crosses the circle.
+    const dx = q.x - p.x;
+    const dy = q.y - p.y;
+    const fx = p.x - apex.x;
+    const fy = p.y - apex.y;
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const disc = b * b - 4 * a * (fx * fx + fy * fy - r * r);
+    if (a === 0 || disc < 0) continue;
+    for (const s of [(-b - Math.sqrt(disc)) / (2 * a), (-b + Math.sqrt(disc)) / (2 * a)]) if (s >= 0 && s <= 1) angles.push(angleOf({ x: p.x + dx * s, y: p.y + dy * s }));
+  }
+  const tau = 2 * Math.PI;
+  const sorted = angles.map((a) => ((a % tau) + tau) % tau).sort((a, b) => a - b);
+  const out: { x: number; y: number }[] = [];
+  let last = -Infinity;
+  for (const angle of sorted) {
+    if (angle - last < 1e-9) continue;
+    last = angle;
+    const reach = Math.min(r, rayOut(sight, angle));
+    out.push({ x: apex.x + Math.sin(angle) * reach, y: apex.y - Math.cos(angle) * reach });
+  }
+  return out;
 }

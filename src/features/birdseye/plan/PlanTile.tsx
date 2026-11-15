@@ -85,7 +85,8 @@ import {
 } from './planActions';
 import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
-import { sightsKeeper, type Sights } from './planSights';
+import { liveSights } from './liveSights';
+import { sightsKeeper, sightSummary, type Sights } from './planSights';
 import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
@@ -616,18 +617,10 @@ function ScaleWindow({ ask, onClose, onScale }: { ask: ScaleAsk; onClose: () => 
   );
 }
 
-/** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
-/**
- * A cone's or a beam's shape as drawn (6.18), metres, for the end-to-end tests: whether walls cut it, and its corners
- * (the apex first, unless it shines all round); null for an item with no cone.
- */
-const sightData = (sights: Sights, id: string) => {
-  const sight = sights.get(id);
-  if (!sight) return null;
-  const round = (n: number) => Math.round(n * 10000) / 10000;
-  return { cut: sight.cut, empty: sight.empty, apex: { x: round(sight.apex.x), y: round(sight.apex.y) }, points: sight.points.map((p) => ({ x: round(p.x), y: round(p.y) })) };
-};
+/** A cone's or a beam's shape as drawn (6.18), for the end-to-end tests: its summary (planSights.ts), never its corners. */
+const sightData = (sights: Sights, id: string) => sightSummary(sights.get(id));
 
+/** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
 const layerData = (look: LayerLook | undefined) => ({ ...(look?.dim ? { dim: true } : {}), ...(look?.locked ? { locked: true } : {}) });
 
 /**
@@ -809,6 +802,20 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   }, []);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(visible, unit), [visible, unit]);
+  // The cut live while a camera, a light, a wall or an opening is dragged or turned (6.18 review, decision 5): the canvas
+  // asks on every step with the live boxes, and the walls and openings are where the drop will write them.
+  const live = useMemo(() => liveSights({ records, view, blocking: shown, items: visible, built, looks, lights, marks: blocking }), [records, view, shown, visible, built, looks, lights, blocking]);
+  // What the canvas drew anew, for the end-to-end tests (data-plan-live: each shape's summary, by id), written once it is
+  // drawn; in development builds only, so a release writes nothing on a drag (6.18 second review).
+  const liveDrawn = (made: ReadonlyMap<string, CanvasItem> | null) => {
+    if (!import.meta.env.DEV) return;
+    const element = holder.current;
+    if (!element) return;
+    const summaries = live.summaries(made);
+    const text = summaries === null ? null : JSON.stringify(summaries);
+    if (text === null) element.removeAttribute('data-plan-live');
+    else if (element.getAttribute('data-plan-live') !== text) element.setAttribute('data-plan-live', text);
+  };
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
   const [hover, setHover] = useState<Point | null>(null);
   const kind = openingKindOf(tool);
@@ -1126,6 +1133,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           // The plan's own least size, a centimetre (6.5 review): a board's 8 units would be 8 cm here, deeper than a flag.
           minSize={toCanvas(MIN_PLAN_SIZE)}
           constrainMove={constrain}
+          liveItems={live.items}
+          onLiveDrawn={liveDrawn}
           onHover={(at) => {
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));
           }}

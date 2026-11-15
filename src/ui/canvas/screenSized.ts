@@ -26,6 +26,11 @@ interface Sized {
 }
 
 const live = new Map<Konva.Node, Sized>();
+/**
+ * The nodes held at scale 1 by the handles (holdScreenSized), by node, until releaseScreenSized: a node drawn again
+ * mid-gesture (6.18 review: a plan's cone remade as it turns) is registered anew through a new ref, and stays held.
+ */
+const heldNodes = new Set<Konva.Node>();
 
 /**
  * A ref for a node drawn at `zoom`, placed at `at` (its x and y as given to React), whose offset from `anchor` and whose
@@ -37,7 +42,7 @@ export function screenSizedRef(zoom: number, at: Point, anchor: Point, hideBelow
   return (node) => {
     if (node) {
       mine = node;
-      live.set(node, hideBelow === undefined ? { zoom, at, anchor } : { zoom, at, anchor, hideBelow });
+      live.set(node, { zoom, at, anchor, ...(hideBelow === undefined ? {} : { hideBelow }), ...(heldNodes.has(node) ? { held: true } : {}) });
     } else if (mine) {
       live.delete(mine);
       mine = null;
@@ -102,6 +107,7 @@ export function holdScreenSized(roots: readonly Konva.Node[]): void {
   for (const [node, sized] of live) {
     if (!stages.has(node.getStage()) || !roots.some((root) => within(node, root))) continue;
     sized.held = true;
+    heldNodes.add(node);
     node.scale({ x: 1, y: 1 });
     node.position(sized.at);
   }
@@ -109,6 +115,7 @@ export function holdScreenSized(roots: readonly Konva.Node[]): void {
 
 /** Every held node let go: the next fit scales it for the view's zoom again. */
 export function releaseScreenSized(): void {
+  heldNodes.clear();
   for (const sized of live.values()) delete sized.held;
 }
 
