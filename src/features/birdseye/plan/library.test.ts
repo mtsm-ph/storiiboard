@@ -118,10 +118,12 @@ describe('placing an icon', () => {
     const { sceneId, setups } = await scene();
     expect(iconRefusal(records(), { sceneId, setupId: null }, 'grip/c-stand')).toBe('noSetup');
     expect(iconRefusal(records(), { sceneId, setupId: null }, 'set-art/table')).toBeNull();
-    expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'camera/camera')).toBe('coming');
+    // Cameras are placed from 6.4: lights still come later in the phase, and the field of view is never an item.
+    expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'lighting/fresnel')).toBe('coming');
+    expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'camera/field-of-view')).toBe('shown');
     expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'set-art/wall')).toBe('tool');
     expect(placeIconChanges(records(), { sceneId, setupId: null }, 'grip/c-stand', { x: 0, y: 0 })).toEqual([]);
-    expect(placeIconChanges(records(), { sceneId, setupId: setups[0] }, 'camera/camera', { x: 0, y: 0 })).toEqual([]);
+    expect(placeIconChanges(records(), { sceneId, setupId: setups[0] }, 'lighting/fresnel', { x: 0, y: 0 })).toEqual([]);
     const bare = crypto.randomUUID();
     await store.getState().apply([{ kind: 'create', record: { id: bare, type: 'scene', parentId: project.projectId, sortKey: 'z', props: { number: '9' } } }]);
     expect(iconRefusal(records(), { sceneId: bare, setupId: null }, 'set-art/table')).toBe('noRoom');
@@ -287,7 +289,7 @@ describe('the Library', () => {
     expect(spot?.centre).toEqual({ x: 0, y: -0.05 });
     expect(spot?.screen).toMatchObject({ width: 200, height: 90 });
     expect(dropAt('set-art/sofa', { x: 403, y: 300 }, view, grid, 'off')?.centre).toEqual({ x: 0.03, y: 0 });
-    expect(dropAt('camera/camera', { x: 400, y: 300 }, view, grid, 'magnet')).toBeNull();
+    expect(dropAt('lighting/fresnel', { x: 400, y: 300 }, view, grid, 'magnet')).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
+import { framesOffCameras } from './cameraLinks';
 import type { JsonValue, Props, SbdRecord } from './record';
 
 // Setups (6.0, docs/PHASE6_DECISIONS.md 3). A setup is one camera position and lighting state; several frames can share
@@ -151,26 +152,31 @@ const liveShot = (records: Records, id: string): SbdRecord | null => {
   return shot?.type === 'shot' && shot.trashedAt === null ? shot : null;
 };
 
-/** Frames into a setup, in one edit. Only live frames of the setup's own scene; one already in it is left as it is. */
+/**
+ * Frames into a setup, in one edit. Only live frames of the setup's own scene; one already in it is left as it is. Each
+ * comes off the cameras that list it (its old setup's above all, cameraLinks.ts), so going back later never silently
+ * links it to one of them again.
+ */
 export function joinSetup(records: Records, shotIds: readonly string[], setupId: string): Change[] {
   const setup = liveSetup(records, setupId);
   if (!setup) return [];
-  return [...new Set(shotIds)].flatMap((id): Change[] => {
+  const joining = [...new Set(shotIds)].filter((id) => {
     const shot = liveShot(records, id);
-    if (!shot || shot.parentId !== setup.parentId || shot.props.setup_id === setupId) return [];
-    return [{ kind: 'update', id, set: { setup_id: setupId } }];
+    return shot !== null && shot.parentId === setup.parentId && shot.props.setup_id !== setupId;
   });
+  return [...joining.map((id): Change => ({ kind: 'update', id, set: { setup_id: setupId } })), ...framesOffCameras(records, joining)];
 }
 
 /**
  * Frames out of their setups, in one edit. Only frames that read as in one: a frame whose setup is in the Trash keeps
- * its id, so a restore still brings it back into it.
+ * its id, so a restore still brings it back into it. Each comes off its setup's cameras in the same edit.
  */
 export function leaveSetup(records: Records, shotIds: readonly string[]): Change[] {
-  return [...new Set(shotIds)].flatMap((id): Change[] => {
+  const leaving = [...new Set(shotIds)].filter((id) => {
     const shot = liveShot(records, id);
-    return shot && frameSetupId(records, shot) !== null ? [{ kind: 'update', id, unset: ['setup_id'] }] : [];
+    return shot !== null && frameSetupId(records, shot) !== null;
   });
+  return [...leaving.map((id): Change => ({ kind: 'update', id, unset: ['setup_id'] })), ...framesOffCameras(records, leaving)];
 }
 
 /** The scene all these live frames share, or null when they're in more than one (or none is live). */
@@ -186,6 +192,8 @@ export function newSetupFromFrames(records: Records, shotIds: readonly string[],
   if (sceneId === null) return [];
   const made = addSetup(records, sceneId, id);
   if (made.length === 0) return [];
-  const joined = [...new Set(shotIds)].map((shotId): Change => ({ kind: 'update', id: shotId, set: { setup_id: id } }));
-  return [...made, ...joined];
+  const frames = [...new Set(shotIds)];
+  const joined = frames.map((shotId): Change => ({ kind: 'update', id: shotId, set: { setup_id: id } }));
+  // Out of the setups they were in: off those setups' cameras too.
+  return [...made, ...joined, ...framesOffCameras(records, frames)];
 }

@@ -10,7 +10,7 @@ import { restoreChanges } from '../trash/trash';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../callsheets/callsheetEdits';
 import { dayPeopleAdd, dayPeopleRemove } from '../schedule/dayEdits';
-import { addSetup, joinSetup, renameSetup } from '../../core/model/setup';
+import { addSetup, joinSetup, leaveSetup, renameSetup } from '../../core/model/setup';
 import { pickLens } from '../../core/model/cameraGear';
 import { setLocale } from '../../core/i18n';
 import { gearKindChange, lensRangeChange, lensSqueezeChange, sensorModePick, sensorSizeChange } from '../gear/gearEdits';
@@ -88,6 +88,23 @@ describe('History', () => {
       'Renamed a setup in SC 04 to “Window side”',
       'Added 4A to setup “Window side” in SC 04',
     ]);
+  });
+
+  it('names a frame taken out of a setup by the frame, not by the camera that let it go in the same step (6.4 review)', async () => {
+    const a = await frame();
+    await store.getState().applyWith((now) => ({ changes: addSetup(now, 'sc4', 'su1') }));
+    await store.getState().applyWith((now) => ({ changes: renameSetup(now, 'su1', 'Window side') }));
+    await store.getState().applyWith((now) => ({ changes: joinSetup(now, [a], 'su1') }));
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'own', type: 'plan', parentId: 'su1', sortKey: 'a', props: { kind: 'setup', name: '' } } },
+      { kind: 'create', record: { id: 'cam', type: 'plan_item', parentId: 'own', sortKey: 'a', props: { kind: 'camera', icon: 'camera/camera', x: 0, y: 0, width: 0.4, height: 0.4, rotation: 0, shot_ids: [a] } } },
+    ]);
+    const out = leaveSetup(records(), [a]);
+    expect(out.map((c) => (c.kind === 'update' ? c.id : ''))).toEqual([a, 'cam']);
+    await store.getState().applyWith(() => ({ changes: out }));
+    expect((await lines()).at(-1)).toBe('Took 4A out of setup “Window side” in SC 04');
+    await store.getState().applyWith((now) => ({ changes: joinSetup(now, [a], 'su1') }));
+    expect((await lines()).at(-1)).toBe('Added 4A to setup “Window side” in SC 04');
   });
 
   it('restores the project to a step as one new step that undo takes back', async () => {

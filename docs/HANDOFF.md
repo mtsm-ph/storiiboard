@@ -378,9 +378,10 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes). Next: 6.4 from docs/briefs/6.4-cameras.md
-  (branch `phase6/6.4-cameras` off 6.3's), then 6.5 from docs/briefs/6.5-lights.md; briefs for 6.6 on are not
-  written yet. For Kevin's eye: icons are stretched to their real footprint (a sofa's drawing is distorted); the
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons). Next: 6.5
+  from docs/briefs/6.5-lights.md (branch `phase6/6.5-lights` off 6.4's), then 6.6 from docs/briefs/
+  6.6-north-sun.md; briefs for 6.7 on are not written yet. Leftovers for Kevin to delete: e2e/zz-probe.spec.ts
+  (an old emptied probe, excluded from git locally; it is one of the 3 skipped tests), test-results/PlanTile.bak. For Kevin's eye: icons are stretched to their real footprint (a sofa's drawing is distorted); the
   kit's Parking "P" is SVG text, so it draws in a system font; Spanish icon names are the builder's. Flaky once each, cause not
   proven (the test server on port 1421 refused a page load under a full parallel run): plan.spec "two scenes at
   one location share a room…" and liveCards.spec "a board linked to a scene, a character and a location…"; if a

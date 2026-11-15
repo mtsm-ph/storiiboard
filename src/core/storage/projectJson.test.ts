@@ -293,6 +293,40 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries cameras out and back: their body, frames, shown frame, typed lens, side and height (6.4)', async () => {
+    const file = project.file;
+    const room = { kind: 'room', name: 'Diner' };
+    const cam = { kind: 'camera', icon: 'camera/dolly-track', x: 0.5, y: 0.5, width: 1, height: 3, rotation: 45, body_id: 'fx3', shot_ids: ['f1', 'f2'], shown_shot_id: 'f2', lens_mm: 50, lens_id: 'ana', on_side: true, height_m: 1.5, name: 'A cam' };
+    const bare = { kind: 'camera', icon: 'camera/camera', x: 2, y: 2, width: 0.4, height: 0.4, rotation: 0 };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'r1', type: 'plan', parentId: project.projectId, sortKey: 'a', props: room } },
+        { kind: 'update', id: 'sc4', set: { room_id: 'r1' } },
+        { kind: 'create', record: { id: 'u1', type: 'setup', parentId: 'sc4', sortKey: 'a', props: { name: '' } } },
+        { kind: 'create', record: { id: 'own', type: 'plan', parentId: 'u1', sortKey: 'a', props: { kind: 'setup', name: '' } } },
+        { kind: 'create', record: { id: 'c1', type: 'plan_item', parentId: 'own', sortKey: 'a', props: cam } },
+        { kind: 'create', record: { id: 'c2', type: 'plan_item', parentId: 'own', sortKey: 'b', props: bare } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'c2' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (cameras).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('c1')?.props))).toEqual(cam);
+      expect(JSON.parse(String(row('c2')?.props))).toEqual(bare);
+      expect(row('c2')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('carries camera bodies, lenses and a frame’s lens out and back, every Phase 6 prop as written (6.1)', async () => {
     const file = project.file;
     const body = { name: 'FX3', kind: 'camera_body', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20, camera_letter: 'A' };

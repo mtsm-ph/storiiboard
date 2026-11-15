@@ -1,10 +1,12 @@
 import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { projectStore } from '../../app/projectStore';
+import { setLocale } from '../../core/i18n';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { clampQuestion } from './BodyLensFields';
+import { lensRangeChange } from './gearEdits';
 import { KindNote } from './GearTile';
 
 // The Gear tile's list reads a body's letter as the project does (6.1), and the question before a lens's range change
@@ -68,6 +70,35 @@ describe('the question before a lens’s range change', () => {
   it('asks nothing when only frames in the Trash would change', async () => {
     await projectStore.getState().apply([lens({ name: 'Optimo' }), scene(), shot('1A', 70), { kind: 'trash', id: '1A' }]);
     expect(clampQuestion(projectStore.getState().records, 'z', 30, 40)).toBeNull();
+  });
+
+  it('counts the cameras on a plan that picked the lens with a length outside it, and changes them in the same edit (6.4 review)', async () => {
+    const cameraOf = (id: string, props: Record<string, string | number>) => ({
+      kind: 'create' as const,
+      record: { id, type: 'plan_item' as const, parentId: project.projectId, sortKey: id, props: { kind: 'camera', icon: 'camera/camera', x: 0, y: 0, width: 0.4, height: 0.4, rotation: 0, lens_id: 'z', ...props } },
+    });
+    await projectStore.getState().apply([lens({ name: 'Optimo' }), scene(), shot('1A', 70), cameraOf('cam', { lens_mm: 65 }), cameraOf('inside', { lens_mm: 35 }), cameraOf('none', {})]);
+    const records = () => projectStore.getState().records;
+    expect(clampQuestion(records(), 'z', 30, 40)).toBe('“Optimo” is used by 1 frame outside 30–40 mm. And 1 camera on a plan. All 2 will be set to 40 mm.');
+    // A camera inside the range, or with no length typed, is left as it is.
+    expect(lensRangeChange(records(), 'z', 30, 40)).toEqual([
+      { kind: 'update', id: 'z', set: { focal_min_mm: 30, focal_max_mm: 40 } },
+      { kind: 'update', id: '1A', set: { lens_mm: 40 } },
+      { kind: 'update', id: 'cam', set: { lens_mm: 40 } },
+    ]);
+    // Only a camera would change: still asked, named by the camera.
+    await projectStore.getState().apply([{ kind: 'update', id: '1A', set: { lens_mm: 35 } }]);
+    expect(clampQuestion(records(), 'z', 30, 40)).toBe('“Optimo” is picked on 1 camera on a plan, typed outside 30–40 mm. It will be set to 40 mm.');
+    setLocale('es');
+    try {
+      expect(clampQuestion(records(), 'z', 30, 40)).toBe('1 cámara de una planta tiene “Optimo” con una distancia escrita fuera de 30–40 mm. Pasará a 40 mm.');
+    } finally {
+      setLocale('en');
+    }
+    // A camera in the Trash is set too, without asking.
+    await projectStore.getState().apply([{ kind: 'trash', id: 'cam' }]);
+    expect(clampQuestion(records(), 'z', 30, 40)).toBeNull();
+    expect(lensRangeChange(records(), 'z', 30, 40)).toContainEqual({ kind: 'update', id: 'cam', set: { lens_mm: 40 } });
   });
 
   it('names an unnamed lens by its range', async () => {

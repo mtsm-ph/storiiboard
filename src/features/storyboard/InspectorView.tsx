@@ -186,6 +186,8 @@ export interface InspectorViewProps {
    * picked lens's focal range, which the focal length typed must sit in. `fieldOfView` is the line under it.
    */
   lens?: InspectorLens;
+  /** The lens check for this frame (6.4 review): a camera on a plan planned at another focal length, shown by the lens. */
+  planLens?: ReactNode;
 }
 
 /** The field of view as the Inspector reads it out (6.1), each figure to one decimal; or why there's none. */
@@ -573,6 +575,7 @@ export function InspectorView({
   shootDay,
   setup,
   lens,
+  planLens,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -888,6 +891,7 @@ export function InspectorView({
                 {choices(T_STOPS.map(String), (v) => tStopLabel(Number(v)))}
               </Select>
             </div>
+            {planLens}
             {lens && (
               // What the project's frame sees with the default body (6.1, decision 6): read only, worked out live.
               <div className="flex flex-col gap-[5px]" data-field-of-view="">

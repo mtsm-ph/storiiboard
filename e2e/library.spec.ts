@@ -5,7 +5,7 @@ import { closeSettings, openSettings } from './settings';
 
 // The library (6.3) in the memory build: a sofa dragged from the Library onto a scene's room reads 2.00 m by 0.90 m in
 // the Selection tile; a C-stand placed from the keyboard goes into the setup and the arrows nudge it; the scene's other
-// setup shows the sofa, not the C-stand; a table resized and turned by typing; a camera, not placeable yet, says why;
+// setup shows the sofa, not the C-stand; a table resized and turned by typing; a light, not placeable yet, says why;
 // undo, redo and a reload; the plan stays paper in dark; and axe on the Library tile. The canvas is pixels, so the tests
 // read the plan from the data its tile keeps (data-plan-data, in metres).
 
@@ -138,9 +138,19 @@ test('drags a sofa into the room, places a C-stand from the keyboard into the se
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await expect(libraryIcon(page, 'grip/c-stand')).toBeFocused();
-  // A row down and back.
+  // A row down, to the icon under it as the grid lays them out, and back.
+  const below = await libraryTile(page)
+    .locator('[data-library-group="grip"]')
+    .evaluate((group) => {
+      const buttons = [...group.querySelectorAll<HTMLElement>('[data-library-icon]')];
+      const top = buttons[0]?.offsetTop ?? 0;
+      const columns = buttons.filter((b) => b.offsetTop === top).length;
+      const at = buttons.findIndex((b) => b.dataset.libraryIcon === 'grip/c-stand');
+      return buttons[at + columns]?.dataset.libraryIcon ?? '';
+    });
+  expect(below).not.toBe('');
   await page.keyboard.press('ArrowDown');
-  await expect(libraryIcon(page, 'grip/c-stand')).not.toBeFocused();
+  await expect(libraryIcon(page, below)).toBeFocused();
   await page.keyboard.press('ArrowUp');
   await expect(libraryIcon(page, 'grip/c-stand')).toBeFocused();
   await page.keyboard.press('Enter');
@@ -164,7 +174,7 @@ test('drags a sofa into the room, places a C-stand from the keyboard into the se
   await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
 });
 
-test('resizes and turns a table by typing, refuses a camera with words, and keeps it all through undo, redo and a reload', async ({ page }) => {
+test('resizes and turns a table by typing, refuses a light with words, and keeps it all through undo, redo and a reload', async ({ page }) => {
   await startRoom(page);
   await libraryIcon(page, 'set-art/table').focus();
   await page.keyboard.press('Enter');
@@ -183,17 +193,18 @@ test('resizes and turns a table by typing, refuses a camera with words, and keep
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await icons(page))[0]?.rotation).toBe(90);
 
-  // A camera comes later in this phase: greyed out, and it says so when dragged (with no ghost) or pressed.
-  const camera = libraryIcon(page, 'camera/camera');
+  // A light comes later in this phase (cameras are placed from 6.4): greyed out, and it says so when dragged (with no
+  // ghost) or pressed.
+  const camera = libraryIcon(page, 'lighting/fresnel');
   await expect(camera).toHaveAttribute('aria-disabled', 'true');
-  await expect(libraryTile(page).locator('[data-library-group="camera"]')).toContainText('Coming in this phase');
-  const comingNotice = page.getByText('Camera: coming in this phase.', { exact: true });
+  await expect(libraryTile(page).locator('[data-library-group="lighting"]')).toContainText('Coming in this phase');
+  const comingNotice = page.getByText('Fresnel: coming in this phase.', { exact: true });
   await expect(comingNotice).toHaveCount(0);
   // The Library scrolled down to the table when it was placed.
   await camera.scrollIntoViewIfNeeded();
   const box = await camera.boundingBox();
   const target = await screen(page, 200, 200);
-  if (!box) throw new Error('no camera in the Library');
+  if (!box) throw new Error('no light in the Library');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(target.x, target.y, { steps: 8 });
@@ -367,4 +378,91 @@ test('the Library in Spanish: its labels, its filter finds “sofá”, and the 
   // Without the accent, and by the kit's English name, too.
   await biblioteca.getByRole('searchbox', { name: 'Filtrar' }).fill('sofa');
   await expect(biblioteca.locator('[data-library-icon]')).toHaveCount(1);
+});
+
+// 6.3 third review: Enter and Space during a press place nothing and leave the ghost following; a drag whose button is
+// found up, or a context menu, ends it; a tap places one icon in the middle of the view and a touch never drags.
+
+const ghost = (page: Page) => page.locator('[data-library-ghost]');
+
+test('Enter and Space during a drag place nothing and the ghost keeps following; Enter before a move is a plain click, one icon', async ({ page }) => {
+  await startRoom(page);
+  const { box, target } = await holdSofaOverPlan(page);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(150);
+  expect(await iconNames(page)).toEqual([]);
+  // Not frozen: it follows the pointer on.
+  const before = await ghost(page).boundingBox();
+  await page.mouse.move(target.x + 60, target.y + 40, { steps: 4 });
+  await expect.poll(async () => (await ghost(page).boundingBox())?.x).not.toBe(before?.x);
+  // Let go back over the Library: nothing placed, the ghost gone.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(ghost(page)).toHaveCount(0);
+  await page.waitForTimeout(150);
+  expect(await iconNames(page)).toEqual([]);
+
+  // Pressed, Enter before any move, let go: the press is a plain click, so exactly one sofa, never two.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  expect(await iconNames(page)).toEqual([]);
+  await page.mouse.up();
+  await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
+  await page.waitForTimeout(200);
+  expect(await iconNames(page)).toEqual(['set-art/sofa']);
+});
+
+test('a drag ends when its button is found up or a context menu opens, and places nothing', async ({ page }) => {
+  await startRoom(page);
+  // A move with no button down (the release was lost): over.
+  const { target } = await holdSofaOverPlan(page);
+  await libraryIcon(page, 'set-art/sofa').evaluate((el, at) => {
+    el.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', buttons: 0, clientX: at.x + 10, clientY: at.y + 10, bubbles: true }));
+  }, target);
+  await expect(ghost(page)).toHaveCount(0);
+  await page.mouse.up();
+  // A context menu during a drag: over too.
+  await holdSofaOverPlan(page);
+  await page.evaluate(() => {
+    window.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  await expect(ghost(page)).toHaveCount(0);
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  expect(await iconNames(page)).toEqual([]);
+});
+
+test.describe('by touch', () => {
+  test.use({ hasTouch: true });
+
+  test('a tap places one icon in the middle of the view; a touch drag never starts', async ({ page }) => {
+    await startRoom(page);
+    const sofa = libraryIcon(page, 'set-art/sofa');
+    await sofa.scrollIntoViewIfNeeded();
+    // A finger pressed and moved over the plan: no ghost, nothing placed.
+    const target = await screen(page, 0, 0);
+    await sofa.evaluate((el, at) => {
+      const box = el.getBoundingClientRect();
+      const init = { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, buttons: 1 };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...init, button: 0, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: at.x, clientY: at.y }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0, clientX: at.x, clientY: at.y }));
+    }, target);
+    await expect(ghost(page)).toHaveCount(0);
+    await page.waitForTimeout(150);
+    expect(await iconNames(page)).toEqual([]);
+    // A tap: one sofa, in the middle of the view (give or take the grid's pull), selected.
+    await sofa.tap();
+    await expect.poll(() => iconNames(page)).toEqual(['set-art/sofa']);
+    const [placed] = await icons(page);
+    const middle = { x: Number(await canvas(page).getAttribute('data-cx')) / 100, y: Number(await canvas(page).getAttribute('data-cy')) / 100 };
+    expect(Math.abs((placed?.centre.x ?? 99) - middle.x)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs((placed?.centre.y ?? 99) - middle.y)).toBeLessThanOrEqual(0.5);
+    await expect.poll(() => selection(page)).toEqual([placed?.id]);
+    await page.waitForTimeout(200);
+    expect(await iconNames(page)).toEqual(['set-art/sofa']);
+  });
 });

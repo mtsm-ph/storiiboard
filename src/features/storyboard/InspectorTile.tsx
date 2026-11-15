@@ -12,6 +12,7 @@ import { editDepartmentStatus } from './departmentEdit';
 import { approveSceneDepartment } from './sceneApprovalEdit';
 import { SceneApprovalTable } from './SceneApprovalTable';
 import { FrameGear } from '../gear/FrameGear';
+import { PlanLensLine } from '../birdseye/plan/PlanLensLine';
 import { gearListChange } from '../gear/gearEdits';
 import { RestOfCrew } from '../department/RestOfCrew';
 import { usePerspective } from '../department/perspective';
@@ -318,6 +319,7 @@ export function InspectorTile() {
           scene && boardsLinkedTo(records, project.projectId, 'scene', scene.id).length > 0 ? <LinkedBoards kind="scene" id={scene.id} label={false} /> : undefined
         }
         focus={focus}
+        planLens={shot ? <PlanLensLine records={records} projectId={project.projectId} shotId={shot.id} /> : undefined}
         gear={
           shot ? (
             <FrameGear

@@ -3,7 +3,7 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { isIcon, isWallFields, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isIcon, isWallFields, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import type { SbdRecord } from '../../../core/model/record';
@@ -33,15 +33,19 @@ import {
   newRoom,
   nudgePlan,
   pastePlan,
+  placeIcon,
   placeOpening,
   renameRoom,
+  turnCameras,
   reorderPlan,
   separateCopy,
   chooseRoom,
   type PlanView,
 } from './planActions';
-import { iconCentre, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey, wallAtPoint } from './planItems';
-import { DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { cameraLooks } from './cameraLooks';
+import { iconLabel } from './iconWords';
+import { iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey, wallAtPoint } from './planItems';
+import { CAMERA_TOOL, DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -365,6 +369,16 @@ function SetupCopyOffer({ view }: { view: PlanView }) {
   );
 }
 
+/**
+ * Which way a turn key turns a camera (6.4): 1 clockwise (] or period), -1 the other way ([ or comma), 0 for any other
+ * key. Matched by the key's place (`code`) and by what it types (`key`), so Shift (which types < or : there) still turns.
+ */
+export function turnFor(event: { code: string; key: string }): -1 | 0 | 1 {
+  if (event.code === 'BracketRight' || event.code === 'Period' || event.key === '.') return 1;
+  if (event.code === 'BracketLeft' || event.code === 'Comma' || event.key === ',') return -1;
+  return 0;
+}
+
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
 
 function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode; room: SbdRecord }) {
@@ -383,7 +397,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const [keepShown] = useState(shownItemsKeeper);
   const [build] = useState(planItemsBuilder);
   const shown = useMemo(() => keepShown(records, view.sceneId, view.setupId), [keepShown, records, view.sceneId, view.setupId]);
-  const built = useMemo(() => build(shown, unit, INK, locale), [build, shown, unit, locale]);
+  // Each camera's cone and labels (6.4), read live from its frames, its body and the project: a lens changed on the
+  // board changes them with no edit to the plan. A camera's item is made again only when its own look changed. Its lines
+  // are words, and t() reads the language set now, so a change of language reads them again: `locale` is a dependency
+  // the function doesn't name.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
+  const looks = useMemo(() => cameraLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
+  const built = useMemo(() => build(shown, unit, INK, locale, looks), [build, shown, unit, locale, looks]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -409,6 +429,11 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       shown.map(({ record, fields, level }) => {
         // An icon (6.3): its box, its middle and its layer, worked out from its group.
         if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+        // A camera (6.4): an icon's, with what its cone and labels show.
+        if (isCamera(fields)) {
+          const look = looks.get(record.id);
+          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), cone: look?.degrees ?? null, labels: look?.lines ?? [] };
+        }
         if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end };
@@ -417,7 +442,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         return { id: record.id, level, ...fields, ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
       }),
     );
-  }, [shown]);
+  }, [shown, looks]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -471,6 +496,16 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           onGeometry={(changes) => changePlanGeometry(changes, view)}
           onNudge={(ids, dx, dy) => nudgePlan(ids, dx, dy, view)}
           onCreate={(geometry, used, by) => {
+            if (used === CAMERA_TOOL) {
+              // A camera (6.4) where the click was, or in the middle of the view from the keyboard: the setup's own.
+              const why = iconRefusal(records, view, CAMERA_ICON);
+              if (why !== null) {
+                showInfo(why === 'noSetup' ? t('library.needsSetup', { what: iconLabel(CAMERA_ICON) }) : t('library.needsRoom'));
+                return false;
+              }
+              const centre = { x: toMetres(geometry.x + geometry.width / 2), y: toMetres(geometry.y + geometry.height / 2) };
+              return placeIcon(view, CAMERA_ICON, centre, madeIn);
+            }
             const placing = openingKindOf(used);
             if (!placing) return undefined;
             // From the keyboard, into the one wall selected; by the pointer, into the wall under it. Nowhere to go: the tool
@@ -502,6 +537,17 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));
           }}
           onKey={(event) => {
+            // [ and ] turn the selected cameras 5° (Shift: 1°) the other way and clockwise (6.4); with a modifier they
+            // stay the canvas's order keys. Where [ needs AltGr (Spanish, German), comma and period do the same: free on
+            // the plan (they step frames only in the Player), and on those layouts with no modifier at all.
+            const turn = turnFor(event);
+            if (turn !== 0 && !event.altKey && !event.metaKey && !event.ctrlKey) {
+              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && item.fields.kind === 'camera'));
+              if (cameras.length === 0) return false;
+              const step = event.shiftKey ? 1 : 5;
+              void turnCameras(cameras, turn * step);
+              return true;
+            }
             if (event.key.toLowerCase() !== 'f' || event.altKey || event.metaKey || event.ctrlKey) return false;
             const doors = selection.filter((id) => shown.some((item) => item.record.id === id && item.fields.kind === 'door'));
             if (doors.length === 0) return false;

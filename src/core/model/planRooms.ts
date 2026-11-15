@@ -16,6 +16,7 @@ import {
   trashPlanChanges,
   type PlanLevel,
 } from './plan';
+import { withoutFrameLinks } from './planCamera';
 import type { Props, SbdRecord } from './record';
 import { sceneSetups, type Setup } from './setup';
 import { isSceneNumber, sceneFields, sceneLabel, sceneNumberLabel } from './storyboard';
@@ -107,7 +108,8 @@ function copyItems(records: Records, fromPlanId: string, toPlanId: string, after
   const changes = items.map((r): Change => {
     const sortKey = keyBetween(previous, null);
     previous = sortKey;
-    const props: Props = { ...r.props, copied_from: r.id };
+    // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
+    const props: Props = { ...withoutFrameLinks(r.props), copied_from: r.id };
     const wall = typeof props.wall_id === 'string' ? ids.get(props.wall_id) : undefined;
     if (wall) props.wall_id = wall;
     return { kind: 'create', record: { id: ids.get(r.id) ?? crypto.randomUUID(), type: 'plan_item', parentId: toPlanId, sortKey, props } };

@@ -5,6 +5,18 @@ import { t } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import { renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
+import {
+  assignFrameChanges,
+  cameraBodyChanges,
+  cameraLensMmChanges,
+  cameraOnSideChanges,
+  linkFrameChanges,
+  pickCameraLensChanges,
+  showFrameChanges,
+  unlinkFrameChanges,
+  takeFrameLensChanges,
+} from '../../../core/model/planCamera';
+import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import {
@@ -24,6 +36,7 @@ import {
   runRoomId,
   shownWalls,
   trashPlanItemsChanges,
+  turnChanges,
   viewKey,
   wallPatchChanges,
   type IconPatch,
@@ -255,3 +268,21 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
 export async function changeIcons(ids: readonly string[], patch: IconPatch): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: iconPatchChanges(records, ids, patch) }));
 }
+
+/** [ and ] (6.4): the selected cameras turned, one op group. */
+export async function turnCameras(ids: readonly string[], by: number): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: turnChanges(records, ids, by) }));
+}
+
+// A camera's own edits (6.4), each one op group, worked out from the records as it lands.
+const cameraEdit = (build: (records: Records) => Change[]): Promise<boolean> => projectStore.getState().applyWith((records) => ({ changes: build(records) }));
+
+export const linkFrame = (cameraId: string, shotId: string) => cameraEdit((r) => linkFrameChanges(r, cameraId, shotId));
+export const unlinkFrame = (cameraId: string, shotId: string) => cameraEdit((r) => unlinkFrameChanges(r, cameraId, shotId));
+export const assignFrame = (shotId: string, cameraId: string | null) => cameraEdit((r) => assignFrameChanges(r, shotId, cameraId));
+export const showFrame = (cameraId: string, shotId: string) => cameraEdit((r) => showFrameChanges(r, cameraId, shotId));
+export const setCameraBody = (cameraId: string, bodyId: string | null) => cameraEdit((r) => cameraBodyChanges(r, cameraId, bodyId));
+export const setOnSide = (ids: readonly string[], on: boolean) => cameraEdit((r) => cameraOnSideChanges(r, ids, on));
+export const typeCameraLens = (cameraId: string, mm: number | null) => cameraEdit((r) => cameraLensMmChanges(r, cameraId, mm));
+export const pickCameraLens = (cameraId: string, lensId: string | null) => cameraEdit((r) => pickCameraLensChanges(r, cameraId, lensId));
+export const takeFrameLens = (cameraId: string) => cameraEdit((r) => takeFrameLensChanges(r, cameraId));

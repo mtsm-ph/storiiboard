@@ -94,6 +94,19 @@ export interface CanvasItem extends Geometry {
    * wall). With one in the selection, the handles show its box and no anchors.
    */
   moveOnly?: boolean;
+  /**
+   * What the item draws past its box (6.4: a camera's field of view and its labels), under the item, never picked and
+   * never part of its handles. `bounds` (world units, absolute, the item where it is now) is how far it reaches, so the
+   * canvas keeps drawing it while the item's own box is out of view; picking stays on the box. Left out (a board's
+   * items), nothing changes.
+   */
+  beyond?: Beyond;
+}
+
+/** An item's drawing past its box: drawn in the item's own box coordinates and turned with it, as `draw` is. */
+export interface Beyond {
+  bounds: Rect;
+  draw: (context: DrawContext & { rotation: number }) => ReactNode;
 }
 
 /** What makes an item a section: the name tab above its top left corner, and how the host draws it. */

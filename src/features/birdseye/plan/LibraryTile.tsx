@@ -2,14 +2,14 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboard
 import { createPortal } from 'react-dom';
 import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
-import { projectStore, useProject } from '../../../app/projectStore';
+import { useProject } from '../../../app/projectStore';
 import { t, type MessageKey } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
 import { iconHome } from '../../../core/model/planRooms';
-import { croppedIconUrl } from './iconDraw';
+import { IconSvg } from './IconSvg';
 import { TOOL_ICONS } from './iconSizes';
 import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
 import { placeIcon, type PlaceOutcome, type PlanView } from './planActions';
@@ -27,6 +27,11 @@ import { useLiveView } from './PlanTile';
 //
 // Touch never starts a drag (6.3 review): a finger scrolls the Library, and a tap places as Enter does; the mouse, a
 // pen and the keyboard place by drag or key. Each group is one tab stop, its icons reached with the arrows.
+//
+// While a press is under way (third review round), Enter and Space do nothing (a key would otherwise click the button
+// and place an icon under a frozen ghost), and only the click that follows a release without a drag places: a click
+// that comes while the button is still held is ignored. A drag whose button is found up, or a context menu, cancels it.
+// A placement writes only into the project the tile rendered with, the same render as the view it places in.
 
 /** How far the pointer moves before a press on an icon is a drag, screen pixels. */
 const DRAG_FROM = 4;
@@ -50,6 +55,7 @@ const snapOf = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }):
 /** Why an icon wasn't placed, in words, as a notice; nothing for a drop after the project was switched. */
 function sayRefusal(why: PlaceOutcome, label: string): void {
   if (why === 'coming') showInfo(t('library.comingNotice', { what: label }));
+  else if (why === 'shown') showInfo(t('library.drawnByCamera', { what: label }));
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
   else if (why === 'noScene') showInfo(t('library.pick'));
@@ -68,7 +74,6 @@ const TOOL_WORDS: Readonly<Record<string, MessageKey>> = {
 };
 
 interface Ghost {
-  url: string;
   /** Screen pixels, the window's. */
   x: number;
   y: number;
@@ -84,7 +89,7 @@ interface Drag {
   moving: boolean;
   /** Dropped or cancelled: the click that follows places nothing. */
   dropped: boolean;
-  /** The open project when the press began: a drop writes only into it. */
+  /** The project the tile rendered with when the press began: a drop writes only into it. */
   madeIn: Project | null;
   /** Takes the window's listeners off. */
   stop: () => void;
@@ -124,7 +129,7 @@ export function LibraryTile() {
       </p>
       {groups.length === 0 && <p className="text-[13px]">{t('library.none')}</p>}
       {groups.map(({ group, entries }) => (
-        <LibraryGroupView key={group} group={group} entries={entries} view={view} state={state} stateId={stateId} />
+        <LibraryGroupView key={group} group={group} entries={entries} view={view} madeIn={project} state={state} stateId={stateId} />
       ))}
     </div>
   );
@@ -141,7 +146,22 @@ function rovingTarget(key: string, index: number, count: number, columns: number
   return null;
 }
 
-function LibraryGroupView({ group, entries, view, state, stateId }: { group: LibraryEntry['icon']['group']; entries: readonly LibraryEntry[]; view: PlanView | null; state: LibraryState; stateId: string }) {
+function LibraryGroupView({
+  group,
+  entries,
+  view,
+  madeIn,
+  state,
+  stateId,
+}: {
+  group: LibraryEntry['icon']['group'];
+  entries: readonly LibraryEntry[];
+  view: PlanView | null;
+  /** The project the tile rendered with, as `view` was. */
+  madeIn: Project;
+  state: LibraryState;
+  stateId: string;
+}) {
   const headingId = useId();
   const noteId = useId();
   const list = useRef<HTMLUListElement>(null);
@@ -149,6 +169,8 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
   const [active, setActive] = useState(0);
   const current = Math.min(active, entries.length - 1);
   const coming = entries.filter((e) => e.use === 'coming').length;
+  // The field of view (6.4): never placed, since each camera draws its own; said under its group.
+  const shownOnly = entries.some((e) => e.use === 'shown');
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[data-library-icon]') ?? [])];
     const index = buttons.findIndex((b) => b === document.activeElement);
@@ -172,14 +194,20 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
           {coming === entries.length ? t('library.coming') : t('library.comingSome')}
         </p>
       )}
+      {coming === 0 && shownOnly && (
+        <p id={noteId} className="text-[11px] text-text-muted">
+          {t('library.shownNote')}
+        </p>
+      )}
       <ul ref={list} aria-labelledby={headingId} className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
         {entries.map((entry, i) => (
           <li key={entry.icon.id} className="flex">
             <IconButton
               entry={entry}
               view={view}
+              madeIn={madeIn}
               state={state}
-              describedBy={entry.use === 'coming' ? noteId : stateId}
+              describedBy={entry.use === 'coming' || entry.use === 'shown' ? noteId : stateId}
               tabStop={i === current}
               onKeyDown={onKeyDown}
               onFocus={() => {
@@ -195,7 +223,7 @@ function LibraryGroupView({ group, entries, view, state, stateId }: { group: Lib
 
 /** Whether an entry can be placed now, from what the tile knows: refused ones show greyed out and say why when pressed. */
 function refusalNow(entry: LibraryEntry, view: PlanView | null, state: LibraryState): IconRefusal | null {
-  if (entry.use !== 'place') return entry.use === 'coming' ? 'coming' : null;
+  if (entry.use !== 'place') return entry.use === 'coming' || entry.use === 'shown' ? entry.use : null;
   if (state.kind === 'noView' || !view) return 'noScene';
   if (state.kind === 'noRoom') return 'noRoom';
   if (state.kind === 'noSetup' && iconHome(entry.icon.id) === 'setup') return 'noSetup';
@@ -205,6 +233,7 @@ function refusalNow(entry: LibraryEntry, view: PlanView | null, state: LibrarySt
 function IconButton({
   entry,
   view,
+  madeIn,
   state,
   describedBy,
   tabStop,
@@ -213,6 +242,8 @@ function IconButton({
 }: {
   entry: LibraryEntry;
   view: PlanView | null;
+  /** The project the tile rendered with, the same render as `view`: a placement writes only into it. */
+  madeIn: Project;
   state: LibraryState;
   describedBy: string;
   tabStop: boolean;
@@ -276,7 +307,6 @@ function IconButton({
       sayRefusal(refused ?? 'noScene', entry.label);
       return;
     }
-    const madeIn = projectStore.getState().project;
     const at = dropView(view, planCanvas());
     const spot = dropAt(entry.icon.id, { x: at.width / 2, y: at.height / 2 }, at, planScale(unit).grid, 'magnet');
     if (spot) void place(spot.centre, madeIn);
@@ -289,13 +319,10 @@ function IconButton({
     const inside = box !== undefined && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
     if (canvas && box && inside && view) {
       const spot = dropAt(entry.icon.id, { x: event.clientX - box.left, y: event.clientY - box.top }, dropView(view, canvas), planScale(unit).grid, snapOf(event));
-      if (spot) {
-        // Drawn at its size on screen, its lines at the kit's weight as the plan draws them.
-        const size = { width: Math.max(1, Math.round(spot.screen.width)), height: Math.max(1, Math.round(spot.screen.height)), strokeScale: 1 };
-        return { url: croppedIconUrl(entry.icon, size), x: box.left + spot.screen.x, y: box.top + spot.screen.y, width: spot.screen.width, height: spot.screen.height, over: true, centre: spot.centre };
-      }
+      // Drawn at its size on screen, its lines at the kit's weight as the plan draws them.
+      if (spot) return { x: box.left + spot.screen.x, y: box.top + spot.screen.y, width: spot.screen.width, height: spot.screen.height, over: true, centre: spot.centre };
     }
-    return { url: croppedIconUrl(entry.icon, { width: 32, height: 32, strokeScale: 1 }), x: event.clientX - 16, y: event.clientY - 16, width: 32, height: 32, over: false, centre: null };
+    return { x: event.clientX - 16, y: event.clientY - 16, width: 32, height: 32, over: false, centre: null };
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -309,7 +336,7 @@ function IconButton({
       start: { x: event.clientX, y: event.clientY },
       moving: false,
       dropped: false,
-      madeIn: projectStore.getState().project,
+      madeIn,
       stop: () => {
         for (const [type, fn, capture] of listeners) window.removeEventListener(type, fn, capture);
         listeners.length = 0;
@@ -322,10 +349,36 @@ function IconButton({
     on(
       'keydown',
       (e) => {
-        if (!(e instanceof KeyboardEvent) || e.key !== 'Escape' || now.dropped) return;
+        if (!(e instanceof KeyboardEvent)) return;
+        // Enter and Space would click the button under the press: swallowed while it lasts, so they place nothing.
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.key !== 'Escape' || now.dropped) return;
         e.preventDefault();
         e.stopPropagation();
         cancel(now);
+      },
+      true,
+    );
+    // Space clicks a button when it is let go.
+    on(
+      'keyup',
+      (e) => {
+        if (!(e instanceof KeyboardEvent) || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
+    // A context menu (a right click during the drag, a long press) ends it.
+    on(
+      'contextmenu',
+      () => {
+        cancel(now);
+        settle(now);
       },
       true,
     );
@@ -360,12 +413,18 @@ function IconButton({
   const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const now = drag.current;
     if (now?.pointer !== event.pointerId || now.dropped) return;
+    // The button is up though no release came (it was let go outside the window, or the release was lost): over.
+    if ((event.buttons & 1) === 0) {
+      cancel(now);
+      settle(now);
+      return;
+    }
     if (!now.moving && Math.hypot(event.clientX - now.start.x, event.clientY - now.start.y) < DRAG_FROM) return;
     now.moving = true;
     // An icon that can't be placed has no ghost: let go, it says why.
     if (muted) return;
     const at = follow(event);
-    setGhost({ url: at.url, x: at.x, y: at.y, width: at.width, height: at.height, over: at.over });
+    setGhost({ x: at.x, y: at.y, width: at.width, height: at.height, over: at.over });
   };
   const onPointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const now = drag.current;
@@ -420,32 +479,30 @@ function IconButton({
           if (now?.pointer === event.pointerId) cancel(now);
         }}
         onClick={() => {
-          const now = drag.current;
-          if (now) {
-            end(now);
-            if (now.dropped) return;
-          }
+          // A press under way (held, or just dropped or cancelled) places nothing: only the click that follows a release
+          // without a drag, which has ended the press, or one from the keyboard or a tap, does.
+          if (drag.current) return;
           activate();
         }}
       >
         {/* The kit's SVG as it is, never recoloured: on paper in both themes, so its ink always reads (decision 13). */}
         <span className="flex h-9 w-9 items-center justify-center bg-paper-fixed">
-          <img src={croppedIconUrl(entry.icon)} alt="" width={28} height={28} draggable={false} className={muted ? 'opacity-40' : undefined} style={{ objectFit: 'contain' }} />
+          <IconSvg icon={entry.icon} width={28} height={28} className={muted ? 'opacity-40' : undefined} />
         </span>
         {/* A long word (Spanish "Estacionamiento") breaks rather than spilling out of its button. */}
         <span className={muted ? 'max-w-full text-text-muted [overflow-wrap:anywhere]' : 'max-w-full [overflow-wrap:anywhere]'}>{entry.label}</span>
       </button>
       {ghost &&
         createPortal(
-          <img
-            src={ghost.url}
-            alt=""
+          <div
             aria-hidden="true"
             data-library-ghost={entry.icon.id}
             data-library-ghost-over={ghost.over ? 'plan' : 'none'}
-            draggable={false}
             style={{ position: 'fixed', left: ghost.x, top: ghost.y, width: ghost.width, height: ghost.height, pointerEvents: 'none', opacity: ghost.over ? 0.8 : 0.5, zIndex: 1000 }}
-          />,
+          >
+            {/* Stretched to the item's box on the plan, as the plan draws it; its own 32 px off the plan. */}
+            <IconSvg icon={entry.icon} width={Math.max(1, ghost.width)} height={Math.max(1, ghost.height)} stretch={ghost.over} />
+          </div>,
           document.body,
         )}
     </>

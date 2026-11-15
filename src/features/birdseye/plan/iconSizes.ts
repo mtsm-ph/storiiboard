@@ -14,6 +14,16 @@ export interface IconSize {
 }
 
 export const ICON_SIZES: Readonly<Record<string, IconSize>> = {
+  // Cameras (6.4): placed as `camera` items, each the icon it was placed as.
+  'camera/camera': { width: 0.4, depth: 0.4 },
+  'camera/sticks': { width: 1.0, depth: 1.0 },
+  'camera/dolly-track': { width: 1.0, depth: 3.0 },
+  'camera/slider': { width: 1.2, depth: 0.3 },
+  'camera/jib-crane': { width: 1.5, depth: 4.0 },
+  'camera/gimbal': { width: 0.5, depth: 0.5 },
+  'camera/handheld': { width: 0.6, depth: 0.6 },
+  'camera/steadicam': { width: 0.7, depth: 0.7 },
+  'camera/drone': { width: 0.6, depth: 0.6 },
   'set-art/table': { width: 1.5, depth: 0.8 },
   'set-art/chair': { width: 0.5, depth: 0.5 },
   'set-art/sofa': { width: 2.0, depth: 0.9 },
@@ -53,16 +63,20 @@ export const TOOL_ICONS: Readonly<Record<string, string>> = {
 };
 
 /** Whole groups and single icons a later milestone of this phase makes live. */
-const COMING_GROUPS: ReadonlySet<string> = new Set(['camera', 'lighting', 'cast']);
+const COMING_GROUPS: ReadonlySet<string> = new Set(['lighting', 'cast']);
 const COMING_ICONS: ReadonlySet<string> = new Set(['grip/flag', 'grip/floppy', 'grip/diffusion-4x4', 'grip/bounce', 'grip/overhead-8x8', 'grip/neg-fill', 'production/north', 'production/measure']);
+
+/** The field of view's picture (6.4): every camera draws its own cone, so it is never placed as an item. */
+export const FIELD_OF_VIEW_ICON = 'camera/field-of-view';
 
 /** Icons that resize freely, their proportions never kept: a zone's outline and a note. */
 export const FREE_RESIZE: ReadonlySet<string> = new Set(['production/zone', 'production/note']);
 
-export type IconUse = 'place' | 'tool' | 'coming';
+export type IconUse = 'place' | 'tool' | 'coming' | 'shown';
 
-/** What the Library does with an icon: place it, pick its tool, or say it comes later in this phase. */
+/** What the Library does with an icon: place it, pick its tool, say it comes later in this phase, or that each camera draws it. */
 export function iconUse(id: string): IconUse {
+  if (id === FIELD_OF_VIEW_ICON) return 'shown';
   if (id in TOOL_ICONS) return 'tool';
   if (COMING_ICONS.has(id) || COMING_GROUPS.has(id.split('/')[0] ?? '')) return 'coming';
   return 'place';

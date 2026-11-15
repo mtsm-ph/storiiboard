@@ -19,6 +19,10 @@ import { SCALE_BAR_PIXELS, scaleBarLength } from '../../../ui/canvas/scale';
 import {
   drawWallsChanges,
   flipDoorsChanges,
+  iconPatchChanges,
+  placeIconChanges,
+  unreadableAfter,
+  wallPatchRefused,
   openingDistances,
   openingPatchChanges,
   openingSpot,
@@ -1003,3 +1007,89 @@ describe('rooms, walls and doors across plans (6.2b second review)', () => {
     expect(wallAtPoint(shown, { x: 45, y: 300 })).toBe(false);
   });
 });
+
+// 6.3 third review (M5): no edit may leave a wall, door, window, icon or camera unreadable (past PLAN_REACH, 10 km from
+// the plan's origin, or longer or wider than PLAN_MAX_SIZE, 1 km), where the reader keeps it unseen and it would vanish.
+// One check (unreadableAfter) on every write path: typed fields, nudges, drags, pastes, runs of walls and placements.
+describe('the plan’s reach and size (6.3 third review)', () => {
+  const far = toCanvas(20000);
+  const placeAt = async (sceneId: string, icon: string, centre: { x: number; y: number }) => {
+    const id = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), { sceneId, setupId: null }, icon, centre, id));
+    return id;
+  };
+
+  it('refuses a typed wall length past 1 km or a start past 10 km, and the Selection tile is told', async () => {
+    const { walls } = await room();
+    const [first = ''] = walls;
+    for (const patch of [{ length: 1500 }, { startX: 20000 }, { startY: -20000 }, { thickness: 1200 }]) {
+      expect(wallPatchChanges(records(), [first], patch), JSON.stringify(patch)).toEqual([]);
+      expect(wallPatchRefused(records(), [first], patch), JSON.stringify(patch)).toBe(true);
+    }
+    // Up to the limits is taken: 1 km long, its start 9 km out.
+    expect(wallPatchRefused(records(), [first], { length: 1000 })).toBe(false);
+    expect(wallPatchChanges(records(), [first], { startX: 9000 })).toHaveLength(1);
+    expect(wallPatchRefused(records(), [first], { name: 'North' })).toBe(false);
+  });
+
+  it('refuses a nudge, a drag or a resize that would take a wall or an icon past the reach', async () => {
+    const { sceneId, walls } = await room();
+    const [first = ''] = walls;
+    const sofa = await placeAt(sceneId, 'set-art/sofa', { x: 1, y: 1 });
+    for (const id of [first, sofa]) {
+      expect(planNudgeChanges(records(), [id], far, 0), id).toEqual([]);
+      const g = planCanvasItems(records(), sceneId, null, 'metres', '#16150F').find((i) => i.id === id);
+      if (!g) throw new Error('no item');
+      expect(planGeometryChanges(records(), [{ id, x: far, y: g.y, width: g.width, height: g.height, rotation: g.rotation }]), id).toEqual([]);
+      expect(planGeometryChanges(records(), [{ id, x: g.x, y: g.y, width: toCanvas(1500), height: g.height, rotation: g.rotation }]), id).toEqual([]);
+      // A nudge nearby is still taken.
+      expect(planNudgeChanges(records(), [id], 10, 0).length, id).toBeGreaterThan(0);
+    }
+    // Two picked together: one past the reach stops both, one step or none.
+    const table = await placeAt(sceneId, 'set-art/table', { x: 9999.5, y: 0 });
+    expect(planNudgeChanges(records(), [sofa, table], toCanvas(2), 0)).toEqual([]);
+  });
+
+  it('refuses a paste at a pointer past the reach, and a run of walls drawn past it or longer than 1 km', async () => {
+    const { sceneId, roomId, walls } = await room();
+    const sofa = await placeAt(sceneId, 'set-art/sofa', { x: 1, y: 1 });
+    const clip = planClipOf(records(), [...walls, sofa]);
+    expect(planPasteChanges(records(), roomId, clip, { x: far, y: 0 })).toEqual({ ids: [], changes: [] });
+    expect(planPasteInView(records(), { sceneId, setupId: null }, clip, { x: far, y: 0 })).toEqual({ ids: [], changes: [], leftOut: 0 });
+    expect(planPasteChanges(records(), roomId, clip, { x: 500, y: 500 }).changes.length).toBeGreaterThan(0);
+    expect(drawWallsChanges(records(), sceneId, [{ x: 0, y: 0 }, { x: toCanvas(1500), y: 0 }])).toEqual({ ids: [], changes: [] });
+    expect(drawWallsChanges(records(), sceneId, [{ x: far, y: 0 }, { x: far + 100, y: 0 }])).toEqual({ ids: [], changes: [] });
+    expect(drawWallsChanges(records(), sceneId, [{ x: 0, y: 500 }, { x: 300, y: 500 }]).changes).toHaveLength(1);
+  });
+
+  it('refuses an icon or a camera placed or typed past the reach, and a door widened past the size', async () => {
+    const { sceneId, setups } = await (async () => {
+      const made = await room();
+      const setupId = crypto.randomUUID();
+      await store.getState().apply([{ kind: 'create', record: { id: setupId, type: 'setup', parentId: made.sceneId, sortKey: 'a', props: { name: '' } } }]);
+      return { ...made, setups: [setupId] };
+    })();
+    const view = { sceneId, setupId: setups[0] ?? null };
+    // Placed in a view centred past the reach: nothing, not even the setup's plan.
+    expect(placeIconChanges(records(), view, 'grip/c-stand', { x: 20000, y: 0 })).toEqual([]);
+    expect(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: -20000 })).toEqual([]);
+    const camera = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 1, y: 1 }, camera));
+    expect(iconPatchChanges(records(), [camera], { centreX: 20000 })).toEqual([]);
+    expect(iconPatchChanges(records(), [camera], { width: 1500 })).toEqual([]);
+    expect(planNudgeChanges(records(), [camera], far, 0, view)).toEqual([]);
+    // The check itself: a door's width past 1 km is unreadable; a wall's update read with what is already stored.
+    const { door } = await withDoorIn();
+    expect(unreadableAfter(records(), [{ kind: 'update', id: door, set: { width_m: 1500 } }])).toBe(true);
+    expect(unreadableAfter(records(), [{ kind: 'update', id: door, set: { width_m: 1 } }])).toBe(false);
+    expect(unreadableAfter(records(), [{ kind: 'create', record: { type: 'plan_item', parentId: null, sortKey: 'a', props: { kind: 'wall', x: 0, y: 0, width: 1001, height: 0.1 } } }])).toBe(true);
+    // Records of other kinds are never its business.
+    expect(unreadableAfter(records(), [{ kind: 'update', id: sceneId, set: { x: 1e9 } }])).toBe(false);
+  });
+});
+
+/** A door in a fresh room's first wall, for the reach checks. */
+async function withDoorIn(): Promise<{ door: string }> {
+  const { door } = await withDoor();
+  return { door };
+}

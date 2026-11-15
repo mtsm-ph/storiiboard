@@ -205,7 +205,8 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       const shown = shownFields(record.props);
       const kind = shown?.kind;
       // A library icon (6.3) by what it is: "Sofa in Diner".
-      const item = shown?.kind === 'icon' ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      // A camera (6.4) by the icon it was placed as: "Dolly track".
+      const item = shown?.kind === 'icon' || shown?.kind === 'camera' ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }

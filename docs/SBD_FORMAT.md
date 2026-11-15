@@ -421,17 +421,42 @@ unreadable value reads as not set, as every prop does.
     `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
     `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
+  - Reach and size (6.3 review): a wall's, icon's or camera's `x` and `y` are read only within 10 000 m (10 km) of the
+    plan's origin either way, and its `width` and `height` (a wall's length and thickness) only up to 1 000 m (1 km); a
+    door's or window's `along_m` only up to 10 000 m and its `width_m` up to 1 000 m (src/core/model/plan.ts,
+    `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308) the item isn't read and is kept unseen, as one with
+    no size is, so the canvas never works in endless units. The app never writes past them (third review round): a
+    typed field, a nudge, a drag or resize, a paste, a run of walls or a placement that would leave a wall, door,
+    window, icon or camera past them is refused whole and writes nothing (one check, `unreadableAfter` in
+    src/features/birdseye/plan/planItems.ts); a typed field says it isn't a length.
   - `points` (6.2 and 6.3): a path's points (never a wall's), each `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3):
     metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
     `width_m` (6.2b): a door or window in its wall, its distance along it and its width, metres; `hinge` and `swing`
     (6.2b): a door's (above).
-  - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),
-    `shot_ids` (6.4: the frames shot from it), `shown_shot_id` (6.4: the frame whose field of view it draws),
-    `lens_mm` and `lens_id` (6.4: only for a camera with no frame yet), `on_side` (6.4: true when turned for vertical
-    shooting, which turns the de-squeezed area: its width and height swap). Its field of view is worked out, never
-    stored: the mode's area de-squeezed along its width (width × squeeze, by height), then turned when `on_side`, the
-    project's frame shape fitted inside it, 2 × atan(width / (2 × focal length)). The squeeze comes before the turn
-    because a lens squeezes along the sensor's recording width, which turns with the camera.
+  - A `camera` (6.4) is a camera placed on a setup's own plan (never the room's or the blocking's). `icon`: the camera
+    icon it was placed as (`camera/camera`, `camera/sticks`, `camera/dolly-track`, `camera/slider`,
+    `camera/jib-crane`, `camera/gimbal`, `camera/handheld`, `camera/steadicam`, `camera/drone`; missing reads as
+    `camera/camera`; `camera/field-of-view` is the cone's picture, never placed). Its box as an icon's, at the library's
+    size for its icon (a camera 0.4 × 0.4 m, a dolly track 1.0 × 3.0 m); `rotation` is where it points, 0 up the plan
+    (−y), clockwise. `height_m` and `name` as an icon's. `body_id`: the `gear_item` body it is; absent, or naming no live
+    body of the project, reads as the project's default body, live. `shot_ids`: the frames shot from it, ids of `shot`
+    records; only live frames of its own setup (as `setup_id` reads) count, and a frame counts only for the first live
+    camera of the setup, in plan order, that lists it; any other id is kept and read as not linked. Linking a frame to
+    a camera takes it out of every other camera of the setup that lists it, in the same step; the list is absent when
+    empty. `shown_shot_id`: the linked frame whose lens the cone draws; absent or not linked, the first linked frame in
+    board order; taken off when that frame is unlinked. `lens_mm` (above 0) and `lens_id` (a `gear_item` lens): a lens
+    typed or picked on the camera, only meaningful while it has no linked frame; kept once a frame is linked, so the
+    lens check can compare them. `on_side`: `true` when turned for vertical shooting (absent otherwise), which turns the
+    de-squeezed area: its width and height swap. `gear_id` is not written (6.4 uses `body_id`). Its field of view is
+    worked out, never stored: the shown frame's `lens_mm` and its picked lens's `squeeze` (else the camera's own typed
+    lens), the body's mode area de-squeezed along its width (width × squeeze, by height), then turned when `on_side`,
+    the project's `aspect_ratio` fitted inside it, 2 × atan(width / (2 × focal length)). The squeeze comes before the
+    turn because a lens squeezes along the sensor's recording width, which turns with the camera. A shown frame's
+    `height` (3.18's choice) is shown in place of the camera's `height_m`, read live, never copied. Nothing about a
+    camera changes a frame's props, so approvals and issued call sheets are untouched. A copy of a camera ("Start from
+    another setup", "Make a separate copy", paste, duplicate) never carries `shot_ids` or `shown_shot_id`. The lens
+    check (src/core/checks/planLens.ts): a live camera with a typed `lens_mm` and a linked frame whose `lens_mm`
+    differs; "Use the frame's lens" takes `lens_mm` and `lens_id` off the camera in one step.
   - A light's `beam_deg` (6.5: degrees) and `watts` (6.5).
   - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
     of the plan.
