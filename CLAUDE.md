@@ -156,6 +156,11 @@
       planIconBoxes.ts writes iconBoxes.ts; never rasters); cameras (planCamera.ts, cameraLinks.ts: a frame is on
       one camera only), the Frames tile, the lens check (src/core/checks/planLens.ts). A deferred write (a wall run,
       a Library drop) carries the project it began in and writes nothing into another.
+    - Built in 6.5 to 6.11: lights, flags and diffusion (planLight.ts), the legend (planLegend.ts), north and the
+      sun (sunPath.ts, planSun.ts: the location's own zone only), marks and moves (planBlocking.ts: a mark's `order`
+      numbers it, never its drawing order), layers (planLayers.ts: this computer's settings, never the project),
+      underlay and measure, plans on paper (src/features/export/planPages.ts, planRender.tsx: to a round scale, every
+      layer printed), and the 300-item performance test (e2e/perf.spec.ts, SB_PERF=1).
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile
@@ -407,7 +412,7 @@
 - Start each phase in plan mode and wait for Kevin's approval.
 - One PR per milestone, small enough to review in 15 minutes.
 - Every PR adds or updates tests for the flow it touches.
-- Before saying done: `npm run lint && npm test && npm run e2e`. On Windows, run the end-to-end tests with
+- Before saying done: `npm run lint && npm test && npm run e2e` (local end-to-end runs use 8 workers: playwright.config.ts). On Windows, run the end-to-end tests with
   `--project=chromium` (WebView2's engine): Playwright's Windows WebKit lacks OffscreenCanvas, which Safari has, so
   WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.

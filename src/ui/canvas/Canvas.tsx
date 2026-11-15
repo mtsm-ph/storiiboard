@@ -396,6 +396,24 @@ export function Canvas({
     if (node) nodes.current.set(id, node);
     else nodes.current.delete(id);
   }, []);
+  // A plan's items are made for a settled zoom a slice a frame (ItemNodes' catch-up), in renders of their list alone: each
+  // fits the screen-sized nodes again, so one just made is at scale 1 and one still waiting stays scaled for the live zoom.
+  // How many still wait is on the frame for the end-to-end tests (`data-stale`).
+  const waiting = useRef({ sections: 0, plain: 0 });
+  const listDrawn = useCallback((list: 'sections' | 'plain', stale: number, liveZoom: number) => {
+    waiting.current[list] = stale;
+    const now = stage.current;
+    if (now && fitScreenSized(now, liveZoom)) now.batchDraw();
+    const total = String(waiting.current.sections + waiting.current.plain);
+    const element = frame.current;
+    if (element && element.dataset.stale !== total) element.dataset.stale = total;
+  }, []);
+  const sectionsDrawn = useCallback((stale: number, liveZoom: number) => {
+    listDrawn('sections', stale, liveZoom);
+  }, [listDrawn]);
+  const plainDrawn = useCallback((stale: number, liveZoom: number) => {
+    listDrawn('plain', stale, liveZoom);
+  }, [listDrawn]);
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
   const pickedSet = new Set(selection);
@@ -1475,7 +1493,7 @@ export function Canvas({
               }}
             />
           )}
-          <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} hidden={mounted.hidden} register={register} />
+          <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} hidden={mounted.hidden} centre={{ x: view.cx, y: view.cy }} register={register} onDrawn={sectionsDrawn} />
           {resolved.map((r) => (
             <LinkShape
               key={r.link.id}
@@ -1487,7 +1505,7 @@ export function Canvas({
               zoom={pickedSet.has(r.link.id) ? view.zoom : 1}
             />
           ))}
-          <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} hidden={mounted.hidden} register={register} />
+          <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} hidden={mounted.hidden} centre={{ x: view.cx, y: view.cy }} register={register} onDrawn={plainDrawn} />
           {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
           {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
           {path && path.points.length > 1 && (

@@ -410,6 +410,36 @@ async function zoomTimes(page: Page, run: () => Promise<void>, profile = ''): Pr
   return { zoom, settle: { gaps: settle } };
 }
 
+/**
+ * How long after a zoom's last wheel step every item of this canvas is drawn for the new zoom (6.11: a plan's items are
+ * made again a slice a frame after the settle; the canvas says how many still wait in `data-stale`). Armed before the
+ * zoom, an observer notes when the count last came down to 0; read after it, waiting up to 5 s for it to get there.
+ */
+async function armCaughtUp(page: Page, canvas: string): Promise<void> {
+  await page.evaluate((selector) => {
+    const w = window as unknown as { __caughtUpAt?: number | undefined; __caughtUpWatch?: MutationObserver };
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) throw new Error('no canvas');
+    w.__caughtUpWatch?.disconnect();
+    w.__caughtUpAt = undefined;
+    w.__caughtUpWatch = new MutationObserver(() => {
+      w.__caughtUpAt = element.dataset.stale === '0' ? performance.now() : undefined;
+    });
+    w.__caughtUpWatch.observe(element, { attributes: true, attributeFilter: ['data-stale'] });
+  }, canvas);
+}
+
+async function caughtUp(page: Page, canvas: string): Promise<number> {
+  return page.evaluate(async (selector) => {
+    const w = window as unknown as { __lastWheel?: number; __caughtUpAt?: number | undefined; __caughtUpWatch?: MutationObserver };
+    const from = w.__lastWheel ?? performance.now();
+    const waiting = () => document.querySelector<HTMLElement>(selector)?.dataset.stale !== '0';
+    while ((waiting() || w.__caughtUpAt === undefined) && performance.now() < from + 5000) await new Promise((resolve) => requestAnimationFrame(resolve));
+    w.__caughtUpWatch?.disconnect();
+    return (w.__caughtUpAt ?? Number.POSITIVE_INFINITY) - from;
+  }, canvas);
+}
+
 /** Frames missed: each gap over one and a half frames counts the frames it spanned beyond the first. */
 const dropped = (gaps: number[]) => gaps.reduce((sum, gap) => (gap > FRAME_MS * 1.5 ? sum + Math.round(gap / FRAME_MS) - 1 : sum), 0);
 const summary = ({ gaps }: Gaps) =>
@@ -1195,12 +1225,19 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   await expect.poll(async () => Math.abs((await view()).zoom - fit) < 1e-6).toBe(true);
   const turn = Math.log(4 / fit) / 0.004;
   // Each leg's settle timed on its own (6.11 review, M1): the frame where every item in view is drawn for the new zoom.
+  // And how long after the last wheel step every item is drawn for the new zoom (6.11: a slice a frame after the settle).
+  const planCanvas = '[data-plan-tile] [data-canvas]';
+  await armCaughtUp(page, planCanvas);
   const { zoom: zoomIn, settle: settleIn } = await zoomTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: -arg / total, ctrl: true }), turn), 'plan-zoom-in');
+  const caughtUpIn = await caughtUp(page, planCanvas);
   const atFour = (await view()).zoom;
   // How many count as in view there (a label's or a beam's reach is worked out for the plan's least zoom), and how many hidden.
   results['items at 400% (shown, mounted hidden)'] = `${String(await canvas.getAttribute('data-shown'))}, ${String(await canvas.getAttribute('data-hidden'))}`;
   await page.waitForTimeout(300);
+  await armCaughtUp(page, planCanvas);
   const { zoom: zoomOut, settle: settleOut } = await zoomTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: arg / total, ctrl: true }), turn), 'plan-zoom-out');
+  const caughtUpOut = await caughtUp(page, planCanvas);
+  results['every item at the new zoom (caught up after N ms from the last wheel step), at 400%; at fit'] = `${ms(caughtUpIn)}; ${ms(caughtUpOut)}`;
   gestures.set('zoom, fit to 400% and back (3 s)', { gaps: [...zoomIn.gaps, ...zoomOut.gaps] });
   gestures.set('settle at 400% (300 ms after the last wheel step)', settleIn);
   gestures.set('settle at fit (300 ms after the last wheel step)', settleOut);
@@ -1404,6 +1441,9 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
     expect(gaps.length, name).toBeGreaterThan(0);
     expect(Math.max(...gaps), name).toBeLessThan(100);
   }
+  // And every item is at the new zoom within a second of the last wheel step (6.11: the catch-up, a slice a frame).
+  expect(caughtUpIn, 'caught up at 400%').toBeLessThan(1000);
+  expect(caughtUpOut, 'caught up at fit').toBeLessThan(1000);
   // Open counts the underlay's picture drawn, as the board's counts its pictures (6.11 review, L8).
   expect(pictureIn).toBeLessThan(3000);
 });

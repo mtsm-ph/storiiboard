@@ -138,6 +138,51 @@ describe('drawings sized on screen, after the 6.11 review', () => {
     ref(null);
   });
 
+  it('keeps a label scaled for the live zoom after the settle until its item is made again, then puts it at scale 1 (6.11)', () => {
+    const stage = {} as Konva.Stage;
+    const waiting = shown(stage, { x: 10, y: 30 });
+    const ready = shown(stage, { x: 10, y: 30 });
+    const old = [screenSizedRef(0.5, { x: 10, y: 30 }, { x: 10, y: 20 }), screenSizedRef(0.5, { x: 10, y: 30 }, { x: 10, y: 20 })];
+    old[0]?.(waiting.node);
+    old[1]?.(ready.node);
+    // Zoomed in to 2 and settled there: both still drawn for 0.5, both a quarter of their drawn size.
+    fitScreenSized(stage, 2);
+    // The catch-up makes the second again for 2 (React lets the old ref go and gives the new one the same node, its scale
+    // untouched); the canvas fits after that render.
+    old[1]?.(null);
+    const made = screenSizedRef(2, { x: 10, y: 22.5 }, { x: 10, y: 20 });
+    made(ready.node);
+    ready.state.px = 10;
+    ready.state.py = 22.5;
+    expect(fitScreenSized(stage, 2)).toBe(true);
+    expect(ready.state).toMatchObject({ sx: 1, sy: 1, px: 10, py: 22.5 });
+    // The one still waiting stays scaled for the live zoom, at every fit, until its turn.
+    expect(waiting.state).toMatchObject({ sx: 0.25, sy: 0.25, px: 10, py: 22.5 });
+    expect(fitScreenSized(stage, 2)).toBe(false);
+    expect(waiting.state).toMatchObject({ sx: 0.25 });
+    old[0]?.(null);
+    made(null);
+  });
+
+  it('keeps a sun path’s word hidden after the settle while its item waits, below the zoom its arc goes wordless (6.11)', () => {
+    const stage = {} as Konva.Stage;
+    const word = shown(stage, { x: 4, y: 4 });
+    const ref = screenSizedRef(2, { x: 4, y: 4 }, { x: 0, y: 0 }, 1.5);
+    ref(word.node);
+    // Settled at 1, below 1.5: hidden though the view is at rest, since the word is still the one drawn for 2.
+    fitScreenSized(stage, 1);
+    expect(word.isVisible()).toBe(false);
+    expect(fitScreenSized(stage, 1)).toBe(false);
+    expect(word.isVisible()).toBe(false);
+    // Made again for 1 (the arc wordless there drops it; one kept is shown, as at rest).
+    ref(null);
+    const again = screenSizedRef(1, { x: 4, y: 4 }, { x: 0, y: 0 }, 1.5);
+    again(word.node);
+    fitScreenSized(stage, 1);
+    expect(word.isVisible()).toBe(true);
+    again(null);
+  });
+
   it('holds what is in the items the handles hold at scale 1 until they let go (L2)', () => {
     const stage = {} as Konva.Stage;
     const item = shown(stage, { x: 0, y: 0 });
