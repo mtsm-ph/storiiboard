@@ -5,6 +5,7 @@ import type { CanvasColours } from '../../../ui/canvas/types';
 import type { PlanIcon } from '../../../ui/icons/plan/planIcons';
 import { ensureFont, useFonts } from '../../moodboards/fonts';
 import { ICON_BOXES, ICON_SHAPES, type IconBox, type IconPart, type IconPath, type IconText } from './iconBoxes';
+import { iconClass } from './iconSizes';
 
 // A library icon drawn on a plan (6.3) exactly as the kit's SVG is, never recoloured, in light and dark (decision 13),
 // as vectors (third review round): its shapes are a committed table (iconBoxes.ts, written from the SVGs by
@@ -42,6 +43,22 @@ export function iconFit(box: IconBox, width: number, height: number): { x: numbe
   const x = box.width > 0 ? -box.x * sx : width / 2 - box.x * sx;
   const y = box.height > 0 ? -box.y * sy : height / 2 - box.y * sy;
   return { x, y, scaleX: sx, scaleY: sy };
+}
+
+/** The margin a symbol keeps inside its outline (6.17), each side, as a share of the outline's shorter side. */
+export const SYMBOL_MARGIN = 0.08;
+
+/**
+ * How a symbol's grid maps into an item's box (6.17): the box of its ink scaled the same both ways, as large as fits
+ * inside the box less SYMBOL_MARGIN each side, centred, never stretched. A long thin box shows a small symbol.
+ */
+export function symbolFit(box: IconBox, width: number, height: number): { x: number; y: number; scaleX: number; scaleY: number } {
+  const margin = Math.min(width, height) * SYMBOL_MARGIN;
+  const room = { width: Math.max(0, width - 2 * margin), height: Math.max(0, height - 2 * margin) };
+  const scales = [box.width > 0 ? room.width / box.width : Infinity, box.height > 0 ? room.height / box.height : Infinity];
+  const finite = scales.filter(Number.isFinite);
+  const scale = finite.length > 0 ? Math.min(...finite) : 1;
+  return { x: width / 2 - (box.x + box.width / 2) * scale, y: height / 2 - (box.y + box.height / 2) * scale, scaleX: scale, scaleY: scale };
 }
 
 function pathNode(part: IconPath, key: string): ReactElement {
@@ -166,11 +183,11 @@ export function iconNodesWith(id: string, texts: IconTexts | undefined): readonl
   });
 }
 
-/** The icon's shapes alone, in the item's box. */
-function IconGroup({ icon, width, height, texts }: { icon: PlanIcon; width: number; height: number; texts?: IconTexts | undefined }) {
+/** The icon's shapes alone, in the item's box: stretched to it, or for a symbol (6.17) at its own proportions in its middle. */
+function IconGroup({ icon, width, height, texts, symbol = false }: { icon: PlanIcon; width: number; height: number; texts?: IconTexts | undefined; symbol?: boolean }) {
   const nodes = iconNodesWith(icon.id, texts);
   if (!nodes) return null;
-  const fit = iconFit(iconContentBox(icon), width, height);
+  const fit = (symbol ? symbolFit : iconFit)(iconContentBox(icon), width, height);
   return (
     <Group x={fit.x} y={fit.y} scaleX={fit.scaleX} scaleY={fit.scaleY} listening={false}>
       {nodes}
@@ -180,13 +197,19 @@ function IconGroup({ icon, width, height, texts }: { icon: PlanIcon; width: numb
 
 /**
  * A known icon at its box's size, as vectors, with its name beneath; one the table doesn't have, the "?" outline.
- * `texts` replaces the icon's own text (IconTexts).
+ * `texts` replaces the icon's own text (IconTexts). `footprint` (an icon item, 6.17: its box is the thing's real width
+ * and depth) draws a `symbol` icon (iconSizes.ts ICON_CLASSES) as an ink outline at the box with the symbol at its own
+ * proportions in the middle; a `top-view` one, and every icon drawn without it (a camera, a light, a mark), stretched to
+ * the box as before. Either turns with the item: it is drawn in the item's own box, which the canvas turns.
  */
-export function IconShape({ icon, width, height, zoom, name, colours, texts }: ShapeProps & { icon: PlanIcon; texts?: IconTexts | undefined }) {
+export function IconShape({ icon, width, height, zoom, name, colours, texts, footprint = false }: ShapeProps & { icon: PlanIcon; texts?: IconTexts | undefined; footprint?: boolean }) {
   if (!iconShapesOf(icon.id)) return <UnknownIconShape width={width} height={height} zoom={zoom} name={name} colours={colours} />;
+  const symbol = footprint && iconClass(icon.id) === 'symbol';
   return (
     <>
-      <IconGroup icon={icon} width={width} height={height} texts={texts} />
+      <IconGroup icon={icon} width={width} height={height} texts={texts} symbol={symbol} />
+      {/* The true footprint, in the kit's 1.5 px ink line (printed at the kit's line weight), under nothing it hides. */}
+      {symbol && <Rect width={width} height={height} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />}
       <NameBelow name={name} width={width} height={height} zoom={zoom} colours={colours} />
     </>
   );

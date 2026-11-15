@@ -6,8 +6,9 @@ import { sheetFrames } from '../../core/model/callsheet';
 import { fieldOfView, oneDecimal } from '../../core/model/fieldOfView';
 import { FEET_TO_METRES, roundLengthLabel, formatLength, type PlanUnit } from '../../core/model/length';
 import type { Paper } from '../../core/model/paper';
-import { PLAN_LAYERS, sceneRoomId, shownItems, type ShownItem } from '../../core/model/plan';
+import { PLAN_LAYERS, sceneRoomId, shownItems, type PlanLayer, type ShownItem } from '../../core/model/plan';
 import { cameraBody, cameraSetupFrames, cameraTitle, frameCamera, setupCameras } from '../../core/model/planCamera';
+import { LAYER_ORDER, layerOfItem } from '../../core/model/planLayers';
 import { planLegend, type LegendGroup } from '../../core/model/planLegend';
 import type { SbdRecord } from '../../core/model/record';
 import { scenesOfFrames } from '../../core/model/schedule';
@@ -200,8 +201,11 @@ const RUN_ON = 8;
 const sans = (text: string): Part => ({ text, face: 'sans' });
 const mono = (text: string): Part => ({ text, face: 'mono' });
 
-/** The setup's legend (planLegend), as the Selection tile's reads (LegendView.tsx), line by line. */
-export function legendEntries(records: Records, sceneId: string, setupId: string | null, unit: PlanUnit): LegendEntry[] {
+/**
+ * The setup's legend (planLegend), as the Selection tile's reads (LegendView.tsx), line by line. A department's print
+ * (6.17) lists only what it draws: the room's lines, then that department's alone (the watts' total with lighting's).
+ */
+export function legendEntries(records: Records, sceneId: string, setupId: string | null, unit: PlanUnit, department?: PlanLayer): LegendEntry[] {
   const legend = planLegend(records, sceneId, setupId, iconLabel, (fields) => frameItemLabel(fields, unit));
   const out: LegendEntry[] = [];
   const rooms = printedRoomLines(legend.room, unit);
@@ -211,6 +215,7 @@ export function legendEntries(records: Records, sceneId: string, setupId: string
     for (const line of rooms) out.push({ kind: 'line', parts: roomLineParts(line).map((part) => (part.mono ? mono(part.text) : sans(part.text))) });
   }
   const groups = PLAN_LAYERS.flatMap((layer): LegendGroup[] => {
+    if (department !== undefined && layer !== department) return [];
     const group = legend.groups.find((g) => g.layer === layer);
     if (group) return [group];
     return layer === 'cast' && legend.cast.length > 0 ? [{ layer, lines: [] }] : [];
@@ -227,7 +232,7 @@ export function legendEntries(records: Records, sceneId: string, setupId: string
       out.push({ kind: 'line', parts });
     }
   }
-  if (legend.watts.lights > 0) out.push({ kind: 'total', parts: [{ text: `${t('legend.total')} `, face: 'sansBold' }, { text: totalWatts(legend.watts), face: 'monoBold' }] });
+  if (legend.watts.lights > 0 && (department === undefined || department === 'lighting')) out.push({ kind: 'total', parts: [{ text: `${t('legend.total')} `, face: 'sansBold' }, { text: totalWatts(legend.watts), face: 'monoBold' }] });
   if (out.length === 0) out.push({ kind: 'note', parts: [sans(t('legend.empty'))] });
   return out;
 }
@@ -437,6 +442,8 @@ export interface PlanView {
   setupId: string | null;
   /** The day a shoot-day packet prints for: its header names it. */
   dayId?: string | null;
+  /** A department's print (6.17): the room, and that department's items alone. Absent: everything, as before. */
+  department?: PlanLayer;
 }
 
 export interface PlanHeader {
@@ -528,7 +535,7 @@ export function scaleBar(unit: PlanUnit, ppu: number, boxWidth: number): { lengt
 
 /** A view's items as the page draws them: as the screen's, with every layer, nothing selected, the underlay dimmed or left out. */
 export function printItems(records: Records, view: PlanView, unit: PlanUnit, zones: ReadonlyMap<string, string | null>, underlay: boolean): readonly CanvasItem[] {
-  const all = shownItems(records, view.sceneId, view.setupId);
+  const all = departmentItems(records, shownItems(records, view.sceneId, view.setupId), view.department);
   const shown: readonly ShownItem[] = underlay ? all : all.filter((item) => item.fields.kind !== 'underlay');
   const none: readonly string[] = [];
   const planView = { sceneId: view.sceneId, setupId: view.setupId };
@@ -571,7 +578,8 @@ export function planHeader(records: Records, projectId: string, view: PlanView, 
     project: title,
     company: company === '' ? null : company,
     slate: `${sceneLabel(fields.number)} · ${headingOf(fields)}`,
-    setup: setup ? setupLabel(setup) : null,
+    // A department's print names it after the setup (6.17): "Setup 2 · Lighting"; a scene with no setup, by itself.
+    setup: view.department === undefined ? (setup ? setupLabel(setup) : null) : setup ? `${setupLabel(setup)} · ${groupName(view.department)}` : groupName(view.department),
     days: viewDays(records, projectId, view),
     printed: t('export.plan.printed', { date: formatDate(now, { year: 'numeric', month: 'short', day: 'numeric' }) }),
     page: '',
@@ -620,7 +628,9 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
     y: drawn.y + drawn.height / 2 - drawing.height / ppu / 2,
   };
   const header = planHeader(records, projectId, view, options.title, options.now);
-  const entries = [...legendEntries(records, view.sceneId, view.setupId, options.unit), ...frameEntries(records, projectId, view.setupId)];
+  // The frames and their lenses are the camera department's: on its print and on everything's, never on another's (6.17).
+  const frames = view.department === undefined || view.department === 'camera' ? frameEntries(records, projectId, view.setupId) : [];
+  const entries = [...legendEntries(records, view.sceneId, view.setupId, options.unit, view.department), ...frames];
   const rows = entries.flatMap((entry) => wrapEntry(entry, LEGEND_WIDTH - 2 * LEGEND_PAD, options.measure));
   const first = flowRows(rows, columnsIn(legendBox));
   const pages: PlanPage[] = [
@@ -732,4 +742,45 @@ export function dayPlanViews(records: Records, projectId: string, dayId: string)
       .filter((setup) => inDay.has(setup.record.id))
       .map((setup): PlanView => ({ sceneId: scene.id, setupId: setup.record.id, dayId })),
   );
+}
+
+// Per-department prints (6.17, Kevin, Nov 14).
+
+/** What the Departments choice prints: everything (as before), one department's print, or each department's. */
+export type PlanDepartments = 'everything' | 'each' | PlanLayer;
+
+/** The departments a plan can print for, in the Layers tile's order (call-sheet order): every layer the model has. */
+export const PRINT_DEPARTMENTS: readonly PlanLayer[] = LAYER_ORDER;
+
+/**
+ * The room a department's print always shows, as context: its walls, doors and windows, its underlay, north and the
+ * sun path. Everything else prints only on its own department's page.
+ */
+const ROOM_CONTEXT: ReadonlySet<string> = new Set(['wall', 'door', 'window', 'underlay', 'north', 'sun']);
+
+const isRoomContext = (item: ShownItem): boolean => ROOM_CONTEXT.has(item.fields.kind);
+
+/**
+ * A view's items for a department's print: the room's, and the items whose layer is the department's, by the very
+ * function the Layers tile goes by (layerOfItem); the others left out entirely, never dimmed. No department: all of them.
+ */
+export function departmentItems(records: Records, shown: readonly ShownItem[], department: PlanLayer | undefined): readonly ShownItem[] {
+  if (department === undefined) return shown;
+  return shown.filter((item) => isRoomContext(item) || layerOfItem(records, item.record) === department);
+}
+
+/** Whether a department has anything of its own in a view (the room's items aside): a department with nothing is skipped. */
+export function departmentHasItems(records: Records, view: PlanView, department: PlanLayer): boolean {
+  return shownItems(records, view.sceneId, view.setupId).some((item) => !isRoomContext(item) && layerOfItem(records, item.record) === department);
+}
+
+/**
+ * The views a Departments choice prints, from the views everything would print: the same views for everything; for one
+ * department, each view it has something in; for each department, every view's departments with something in it, view
+ * by view in the layers' order, and no "everything" page.
+ */
+export function departmentViews(records: Records, views: readonly PlanView[], departments: PlanDepartments): PlanView[] {
+  if (departments === 'everything') return [...views];
+  const wanted = departments === 'each' ? PRINT_DEPARTMENTS : [departments];
+  return views.flatMap((view) => wanted.filter((department) => departmentHasItems(records, view, department)).map((department): PlanView => ({ ...view, department })));
 }

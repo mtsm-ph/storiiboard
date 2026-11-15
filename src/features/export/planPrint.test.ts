@@ -24,6 +24,7 @@ import { writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } fro
 import {
   chooseScale,
   dayPlanViews,
+  departmentViews,
   flowRows,
   fontMeasure,
   LANDSCAPE,
@@ -1136,5 +1137,136 @@ describe('the legend’s flow, measured against a fresh column (6.10 review, rou
     const { placed, rest } = flowRows(rows, columns);
     expect(rest).toEqual([]);
     expect(placed.map((column) => column.map((r) => r.pieces[0]?.text))).toEqual([['tiny'], ['FRAMES', 'A · FX3', '1A · 35 mm']]);
+  });
+});
+
+describe('a symbol icon on paper (6.17)', () => {
+  /** Every stroked path in a PDF page's content stream, its points in PDF points: pdfFilledPaths's reading, for `S`. */
+  async function pdfStrokedPaths(bytes: Uint8Array): Promise<{ x: number; y: number }[][]> {
+    const pdf = await PDFDocument.load(bytes);
+    const out: { x: number; y: number }[][] = [];
+    for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+      if (!(object instanceof PDFRawStream) || object.dict.get(PDFName.of('Type')) || object.dict.get(PDFName.of('Subtype'))) continue;
+      const text = new TextDecoder('latin1').decode(decodePDFRawStream(object).decode());
+      if (!text.includes(' cm\n')) continue;
+      const stack: Matrix[] = [IDENTITY];
+      let numbers: number[] = [];
+      let path: { x: number; y: number }[] = [];
+      for (const token of text.split(/\s+/)) {
+        const m = stack[stack.length - 1] ?? IDENTITY;
+        if (/^-?[\d.]+$/.test(token)) numbers.push(Number(token));
+        else {
+          if (token === 'q') stack.push(m);
+          else if (token === 'Q') stack.pop();
+          else if (token === 'cm') stack[stack.length - 1] = mul(numbers.slice(-6) as unknown as Matrix, m);
+          else if (token === 'm' || token === 'l') {
+            const [x = 0, y = 0] = numbers.slice(-2);
+            path.push({ x: m[0] * x + m[2] * y + m[4], y: m[1] * x + m[3] * y + m[5] });
+          } else if (token === 'S' || token === 'B') {
+            out.push(path);
+            path = [];
+          } else if (token === 'f' || token === 'n') path = [];
+          numbers = [];
+        }
+      }
+    }
+    return out;
+  }
+  const heightOf = (points: readonly { y: number }[]) => Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y));
+  const mmOf = (points: readonly { x: number; y: number }[]) => [Math.round((widthOf(points) / PT_PER_MM) * 10) / 10, Math.round((heightOf(points) / PT_PER_MM) * 10) / 10];
+
+  it('prints a 6 × 2.5 m Parking’s outline 120 × 50 mm at 1:50, the P’s square inside it square, in the list and the PDF', async () => {
+    const { sceneId, setupId } = await furnished();
+    const parking = crypto.randomUUID();
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'production/parking', { x: 0, y: 1.5 }, parking));
+    await apply([{ kind: 'update', id: parking, set: { x: -3, y: 0.25, width: 6, height: 2.5 } }]);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    if (!page?.plan) throw new Error('no plan');
+    expect(page.plan.scale.label).toBe('1:50');
+    const list = printed(page);
+    const outlines = pagePaths(list.ops).filter((p) => p.fill === null && p.points.length === 4).map((p) => mmOf(p.points));
+    expect(outlines).toContainEqual([120, 50]);
+    // The kit's own square round the P, at its natural 1:1, as tall as the outline less its margins (2.5 m less 2 × 8 %).
+    expect(outlines).toContainEqual([42, 42]);
+    const inPdf = (await pdfStrokedPaths((await write([list])).bytes)).filter((p) => p.length === 4).map(mmOf);
+    expect(inPdf).toContainEqual([120, 50]);
+    expect(inPdf).toContainEqual([42, 42]);
+  });
+});
+
+describe('per-department prints (6.17)', () => {
+  const rowsOf = (page: PlanPage | undefined) => (page?.legend.rows ?? []).map((row) => row.pieces.map((piece) => piece.text).join(''));
+  /** The fill alphas of a written PDF's first page (its ExtGStates' `ca`). */
+  async function alphasOf(bytes: Uint8Array): Promise<number[]> {
+    const doc = await PDFDocument.load(bytes);
+    const states = doc.getPages()[0]?.node.Resources()?.lookup(PDFName.of('ExtGState'), PDFDict);
+    const out: number[] = [];
+    for (const [, state] of states?.entries() ?? []) out.push(Number(String(doc.context.lookup(state, PDFDict).get(PDFName.of('ca')))));
+    return out;
+  }
+
+  it('prints one department: the room and its own items, its legend alone, the department named after the setup', async () => {
+    const { sceneId, setupId, camera, light, flag, wallId } = await furnished();
+    const views = departmentViews(records(), [{ sceneId, setupId }], 'lighting');
+    expect(views).toEqual([{ sceneId, setupId, department: 'lighting' }]);
+    const [page, more] = planPages(records(), project.projectId, views, options());
+    expect(more).toBeUndefined();
+    const ids = page?.plan?.items.map((item) => item.id) ?? [];
+    // The room as context (its walls), the light; the camera and the flag left out entirely, not dimmed.
+    expect(ids).toContain(wallId);
+    expect(ids).toContain(light);
+    expect(ids).not.toContain(camera);
+    expect(ids).not.toContain(flag);
+    expect(page?.plan?.items.some((item) => item.dim === true)).toBe(false);
+    expect(page?.header.setup).toBe('Setup 1 · Lighting');
+    // Only what is drawn: lighting's line and its total; no camera, no grip, no frames.
+    expect(rowsOf(page)).toEqual(['LIGHTING', 'Fresnel · 2.40 m · 650 W', 'Total 650 W']);
+    // Everything (the default) is the very view list it always was.
+    expect(departmentViews(records(), [{ sceneId, setupId }], 'everything')).toEqual([{ sceneId, setupId }]);
+  });
+
+  it('prints each department with something in the setup, in the layers’ order, and nothing for one with nothing', async () => {
+    const { sceneId, setupId, otherId } = await furnished();
+    // The art department has only the room's walls here: nothing of its own, so no page. Setup 2 has nothing at all.
+    const views = departmentViews(records(), [{ sceneId, setupId }, { sceneId, setupId: otherId }], 'each');
+    expect(views.map((v) => [v.setupId, v.department])).toEqual([
+      [setupId, 'camera'],
+      [setupId, 'lighting'],
+      [setupId, 'grip'],
+    ]);
+    const pages = planPages(records(), project.projectId, views, options());
+    expect(pages.map((pg) => pg.header.setup)).toEqual(['Setup 1 · Camera', 'Setup 1 · Lighting', 'Setup 1 · Grip']);
+    expect(pages.map((pg) => pg.header.page)).toEqual(['Page 1 of 3', 'Page 2 of 3', 'Page 3 of 3']);
+    // The camera's page lists its frames and lenses; the grip's its flag alone.
+    expect(rowsOf(pages[0])).toEqual(['CAMERA', 'A · Camera', 'FRAMES', 'A · Sony FX3, Full frame 16:9', '1A · MS · 35 mm · 53.9°', '1B · CU']);
+    expect(rowsOf(pages[2])).toEqual(['GRIP', 'Flag · 2×3']);
+    // A department asked for alone with nothing in a setup prints nothing there.
+    expect(departmentViews(records(), [{ sceneId, setupId: otherId }], 'lighting')).toEqual([]);
+    // Art's print is the room and its set pieces: once a sofa is placed, it has a page with the walls and the sofa.
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'set-art/sofa', { x: 0, y: 2 }, 'sofa'));
+    const [art] = departmentViews(records(), [{ sceneId, setupId }], 'set-art');
+    expect(art?.department).toBe('set-art');
+    const [artPage] = planPages(records(), project.projectId, art ? [art] : [], options());
+    const kinds = (artPage?.plan?.items ?? []).map((item) => item.id);
+    expect(kinds).toContain('sofa');
+    expect(artPage?.header.setup).toBe('Setup 1 · Set and art');
+  });
+
+  it('writes the lighting print’s PDF with the light’s beam and without the camera’s cone', async () => {
+    const { sceneId, setupId } = await furnished();
+    const [everything] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const [lighting] = planPages(records(), project.projectId, departmentViews(records(), [{ sceneId, setupId }], 'lighting'), options());
+    // Everything's page has both: the cone, ink at 8%, and the beam, the lighting colour at 18%.
+    const both = await alphasOf((await write([printed(everything as PlanPage)])).bytes);
+    expect(both).toContain(0.08);
+    expect(both).toContain(0.18);
+    const pdf = await write([printed(lighting as PlanPage)]);
+    const alphas = await alphasOf(pdf.bytes);
+    expect(alphas).toContain(0.18);
+    expect(alphas).not.toContain(0.08);
+    const [text] = await pdfText(pdf.bytes);
+    expect(text).toContain('Setup 1 · Lighting');
+    expect(text).toContain('Fresnel');
+    expect(text).not.toContain('Sony FX3');
   });
 });

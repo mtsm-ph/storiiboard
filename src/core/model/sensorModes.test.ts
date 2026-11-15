@@ -32,15 +32,15 @@ describe('the sensor modes table', () => {
       ['RED KOMODO 6K', '6K 17:9', 27.03, 14.26, false],
       ['Blackmagic Pocket Cinema Camera 6K', '6K (Super 35)', 23.1, 12.99, false],
       ['Blackmagic Pocket Cinema Camera 4K', '4K (Four Thirds)', 18.96, 10, false],
-      ['Sony FX3', 'Full frame 16:9', 35.6, 20.0, true],
+      ['Sony FX3', 'Full frame 16:9', 35.6, 20.0, false],
       [null, EQUIVALENT_MODE, 36, 24, false],
     ]);
     expect(SENSOR_MODES).toHaveLength(11);
   });
 
   it('cites the maker’s own page for every camera but the two that say otherwise', () => {
-    for (const entry of SENSOR_MODES.filter((e) => !e.unchecked && !e.focalEquivalent)) expect(entry.source, entry.id).toMatch(/^https:\/\/(www\.arri\.com|docs\.red\.com|www\.blackmagicdesign\.com)\//);
-    expect(SENSOR_MODES.filter((e) => e.unchecked).map((e) => e.camera)).toEqual(['Sony FX3']);
+    for (const entry of SENSOR_MODES.filter((e) => !e.unchecked && !e.focalEquivalent)) expect(entry.source, entry.id).toMatch(/^https:\/\/(www\.arri\.com|docs\.red\.com|www\.blackmagicdesign\.com|www\.sony\.com\.au)\//);
+    expect(SENSOR_MODES.filter((e) => e.unchecked).map((e) => e.camera)).toEqual([]);
   });
 
   it('ends with the phones entry: 36 × 24, focal lengths as full-frame equivalents, in the app’s language', () => {

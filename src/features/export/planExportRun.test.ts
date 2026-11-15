@@ -204,3 +204,93 @@ describe('a plan export’s result (6.10 review, round two)', () => {
     expect(ops.flatMap((op) => (op.op === 'text' ? op.lines.map((l) => l.text) : []))).toContain(header);
   });
 });
+
+describe('per-department prints and the watermark, from the run (6.17)', () => {
+  /** A run whose target keeps what it was given, by name. */
+  async function kept(format: ExportFormat, extra: Partial<ExportContext>) {
+    const files = new Map<string, Uint8Array>();
+    const target: ExportTarget = { label: 'Plans', write: (name, bytes) => (files.set(name, bytes), Promise.resolve()) };
+    const result = await format.run({ records: records(), projectId: project.projectId, title: 'Bey County', scope: { kind: 'project' }, file: {} as ProjectFile, target, progress: () => undefined, signal: new AbortController().signal, paper: 'a4', ...extra });
+    return { result, files };
+  }
+  /** Each page's text in a written PDF, as a reader finds it (as e2e/export.spec.ts reads the storyboard's). */
+  async function textOf(bytes: Uint8Array | undefined): Promise<string> {
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const pdf = await getDocument({ data: (bytes ?? new Uint8Array()).slice(), disableFontFace: true, useSystemFonts: false }).promise;
+    const out: string[] = [];
+    for (let n = 1; n <= pdf.numPages; n += 1) out.push((await (await pdf.getPage(n)).getTextContent()).items.map((item) => ('str' in item ? item.str : '')).join(' '));
+    await pdf.destroy();
+    return out.join(' ');
+  }
+
+  /** SC 04's Setup 1 with a fresnel, a camera and a flag on it. */
+  async function furnishedScene() {
+    const ids = await scene(8, 6);
+    const view = { sceneId: ids.sceneId, setupId: ids.setupId };
+    await apply(placeIconChanges(records(), view, 'lighting/fresnel', { x: 2, y: -1 }, 'light'));
+    await apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 1 }, 'cam'));
+    await apply(placeIconChanges(records(), view, 'grip/flag', { x: 1, y: 0 }, 'flag'));
+    return ids;
+  }
+
+  it('names a department’s print for it, in the app’s language, and prints its pages alone', async () => {
+    const { sceneId, setupId } = await furnishedScene();
+    const plan = { kind: 'setup', sceneId, setupId } as const;
+    const lighting = await kept(planSetupPdf, { plan, planDepartments: 'lighting' });
+    expect([...lighting.files.keys()]).toEqual(['Bey County SC004 Setup 1 Lighting plan.pdf']);
+    expect(lighting.result.what).toBe('1 page');
+    const each = await kept(planScenePdf, { plan: { kind: 'scene', sceneId }, planDepartments: 'each' });
+    expect([...each.files.keys()]).toEqual(['Bey County SC004 departments plans.pdf']);
+    expect(each.result.what).toBe('3 pages');
+    setLocale('es');
+    const es = await kept(planSetupPdf, { plan, planDepartments: 'lighting' });
+    expect([...es.files.keys()]).toEqual(['planta de Bey County SC004 Emplazamiento 1 Iluminación.pdf']);
+    setLocale('en');
+    // Everything, the default, is named and printed as it always was.
+    expect([...(await kept(planSetupPdf, { plan })).files.keys()]).toEqual(['Bey County SC004 Setup 1 plan.pdf']);
+  });
+
+  it('says so when the department chosen, or every department, has nothing on the plans', async () => {
+    const { sceneId, setupId } = await scene(8, 6);
+    const plan = { kind: 'setup', sceneId, setupId } as const;
+    await expect(kept(planSetupPdf, { plan, planDepartments: 'lighting' })).rejects.toThrow('Nothing to print here: Lighting has nothing on these plans.');
+    await expect(kept(planSetupPdf, { plan, planDepartments: 'each' })).rejects.toThrow('Nothing to print here: no department has anything on these plans.');
+  });
+
+  it('writes a PNG a department into a folder for each department, each named for it', async () => {
+    const { sceneId, setupId } = await furnishedScene();
+    const fakeCanvas = { width: 0, height: 0, getContext: () => ({ fillStyle: '', fillRect: () => undefined, setTransform: () => undefined }) };
+    vi.stubGlobal('document', { createElement: () => fakeCanvas });
+    const plan = { kind: 'setup', sceneId, setupId } as const;
+    expect(planSetupPng.outputFor?.('each')).toBe('folder');
+    expect(planSetupPng.outputFor?.('lighting')).toBe('file');
+    expect(planSetupPng.planName?.('Bey County', records(), plan, 'each')).toBe('Bey County SC004 Setup 1 departments plan');
+    const { result, files } = await kept(planSetupPng, { plan, planDepartments: 'each' });
+    expect([...files.keys()]).toEqual(['Bey County SC004 Setup 1 Camera plan.png', 'Bey County SC004 Setup 1 Lighting plan.png', 'Bey County SC004 Setup 1 Grip plan.png']);
+    expect(result.what).toBe('3 plan pictures');
+  });
+
+  it('carries the project’s watermark on a plan PDF and PNG when it is on for them, and none when it is off', async () => {
+    const { sceneId, setupId } = await furnishedScene();
+    const plan = { kind: 'setup', sceneId, setupId } as const;
+    const stamp = (applies: string[]) => apply([{ kind: 'update', id: project.projectId, set: { watermark: { text: 'DRAFT', position: 'bottom-right', opacity: 0.35, applies_to: applies } } }]);
+    // The PNG's painting, recorded: the watermark is drawn over the page, by the PNG frames' own code.
+    const drawn: string[] = [];
+    const ctx = { fillStyle: '', fillRect: () => undefined, setTransform: () => undefined, save: () => undefined, restore: () => undefined, measureText: (text: string) => ({ width: text.length * 10 }), strokeText: () => undefined, fillText: (text: string) => drawn.push(text) };
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) });
+    await stamp(['pdf', 'png']);
+    const pdf = await kept(planSetupPdf, { plan });
+    // The deck writer's watermark, as the storyboard's PDF carries it: its words on the page.
+    expect(await textOf([...pdf.files.values()][0])).toContain('DRAFT');
+    await kept(planSetupPng, { plan });
+    expect(drawn).toEqual(['DRAFT']);
+    // A department's print carries it too.
+    expect(await textOf([...(await kept(planSetupPdf, { plan, planDepartments: 'lighting' })).files.values()][0])).toContain('DRAFT');
+    // Off for both: as before.
+    drawn.length = 0;
+    await stamp(['review']);
+    expect(await textOf([...(await kept(planSetupPdf, { plan })).files.values()][0])).not.toContain('DRAFT');
+    await kept(planSetupPng, { plan });
+    expect(drawn).toEqual([]);
+  });
+});

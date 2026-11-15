@@ -532,3 +532,82 @@ test('a setup with frames and nothing drawn prints its frames, in the scene’s 
   const [dayText] = await pdfTexts(day);
   for (const words of ['Day 1 · Mon, Nov 16', 'Setup 1', 'No room drawn', '1A', '1B']) expect(dayText).toContain(words);
 });
+
+test('prints the lighting department alone: chosen in the Export window, the file named for it, a page for the setup, and the scene’s pages per department (6.17)', async ({ page }) => {
+  await furnishedSetup(page);
+  // A light beside the camera: the L tool from the keyboard, in the middle of the view.
+  await canvas(page).focus();
+  await page.keyboard.press('l');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await planData(page)).filter((item) => item.kind === 'light').length).toBe(1);
+
+  await fromPlan(page, 'plan-setup-pdf');
+  const departments = dialog(page).getByRole('combobox', { name: 'Departments' });
+  await expect(departments).toHaveValue('everything');
+  await departments.selectOption({ label: 'Lighting' });
+  await expect(dialog(page)).toContainText('1 plan to print: Lighting and the room, nothing selected.');
+  const pdf = await save(page);
+  expect(pdf.suggestedFilename()).toBe('Bey County SC001 Setup 1 Lighting plan.pdf');
+  const bytes = await bytesOf(pdf);
+  expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  const [text] = await pdfTexts(bytes);
+  expect(text).toContain('Setup 1 · Lighting');
+  expect(text).toContain('LIGHTING');
+  // The camera's department and its frames are left out of lighting's print.
+  expect(text).not.toContain('FRAMES');
+
+  // Each department of the scene: the camera's page and the lighting's, the art's left out (the room's walls alone).
+  await fromPlan(page, 'plan-scene-pdf');
+  await expect(departments).toHaveValue('everything');
+  await departments.selectOption({ label: 'Each department' });
+  await expect(dialog(page)).toContainText('2 plans to print: a page for each department with something on it, nothing selected.');
+  const packet = await save(page);
+  expect(packet.suggestedFilename()).toBe('Bey County SC001 departments plans.pdf');
+  const texts = await pdfTexts(await bytesOf(packet));
+  expect(texts).toHaveLength(2);
+  expect(texts[0]).toContain('Setup 1 · Camera');
+  expect(texts[1]).toContain('Setup 1 · Lighting');
+});
+
+test('a plan’s PDF and PNG carry the project’s watermark when Watermark Settings say so (6.17)', async ({ page }) => {
+  await furnishedSetup(page);
+  /** Dark pixels in the PNG's bottom right corner, where the stamp goes. */
+  const cornerInk = (picture: Uint8Array) =>
+    page.evaluate(async (base64) => {
+      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type: 'image/png' }));
+      const sheet = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = sheet.getContext('2d');
+      if (!ctx) return -1;
+      ctx.drawImage(bitmap, 0, 0);
+      const x = Math.round(bitmap.width * 0.7);
+      const y = Math.round(bitmap.height * 0.9);
+      const data = ctx.getImageData(x, y, bitmap.width - x, bitmap.height - y).data;
+      let dark = 0;
+      for (let i = 0; i < data.length; i += 4) if ((data[i] ?? 255) < 128) dark += 1;
+      return dark;
+    }, Buffer.from(picture).toString('base64'));
+  const exportPng = async () => {
+    await fromPlan(page, 'plan-setup-png');
+    return bytesOf(await save(page));
+  };
+  // Before any watermark: the PDF has no stamp, and the PNG's corner has only the page's own lines.
+  await fromPlan(page, 'plan-setup-pdf');
+  await expect(dialog(page)).toContainText('No watermark.');
+  const [plain] = await pdfTexts(await bytesOf(await save(page)));
+  expect(plain).not.toContain('DRAFT STAMP');
+  const before = await cornerInk(await exportPng());
+
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Watermark Settings…', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Watermark Settings' });
+  await settings.getByLabel('Text').fill('DRAFT STAMP');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await expect(settings).toHaveCount(0);
+
+  await fromPlan(page, 'plan-setup-pdf');
+  await expect(dialog(page)).toContainText('Watermark “DRAFT STAMP”, bottom right.');
+  const [text] = await pdfTexts(await bytesOf(await save(page)));
+  expect(text).toContain('DRAFT STAMP');
+  const after = await cornerInk(await exportPng());
+  expect(after - before).toBeGreaterThan(100);
+});

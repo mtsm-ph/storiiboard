@@ -402,6 +402,48 @@ test('puts a door and a window in a wall, slides and types the door’s place, f
   await expect.poll(() => planData(page)).toEqual(kept);
 });
 
+test('a selected wall moves by its body: a press on its centre line, or half a pixel either side, and a drag of a metre move it a metre, at 100% and zoomed out (6.19c)', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  const zoom = async () => Number(await canvas(page).getAttribute('data-zoom'));
+  expect(await zoom()).toBe(1);
+  // Picked, a press on its centre line (or half a pixel off it) and a drag a metre down: both ends a metre down, as long.
+  const dragsByItsBody = async () => {
+    for (const off of [0, -0.5, 0.5]) {
+      const [was] = await walls(page);
+      if (!was) throw new Error('no wall');
+      const middle = { x: ((was.start.x + was.end.x) / 2) * 100, y: ((was.start.y + was.end.y) / 2) * 100 };
+      await clickAt(page, middle.x, middle.y);
+      await expect.poll(() => selection(page)).toEqual([was.id]);
+      const at = await screen(page, middle.x, middle.y);
+      const metre = 100 * (await zoom());
+      await page.mouse.move(at.x, at.y + off);
+      await page.mouse.down();
+      await page.mouse.move(at.x, at.y + off + metre, { steps: 8 });
+      await page.mouse.up();
+      await expect.poll(async () => ((await walls(page))[0]?.start.y ?? 0) - was.start.y).toBeCloseTo(1, 3);
+      const [now] = await walls(page);
+      expect(now?.end.y).toBeCloseTo(was.end.y + 1, 3);
+      expect(now?.start.x).toBeCloseTo(was.start.x, 3);
+      expect(now?.end.x).toBeCloseTo(was.end.x, 3);
+      expect(now?.width).toBe(was.width);
+      expect(now?.height).toBe(was.height);
+    }
+  };
+  await dragsByItsBody();
+  // Zoomed out, a step at a time, as far as the 10 cm wall still shows at least 2.5 px thick (26%): further out, a press
+  // half a pixel off its centre line, which an engine that delivers whole pixels (WebKit) may round to a pixel or more
+  // off it, can fall past its edge and pick nothing.
+  const zoomOut = planTile(page).getByRole('button', { name: 'Zoom out', exact: true });
+  while (((await zoom()) / 1.25) * 10 >= 2.5) {
+    const was = await zoom();
+    await zoomOut.click();
+    await expect.poll(zoom).toBeLessThan(was);
+  }
+  expect(await zoom()).toBeLessThan(0.3);
+  await dragsByItsBody();
+});
+
 test('the keyboard puts a door in the middle of the selected wall, and the Door and Window tools take their letters', async ({ page }) => {
   await startRoom(page);
   await drawWall(page);

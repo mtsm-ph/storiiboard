@@ -16,7 +16,9 @@ import { headingOf } from '../storyboard/ScenesView';
 import { boardTitle } from '../moodboards/boards';
 import { isDeck, pagesOf } from '../moodboards/pages';
 import { closeExportDialog, useExportDeck, useExportDialog, useExportFormatId, useExportPlan, useExportSwatches } from './exportStore';
+import { groupName } from '../birdseye/plan/library';
 import { planExportName } from './planExport';
+import { PRINT_DEPARTMENTS, type PlanDepartments } from './planPages';
 import { DAY_PLAN_FORMATS, DECK_FORMATS, FORMATS, PLAN_FORMATS, SWATCH_FORMATS } from './registry';
 import { swatchSet } from './swatchSet';
 import type { ExportScope } from './scope';
@@ -81,6 +83,9 @@ function ExportDialog() {
   const paper = usePaper();
   const [planUnderlay, setPlanUnderlay] = useState(true);
   const [planGrid, setPlanGrid] = useState(true);
+  // What a plan prints (6.17): everything, one department's print or each department's; as the underlay and the grid, a
+  // choice for this export only, never remembered and never in the project.
+  const [planDepartments, setPlanDepartments] = useState<PlanDepartments>('everything');
   const [pixelRatio, setPixelRatio] = useState<'1' | '2'>('1');
   const [sceneId, setSceneId] = useState('');
   // Remembered on this computer, as last chosen (polish PP).
@@ -113,7 +118,12 @@ function ExportDialog() {
   const plans = format?.options?.plan === true;
   // How many plans the export would print (6.10), from the format's own list, the one its run prints: once per change to
   // what it depends on, not on every progress tick. None is said, and nothing is written.
-  const planCount = useMemo(() => (plans && format.planViews && projectId !== null ? format.planViews(records, projectId, plan ?? undefined, scope).length : 0), [plans, format, records, projectId, plan, scope]);
+  const planCount = useMemo(
+    () => (plans && format.planViews && projectId !== null ? format.planViews(records, projectId, plan ?? undefined, scope, planDepartments).length : 0),
+    [plans, format, records, projectId, plan, scope, planDepartments],
+  );
+  // A PNG of each department is a folder of pictures (6.17); every other choice writes what the format always writes.
+  const output = format ? (plans && format.outputFor ? format.outputFor(planDepartments) : format.output) : 'file';
   if (!project) return null;
   const props = records[project.projectId]?.props;
   const projectTitle = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
@@ -128,6 +138,12 @@ function ExportDialog() {
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
   const noPlans = plans && planCount === 0;
+  // Why there is nothing to print: no plan, or a department with nothing on them (6.17).
+  const nothing = planDepartments === 'everything' || !format?.planViews || format.planViews(records, project.projectId, plan ?? undefined, scope, 'everything').length === 0
+    ? t('export.plan.nothing')
+    : planDepartments === 'each'
+      ? t('export.plan.nothingEach')
+      : t('export.plan.nothingDepartment', { department: groupName(planDepartments) });
 
   const stop = () => {
     stopper.current?.abort();
@@ -138,7 +154,7 @@ function ExportDialog() {
     if (!format || busy.current) return;
     busy.current = true;
     // A plan's file is named as its run names it (planExportName), so the Save dialog offers the name that is written.
-    const name = plans ? planExportName(format, { title, records, scope, ...(plan ? { plan } : {}) }) : format.name(title, scene?.fields.number ?? null);
+    const name = plans ? planExportName(format, { title, records, scope, planDepartments, ...(plan ? { plan } : {}) }) : format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
     // Files actually written, not frames drawn: the PDF draws every frame before it writes its one file, so a PDF
@@ -151,7 +167,7 @@ function ExportDialog() {
     setRunning(CHOOSING);
     setFailed(null);
     try {
-      const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
+      const chosen = output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
       if (!chosen) return;
       opened = chosen;
       if (controller.signal.aborted) return;
@@ -191,7 +207,7 @@ function ExportDialog() {
         ...(deckId ? { deckId } : {}),
         ...(swatches ? { swatches } : {}),
         ...(plan ? { plan } : {}),
-        ...(plans ? { paper, planUnderlay, planGrid } : {}),
+        ...(plans ? { paper, planUnderlay, planGrid, planDepartments } : {}),
         pixelRatio: pixelRatio === '2' ? 2 : 1,
         file: project.file,
         target,
@@ -275,6 +291,23 @@ function ExportDialog() {
           <p className="-mt-2 text-[12px] text-text-muted" data-plan-paper-note="">
             {t('export.plan.paperNote')}
           </p>
+          <Select
+            label={t('export.plan.departments')}
+            value={planDepartments}
+            disabled={running !== null}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setPlanDepartments(next === 'everything' || next === 'each' ? next : (PRINT_DEPARTMENTS.find((d) => d === next) ?? 'everything'));
+            }}
+          >
+            <option value="everything">{t('export.plan.departments.everything')}</option>
+            {PRINT_DEPARTMENTS.map((department) => (
+              <option key={department} value={department}>
+                {groupName(department)}
+              </option>
+            ))}
+            <option value="each">{t('export.plan.departments.each')}</option>
+          </Select>
           <Toggle label={t('export.plan.underlay')} checked={planUnderlay} disabled={running !== null} onChange={setPlanUnderlay} />
           <Toggle label={t('export.plan.grid')} checked={planGrid} disabled={running !== null} onChange={setPlanGrid} />
         </>
@@ -303,11 +336,18 @@ function ExportDialog() {
         <p className="text-[13px]">{tn('count.colors', colours?.hexes.length ?? 0)}</p>
       ) : noPlans ? (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed" data-plan-nothing="">
-          {t('export.plan.nothing')}
+          {nothing}
         </p>
       ) : plans ? (
         <p className="text-[13px]">
-          <Trans k={pluralKey('export.plan.count', planCount)} parts={{ count: <span className="font-mono">{String(planCount)}</span> }} />
+          {planDepartments === 'everything' ? (
+            <Trans k={pluralKey('export.plan.count', planCount)} parts={{ count: <span className="font-mono">{String(planCount)}</span> }} />
+          ) : planDepartments === 'each' ? (
+            <Trans k={pluralKey('export.plan.countEach', planCount)} parts={{ count: <span className="font-mono">{String(planCount)}</span> }} />
+          ) : (
+            <Trans k={pluralKey('export.plan.countDepartment', planCount)} parts={{ count: <span className="font-mono">{String(planCount)}</span>, department: groupName(planDepartments) }} />
+          )}{' '}
+          {carries ? t('export.watermark', { text: watermark.text, position: POSITION_LABEL[watermark.position].toLowerCase() }) : t('export.noWatermark')}
         </p>
       ) : noPages ? (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
@@ -339,7 +379,7 @@ function ExportDialog() {
       <div className="flex justify-end gap-2">
         <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
         <Button variant="primary" disabled={running !== null || noPages || noColours || noPlans || (frames === 0 && !whole && !deckId && !swatches && !plans)} onClick={() => void run()}>
-          {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
+          {output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>
     </Modal>

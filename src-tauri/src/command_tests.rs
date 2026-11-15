@@ -9,6 +9,12 @@
 //! service, a tile not in the cache) would contact a real service; ffmpeg's commands (`video_probe`, `video_still`,
 //! `playback_make`, `playback_find`, `clip_save`) and the opener's (`open_link`, `open_pdf`, `reveal_original`,
 //! `sbd_show_backups`) start another program; `projects_folder_for_new` can make a folder in this computer's Videos.
+//! `clip_cancel` reads and sets video.rs's `CLIP_BUSY` and `CLIP_STOP`, which belong to the process, not to an app:
+//! where the ffmpeg sidecars exist, video.rs's clip test holds the busy flag across its saves and asserts on both
+//! flags, so a call from here running beside it would race it both ways (6.16's review). Every other command here
+//! keeps its state in the app's own managed state or folders (a harness each) or only reads a process-wide cache
+//! (fonts, time zones); `services_status` reads services.rs's `READING`, which only a command that goes to the network
+//! ever fills, and `address_search` and `map_tile` answer here before reaching the address queue or the tile gate.
 //! The export commit is tested from inside export.rs (export/ipc_tests.rs), the one place the Save dialog's choice can
 //! be stood in for without a dialog.
 
@@ -21,7 +27,7 @@ use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
 use tauri::test::{get_ipc_response, mock_builder, MockRuntime, INVOKE_KEY};
 use tauri::utils::config::AppDirectoriesOverride;
 use tauri::webview::InvokeRequest;
-use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, Manager, WebviewWindow, WebviewWindowBuilder};
 
 /// A folder of the test's own in the system's temp folder, as sbd.rs's tests make theirs.
 fn temp_dir(tag: &str) -> PathBuf {
@@ -152,7 +158,34 @@ impl Harness {
 
 impl Drop for Harness {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.dir);
+        // Close every project a test left open first, as the app does on exit: Windows deletes no file that's open, so
+        // the folder would otherwise stay behind without a word.
+        self.app.state::<crate::sbd::OpenFiles>().close_all();
+        let mut tries = 0;
+        let failed = loop {
+            match fs::remove_dir_all(&self.dir) {
+                Ok(()) => break None,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break None,
+                // Windows can take a moment to let go of a file just closed.
+                Err(_) if tries < 10 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(error) => break Some(error),
+            }
+        };
+        if let Some(error) = failed {
+            let message = format!(
+                "the test's folder {} couldn't be deleted: {error}",
+                self.dir.display()
+            );
+            // A test already failing keeps its own message; a second panic would abort the run.
+            if std::thread::panicking() {
+                eprintln!("{message}");
+            } else {
+                panic!("{message}");
+            }
+        }
     }
 }
 
@@ -581,7 +614,7 @@ mod this_computer {
     #[test]
     fn week_start_answers_in_the_shape_week_start_ts_reads() {
         let h = Harness::new("week");
-        let week = h.call("region_week", Json::Null).unwrap();
+        let week = h.call("region_week", json!({})).unwrap();
         let object = week.as_object().expect("an object");
         let mut keys: Vec<&String> = object.keys().collect();
         keys.sort();
@@ -612,7 +645,7 @@ mod this_computer {
     #[test]
     fn lists_this_computers_fonts_and_reads_one() {
         let h = Harness::new("fonts");
-        let families = h.call("fonts_list", Json::Null).unwrap();
+        let families = h.call("fonts_list", json!({})).unwrap();
         let families = families.as_array().expect("a list of families");
         for family in families {
             assert!(family["name"].is_string());
@@ -658,7 +691,7 @@ mod this_computer {
     #[test]
     fn lists_every_online_service_unchecked_before_the_switch_is_read() {
         let h = Harness::new("services");
-        let services = h.call("services_status", Json::Null).unwrap();
+        let services = h.call("services_status", json!({})).unwrap();
         let ids: Vec<&str> = services
             .as_array()
             .expect("a list")
@@ -706,7 +739,6 @@ mod files_and_media {
         );
         assert_eq!(h.call("known_videos_count", json!({})), Ok(json!(0)));
         assert_eq!(h.call("known_videos_forget", json!({})), Ok(Json::Null));
-        assert_eq!(h.call("clip_cancel", json!({})), Ok(json!(false)));
         assert_eq!(
             h.call("playback_cancel", json!({ "path": video, "lut": null })),
             Ok(json!(false))
@@ -839,15 +871,15 @@ mod online_without_the_network {
             h.call_bytes("map_tile", json!({ "z": 3, "x": 4, "y": 2 })),
             Ok(tile.to_vec())
         );
-        let info = h.call("map_tiles_info", Json::Null).unwrap();
+        let info = h.call("map_tiles_info", json!({})).unwrap();
         assert_eq!(info["tiles"], json!(1));
         assert!(info["bytes"]
             .as_u64()
             .is_some_and(|bytes| bytes >= tile.len() as u64));
         assert!(info["capBytes"].as_u64().is_some_and(|cap| cap > 0));
-        assert_eq!(h.call("map_tiles_clear", Json::Null), Ok(json!(1)));
+        assert_eq!(h.call("map_tiles_clear", json!({})), Ok(json!(1)));
         assert_eq!(
-            h.call("map_tiles_info", Json::Null).unwrap()["tiles"],
+            h.call("map_tiles_info", json!({})).unwrap()["tiles"],
             json!(0)
         );
     }
@@ -855,14 +887,14 @@ mod online_without_the_network {
     #[test]
     fn a_tile_server_of_ones_own_is_read_cleared_and_checked() {
         let h = Harness::new("provider");
-        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(Json::Null));
+        assert_eq!(h.call("map_tile_provider", json!({})), Ok(Json::Null));
         // One already saved (tiles.rs's file in the app's data folder): read back, and saved again without a question.
         let saved = json!({
             "template": "https://tiles.example.org/{z}/{x}/{y}.png", "attribution": "Example", "host": "tiles.example.org",
         });
         fs::create_dir_all(h.data_dir()).unwrap();
         fs::write(h.data_dir().join("tile-provider.json"), saved.to_string()).unwrap();
-        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(saved.clone()));
+        assert_eq!(h.call("map_tile_provider", json!({})), Ok(saved.clone()));
         assert_eq!(
             h.call(
                 "map_tile_provider_set",
@@ -886,7 +918,7 @@ mod online_without_the_network {
             ),
             Ok(json!({ "status": "cleared", "provider": null }))
         );
-        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(Json::Null));
+        assert_eq!(h.call("map_tile_provider", json!({})), Ok(Json::Null));
     }
 }
 

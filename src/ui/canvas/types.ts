@@ -101,6 +101,12 @@ export interface CanvasItem extends Geometry {
    */
   moveOnly?: boolean;
   /**
+   * Resized by its ends alone (6.19c: a wall, a 10 cm bar about 10 px thick at 100%): picked by itself, its handles have
+   * no anchor on the middle of its long sides, where one would sit on its centre line and take the press meant to move
+   * it. Its corner and end anchors and the rotate handle stay. Left out (a board's items), all eight anchors show.
+   */
+  endsOnly?: boolean;
+  /**
    * Never turned by the handles (6.6: a plan's sun path, whose drawing is the compass's, not its box's): with one in the
    * selection, the rotate handle is hidden; it still moves and resizes. Left out (a board's items), nothing changes.
    */
