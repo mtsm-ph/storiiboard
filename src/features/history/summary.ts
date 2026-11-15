@@ -436,8 +436,9 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
   if (after.type === 'plan_item') {
-    // A camera's box (6.4), a light's, a flag's and a diffusion frame's (6.5) read as an icon's: across and deep, its place its middle.
-    const boxed = BOXED_KINDS.has(after.props.kind);
+    // A camera's box (6.4), a light's, a flag's and a diffusion frame's (6.5), an underlay's (6.9) read as an icon's:
+    // across and deep, its place its middle.
+    const boxed = BOXED_KINDS.has(after.props.kind) || after.props.kind === 'underlay';
     const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(boxed ? { planIcon: true as const } : {}) }));
     return boxed ? iconMiddles(before, after, marked) : marked;
   }
@@ -601,6 +602,9 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   camera_id: 'history.field.markCamera',
   // Its place among its owner's positions (6.7 review): a key, never shown as one.
   order: 'history.field.markOrder',
+  // An underlay's (6.9).
+  scaled: 'history.field.underlayScaled',
+  scale_m: 'history.field.underlayScaleM',
 });
 
 /** "650 W" (6.5). */
@@ -685,7 +689,7 @@ const privateValue = (change: FieldChange, value: JsonValue | undefined): string
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
 /** A plan item's lengths in the unit this computer shows (3.50 m, 12' 6"), its rotation in degrees (6.2a); null for its other props. */
-const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m', 'along_m', 'width_m']);
+const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m', 'along_m', 'width_m', 'scale_m']);
 /** A door's hinge and swing (6.2b) in the Selection tile's words. */
 const OPENING_WORDS: Readonly<Record<string, string>> = labels({
   'hinge:start': 'selection.hinge.start',
@@ -842,7 +846,11 @@ function roomName(record: SbdRecord | null | undefined): string {
  * One line for a plan's step (6.2a), or null when the step isn't only a plan's: a room started (with its scene's
  * `room_id`) or renamed; walls drawn, moved, turned, resized, changed, reordered, deleted or restored, counted.
  */
-function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Line | null {
+function planLine(opsIn: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Line | null {
+  // An underlay's picture (6.9) is written with its underlay, which is the news: a room copied with its underlays reads
+  // as a room copied.
+  const pictures = underlayPictureOps(opsIn, around);
+  const ops = pictures.size > 0 && pictures.size < opsIn.length ? opsIn.filter((op) => !pictures.has(op)) : opsIn;
   const record = (op: LoggedOp) => op.after ?? op.before;
   const isPlan = (op: LoggedOp) => record(op)?.type === 'plan' || record(op)?.type === 'plan_item';
   const roomLink = (op: LoggedOp) =>
@@ -925,6 +933,8 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   }
   // Library icons (6.3), named as what they are: "Placed a sofa in Diner"; several, or mixed with walls, counted.
   if ([...kinds].some((kind) => BOXED_KINDS.has(kind))) return northSunLine(items, around) ?? cameraLine(items, around) ?? lightLine(items, unit) ?? iconLine(items, n, around, unit);
+  // Underlays and measures with other kinds (6.9; on their own, underlayMeasureLine says them): counted as plan items.
+  if (kinds.has('underlay') || kinds.has('measure')) return iconLine(items, Math.max(2, n), around, unit);
   const walls = items.filter((op) => record(op)?.props.kind === 'wall');
   const w = new Set(walls.map((op) => op.recordId)).size;
   if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
@@ -943,6 +953,72 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', m)];
   if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', m)];
   return [tn('history.wallsChanged', m)];
+}
+
+/** The ops of a step that are underlays' pictures (6.9): `media` records whose parent is an underlay, in the step or known then. */
+function underlayPictureOps(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Set<LoggedOp> {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const underlays = new Set(ops.flatMap((op) => (record(op)?.type === 'plan_item' && record(op)?.props.kind === 'underlay' ? [op.recordId] : [])));
+  return new Set(
+    ops.filter((op) => {
+      const r = record(op);
+      if (r?.type !== 'media' || r.parentId === null) return false;
+      return underlays.has(r.parentId) || around.get(r.parentId)?.props.kind === 'underlay';
+    }),
+  );
+}
+
+/**
+ * A step of the room's underlays alone, or its measures alone (6.9), or null: an underlay added (in the room named),
+ * set to scale ("Set the underlay's scale: 3.50 m between the points"), moved, turned, resized, deleted or restored;
+ * measures drawn, changed, deleted or restored, counted. Its picture's record is written with an underlay, never news.
+ */
+function underlayMeasureLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Line | null {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const pictures = underlayPictureOps(ops, around);
+  const items = ops.filter((op) => !pictures.has(op));
+  if (items.length === 0 || !items.every((op) => record(op)?.type === 'plan_item')) return null;
+  const kinds = new Set(items.map((op) => record(op)?.props.kind));
+  if (kinds.size !== 1) return null;
+  // A copy (items carrying `copied_from`: a setup's copied from another) or a move into another plan ("This setup only",
+  // back to every setup) is the plan's line, whatever the items are (6.9 review, L9).
+  const copied = items.some((op) => op.kind === 'create' && typeof op.after?.props.copied_from === 'string');
+  const moved = items.some((op) => op.kind === 'move' && !!op.before && !!op.after && op.before.parentId !== op.after.parentId);
+  if (copied || moved) return null;
+  const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
+  const n = new Set(items.map((op) => op.recordId)).size;
+  if (kinds.has('measure')) {
+    if (all('create')) return [tn('history.measuresDrawn', n)];
+    if (all('trash')) return [tn('history.measuresDeleted', n)];
+    if (all('restore')) return [tn('history.measuresRestored', n)];
+    return [tn('history.measuresChanged', n)];
+  }
+  if (!kinds.has('underlay')) return null;
+  if (n > 1) {
+    if (all('create')) return [tn('history.underlaysAdded', n)];
+    if (all('trash')) return [tn('history.underlaysDeleted', n)];
+    if (all('restore')) return [tn('history.underlaysRestored', n)];
+    return [tn('history.underlaysChanged', n)];
+  }
+  const [first] = items;
+  if (!first) return null;
+  if (all('create')) {
+    const plan = first.after?.parentId ? around.get(first.after.parentId) : undefined;
+    const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
+    return fields?.kind === 'room' && fields.name !== '' ? [t('history.underlayAddedIn', { room: fields.name })] : [t('history.underlayAdded')];
+  }
+  if (all('trash')) return [t('history.underlayDeleted')];
+  if (all('restore')) return [t('history.underlayRestored')];
+  if (all('move')) return [tn('history.planItemsReordered', 1)];
+  if (!all('update')) return [t('history.underlayChanged')];
+  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+  const distance = items.at(-1)?.after?.props.scale_m;
+  if ((props.has('scaled') || props.has('scale_m')) && typeof distance === 'number') return line('history.underlayScaled', { distance: { mono: formatLength(distance, unit) } });
+  if (only(['x', 'y'])) return [t('history.underlayMoved')];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.underlayTurned')];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [t('history.underlayResized')];
+  return [t('history.underlayChanged')];
 }
 
 /** Whether an op only changed a mark's `order`. */
@@ -1355,6 +1431,9 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
   );
   const record = (op: LoggedOp) => op.after ?? op.before;
+  // A room's underlays and measures (6.9), each step its own line.
+  const underlaid = underlayMeasureLine(ops, around, unit);
+  if (underlaid) return underlaid;
   // A plan's steps (6.2a): a room started or renamed, walls drawn, moved, turned, resized, deleted or restored.
   const planned = planLine(ops, around, unit);
   if (planned) return planned;

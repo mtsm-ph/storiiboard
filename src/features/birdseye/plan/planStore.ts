@@ -4,6 +4,8 @@ import { projectStore } from '../../../app/projectStore';
 import type { Tool, Viewport } from '../../../ui/canvas/types';
 import { DEFAULT_VIEWPORT } from '../../../ui/canvas/viewport';
 import type { PlanClip } from './planItems';
+import { SCALE_TOOL } from './planScale';
+import { useShownPlan } from './shownPlan';
 
 // Where the person is on a plan (6.2a): what's selected and the view, per plan view (a setup, or a scene with no setup),
 // the tool, and what was copied. View state, never an op and never in the project, as the Moodboard's is.
@@ -13,10 +15,23 @@ interface PlanState {
   viewports: Readonly<Record<string, Viewport>>;
   tool: Tool;
   clipboard: readonly PlanClip[];
+  /**
+   * The opening of a project the clipboard was copied in (6.9 review, M1: shownPlan.ts's `openingKey`), '' for none.
+   * Copied cameras, marks, lights and underlays name bodies, frames, characters, gear and pictures of that project
+   * alone, so a paste into any other pastes nothing.
+   */
+  clipFrom: string;
+  /** The underlay "Set scale" was started for (6.9), while its tool is picked; null otherwise. */
+  scaling: string | null;
+  /** The underlay Set scale's first click landed on, among several (6.9 review, L2): the hint names it. Null otherwise. */
+  scaleFirst: string | null;
+  setScaleFirst: (underlayId: string | null) => void;
   select: (key: string, ids: readonly string[]) => void;
   setViewport: (key: string, view: Viewport) => void;
   setTool: (tool: Tool) => void;
-  copy: (clip: readonly PlanClip[]) => void;
+  copy: (clip: readonly PlanClip[], from: string) => void;
+  /** "Set scale" (6.9): its two clicks for this underlay, the tool picked. */
+  startScale: (underlayId: string) => void;
 }
 
 export const planStore = createStore<PlanState>()((set) => ({
@@ -24,6 +39,12 @@ export const planStore = createStore<PlanState>()((set) => ({
   viewports: {},
   tool: 'select',
   clipboard: [],
+  clipFrom: '',
+  scaling: null,
+  scaleFirst: null,
+  setScaleFirst: (scaleFirst) => {
+    set({ scaleFirst });
+  },
   select: (key, ids) => {
     set((s) => ({ selections: { ...s.selections, [key]: ids } }));
   },
@@ -31,17 +52,30 @@ export const planStore = createStore<PlanState>()((set) => ({
     set((s) => ({ viewports: { ...s.viewports, [key]: view } }));
   },
   setTool: (tool) => {
-    set({ tool });
+    // Any other tool ends Set scale's clicks; any change of tool forgets their first click.
+    set((s) => ({ tool, scaling: tool === SCALE_TOOL ? s.scaling : null, scaleFirst: null }));
   },
-  copy: (clipboard) => {
-    set({ clipboard });
+  startScale: (underlayId) => {
+    set({ tool: SCALE_TOOL, scaling: underlayId, scaleFirst: null });
+  },
+  copy: (clipboard, from) => {
+    set({ clipboard, clipFrom: from });
   },
 }));
 
 // Another project opened: nothing selected and the Select tool, since a version or a backup shares the original's ids
-// and a selection or a half-drawn run must never act on the other file. The clipboard stays, as a board's does.
+// and a selection or a half-drawn run must never act on the other file. The clipboard stays, as a board's does, but
+// pastes only into the opening it was copied in (`clipFrom`).
 projectStore.subscribe((state, before) => {
-  if (state.project !== before.project) planStore.setState({ selections: {}, tool: 'select' });
+  if (state.project !== before.project) planStore.setState({ selections: {}, tool: 'select', scaling: null, scaleFirst: null });
+});
+
+// Another scene or setup shown (6.9 review, L1): Set scale's clicks were for an underlay of the view it began in, so
+// they end with it, back to Select.
+useShownPlan.subscribe((state, before) => {
+  if (state.sceneId === before.sceneId && state.setupId === before.setupId) return;
+  const { tool, scaling } = planStore.getState();
+  if (tool === SCALE_TOOL || scaling !== null) planStore.setState({ tool: tool === SCALE_TOOL ? 'select' : tool, scaling: null, scaleFirst: null });
 });
 
 export function usePlan<T>(select: (state: PlanState) => T): T {

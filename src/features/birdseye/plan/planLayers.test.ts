@@ -4,7 +4,7 @@ import { createProjectStore, projectStore } from '../../../app/projectStore';
 import { projectSelfStore } from '../../../app/settings/projectRole';
 import { setLocale } from '../../../core/i18n';
 import { CAMERA_ICON, iconGroup, LIGHT_ICON, NORTH_ICON, PLAN_ITEM_KINDS, PLAN_LAYERS, planItemLayer, shownItems, startRoomChanges } from '../../../core/model/plan';
-import { ALL_SHOWN, layeredItems, layeredItemsKeeper, layerOfItem, myDepartmentStates, sameStates, soloStates, type PlanLayerStates } from '../../../core/model/planLayers';
+import { ALL_SHOWN, LAYER_ROWS, layeredItems, layeredItemsKeeper, layerOfItem, myDepartmentStates, sameStates, soloStates, type PlanLayerStates } from '../../../core/model/planLayers';
 import { itemLayer, markOwnerChanges, nextPositionChanges, placeMarkChanges } from '../../../core/model/planBlocking';
 import type { Props } from '../../../core/model/record';
 import { log } from '../../../core/ops/ops';
@@ -15,8 +15,8 @@ import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolde
 import { marqueePicks, pickOrder } from '../../../ui/canvas/picking';
 import { snapMoveByPoints } from '../../../ui/canvas/scale';
 import { PLAN_ICONS } from '../../../ui/icons/plan/planIcons';
-import { layersStore, layerStatesNow, reloadLayersForTests, setLayerLocked, setLayerShow, showAllLayers, soloLayer } from './layersStore';
-import { copyPlanSelection, copySetup, markSizes, pastePlan, placeIcon, placeMark, planSelection } from './planActions';
+import { layersStore, layerStatesNow, myDepartmentLayers, reloadLayersForTests, revealLayers, setLayerLocked, setLayerShow, showAllLayers, soloLayer } from './layersStore';
+import { copyPlanSelection, copySetup, markSizes, pastePlan, placeIcon, placeMark, planSelection, setMarkOwner } from './planActions';
 import { drawWallsChanges, openingSpotInWall, placeIconChanges, placeOpeningChanges, planItemsBuilder, shownItemsKeeper, trashPlanItemsChanges } from './planItems';
 import { openCameraOnPlan } from './PlanLensLine';
 import { layerKeyFor } from './PlanTile';
@@ -32,7 +32,7 @@ let project: Project;
 let store = createProjectStore();
 beforeEach(async () => {
   setLocale('en');
-  layersStore.setState({ saved: null, solo: null });
+  layersStore.setState({ saved: null, solo: null, said: { text: '', by: 'tile' } });
   planStore.setState({ selections: {}, clipboard: [] });
   folder = makeTestFolder();
   project = await createProject(folder.path('Layers.sbd'), { driver: nodeDriver, backups: false });
@@ -40,7 +40,7 @@ beforeEach(async () => {
   await store.getState().open(project);
 });
 afterEach(async () => {
-  layersStore.setState({ saved: null, solo: null });
+  layersStore.setState({ saved: null, solo: null, said: { text: '', by: 'tile' } });
   vi.unstubAllGlobals();
   await store.getState().close();
   folder.remove();
@@ -76,7 +76,7 @@ async function plan() {
 }
 
 const states = (patch: Partial<Record<keyof PlanLayerStates, Partial<PlanLayerStates['camera']>>>): PlanLayerStates =>
-  Object.fromEntries(PLAN_LAYERS.map((l) => [l, { ...ALL_SHOWN[l], ...patch[l] }])) as unknown as PlanLayerStates;
+  Object.fromEntries(LAYER_ROWS.map((l) => [l, { ...ALL_SHOWN[l], ...patch[l] }])) as unknown as PlanLayerStates;
 
 describe('an item’s layer', () => {
   it('is one layer for every kind this version knows, the underlay its own row', () => {
@@ -242,12 +242,15 @@ describe('the layers’ state', () => {
     soloLayer('camera');
     expect(layerStatesNow()).toEqual(before);
     expect(layersStore.getState().solo).toBeNull();
-    // Another change after a solo ends it: pressing Solo again solos afresh.
+    // Another row's choice during a solo is the solo's, held (6.8 second review, M-a): nothing changes, the solo stays.
     soloLayer('cast');
+    const soloed = layerStatesNow();
     setLayerShow('camera', 'hidden');
-    expect(layersStore.getState().solo).toBeNull();
+    setLayerLocked('camera', false);
+    expect(layersStore.getState().solo?.layer).toBe('cast');
+    expect(layerStatesNow()).toEqual(soloed);
     soloLayer('cast');
-    expect(layerStatesNow().cast.show).toBe('shown');
+    expect(layerStatesNow()).toEqual(before);
     showAllLayers();
     expect(layerStatesNow()).toEqual(ALL_SHOWN);
   });
@@ -291,7 +294,7 @@ async function useAppStore() {
 }
 
 const without = (states: PlanLayerStates, patch: Partial<Record<keyof PlanLayerStates, Partial<PlanLayerStates['camera']>>>): PlanLayerStates =>
-  Object.fromEntries(PLAN_LAYERS.map((l) => [l, { ...states[l], ...patch[l] }])) as unknown as PlanLayerStates;
+  Object.fromEntries(LAYER_ROWS.map((l) => [l, { ...states[l], ...patch[l] }])) as unknown as PlanLayerStates;
 
 const memoryStorage = () => {
   const kept = new Map<string, string>();
@@ -330,7 +333,7 @@ describe('a solo (6.8 review)', () => {
     expect(layersStore.getState().solo).toBeNull();
   });
 
-  it('is never what the settings keep, and a change made during it applies to the state before it', () => {
+  it('is never what the settings keep, and the solo row’s own change during it is kept in it and after it', () => {
     memoryStorage();
     setLayerShow('sound', 'hidden');
     const before = layerStatesNow();
@@ -338,10 +341,164 @@ describe('a solo (6.8 review)', () => {
     // A reload during a solo comes back without it.
     const kept = loadSettings().planLayers;
     expect(kept !== null && sameStates(kept, before)).toBe(true);
-    // Another change ends the solo: no solo lock outlives it.
+    // Another row's change is held: the solo stays, and nothing changes.
     setLayerShow('cast', 'dimmed');
+    expect(layersStore.getState().solo?.layer).toBe('grip');
+    expect(layerStatesNow().cast).toEqual({ show: 'dimmed', locked: true });
+    expect(sameStates(loadSettings().planLayers ?? ALL_SHOWN, before)).toBe(true);
+    // The solo row's own choice: changed in the solo, kept after it and in the settings.
+    setLayerShow('grip', 'dimmed');
+    expect(layersStore.getState().solo?.layer).toBe('grip');
+    expect(layerStatesNow().grip).toEqual({ show: 'dimmed', locked: false });
+    expect(layerStatesNow().camera).toEqual({ show: 'dimmed', locked: true });
+    expect(loadSettings().planLayers?.grip.show).toBe('dimmed');
+    soloLayer('grip');
+    expect(layerStatesNow()).toEqual(without(before, { grip: { show: 'dimmed' } }));
+  });
+
+  it('holds the other rows: their choices and locks do nothing, and pressing a current choice does nothing ever (M-a)', () => {
+    setLayerShow('cast', 'hidden');
+    const saved = layersStore.getState().saved;
+    // The choice already current: nothing at all, not even a new object.
+    setLayerShow('cast', 'hidden');
+    setLayerLocked('cast', false);
+    expect(layersStore.getState().saved).toBe(saved);
+    soloLayer('camera');
+    const soloed = layersStore.getState();
+    for (const layer of ['lighting', 'cast', 'underlay'] as const) {
+      setLayerShow(layer, 'shown');
+      setLayerShow(layer, 'hidden');
+      setLayerLocked(layer, false);
+    }
+    // Pressing the solo row's current choice, or its lock as it is, keeps everything as it was.
+    setLayerShow('camera', 'shown');
+    setLayerLocked('camera', false);
+    expect(layersStore.getState().saved).toBe(soloed.saved);
+    expect(layersStore.getState().solo).toBe(soloed.solo);
+  });
+
+  it('keeps itself through its own row’s lock, and through a reveal of its own layer', () => {
+    soloLayer('camera');
+    setLayerLocked('camera', true);
+    expect(layersStore.getState().solo?.layer).toBe('camera');
+    expect(layerStatesNow().camera).toEqual({ show: 'shown', locked: true });
+    noticeStore.setState({ message: null });
+    revealLayers(['camera']);
+    expect(layersStore.getState().solo?.layer).toBe('camera');
+    expect(layerStatesNow().camera).toEqual({ show: 'shown', locked: false });
+    expect(noticeStore.getState().message).toBe('Layer unlocked so you can pick what you’re working on: Camera.');
+  });
+
+  it('ends by Show all, My department, key 0 or another row’s Solo, each saying so', () => {
+    const said = () => layersStore.getState().said;
+    setLayerShow('sound', 'hidden');
+    const before = layerStatesNow();
+    soloLayer('camera');
+    expect(said()).toEqual({ text: 'Camera layer solo, the others dimmed and locked', by: 'tile' });
+    // Another row's Solo moves it, and the first one's end is said.
+    soloLayer('lighting');
+    expect(layersStore.getState().solo?.layer).toBe('lighting');
+    expect(said().text).toBe('Camera solo ended. Lighting layer solo, the others dimmed and locked');
+    showAllLayers();
     expect(layersStore.getState().solo).toBeNull();
-    expect(layerStatesNow()).toEqual(without(before, { cast: { show: 'dimmed' } }));
+    expect(layerStatesNow()).toEqual(without(before, { sound: { show: 'shown' } }));
+    expect(said().text).toBe('Lighting solo ended. All layers shown, none locked');
+    // Key 0 on the plan is Show all, said on the canvas's line.
+    soloLayer('grip', 'plan');
+    showAllLayers('plan');
+    expect(said()).toEqual({ text: 'Grip solo ended. All layers shown, none locked', by: 'plan' });
+    soloLayer('cast');
+    myDepartmentLayers();
+    expect(layersStore.getState().solo).toBeNull();
+    expect(said().text).toBe('Cast solo ended. Your department’s layers shown, the rest dimmed');
+    // Ended by its own button: only that it is back, no "ended" for a press that says what it does.
+    soloLayer('cast');
+    soloLayer('cast');
+    expect(said().text).toBe('Layers back as they were before the solo');
+    // Without a solo, Show all says only what it did.
+    showAllLayers();
+    expect(said().text).toBe('All layers shown, none locked');
+    // In Spanish too.
+    setLocale('es');
+    onTestFinished(() => {
+      setLocale('en');
+    });
+    soloLayer('camera');
+    showAllLayers();
+    expect(said().text).toBe('Terminó el solo de Cámara. Todas las capas visibles, ninguna bloqueada');
+  });
+
+  it('ends by a reveal of another layer, the notice saying what it showed and that the solo ended (L4, L8)', () => {
+    setLayerShow('lighting', 'hidden');
+    soloLayer('camera');
+    noticeStore.setState({ message: null });
+    revealLayers(['lighting']);
+    expect(layersStore.getState().solo).toBeNull();
+    expect(layerStatesNow().lighting).toEqual({ show: 'shown', locked: false });
+    expect(noticeStore.getState().message).toBe('Layer shown so you can see what you’re working on: Lighting. Camera solo ended so you can pick what you’re working on.');
+    // A layer that comes back pickable anyway: only the solo's end is said.
+    soloLayer('camera');
+    revealLayers(['grip'], ['Pasted.']);
+    expect(noticeStore.getState().message).toBe('Pasted. Camera solo ended so you can pick what you’re working on.');
+  });
+
+  it('begun with nothing saved writes nothing, so after it the start follows “This is me” again (L5)', () => {
+    memoryStorage();
+    reloadLayersForTests();
+    expect(layersStore.getState().saved).toBeNull();
+    soloLayer('camera');
+    soloLayer('lighting');
+    expect(loadSettings().planLayers).toBeNull();
+    soloLayer('lighting');
+    expect(layersStore.getState().saved).toBeNull();
+    expect(loadSettings().planLayers).toBeNull();
+    // A solo row's own change is a choice: kept from then on.
+    soloLayer('camera');
+    setLayerLocked('camera', true);
+    soloLayer('camera');
+    expect(layersStore.getState().saved?.camera).toEqual({ show: 'shown', locked: true });
+    expect(loadSettings().planLayers?.camera.locked).toBe(true);
+  });
+});
+
+describe('the spoken lines (L3)', () => {
+  it('a single control says nothing on either line; a change in the tile never speaks on the canvas’s line', () => {
+    setLayerShow('lighting', 'hidden');
+    expect(layersStore.getState().said.text).toBe('');
+    setLayerLocked('grip', true);
+    expect(layersStore.getState().said.text).toBe('');
+    soloLayer('camera');
+    // Said in one step, by the tile, so the canvas's line (by 'plan') reads nothing of it.
+    expect(layersStore.getState().said).toEqual({ text: 'Camera layer solo, the others dimmed and locked', by: 'tile' });
+    soloLayer('camera');
+    showAllLayers();
+    showAllLayers();
+    // The same words twice change, so they are read out again.
+    expect(layersStore.getState().said.text).not.toBe('All layers shown, none locked');
+    expect(layersStore.getState().said.text.trim()).toBe('All layers shown, none locked');
+  });
+
+  it('a selection made anywhere clears the canvas’s layer words', () => {
+    soloLayer('lighting', 'plan');
+    expect(layersStore.getState().said).toEqual({ text: 'Lighting layer solo, the others dimmed and locked', by: 'plan' });
+    planStore.getState().select('setup:x', ['a']);
+    expect(layersStore.getState().said.text).toBe('');
+  });
+});
+
+describe('a real settings save (L9, L8)', () => {
+  it('keeps a row a newer version wrote, through a layer change', () => {
+    const kept = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v) });
+    kept.set('storiiboard.settings', JSON.stringify({ planLayers: { ...ALL_SHOWN, rigging: { show: 'dimmed', locked: true, extra: 'x' } } }));
+    reloadLayersForTests();
+    setLayerShow('camera', 'hidden');
+    soloLayer('cast');
+    soloLayer('cast');
+    showAllLayers();
+    const after = JSON.parse(kept.get('storiiboard.settings') ?? '{}') as { planLayers: Record<string, unknown> };
+    expect(after.planLayers.rigging).toEqual({ show: 'dimmed', locked: true, extra: 'x' });
+    expect(after.planLayers.camera).toEqual({ show: 'shown', locked: false });
   });
 });
 
@@ -469,6 +626,42 @@ describe('the flows that put items on hidden or locked layers', () => {
     planStore.getState().select(key, ['mark', 'sofa']);
     await store.getState().apply(markOwnerChanges(records(), view, ['mark'], { kind: 'camera', id: 'camera' }, markSizes()));
     expect(planStore.getState().selections[key]).toEqual(['sofa']);
+  });
+
+  it('a mark the person gives a locked layer’s camera in the Selection tile unlocks that layer and stays selected (L1)', async () => {
+    await useAppStore();
+    const { view } = await plan();
+    const key = `setup:${view.setupId}`;
+    setLayerLocked('camera', true);
+    planStore.getState().select(key, ['mark']);
+    noticeStore.setState({ message: null });
+    expect(await setMarkOwner(view, ['mark'], { kind: 'camera', id: 'camera' })).toBe(true);
+    expect(layerOfItem(records(), records().mark as never)).toBe('camera');
+    expect(layerStatesNow().camera).toEqual({ show: 'shown', locked: false });
+    expect(planStore.getState().selections[key]).toEqual(['mark']);
+    expect(noticeStore.getState().message).toBe('Layer unlocked so you can pick what you’re working on: Camera.');
+    // A layer locked afterwards, or an undo, still takes it out: that is no edit of the person's to that item.
+    setLayerLocked('camera', true);
+    expect(planStore.getState().selections[key]).toEqual([]);
+  });
+
+  it('a paste says what it left out and what it showed in one notice, in that order (L4)', async () => {
+    await useAppStore();
+    const { view } = await plan();
+    expect(await placeIcon(view, NORTH_ICON, { x: 3, y: 3 }, project, store)).toBeNull();
+    const north = Object.values(records()).find((r) => r.type === 'plan_item' && r.props.kind === 'north' && r.trashedAt === null);
+    if (!north) throw new Error('no north');
+    planStore.getState().select(`setup:${view.setupId}`, [north.id, 'light']);
+    copyPlanSelection(view);
+    setLayerShow('lighting', 'hidden');
+    noticeStore.setState({ message: null });
+    await pastePlan(view, null);
+    expect(noticeStore.getState().message).toBe('This room has its north already: the copied north wasn’t pasted. Layer shown so you can see what you’re working on: Lighting.');
+    // During a solo: the solo's end follows.
+    soloLayer('camera');
+    await pastePlan(view, null);
+    expect(layersStore.getState().solo).toBeNull();
+    expect(noticeStore.getState().message).toBe('This room has its north already: the copied north wasn’t pasted. Camera solo ended so you can pick what you’re working on.');
   });
 });
 

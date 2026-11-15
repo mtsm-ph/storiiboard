@@ -8,9 +8,11 @@ import {
   isIcon,
   isLight,
   isMark,
+  isMeasure,
   isNorth,
   isOpening,
   isSun,
+  isUnderlay,
   isWallFields,
   keptInWall,
   openingFields,
@@ -44,6 +46,7 @@ import { LegendView } from './LegendView';
 import { GripFieldsView, LightFieldsView } from './LightSelection';
 import { CameraMoveView, MarkFieldsView } from './MarkSelection';
 import { NorthFieldsView, SunFieldsView } from './SunSelection';
+import { MeasureFieldsView, UnderlayFieldsView } from './UnderlaySelection';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
@@ -91,9 +94,11 @@ function SelectionContent() {
     const [north] = selected.flatMap((s) => (isNorth(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
     const [sun] = selected.flatMap((s) => (isSun(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
     const [mark] = selected.flatMap((s) => (isMark(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
-    // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its
-    // already, and the room's north (6.6) is the room's alone.
-    const movable = !north && ids.some((id) => {
+    const underlays = selected.flatMap((s) => (isUnderlay(s.fields) ? [s.fields] : []));
+    const measures = selected.flatMap((s) => (isMeasure(s.fields) ? [s.fields] : []));
+    // "This setup only" is for what belongs to the room or the scene (walls, set pieces, measures): a setup's own icons
+    // are only its already, and the room's north (6.6) and its underlays (6.9) are the room's alone.
+    const movable = !north && underlays.length === 0 && ids.some((id) => {
       const record = records[id];
       return record !== undefined && homeOf(records, record) !== 'setup';
     });
@@ -101,6 +106,12 @@ function SelectionContent() {
       <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
         {walls.length === selected.length ? (
           <WallFields ids={ids} walls={walls} unit={unit} records={records} view={live.view} />
+        ) : underlays.length === selected.length ? (
+          // The room's underlays (6.9): their size, turn and place, and Set scale.
+          <UnderlayFieldsView ids={ids} underlays={underlays} unit={unit} records={records} />
+        ) : measures.length === selected.length ? (
+          // Measures (6.9): their length (the start stays), rotation and start.
+          <MeasureFieldsView ids={ids} measures={measures} unit={unit} records={records} />
         ) : openings.length === selected.length ? (
           <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
         ) : camera && selected.length === 1 && isCamera(camera.fields) ? (
@@ -386,7 +397,7 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
  * A library icon's fields (6.3): its name, width and depth, its real height, its rotation and its middle, each typed;
  * a new size or rotation keeps its middle where it is. Several: the fields they share, and a change goes to each.
  */
-function IconFieldsView({ ids, icons, unit, records }: { ids: readonly string[]; icons: readonly BoxFields[]; unit: PlanUnit; records: Records }) {
+function IconFieldsView({ ids, icons, unit, records }: { ids: readonly string[]; icons: readonly (BoxFields & { icon: string })[]; unit: PlanUnit; records: Records }) {
   const text = (values: readonly (number | null)[]) => shared(values.map((v) => (v === null ? '' : formatLength(v, unit))));
   const write = (patch: IconPatch): boolean => {
     // Under a centimetre, or past the plan's reach or size: refused, nothing saved (6.3 review).

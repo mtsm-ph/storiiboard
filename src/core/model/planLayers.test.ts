@@ -28,13 +28,15 @@ describe('the planLayers setting', () => {
   });
 
   it('reads a layer missing or unreadable as shown and unlocked, and keeps a row it doesn’t know as stored', () => {
-    const read = planLayerStatesOf({ camera: { show: 'dimmed', locked: true }, lighting: { show: 'ghosted', locked: 'yes' }, underlay: { show: 'hidden', opacity: 0.4 } });
+    const read = planLayerStatesOf({ camera: { show: 'dimmed', locked: true }, lighting: { show: 'ghosted', locked: 'yes' }, rigging: { show: 'hidden', opacity: 0.4 } });
     expect(read?.camera).toEqual({ show: 'dimmed', locked: true });
     expect(read?.lighting).toEqual({ show: 'shown', locked: false });
     expect(read?.grip).toEqual({ show: 'shown', locked: false });
-    // A newer version's row (6.9's underlay, say): never read, never dropped.
-    expect(Object.keys(read ?? {}).sort()).toEqual([...PLAN_LAYERS, 'underlay'].sort());
-    expect((read as Record<string, unknown> | null)?.underlay).toEqual({ show: 'hidden', opacity: 0.4 });
+    // The underlay's row (6.9) missing, as in settings from 6.8: its start, dimmed and locked.
+    expect(read?.underlay).toEqual({ show: 'dimmed', locked: true });
+    // A newer version's row (a "rigging" row, say): never read, never dropped.
+    expect(Object.keys(read ?? {}).sort()).toEqual([...PLAN_LAYERS, 'underlay', 'rigging'].sort());
+    expect((read as Record<string, unknown> | null)?.rigging).toEqual({ show: 'hidden', opacity: 0.4 });
     expect(planLayerStatesOf('hidden')).toBeNull();
     expect(planLayerStatesOf([])).toBeNull();
     expect(planLayerStatesOf(null)).toBeNull();
@@ -44,21 +46,21 @@ describe('the planLayers setting', () => {
 describe('a newer version’s layer rows (6.8 review, L9)', () => {
   it('survive any setting saved by this version, and a layer change', () => {
     const { kept, storage } = memory();
-    kept.set('storiiboard.settings', JSON.stringify({ planLayers: { ...ALL_SHOWN, camera: { show: 'hidden', locked: false }, underlay: { show: 'dimmed', locked: true, extra: 'x' } } }));
+    kept.set('storiiboard.settings', JSON.stringify({ planLayers: { ...ALL_SHOWN, camera: { show: 'hidden', locked: false }, rigging: { show: 'dimmed', locked: true, extra: 'x' } } }));
     // Another setting saved: the whole object is read and written again, the unknown row with it.
     saveSettings({ planUnits: 'feet' }, storage);
     const after = JSON.parse(kept.get('storiiboard.settings') ?? '{}') as { planLayers: Record<string, unknown> };
-    expect(after.planLayers.underlay).toEqual({ show: 'dimmed', locked: true, extra: 'x' });
+    expect(after.planLayers.rigging).toEqual({ show: 'dimmed', locked: true, extra: 'x' });
     expect(after.planLayers.camera).toEqual({ show: 'hidden', locked: false });
     // A change of the layers built afresh (Show all) carries the row too.
     const stored = loadSettings(storage).planLayers;
     const next = keepUnknownRows(stored, ALL_SHOWN) as Record<string, unknown>;
-    expect(next.underlay).toEqual({ show: 'dimmed', locked: true, extra: 'x' });
+    expect(next.rigging).toEqual({ show: 'dimmed', locked: true, extra: 'x' });
     expect(next.camera).toEqual({ show: 'shown', locked: false });
   });
 
-  it('is one list of the rows this version knows, the department layers', () => {
-    expect([...LAYER_ROWS].sort()).toEqual([...PLAN_LAYERS].sort());
+  it('is one list of the rows this version knows, the department layers and the underlay’s (6.9)', () => {
+    expect([...LAYER_ROWS].sort()).toEqual([...PLAN_LAYERS, 'underlay'].sort());
   });
 });
 

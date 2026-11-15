@@ -1,7 +1,8 @@
 import type { StoreApi } from 'zustand/vanilla';
-import { showInfo } from '../../../app/notice';
+import { showInfo, showNotice } from '../../../app/notice';
+import type { PictureFile } from '../../../app/pictures';
 import { projectStore, type ProjectState } from '../../../app/projectStore';
-import { t } from '../../../core/i18n';
+import { localizeError, t, tn } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
@@ -19,20 +20,23 @@ import {
   takeFrameLensChanges,
 } from '../../../core/model/planCamera';
 import { lightBeamChanges, lightWattsChanges, planGearChanges } from '../../../core/model/planLight';
-import { pickableIds } from '../../../core/model/planLayers';
+import { pickableIds, rowState, UNDERLAY_ROW } from '../../../core/model/planLayers';
 import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import {
+  drawMeasuresChanges,
   drawWallsChanges,
   flipDoorsChanges,
   frameSizeChanges,
   iconPatchChanges,
   iconRefusal,
+  measurePatchChanges,
   openingPatchChanges,
   openingsLeftOut,
   placeIconChanges,
   placeOpeningChanges,
+  clipPictureSha,
   planClipOf,
   planGeometryChanges,
   planNudgeChanges,
@@ -47,13 +51,19 @@ import {
   wallPatchChanges,
   type IconPatch,
   type IconRefusal,
+  type MeasurePatch,
   type OpeningPatch,
   type OpeningSpot,
   type WallPatch,
 } from './planItems';
 import { iconSize } from './iconSizes';
-import { layerStatesNow, revealLayersOf } from './layersStore';
+import { layerStatesNow, ownEdit, revealLayersOf, showUnderlayRow } from './layersStore';
+import { addUnderlayChanges, setScaleChanges, underlayFileKind } from './underlayEdits';
+import { prepare, reason } from '../../storyboard/addPictures';
+import { picturesBusy } from '../../storyboard/picturesBusy';
 import { planStore } from './planStore';
+import { planClipMarker, PLAN_CLIP_TEXT } from './planClipboard';
+import { openingKey } from './shownPlan';
 
 // What a person does on a plan (6.2a, 6.2b), as edits through projectStore.applyWith: each is one op group, so one ⌘Z,
 // as a board's are (src/features/moodboards/boardActions.ts). New walls go into the scene's room; a door or window into
@@ -70,9 +80,10 @@ export interface PlanView {
 /**
  * What a step made or picked is selected; every placement goes through here, so an item placed on a hidden or locked
  * layer has that layer shown and unlocked first, and said (6.8): nothing is placed that can't then be seen and picked.
+ * `lead`: what else the step says, in the same notice before the reveal's (L4).
  */
-const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records) => {
-  revealLayersOf(ids, records);
+const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records, lead: readonly string[] = []) => {
+  revealLayersOf(ids, records, lead);
   planStore.getState().select(viewKey(view.sceneId, view.setupId), ids);
 };
 
@@ -205,17 +216,22 @@ export async function deletePlanSelection(view: PlanView): Promise<void> {
   if (written) select(view, []);
 }
 
-/** A door or window selected without its wall is copied only with it: said, as the usual notice. */
-function sayLeftOut(records: Records, ids: readonly string[]): void {
-  if (openingsLeftOut(records, ids)) showInfo(t('plan.openingCopiedWithWall'));
-}
+/** A door or window selected without its wall is copied only with it: the words for it, or none. */
+const leftOutWords = (records: Records, ids: readonly string[]): string[] => (openingsLeftOut(records, ids) ? [t('plan.openingCopiedWithWall')] : []);
 
+/**
+ * Copy: the items kept inside the app with the opening of the project they were copied in (6.9 review, M1), and the
+ * system clipboard marked as the plan's (M2: planClipboard.ts), so a picture copied before can't win over them.
+ */
 export function copyPlanSelection(view: PlanView): number {
-  const { records } = projectStore.getState();
+  const { records, project } = projectStore.getState();
   const ids = planSelection(records, view);
   const clip = planClipOf(records, ids, view);
-  sayLeftOut(records, ids);
-  if (clip.length > 0) planStore.getState().copy(clip);
+  for (const words of leftOutWords(records, ids)) showInfo(words);
+  if (clip.length > 0) {
+    planStore.getState().copy(clip, openingKey(project));
+    planClipMarker.clipTaken(PLAN_CLIP_TEXT);
+  }
   return clip.length;
 }
 
@@ -226,34 +242,72 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
 /**
  * Paste, each copy into the plan its original sits in (a setup's only wall stays that setup's), or the view's plan of
  * that level; at the pointer or 16 cm from the originals; the pasted are selected. A setup's icon pasted into a scene
- * with no setup shown is left out, and said.
+ * with no setup shown is left out, and said. Everything the paste says is one notice (L4), in order: `lead` (what a
+ * Duplicate left out), what was left out or not pasted, then what the reveal showed or unlocked and a solo ended.
+ * What was copied pastes only into the opening of the project it was copied in (6.9 review, M1): its cameras, marks,
+ * lights and underlays name that project's bodies, frames, characters, gear and pictures. There, an underlay whose
+ * stored picture has gone since (Empty Trash) is left out, looked at inside the edit's turn, after any Empty Trash
+ * ahead of it, as a board's paste does; the rest goes through.
  */
-export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard): Promise<void> {
-  if (clip.length === 0) return;
+export async function pastePlan(
+  view: PlanView,
+  at: Point | null,
+  clip = planStore.getState().clipboard,
+  lead: readonly string[] = [],
+  store: StoreApi<ProjectState> = projectStore,
+): Promise<void> {
+  if (clip.length === 0) {
+    if (lead.length > 0) showInfo(lead.join(' '));
+    return;
+  }
+  const { project } = store.getState();
+  if (!project) return;
+  const { clipboard, clipFrom } = planStore.getState();
+  // A Duplicate gives its clip directly, from this project. Another opening (a backup, an opened version, a switch) is another project.
+  if (clip === clipboard && clipFrom !== openingKey(project)) {
+    showInfo([...lead, t('plan.pasteElsewhere')].join(' '));
+    return;
+  }
   let ids: string[] = [];
-  const out = { count: 0, north: 0 };
-  const written = await projectStore.getState().applyWith((records) => {
-    const made = planPasteInView(records, view, clip, at);
+  const out = { count: 0, north: 0, gone: 0 };
+  const written = await store.getState().applyWith(async (records) => {
+    const shas = [...new Set(clip.flatMap((item) => [clipPictureSha(records, item)].filter((sha): sha is string => sha !== null)))];
+    const rows = shas.length === 0 ? [] : await project.file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify(shas)]);
+    const stored = new Set(rows.map((row) => String(row.sha256)));
+    const kept = clip.filter((item) => {
+      if (item.props.kind !== 'underlay') return true;
+      const sha = clipPictureSha(records, item);
+      return sha !== null && stored.has(sha);
+    });
+    out.gone = clip.length - kept.length;
+    if (kept.length === 0) return { changes: [] };
+    // The records as they are now: the query above waited its turn.
+    const made = planPasteInView(store.getState().records, view, kept, at);
     ids = made.ids;
     out.count = made.leftOut;
     out.north = made.northKept ?? 0;
     return { changes: made.changes };
   });
-  if (out.count > 0) showInfo(t('library.noSetup'));
   // One north per room (6.6): a pasted north the room already has is left out, and said; the room's own is selected
   // with what was pasted, and its layer shown and unlocked, as placing a north does (6.8 review, L6).
-  if (out.north > 0) showInfo(t('plan.north.notPasted'));
-  const records = projectStore.getState().records;
+  const said = [
+    ...lead,
+    ...(out.gone > 0 ? [t('plan.underlay.pasteGone')] : []),
+    ...(out.count > 0 ? [t('library.noSetup')] : []),
+    ...(out.north > 0 ? [t('plan.north.notPasted')] : []),
+  ];
+  if (store.getState().project !== project) return;
+  const records = store.getState().records;
   const kept = out.north > 0 ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
-  if (written) select(view, kept === null ? ids : [...ids, kept]);
+  if (written) select(view, kept === null ? ids : [...ids, kept], records, said);
+  else if (said.length > 0) showInfo(said.join(' '));
 }
 
-/** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
+/** Duplicate is Copy then Paste offset from the originals, without touching the clipboard; one notice for both. */
 export async function duplicatePlanSelection(view: PlanView): Promise<void> {
   const { records } = projectStore.getState();
   const ids = planSelection(records, view);
-  sayLeftOut(records, ids);
-  await pastePlan(view, null, planClipOf(records, ids, view));
+  await pastePlan(view, null, planClipOf(records, ids, view), leftOutWords(records, ids));
 }
 
 /** A field changed in the Selection tile, on every selected wall it fits (every plan's doors counted): one op group. */
@@ -401,9 +455,12 @@ export async function nextFromSelection(view: PlanView, madeIn: Project | null, 
   return outcome === null ? null : outcome === 'otherProject' ? 'otherProject' : 'saidAlready';
 }
 
-/** The selected marks given to a character, a camera or no one (6.7): one op group. */
+/**
+ * The selected marks given to a character, a camera or no one (6.7): one op group. A mark given a camera moves to the
+ * camera's layer: hidden or locked, that layer is shown and unlocked, and said, so the mark stays selected (L1).
+ */
 export const setMarkOwner = (view: PlanView, ids: readonly string[], choice: OwnerChoice) =>
-  plannedEdit((r) => markOwnerChanges(r, view, ids, choice, markSizes()));
+  ownEdit(ids, () => plannedEdit((r) => markOwnerChanges(r, view, ids, choice, markSizes())));
 
 /** The sizes a mark takes when it becomes a character's or a plain one (iconSizes.ts). */
 export const markSizes = () => ({ character: iconSize(CAST_MARK_ICON) ?? { width: 0.5, depth: 0.5 }, plain: iconSize(MARK_ICON) ?? { width: 0.3, depth: 0.3 } });
@@ -449,3 +506,113 @@ export const setFrameSize = (ids: readonly string[], sizeId: string) => plannedE
 
 /** A sun path's time of day (6.6), "HH:mm": one op group. */
 export const setSunTime = (ids: readonly string[], time: string) => plannedEdit((r) => sunTimeChanges(r, ids, time));
+
+// The room's underlays and measures (6.9), each one op group, only into the open project the gesture began in (`madeIn`).
+
+/**
+ * A run of measures drawn (canvas units, 6.9): one measure a segment, the run one op group, into the room of the view it
+ * was drawn in, the new measures selected (their layer, production's, shown and unlocked first). Only into the open
+ * project it was drawn in, as a run of walls; a room gone meanwhile is said.
+ */
+export async function drawMeasures(view: PlanView, points: readonly Point[], madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<boolean> {
+  if (madeIn === null || store.getState().project !== madeIn) return false;
+  let ids: string[] = [];
+  const room = { gone: false };
+  const written = await store.getState().applyWith((records) => {
+    if (runRoomId(records, view.sceneId) === null) {
+      room.gone = true;
+      return { changes: [] };
+    }
+    const made = drawMeasuresChanges(records, view.sceneId, points);
+    ids = made.ids;
+    return { changes: made.changes };
+  });
+  if (room.gone) {
+    if (written && points.length >= 2 && store.getState().project === madeIn) showInfo(t('plan.measuresNotDrawn'));
+    return false;
+  }
+  if (written) select(view, ids, store.getState().records);
+  return written;
+}
+
+/** A field changed on the selected measures in the Selection tile (6.9): one op group. */
+export async function changeMeasures(ids: readonly string[], patch: MeasurePatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: measurePatchChanges(records, ids, patch) }));
+}
+
+/**
+ * Why an underlay wasn't added: a PDF (not read in this milestone), something that isn't a picture, no room, another
+ * project open, nothing that reads.
+ */
+export type UnderlayOutcome = 'pdf' | 'notPicture' | 'noRoom' | 'otherProject' | 'failed' | null;
+
+/**
+ * Pictures added under the room (6.9): the first picture of a choice, a drop or a paste, prepared as a board's pictures
+ * are (capped, colour kept, thumbnail made: src/features/storyboard/addPictures.ts), then an underlay with its picture
+ * in one op group, its middle at `centre` (metres). Each file is told by its name and type before anything is read
+ * (6.9 review, L6): a PDF is said ("Save it as a picture first"), anything that isn't a picture is said and never read,
+ * opened or run; of several pictures the first is added and the rest are said (L7). A file that can't be read is named
+ * in a notice. Only into the project the choice or drop began in (`madeIn`), and only while the scene still has a room.
+ * Added, it is said to be locked so walls are traced over it (L8), with the underlay's row drawn if it was hidden, its
+ * lock kept, so nothing is selected; everything in one notice.
+ */
+export async function addUnderlay(view: PlanView, files: readonly PictureFile[], centre: Point, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<UnderlayOutcome> {
+  if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
+  const kinds = files.map((file) => underlayFileKind({ name: file.name, type: file.file?.type }));
+  const pictures = files.filter((_, i) => kinds[i] === 'picture');
+  const said = [...(kinds.includes('pdf') ? [t('plan.underlay.pdf')] : []), ...(kinds.includes('other') ? [t('plan.underlay.notPicture')] : [])];
+  const [file] = pictures;
+  if (!file) {
+    if (said.length > 0) showInfo(said.join(' '));
+    return files.length === 0 ? null : kinds.includes('pdf') ? 'pdf' : 'notPicture';
+  }
+  if (pictures.length > 1) said.push(tn('plan.underlay.oneAtATime', pictures.length));
+  picturesBusy.setState((s) => ({ count: s.count + 1 }));
+  let prepared: Awaited<ReturnType<typeof prepare>> | null = null;
+  try {
+    prepared = await prepare({ kind: 'picture', file }, madeIn.file.nativeHandle);
+  } catch (error) {
+    showNotice([...said, localizeError(reason(error))].join(' '));
+    return 'failed';
+  } finally {
+    picturesBusy.setState((s) => ({ count: s.count - 1 }));
+  }
+  // Another project may have opened while the picture was prepared: it belongs to the one it was added in.
+  if (prepared.kind !== 'picture' || store.getState().project !== madeIn) return 'otherProject';
+  const picture = prepared.picture;
+  const outcome: { why: UnderlayOutcome } = { why: null };
+  const written = await store.getState().applyWith((records) => {
+    if (runRoomId(records, view.sceneId) === null) {
+      outcome.why = 'noRoom';
+      return { changes: [] };
+    }
+    const made = addUnderlayChanges(records, view.sceneId, picture, centre, madeIn.file.path);
+    return { changes: made.changes, alsoWrite: made.alsoWrite };
+  });
+  if (store.getState().project !== madeIn) return outcome.why ?? null;
+  if (outcome.why === 'noRoom') {
+    showInfo([...said, t('library.needsRoom')].join(' '));
+    return 'noRoom';
+  }
+  if (!written) {
+    if (said.length > 0) showInfo(said.join(' '));
+    return null;
+  }
+  showUnderlayRow([...said, t(rowState(layerStatesNow(), UNDERLAY_ROW).locked ? 'plan.underlay.addedLocked' : 'plan.underlay.added')]);
+  return null;
+}
+
+/**
+ * "Set scale" answered (6.9): the underlay scaled about the first of the two points so they are `typed` metres apart,
+ * one op group. Only into the project the two clicks were made in (`madeIn`); false when nothing was written.
+ */
+export async function setUnderlayScale(underlayId: string, a: Point, b: Point, typed: number, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<boolean> {
+  if (madeIn === null || store.getState().project !== madeIn) return false;
+  const wrote = { any: false };
+  const written = await store.getState().applyWith((records) => {
+    const changes = setScaleChanges(records, underlayId, a, b, typed);
+    wrote.any = changes.length > 0;
+    return { changes };
+  });
+  return written && wrote.any;
+}

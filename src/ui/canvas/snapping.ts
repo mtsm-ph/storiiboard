@@ -1,5 +1,16 @@
-import type { Point, Rect } from './types';
+import { boundsOf } from './hitTest';
+import type { CanvasItem, Point, Rect } from './types';
 import { rectsMeet } from './viewport';
+
+/**
+ * The items others may snap to (6.9 review, L5): those not `moving`, meeting `seen` (the view, world units), and not
+ * kept out by their `noSnap` (a plan's underlay). A board's items never set it, so a board snaps as it always has.
+ */
+export const snapTargetItems = (items: readonly CanvasItem[], moving: ReadonlySet<string>, seen: Rect): CanvasItem[] =>
+  items.filter((item) => !moving.has(item.id) && item.noSnap !== true && rectsMeet(boundsOf(item), seen));
+
+/** The snap points a point-to-point run's clicks join (6.2a): every item's but those kept out by `noSnap` (6.9 review, L5). */
+export const runSnapEnds = (items: readonly CanvasItem[]): Point[] => items.flatMap((item) => (item.noSnap === true ? [] : [...(item.snapPoints ?? [])]));
 
 // Snap guides (5.3): while a selection is moved, its left, centre and right and its top, middle and bottom snap to the same
 // lines of other items within 6 screen pixels, and the lines it aligns to are drawn until the gesture ends. Pure, over

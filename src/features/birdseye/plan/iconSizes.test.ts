@@ -28,16 +28,15 @@ describe('the icon size table', () => {
     expect(ICON_SIZES['production/snap-point']).toEqual({ width: 0.2, depth: 0.2 });
   });
 
-  it('makes wall, door and window the tools, and leaves what comes later unplaced', () => {
-    expect(Object.keys(TOOL_ICONS).sort()).toEqual(['set-art/door', 'set-art/wall', 'set-art/window']);
-    for (const id of ['production/measure']) {
-      expect(iconUse(id)).toBe('coming');
-      expect(iconSize(id)).toBeNull();
-    }
+  it('makes wall, door, window and measure the tools, and leaves nothing for later', () => {
+    expect(Object.keys(TOOL_ICONS).sort()).toEqual(['production/measure', 'set-art/door', 'set-art/wall', 'set-art/window']);
+    // 6.9: the measure is the Measure tool, never a placed icon.
+    expect(iconUse('production/measure')).toBe('tool');
+    expect(iconSize('production/measure')).toBeNull();
     expect(iconUse('set-art/wall')).toBe('tool');
     // 6.4: the cameras are placed; the field of view stays the cone's picture, drawn by each camera, never an item.
-    // 6.5: the lights, flags and frames are placed; 6.6: north and the sun path; 6.7: the cast group; the measure comes later.
-    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(1);
+    // 6.5: the lights, flags and frames are placed; 6.6: north and the sun path; 6.7: the cast group; 6.9: the measure.
+    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(0);
     expect(iconUse('camera/field-of-view')).toBe('shown');
     expect(iconSize('camera/field-of-view')).toBeNull();
   });

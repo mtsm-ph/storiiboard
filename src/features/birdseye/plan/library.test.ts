@@ -119,9 +119,9 @@ describe('placing an icon', () => {
     const { sceneId, setups } = await scene();
     expect(iconRefusal(records(), { sceneId, setupId: null }, 'grip/c-stand')).toBe('noSetup');
     expect(iconRefusal(records(), { sceneId, setupId: null }, 'set-art/table')).toBeNull();
-    // Cameras are placed from 6.4, lights from 6.5 and cast marks from 6.7; the measure comes later in the phase, and the
+    // Cameras are placed from 6.4, lights from 6.5 and cast marks from 6.7; the measure is a tool from 6.9, and the
     // field of view is never an item.
-    expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'production/measure')).toBe('coming');
+    expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'production/measure')).toBe('tool');
     expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'camera/field-of-view')).toBe('shown');
     expect(iconRefusal(records(), { sceneId, setupId: setups[0] }, 'set-art/wall')).toBe('tool');
     expect(placeIconChanges(records(), { sceneId, setupId: null }, 'grip/c-stand', { x: 0, y: 0 })).toEqual([]);

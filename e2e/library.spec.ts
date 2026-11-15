@@ -194,29 +194,20 @@ test('resizes and turns a table by typing, refuses a light with words, and keeps
   await field(page, 'Rotation').press('Enter');
   await expect.poll(async () => (await icons(page))[0]?.rotation).toBe(90);
 
-  // The measure comes later in this phase (cameras are placed from 6.4, lights from 6.5, cast marks from 6.7): greyed
-  // out, and it says so when dragged (with no ghost) or pressed.
-  const camera = libraryIcon(page, 'production/measure');
-  await expect(camera).toHaveAttribute('aria-disabled', 'true');
-  await expect(libraryTile(page).locator('[data-library-group="production"]')).toContainText('Greyed out: coming in this phase');
-  const comingNotice = page.getByText('Measure: coming in this phase.', { exact: true });
-  await expect(comingNotice).toHaveCount(0);
+  // The measure is the Measure tool from 6.9 (cameras are placed from 6.4, lights from 6.5, cast marks from 6.7): never
+  // greyed out, and pressed it picks the tool, placing nothing.
+  const measure = libraryIcon(page, 'production/measure');
+  await expect(measure).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(measure).toHaveAccessibleName('Measure: selects the Measure tool');
   // The Library scrolled down to the table when it was placed.
-  await camera.scrollIntoViewIfNeeded();
-  const box = await camera.boundingBox();
-  const target = await screen(page, 200, 200);
-  if (!box) throw new Error('no measure in the Library');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(target.x, target.y, { steps: 8 });
-  await expect(page.locator('[data-library-ghost]')).toHaveCount(0);
-  await page.mouse.up();
-  await expect(comingNotice).toBeVisible();
-  expect(await iconNames(page)).toEqual(['set-art/table']);
-  await camera.focus();
+  await measure.scrollIntoViewIfNeeded();
+  await measure.focus();
   await page.keyboard.press('Enter');
-  await expect(comingNotice).toBeVisible();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:measure');
   expect(await iconNames(page)).toEqual(['set-art/table']);
+  await canvas(page).focus();
+  await page.keyboard.press('v');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
 
   // Undo the turn, then redo it.
   await canvas(page).focus();

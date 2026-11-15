@@ -60,7 +60,21 @@ export const LIGHT_TOOL = 'host:light';
  */
 export const MARK_TOOL = 'host:mark';
 
-/** The plan's tools (6.2a, 6.2b, 6.4, 6.5, 6.7): Select, Hand, Wall, Door, Window, Camera, Light and Mark; the rest of the library is a tile (6.3). */
+/**
+ * The Measure tool's id (6.9): drawn point to point as the Wall tool is, each segment a dimension line; R picks it, free
+ * among the plan's letters (M is the mark's).
+ */
+export const MEASURE_TOOL = 'host:measure';
+
+/**
+ * "Set scale"'s two clicks (6.9): a run of exactly two points on the underlay, never snapped (a click is where the
+ * person saw the picture's corner, not the grid's), then the distance between them is asked. Not in the strip and no
+ * letter: the room's menu, the Layers row and the Selection tile start it.
+ */
+export const SCALE_TOOL = 'host:scale';
+export const SCALE_TOOL_SPEC: ToolSpec = { id: SCALE_TOOL, key: '', label: () => t('plan.tool.scale'), pointToPoint: true, maxPoints: 2, snap: false };
+
+/** The plan's tools (6.2a, 6.2b, 6.4, 6.5, 6.7, 6.9): Select, Hand, Wall, Door, Window, Camera, Light, Mark and Measure; the rest of the library is a tile (6.3). */
 export const PLAN_TOOLS: readonly ToolSpec[] = [
   { id: 'select', key: 'V', label: () => t('canvas.tool.select') },
   { id: 'hand', key: 'H', label: () => t('canvas.tool.hand') },
@@ -75,4 +89,9 @@ export const PLAN_TOOLS: readonly ToolSpec[] = [
   { id: LIGHT_TOOL, key: 'L', label: () => t('plan.tool.light'), size: { width: 40, height: 40 } },
   // A tape mark's own size (0.3 m), so the click's middle is where it goes.
   { id: MARK_TOOL, key: 'M', label: () => t('plan.tool.mark'), size: { width: 30, height: 28 } },
+  // A hairline while it's drawn, as the measure it makes is.
+  { id: MEASURE_TOOL, key: 'R', label: () => t('plan.tool.measure'), pointToPoint: true },
 ];
+
+/** What the plan's canvas takes as its tools: the strip's, and Set scale's two clicks (never in the strip). */
+export const PLAN_CANVAS_TOOLS: readonly ToolSpec[] = [...PLAN_TOOLS, SCALE_TOOL_SPEC];

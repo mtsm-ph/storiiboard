@@ -90,6 +90,12 @@ export interface CanvasItem extends Geometry {
    */
   snapPoints?: readonly Point[];
   /**
+   * Never something else snaps to (6.9 review, L5: a plan's underlay, a picture whose frame and middle lines mean
+   * nothing to what is traced over it): left out of the lines and points moves, drawn boxes and runs snap to. It still
+   * snaps itself when moved. Left out (a board's items), it is a snap target as always.
+   */
+  noSnap?: boolean;
+  /**
    * Moved only, never resized or turned by the handles (6.2b: a door or window, whose shape and turn come from its
    * wall). With one in the selection, the handles show its box and no anchors.
    */
@@ -170,6 +176,13 @@ export interface ToolSpec {
   pointToPoint?: boolean;
   /** How wide a run's segments are drawn while drawing, world units (a wall's thickness); else a hairline. */
   pathWidth?: number;
+  /**
+   * A point-to-point run that ends by itself once it has this many points (6.9: a plan's Set scale, two clicks), handed
+   * to the host as any finished run is. Left out (a wall's run), it runs until Enter, a double-click or Escape.
+   */
+  maxPoints?: number;
+  /** False: a run's points go exactly where the clicks are, never onto the grid or another item's points (6.9). */
+  snap?: boolean;
 }
 
 /** A grid in world units: its step, every how many steps a line is strong, and the step Alt snaps to. */

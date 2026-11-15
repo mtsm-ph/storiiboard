@@ -135,6 +135,40 @@ export const TILES_ADDED: readonly {
   },
 ];
 
+/**
+ * A built-in workspace's earlier defaults (6.9 review, L12). The store writes every workspace's layouts whenever any
+ * one is changed or saved, so a person who never touched this workspace has its default of that day stored as theirs.
+ * A stored layout still exactly one of these is read as never changed: it takes the default of today. One line per
+ * default replaced, never removed (TILES_ADDED's `previousDefault` did this for one case in 6.0).
+ */
+export const PREVIOUS_DEFAULTS: Readonly<Partial<Record<WorkspaceId, readonly (() => Layout)[]>>> = {
+  setup: [
+    // 6.0 to 6.8: Setups, Layers and the Library in the left column; the Selection tile alone at the right.
+    () => setupLeftColumn([400, 120, 288]),
+    // 6.8's review rounds, before the Library moved under the Selection tile in 6.9.
+    () => setupLeftColumn([272, 288, 248]),
+    () => setupLeftColumn([304, 256, 248]),
+  ],
+};
+
+/** The Setup workspace's default as it was from 6.0 to 6.8, its left column's three heights as given. */
+function setupLeftColumn(heights: number[]): Layout {
+  return {
+    root: split(
+      'row',
+      [split('column', [stack(['setups']), stack(['layers']), stack(['library'])], heights), split('column', [stack(['plan']), stack(['frames'])], [658, 150]), stack(['selection'])],
+      [248, 824, 336],
+    ),
+    maximized: null,
+  };
+}
+
+/** The workspace's default of today when `layout` is exactly one of its earlier ones (a default never changed), else `layout`. */
+export function withoutOldDefault(workspace: WorkspaceId, layout: Layout): Layout {
+  const old = PREVIOUS_DEFAULTS[workspace] ?? [];
+  return old.some((made) => sameLayout(layout, made())) ? workspaceById(workspace).defaultLayout() : layout;
+}
+
 const offeredKey = (added: (typeof TILES_ADDED)[number]) => `${added.workspace}:${added.tile}`;
 
 /**
@@ -179,8 +213,11 @@ function load(storage: Storage | undefined, settings: Storage | undefined): Part
   const due = TILES_ADDED.filter((added) => !offered.includes(offeredKey(added)));
   const entries = ALL_WORKSPACES.map((workspace) => {
     const entry = saved[workspace.id] as Partial<Record<'current' | 'saved', unknown>> | undefined;
-    const fromSaved = usable(entry?.saved);
-    const fromCurrent = usable(entry?.current);
+    // An earlier default kept only because another workspace was written is the default of today (PREVIOUS_DEFAULTS).
+    const keptSaved = usable(entry?.saved);
+    const keptCurrent = usable(entry?.current);
+    const fromSaved = keptSaved && withoutOldDefault(workspace.id, keptSaved);
+    const fromCurrent = keptCurrent && withoutOldDefault(workspace.id, keptCurrent);
     let savedLayout = fromSaved ?? workspace.defaultLayout();
     let current = fromCurrent ?? savedLayout;
     // A default has its new tiles already; only a layout the person saved can be missing one.

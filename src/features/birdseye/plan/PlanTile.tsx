@@ -1,10 +1,37 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { isTauriApp } from '../../../app/fileAccess';
 import { showInfo } from '../../../app/notice';
+import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../../../app/pictures';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
 import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind, type PlanLayer, type ShownItem } from '../../../core/model/plan';
+import { formatLength, hasGroupingComma, parseLength } from '../../../core/model/length';
+import {
+  CAMERA_ICON,
+  isCamera,
+  isGrip,
+  isIcon,
+  isLight,
+  isMark,
+  isMeasure,
+  isNorth,
+  isSun,
+  isUnderlay,
+  isWallFields,
+  LIGHT_ICON,
+  MIN_PLAN_SIZE,
+  OPENING_WIDTH,
+  planFields,
+  planItemLayer,
+  roomTitle,
+  sceneRoom,
+  wallEnds,
+  type OpeningKind,
+  type PlanLayer,
+  type Point as PlanPoint,
+  type ShownItem,
+} from '../../../core/model/plan';
 import { LAYER_ORDER, layeredItemsKeeper, layerNote, layerOfItem, type LayerLook, type PlanLayerStates } from '../../../core/model/planLayers';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
@@ -16,15 +43,18 @@ import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import { Button } from '../../../ui/Button';
 import { Canvas } from '../../../ui/canvas/Canvas';
+import { toWorld } from '../../../ui/canvas/viewport';
 import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
-import type { CanvasCommand, CanvasItem, Point, Tool } from '../../../ui/canvas/types';
+import type { CanvasCommand, CanvasItem, Point } from '../../../ui/canvas/types';
+import { useDrawnLevels } from '../../moodboards/PictureNode';
 import { TextField } from '../../../ui/fields';
 import { InAppWindow } from '../../../ui/InAppWindow';
 import { Menu, MenuGroup, MenuItem } from '../../../ui/Menu';
 import { Trans } from '../../../ui/Trans';
 import { useLocale } from '../../../ui/useLocale';
 import {
+  addUnderlay,
   changePlanGeometry,
   copyPlanSelection,
   copySetup,
@@ -32,6 +62,7 @@ import {
   deletePlanSelection,
   deleteRoom,
   deleteUnusedRoom,
+  drawMeasures,
   drawWalls,
   duplicatePlanSelection,
   flipDoors,
@@ -46,6 +77,7 @@ import {
   turnCameras,
   reorderPlan,
   separateCopy,
+  setUnderlayScale,
   chooseRoom,
   type PlanView,
 } from './planActions';
@@ -53,10 +85,13 @@ import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
 import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
-import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
-import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
+import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, MEASURE_TOOL, PLAN_CANVAS_TOOLS, PLAN_TOOLS, PLAN_ZOOM, planScale, SCALE_TOOL, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { roomUnderlays, scaleTarget, underlayAt, underlayName, underlayPictures, unscaledIn } from './underlayEdits';
 import { blockingLooks } from './markLooks';
-import { clearLayersSaid, revealLayers, showAllLayers, soloLayer, useLayersSaid, usePlanLayerStates } from './layersStore';
+import { choosePlanTool, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
+import { pasteIsPicture, planClipMarker } from './planClipboard';
+import { groupName } from './library';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -231,8 +266,25 @@ export function PlanTile() {
 
 const MENU_BUTTON = 'sb-label flex h-7 items-center gap-1.5 border border-text px-2.5 hover:bg-surface-raised focus-visible:-outline-offset-4';
 
-/** The room's menu (6.2b): Rename, Use another room…, Make a separate copy (shared rooms), Delete room (unshared ones). */
-function RoomMenu({ sceneId, room, shared }: { sceneId: string; room: SbdRecord; shared: boolean }) {
+/**
+ * The room's menu (6.2b): Rename, Use another room…, Make a separate copy (shared rooms), Delete room (unshared ones);
+ * Add underlay… and, with an underlay in the room, Set scale… (6.9).
+ */
+function RoomMenu({
+  sceneId,
+  room,
+  shared,
+  hasUnderlay,
+  onAddUnderlay,
+  onSetScale,
+}: {
+  sceneId: string;
+  room: SbdRecord;
+  shared: boolean;
+  hasUnderlay: boolean;
+  onAddUnderlay: () => void;
+  onSetScale: () => void;
+}) {
   const [open, setOpen] = useState<'rename' | 'choose' | null>(null);
   const name = roomTitle(planFields(room.props));
   return (
@@ -268,6 +320,26 @@ function RoomMenu({ sceneId, room, shared }: { sceneId: string; room: SbdRecord;
               >
                 {t('plan.useAnotherRoom')}
               </MenuItem>
+              <MenuItem
+                data-add-underlay=""
+                onClick={() => {
+                  close();
+                  onAddUnderlay();
+                }}
+              >
+                {t('plan.underlay.add')}
+              </MenuItem>
+              {hasUnderlay && (
+                <MenuItem
+                  data-set-scale=""
+                  onClick={() => {
+                    close();
+                    onSetScale();
+                  }}
+                >
+                  {t('plan.underlay.setScale')}
+                </MenuItem>
+              )}
               {shared && (
                 <MenuItem
                   onClick={() => {
@@ -433,21 +505,104 @@ export function layerKeyFor(event: { code: string; key?: string; shiftKey?: bool
   return digit === '0' ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
 }
 
+/** The two points Set scale's clicks left (6.9, metres), for its question, with the underlay and the project they were made in. */
+interface ScaleAsk {
+  underlayId: string;
+  a: PlanPoint;
+  b: PlanPoint;
+}
+
 /**
- * A tool chosen (6.8 review, L7): the Wall, Door and Window tools draw on the set's layer, so that layer is shown and
- * unlocked first (with the usual notice), as placing on it would: a door is never refused for walls out of sight.
+ * Set scale's question (6.9): the real distance between the two points, in any form src/core/model/length.ts reads
+ * ("4m", "12' 6\""). One that can't be read, or isn't above 0, is refused in words and nothing is written.
  */
-function choosePlanTool(next: Tool): void {
-  if (next === WALL_TOOL || next === DOOR_TOOL || next === WINDOW_TOOL) revealLayers(['set-art']);
-  planStore.getState().setTool(next);
+function ScaleWindow({ ask, onClose, onScale }: { ask: ScaleAsk; onClose: () => void; onScale: (metres: number) => void }) {
+  const unit = usePlanUnit();
+  const [typed, setTyped] = useState('');
+  const [refused, setRefused] = useState<string | null>(null);
+  const clicked = formatLength(Math.hypot(ask.b.x - ask.a.x, ask.b.y - ask.a.y), unit);
+  return (
+    <InAppWindow title={t('plan.underlay.scaleTitle')} onClose={onClose} width={380}>
+      <form
+        noValidate
+        data-scale-window=""
+        className="flex flex-col gap-3 p-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (hasGroupingComma(typed)) {
+            setRefused(t('plan.groupingComma'));
+            return;
+          }
+          const metres = parseLength(typed, unit);
+          if (metres === null || !(metres > 0)) {
+            setRefused(t('plan.underlay.scaleRefused'));
+            return;
+          }
+          onScale(metres);
+        }}
+      >
+        <p className="text-[13px]">
+          <Trans k="plan.underlay.scaleNote" parts={{ now: <span className="font-mono">{clicked}</span> }} />
+        </p>
+        <TextField
+          label={t('plan.underlay.scaleDistance')}
+          mono
+          data-scale-distance=""
+          value={typed}
+          autoComplete="off"
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- the window exists to ask for this
+          autoFocus
+          aria-invalid={refused !== null || undefined}
+          onChange={(event) => {
+            setTyped(event.currentTarget.value);
+            setRefused(null);
+          }}
+        />
+        {refused !== null && (
+          <p role="alert" className="text-[12px]" data-scale-refused="">
+            {refused}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            {t('plan.cancel')}
+          </Button>
+          <Button variant="primary" type="submit" disabled={typed.trim() === ''}>
+            {t('plan.underlay.scaleApply')}
+          </Button>
+        </div>
+      </form>
+    </InAppWindow>
+  );
 }
 
 /** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
 const layerData = (look: LayerLook | undefined) => ({ ...(look?.dim ? { dim: true } : {}), ...(look?.locked ? { locked: true } : {}) });
 
-/** "2 layers hidden · 1 locked" (6.8) and Show all, while any layer is hidden or locked, so a missing item isn't a mystery. */
+/**
+ * "2 layers hidden · 1 locked" (6.8) and Show all, while any layer is hidden or locked, so a missing item isn't a mystery.
+ * During a solo (L2) "Camera solo" and End solo instead: the solo's locks are its own, not a count to clear.
+ */
 function LayersNote({ states }: { states: PlanLayerStates }) {
+  const solo = useSoloLayer();
   const { hidden, locked } = layerNote(states);
+  if (solo !== null) {
+    return (
+      <p className="flex min-w-0 items-center gap-1.5 text-[12px]" data-layers-note="" data-layers-solo={solo}>
+        <span className="truncate">{t('layers.note.solo', { layer: groupName(solo) })}</span>
+        <button
+          type="button"
+          data-layers-end-solo=""
+          className="sb-label h-7 shrink-0 px-1 underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4"
+          onClick={() => {
+            soloLayer(solo, 'plan');
+          }}
+        >
+          {t('layers.endSolo')}
+        </button>
+      </p>
+    );
+  }
   if (hidden === 0 && locked === 0) return null;
   const parts = [hidden > 0 ? tn('layers.note.hidden', hidden) : null, locked > 0 ? tn('layers.note.locked', locked) : null].filter((p): p is string => p !== null);
   return (
@@ -519,10 +674,74 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // What the last layer key (or the header's Show all) did, read out by the canvas's spoken line (L3).
   const layersSaid = useLayersSaid('plan');
   const visible = layered.visible;
+  // Each underlay's picture (6.9), read from its `media` record: one missing is drawn "gone", as a board's is.
+  const pictures = useMemo(() => underlayPictures(records, visible), [records, visible]);
   const built = useMemo(
-    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks),
-    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks],
+    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks, pictures),
+    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks, pictures],
   );
+  // Which size each underlay's picture is drawn at now, for the end-to-end tests (as a board's are).
+  const levels = useDrawnLevels();
+  const pictureLevels = useMemo(() => JSON.stringify(Object.fromEntries(visible.flatMap((item) => (isUnderlay(item.fields) && levels[item.record.id] ? [[item.record.id, levels[item.record.id]]] : [])))), [visible, levels]);
+  // Read once per change of the records or the room (6.9 review, L10), never on a hover's render.
+  const underlays = useMemo(() => roomUnderlays(records, room.id), [records, room.id]);
+  const hasUnderlay = underlays.length > 0;
+  const unscaled = useMemo(() => unscaledIn(records, room.id), [records, room.id]);
+  // Set scale's question (6.9), once its two clicks are in.
+  const [scaleAsk, setScaleAsk] = useState<ScaleAsk | null>(null);
+  const scalingNow = tool === SCALE_TOOL;
+  const scaling = usePlan((s) => s.scaling);
+  // The underlay Set scale's first click landed on (6.9 review, L2), so the hint names it until the second.
+  const scaleFirst = usePlan((s) => s.scaleFirst);
+  /** What the hint calls an underlay among several: its name or its picture's file name, else its number back to front. */
+  const nameOf = (id: string): string => underlayName(records, id) ?? t('plan.underlay.numbered', { number: underlays.findIndex((r) => r.id === id) + 1 });
+  /**
+   * Set scale (6.9): two clicks on the selected underlay, else the room's frontmost, or whichever is topmost under the
+   * first click (L2); its row drawn first when hidden (L4); the plan takes the focus for them.
+   */
+  const startScale = () => {
+    const target = scaleTarget(projectStore.getState().records, room.id, planStore.getState().selections[key] ?? []);
+    if (target === null) {
+      showInfo(t('plan.underlay.none'));
+      return;
+    }
+    startUnderlayScale(target);
+    holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
+  };
+  /** Pictures added under the room (6.9): their middle at `centre` (metres), else the middle of the view. */
+  const addPictures = (files: readonly PictureFile[], centre: PlanPoint | null) => {
+    if (files.length === 0) return;
+    const view0 = planViewportOf(planStore.getState().viewports, key);
+    void addUnderlay(view, files, centre ?? { x: toMetres(view0.cx), y: toMetres(view0.cy) }, madeIn);
+  };
+  /** Where a drop at a page point lands on the plan, metres; null off the canvas. */
+  const dropAt = (client: { x: number; y: number }): PlanPoint | null => {
+    const frame = holder.current?.querySelector<HTMLElement>('[data-canvas]');
+    if (!frame) return null;
+    const box = frame.getBoundingClientRect();
+    const at = toWorld(planViewportOf(planStore.getState().viewports, key), { width: Math.max(80, Math.round(frame.clientWidth)), height: Math.max(80, Math.round(frame.clientHeight)) }, { x: client.x - box.left, y: client.y - box.top });
+    return { x: toMetres(at.x), y: toMetres(at.y) };
+  };
+  // In the desktop app Tauri catches a file drop before the page sees it and Rust reports the point (src/app/pictures.ts).
+  useEffect(() => {
+    if (!isTauriApp) return;
+    let live = true;
+    let stop: (() => void) | null = null;
+    void onWindowDrop((files, at) => {
+      const over = document.elementFromPoint(at.x, at.y);
+      if (over && holder.current?.contains(over)) addPictures(files, dropAt(at));
+    }).then((unlisten) => {
+      if (live) stop = unlisten;
+      else unlisten();
+    });
+    return () => {
+      live = false;
+      stop?.();
+    };
+    // The canvas is keyed per view and per opening of a project, so what these read never changes under it; the view and
+    // the refs are read as they are when a drop lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(visible, unit), [visible, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -608,12 +827,19 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         const [start, end] = wallEnds(fields);
         return { id: record.id, level, layer: layerOfItem(records, record), ...fields, start, end, labels: heightLines(fields, unit, false) };
       }
+      // An underlay (6.9): its box, its picture's address (null drawn "gone") and whether its scale is set.
+      if (isUnderlay(fields)) return { id: record.id, level, layer: layerOfItem(records, record), ...fields, centre: iconCentre(fields), sha: fields.mediaId === null ? null : (pictures.get(fields.mediaId) ?? null) };
+      // A measure (6.9): its ends, as a wall's, and its label.
+      if (isMeasure(fields)) {
+        const [start, end] = wallEnds(fields);
+        return { id: record.id, level, layer: layerOfItem(records, record), ...fields, start, end, labels: measureLines(fields, unit) };
+      }
       const wall = walls.get(fields.wallId);
       return { id: record.id, level, layer: layerOfItem(records, record), ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
     };
     return JSON.stringify(visible.map((item) => ({ ...itemData(item), ...layerData(layered.looks.get(item.record.id)) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
-  }, [visible, layered.looks, looks, lights, suns, blocking, unit, records, zonesKey]);
+  }, [visible, layered.looks, looks, lights, suns, blocking, unit, records, zonesKey, pictures]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -651,24 +877,83 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
         {header}
         <div className="flex h-7 min-w-0 max-w-full">
-          <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
+          <RoomMenu
+            sceneId={view.sceneId}
+            room={room}
+            shared={also.length > 0}
+            hasUnderlay={hasUnderlay}
+            onAddUnderlay={() => {
+              void choosePictures(false).then((files) => {
+                addPictures(files, null);
+              });
+            }}
+            onSetScale={startScale}
+          />
         </div>
         <AlsoIn scenes={also} />
         <div className="flex h-7 empty:hidden">
           <SetupCopyOffer view={view} />
         </div>
         <LayersNote states={layerStates} />
+        {/* A quiet note while an underlay is still to be set to scale (6.9); while its two clicks are under way, what to do. */}
+        {scalingNow ? (
+          <p className="text-[12px]" data-scale-hint="">
+            {/* With several underlays, which one the clicks scale (L2): the one started for, until the first click picks. */}
+            {underlays.length > 1
+              ? scaleFirst !== null && scaleFirst !== ''
+                ? t('plan.underlay.scaleHintOn', { name: nameOf(scaleFirst) })
+                : t('plan.underlay.scaleHintMany', { name: nameOf(scaling ?? underlays.at(-1)?.id ?? '') })
+              : t('plan.underlay.scaleHint')}
+          </p>
+        ) : (
+          unscaled && (
+            <p className="flex min-w-0 items-center gap-1.5 text-[12px] text-text-muted" data-underlay-unscaled="">
+              <span className="truncate">{t('plan.underlay.unscaled')}</span>
+              <button type="button" data-underlay-scale-now="" className="sb-label h-7 shrink-0 px-1 text-text underline underline-offset-2 hover:no-underline focus-visible:-outline-offset-4" onClick={startScale}>
+                {t('plan.underlay.setScale')}
+              </button>
+            </p>
+          )
+        )}
       </div>
       <div className="shrink-0" data-plan-tools="">
         <ToolStrip tool={tool} onTool={choosePlanTool} tools={PLAN_TOOLS} />
       </div>
-      <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes pictures dropped on the plan as underlays (6.9); the canvas inside is the control */}
+      <div
+        ref={holder}
+        className="min-h-0 min-w-0 flex-1"
+        data-plan-data={data}
+        data-plan-unit={unit}
+        data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}
+        data-picture-levels={pictureLevels}
+        // Marks the plan as taking its own drops and pastes, so the storyboard's listeners leave them (useBoardDrops.ts).
+        data-plan-drops=""
+        onPointerDownCapture={(event) => {
+          // Set scale's first click among several underlays (L2): the one it lands on is named in the hint. The canvas
+          // takes the click as ever; the underlay scaled is worked out again from the points it hands back. '' is a first
+          // click on none, so the second never takes its place.
+          if (!scalingNow || scaleFirst !== null || event.button !== 0 || underlays.length < 2) return;
+          const at = dropAt({ x: event.clientX, y: event.clientY });
+          if (at) planStore.getState().setScaleFirst(underlayAt(projectStore.getState().records, room.id, at, planStore.getState().scaling) ?? '');
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes('Files')) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return;
+          event.preventDefault();
+          addPictures([...event.dataTransfer.files].map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));
+        }}
+      >
         <Canvas
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}
           items={items}
           selection={selection}
           onSelectionChange={(ids) => {
-            clearLayersSaid();
+            // The layer words leave the spoken line with it (layersStore.ts, L3).
             planStore.getState().select(key, ids);
           }}
           announcement={layersSaid}
@@ -718,11 +1003,52 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             setHover(null);
             return placeOpening(view, at, placing);
           }}
-          onPath={(points, used) => (used === WALL_TOOL ? drawWalls(view, points, madeIn) : undefined)}
+          onPath={(points, used) => {
+            if (used === WALL_TOOL) return drawWalls(view, points, madeIn);
+            if (used === MEASURE_TOOL) return drawMeasures(view, points, madeIn);
+            if (used !== SCALE_TOOL) return undefined;
+            // Set scale's two clicks (6.9): the underlay read now, before the canvas goes back to Select (which ends the
+            // scaling); the question opens on the next tick, once the click that ended the run is over, and only while
+            // the project they were made in is the one open.
+            const preferred = planStore.getState().scaling;
+            const [a, b] = points;
+            if (!a || !b) return undefined;
+            const first = { x: toMetres(a.x), y: toMetres(a.y) };
+            const now = projectStore.getState().records;
+            // Only for an underlay of the room shown (L1): one started in another view is never rescaled unseen.
+            if (preferred === null || !roomUnderlays(now, room.id).some((r) => r.id === preferred)) {
+              showInfo(t('plan.underlay.scaleOtherRoom'));
+              return undefined;
+            }
+            // The topmost underlay under the first click, the one started for first (L2); none under it: said, and the
+            // tool kept for two more clicks (picked again once the canvas has gone back to Select).
+            const underlayId = underlayAt(now, room.id, first, preferred);
+            if (underlayId === null) {
+              showInfo(t('plan.underlay.clickOnPicture'));
+              setTimeout(() => {
+                if (projectStore.getState().project === madeIn && planStore.getState().tool === 'select') planStore.getState().startScale(preferred);
+              }, 0);
+              return undefined;
+            }
+            setTimeout(() => {
+              if (projectStore.getState().project !== madeIn) return;
+              setScaleAsk({ underlayId, a: first, b: { x: toMetres(b.x), y: toMetres(b.y) } });
+            }, 0);
+            return undefined;
+          }}
+          onPasteData={(transfer) => {
+            // A picture pasted onto the plan is an underlay (6.9), unless the clipboard is the plan's own copy, told by the
+            // mark its Copy and Cut put there (6.9 review, M2: planClipboard.ts), not by focus history: then the plan's
+            // own items paste, as they always have.
+            if (!pasteIsPicture(transfer, planStore.getState().clipboard.length > 0)) return false;
+            addPictures([...transfer.files].map(fromFile), null);
+            return true;
+          }}
+          onSystemCopy={planClipMarker.markSystemClipboard}
           onCommand={run}
           canPaste={clipboard.length > 0}
           fixedColours={PAPER_COLOURS}
-          tools={PLAN_TOOLS}
+          tools={PLAN_CANVAS_TOOLS}
           scale={scale}
           zoomLimits={PLAN_ZOOM}
           // The plan's own least size, a centimetre (6.5 review): a board's 8 units would be 8 cm here, deeper than a flag.
@@ -770,6 +1096,24 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           }}
         />
       </div>
+      {scaleAsk && (
+        <ScaleWindow
+          ask={scaleAsk}
+          onClose={() => {
+            setScaleAsk(null);
+            holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
+          }}
+          onScale={(metres) => {
+            const asked = scaleAsk;
+            setScaleAsk(null);
+            holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
+            void setUnderlayScale(asked.underlayId, asked.a, asked.b, metres, madeIn).then((done) => {
+              if (done) showInfo(t('plan.underlay.scaled', { distance: formatLength(metres, unit) }));
+              else if (projectStore.getState().project === madeIn) showInfo(t('plan.underlay.scaleNotSet'));
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
