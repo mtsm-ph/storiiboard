@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 /// The service's name, from the File Provider domain id macOS stores on its folders.
 pub fn service_from_domain(domain: &str) -> &'static str {
@@ -192,19 +192,22 @@ pub fn projects_folder(documents: &Path, videos: &Path, home: &Path) -> PathBuf 
     home.to_path_buf()
 }
 
-fn home(app: &AppHandle) -> Result<PathBuf, String> {
+fn home<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path().home_dir().map_err(|error| error.to_string())
 }
 
 /// The sync service a project or folder is in, for the one-time note; null when it's only on this computer.
 #[tauri::command]
-pub async fn sync_service(app: AppHandle, path: String) -> Result<Option<String>, String> {
+pub async fn sync_service<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<Option<String>, String> {
     Ok(service(Path::new(&path), &home(&app)?).map(str::to_owned))
 }
 
 /// The folder New project's Save dialog starts in.
 #[tauri::command]
-pub async fn projects_folder_for_new(app: AppHandle) -> Result<String, String> {
+pub async fn projects_folder_for_new<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
     let paths = app.path();
     let home = home(&app)?;
     let documents = paths

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::os;
@@ -2144,8 +2144,8 @@ pub fn serve_copy(cache: &PlaybackCache, path: &str, range: Option<&str>) -> Cop
 /// Makes a video's playback copy (or finds it) and returns where it is, reporting progress on `progress`. The request
 /// goes on the list before the original is even checked, so a Cancel reaches it while a slow drive wakes.
 #[tauri::command]
-pub async fn playback_make(
-    app: AppHandle,
+pub async fn playback_make<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     handle: Option<u32>,
     lut: Option<Lut>,
@@ -2169,8 +2169,8 @@ pub async fn playback_make(
 
 /// The finished playback copy of a video, or null when it hasn't been made (or the copies are being moved).
 #[tauri::command]
-pub async fn playback_find(
-    app: AppHandle,
+pub async fn playback_find<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     handle: Option<u32>,
     lut: Option<String>,
@@ -2193,27 +2193,27 @@ pub async fn playback_find(
 /// Stops the copy of a video being made (under its LUT, if any). Only work already asked for can be stopped, so it
 /// reads nothing. Off the main thread, so it never holds up the window.
 #[tauri::command(async)]
-pub fn playback_cancel(app: AppHandle, path: String, lut: Option<String>) -> bool {
+pub fn playback_cancel<R: Runtime>(app: AppHandle<R>, path: String, lut: Option<String>) -> bool {
     app.state::<PlaybackCache>()
         .cancel(&job_name(&path, lut.as_deref()))
 }
 
 #[tauri::command]
-pub async fn playback_info(app: AppHandle) -> Result<CacheInfo, String> {
+pub async fn playback_info<R: Runtime>(app: AppHandle<R>) -> Result<CacheInfo, String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().info())
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn playback_clear(app: AppHandle) -> Result<usize, String> {
+pub async fn playback_clear<R: Runtime>(app: AppHandle<R>) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().clear())
         .await
         .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn playback_set_cap(app: AppHandle, gb: u64) -> Result<(), String> {
+pub async fn playback_set_cap<R: Runtime>(app: AppHandle<R>, gb: u64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().set_cap(gb))
         .await
         .map_err(|e| e.to_string())?
@@ -2221,7 +2221,7 @@ pub async fn playback_set_cap(app: AppHandle, gb: u64) -> Result<(), String> {
 
 /// Sets the free space playback copies leave on their drive, in GB.
 #[tauri::command]
-pub async fn playback_set_floor(app: AppHandle, gb: u64) -> Result<(), String> {
+pub async fn playback_set_floor<R: Runtime>(app: AppHandle<R>, gb: u64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().set_floor(gb))
         .await
         .map_err(|e| e.to_string())?
@@ -2229,7 +2229,10 @@ pub async fn playback_set_floor(app: AppHandle, gb: u64) -> Result<(), String> {
 
 /// Asks for a folder (another drive, say) and moves the copies there. Null when the dialog was cancelled.
 #[tauri::command]
-pub async fn playback_move(app: AppHandle, title: String) -> Result<Option<usize>, String> {
+pub async fn playback_move<R: Runtime>(
+    app: AppHandle<R>,
+    title: String,
+) -> Result<Option<usize>, String> {
     let picked = crate::export::dialog(&app, move |handle| {
         let mut builder = handle.dialog().file().set_title(title);
         if let Some(window) = handle.get_webview_window("main") {
@@ -2250,7 +2253,7 @@ pub async fn playback_move(app: AppHandle, title: String) -> Result<Option<usize
 
 /// Moves the copies back to the app's cache folder.
 #[tauri::command]
-pub async fn playback_move_back(app: AppHandle) -> Result<usize, String> {
+pub async fn playback_move_back<R: Runtime>(app: AppHandle<R>) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || app.state::<PlaybackCache>().move_to(None))
         .await
         .map_err(|e| e.to_string())?

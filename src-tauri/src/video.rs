@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{ipc::Response, AppHandle, Manager};
+use tauri::{ipc::Response, AppHandle, Manager, Runtime};
 
 use crate::pictures::Offered;
 use crate::sbd::OpenFiles;
@@ -1374,7 +1374,7 @@ pub(crate) struct Access<'a> {
 }
 
 impl<'a> Access<'a> {
-    pub(crate) fn of(app: &'a AppHandle, handle: Option<u32>) -> Self {
+    pub(crate) fn of<R: Runtime>(app: &'a AppHandle<R>, handle: Option<u32>) -> Self {
         Self {
             offered: app.state::<Offered>().inner(),
             known: app.state::<KnownVideos>().inner(),
@@ -1430,8 +1430,8 @@ impl<'a> Access<'a> {
 /// What ffprobe says about a video the person dropped or chose, or one the open project links. A video the person
 /// handed over this session is remembered once it reads, so it reads again next time.
 #[tauri::command]
-pub async fn video_probe(
-    app: AppHandle,
+pub async fn video_probe<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     handle: Option<u32>,
 ) -> Result<Probe, String> {
@@ -1451,8 +1451,8 @@ pub async fn video_probe(
 
 /// One frame of a video as a PNG (see `still`).
 #[tauri::command]
-pub async fn video_still(
-    app: AppHandle,
+pub async fn video_still<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     handle: Option<u32>,
     frame: u64,
@@ -1472,8 +1472,8 @@ pub async fn video_still(
 /// Saves a frame's clip as a file (2.8b), to the file the Save dialog picked (export_choose_file), once.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn clip_save(
-    app: AppHandle,
+pub async fn clip_save<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     handle: Option<u32>,
     in_frame: u64,
@@ -1527,8 +1527,8 @@ pub struct FileStatus {
 
 /// The status of each path, in order: null for one the page may not ask about.
 #[tauri::command]
-pub async fn video_status(
-    app: AppHandle,
+pub async fn video_status<R: Runtime>(
+    app: AppHandle<R>,
     paths: Vec<String>,
     handle: Option<u32>,
 ) -> Result<Vec<Option<FileStatus>>, String> {
@@ -1545,20 +1545,20 @@ pub async fn video_status(
 
 /// How many videos this computer remembers the person handed over.
 #[tauri::command]
-pub fn known_videos_count(app: AppHandle) -> usize {
+pub fn known_videos_count<R: Runtime>(app: AppHandle<R>) -> usize {
     app.state::<KnownVideos>().count()
 }
 
 /// Forgets them all; a project's videos outside its folder then need Relink (or a drop) to read again.
 #[tauri::command]
-pub fn known_videos_forget(app: AppHandle) -> Result<(), String> {
+pub fn known_videos_forget<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     app.state::<KnownVideos>().forget_all()
 }
 
 /// The Open dialog for videos; the files picked become readable.
 #[tauri::command]
-pub async fn video_choose(
-    app: AppHandle,
+pub async fn video_choose<R: Runtime>(
+    app: AppHandle<R>,
     multiple: bool,
     title: String,
     kind: String,

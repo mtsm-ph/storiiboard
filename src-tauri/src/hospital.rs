@@ -7,7 +7,7 @@ use std::future::Future;
 
 use reqwest::Url;
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use crate::{geocode, net, services};
 
@@ -213,8 +213,8 @@ where
 /// Hospitals around a place, the names in `language` where the map has them. Asks the service switch first: a service
 /// turned off answers with why (services::OFF_PREFIX) and nothing is sent.
 #[tauri::command]
-pub async fn nearest_hospitals(
-    app: AppHandle,
+pub async fn nearest_hospitals<R: Runtime>(
+    app: AppHandle<R>,
     latitude: f64,
     longitude: f64,
     language: String,

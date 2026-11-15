@@ -6,21 +6,22 @@
 // On the click, in the capture phase before the app's own handlers: a handler that moves focus on (to a text field it
 // opens, to the next row) still has the last word. Only a pointer's click (detail > 0); the keyboard's click is on what
 // already has focus. Not when the press itself chose to keep focus where it was (its pointerdown default prevented, as a
-// canvas's own handles and the slash menu's options do), nor on an element focus can't reach.
+// canvas's own handles and the slash menu's options do) or never let it be seen here, nor on an element focus can't reach.
 
 const CLICKABLE = 'button, [role="button"], summary, a[href]';
 
-// Whether the press that leads to the click kept focus where it was, on purpose. Cleared as each press starts, then
-// read in the bubble phase on the window, after the app's own pointerdown handlers have run (one that stops the event
-// leaves it cleared).
-let pressKeptFocus = false;
+// What the press that leads to the click did with focus: `unseen` as each press starts, then read in the bubble phase on
+// the window, after the app's own pointerdown handlers have run. A press that never got there (a handler stopped it, as
+// the eyedropper's pick does, preventing it too) stays unseen, and counts as one that kept focus: its click focuses
+// nothing, so a pick never moves focus onto the frame under the picture. A plain press reaches it in every engine.
+let press: 'unseen' | 'kept' | 'free' = 'unseen';
 
 function onPressStart(): void {
-  pressKeptFocus = false;
+  press = 'unseen';
 }
 
 function onPointerDown(event: PointerEvent): void {
-  pressKeptFocus = event.defaultPrevented;
+  press = event.defaultPrevented ? 'kept' : 'free';
 }
 
 /** The element a pointer click on `target` should focus, or null. Exported for its test. */
@@ -33,9 +34,9 @@ export function clickFocusTarget(target: EventTarget | null): HTMLElement | null
 }
 
 function onClick(event: MouseEvent): void {
-  const kept = pressKeptFocus;
-  pressKeptFocus = false;
-  if (event.detail === 0 || kept) return;
+  const seen = press;
+  press = 'unseen';
+  if (event.detail === 0 || seen !== 'free') return;
   clickFocusTarget(event.target)?.focus({ preventScroll: true });
 }
 

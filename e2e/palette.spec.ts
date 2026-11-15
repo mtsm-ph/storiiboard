@@ -159,6 +159,18 @@ test('the eyedropper adds the colour under the pointer from any frame’s pictur
   await expect(swatches(page).nth(1)).toBeFocused();
 });
 
+test('an eyedropper pick leaves focus on Pick from a frame, never on the frame under the picture', async ({ page }) => {
+  await choosePicture(page, 'p3-red.jpg');
+  const pick = inspector(page).getByRole('button', { name: 'Pick from a frame' });
+  await pick.click();
+  await expect(pick).toBeFocused();
+  await board(page).locator('[data-shot-id] img[data-frame-image]').first().click();
+  await expect(page.getByRole('status').getByText(/^Added #[0-9A-F]{6} to SC 01’s palette\.$/)).toBeVisible();
+  await expect(pick).toHaveAttribute('aria-pressed', 'false');
+  // The pick's press never reached the click-focus listener (src/ui/clickFocus.ts), so its click focuses nothing.
+  await expect(pick).toBeFocused();
+});
+
 test('the Color script lists every scene’s palette in script order, and opens a scene', async ({ page }) => {
   await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
   await page.getByRole('button', { name: /^Layout/ }).click();

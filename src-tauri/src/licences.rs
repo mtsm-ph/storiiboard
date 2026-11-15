@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::Path;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 /// The files, as `bundle.resources` names them.
 pub const NAMES: [&str; 11] = [
@@ -35,7 +35,7 @@ fn read(dir: &Path, name: &str) -> Result<String, String> {
 
 /// One of the licences, as text.
 #[tauri::command]
-pub async fn licence_text(app: AppHandle, name: String) -> Result<String, String> {
+pub async fn licence_text<R: Runtime>(app: AppHandle<R>, name: String) -> Result<String, String> {
     let dir = app.path().resource_dir().map_err(|_| MISSING.to_string())?;
     tauri::async_runtime::spawn_blocking(move || read(&dir, &name))
         .await

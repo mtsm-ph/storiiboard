@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
+import { keepBrowserMenuOut } from '../../ui/menuKey';
 import { luminance, parseHex as rgbOf } from '../../ui/theme/generator/color';
 import { BOARD_PAPER, parseHex, STICKY_INK, SWATCHES } from './items';
 
@@ -131,7 +132,9 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
         <span className="font-mono text-[12px]">{mixed ? t('moodboard.mixed') : (value ?? '—')}</span>
       </button>
       {open && (
-        <div id={panel} role="group" aria-label={label} style={{ position: 'fixed', ...anchor }} className="z-30 flex w-56 flex-col gap-2 border border-text bg-surface p-2">
+        // The menu key on a swatch opens no browser menu over the panel; the hex field keeps its own.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- only keeps the browser's menu out; the buttons inside are the controls
+        <div id={panel} role="group" aria-label={label} onContextMenu={keepBrowserMenuOut} style={{ position: 'fixed', ...anchor }} className="z-30 flex w-56 flex-col gap-2 border border-text bg-surface p-2">
           <div className="grid grid-cols-6 gap-2 p-1">
             {swatches.map((hex) => (
               <button

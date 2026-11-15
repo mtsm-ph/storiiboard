@@ -1,0 +1,927 @@
+//! The commands as the page calls them (6.16): by their registered name, with the arguments as JSON in the shape the
+//! page sends (src/core/storage/tauriDriver.ts and the other `invoke` calls in src), through the app's permissions,
+//! and the answer read back as JSON in the shape the page reads. The app is built on Tauri's mock runtime with the
+//! real app's commands, plugins and state (lib.rs's `with_commands` and `manage_at_start`) and the real config, so
+//! the capability files are checked as in the app. Each inner function has its own unit tests; this is the join.
+//!
+//! Left out, each for its reason: the dialogs (`*_choose`, `playback_move`, a new tile server's question) can't be
+//! answered here; anything that goes to the network (weather, hospitals, an address search that gets as far as the
+//! service, a tile not in the cache) would contact a real service; ffmpeg's commands (`video_probe`, `video_still`,
+//! `playback_make`, `playback_find`, `clip_save`) and the opener's (`open_link`, `open_pdf`, `reveal_original`,
+//! `sbd_show_backups`) start another program; `projects_folder_for_new` can make a folder in this computer's Videos.
+//! The export commit is tested from inside export.rs (export/ipc_tests.rs), the one place the Save dialog's choice can
+//! be stood in for without a dialog.
+
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::{json, Value as Json};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
+use tauri::test::{get_ipc_response, mock_builder, MockRuntime, INVOKE_KEY};
+use tauri::utils::config::AppDirectoriesOverride;
+use tauri::webview::InvokeRequest;
+use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+
+/// A folder of the test's own in the system's temp folder, as sbd.rs's tests make theirs.
+fn temp_dir(tag: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("sbd-commands-{tag}-{}-{nanos}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The page's own address, which the app counts as local.
+fn page_url() -> tauri::Url {
+    if cfg!(windows) {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    }
+    .parse()
+    .unwrap()
+}
+
+/// The app on the mock runtime, its main window, and a temp folder that holds the app's own folders (data, cache) and
+/// whatever a test writes, removed when the harness goes.
+pub(crate) struct Harness {
+    pub(crate) app: App<MockRuntime>,
+    window: WebviewWindow<MockRuntime>,
+    dir: PathBuf,
+}
+
+impl Harness {
+    pub(crate) fn new(tag: &str) -> Self {
+        let dir = temp_dir(tag);
+        // The real config, capabilities included (tauri.conf.json, capabilities/default.json).
+        let mut context = tauri::generate_context!();
+        // The app's data and cache folders in the temp folder, never this computer's own.
+        context.config_mut().app.app_directories_override =
+            Some(AppDirectoriesOverride::Root(dir.join("app")));
+        let app = crate::with_commands(mock_builder())
+            .build(context)
+            .expect("the app builds on the mock runtime");
+        // What run()'s setup does first, which the mock runtime's build never reaches (setup waits for the event
+        // loop); the window from tauri.conf.json is made there too, so it is made here, with the same label.
+        crate::manage_at_start(app.handle());
+        let window = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("the main window opens on the mock runtime");
+        Self { app, window, dir }
+    }
+
+    /// A path in the test's folder, as text, as the page holds paths.
+    pub(crate) fn path(&self, name: &str) -> String {
+        self.dir.join(name).to_str().unwrap().to_owned()
+    }
+
+    pub(crate) fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// The app's own data folder (app_data_dir), inside the test's folder.
+    fn data_dir(&self) -> PathBuf {
+        self.dir.join("app")
+    }
+
+    /// The app's own cache folder (app_cache_dir): a root override puts it in `caches` under the root.
+    fn cache_dir(&self) -> PathBuf {
+        self.dir.join("app").join("caches")
+    }
+
+    fn request_from(
+        window: &WebviewWindow<MockRuntime>,
+        url: tauri::Url,
+        cmd: &str,
+        body: InvokeBody,
+    ) -> Result<InvokeResponseBody, Json> {
+        get_ipc_response(
+            window,
+            InvokeRequest {
+                cmd: cmd.into(),
+                callback: CallbackFn(0),
+                error: CallbackFn(1),
+                url,
+                body,
+                headers: Default::default(),
+                invoke_key: INVOKE_KEY.to_string(),
+            },
+        )
+    }
+
+    fn request(&self, cmd: &str, body: InvokeBody) -> Result<InvokeResponseBody, Json> {
+        Self::request_from(&self.window, page_url(), cmd, body)
+    }
+
+    /// `invoke(cmd, args)` with JSON arguments: the answer as JSON, or what the page's promise rejects with.
+    pub(crate) fn call(&self, cmd: &str, args: Json) -> Result<Json, Json> {
+        self.request(cmd, InvokeBody::Json(args)).map(as_json)
+    }
+
+    /// `invoke(cmd, bytes)`: the request body raw, as sbd_tx_raw and export_write take it.
+    pub(crate) fn call_raw(&self, cmd: &str, bytes: Vec<u8>) -> Result<Json, Json> {
+        self.request(cmd, InvokeBody::Raw(bytes)).map(as_json)
+    }
+
+    /// An answer that is bytes (`tauri::ipc::Response`), which the page reads as an ArrayBuffer.
+    fn call_bytes(&self, cmd: &str, args: Json) -> Result<Vec<u8>, Json> {
+        self.request(cmd, InvokeBody::Json(args))
+            .map(|body| match body {
+                InvokeResponseBody::Raw(bytes) => bytes,
+                InvokeResponseBody::Json(text) => panic!("{cmd} answered JSON, not bytes: {text}"),
+            })
+    }
+
+    /// A new project with one table, as the page's first migration would leave it; its handle.
+    fn project(&self, name: &str, schema: &str) -> Json {
+        let handle = self
+            .call("sbd_create", json!({ "path": self.path(name) }))
+            .unwrap();
+        self.call(
+            "sbd_tx",
+            json!({ "handle": handle, "statements": [{ "sql": schema, "params": [] }] }),
+        )
+        .unwrap();
+        handle
+    }
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn as_json(body: InvokeResponseBody) -> Json {
+    match body {
+        InvokeResponseBody::Json(text) => serde_json::from_str(&text).expect("a JSON answer"),
+        InvokeResponseBody::Raw(bytes) => panic!("answered {} bytes, not JSON", bytes.len()),
+    }
+}
+
+/// The message a command rejected with.
+pub(crate) fn refused(answer: Result<Json, Json>) -> String {
+    match answer {
+        Err(Json::String(message)) => message,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// The body packRawTx (tauriDriver.ts) and writeBody (exportFiles.ts) make: a 4-byte big-endian length, the JSON
+/// header, then the bytes.
+pub(crate) fn raw_body(header: &Json, bytes: &[u8]) -> Vec<u8> {
+    let json = serde_json::to_vec(header).unwrap();
+    let mut body = (json.len() as u32).to_be_bytes().to_vec();
+    body.extend_from_slice(&json);
+    body.extend_from_slice(bytes);
+    body
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// The project file (tauriDriver.ts → sbd.rs).
+mod project_file {
+    use super::*;
+
+    const SHOTS: &str = "CREATE TABLE shots (id TEXT PRIMARY KEY, lens INTEGER)";
+
+    #[test]
+    fn creates_edits_queries_closes_and_reopens_a_project() {
+        let h = Harness::new("project");
+        let path = h.path("Bey County.sbd");
+        let handle = h.call("sbd_create", json!({ "path": path })).unwrap();
+        assert!(handle.is_u64(), "a handle is a number: {handle}");
+        // The lock file beside it says this computer has it open (lock.rs).
+        let lock = h.dir().join(".Bey County.sbd.lock");
+        assert!(lock.is_file());
+        let changes = h
+            .call(
+                "sbd_tx",
+                json!({ "handle": handle, "statements": [
+                    { "sql": SHOTS, "params": [] },
+                    { "sql": "INSERT INTO shots VALUES (?, ?)", "params": ["4A", 35] },
+                    { "sql": "INSERT INTO shots VALUES (?, ?)", "params": ["4B", null] },
+                ] }),
+            )
+            .unwrap();
+        assert_eq!(changes, json!([0, 1, 1]));
+        let rows = h
+            .call(
+                "sbd_query",
+                json!({ "handle": handle, "sql": "SELECT id, lens FROM shots ORDER BY id", "params": [] }),
+            )
+            .unwrap();
+        assert_eq!(
+            rows,
+            json!([{ "id": "4A", "lens": 35 }, { "id": "4B", "lens": null }])
+        );
+        assert_eq!(
+            h.call("sbd_lock_refresh", json!({ "handle": handle })),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            h.call("sbd_close", json!({ "handle": handle })),
+            Ok(Json::Null)
+        );
+        assert!(!lock.exists(), "closing the project takes its lock away");
+        assert_eq!(
+            refused(h.call(
+                "sbd_query",
+                json!({ "handle": handle, "sql": "SELECT 1", "params": [] })
+            )),
+            "That project isn't open."
+        );
+        // Open, as the page reopens it: what was written is there.
+        let again = h.call("sbd_open", json!({ "path": path })).unwrap();
+        assert_ne!(again, handle, "each open gets a handle of its own");
+        let rows = h
+            .call(
+                "sbd_query",
+                json!({ "handle": again, "sql": "SELECT id FROM shots WHERE lens = ?", "params": [35] }),
+            )
+            .unwrap();
+        assert_eq!(rows, json!([{ "id": "4A" }]));
+        assert_eq!(
+            h.call("sbd_close", json!({ "handle": again })),
+            Ok(Json::Null)
+        );
+    }
+
+    #[test]
+    fn refuses_a_project_already_there_one_missing_and_a_name_not_sbd() {
+        let h = Harness::new("project-refusals");
+        let path = h.path("Bey County.sbd");
+        let handle = h.call("sbd_create", json!({ "path": path })).unwrap();
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+        assert_eq!(
+            refused(h.call("sbd_create", json!({ "path": path }))),
+            "A file already exists at that path."
+        );
+        assert_eq!(
+            refused(h.call("sbd_open", json!({ "path": h.path("Gone.sbd") }))),
+            "There's no project file at that path."
+        );
+        assert!(h
+            .call("sbd_create", json!({ "path": h.path("Bey County.txt") }))
+            .is_err());
+        // Arguments the page never sends in that shape are refused by the command's own parsing.
+        assert!(h.call("sbd_open", json!({ "file": path })).is_err());
+    }
+
+    #[test]
+    fn writes_bytes_raw_and_reads_them_back_raw() {
+        let h = Harness::new("blobs");
+        let handle = h.project(
+            "Bey County.sbd",
+            "CREATE TABLE media_files (id TEXT PRIMARY KEY, bytes BLOB)",
+        );
+        let picture = [0x89, b'P', b'N', b'G', 0, 1, 2, 3];
+        let thumb = [7u8, 8, 9];
+        let header = json!({ "handle": handle, "statements": [
+            { "sql": "INSERT INTO media_files VALUES (?, ?)", "params": ["full", { "$blob": [0, 8] }] },
+            { "sql": "INSERT INTO media_files VALUES (?, ?)", "params": ["thumb", { "$blob": [8, 3] }] },
+        ] });
+        let body = raw_body(&header, &[picture.as_slice(), thumb.as_slice()].concat());
+        assert_eq!(h.call_raw("sbd_tx_raw", body), Ok(json!([1, 1])));
+        let read = |id: &str| {
+            h.call_bytes(
+                "sbd_read_blob",
+                json!({ "handle": handle, "sql": "SELECT bytes FROM media_files WHERE id = ?", "params": [id] }),
+            )
+        };
+        assert_eq!(read("full"), Ok(picture.to_vec()));
+        assert_eq!(read("thumb"), Ok(thumb.to_vec()));
+        // No such row: nothing, which the page reads as "not in this project".
+        assert_eq!(read("none"), Ok(Vec::new()));
+        // A transaction sent as JSON to the raw command, or a body cut short, is refused.
+        assert_eq!(
+            refused(h.call("sbd_tx_raw", json!({ "handle": handle, "statements": [] }))),
+            "Expected the transaction as raw bytes."
+        );
+        assert_eq!(
+            refused(h.call_raw("sbd_tx_raw", vec![0, 0])),
+            "The transaction's bytes are malformed."
+        );
+    }
+
+    /// B3 (6.14): Rust refuses a query that returns bytes and a blob read of anything else, and the page sees the
+    /// same words the test drivers (memoryDriver.ts, nodeDriver.ts) give.
+    #[test]
+    fn refuses_bytes_in_a_query_and_a_blob_read_of_text() {
+        let h = Harness::new("b3");
+        let handle = h.project(
+            "Bey County.sbd",
+            "CREATE TABLE media_files (id TEXT PRIMARY KEY, bytes BLOB)",
+        );
+        h.call(
+            "sbd_tx",
+            json!({ "handle": handle, "statements": [
+                { "sql": "INSERT INTO media_files VALUES ('full', x'0102'), ('text', 'abc')", "params": [] },
+            ] }),
+        )
+        .unwrap();
+        assert_eq!(
+            refused(h.call(
+                "sbd_query",
+                json!({ "handle": handle, "sql": "SELECT id, bytes FROM media_files WHERE id = ?", "params": ["full"] }),
+            )),
+            "A query can't return bytes; read them with readBlob."
+        );
+        assert_eq!(
+            refused(h.call(
+                "sbd_read_blob",
+                json!({ "handle": handle, "sql": "SELECT bytes FROM media_files WHERE id = ?", "params": ["text"] }),
+            )),
+            "That column doesn't hold bytes."
+        );
+        // A failed statement rolls the whole transaction back.
+        assert!(h
+            .call(
+                "sbd_tx",
+                json!({ "handle": handle, "statements": [
+                    { "sql": "INSERT INTO media_files VALUES ('new', NULL)", "params": [] },
+                    { "sql": "INSERT INTO nowhere VALUES (1)", "params": [] },
+                ] }),
+            )
+            .is_err());
+        assert_eq!(
+            h.call(
+                "sbd_query",
+                json!({ "handle": handle, "sql": "SELECT count(*) AS n FROM media_files", "params": [] }),
+            ),
+            Ok(json!([{ "n": 2 }]))
+        );
+    }
+
+    /// Open backup (sbd_copy) and Open version (sbd_save_copy, then sbd_keep_copy or sbd_drop_copy).
+    #[test]
+    fn copies_a_closed_project_and_makes_keeps_and_drops_a_version_copy() {
+        let h = Harness::new("copies");
+        let handle = h.project("Bey County.sbd", SHOTS);
+        h.call(
+            "sbd_tx",
+            json!({ "handle": handle, "statements": [{ "sql": "INSERT INTO shots VALUES ('1A', 50)", "params": [] }] }),
+        )
+        .unwrap();
+        // A version's copy: a hidden draft, then its name.
+        let draft = h.path(".Bey County v2.sbd");
+        let kept = h.path("Bey County v2.sbd");
+        assert_eq!(
+            h.call("sbd_save_copy", json!({ "handle": handle, "dest": draft })),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            h.call("sbd_keep_copy", json!({ "draft": draft, "dest": kept })),
+            Ok(Json::Null)
+        );
+        assert!(std::path::Path::new(&kept).is_file());
+        assert!(!std::path::Path::new(&draft).exists());
+        // Only one of the app's own drafts can be kept or dropped.
+        assert_eq!(
+            refused(h.call("sbd_drop_copy", json!({ "draft": kept }))),
+            "That isn't a copy Storiiboard is making."
+        );
+        let second = h.path(".Bey County v3.sbd");
+        h.call("sbd_save_copy", json!({ "handle": handle, "dest": second }))
+            .unwrap();
+        assert_eq!(
+            h.call("sbd_drop_copy", json!({ "draft": second })),
+            Ok(Json::Null)
+        );
+        assert!(!std::path::Path::new(&second).exists());
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+        // Open backup's copy of a closed file, which then opens with what it held.
+        let copy = h.path("Bey County copy.sbd");
+        assert_eq!(
+            h.call("sbd_copy", json!({ "source": kept, "dest": copy })),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            refused(h.call("sbd_copy", json!({ "source": kept, "dest": copy }))),
+            "A file already exists at that path."
+        );
+        let opened = h.call("sbd_open", json!({ "path": copy })).unwrap();
+        assert_eq!(
+            h.call(
+                "sbd_query",
+                json!({ "handle": opened, "sql": "SELECT id, lens FROM shots", "params": [] })
+            ),
+            Ok(json!([{ "id": "1A", "lens": 50 }]))
+        );
+        assert_eq!(
+            h.call("sbd_compact", json!({ "handle": opened })),
+            Ok(Json::Null)
+        );
+        h.call("sbd_close", json!({ "handle": opened })).unwrap();
+    }
+}
+
+/// Backups and the lock file (sbd.rs, lock.rs), the recent list (app_data.rs) and synced folders (synced.rs).
+mod backups_and_app_data {
+    use super::*;
+
+    #[test]
+    fn makes_lists_and_deletes_a_scheduled_backup_next_to_the_project() {
+        let h = Harness::new("backups");
+        let handle = h.project("Bey County.sbd", "CREATE TABLE shots (id TEXT)");
+        let folder = h.dir().join("Backups").to_str().unwrap().to_owned();
+        // A project in a folder no sync service has: next to it, whichever the setting says.
+        assert_eq!(
+            h.call(
+                "sbd_place_backups",
+                json!({ "handle": handle, "nextToProject": false })
+            ),
+            Ok(json!(folder))
+        );
+        assert_eq!(
+            h.call("sbd_backups_folder", json!({ "handle": handle })),
+            Ok(json!(folder))
+        );
+        assert_eq!(
+            h.call("sbd_backups", json!({ "handle": handle })),
+            Ok(json!([]))
+        );
+        let name = "Bey County 2026-11-15 10-30.sbd";
+        assert_eq!(
+            h.call(
+                "sbd_backup",
+                json!({ "handle": handle, "kind": "scheduled", "fileName": name })
+            ),
+            Ok(Json::Null)
+        );
+        let listed = h.call("sbd_backups", json!({ "handle": handle })).unwrap();
+        assert_eq!(listed.as_array().map(Vec::len), Some(1));
+        assert_eq!(listed[0]["name"], json!(name));
+        assert!(listed[0]["bytes"].as_u64().is_some_and(|bytes| bytes > 0));
+        // Only this project's backup names, for a backup and for a deletion.
+        assert_eq!(
+            refused(h.call(
+                "sbd_backup",
+                json!({ "handle": handle, "kind": "scheduled", "fileName": "Other 2026-11-15 10-30.sbd" })
+            )),
+            "\"Other 2026-11-15 10-30.sbd\" isn't a backup name for this project."
+        );
+        assert_eq!(
+            refused(h.call(
+                "sbd_delete_backup",
+                json!({ "handle": handle, "fileName": "../Bey County.sbd" })
+            )),
+            "\"../Bey County.sbd\" isn't a backup name for this project."
+        );
+        assert!(h
+            .call(
+                "sbd_backup",
+                json!({ "handle": handle, "kind": "hourly", "fileName": name })
+            )
+            .is_err());
+        assert_eq!(
+            h.call(
+                "sbd_delete_backup",
+                json!({ "handle": handle, "fileName": name })
+            ),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            h.call("sbd_backups", json!({ "handle": handle })),
+            Ok(json!([]))
+        );
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+    }
+
+    #[test]
+    fn says_who_else_has_a_project_open_and_ignores_this_computer() {
+        let h = Harness::new("lock");
+        let path = h.path("Bey County.sbd");
+        assert_eq!(
+            h.call("sbd_lock_holder", json!({ "path": path })),
+            Ok(Json::Null)
+        );
+        // Another computer's fresh lock, as lock.rs writes it.
+        let now = now_ms();
+        let other = json!({
+            "app": "Storiiboard", "computer": "Edit bay", "machine": "another-machine", "session": "s1",
+            "opened_at": now - 1000, "refreshed_at": now,
+        });
+        fs::write(h.dir().join(".Bey County.sbd.lock"), other.to_string()).unwrap();
+        assert_eq!(
+            h.call("sbd_lock_holder", json!({ "path": path })),
+            Ok(json!({ "computer": "Edit bay", "openedAt": now - 1000 }))
+        );
+        // This computer's own lock never warns it (the project it creates or opens takes the lock).
+        fs::remove_file(h.dir().join(".Bey County.sbd.lock")).unwrap();
+        let handle = h.call("sbd_create", json!({ "path": path })).unwrap();
+        assert_eq!(
+            h.call("sbd_lock_holder", json!({ "path": path })),
+            Ok(Json::Null)
+        );
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+    }
+
+    #[test]
+    fn reads_and_writes_the_recent_list_and_nothing_else() {
+        let h = Harness::new("app-data");
+        assert_eq!(
+            h.call("app_data_read", json!({ "name": "recent.json" })),
+            Ok(Json::Null)
+        );
+        let list = r#"[{"path":"/Projects/Bey County.sbd"}]"#;
+        assert_eq!(
+            h.call(
+                "app_data_write",
+                json!({ "name": "recent.json", "contents": list })
+            ),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            h.call("app_data_read", json!({ "name": "recent.json" })),
+            Ok(json!(list))
+        );
+        // In the app's data folder (here the test's), never anywhere the page names.
+        assert_eq!(
+            fs::read_to_string(h.data_dir().join("recent.json")).unwrap(),
+            list
+        );
+        assert_eq!(
+            refused(h.call(
+                "app_data_write",
+                json!({ "name": "../recent.json", "contents": "[]" })
+            )),
+            "\"../recent.json\" isn't an app data file."
+        );
+        assert_eq!(
+            refused(h.call("app_data_read", json!({ "name": "tile-provider.json" }))),
+            "\"tile-provider.json\" isn't an app data file."
+        );
+    }
+
+    #[test]
+    fn a_folder_no_sync_service_has_is_null() {
+        let h = Harness::new("synced");
+        assert_eq!(
+            h.call("sync_service", json!({ "path": h.path("Bey County.sbd") })),
+            Ok(Json::Null)
+        );
+    }
+}
+
+/// This computer: week start, time zone at a place, fonts, licences, the online services (region.rs, timezone.rs,
+/// fonts.rs, licences.rs, services.rs).
+mod this_computer {
+    use super::*;
+
+    #[test]
+    fn week_start_answers_in_the_shape_week_start_ts_reads() {
+        let h = Harness::new("week");
+        let week = h.call("region_week", Json::Null).unwrap();
+        let object = week.as_object().expect("an object");
+        let mut keys: Vec<&String> = object.keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["firstDay", "locale"]);
+        assert!(week["firstDay"].is_null() || week["firstDay"].as_u64().is_some_and(|d| d <= 6));
+        assert!(week["locale"].is_null() || week["locale"].is_string());
+    }
+
+    #[test]
+    fn time_zone_at_a_place_and_none_off_the_map() {
+        let h = Harness::new("zone");
+        assert_eq!(
+            h.call(
+                "time_zone_at",
+                json!({ "latitude": 40.4168, "longitude": -3.7038 })
+            ),
+            Ok(json!("Europe/Madrid"))
+        );
+        assert_eq!(
+            h.call(
+                "time_zone_at",
+                json!({ "latitude": 120.0, "longitude": 0.0 })
+            ),
+            Ok(Json::Null)
+        );
+    }
+
+    #[test]
+    fn lists_this_computers_fonts_and_reads_one() {
+        let h = Harness::new("fonts");
+        let families = h.call("fonts_list", Json::Null).unwrap();
+        let families = families.as_array().expect("a list of families");
+        for family in families {
+            assert!(family["name"].is_string());
+            for style in family["styles"].as_array().expect("styles") {
+                assert!(style["weight"].is_u64() && style["realWeight"].is_u64());
+                assert!(style["italic"].is_boolean() && style["postscriptName"].is_string());
+            }
+        }
+        // A face the list names reads as its bytes after the three-byte fsType header (deckFonts.ts, fonts.ts).
+        let named = families
+            .iter()
+            .flat_map(|family| family["styles"].as_array().cloned().unwrap_or_default())
+            .find_map(|style| style["postscriptName"].as_str().map(str::to_owned));
+        if let Some(name) = named {
+            let bytes = h
+                .call_bytes("font_bytes", json!({ "postscriptName": name }))
+                .unwrap();
+            assert!(bytes.len() > 3 && bytes[0] <= 1);
+        }
+        assert_eq!(
+            refused(h.call(
+                "font_bytes",
+                json!({ "postscriptName": "No-Such-Font-Anywhere" })
+            )),
+            "That font isn't on this computer."
+        );
+    }
+
+    #[test]
+    fn reads_only_a_licence_on_the_list() {
+        let h = Harness::new("licences");
+        // A test build has no bundled resources, so even a listed licence answers as missing; never a file off the list.
+        let missing =
+            "That licence isn't in this copy of Storiiboard. Reinstalling Storiiboard puts it back.";
+        for name in ["ffmpeg-LICENSE.txt", "../Cargo.toml", "tauri.conf.json"] {
+            assert_eq!(
+                refused(h.call("licence_text", json!({ "name": name }))),
+                missing
+            );
+        }
+    }
+
+    #[test]
+    fn lists_every_online_service_unchecked_before_the_switch_is_read() {
+        let h = Harness::new("services");
+        let services = h.call("services_status", Json::Null).unwrap();
+        let ids: Vec<&str> = services
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|service| service["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["nominatim", "met-norway", "osm-tiles"]);
+        for service in services.as_array().unwrap() {
+            assert!(service["server"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("https://")));
+            assert_eq!(service["state"], json!("unchecked"));
+            assert_eq!(service["reason"], Json::Null);
+        }
+    }
+}
+
+/// A double-clicked .sbd (opened.rs), videos and playback copies (video.rs, playback.rs), pictures (pictures.rs,
+/// originals.rs, open.rs): the parts that need no ffmpeg, no dialog and no other program.
+mod files_and_media {
+    use super::*;
+
+    #[test]
+    fn hands_over_the_files_opened_from_outside_once() {
+        let h = Harness::new("opened");
+        assert_eq!(h.call("opened_files_take", json!({})), Ok(json!([])));
+        let path = h.path("Bey County.sbd");
+        crate::opened::queue(h.app.handle(), vec![path.clone(), path.clone()]);
+        assert_eq!(h.call("opened_files_take", json!({})), Ok(json!([path])));
+        assert_eq!(h.call("opened_files_take", json!({})), Ok(json!([])));
+    }
+
+    #[test]
+    fn says_nothing_about_a_video_the_page_may_not_ask_about() {
+        let h = Harness::new("videos");
+        let video = h.path("A001.mov");
+        fs::write(&video, b"not really a video").unwrap();
+        // Not dropped, chosen, remembered or inside an open project's folder: null, as video.ts reads it.
+        assert_eq!(
+            h.call(
+                "video_status",
+                json!({ "paths": [video, "relative.mov"], "handle": null })
+            ),
+            Ok(json!([null, null]))
+        );
+        assert_eq!(h.call("known_videos_count", json!({})), Ok(json!(0)));
+        assert_eq!(h.call("known_videos_forget", json!({})), Ok(Json::Null));
+        assert_eq!(h.call("clip_cancel", json!({})), Ok(json!(false)));
+        assert_eq!(
+            h.call("playback_cancel", json!({ "path": video, "lut": null })),
+            Ok(json!(false))
+        );
+    }
+
+    #[test]
+    fn playback_copies_report_and_keep_their_settings() {
+        let h = Harness::new("playback");
+        let info = h.call("playback_info", json!({})).unwrap();
+        assert_eq!(info["copies"], json!(0));
+        assert_eq!(info["bytes"], json!(0));
+        assert_eq!(info["moved"], json!(false));
+        assert_eq!(info["fallback"], json!(false));
+        assert!(info["folder"]
+            .as_str()
+            .is_some_and(|folder| folder.starts_with(h.dir().to_str().unwrap())));
+        assert_eq!(
+            h.call("playback_set_cap", json!({ "gb": 40 })),
+            Ok(Json::Null)
+        );
+        assert_eq!(
+            h.call("playback_set_floor", json!({ "gb": 12 })),
+            Ok(Json::Null)
+        );
+        let info = h.call("playback_info", json!({})).unwrap();
+        assert_eq!(
+            (info["capGb"].clone(), info["floorGb"].clone()),
+            (json!(40), json!(12))
+        );
+        assert_eq!(h.call("playback_clear", json!({})), Ok(json!(0)));
+        assert_eq!(h.call("playback_move_back", json!({})), Ok(json!(0)));
+    }
+
+    #[test]
+    fn reads_only_pictures_the_person_offered() {
+        let h = Harness::new("pictures");
+        let picture = h.path("still.png");
+        fs::write(&picture, [0x89, b'P', b'N', b'G']).unwrap();
+        assert_eq!(
+            refused(h.call("pictures_read", json!({ "path": picture }))),
+            "Storiiboard reads only the files you drop on it or choose."
+        );
+    }
+
+    #[test]
+    fn a_pictures_original_by_its_record_and_by_its_hash() {
+        let h = Harness::new("originals");
+        let handle = h.project(
+            "Bey County.sbd",
+            "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT, props TEXT, trashed_at TEXT)",
+        );
+        let sha = "ab".repeat(32);
+        let original = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+        fs::write(h.dir().join("still.png"), original).unwrap();
+        let props = json!({ "kind": "image", "file": sha, "source_path": "still.png" }).to_string();
+        h.call(
+            "sbd_tx",
+            json!({ "handle": handle, "statements": [
+                { "sql": "INSERT INTO records VALUES ('m1', 'media', ?, NULL)", "params": [props] },
+            ] }),
+        )
+        .unwrap();
+        // The deck's full-quality picture (deckPictures.ts): the original's bytes, or none.
+        assert_eq!(
+            h.call_bytes(
+                "picture_original",
+                json!({ "handle": handle, "sha256": sha })
+            ),
+            Ok(original.to_vec())
+        );
+        assert_eq!(
+            h.call_bytes(
+                "picture_original",
+                json!({ "handle": handle, "sha256": "cd".repeat(32) })
+            ),
+            Ok(Vec::new())
+        );
+        // Show in Finder's check (opener.ts): only that record's own original, and only while it's there.
+        let shown = |record: &str| {
+            h.call(
+                "original_shown",
+                json!({ "handle": handle, "recordId": record, "sha256": sha }),
+            )
+        };
+        assert_eq!(shown("m1"), Ok(json!(true)));
+        assert_eq!(shown("m2"), Ok(json!(false)));
+        fs::remove_file(h.dir().join("still.png")).unwrap();
+        assert_eq!(shown("m1"), Ok(json!(false)));
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+    }
+}
+
+/// The online commands, only where they answer without the network: a refusal before any request, or a tile already
+/// in the cache.
+mod online_without_the_network {
+    use super::*;
+
+    #[test]
+    fn an_empty_address_search_is_refused_before_anything_is_sent() {
+        let h = Harness::new("address");
+        assert_eq!(
+            refused(h.call(
+                "address_search",
+                json!({ "query": "   ", "language": "en" })
+            )),
+            "Type an address or a place name to search for."
+        );
+    }
+
+    #[test]
+    fn map_tiles_come_from_the_cache_and_a_tile_off_the_map_is_refused() {
+        let h = Harness::new("tiles");
+        assert_eq!(
+            refused(h.call("map_tile", json!({ "z": 2, "x": 4, "y": 0 }))),
+            "That tile is outside the map."
+        );
+        // A tile cached with a lifetime still to run (tiles.rs: `osm/z/x/y.png` and its `y.json`): served as it is.
+        let tile = [0x89, b'P', b'N', b'G', 9, 9, 9];
+        let folder = h.cache_dir().join("tiles").join("osm").join("3").join("4");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("2.png"), tile).unwrap();
+        let expires = now_ms() / 1000 + 86_400;
+        fs::write(
+            folder.join("2.json"),
+            json!({ "expires": expires, "etag": null, "last_modified": null }).to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            h.call_bytes("map_tile", json!({ "z": 3, "x": 4, "y": 2 })),
+            Ok(tile.to_vec())
+        );
+        let info = h.call("map_tiles_info", Json::Null).unwrap();
+        assert_eq!(info["tiles"], json!(1));
+        assert!(info["bytes"]
+            .as_u64()
+            .is_some_and(|bytes| bytes >= tile.len() as u64));
+        assert!(info["capBytes"].as_u64().is_some_and(|cap| cap > 0));
+        assert_eq!(h.call("map_tiles_clear", Json::Null), Ok(json!(1)));
+        assert_eq!(
+            h.call("map_tiles_info", Json::Null).unwrap()["tiles"],
+            json!(0)
+        );
+    }
+
+    #[test]
+    fn a_tile_server_of_ones_own_is_read_cleared_and_checked() {
+        let h = Harness::new("provider");
+        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(Json::Null));
+        // One already saved (tiles.rs's file in the app's data folder): read back, and saved again without a question.
+        let saved = json!({
+            "template": "https://tiles.example.org/{z}/{x}/{y}.png", "attribution": "Example", "host": "tiles.example.org",
+        });
+        fs::create_dir_all(h.data_dir()).unwrap();
+        fs::write(h.data_dir().join("tile-provider.json"), saved.to_string()).unwrap();
+        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(saved.clone()));
+        assert_eq!(
+            h.call(
+                "map_tile_provider_set",
+                json!({ "template": saved["template"], "attribution": "Example", "language": "en" })
+            ),
+            Ok(json!({ "status": "set", "provider": saved }))
+        );
+        // Not HTTPS: refused before any question.
+        assert_eq!(
+            refused(h.call(
+                "map_tile_provider_set",
+                json!({ "template": "http://tiles.example.org/{z}/{x}/{y}.png", "attribution": "", "language": "en" })
+            )),
+            "The address must be https://, a host name, and contain {z}, {x} and {y} once each."
+        );
+        // No template: back to OpenStreetMap.
+        assert_eq!(
+            h.call(
+                "map_tile_provider_set",
+                json!({ "template": "", "attribution": "", "language": "en" })
+            ),
+            Ok(json!({ "status": "cleared", "provider": null }))
+        );
+        assert_eq!(h.call("map_tile_provider", Json::Null), Ok(Json::Null));
+    }
+}
+
+/// The capability files (capabilities/default.json) as the mock runtime checks them, built from the real config.
+mod permissions {
+    use super::*;
+
+    #[test]
+    fn the_page_may_call_what_its_capability_grants_and_nothing_more() {
+        let h = Harness::new("permissions");
+        // core:default grants the app plugin's version.
+        assert_eq!(h.call("plugin:app|version", json!({})), Ok(json!("0.1.0")));
+        // The page has none of the opener's permissions (open.rs calls it from Rust), and of the dialog's only open
+        // and save.
+        for command in ["plugin:opener|open_url", "plugin:dialog|message"] {
+            let message = refused(h.call(command, json!({ "url": "https://example.org" })));
+            assert!(message.contains("not allowed"), "{command}: {message}");
+        }
+    }
+
+    #[test]
+    fn a_window_the_capability_doesnt_name_and_a_remote_page_are_refused() {
+        let h = Harness::new("windows");
+        let other = WebviewWindowBuilder::new(&h.app, "other", Default::default())
+            .build()
+            .unwrap();
+        let refused_from = |window: &WebviewWindow<MockRuntime>, url: tauri::Url, cmd: &str| {
+            match Harness::request_from(window, url, cmd, InvokeBody::Json(json!({}))) {
+                Err(Json::String(message)) => message,
+                other => panic!("{cmd}: expected a refusal, got {other:?}"),
+            }
+        };
+        assert!(refused_from(&other, page_url(), "plugin:app|version").contains("not allowed"));
+        // A page from anywhere but the app itself reaches none of the app's own commands.
+        let remote: tauri::Url = "https://example.org".parse().unwrap();
+        assert!(refused_from(&h.window, remote, "opened_files_take").contains("not allowed"));
+    }
+}

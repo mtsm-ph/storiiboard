@@ -6,6 +6,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { frameSetup, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, setupLabel } from '../../core/model/setup';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
+import { keepBrowserMenuOut } from '../../ui/menuKey';
 import { rovingIndex } from '../../ui/roving';
 import { boardsOf, boardTitle } from '../moodboards/boards';
 import { addToBoard } from '../moodboards/liveActions';
@@ -129,6 +130,8 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
       aria-label={frame ? t('board.frameMenu', { frame: shotFields(frame.props).number }) : t('board.addToBoard')}
       data-add-to-board-menu=""
       onKeyDown={onMenuKeyDown}
+      // The menu key's own contextmenu, sent on key up in Windows' Chromium, lands on the command its keydown focused.
+      onContextMenu={keepBrowserMenuOut}
       className="fixed z-40 flex max-h-[min(320px,calc(100vh-16px))] min-w-48 flex-col overflow-y-auto border border-text bg-surface"
       style={{ left: Math.max(8, Math.min(ask.at.x, window.innerWidth - 220)), top: Math.max(8, Math.min(ask.at.y, window.innerHeight - 8 - Math.min(320, 40 + Math.max(frame ? 3 : 0, boards.length, setups.length) * 32))) }}
     >

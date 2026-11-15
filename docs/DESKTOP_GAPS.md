@@ -87,8 +87,13 @@ is tested with `invoke` mocked or through the browser stand-in.
      milestones, and adds 15 to 25 minutes to a checkpoint run. Worth it before the first public release (Phase 8),
      not before.
 
-## Waiting for Kevin
+## Kevin's answers (Nov 14) and what was built
 
-- Go-ahead for 1 and 2 (no dependency), and 3 (a CI change).
-- 4 and 5: each needs a dependency.
-- B1 and B2: one look each in the installers; A2 and B5, B6: fix now or with their next change.
+- Cover 1, the tests under the app's real CSP: built (6.13). Cover 2, the contract test, with B3: built (6.14).
+  Cover 3, the installers list their bundles: built (checkpoint.yml, 6.12; B4). Cover 4: approved as tauri's own
+  `test` feature, no new crate (6.16). Cover 5 goes on Phase 8's list.
+- B1: fixed without waiting for a look (6.15): deck pages reorder by pointer events, and lint fails on HTML5 drag
+  and drop anywhere in the app. Still worth one drag in the Windows installer.
+- B3, B5, B6: fixed (6.14, 6.15). A2: Phase 8's polish list. B2: Kevin checks it on the Mac.
+- New (Nov 14): every checkpoint runs the whole end-to-end suite in WebKit on the Mac runner; what its first runs
+  found is in docs/briefs/6.19-mac-webkit.md and 6.19b.

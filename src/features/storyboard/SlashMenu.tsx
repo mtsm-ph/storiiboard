@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { cx } from '../../ui/cx';
+import { keepBrowserMenuOut } from '../../ui/menuKey';
 import { t } from '../../core/i18n';
 
 // The "/" menu (1.12): press / on the board to insert a frame, a scene, a note or a location right where the keys
@@ -113,8 +114,11 @@ export function SlashMenu({ at, sceneLabel, atEnd = false, locationNames, onPick
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- only keeps the browser's menu out; the field and options are the controls
     <div
       ref={panel}
+      // No browser menu over the list; the field keeps its own (cut, copy, paste).
+      onContextMenu={keepBrowserMenuOut}
       className="fixed z-50 flex flex-col border-[1.5px] border-text bg-surface"
       style={{ left: place.left, top: place.top, width: WIDTH }}
     >

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { cx } from './cx';
+import { keepBrowserMenuOut } from './menuKey';
 
 // A button that opens a panel of commands: the Layout menu, the project menu and the project switcher. It's a
 // disclosure (aria-expanded on the button), not an ARIA menu, so Tab moves through the commands as through any
@@ -84,9 +85,12 @@ export function Menu({ label, align = 'left', buttonClassName, buttonTitle, clas
         {label}
       </button>
       {open && (
+        // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- only keeps the browser's menu out; the commands are the controls
         <div
           id={panelId}
           tabIndex={-1}
+          // The menu key on a focused command opens no browser menu over the app's.
+          onContextMenu={keepBrowserMenuOut}
           className={cx(
             // Never past the status bar: a long list (Open tile) scrolls rather than covering its controls.
             'absolute top-full z-50 max-h-[calc(100dvh_-_var(--sb-topbar)_-_var(--sb-statusbar)_-_8px)] w-64 overflow-y-auto',
