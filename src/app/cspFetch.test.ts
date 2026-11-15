@@ -3,8 +3,9 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // The installed app's content security policy (src-tauri/tauri.conf.json) lets the page fetch only its own files and
-// the Rust bridge (connect-src 'self' ipc: http://ipc.localhost). The dev server sends no CSP, so a fetch of a data:
-// URL or another host works in every test and fails only in the installed app (docs/DESKTOP_GAPS.md, A1; 5.12). Every
+// the Rust bridge (connect-src 'self' ipc: http://ipc.localhost). `npm run dev` and `tauri dev` send no CSP, so there a
+// fetch of a data: URL or another host works and fails only in the installed app (docs/DESKTOP_GAPS.md, A1; 5.12); the
+// end-to-end tests' server sends the app's CSP (6.13), but only covers the paths a test takes. Every
 // fetch( in src is listed here with why the installed app allows it; anything else goes through Rust or decodes itself.
 
 const root = join(import.meta.dirname, '../..');
