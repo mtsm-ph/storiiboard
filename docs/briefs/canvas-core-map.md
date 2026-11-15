@@ -33,7 +33,7 @@ Everything below is read from the code. Paths are relative to c:\Users\kevma\Doc
   - Screen px: `SNAP_DISTANCE=12`, `PICK_DISTANCE=6`.
 - `resolveLinks.ts` (`resolveLinks`, `anchorOf`, `RouteEntry`): connector ends follow live boxes.
 - `LinkShapes.tsx` (`LinkShape`, `LABEL_FONT_SIZE=14` world). The line's `strokeWidth = link.width` is in world units and does scale with zoom; halo and end squares are /zoom.
-- `ItemNodes.tsx` (memoised `ItemNodes`, `sameItems`) and `itemCache.ts` (`elementsFor`): the 5.7 element cache.
+- `ItemNodes.tsx` (memoised `ItemNodes`, `sameItems`) and `itemCache.ts` (`elementsFor`): the 5.7 element cache. An item's element is made again for a new item object, but its drawing in the box (`draw`'s output) is kept while `draw`, its size, the colours, the zoom, `inView` and the pixel ratio are the same (6.18 last review): a host hands a new `draw` function whenever what the drawing shows changes; a `draw` that reads changing state at call time goes stale.
 - `zoomSettle.ts` (`createZoomSettle`): items are redrawn for a new zoom 150 ms after a wheel stops.
 - `Minimap.tsx`: `Minimap`, `minimapBounds`, 176×120. It takes `Geometry & {id}`.
 - `ToolStrip.tsx`: hard-coded `TOOLS` plus `ShapesButton`, a `pages` flag for the Page tool, and `children` for host buttons.
@@ -239,5 +239,9 @@ Everything below is optional: a board sets none of it and draws and behaves as i
 - Shared clipboard marker (6.9 review): `src/ui/canvas/clipboardMarker.ts` `createClipboardMarker(clipType,
   isAddress)`, one per surface (`src/features/moodboards/clipboardMarker.ts`, `src/features/birdseye/plan/
   planClipboard.ts`), so a plan's copy never passes for a board's; the canvas calls `onSystemCopy` on copy and cut.
+- Kept drawings (6.18 last review): `ItemNodes.tsx` keeps an item's drawing in its box while `draw`, the size, the
+  colours, the zoom, `inView` and the pixel ratio are the same, so an item moved by a drag (a new object, the same
+  `draw`) isn't drawn again. A host must hand a new `draw` function whenever what the drawing shows changes; a `draw`
+  that reads changing state at call time goes stale (`types.ts` `CanvasItem.draw`).
 
 Key files: src/ui/canvas/Canvas.tsx, src/ui/canvas/types.ts, src/ui/canvas/viewport.ts, src/ui/canvas/placement.ts, src/features/moodboards/BoardView.tsx, src/features/moodboards/items.ts, src/features/moodboards/drawing.tsx, src/features/moodboards/boardActions.ts, src/features/moodboards/connectors.ts, src/features/moodboards/sections.ts, src/features/export/deckRender.tsx, src/features/export/deckPdfWriter.ts, src/ui/icons/plan/planIcons.ts, e2e/perf.spec.ts, docs/SBD_FORMAT.md, docs/PHASE6_DECISIONS.md.

@@ -1379,84 +1379,6 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   await expect.poll(() => rotationOf(built.light), { timeout: 30_000 }).toBeCloseTo(wanted, 4);
   results['every turn landed, after the key was let go'] = ms(Date.now() - landed);
 
-  // 6.18 last pass: walls dragged, so every move cuts the cones and beams they meet live, through the drop's own
-  // function (src/features/birdseye/plan/liveSights.ts). At 100%, where a wall 10 cm thick is 10 px, centred on the place
-  // pressed: a place on a wall where no other item lies (the plan is crowded, and an item over the wall would be picked
-  // instead), clear of a door or window 3 m along. First the 40 walls picked together, 90 moves; then one corridor wall
-  // alone, its door with it, dragged down across the beams, 90 moves.
-  const others = (await planEntries(page)).filter((i) => i.kind !== 'wall' && i.kind !== 'underlay' && i.kind !== 'door' && i.kind !== 'window');
-  // Whether a point (canvas units) is clear of every other item's turned box, by 10 cm.
-  const clear = (x: number, y: number) =>
-    others.every((o) => {
-      const w = (o.width ?? 0) * 100;
-      const h = (o.height ?? 0) * 100;
-      const turn = ((o.rotation ?? 0) * Math.PI) / 180;
-      const dx = x - ((o.x ?? 0) * 100 + w / 2);
-      const dy = y - ((o.y ?? 0) * 100 + h / 2);
-      const u = dx * Math.cos(turn) + dy * Math.sin(turn);
-      const v = -dx * Math.sin(turn) + dy * Math.cos(turn);
-      return Math.abs(u) > w / 2 + 10 || Math.abs(v) > h / 2 + 10;
-    });
-  /** A clear place on one of these walls (canvas units), along its middle line. */
-  const gripOn = async (pool: readonly string[]) => {
-    const boxes = await canvasItems();
-    for (const id of pool) {
-      const b = boxes.find((i) => i.id === id);
-      if (!b) continue;
-      const turn = (((b as { rotation?: number }).rotation ?? 0) * Math.PI) / 180;
-      const cx = b.x + b.width / 2;
-      const cy = b.y + b.height / 2;
-      for (let u = 30; u <= b.width - 30; u += 10) {
-        if (u > 230 && u < 370) continue;
-        const along = u - b.width / 2;
-        const at = { x: cx + along * Math.cos(turn), y: cy + along * Math.sin(turn) };
-        if (clear(at.x, at.y)) return { id, ...at };
-      }
-    }
-    throw new Error('no clear place on a wall');
-  };
-  const centreAt = async (at: { x: number; y: number }) => {
-    await page.evaluate(
-      async ({ key, src, at }) => {
-        const store = (await import(/* @vite-ignore */ `${src}features/birdseye/plan/planStore.ts`)) as typeof import('../src/features/birdseye/plan/planStore');
-        store.planStore.getState().setViewport(key, { cx: at.x, cy: at.y, zoom: 1 });
-      },
-      { key: built.key, src: SRC, at },
-    );
-    await expect.poll(async () => (await view()).cx).toBe(at.x);
-  };
-  const boxAt = async (id: string) => (await canvasItems()).find((i) => i.id === id);
-  const wallDrag = async (name: string, ids: readonly string[], pool: readonly string[], dx: number, dy: number, label: string) => {
-    const grip = await gripOn(pool);
-    await centreAt(grip);
-    await selectOnPlan(page, built.key, ids);
-    const was = await boxAt(grip.id);
-    const from = await screenOf(grip.x, grip.y);
-    gestures.set(
-      name,
-      await frameTimes(
-        page,
-        async () => {
-          await page.mouse.move(from.x, from.y);
-          await page.mouse.down();
-          for (let step = 1; step <= 90; step += 1) {
-            await page.mouse.move(from.x + (step * dx) / 90, from.y + (step * dy) / 90);
-            await nextFrame();
-          }
-          await page.mouse.up();
-          await nextFrame();
-          await nextFrame();
-        },
-        label,
-      ),
-    );
-    // The drag was a real one: the wall pressed moved.
-    await expect.poll(async () => Math.hypot(((await boxAt(grip.id))?.x ?? 0) - (was?.x ?? 0), ((await boxAt(grip.id))?.y ?? 0) - (was?.y ?? 0))).toBeGreaterThan(20);
-  };
-  await wallDrag('drag the 40 walls (90 moves)', built.wallIds, built.wallIds, -60, 40, 'plan-drag-walls');
-  const corridor = built.wallIds.slice(8, 16);
-  const doorWall = (await gripOn(corridor)).id;
-  await wallDrag('drag a wall with a door across the beams (90 moves)', [doorWall], [doorWall], 0, 120, 'plan-drag-door-wall');
   results['extra records in the project (SB_PERF_EXTRA)'] = String(PLAN_EXTRA);
   await tile.getByRole('button', { name: 'Fit all' }).click();
   await expect.poll(async () => Math.abs((await view()).zoom - fit) < 1e-6).toBe(true);
@@ -1522,6 +1444,109 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   await dialog.getByRole('button', { name: 'Save…' }).click();
   await download;
   results['setup plan as PDF (6.10), Save to download'] = ms(Date.now() - saving);
+
+  // 6.18 last pass: walls dragged, so every move cuts the cones and beams they meet live, through the drop's own
+  // function (src/features/birdseye/plan/liveSights.ts). At 100%, where a wall 10 cm thick is 10 px, centred on the place
+  // pressed: a place on a wall where no other item lies (the plan is crowded, and an item over the wall would be picked
+  // instead), clear of a door or window 3 m along. First the 40 walls picked together, 90 moves; then one corridor wall
+  // alone, its door with it, dragged down across the beams, 90 moves.
+  const others = (await planEntries(page)).filter((i) => i.kind !== 'wall' && i.kind !== 'underlay' && i.kind !== 'door' && i.kind !== 'window');
+  // Whether a point (canvas units) is clear of every other item's turned box, by 10 cm.
+  const clear = (x: number, y: number) =>
+    others.every((o) => {
+      const w = (o.width ?? 0) * 100;
+      const h = (o.height ?? 0) * 100;
+      const turn = ((o.rotation ?? 0) * Math.PI) / 180;
+      const dx = x - ((o.x ?? 0) * 100 + w / 2);
+      const dy = y - ((o.y ?? 0) * 100 + h / 2);
+      const u = dx * Math.cos(turn) + dy * Math.sin(turn);
+      const v = -dx * Math.sin(turn) + dy * Math.cos(turn);
+      return Math.abs(u) > w / 2 + 10 || Math.abs(v) > h / 2 + 10;
+    });
+  /** A clear place on one of these walls (canvas units), along its middle line. */
+  const gripOn = async (pool: readonly string[]) => {
+    const boxes = await canvasItems();
+    for (const id of pool) {
+      const b = boxes.find((i) => i.id === id);
+      if (!b) continue;
+      const turn = (((b as { rotation?: number }).rotation ?? 0) * Math.PI) / 180;
+      const cx = b.x + b.width / 2;
+      const cy = b.y + b.height / 2;
+      for (let u = 30; u <= b.width - 30; u += 10) {
+        if (u > 230 && u < 370) continue;
+        const along = u - b.width / 2;
+        const at = { x: cx + along * Math.cos(turn), y: cy + along * Math.sin(turn) };
+        if (clear(at.x, at.y)) return { id, ...at };
+      }
+    }
+    throw new Error('no clear place on a wall');
+  };
+  const centreAt = async (at: { x: number; y: number }) => {
+    await page.evaluate(
+      async ({ key, src, at }) => {
+        const store = (await import(/* @vite-ignore */ `${src}features/birdseye/plan/planStore.ts`)) as typeof import('../src/features/birdseye/plan/planStore');
+        store.planStore.getState().setViewport(key, { cx: at.x, cy: at.y, zoom: 1 });
+      },
+      { key: built.key, src: SRC, at },
+    );
+    await expect.poll(async () => (await view()).cx).toBe(at.x);
+  };
+  const boxAt = async (id: string) => (await canvasItems()).find((i) => i.id === id);
+  const wallDrag = async (name: string, ids: readonly string[], pool: readonly string[], dx: number, dy: number, label: string) => {
+    const grip = await gripOn(pool);
+    await centreAt(grip);
+    await selectOnPlan(page, built.key, ids);
+    const was = await boxAt(grip.id);
+    const first = ids[0] ?? grip.id;
+    const last = ids[ids.length - 1] ?? grip.id;
+    const firstWas = await boxAt(first);
+    const lastWas = await boxAt(last);
+    // From the canvas's box as it is now: the Frame inspector opened for the lens edits moved it since `box` was read.
+    const now0 = await canvas.boundingBox();
+    if (!now0) throw new Error('no canvas');
+    const v = await view();
+    const from = { x: now0.x + now0.width / 2 + (grip.x - v.cx) * v.zoom, y: now0.y + now0.height / 2 + (grip.y - v.cy) * v.zoom };
+    const seen: { live: string | null } = { live: null };
+    gestures.set(
+      name,
+      await frameTimes(
+        page,
+        async () => {
+          await page.mouse.move(from.x, from.y);
+          await page.mouse.down();
+          for (let step = 1; step <= 90; step += 1) {
+            await page.mouse.move(from.x + (step * dx) / 90, from.y + (step * dy) / 90);
+            await nextFrame();
+          }
+          // Once, the button still held: the shapes the canvas cut live (dev builds write them, PlanTile.tsx).
+          seen.live = await tile.locator('[data-plan-data]').getAttribute('data-plan-live');
+          await page.mouse.up();
+          await nextFrame();
+          await nextFrame();
+        },
+        label,
+      ),
+    );
+    // The drag was a real one: the wall pressed moved.
+    await expect.poll(async () => Math.hypot(((await boxAt(grip.id))?.x ?? 0) - (was?.x ?? 0), ((await boxAt(grip.id))?.y ?? 0) - (was?.y ?? 0))).toBeGreaterThan(20);
+    // Every wall picked moved with it: the first and the last by the very delta of the one pressed.
+    const now = await boxAt(grip.id);
+    const delta = { x: (now?.x ?? 0) - (was?.x ?? 0), y: (now?.y ?? 0) - (was?.y ?? 0) };
+    for (const [id, before] of [[first, firstWas], [last, lastWas]] as const) {
+      const after = await boxAt(id);
+      expect((after?.x ?? Number.NaN) - (before?.x ?? Number.NaN), `${name}: ${id} x`).toBeCloseTo(delta.x, 6);
+      expect((after?.y ?? Number.NaN) - (before?.y ?? Number.NaN), `${name}: ${id} y`).toBeCloseTo(delta.y, 6);
+    }
+    // Mid-drag, the canvas had cut shapes live.
+    expect(seen.live, `${name}: data-plan-live mid-drag`).not.toBeNull();
+    expect(Object.keys(JSON.parse(seen.live ?? '{}') as object).length, `${name}: data-plan-live mid-drag`).toBeGreaterThan(0);
+  };
+  // The PDF's window is gone before the drags start.
+  await expect(dialog).toHaveCount(0);
+  await wallDrag('drag the 40 walls (90 moves)', built.wallIds, built.wallIds, -60, 40, 'plan-drag-walls');
+  const corridor = built.wallIds.slice(8, 16);
+  const doorWall = (await gripOn(corridor)).id;
+  await wallDrag('drag a wall with a door across the beams (90 moves)', [doorWall], [doorWall], 0, 120, 'plan-drag-door-wall');
 
   // Opening the Setup section on that setup after a reload: the plan built again in a page whose projects outlive it.
   // Without SB_PERF_EXTRA's strokes: this project is kept in the page's storage, which 5,000 more records overfill.

@@ -364,7 +364,8 @@ export function sightline(w: Wedge, blockers: readonly Blocker[], stop = true): 
       }
     }
   }
-  // An apex standing in a solid (on a wall's end, or within the tolerance of a face) sees out of it only where its rays
+  // An apex standing in a solid (inside or on a blocking box: its distance to the box exactly 0, as on a wall's end; no
+  // tolerance, so an apex a hair outside a face is not one) sees out of it only where its rays
   // leave the solid soon enough, which turns at no corner: there the shape is followed every ARC_STEP_DEG all round, as
   // before the 6.18 review (6.18 last review: a light on a wall's end otherwise drew nothing).
   if (frames.some((f) => distanceTo(f, w.apex) === 0)) {
