@@ -85,6 +85,13 @@ const mod = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(naviga
 
 /** Where a world point (canvas units: cm) is on screen, from the view the canvas reports. */
 async function screen(page: Page, x: number, y: number) {
+  const [at] = await screens(page, { x, y });
+  if (!at) throw new Error('no point');
+  return at;
+}
+
+/** Several world points on screen after one whole-pixel check, so a later check can't move the canvas under the first. */
+async function screens(page: Page, ...points: { x: number; y: number }[]) {
   // The Setup workspace's dock puts the plan on fractions of a pixel, and the notices above it move it as the test goes:
   // its centre alone is made whole, before every gesture (e2e/wholePixels.ts; a no-op while it already is).
   await wholePixelCentre(page, canvas(page), { corner: false, tries: 160 });
@@ -92,7 +99,9 @@ async function screen(page: Page, x: number, y: number) {
   if (!box) throw new Error('no canvas');
   const attr = async (name: string) => Number(await canvas(page).getAttribute(name));
   const zoom = await attr('data-zoom');
-  return { x: box.x + box.width / 2 + (x - (await attr('data-cx'))) * zoom, y: box.y + box.height / 2 + (y - (await attr('data-cy'))) * zoom };
+  const cx = await attr('data-cx');
+  const cy = await attr('data-cy');
+  return points.map(({ x, y }) => ({ x: box.x + box.width / 2 + (x - cx) * zoom, y: box.y + box.height / 2 + (y - cy) * zoom }));
 }
 
 async function clickAt(page: Page, x: number, y: number) {
@@ -478,8 +487,9 @@ test('an icon moved to within a few pixels of an underlay’s middle line or edg
   /** The sofa dragged by its middle so its middle lands at `x` (metres): 3 cm, 3 px at 100%, off an underlay line. */
   const dragSofaTo = async (x: number) => {
     const was = await one(page, 'icon');
-    const start = await screen(page, (was.x + was.width / 2) * 100, (was.y + was.height / 2) * 100);
-    const end = await screen(page, x * 100, (was.y + was.height / 2) * 100);
+    // Both points from one whole-pixel check: a second could resize the viewport and leave the start stale.
+    const [start, end] = await screens(page, { x: (was.x + was.width / 2) * 100, y: (was.y + was.height / 2) * 100 }, { x: x * 100, y: (was.y + was.height / 2) * 100 });
+    if (!start || !end) throw new Error('no points');
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(end.x, end.y, { steps: 8 });

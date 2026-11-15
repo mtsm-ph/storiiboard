@@ -19,7 +19,7 @@ import {
   unlinkFrameChanges,
   takeFrameLensChanges,
 } from '../../../core/model/planCamera';
-import { lightBeamChanges, lightWattsChanges, planGearChanges } from '../../../core/model/planLight';
+import { lightBeamChanges, lightWattsChanges, planGearChanges, stopAtWallsChanges } from '../../../core/model/planLight';
 import { pickableIds, rowState, UNDERLAY_ROW } from '../../../core/model/planLayers';
 import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
@@ -528,6 +528,8 @@ export const setPlanGear = (ids: readonly string[], gearId: string | null) => pl
 export const setLightWatts = (ids: readonly string[], watts: number | null) => plannedEdit((r) => lightWattsChanges(r, ids, watts));
 export const setLightBeam = (ids: readonly string[], degrees: number) => plannedEdit((r) => lightBeamChanges(r, ids, degrees));
 export const setFrameSize = (ids: readonly string[], sizeId: string) => plannedEdit((r) => frameSizeChanges(r, ids, sizeId));
+/** Stop at walls (6.18) on a camera or a light: one op group, undoable. */
+export const setStopAtWalls = (ids: readonly string[], on: boolean) => plannedEdit((r) => stopAtWallsChanges(r, ids, on));
 
 /** A sun path's time of day (6.6), "HH:mm": one op group. */
 export const setSunTime = (ids: readonly string[], time: string) => plannedEdit((r) => sunTimeChanges(r, ids, time));

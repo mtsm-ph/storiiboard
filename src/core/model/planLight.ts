@@ -1,6 +1,6 @@
 import type { Change } from '../ops/ops';
 import { gearWatts, MAX_WATTS } from './gear';
-import { gripFields, lightFields, type GripFields, type LightFields } from './plan';
+import { cameraFields, gripFields, lightFields, stopsAtWalls, type GripFields, type LightFields } from './plan';
 import type { Props, SbdRecord } from './record';
 
 // Lights, flags and diffusion on a setup's plan (6.5, docs/PHASE6_DECISIONS.md 8 and 11). A light is a `plan_item` of
@@ -224,5 +224,19 @@ export function lightBeamChanges(records: Records, ids: readonly string[], degre
     const light = liveLight(records, id);
     if (!light || beamOf(light.fields) === next) return null;
     return { kind: 'update', id, set: { beam_deg: next } };
+  });
+}
+
+/**
+ * Stop at walls (6.18), on or off, for each selected camera or light that isn't so already: one group. Written only as
+ * `false` (a wild wall); turned back on, the prop is taken off, so a file with it on reads as one from before 6.18.
+ */
+export function stopAtWallsChanges(records: Records, ids: readonly string[], on: boolean): Change[] {
+  return updates(ids, (id) => {
+    const record = records[id];
+    if (record?.type !== 'plan_item' || record.trashedAt !== null) return null;
+    const fields = cameraFields(record.props) ?? lightFields(record.props);
+    if (!fields || stopsAtWalls(fields) === on) return null;
+    return on ? { kind: 'update', id, unset: ['stop_at_walls'] } : { kind: 'update', id, set: { stop_at_walls: false } };
   });
 }

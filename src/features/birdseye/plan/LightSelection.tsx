@@ -2,13 +2,13 @@ import { useProject } from '../../../app/projectStore';
 import { t, tn } from '../../../core/i18n';
 import { gearWatts, projectGear } from '../../../core/model/gear';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
-import { parseDegrees, type GripFields, type LightFields } from '../../../core/model/plan';
+import { parseDegrees, stopsAtWalls, type GripFields, type LightFields } from '../../../core/model/plan';
 import { ALL_ROUND, beamOf, FRAME_SIZES, frameSizeOf, isAllRound, isBeam, isWatts, liesFlat, lightWatts, liveGear } from '../../../core/model/planLight';
 import type { SbdRecord } from '../../../core/model/record';
-import { Select } from '../../../ui/fields';
+import { Select, Toggle } from '../../../ui/fields';
 import { frameLabel, iconLabel } from './iconWords';
 import { wattsLabel } from './lightLooks';
-import { changeIcons, setFrameSize, setLightBeam, setLightWatts, setPlanGear } from './planActions';
+import { changeIcons, setFrameSize, setLightBeam, setLightWatts, setPlanGear, setStopAtWalls } from './planActions';
 import { iconCentre, iconPatchRefused, type IconPatch } from './planItems';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
@@ -141,6 +141,8 @@ export function LightFieldsView({ id, fields, unit, records }: { id: string; fie
           return true;
         }}
       />
+      {/* Walls stop its beam (6.18); off for a wild wall, flown out for the shot. */}
+      <Toggle label={t('selection.stopAtWalls')} checked={stopsAtWalls(fields)} onChange={(on) => void setStopAtWalls([id], on)} />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-3">
         <TypedField
           key={keyed('height')}

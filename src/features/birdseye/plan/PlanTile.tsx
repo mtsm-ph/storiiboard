@@ -85,6 +85,7 @@ import {
 } from './planActions';
 import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
+import { sightsKeeper, type Sights } from './planSights';
 import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
@@ -616,6 +617,17 @@ function ScaleWindow({ ask, onClose, onScale }: { ask: ScaleAsk; onClose: () => 
 }
 
 /** How an item's layer draws it, as plain data for the end-to-end tests: dimmed, locked, or neither (left out). */
+/**
+ * A cone's or a beam's shape as drawn (6.18), metres, for the end-to-end tests: whether walls cut it, and its corners
+ * (the apex first, unless it shines all round); null for an item with no cone.
+ */
+const sightData = (sights: Sights, id: string) => {
+  const sight = sights.get(id);
+  if (!sight) return null;
+  const round = (n: number) => Math.round(n * 10000) / 10000;
+  return { cut: sight.cut, empty: sight.empty, apex: { x: round(sight.apex.x), y: round(sight.apex.y) }, points: sight.points.map((p) => ({ x: round(p.x), y: round(p.y) })) };
+};
+
 const layerData = (look: LayerLook | undefined) => ({ ...(look?.dim ? { dim: true } : {}), ...(look?.locked ? { locked: true } : {}) });
 
 /**
@@ -725,9 +737,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const visible = layered.visible;
   // Each underlay's picture (6.9), read from its `media` record: one missing is drawn "gone", as a board's is.
   const pictures = useMemo(() => underlayPictures(records, visible), [records, visible]);
+  // Walls stop cones and beams (6.18): each drawn one's cut shape, by the room's walls and openings on every layer (a
+  // hidden layer is a focus view, never a wall flown out), worked out again only for what an edit touched.
+  const [keepSights] = useState(sightsKeeper);
+  const sights = useMemo(() => keepSights(shown, visible, looks, lights, blocking.marks), [keepSights, shown, visible, looks, lights, blocking.marks]);
   const built = useMemo(
-    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks, pictures),
-    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks, pictures],
+    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks, pictures, sights),
+    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks, pictures, sights],
   );
   // Which size each underlay's picture is drawn at now, for the end-to-end tests (as a board's are).
   const levels = useDrawnLevels();
@@ -829,6 +845,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           ...fields,
           centre: iconCentre(fields),
           cone: look?.degrees ?? null,
+          sight: sightData(sights, record.id),
           labels: look?.lines ?? [],
           ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
           ...(move !== undefined ? { moveM: Math.round(move * 10000) / 10000 } : {}),
@@ -852,6 +869,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           drawnAs: look?.icon ?? null,
           ghost: look?.ghost ?? false,
           cone: look?.cone ?? null,
+          sight: sightData(sights, record.id),
           labels: look?.lines ?? [],
           ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
         };
@@ -859,7 +877,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
       if (isLight(fields)) {
         const look = lights.get(record.id);
-        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
+        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), sight: sightData(sights, record.id), labels: look?.lines ?? [] };
       }
       if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
       // The room's north (6.6): an icon's, its rotation the room's north.
@@ -888,7 +906,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
     };
     return JSON.stringify(visible.map((item) => ({ ...itemData(item), ...layerData(layered.looks.get(item.record.id)) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
-  }, [visible, layered.looks, looks, lights, suns, blocking, unit, records, zonesKey, pictures]);
+  }, [visible, layered.looks, looks, lights, suns, blocking, unit, records, zonesKey, pictures, sights]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':

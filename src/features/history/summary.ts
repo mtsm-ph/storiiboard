@@ -297,6 +297,8 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   // A camera's frames (6.4), kept by id: said as how many.
   if (prop === 'shot_ids' && Array.isArray(value)) return tn('count.frames', value.filter((id) => typeof id === 'string').length);
   if (prop === 'on_side' && typeof value === 'boolean') return t(value ? 'history.onSideValue' : 'history.uprightValue');
+  // A camera's or a light's Stop at walls (6.18): stored only as false.
+  if (prop === 'stop_at_walls' && typeof value === 'boolean') return t(value ? 'history.stopsAtWallsValue' : 'history.throughWallsValue');
   // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
   if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
   // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
@@ -591,6 +593,7 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   lens_mm: 'history.field.lensMm',
   lens_id: 'history.field.lensId',
   on_side: 'history.field.onSide',
+  stop_at_walls: 'history.field.stopAtWalls',
   // A light's, flag's or diffusion frame's (6.5).
   gear_id: 'history.field.planGear',
   watts: 'history.field.watts',
@@ -1192,6 +1195,7 @@ function lightLine(items: readonly LoggedOp[], unit: PlanUnit): Line | null {
   if (props[0] === 'gear_id') return line(typeof value === 'string' ? 'history.planGearPicked' : 'history.planGearRemoved', { what });
   if (props[0] === 'watts') return typeof value === 'number' ? line('history.lightWattsTyped', { what, watts: { mono: wattsValue(value) } }) : line('history.lightWattsRemoved', { what });
   if (props[0] === 'beam_deg' && typeof value === 'number') return line('history.lightBeamChanged', { what, beam: { mono: beamValue(value) } });
+  if (props[0] === 'stop_at_walls' && kind === 'light') return line(value === false ? 'history.noLongerStopsAtWalls' : 'history.stopsAtWalls', { what });
   return null;
 }
 
@@ -1261,6 +1265,7 @@ function cameraLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdR
   const camera = cameraOf(op);
   if (only(['body_id'])) return line('history.cameraBodyChanged', { camera });
   if (only(['on_side'])) return line(op.after.props.on_side === true ? 'history.cameraOnSide' : 'history.cameraUpright', { camera });
+  if (only(['stop_at_walls'])) return line(op.after.props.stop_at_walls === false ? 'history.noLongerStopsAtWalls' : 'history.stopsAtWalls', { what: camera });
   if (only(['lens_mm', 'lens_id'])) {
     const mm = op.after.props.lens_mm;
     if (typeof mm === 'number') return line('history.cameraLensTyped', { camera, lens: { mono: t('lens.prime', { mm }) } });

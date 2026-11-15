@@ -1,7 +1,7 @@
 import { t } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { characterName } from '../../../core/model/person';
-import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, type MarkFields, type ShownItem } from '../../../core/model/plan';
+import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, stopsAtWalls, type MarkFields, type ShownItem } from '../../../core/model/plan';
 import { markOwner, moveLength, viewBlocking, type MarkOwner, type Position } from '../../../core/model/planBlocking';
 import { cameraCone, cameraShortTitle, liveCamera } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
@@ -26,6 +26,8 @@ export interface MarkLook {
   lines: string[];
   /** A camera's later position's cone, degrees (its edges only); null for none. */
   cone: number | null;
+  /** That cone goes through walls: its camera's Stop at walls is off (6.18: one switch for every position). */
+  stopAtWalls?: false;
   /** What it is called aloud. */
   say: string;
   selected: boolean;
@@ -126,6 +128,7 @@ export function blockingLooks(records: Records, view: { sceneId: string; setupId
       ghost: true,
       lines: [...named, t('plan.mark.label', { name: who, number: String(of.number) }), ...(last ? [moveLabel(length, unit)] : [])],
       cone: cone && !('missing' in cone) ? cone.degrees : null,
+      ...(camera && !stopsAtWalls(camera.fields) ? { stopAtWalls: false as const } : {}),
       say: t('plan.mark.say', { name: who, ...position }),
       selected: picked.has(id),
     });

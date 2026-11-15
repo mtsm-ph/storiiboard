@@ -7,6 +7,7 @@ import { frameSetup, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, set
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keepBrowserMenuOut } from '../../ui/menuKey';
+import { toHolder, usePressInside } from '../../ui/pressInside';
 import { rovingIndex } from '../../ui/roving';
 import { boardsOf, boardTitle } from '../moodboards/boards';
 import { addToBoard } from '../moodboards/liveActions';
@@ -48,6 +49,8 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
   const projectId = useProject((s) => s.project?.projectId ?? null);
   const [view, setView] = useState<View>('root');
   const panel = useRef<HTMLDivElement>(null);
+  // A press inside the menu may send focus to what holds it; nothing else may (6.19b's review).
+  const pressing = usePressInside(panel, true, () => panel.current?.querySelector<HTMLElement>('button, [data-menu-message]'));
   const boards = projectId ? boardsOf(records, projectId) : [];
   // The frame the menu is on, while it's live, with its scene's setups and the one it's in.
   const shot = ask.target.kind === 'shot_card' ? records[ask.target.shotId] : undefined;
@@ -105,13 +108,14 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
       close(true);
     };
     // Focus moved to something outside the panel: it is done. (Moving between its own commands, or to nothing as one command
-    // replaces another, keeps it open. So does focus going to what holds the menu (6.19b): WebKit, so the Mac app, gives
-    // a pressed command no focus and moves it to the nearest focusable ancestor before the command's click; a press
-    // outside the menu closes it above.)
+    // replaces another, keeps it open. So does focus going to what holds the menu during a press inside it (6.19b):
+    // WebKit, so the Mac app, gives a pressed command no focus and moves it to the nearest focusable ancestor before the
+    // command's click; the press's end puts focus back inside (src/ui/pressInside.ts). A press outside the menu closes
+    // it above.)
     const onFocusOut = (event: FocusEvent) => {
       const to = event.relatedTarget;
       const here = panel.current;
-      if (to instanceof Node && !here?.contains(to) && !(here && to.contains(here))) close(false);
+      if (to instanceof Node && !here?.contains(to) && !(pressing.current && toHolder(here, to))) close(false);
     };
     const node = panel.current;
     node?.addEventListener('focusout', onFocusOut);
@@ -122,7 +126,7 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [ask.from, onClose]);
+  }, [ask.from, onClose, pressing]);
 
   const item = 'sb-label flex h-8 w-full items-center px-2.5 text-left text-text hover:bg-surface-raised focus-visible:-outline-offset-4';
   return (

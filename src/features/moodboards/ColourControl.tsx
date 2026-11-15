@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { keepBrowserMenuOut } from '../../ui/menuKey';
+import { toHolder, usePressInside } from '../../ui/pressInside';
 import { luminance, parseHex as rgbOf } from '../../ui/theme/generator/color';
 import { BOARD_PAPER, parseHex, STICKY_INK, SWATCHES } from './items';
 
@@ -42,6 +43,8 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
   const picker = useRef<HTMLInputElement>(null);
   const panel = useId();
   const hexId = useId();
+  // A press inside the panel (a swatch, its padding) may send focus to what holds it; nothing else may (6.19b's review).
+  const pressing = usePressInside(root, open, () => trigger.current);
 
   useEffect(() => {
     if (!open) return;
@@ -99,11 +102,13 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
       className="relative flex flex-col gap-[5px]"
       onBlur={(event) => {
         // Tab past the last control (focus moved to something outside) closes the panel. Not focus going to what holds
-        // the control (6.19b): WebKit (Safari, the Mac app) gives a pressed swatch no focus and moves it to the nearest
-        // focusable ancestor, the workspace panel, before the swatch's click; once a clicked button took focus
-        // (src/ui/clickFocus.ts) that blur closed the panel and the click chose nothing. A press outside closes it above.
+        // the control during a press inside it (6.19b): WebKit (Safari, the Mac app) gives a pressed swatch no focus and
+        // moves it to the nearest focusable ancestor, the workspace panel, before the swatch's click, and a press on the
+        // panel's padding does that in every engine; once a clicked button took focus (src/ui/clickFocus.ts) that blur
+        // closed the panel and the click chose nothing. The press's end puts focus back inside (src/ui/pressInside.ts).
+        // A press outside closes it above.
         const to = event.relatedTarget;
-        if (open && to instanceof Node && !event.currentTarget.contains(to) && !to.contains(event.currentTarget)) setOpen(false);
+        if (open && to instanceof Node && !event.currentTarget.contains(to) && !(pressing.current && toHolder(event.currentTarget, to))) setOpen(false);
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && open) {

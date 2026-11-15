@@ -494,6 +494,14 @@ unreadable value reads as not set, as every prop does.
     `gear_id` in a room's plan (possible only by an import; the app places them in a setup's) counts in the legend but
     not in the check. Copies (a setup started from another, a paste, a duplicate, a separate copy) keep `gear_id`,
     `watts` and `beam_deg`.
+  - `stop_at_walls` (6.18): on a `camera` or a `light`, whether its cone or beam ends at the room's walls. Written
+    only as `false` (a wild wall, flown out for the shot: the cone or beam is drawn whole, as before 6.18); turning it
+    back on takes the prop off. Absent, or any value but `false`, reads as on, so a file from before 6.18 opens
+    unchanged and its cones and beams are cut. No schema version change and no migration (decision 16: props only).
+    A camera's later positions (6.7) follow their camera's. Copies (a setup started from another, a paste, a
+    duplicate, a separate copy) keep it. What blocks is worked out, never stored (src/core/model/planSightlines.ts):
+    each wall of the room shown as its solid (its length by its thickness), split where a door or window makes a gap
+    for its whole width; nothing else blocks (set pieces, flags, diffusion, marks, cameras, lights, the underlay).
   - Drawing order (6.5): walls, then doors and windows, then icons, then flags and diffusion, then lights, then
     cameras, whatever the front-to-back order: the plan items' order (`sort_key`) decides only within a kind, so a
     light, a flag or a camera always draws above the set pieces. North (6.6) draws with the icons, after them; marks

@@ -3,7 +3,7 @@ import { t } from '../../../core/i18n';
 import { lensLabel, projectBodies, projectLenses, rangeMessage, type BodyFields } from '../../../core/model/cameraGear';
 import { oneDecimal } from '../../../core/model/fieldOfView';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
-import { parseDegrees, type CameraFields } from '../../../core/model/plan';
+import { parseDegrees, stopsAtWalls, type CameraFields } from '../../../core/model/plan';
 import {
   cameraBody,
   cameraCone,
@@ -25,7 +25,7 @@ import { Select, Toggle } from '../../../ui/fields';
 import { Trans } from '../../../ui/Trans';
 import { showShot } from '../../moodboards/liveActions';
 import { iconLabel } from './iconWords';
-import { changeIcons, linkFrame, pickCameraLens, setCameraBody, setOnSide, showFrame, typeCameraLens, unlinkFrame, takeFrameLens } from './planActions';
+import { changeIcons, linkFrame, pickCameraLens, setCameraBody, setOnSide, setStopAtWalls, showFrame, typeCameraLens, unlinkFrame, takeFrameLens } from './planActions';
 import { iconCentre, iconPatchRefused, type IconPatch } from './planItems';
 import { degreesText, lengthCommit, TypedField } from './selectionFields';
 
@@ -130,6 +130,8 @@ export function CameraFieldsView({ id, fields, unit, records }: { id: string; fi
         )}
       </div>
       <Toggle label={t('selection.camera.onSide')} checked={fields.onSide} onChange={(on) => void setOnSide([id], on)} />
+      {/* Walls stop its cone (6.18); off for a wild wall, flown out for the shot. */}
+      <Toggle label={t('selection.stopAtWalls')} checked={stopsAtWalls(fields)} onChange={(on) => void setStopAtWalls([id], on)} />
       {height?.from === 'frame' ? (
         <div className="flex flex-col gap-[5px]" data-camera-height="frame">
           <span className="sb-label">{t('selection.height')}</span>

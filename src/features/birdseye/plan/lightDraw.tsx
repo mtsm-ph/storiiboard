@@ -4,6 +4,7 @@ import { DEPT_LIGHTING } from '../../../ui/canvas/paperColours';
 import type { Beyond, CanvasColours } from '../../../ui/canvas/types';
 import { cameraReach, labelReach, UprightLabels } from './cameraDraw';
 import { paintOf } from './iconDraw';
+import { GLOW_BANDS, type LocalSight } from './planSights';
 
 // A light's beam on the plan (6.5, decision 8): from the light's middle along its rotation (0 is up the plan, as a
 // camera's), as wide as its beam angle, BEAM_LENGTH_M long, its far edge an arc. A light that shines all round (a china
@@ -11,6 +12,9 @@ import { paintOf } from './iconDraw';
 // (DEPT_LIGHTING: plans are never themed, decision 13) at a low opacity with a thin edge of the same colour, stronger
 // while the light is selected. Under it, as a camera's, its labels in mono, upright: its name, its watts and its height.
 // All of it is drawn past the light's box (CanvasItem.beyond), so the core keeps it drawn while the box is off screen.
+// Walls stop it (6.18): where they cut it, it is drawn as the cut shape (planSights.ts), filled as the beam is, its sides
+// and arc as lines and none along a wall; an all-round light's glow as bands, each the shape out to its radius, which
+// add up to the glow's fade.
 
 /** What a light's drawing past its box shows, worked out from the records by the plan (lightLooks.ts). */
 export interface LightLook {
@@ -52,15 +56,34 @@ interface BeamProps {
   length: number;
   /** Which way the icon's drawing points, degrees clockwise from up its box (BEAM_FACING). */
   facing: number;
+  /** Its shape where walls cut it (6.18); null or absent, the whole beam. */
+  cut?: LocalSight | null;
 }
 
+/** Each band's opacity, so the GLOW_BANDS of them laid over one another at the middle make GLOW_OPACITY. */
+const BAND_OPACITY = 1 - (1 - GLOW_OPACITY) ** (1 / GLOW_BANDS);
+
 /** The beam (or the soft circle) and the labels, in the light's own box. */
-export function LightBeyond({ width, height, zoom, rotation, colours, look, length, facing }: BeamProps) {
+export function LightBeyond({ width, height, zoom, rotation, colours, look, length, facing, cut }: BeamProps) {
   const wedge = beamWedge(look.degrees, facing);
   const centre = { x: width / 2, y: height / 2 };
+  const edge = { stroke: DEPT_LIGHTING, strokeWidth: look.selected ? 1.5 : 1, strokeScaleEnabled: false, listening: false } as const;
   return (
     <>
-      {wedge ? (
+      {cut ? (
+        cut.fill.length >= 6 && (
+          <>
+            {wedge ? (
+              <Line points={cut.fill} closed fill={DEPT_LIGHTING} opacity={FILL_OPACITY} listening={false} />
+            ) : (
+              cut.bands.map((band, i) => <Line key={`band${String(i)}`} points={band} closed fill={DEPT_LIGHTING} opacity={BAND_OPACITY} listening={false} />)
+            )}
+            {cut.strokes.map((run, i) => (
+              <Line key={i} points={run} {...edge} opacity={look.selected ? 1 : wedge ? EDGE_OPACITY : EDGE_OPACITY * 0.6} />
+            ))}
+          </>
+        )
+      ) : wedge ? (
         <>
           <Wedge {...centre} radius={length} angle={wedge.angle} rotation={wedge.rotation} fill={DEPT_LIGHTING} opacity={FILL_OPACITY} listening={false} />
           <Wedge
@@ -100,11 +123,11 @@ export function LightBeyond({ width, height, zoom, rotation, colours, look, leng
  * its box, whichever way it points and whatever its icon's facing) and its labels, reckoned for the plan's least zoom as
  * a camera's are.
  */
-export function lightBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: LightLook, length: number, leastZoom: number, facing = 0): Beyond {
+export function lightBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: LightLook, length: number, leastZoom: number, facing = 0, cut: LocalSight | null = null): Beyond {
   return {
     bounds: cameraReach(box, null, 0, length, labelReach(box, look.lines.length, leastZoom)),
     draw: (context) => (
-      <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} facing={facing} />
+      <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} facing={facing} cut={cut} />
     ),
   };
 }

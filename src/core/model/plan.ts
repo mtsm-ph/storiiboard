@@ -267,7 +267,19 @@ export interface CameraFields {
   lensId: string | null;
   /** Turned for vertical shooting. */
   onSide: boolean;
+  /**
+   * Its cone ends at the room's walls (6.18) unless this is `false`: `stop_at_walls`, stored only as `false` (a wild
+   * wall, flown out for the shot), and read here only then; absent is on, so older files read as cut. Read it through
+   * `stopsAtWalls`.
+   */
+  stopAtWalls?: false;
 }
+
+/** `stop_at_walls` as a camera's or a light's fields hold it (6.18): only a stored `false` turns it off; absent, or anything else, is on. */
+const wildWall = (props: Props): { stopAtWalls?: false } => (props.stop_at_walls === false ? { stopAtWalls: false } : {});
+
+/** The one reader of whether a camera's cone or a light's beam ends at the walls (6.18). */
+export const stopsAtWalls = (fields: { stopAtWalls?: false }): boolean => fields.stopAtWalls !== false;
 
 const idOrNull = (value: JsonValue | undefined): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
 
@@ -299,6 +311,7 @@ export function cameraFields(props: Props): CameraFields | null {
     lensMm: lensMm !== null && lensMm > 0 ? lensMm : null,
     lensId: idOrNull(props.lens_id),
     onSide: props.on_side === true,
+    ...wildWall(props),
   };
 }
 
@@ -348,6 +361,8 @@ export interface LightFields {
   watts: number | null;
   /** Its beam angle, degrees above 0 up to 360 (all round); null for its icon's. */
   beamDeg: number | null;
+  /** Its beam ends at the room's walls (6.18) unless this is `false`, as a camera's cone does: `stop_at_walls`, absent is on. */
+  stopAtWalls?: false;
 }
 
 /** A light's props, or null when it isn't one that can be read. */
@@ -364,6 +379,7 @@ export function lightFields(props: Props): LightFields | null {
     gearId: idOrNull(props.gear_id),
     watts: wattsOf(props.watts),
     beamDeg: beam !== null && beam > 0 && beam <= 360 ? beam : null,
+    ...wildWall(props),
   };
 }
 

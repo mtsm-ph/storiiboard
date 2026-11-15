@@ -214,6 +214,57 @@ test('a sticky’s colour is chosen by a swatch whose press sends focus to the w
   await expect(trigger).toBeFocused();
 });
 
+/** A camera board with one sticky note selected, its Sticky colour trigger and the panel the trigger opens. */
+async function stickyColourPanel(page: Page) {
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Moodboard/ }).click();
+  const tile = page.getByRole('region', { name: 'Moodboard', exact: true });
+  await tile.locator('[data-department-board="camera"]').click();
+  const canvas = page.getByRole('application', { name: 'Camera board' });
+  await expect(canvas).toBeVisible();
+  await tile.getByRole('button', { name: 'Sticky', exact: true }).click();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas');
+  await page.mouse.click(box.x + box.width / 2 - 300, box.y + box.height / 2 - 200);
+  await page.keyboard.type('Rain cover?');
+  await page.keyboard.press('Escape');
+  const properties = tile.getByRole('group', { name: 'Properties of the selection' });
+  const trigger = properties.getByRole('button', { name: /^Sticky colour:/ });
+  await trigger.click();
+  const panel = properties.getByRole('group', { name: 'Sticky colour' });
+  await expect(panel).toBeVisible();
+  await expect(trigger).toBeFocused();
+  return { trigger, panel };
+}
+
+test('a press on the colour panel’s padding leaves it open with focus back in it, so Escape closes it (6.19b review)', async ({ page }) => {
+  const { trigger, panel } = await stickyColourPanel(page);
+  const box = await panel.boundingBox();
+  if (!box) throw new Error('no panel');
+  // The panel's own padding, no swatch: Chromium itself sends focus to the nearest focusable ancestor (the workspace).
+  await page.mouse.click(box.x + 3, box.y + 3);
+  await expect(panel).toBeVisible();
+  // The press's end gave focus back to the control that had it, where the panel's keys are heard.
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test('Tab from the colour panel’s last swatch to outside it closes the panel (6.19b review)', async ({ page }) => {
+  const { panel } = await stickyColourPanel(page);
+  await panel.getByRole('button').last().focus();
+  await page.keyboard.press('Tab');
+  await expect(panel).toBeHidden();
+});
+
+test('focus moved to what holds the colour panel other than by a press in it closes the panel (6.19b review)', async ({ page }) => {
+  const { panel } = await stickyColourPanel(page);
+  await page.evaluate(() => {
+    document.querySelector<HTMLElement>('#workspace-panel')?.focus();
+  });
+  await expect(panel).toBeHidden();
+});
+
 test('a frame’s menu opened from the keyboard takes a click on its command though the press moves focus out (6.19b)', async ({ page }) => {
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   const board = page.getByRole('region', { name: 'Storyboard', exact: true });
