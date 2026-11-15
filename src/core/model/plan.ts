@@ -738,7 +738,30 @@ export interface ShownItem {
  * or window shows only while its wall is one the view shows, wherever either sits (a door made this setup's only, in a
  * wall of the room).
  */
-export function shownItems(records: Records, sceneId: string, setupId: string | null): ShownItem[] {
+export function shownItems(records: Records, sceneId: string, setupId: string | null): readonly ShownItem[] {
+  // Read once per records object and view (6.11): the plan, its blocking, the Layers tile's counts and the legend all ask on
+  // every edit, and each reading scans every record. An edit makes a new records object, and with it a new reading.
+  let known = shownMemos.get(records);
+  if (!known) {
+    known = new Map();
+    shownMemos.set(records, known);
+  }
+  const key = `${sceneId}:${String(setupId)}`;
+  const kept = known.get(key);
+  if (kept) return kept;
+  const made = readShownItems(records, sceneId, setupId);
+  known.set(key, made);
+  return made;
+}
+
+const shownMemos = new WeakMap<Records, Map<string, readonly ShownItem[]>>();
+let shownReadings = 0;
+
+/** How many times a view's shown items have been read from the records: for tests, which check it's once per records. */
+export const shownItemsMade = (): number => shownReadings;
+
+function readShownItems(records: Records, sceneId: string, setupId: string | null): ShownItem[] {
+  shownReadings += 1;
   const plans = plansShown(records, sceneId, setupId);
   const all = (['room', 'blocking', 'setup'] as const).flatMap((level) => {
     // Every blocking plan the scene has (6.7 review, L8): blocking is the scene's, so a second one's marks show too.

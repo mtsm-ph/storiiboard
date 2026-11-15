@@ -117,3 +117,26 @@ describe('the elements kept for the items', () => {
     expect(zooms).toEqual({ a: 0.5, b: 0.5 });
   });
 });
+
+describe('an item drawn the same in view and out of it (6.11)', () => {
+  it('keeps its element as it crosses the view’s edge, while a board’s item is drawn again', () => {
+    const { calls, draw } = setup();
+    const plan = { ...item('plan'), sameInAndOut: true };
+    const board = item('board');
+    draw([plan, board], context());
+    expect(calls).toEqual(['plan', 'board']);
+    // Both boxes leave the view, then come back: only the board's item, which may choose its picture by it, is made again.
+    draw([plan, board], context({ away: new Set(['plan', 'board']) }));
+    draw([plan, board], context());
+    expect(calls).toEqual(['plan', 'board', 'board', 'board']);
+  });
+
+  it('is made again for a new zoom, as every item is', () => {
+    const { calls, zooms, draw } = setup();
+    const plan = { ...item('plan'), sameInAndOut: true };
+    draw([plan], context());
+    draw([plan], context({ zoom: 2, liveZoom: 2, away: new Set(['plan']) }));
+    expect(calls).toEqual(['plan', 'plan']);
+    expect(zooms.plan).toBe(2);
+  });
+});

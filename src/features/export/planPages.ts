@@ -527,7 +527,7 @@ export function scaleBar(unit: PlanUnit, ppu: number, boxWidth: number): { lengt
 /** A view's items as the page draws them: as the screen's, with every layer, nothing selected, the underlay dimmed or left out. */
 export function printItems(records: Records, view: PlanView, unit: PlanUnit, zones: ReadonlyMap<string, string | null>, underlay: boolean): readonly CanvasItem[] {
   const all = shownItems(records, view.sceneId, view.setupId);
-  const shown: ShownItem[] = underlay ? all : all.filter((item) => item.fields.kind !== 'underlay');
+  const shown: readonly ShownItem[] = underlay ? all : all.filter((item) => item.fields.kind !== 'underlay');
   const none: readonly string[] = [];
   const planView = { sceneId: view.sceneId, setupId: view.setupId };
   const items = planItemsBuilder()(

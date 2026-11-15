@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
@@ -12,7 +12,7 @@ import { iconHome } from '../../../core/model/planRooms';
 import { BEAM_ICON } from '../../../core/model/planLight';
 import { IconSvg } from './IconSvg';
 import { TOOL_ICONS, WALK_PATH_ICON } from './iconSizes';
-import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
+import { dropAt, groupName, libraryGroups, libraryReadingKeeper, type DropView, type LibraryEntry, type LibraryState } from './library';
 import { NEXT_POSITION_ICON } from '../../../core/model/plan';
 import { nextFromSelection, placeIcon, type PlaceOutcome, type PlanView } from './planActions';
 import { choosePlanTool } from './layersStore';
@@ -20,6 +20,7 @@ import { viewKey, type IconRefusal } from './planItems';
 import { planScale } from './planScale';
 import { planStore, planViewportOf } from './planStore';
 import { useLiveView } from './PlanTile';
+import { useLocale } from '../../../ui/useLocale';
 
 // The Library tile (6.3), in the Setup workspace: the kit's plan icons by department, each placed on the plan shown at
 // its real size by a drag (pointer events, a ghost at real size under the pointer, snapped to the grid as a moved item
@@ -115,11 +116,15 @@ export function LibraryTile() {
   const live = useLiveView(records);
   const [filter, setFilter] = useState('');
   const stateId = useId();
+  const locale = useLocale();
+  // The view and what the tile says, the same objects while they read the same (6.11), and the groups made once per
+  // filter and language: an edit that changes neither leaves every group and icon as it was, never drawn again.
+  const [keepReading] = useState(libraryReadingKeeper);
+  const { view, state } = keepReading(records, live?.view ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
+  const groups = useMemo(() => libraryGroups(filter), [filter, locale]);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('plan.noProject')}</p>;
-  const view = live?.view ?? null;
-  const state = libraryState(records, view);
   const words = stateWords(state);
-  const groups = libraryGroups(filter);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-library-tile="" data-library-state={state.kind}>
       <TextField
@@ -153,7 +158,7 @@ function rovingTarget(key: string, index: number, count: number, columns: number
   return null;
 }
 
-function LibraryGroupView({
+const LibraryGroupView = memo(function LibraryGroupView({
   group,
   entries,
   view,
@@ -169,6 +174,8 @@ function LibraryGroupView({
   state: LibraryState;
   stateId: string;
 }) {
+  // Kept from drawing again by its props (6.11), so its own words follow the language through this.
+  useLocale();
   const headingId = useId();
   const noteId = useId();
   const shownId = useId();
@@ -227,7 +234,7 @@ function LibraryGroupView({
       </ul>
     </section>
   );
-}
+});
 
 /** Whether an entry can be placed now, from what the tile knows: refused ones show greyed out and say why when pressed. */
 function refusalNow(entry: LibraryEntry, view: PlanView | null, state: LibraryState): IconRefusal | null {

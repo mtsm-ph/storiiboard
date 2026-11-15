@@ -1,16 +1,14 @@
+import { memo, useState } from 'react';
 import { useProject } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
-import { cameraSetupFrames, cameraTitle, frameCamera, setupCameras, shownFrame } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
-import { setupLabel } from '../../../core/model/setup';
-import { aspectRatioValue, projectStoryboard, SHOT_SIZE_LABEL, shotFields } from '../../../core/model/storyboard';
 import { cx } from '../../../ui/cx';
 import { Select } from '../../../ui/fields';
 import { showShot } from '../../moodboards/liveActions';
 import { FrameImage } from '../../storyboard/FrameImage';
-import { pictureView } from '../../storyboard/framePictures';
 import { ProjectPictures } from '../../storyboard/ProjectPictures';
-import { iconLabel } from './iconWords';
+import { useLocale } from '../../../ui/useLocale';
+import { framesReadingKeeper, type FramesReading } from './framesReading';
 import { revealLayersOf } from './layersStore';
 import { assignFrame, showFrame } from './planActions';
 import { viewKey } from './planItems';
@@ -48,29 +46,32 @@ export function FramesTile() {
 function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records: Records; projectId: string; sceneId: string; setup: SbdRecord; number: number }) {
   const key = viewKey(sceneId, setup.id);
   const selected = usePlan((s) => s.selections[key]);
-  const frames = cameraSetupFrames(records, setup.id);
-  const cameras = setupCameras(records, setup.id);
-  const aspect = aspectRatioValue(projectStoryboard(records[projectId]?.props).aspectRatio);
-  const name = setupLabel({ number, fields: { name: typeof setup.props.name === 'string' ? setup.props.name.trim() : '' } });
-  if (frames.length === 0) {
+  // Read once per edit, and kept as it was while it reads the same (6.11): an edit the tile doesn't show draws nothing here.
+  const [keepReading] = useState(framesReadingKeeper);
+  const reading = keepReading(records, projectId, setup, number);
+  if (reading.rows.length === 0) {
     return (
       <p className="p-3 text-[13px] text-text-muted" data-frames-tile="" data-frames-state="noFrames">
-        {t('frames.none', { setup: name })}
+        {t('frames.none', { setup: reading.name })}
       </p>
     );
   }
-  const titles = new Map(cameras.map((c) => [c.record.id, cameraTitle(records, c.record.id, iconLabel)]));
+  return <FrameList reading={reading} selected={selected} planKey={key} />;
+}
+
+const FrameList = memo(function FrameList({ reading, selected, planKey: key }: { reading: FramesReading; selected: readonly string[] | undefined; planKey: string }) {
+  // Kept from drawing again by its reading, so its own words follow the language through this.
+  useLocale();
+  const { name, aspect, cameras, rows } = reading;
+  const titles = new Map(cameras.map((c) => [c.id, c.title]));
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-frames-tile="" data-frames-state="ready" aria-label={t('frames.listOf', { setup: name })}>
       {cameras.length === 0 && <p className="text-[12px] text-text-muted" data-frames-no-cameras="">{t('frames.noCameras')}</p>}
       <ul className="flex flex-wrap gap-2">
-        {frames.map((shot) => {
-          const fields = shotFields(shot.props);
-          const picture = pictureView(records, fields);
-          const holder = frameCamera(records, shot.id);
-          const isShown = holder !== null && shownFrame(records, holder)?.id === shot.id;
+        {rows.map((shot) => {
+          const { picture, holder, spec } = shot;
+          const isShown = shot.shown;
           const current = holder !== null && (selected ?? []).includes(holder) && isShown;
-          const spec = [fields.size ? SHOT_SIZE_LABEL[fields.size] : null, fields.lensMm === null ? null : t('lens.prime', { mm: fields.lensMm })].filter((p) => p !== null).join(' · ');
           return (
             <li key={shot.id} data-frames-frame={shot.id} data-frames-camera={holder ?? ''} data-frames-shown={isShown ? 'true' : undefined} className="flex w-36 flex-col border border-border">
               {/* With no camera there is no lens to show: still in the Tab order, so the frame is read, but disabled, saying why. */}
@@ -103,7 +104,7 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
                   )}
                 </span>
                 <span className="flex items-baseline gap-1.5 px-1.5 pt-1">
-                  <span className="font-mono text-[12px] font-bold">{fields.number}</span>
+                  <span className="font-mono text-[12px] font-bold">{shot.number}</span>
                   {spec !== '' && <span className="min-w-0 truncate font-mono text-[11px]">{spec}</span>}
                 </span>
                 {isShown && <span className="sb-label px-1.5">{t('frames.shown')}</span>}
@@ -119,7 +120,7 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
                   mono
                   value={holder ?? ''}
                   disabled={cameras.length === 0}
-                  aria-label={t('frames.cameraOf', { frame: fields.number })}
+                  aria-label={t('frames.cameraOf', { frame: shot.number })}
                   onChange={(event) => {
                     const next = event.currentTarget.value;
                     void assignFrame(shot.id, next === '' ? null : next);
@@ -127,12 +128,12 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
                 >
                   <option value="">{t('frames.noCamera')}</option>
                   {cameras.map((c) => (
-                    <option key={c.record.id} value={c.record.id}>
-                      {titles.get(c.record.id)}
+                    <option key={c.id} value={c.id}>
+                      {c.title}
                     </option>
                   ))}
                 </Select>
-                <button type="button" className={ACTION} data-frames-open={shot.id} aria-label={t('frames.openNamed', { frame: fields.number })} onClick={() => {
+                <button type="button" className={ACTION} data-frames-open={shot.id} aria-label={t('frames.openNamed', { frame: shot.number })} onClick={() => {
                     showShot(shot.id, shot.parentId);
                   }}>
                   {t('frames.open')}
@@ -144,4 +145,4 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
       </ul>
     </section>
   );
-}
+});

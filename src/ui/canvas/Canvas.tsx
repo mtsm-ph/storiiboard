@@ -6,8 +6,9 @@ import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, fitViewOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
-import { drawnItems } from './culling';
+import { drawnItems, mountedItems } from './culling';
 import { beyondKey, ItemNodes, UPRIGHT, type RegisterNode } from './ItemNodes';
+import { fitScreenSized } from './screenSized';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
@@ -402,9 +403,12 @@ export function Canvas({
   // so does what an item draws past its box (6.4: a camera's cone), or the cone would vanish with its camera's box.
   const drawn = drawnItems(shown, pickedSet, world);
   // A picked item out of the view is still drawn (its handles need the node), but not as in view: its picture stays small.
-  const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
-  const drawnSections = drawn.filter((item) => item.section);
-  const drawnPlain = drawn.filter((item) => !item.section);
+  // One that draws the same in view and out of it (a plan's) is never drawn as out of it: nothing to tell its drawing.
+  const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => item.sameInAndOut !== true && !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
+  // A plan's items stay mounted out of view, hidden (6.11: culling.ts, mountedItems); a board's are mounted while drawn.
+  const mounted = mountedItems(shown, drawn);
+  const drawnSections = mounted.items.filter((item) => item.section);
+  const drawnPlain = mounted.items.filter((item) => !item.section);
   const handleIds = tool === 'select' ? selection.filter((id) => drawn.some((item) => item.id === id)) : [];
   const handleKey = handleIds.join('|');
   // Konva turns a group resized from the side handles into a skew once the items are turned differently: with mixed
@@ -426,6 +430,26 @@ export function Canvas({
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
     latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale };
+  });
+
+  // What is drawn sized on screen (screenSized.ts: a plan's labels) keeps its size at every step of a zoom, without being
+  // drawn again until the zoom settles. A board draws none: nothing to scale. And a plan's items out of view are hidden,
+  // still mounted, and shown again as they come back into view (mountedItems); a board has none hidden.
+  useLayoutEffect(() => {
+    const now = stage.current;
+    let changed = now !== null && fitScreenSized(now, viewport.zoom);
+    for (const item of mounted.items) {
+      if (item.sameInAndOut !== true) continue;
+      const show = !mounted.hidden.has(item.id);
+      for (const key of [item.id, beyondKey(item.id)]) {
+        const node = nodes.current.get(key);
+        if (node && node.visible() !== show) {
+          node.visible(show);
+          changed = true;
+        }
+      }
+    }
+    if (changed) now?.batchDraw();
   });
 
   // The canvas follows the tile's size.

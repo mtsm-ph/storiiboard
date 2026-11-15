@@ -79,6 +79,28 @@ export function libraryState(records: Records, view: PlanViewOf | null): Library
   return view.setupId === null ? { kind: 'noSetup' } : { kind: 'ready' };
 }
 
+export interface LibraryReading {
+  view: PlanViewOf | null;
+  state: LibraryState;
+}
+
+const sameReading = (a: LibraryReading, view: PlanViewOf | null, state: LibraryState): boolean =>
+  a.view?.sceneId === view?.sceneId && a.view?.setupId === view?.setupId && JSON.stringify(a.state) === JSON.stringify(state);
+
+/**
+ * The Library's view and what it says, kept between calls (6.11): the same object back while both read the same, so an
+ * edit that changes neither (a light turned, a length typed) leaves every group and icon as it was, never drawn again.
+ */
+export function libraryReadingKeeper(): (records: Records, view: PlanViewOf | null) => LibraryReading {
+  let last: LibraryReading | null = null;
+  return (records, view) => {
+    const state = libraryState(records, view);
+    if (last && sameReading(last, view, state)) return last;
+    last = { view: view ? { sceneId: view.sceneId, setupId: view.setupId } : null, state };
+    return last;
+  };
+}
+
 /** The view a drop or Enter lands in, as the plan canvas reports it. */
 export interface DropView {
   cx: number;

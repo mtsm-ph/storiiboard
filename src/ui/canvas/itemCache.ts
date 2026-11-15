@@ -36,7 +36,8 @@ export interface ItemContext {
  */
 export function elementsFor<E>(made: Map<string, MadeFor<E>>, items: readonly CanvasItem[], ctx: ItemContext, create: (item: CanvasItem, inView: boolean, zoom: number) => E): E[] {
   const list = items.map((item) => {
-    const inView = !ctx.away?.has(item.id);
+    // An item that draws the same in view and out of it (`sameInAndOut`) is drawn as in view, so crossing the edge keeps it.
+    const inView = item.sameInAndOut === true || !ctx.away?.has(item.id);
     const have = made.get(item.id);
     if (have && have.item === item && have.inView === inView && have.zoom === ctx.zoom && have.colours === ctx.colours && have.register === ctx.register && have.ratio === ctx.ratio) return have.element;
     // Drawn already, in view, at this zoom: it stays at what it was drawn at. One that has only now come into view (a picked item
