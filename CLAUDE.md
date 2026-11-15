@@ -173,7 +173,9 @@
     lens has its focal range and squeeze.
   - Camera field of view = 2 * atan(width / (2 * focal_length)), where width is what the project's frame sees, not
     the whole sensor: the mode's area after de-squeeze (sensor_width × squeeze, by sensor_height), with the project's
-    `aspect_ratio` fitted inside. "On its side" turns that de-squeezed area (the squeeze turns with the camera). One
+    `aspect_ratio` fitted inside. An anamorphic lens on its side: the squeeze turns with the camera (Kevin, Nov 14),
+    so "On its side" de-squeezes first, then turns the de-squeezed area; on a 35.6 × 20.0 mm mode with a 2× lens
+    and a 2.39:1 frame, 50 mm on its side sees 20.0 mm of width, 22.6°. One
     function: src/core/model/fieldOfView.ts (6.1). Bodies, lenses and a frame's lens (`lens_id`; one reader,
     `frameLens`): src/core/model/cameraGear.ts; the sensor table: sensorModes.ts, each entry with its source.
     A camera reads its lens live from its frame, never a copy.
