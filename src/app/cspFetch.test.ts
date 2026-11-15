@@ -44,7 +44,8 @@ describe('fetch( in the app’s code (5.12)', () => {
     expect(
       unexpected,
       'A fetch( the installed app may refuse: its CSP connect-src allows only \'self\' and ipc: (src-tauri/tauri.conf.json), ' +
-        'and the dev server sends no CSP, so tests pass while the app fails (docs/DESKTOP_GAPS.md, A1). Decode data: URLs ' +
+        'and everyday `npm run dev` sends no CSP (only the end-to-end tests\' server does, 6.13), so a fetch only those tests ' +
+        'miss passes in dev while the app fails (docs/DESKTOP_GAPS.md, A1). Decode data: URLs ' +
         'yourself, reach other hosts through Rust (src-tauri/src/net.rs), or add a same-origin or dev-only call to ALLOWED ' +
         'with its reason.',
     ).toEqual([]);

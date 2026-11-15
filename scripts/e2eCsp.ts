@@ -53,6 +53,14 @@ export function parseCsp(policy: string): Map<string, string[]> {
  * policy lacks starts from what default-src gives it, so adding one never widens anything else.
  */
 export function e2eCsp(base: string, additions: readonly CspAddition[] = E2E_CSP_ADDITIONS): string {
+  // A browser keeps the first copy of a repeated directive and parseCsp the last: the additions would go on a copy the
+  // browser ignores, or the policy served would lose the copy it reads. So a base policy that repeats one is refused.
+  const names = base
+    .split(';')
+    .map((part) => part.trim().split(/\s+/)[0]?.toLowerCase() ?? '')
+    .filter((name) => name !== '');
+  const repeated = names.find((name, i) => names.indexOf(name) !== i);
+  if (repeated !== undefined) throw new Error(`The app's content security policy repeats ${repeated}: keep one copy of it`);
   const directives = parseCsp(base);
   for (const { directive, source } of additions) {
     const sources = directives.get(directive) ?? [...(directives.get('default-src') ?? [])];
@@ -64,3 +72,36 @@ export function e2eCsp(base: string, additions: readonly CspAddition[] = E2E_CSP
 
 /** What the test server's page prints for each violation, so e2e/cspWatch.ts can fail the test. */
 export const CSP_VIOLATION_PREFIX = '[csp-violation]';
+
+// Every violation, from every test, is also kept in a file under test-results (vite.config.ts writes it, emptied as the
+// test server starts), and the run's global teardown (e2e/cspTeardown.ts) fails the run on any but the one e2e/shell.spec.ts
+// causes on purpose. So a spec that never calls skipOnboarding (failOnCspViolation) is watched too.
+
+/** The file the test server keeps the violations in, one JSON line each: `{ "at": <ms since 1970>, "line": "…" }`. */
+export const CSP_VIOLATIONS_FILE = 'test-results/csp/violations.jsonl';
+
+/** The address e2e/shell.spec.ts opens for its one meant violation; the page's report names the address it came from. */
+export const CSP_EXPECTED_PAGE = '/?csp-expected=data-fetch';
+
+/** The meant violation: connect-src refusing the data: fetch, from the page at CSP_EXPECTED_PAGE, and nothing else. */
+export function isExpectedViolation(line: string): boolean {
+  return line.startsWith(`${CSP_VIOLATION_PREFIX} connect-src refused data`) && line.endsWith(` on ${CSP_EXPECTED_PAGE}`);
+}
+
+/** The violations in the file's text from `since` (ms since 1970) on, the meant one left out. */
+export function unexpectedViolations(text: string, since: number): string[] {
+  return text
+    .split('\n')
+    .filter((row) => row.trim() !== '')
+    .map((row) => {
+      try {
+        const entry = JSON.parse(row) as { at?: unknown; line?: unknown };
+        return typeof entry.at === 'number' && typeof entry.line === 'string' ? { at: entry.at, line: entry.line } : { at: Infinity, line: row };
+      } catch {
+        // A line this can't read is kept, so nothing is lost silently.
+        return { at: Infinity, line: row };
+      }
+    })
+    .filter(({ at, line }) => at >= since && !isExpectedViolation(line))
+    .map(({ line }) => line);
+}

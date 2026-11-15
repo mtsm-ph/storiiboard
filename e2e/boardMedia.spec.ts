@@ -11,6 +11,10 @@ import { skipOnboarding } from './onboarding';
 // dark. The canvas is pixels, so the board is read from the data its wrapper keeps (data-board-data, data-picture-levels).
 
 test.use({ viewport: { width: 1440, height: 900 } });
+// The picture sizes this spec works out ("past 640 screen pixels") are for a pixel ratio of 1, as Chromium's device has
+// it; Playwright's Desktop Safari draws at 2, where the same rule (src/core/media/decoded.ts levelFor, by design times the
+// pixel ratio) is met at half the zoom. The rule itself is unit-tested at 2 (src/features/moodboards/boardClipboard.test.ts).
+test.use({ deviceScaleFactor: 1 });
 
 const imagePath = fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url));
 const clipPath = fileURLToPath(new URL('./fixtures/video/A001_C003_2398.mp4', import.meta.url));

@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type JSHandle, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -61,15 +61,25 @@ function pictures(page: Page, scene: number, count: number) {
 }
 
 /**
+ * A function the spec gives as source, made in the page by Playwright's own evaluation, as page.evaluate's functions
+ * are, and handed to page.evaluate as a handle. The page's content security policy (6.13: no 'unsafe-eval') refuses
+ * new Function from the page's own code, which is how these probes made them before: Chromium let it through only while
+ * page.evaluate's call was still on the stack, so one await moved earlier would have broken a probe.
+ */
+async function pageFunction<F>(page: Page, source: string): Promise<JSHandle<F>> {
+  return page.evaluateHandle(`(${source})`);
+}
+
+/**
  * Runs `act` in the page, then waits until the screen has drawn it (two frames later) and, with `pictures`, until
  * every frame picture in view has loaded and decoded. Returns both times, in milliseconds.
  */
 async function timed(page: Page, act: string, pictures = false): Promise<{ drawn: number; shown: number }> {
+  const run = await pageFunction<() => Promise<void>>(page, `async () => { ${act} }`);
   return page.evaluate(
-    async ({ act, pictures }) => {
+    async ({ run, pictures }) => {
       const start = performance.now();
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
-      await (new Function(`return (async () => { ${act} })()`) as () => Promise<void>)();
+      await run();
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const drawn = performance.now() - start;
       if (!pictures) return { drawn, shown: drawn };
@@ -91,8 +101,8 @@ async function timed(page: Page, act: string, pictures = false): Promise<{ drawn
       }
       return { drawn, shown: performance.now() - start };
     },
-    { act, pictures },
-  );
+    { run, pictures },
+  ).finally(() => run.dispose());
 }
 
 /** Times from an action until `done` holds, in milliseconds. */
@@ -599,11 +609,9 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
   // How many pictures were drawn at their stored size half way through the last wheel run and just after its last step.
   let originals = { mid: 0, end: 0 };
   const wheelFor = (ms: number, wheel: Wheel, arg = 0) => async () => {
+    const shape = await pageFunction<Wheel>(page, wheel.toString());
     originals = await page.evaluate(
-      async ({ ms, source, arg }) => {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
-        const make = new Function(`return (${source})`) as () => (frame: number, total: number, arg: number) => ReturnType<Wheel>;
-        const shape = make();
+      async ({ ms, shape, arg }) => {
         const element = document.querySelector('[data-canvas]');
         if (!element) throw new Error('no canvas');
         const rect = element.getBoundingClientRect();
@@ -627,8 +635,8 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
         // Read at once, within a frame or two of the last step: before the zoom has settled.
         return { mid, end: full() };
       },
-      { ms, source: wheel.toString(), arg },
-    );
+      { ms, shape, arg },
+    ).finally(() => shape.dispose());
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   };
   const sway = (frame: number) => ({ dx: Math.cos(frame / 20) * 40, dy: Math.sin(frame / 27) * 30, ctrl: false });
@@ -1076,10 +1084,9 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
 
 /** A wheel event every animation frame on the plan's canvas for `ms`, shaped by `wheel(frame, frames, arg)`. */
 async function planWheel(page: Page, ms: number, wheel: (frame: number, total: number, arg: number) => { dx: number; dy: number; ctrl: boolean }, arg = 0) {
+  const shape = await pageFunction<typeof wheel>(page, wheel.toString());
   await page.evaluate(
-    async ({ ms, source, arg }) => {
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
-      const shape = (new Function(`return (${source})`) as () => (frame: number, total: number, arg: number) => { dx: number; dy: number; ctrl: boolean })();
+    async ({ ms, shape, arg }) => {
       const element = document.querySelector('[data-plan-tile] [data-canvas]');
       if (!element) throw new Error('no plan canvas');
       const rect = element.getBoundingClientRect();
@@ -1094,8 +1101,8 @@ async function planWheel(page: Page, ms: number, wheel: (frame: number, total: n
       }
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     },
-    { ms, source: wheel.toString(), arg },
-  );
+    { ms, shape, arg },
+  ).finally(() => shape.dispose());
 }
 
 /**
@@ -1103,14 +1110,13 @@ async function planWheel(page: Page, ms: number, wheel: (frame: number, total: n
  * function of the data's text, as source), and then the next frame drawn. Read with `editLag`.
  */
 async function armEdit(page: Page, want: string, arg: string | number) {
+  const check = await pageFunction<(data: string, arg: string | number) => boolean>(page, want);
   await page.evaluate(
-    ({ want, arg }) => {
+    ({ check, arg }) => {
       const w = window as unknown as {
         __edit?: { keyAt: number | null; lag: number | null; want: ((data: string, arg: string | number) => boolean) | null; arg: string | number };
         __editWired?: boolean;
       };
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- a test probe, given its own code by the spec.
-      const check = (new Function(`return (${want})`) as () => (data: string, arg: string | number) => boolean)();
       w.__edit = { keyAt: null, lag: null, want: check, arg };
       if (w.__editWired) return;
       w.__editWired = true;
@@ -1133,8 +1139,8 @@ async function armEdit(page: Page, want: string, arg: string | number) {
         });
       }).observe(document.body, { attributes: true, attributeFilter: ['data-plan-data'], subtree: true });
     },
-    { want, arg },
-  );
+    { check, arg },
+  ).finally(() => check.dispose());
 }
 
 async function editLag(page: Page): Promise<number> {

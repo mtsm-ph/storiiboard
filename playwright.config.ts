@@ -1,5 +1,9 @@
 import { defineConfig, devices, type ReporterDescription } from '@playwright/test';
 
+// When this run began, for its teardown (e2e/cspTeardown.ts) to read only this run's CSP violations. Set once, in the
+// runner: the workers, which load this file too, inherit it.
+process.env.SB_E2E_RUN_STARTED ??= String(Date.now());
+
 const ciReporters: ReporterDescription[] = [['list'], ['github']];
 const localReporters: ReporterDescription[] = [['list']];
 
@@ -29,6 +33,8 @@ export default defineConfig({
   // outputDir, not in it: Playwright empties outputDir as a run starts, and Vitest's report lives in test-results too.
   reporter: [...(process.env.CI ? ciReporters : localReporters), ['json', { outputFile: 'test-results/e2e.json' }]],
   outputDir: 'test-results/e2e',
+  // Fails the run on any CSP violation a page reported to the test server, from any spec (6.13 review).
+  globalTeardown: './e2e/cspTeardown.ts',
   use: {
     baseURL: 'http://localhost:1421',
     trace: 'retain-on-failure',

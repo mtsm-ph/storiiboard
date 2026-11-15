@@ -12,6 +12,11 @@ import { closeSettings, openSettings } from './settings';
 // tile keeps (data-plan-data, data-picture-levels).
 
 test.use({ viewport: { width: 1440, height: 900 } });
+// Pixel ratio 1, as Chromium's device has it (6.19): the picture sizes this spec works out ("past 640 screen pixels") are
+// for 1, where Playwright's Desktop Safari draws at 2 and the same rule (src/core/media/decoded.ts levelFor, by design times
+// the pixel ratio, unit-tested at 2 in src/features/moodboards/boardClipboard.test.ts) is met at half the zoom; and its
+// positions worked out from the canvas's box assume whole CSS pixels, which the 1.5px rules break at 2.
+test.use({ deviceScaleFactor: 1 });
 
 const imagePath = fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url));
 
