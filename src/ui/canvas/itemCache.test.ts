@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { elementsFor, type ItemContext, type MadeFor } from './itemCache';
+import { elementsFor, staleFor, type ItemContext, type MadeFor } from './itemCache';
 import type { CanvasColours, CanvasItem } from './types';
 
 // What the canvas keeps of the elements it made for its items (5.7). "Made" is counted by the create function, which stands
@@ -138,5 +138,71 @@ describe('an item drawn the same in view and out of it (6.11)', () => {
     draw([plan], context({ zoom: 2, liveZoom: 2, away: new Set(['plan']) }));
     expect(calls).toEqual(['plan', 'plan']);
     expect(zooms.plan).toBe(2);
+  });
+});
+
+describe('a settled zoom on a plan, only the items in view made again (6.11 review, M1)', () => {
+  // 300 plan items, the first 40 in view at 400%, the rest mounted hidden.
+  const plan = Array.from({ length: 300 }, (_, i) => ({ ...item(`p${String(i)}`, i * 10), sameInAndOut: true }));
+  const hiddenFrom = (first: number) => new Set(plan.slice(first).map((p) => p.id));
+
+  it('makes the 40 in view for 400% in the settle’s render, and none of the 260 hidden', () => {
+    const { calls, zooms, draw } = setup();
+    draw(plan, context({ zoom: 0.3, liveZoom: 0.3 }));
+    calls.length = 0;
+    // The view zoomed in to 400% and settled there: 40 in view.
+    draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(40) }));
+    expect(calls).toHaveLength(40);
+    expect(calls).toEqual(plan.slice(0, 40).map((p) => p.id));
+    expect(zooms.p0).toBe(4);
+    expect(zooms.p40).toBe(0.3);
+  });
+
+  it('makes a hidden item for the zoom now in the render it comes into view, before it is shown', () => {
+    const { calls, zooms, draw } = setup();
+    draw(plan, context({ zoom: 0.3, liveZoom: 0.3 }));
+    draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(40) }));
+    calls.length = 0;
+    // A pan brings p40 to p44 into view: those five alone are made, at 400%.
+    const out = draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(45) }));
+    expect(calls).toEqual(['p40', 'p41', 'p42', 'p43', 'p44']);
+    expect(out[44]).toBe('p44:true:4');
+    expect(zooms.p45).toBe(0.3);
+  });
+
+  it('catches up the hidden ones a few at a time, and is done once every one is at the zoom now', () => {
+    const { made, calls, draw } = setup();
+    draw(plan, context({ zoom: 0.3, liveZoom: 0.3 }));
+    draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(40) }));
+    expect(staleFor(made, 4)).toBe(260);
+    calls.length = 0;
+    draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(40), catchUp: 8 }));
+    expect(calls).toEqual(plan.slice(40, 48).map((p) => p.id));
+    expect(staleFor(made, 4)).toBe(252);
+    for (let n = 0; n < 40; n += 1) draw(plan, context({ zoom: 4, liveZoom: 4, hidden: hiddenFrom(40), catchUp: 8 }));
+    expect(staleFor(made, 4)).toBe(0);
+  });
+
+  it('makes a hidden item again at once for anything but the zoom (an edit, the colours)', () => {
+    const { calls, draw } = setup();
+    const list = [{ ...item('a'), sameInAndOut: true }, { ...item('b'), sameInAndOut: true }];
+    draw(list, context());
+    calls.length = 0;
+    const edited = [list[0] as CanvasItem, { ...item('b', 30), sameInAndOut: true }];
+    draw(edited, context({ zoom: 2, liveZoom: 2, hidden: new Set(['a', 'b']) }));
+    expect(calls).toEqual(['b']);
+    calls.length = 0;
+    draw(edited, context({ zoom: 2, liveZoom: 2, hidden: new Set(['a', 'b']), colours: { ...colours } }));
+    expect(calls).toEqual(['a', 'b']);
+  });
+
+  it('leaves a board as it was: its items (no sameInAndOut) are all made for a new zoom, whatever is listed hidden', () => {
+    const { calls, zooms, draw } = setup();
+    const board = Array.from({ length: 10 }, (_, i) => item(`b${String(i)}`, i * 10));
+    draw(board, context({ zoom: 0.3, liveZoom: 0.3 }));
+    calls.length = 0;
+    draw(board, context({ zoom: 4, liveZoom: 4, hidden: new Set(board.slice(4).map((b) => b.id)), catchUp: 0 }));
+    expect(calls).toEqual(board.map((b) => b.id));
+    expect(zooms.b9).toBe(4);
   });
 });

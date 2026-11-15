@@ -1,5 +1,5 @@
 import { memo, useId, useMemo } from 'react';
-import { useProject } from '../../../app/projectStore';
+import { projectStore, useProject } from '../../../app/projectStore';
 import { labels, t, tn } from '../../../core/i18n';
 import { sceneRoomId, shownItems, type PlanLayer } from '../../../core/model/plan';
 import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, rowState, UNDERLAY_ROW, type LayerRow, type LayerShow, type LayerState } from '../../../core/model/planLayers';
@@ -181,7 +181,8 @@ const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, view
   const heldBy = solo !== null ? groupName(solo) : null;
   const heldId = useId();
   const selection = usePlan((s) => (viewKeyNow === null ? undefined : s.selections[viewKeyNow]));
-  const records = useProject((s) => s.records);
+  // The records are read when Set scale is pressed, not subscribed to (6.11 review, L6): so an edit elsewhere on the plan
+  // leaves this row, memoised, as it is.
   return (
     <li
       className={cx(ROW, 'border-t border-border pt-1', empty && 'text-text-muted')}
@@ -232,7 +233,7 @@ const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, view
             title={t('layers.scaleOf')}
             className={cx(WORD, edge(false), inked(false))}
             onClick={() => {
-              const target = scaleTarget(records, roomId, selection ?? []);
+              const target = scaleTarget(projectStore.getState().records, roomId, selection ?? []);
               if (target === null) return;
               startUnderlayScale(target);
               document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();

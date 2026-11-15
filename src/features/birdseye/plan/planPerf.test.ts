@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { shownItems, shownItemsMade, startRoomChanges, wallsAlong, sceneRoomId } from '../../../core/model/plan';
-import { blockingReadingsMade } from '../../../core/model/planBlocking';
+import { blockingReadingsMade, PLAIN_MARK_SIZE, placeMarkChanges } from '../../../core/model/planBlocking';
+import { FLAG_ICONS } from '../../../core/model/planLight';
 import { setupReadingsMade } from '../../../core/model/planCamera';
 import { ALL_SHOWN, layerCounts, layeredItemsKeeper } from '../../../core/model/planLayers';
 import { planLegend } from '../../../core/model/planLegend';
@@ -21,7 +22,8 @@ import { iconLabel } from './iconWords';
 import { libraryReadingKeeper } from './library';
 import { lightLooks } from './lightLooks';
 import { blockingLooks } from './markLooks';
-import { placeIconChanges, planItemsBuilder, shownItemsKeeper, turnChanges } from './planItems';
+import { drawMeasuresChanges, openingSpotInWall, placeIconChanges, placeOpeningChanges, planItemsBuilder, shownItemsKeeper, turnChanges } from './planItems';
+import { SunBeyond, wordsFrom, type SunLook } from './sunDraw';
 import { sunLooks } from './sunLooks';
 import { underlayPictures } from './underlayEdits';
 
@@ -231,5 +233,183 @@ describe('labels through a zoom under way (6.11)', () => {
     const settled = onScreen(at(0.2), 0.2);
     expect(during.top).toBeCloseTo(settled.top, 6);
     expect(during.size).toBeCloseTo(settled.size, 6);
+  });
+});
+
+describe('every kind of plan item, drawn the same in and out of view (6.11 review, L7)', () => {
+  it('marks every item but the underlay: walls, openings, icons, grip, lights, cameras, marks, measures, north and the sun', async () => {
+    const { view } = await furnished();
+    const roomId = sceneRoomId(records(), records()[view.sceneId]) ?? '';
+    // A door in the first wall, a plain mark, a measure, a flag, and an underlay picture in the room.
+    const wall = Object.values(records()).find((r) => r.type === 'plan_item' && r.parentId === roomId && r.props.kind === 'wall');
+    const spot = wall ? openingSpotInWall(shownItems(records(), view.sceneId, view.setupId), wall.id, 'door') : null;
+    expect(spot).not.toBeNull();
+    if (spot) await store.getState().apply(placeOpeningChanges(records(), spot, 'door', crypto.randomUUID(), view));
+    await store.getState().apply(placeMarkChanges(records(), view, { x: 1, y: 1 }, PLAIN_MARK_SIZE));
+    await store.getState().apply(drawMeasuresChanges(records(), view.sceneId, [{ x: 0, y: 2.5 }, { x: 3, y: 2.5 }]).changes);
+    await store.getState().apply(placeIconChanges(records(), view, FLAG_ICONS[0], { x: 2.5, y: 1.5 }));
+    const underlay = crypto.randomUUID();
+    await store.getState().apply([
+      { kind: 'create', record: { id: underlay, type: 'plan_item', parentId: roomId, sortKey: 'zz', props: { kind: 'underlay', media_id: 'no-picture', x: 0, y: 0, width: 10, height: 7.5, rotation: 0 } } },
+    ]);
+    const now = records();
+    const kindOf = (id: string) => {
+      const kind = now[id]?.props.kind;
+      return typeof kind === 'string' ? kind : '';
+    };
+    const items = planReader(view)(now);
+    const kinds = new Set(items.map((item) => kindOf(item.id)));
+    for (const kind of ['wall', 'door', 'icon', 'flag', 'light', 'camera', 'mark', 'measure', 'north', 'sun', 'underlay']) expect(kinds, kind).toContain(kind);
+    for (const item of items) {
+      if (item.id === underlay) expect(item.sameInAndOut, 'the underlay').not.toBe(true);
+      else expect(item.sameInAndOut, `${kindOf(item.id)}: ${item.label}`).toBe(true);
+    }
+  });
+});
+
+describe('labels through a zoom under way, turned (6.11 review, L7)', () => {
+  type Labels = ReactElement<{ x: number; y: number; ref: (node: Konva.Node | null) => void; children: ReactElement<{ x: number; y: number; fontSize: number }>[] }>;
+
+  /** The first line's top left corner on screen (in the item's own frame, its turn left out), as the canvas scales it at `zoom`. */
+  function cornerOnScreen(group: Labels, zoom: number, rotation: number): { x: number; y: number } {
+    const state = { sx: 1, px: group.props.x, py: group.props.y };
+    const stage = {} as Konva.Stage;
+    const node = {
+      getStage: () => stage,
+      scaleX: () => state.sx,
+      scaleY: () => state.sx,
+      x: () => state.px,
+      y: () => state.py,
+      scale: (s: { x: number }) => {
+        state.sx = s.x;
+      },
+      position: (p: { x: number; y: number }) => {
+        state.px = p.x;
+        state.py = p.y;
+      },
+    } as unknown as Konva.Node;
+    group.props.ref(node);
+    fitScreenSized(stage, zoom);
+    group.props.ref(null);
+    const [line] = group.props.children;
+    // The group is turned back by the item's turn (upright): its own offsets are turned by -rotation in the item's frame.
+    const lx = state.sx * (line?.props.x ?? 0);
+    const ly = state.sx * (line?.props.y ?? 0);
+    const turn = (-rotation * Math.PI) / 180;
+    return { x: (state.px + lx * Math.cos(turn) - ly * Math.sin(turn)) * zoom, y: (state.py + lx * Math.sin(turn) + ly * Math.cos(turn)) * zoom };
+  }
+
+  it('keeps a camera turned 30° its labels where they settle, across and down, drawn for 20% and shown at 400%', () => {
+    const at = (zoom: number) => UprightLabels({ width: 40, height: 40, zoom, rotation: 30, colours: PAPER_COLOURS, lines: ['A · 35 mm · 54.4°'] }) as Labels;
+    const during = cornerOnScreen(at(0.2), 4, 30);
+    const settled = cornerOnScreen(at(4), 4, 30);
+    expect(during.x).toBeCloseTo(settled.x, 6);
+    expect(during.y).toBeCloseTo(settled.y, 6);
+  });
+
+  it('keeps a wall turned 30° its height label where it settles, across and down, drawn for 400% and shown at 20%', () => {
+    const at = (zoom: number) => BesideLabels({ width: 300, height: 10, zoom, rotation: 30, colours: PAPER_COLOURS, spec: { lines: ['2.40 m'], side: 1, edge: 5 } }) as Labels;
+    const during = cornerOnScreen(at(4), 0.2, 30);
+    const settled = cornerOnScreen(at(0.2), 0.2, 30);
+    expect(during.x).toBeCloseTo(settled.x, 6);
+    expect(during.y).toBeCloseTo(settled.y, 6);
+  });
+});
+
+describe('a sun path’s words through a zoom (6.11 review, L1 and L3)', () => {
+  const look: SunLook = {
+    kind: 'drawn',
+    radius: 300,
+    segments: [{ golden: false, points: [-300, 0, 0, -300, 300, 0] }],
+    hours: [
+      { x: -1, y: 0, label: '06' },
+      { x: 0, y: -1, label: '12' },
+      { x: 1, y: 0, label: '18' },
+    ],
+    rise: { x: -0.96, y: -0.28, label: 'Rise' },
+    set: { x: 0.96, y: -0.28, label: 'Set' },
+    sun: { x: 0.6, y: -0.8, up: true },
+    label: '14:30 · 212° · 38° high',
+    shadows: 'shadows',
+    selected: false,
+  };
+  const ICON = 60;
+  const iconHalf = Math.hypot(ICON, ICON) / 2;
+
+  type Any = ReactElement<Record<string, unknown>>;
+  /** The Konva Text elements a drawing makes, its own components (MonoText) expanded as React would. */
+  function textsOf(node: unknown): Any[] {
+    if (Array.isArray(node)) return node.flatMap(textsOf);
+    if (node === null || typeof node !== 'object' || !('props' in node)) return [];
+    const element = node as Any & { type: unknown };
+    if (typeof element.type === 'function') return textsOf((element.type as (props: unknown) => unknown)(element.props));
+    if (element.type === 'Text') return [element];
+    return textsOf(element.props.children);
+  }
+  const drawn = (zoom: number) => textsOf(SunBeyond({ width: ICON, height: ICON, zoom, rotation: 0, colours: PAPER_COLOURS, look }));
+
+  /** A Konva node stand-in that can be shown and hidden. */
+  function node(stage: Konva.Stage, at: { x: number; y: number }) {
+    const state = { sx: 1, sy: 1, px: at.x, py: at.y, visible: true };
+    const made = {
+      getStage: () => stage,
+      scaleX: () => state.sx,
+      scaleY: () => state.sy,
+      x: () => state.px,
+      y: () => state.py,
+      scale: (s: { x: number; y: number }) => {
+        state.sx = s.x;
+        state.sy = s.y;
+      },
+      position: (p: { x: number; y: number }) => {
+        state.px = p.x;
+        state.py = p.y;
+      },
+      visible: (to?: boolean) => {
+        if (to !== undefined) state.visible = to;
+        return state.visible;
+      },
+    } as unknown as Konva.Node;
+    return { made, state };
+  }
+
+  it('draws words from exactly the zoom wordsFrom gives, and none below it', () => {
+    const from = wordsFrom(look.radius, iconHalf);
+    expect(drawn(from * 0.999)).toHaveLength(0);
+    expect(drawn(from * 1.001).length).toBeGreaterThan(0);
+  });
+
+  it('hides the words drawn at 400% while a zoom out passes below that zoom, and shows them at rest', () => {
+    const stage = {} as Konva.Stage;
+    const from = wordsFrom(look.radius, iconHalf);
+    const words = drawn(4).map((text) => {
+      const fake = node(stage, { x: Number(text.props.x), y: Number(text.props.y) });
+      (text.props.ref as (n: Konva.Node | null) => void)(fake.made);
+      return { text, ...fake };
+    });
+    expect(words.length).toBeGreaterThan(4);
+    fitScreenSized(stage, from * 1.5);
+    expect(words.every((w) => w.state.visible)).toBe(true);
+    // Fit, below the zoom that has room for words, the zoom not yet settled: none of them shown.
+    fitScreenSized(stage, from * 0.5);
+    expect(words.every((w) => !w.state.visible)).toBe(true);
+    fitScreenSized(stage, 4);
+    expect(words.every((w) => w.state.visible)).toBe(true);
+    for (const w of words) (w.text.props.ref as (n: Konva.Node | null) => void)(null);
+  });
+
+  it('leaves each word at rest exactly where React put it, at scale 1, for a zoom LABEL / (LABEL / zoom) is not', () => {
+    const zoom = 1 + 212 / 1013;
+    expect(11 / (11 / zoom)).not.toBe(zoom);
+    const stage = {} as Konva.Stage;
+    const words = drawn(zoom).map((text) => {
+      const fake = node(stage, { x: Number(text.props.x), y: Number(text.props.y) });
+      (text.props.ref as (n: Konva.Node | null) => void)(fake.made);
+      return { text, ...fake };
+    });
+    fitScreenSized(stage, zoom * 3);
+    fitScreenSized(stage, zoom);
+    for (const w of words) expect(w.state).toEqual({ sx: 1, sy: 1, px: w.text.props.x, py: w.text.props.y, visible: true });
+    for (const w of words) (w.text.props.ref as (n: Konva.Node | null) => void)(null);
   });
 });

@@ -51,6 +51,18 @@ describe('an item’s reach, once per item (6.11)', () => {
     expect(drawReach(moved)).not.toBe(first);
     expect(drawReach(moved).x).toBe(-600);
   });
+
+  it('works out the reach again for the same object edited in place, as boundsFor does (6.11 review, L5)', () => {
+    const plain = item('box', 10, 10);
+    const first = drawReach(plain);
+    expect(drawReach(plain)).toBe(first);
+    plain.x = 200;
+    plain.rotation = 45;
+    const again = drawReach(plain);
+    expect(again).not.toBe(first);
+    expect(again.x).toBeCloseTo(200 + 20 - 20 * Math.SQRT2, 9);
+    expect(drawReach(plain)).toBe(again);
+  });
 });
 
 describe('what a view mounts (6.11)', () => {

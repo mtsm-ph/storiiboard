@@ -82,6 +82,16 @@ export function sunLabelLines(label: string, room: number, size: number): string
   return label.split(' · ').join('\n');
 }
 
+/**
+ * The least view zoom at which an arc of `radius` round an icon `iconHalf` across (canvas units) has room for its words:
+ * below it SunBeyond draws it wordless (its sunrise and sunset ring, a row inside the hours, would be nearer the middle
+ * than the icon and a word). Infinity when the arc is inside the icon.
+ */
+export function wordsFrom(radius: number, iconHalf: number): number {
+  const room = radius - iconHalf;
+  return room > 0 ? (TICK_PIXELS + GAP_PIXELS + LABEL_PIXELS * 2.6) / room : Number.POSITIVE_INFINITY;
+}
+
 /** How far an upright box's middle is from its edge along a unit direction. */
 const extentAlong = (dir: { x: number; y: number }, half: { w: number; h: number }) => Math.abs(dir.x) * half.w + Math.abs(dir.y) * half.h;
 
@@ -90,12 +100,34 @@ const extentAlong = (dir: { x: number; y: number }, half: { w: number; h: number
  * `anchor` (6.11: screenSized.ts), the point on the circle or by the icon its place is worked out from, so a zoom under
  * way scales it about there.
  */
-function MonoText({ x, y, text, size, colours, bold = false, anchor }: { x: number; y: number; text: string; size: number; colours: CanvasColours; bold?: boolean; anchor: { x: number; y: number } }) {
+function MonoText({
+  x,
+  y,
+  text,
+  size,
+  zoom,
+  hideBelow,
+  colours,
+  bold = false,
+  anchor,
+}: {
+  x: number;
+  y: number;
+  text: string;
+  size: number;
+  /** The zoom it is drawn for: given as it is (6.11 review, L3), so at rest its scale is exactly 1. */
+  zoom: number;
+  /** The view zoom below which, during a zoom, it is hidden (the arc would be wordless there: wordsFrom). */
+  hideBelow: number;
+  colours: CanvasColours;
+  bold?: boolean;
+  anchor: { x: number; y: number };
+}) {
   const half = halfBox(text, size);
   const wide = 2 * half.w + size;
   return (
     <Text
-      ref={screenSizedRef(LABEL_PIXELS / size, { x: x - wide / 2, y: y - half.h }, anchor)}
+      ref={screenSizedRef(zoom, { x: x - wide / 2, y: y - half.h }, anchor, hideBelow)}
       x={x - wide / 2}
       y={y - half.h}
       width={wide}
@@ -106,7 +138,7 @@ function MonoText({ x, y, text, size, colours, bold = false, anchor }: { x: numb
       fontStyle={bold ? 'bold' : 'normal'}
       fontSize={size}
       fill={colours.ink}
-      {...labelHalo(LABEL_PIXELS / size)}
+      {...labelHalo(zoom)}
       wrap="none"
       listening={false}
     />
@@ -168,6 +200,10 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
   const golden = look.segments.filter((segment) => segment.golden);
   // Too small on screen for words between the icon and the arc (6.6 second review): only the arc and the sun.
   const wordless = edgeRing < iconHalf + size;
+  // And while a zoom out is on its way, the words keep their size on screen as the arc shrinks (screenSized.ts): hidden
+  // below the zoom at which the arc would be drawn wordless, so they never pile up before it settles (6.11 review, L1).
+  const hideBelow = wordsFrom(r, iconHalf);
+  const words = { size, zoom, hideBelow, colours };
   return (
     // Named upright: while a move or resize is under way the canvas keeps it so (it is never turned by the handles).
     <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
@@ -190,14 +226,14 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
       {!wordless && look.hours.map((hour) => (
         <Group key={`h${hour.label}`} listening={false}>
           <Line points={[hour.x * (r - tick), hour.y * (r - tick), hour.x * (r + tick), hour.y * (r + tick)]} strokeWidth={1} {...ink} />
-          <MonoText {...insideAt(hour, hourRing, hour.label, size)} text={hour.label} size={size} colours={colours} anchor={at(hour, r)} />
+          <MonoText {...insideAt(hour, hourRing, hour.label, size)} text={hour.label} {...words} anchor={at(hour, r)} />
         </Group>
       ))}
       {!wordless && [look.rise, look.set].map((edge, i) =>
         edge ? (
           <Group key={i === 0 ? 'rise' : 'set'} listening={false}>
             <Line points={[edge.x * (r - 2 * tick), edge.y * (r - 2 * tick), edge.x * (r + 2 * tick), edge.y * (r + 2 * tick)]} strokeWidth={2} {...ink} />
-            <MonoText {...insideAt(edge, edgeRing, edge.label, size)} text={edge.label} size={size} colours={colours} bold anchor={at(edge, r)} />
+            <MonoText {...insideAt(edge, edgeRing, edge.label, size)} text={edge.label} {...words} bold anchor={at(edge, r)} />
           </Group>
         ) : null,
       )}
@@ -207,11 +243,11 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
           <Line points={[0, 0, shadowEnd.x, shadowEnd.y]} strokeWidth={1} dash={[4, 3]} {...ink} />
           <Circle x={sunPoint.x} y={sunPoint.y} radius={SUN_PIXELS / zoom} fill={GOLDEN_HOUR} stroke={colours.ink} strokeWidth={1} strokeScaleEnabled={false} listening={false} />
           {/* Beside the sun's line, by the middle, clear of the icon; "shadows" beside its own line, on the same side. */}
-          <MonoText {...besideLine(look.sun, side, iconHalf + gap, gap, label, size)} text={label} size={size} colours={colours} bold anchor={at(look.sun, iconHalf)} />
-          <MonoText {...besideLine(away, side, iconHalf + gap, gap, look.shadows, size)} text={look.shadows} size={size} colours={colours} anchor={at(away, iconHalf)} />
+          <MonoText {...besideLine(look.sun, side, iconHalf + gap, gap, label, size)} text={label} {...words} bold anchor={at(look.sun, iconHalf)} />
+          <MonoText {...besideLine(away, side, iconHalf + gap, gap, look.shadows, size)} text={look.shadows} {...words} anchor={at(away, iconHalf)} />
         </>
       ) : (
-        <MonoText x={0} y={below} text={look.label} size={size} colours={colours} bold anchor={{ x: 0, y: iconHalf }} />
+        <MonoText x={0} y={below} text={look.label} {...words} bold anchor={{ x: 0, y: iconHalf }} />
       )}
     </Group>
   );

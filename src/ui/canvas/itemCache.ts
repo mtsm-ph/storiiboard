@@ -24,6 +24,13 @@ export interface ItemContext {
   liveZoom: number;
   /** Ids of the items that are not in view. */
   away: ReadonlySet<string> | null;
+  /**
+   * Ids of the items mounted hidden (6.11: a plan's out of view, culling.ts's mountedItems). One drawn already keeps the
+   * zoom it has while hidden, so a settled zoom makes only the items in view again (6.11 review, M1).
+   */
+  hidden?: ReadonlySet<string> | null;
+  /** How many hidden items left at an older zoom this call may make for the zoom now (the catch-up after a settle). */
+  catchUp?: number;
   register: unknown;
   ratio: number;
 }
@@ -33,13 +40,24 @@ export interface ItemContext {
  * ratio and the register are the same. One made now for an item that was not drawn a moment ago is drawn at the smaller of
  * the two zooms, so a zoom out that follows a zoom in doesn't ask every picture coming into view for its full size. An item
  * already drawn keeps the zoom it has. What is not in `items` is let go, so one that comes back is new.
+ *
+ * A plan's item mounted hidden (`sameInAndOut`, in `hidden`) whose only change is the zoom keeps its element: nothing of it
+ * is drawn, so making it again at a settle would only cost the frame (6.11 review, M1: 300 at 400%, where 40 are in view).
+ * It is made for the zoom now in the very render it comes into view, before the canvas shows it, so nothing is ever shown at
+ * an older zoom; and `catchUp` of them are made each call besides, so a pan soon after finds them ready.
  */
 export function elementsFor<E>(made: Map<string, MadeFor<E>>, items: readonly CanvasItem[], ctx: ItemContext, create: (item: CanvasItem, inView: boolean, zoom: number) => E): E[] {
+  let catchUp = ctx.catchUp ?? 0;
   const list = items.map((item) => {
     // An item that draws the same in view and out of it (`sameInAndOut`) is drawn as in view, so crossing the edge keeps it.
     const inView = item.sameInAndOut === true || !ctx.away?.has(item.id);
     const have = made.get(item.id);
-    if (have && have.item === item && have.inView === inView && have.zoom === ctx.zoom && have.colours === ctx.colours && have.register === ctx.register && have.ratio === ctx.ratio) return have.element;
+    const same = have !== undefined && have.item === item && have.inView === inView && have.colours === ctx.colours && have.register === ctx.register && have.ratio === ctx.ratio;
+    if (same && have.zoom === ctx.zoom) return have.element;
+    if (same && item.sameInAndOut === true && ctx.hidden?.has(item.id) === true) {
+      if (catchUp <= 0) return have.element;
+      catchUp -= 1;
+    }
     // Drawn already, in view, at this zoom: it stays at what it was drawn at. One that has only now come into view (a picked item
     // drawn out of sight until now) is as new as one just made: the smaller. After the zoom settled, the zoom it settled at.
     const drawnAt = have ? (have.zoom !== ctx.zoom ? ctx.zoom : have.inView ? have.drawnAt : Math.min(ctx.zoom, ctx.liveZoom)) : Math.min(ctx.zoom, ctx.liveZoom);
@@ -52,4 +70,11 @@ export function elementsFor<E>(made: Map<string, MadeFor<E>>, items: readonly Ca
     for (const id of made.keys()) if (!here.has(id)) made.delete(id);
   }
   return list;
+}
+
+/** How many of the elements kept are left at a zoom other than `zoom` (hidden items not yet made for it). */
+export function staleFor<E>(made: ReadonlyMap<string, MadeFor<E>>, zoom: number): number {
+  let stale = 0;
+  for (const have of made.values()) if (have.zoom !== zoom) stale += 1;
+  return stale;
 }

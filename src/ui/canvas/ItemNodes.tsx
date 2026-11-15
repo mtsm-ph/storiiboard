@@ -1,7 +1,7 @@
 import type Konva from 'konva';
-import { memo, useState, type ReactElement } from 'react';
+import { memo, useEffect, useState, type ReactElement } from 'react';
 import { Group, Rect } from 'react-konva';
-import { elementsFor, type MadeFor } from './itemCache';
+import { elementsFor, staleFor, type MadeFor } from './itemCache';
 import type { CanvasColours, CanvasItem } from './types';
 
 // The items a canvas draws (5.7). Each item is a memoised node: a pan, a zoom, a marquee or the move of twenty items out of
@@ -91,6 +91,8 @@ interface ItemNodesProps {
   liveZoom: number;
   /** The ids of the items here that are not in the view (a picked one out of sight is still drawn), joined with "|". */
   away: string;
+  /** The ids of the items mounted hidden (a plan's out of view: culling.ts's mountedItems); empty for a board. */
+  hidden: ReadonlySet<string>;
   ratio: number;
   register: RegisterNode;
 }
@@ -98,13 +100,39 @@ interface ItemNodesProps {
 /** The same items, one by one (the list is a new array on every render; its items are not). */
 export const sameItems = (a: readonly CanvasItem[], b: readonly CanvasItem[]): boolean => a.length === b.length && a.every((item, i) => item === b[i]);
 
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a === b || (a.size === b.size && [...a].every((id) => b.has(id)));
+
+/** How many hidden items left at an older zoom are made for the zoom now in each frame after a settle (6.11 review, M1). */
+export const CATCH_UP = 8;
+
 export const ItemNodes = memo(
-  function ItemNodes({ items, colours, zoom, liveZoom, away, ratio, register }: ItemNodesProps) {
+  function ItemNodes({ items, colours, zoom, liveZoom, away, hidden, ratio, register }: ItemNodesProps) {
     const [made] = useState(() => new Map<string, MadeFor<ReactElement>>());
-    return elementsFor(made, items, { colours, zoom, liveZoom, away: away === '' ? null : new Set(away.split('|')), register, ratio }, (item, inView, at) => (
+    // The catch-up's frames: a render the tick asked for makes CATCH_UP hidden items for the zoom now; any other render
+    // (the settle itself above all) makes none of them, so a settle costs only the items in view.
+    const [tick, setTick] = useState(0);
+    const [pace] = useState(() => ({ tick: 0 }));
+    const catchUp = tick !== pace.tick ? CATCH_UP : 0;
+    pace.tick = tick;
+    useEffect(() => {
+      if (staleFor(made, zoom) === 0) return;
+      const frame = requestAnimationFrame(() => {
+        setTick((n) => n + 1);
+      });
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    });
+    return elementsFor(made, items, { colours, zoom, liveZoom, away: away === '' ? null : new Set(away.split('|')), hidden, catchUp, register, ratio }, (item, inView, at) => (
       <ItemNode key={item.id} item={item} colours={colours} zoom={at} inView={inView} ratio={ratio} register={register} />
     ));
   },
   (was, now) =>
-    sameItems(was.items, now.items) && was.colours === now.colours && was.zoom === now.zoom && was.away === now.away && was.ratio === now.ratio && was.register === now.register,
+    sameItems(was.items, now.items) &&
+    was.colours === now.colours &&
+    was.zoom === now.zoom &&
+    was.away === now.away &&
+    sameSet(was.hidden, now.hidden) &&
+    was.ratio === now.ratio &&
+    was.register === now.register,
 );

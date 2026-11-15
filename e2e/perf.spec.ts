@@ -375,6 +375,41 @@ async function frameTimes(page: Page, run: () => Promise<void>, profile = ''): P
   return { gaps: gaps.slice(2) };
 }
 
+/** How long after a zoom's last wheel step its settle is timed: the items are drawn for the new zoom 150 ms after it. */
+const SETTLE_WINDOW = 300;
+
+/**
+ * A wheel zoom's frame times as frameTimes gives them, and then the frames of its settle (6.11 review, M1): the timer
+ * runs on to SETTLE_WINDOW ms after the last wheel step (the wheel runs set `__lastWheel` in the page), and the frames
+ * that began in that window are the settle's, the one where every item in view is drawn for the new zoom among them (a
+ * long one that ends past the window included).
+ */
+async function zoomTimes(page: Page, run: () => Promise<void>, profile = ''): Promise<{ zoom: Gaps; settle: Gaps }> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __frames: { at: number; gap: number }[]; __framesOn: boolean };
+    w.__frames = [];
+    w.__framesOn = true;
+    let last = performance.now();
+    const tick = (now: number) => {
+      if (!w.__framesOn) return;
+      w.__frames.push({ at: now, gap: now - last });
+      last = now;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const zoom = await frameTimes(page, run, profile);
+  const settle = await page.evaluate(async (window_) => {
+    const w = window as unknown as { __frames: { at: number; gap: number }[]; __framesOn: boolean; __lastWheel?: number };
+    const from = w.__lastWheel ?? performance.now();
+    while (performance.now() < from + window_) await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    w.__framesOn = false;
+    return w.__frames.filter((f) => f.at > from && f.at - f.gap < from + window_).map((f) => f.gap);
+  }, SETTLE_WINDOW);
+  return { zoom, settle: { gaps: settle } };
+}
+
 /** Frames missed: each gap over one and a half frames counts the frames it spanned beyond the first. */
 const dropped = (gaps: number[]) => gaps.reduce((sum, gap) => (gap > FRAME_MS * 1.5 ? sum + Math.round(gap / FRAME_MS) - 1 : sum), 0);
 const summary = ({ gaps }: Gaps) =>
@@ -555,6 +590,7 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
           const clientX = rect.left + rect.width / 2;
           const clientY = rect.top + rect.height / 2;
           element.dispatchEvent(new WheelEvent('wheel', { deltaX: dx, deltaY: dy, ctrlKey: ctrl, bubbles: true, cancelable: true, clientX, clientY }));
+          (window as unknown as { __lastWheel: number }).__lastWheel = performance.now();
           if (frame === Math.floor(total / 2)) mid = full();
         }
         await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -584,11 +620,14 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
   const turn = Math.log(4 / fit) / 0.004;
   const wheelIn = wheelFor(1500, (_frame, total, arg) => ({ dx: 0, dy: -arg / total, ctrl: true }), turn);
   const wheelOut = wheelFor(1500, (_frame, total, arg) => ({ dx: 0, dy: arg / total, ctrl: true }), turn);
-  const zoomIn = await frameTimes(page, wheelIn, 'zoom-in');
+  // Each leg's settle is timed too (6.11 review, M1), reported without a budget: the board's 5.7 budgets are left as they were.
+  const { zoom: zoomIn, settle: settleIn } = await zoomTimes(page, wheelIn, 'zoom-in');
   const atFour = Number(await canvas.getAttribute('data-zoom'));
   await page.waitForTimeout(300);
-  const zoomOut = await frameTimes(page, wheelOut, 'zoom-out');
+  const { zoom: zoomOut, settle: settleOut } = await zoomTimes(page, wheelOut, 'zoom-out');
   gestures.set('zoom, fit to 400% and back (3 s)', { gaps: [...zoomIn.gaps, ...zoomOut.gaps] });
+  gestures.set('settle at 400% (300 ms after the last wheel step)', settleIn);
+  gestures.set('settle at fit (300 ms after the last wheel step)', settleOut);
   const zoomNow = Math.round(Number(await canvas.getAttribute('data-zoom')) * 100);
   const percent = (zoom: number) => `${String(Math.round(zoom * 100))}%`;
   results['zoom'] = `in to ${percent(atFour)}, out to ${String(zoomNow)}% (fit was ${percent(fit)})`;
@@ -704,9 +743,10 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
 // placed from the keyboard and lens edits on a linked frame, timed by requestAnimationFrame in the page; then the Setup
 // section opened on that setup after a reload.
 //   SB_PERF=1 npx playwright test e2e/perf.spec.ts --project=chromium -g "300-item"
-// The plan is written through the app's own edit code (placeIconChanges, the wall and measure boxes, a mark's props) in
-// one group, after a scene, its frames, two setups and a room made through the screens, and its underlay comes through
-// the real drop path. Everything is in the first setup's view: walls forming eight rooms and a corridor, doors and
+// The plan is written through the app's own edit code (placeIconChanges, the wall and measure boxes, placeMarkChanges and
+// nextPositionChanges, the Locations and Shoot days tiles' edits) in one group, after a scene with its location and
+// characters imported from a script as Import script writes it, its frames, two setups and a room made through the
+// screens, and its underlay comes through the real drop path. Everything is in the first setup's view: walls forming eight rooms and a corridor, doors and
 // windows in them, set pieces and other icons (some turned), lights with beams (some all round, some with gear and
 // watts), flags and diffusion frames, six cameras shooting frames with lenses (two of them moving), eight characters with
 // five positions each, measures, production and sound items, north and a sun path (the location has its place and zone,
@@ -775,9 +815,21 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
   await editor.getByRole('radio', { name: 'Camera body', exact: true }).click();
   await editor.getByLabel('Camera and recording mode').selectOption({ label: 'Sony FX3: Full frame 16:9, 35.6 × 20 mm' });
 
-  // A scene and its frames on the board, two setups, the first shown, its room started.
+  // The scene, its location and its eight characters from a script, as Import script writes them (6.11 review, L8: the
+  // app's own edits, so the plan can't drift from what the app writes); its frames on the board, two setups, the first
+  // shown, its room started.
   await toSection(page, 'Storyboard');
-  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await page.evaluate(async (src) => {
+    const load = (path: string) => import(/* @vite-ignore */ `${src}${path}`) as Promise<unknown>;
+    const { projectStore } = (await load('app/projectStore.ts')) as typeof import('../src/app/projectStore');
+    const fountain = (await load('core/script/fountain.ts')) as typeof import('../src/core/script/fountain');
+    const importing = (await load('features/script/importScript.ts')) as typeof import('../src/features/script/importScript');
+    const projectId = projectStore.getState().project?.projectId;
+    if (!projectId) throw new Error('no project');
+    const names = ['ANNA', 'BEN', 'CARA', 'DEV', 'ELI', 'FAY', 'GUS', 'HAL'];
+    const script = fountain.parseFountain(['INT. STAGE 4 - DAY', '', ...names.flatMap((name) => [name, 'A line.', ''])].join('\n'));
+    await projectStore.getState().applyWith((records) => ({ changes: importing.importChanges(records, projectId, importing.planImport(records, projectId, script)) }));
+  }, SRC);
   const addFrame = board(page).getByRole('button', { name: '+ Frame in SC 01', exact: true });
   for (let i = 0; i < PLAN_FRAMES; i += 1) await addFrame.click();
   await expect(cards(page)).toHaveCount(PLAN_FRAMES);
@@ -799,6 +851,9 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
     const lights = (await load('core/model/planLight.ts')) as typeof import('../src/core/model/planLight');
     const order = (await load('core/ops/order.ts')) as typeof import('../src/core/ops/order');
     const shownPlan = (await load('features/birdseye/plan/shownPlan.ts')) as typeof import('../src/features/birdseye/plan/shownPlan');
+    const blocking = (await load('core/model/planBlocking.ts')) as typeof import('../src/core/model/planBlocking');
+    const locations = (await load('features/locations/locationEdits.ts')) as typeof import('../src/features/locations/locationEdits');
+    const days = (await load('features/schedule/dayEdits.ts')) as typeof import('../src/features/schedule/dayEdits');
     type SbdRecord = import('../src/core/model/record').SbdRecord;
     type Props = import('../src/core/model/record').Props;
     type Change = import('../src/core/ops/ops').Change;
@@ -808,20 +863,27 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
     const view = { sceneId, setupId };
     const out: { plan: Omit<BuiltPlan, 'key'> | null } = { plan: null };
     const written = await projectStore.getState().applyWith((records) => {
-      // The records as they will be once each change before is written, so every builder reads what came before it.
-      const local: Record<string, SbdRecord> = { ...records };
+      // The records as they will be once each change before is written, so every builder reads what came before it: a new
+      // object after each, as the store makes, since the model's readers keep their readings per records object.
+      let local: Record<string, SbdRecord> = { ...records };
       const changes: Change[] = [];
       const take = (list: readonly Change[]) => {
+        const next = { ...local };
         for (const change of list) {
           changes.push(change);
           if (change.kind === 'create') {
             const id = change.record.id ?? '';
-            local[id] = { id, type: change.record.type, parentId: change.record.parentId, sortKey: change.record.sortKey, props: change.record.props ?? {}, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
+            next[id] = { id, type: change.record.type, parentId: change.record.parentId, sortKey: change.record.sortKey, props: change.record.props ?? {}, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
           } else if (change.kind === 'update') {
-            const was = local[change.id];
-            if (was) local[change.id] = { ...was, props: { ...was.props, ...change.set } };
+            const was = next[change.id];
+            if (was) {
+              const unset = new Set(change.unset ?? []);
+              const props: Props = Object.fromEntries(Object.entries({ ...was.props, ...change.set }).filter(([prop]) => !unset.has(prop)));
+              next[change.id] = { ...was, props };
+            }
           }
         }
+        local = next;
       };
       const create = (type: SbdRecord['type'], parentId: string, props: Props): string => {
         const id = crypto.randomUUID();
@@ -842,19 +904,26 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
       const roomId = plan.sceneRoomId(local, local[sceneId]);
       if (roomId === null) throw new Error('no room');
 
-      // The place, its zone and a dated day: everything the sun path reads.
-      const location = create('location', projectId, { name: 'Stage 4', latitude: 34.0522, longitude: -118.2437, map_name: 'Stage 4', time_zone: 'America/Los_Angeles' });
-      const day = create('shoot_day', projectId, { date: '2026-06-21' });
-      const characters = Array.from({ length: 8 }, (_, i) => create('character', projectId, { name: `ROLE ${String(i + 1)}` }));
-      take([{ kind: 'update', id: sceneId, set: { location_id: location, character_ids: characters } }]);
+      // The place, its zone and a dated day: everything the sun path reads, through the Locations and Shoot days tiles'
+      // edits (the address search's pick, the zone set by hand, a new day on a date, the scene's frames put in it).
+      const placeId = local[sceneId]?.props.location_id;
+      const location = typeof placeId === 'string' ? placeId : '';
+      const characters = blocking.sceneCharacterIds(local, sceneId);
+      if (location === '' || characters.length !== 8) throw new Error('the script made no location or characters');
+      take(locations.placeLocation(local, location, { name: 'Stage 4, Los Angeles', latitude: 34.0522, longitude: -118.2437 }));
+      take(locations.timeZoneChange(local, location, 'America/Los_Angeles'));
+      const newDay = days.newDay(local, projectId, '2026-06-21');
+      take([newDay]);
+      const day = newDay.record.id ?? '';
       const frames = Object.values(local)
         .filter((r) => r.type === 'shot' && r.parentId === sceneId && r.trashedAt === null)
         .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
         .map((r) => r.id);
+      take(days.scheduleFrames(local, frames, day));
       // 1A starts at 18 mm; the lens edits type 21 to 40, which no other frame uses.
       const lenses = [18, 50, 65, 75, 85, 100, 135, 150, 180, 200, 14, 12];
       frames.forEach((id, i) => {
-        take([{ kind: 'update', id, set: { setup_id: setupId, shoot_day_id: day, lens_mm: lenses[i % lenses.length] ?? 50 } }]);
+        take([{ kind: 'update', id, set: { setup_id: setupId, lens_mm: lenses[i % lenses.length] ?? 50 } }]);
       });
       const gearItems = Array.from({ length: 8 }, (_, i) => create('gear_item', projectId, { name: `Fixture ${String(i + 1)}`, department: 'grip-electric', quantity: 1, watts: 300 + i * 150 }));
 
@@ -930,38 +999,27 @@ async function furnishedPlan(page: Page, url: string): Promise<BuiltPlan> {
       // 6 cameras, each shooting two frames; the first two move through three later positions each.
       const cameraIcons = ['camera/camera', 'camera/sticks', 'camera/dolly-track', 'camera/gimbal', 'camera/steadicam', 'camera/handheld'];
       const cameras = cameraIcons.map((icon, i) => place(icon, cell(), { rotation: (i * 60 + 15) % 360, shot_ids: frames.slice(i * 2, i * 2 + 2) }));
-      for (const camera of cameras.slice(0, 2)) {
-        const own = local[camera];
-        if (!own?.parentId) throw new Error('no camera');
-        let key: string | null = null;
-        for (let k = 0; k < 3; k += 1) {
-          key = order.keyBetween(key, null);
-          const at = cell();
-          const width = Number(own.props.width);
-          const height = Number(own.props.height);
-          create('plan_item', own.parentId, { kind: 'mark', icon: plan.NEXT_POSITION_ICON, x: at.x - width / 2, y: at.y - height / 2, width, height, rotation: Number(own.props.rotation), camera_id: camera, order: key });
-        }
-      }
-      // 8 characters, five positions each, in the scene's blocking.
-      const blocking = create('plan', sceneId, { kind: 'blocking' });
+      // Each move is Next position from the camera's last, as the Selection tile and a drop make it.
       const markSize = sizes.iconSize(plan.CAST_MARK_ICON) ?? { width: 0.4, depth: 0.4 };
+      const nextPosition = (from: string, at: { x: number; y: number }): string => {
+        const id = crypto.randomUUID();
+        const list = blocking.nextPositionChanges(local, view, from, markSize, at, id);
+        if (list.length === 0) throw new Error('no next position');
+        take(list);
+        return id;
+      };
+      for (const camera of cameras.slice(0, 2)) {
+        let last = camera;
+        for (let k = 0; k < 3; k += 1) last = nextPosition(last, cell());
+      }
+      // 8 characters, five positions each, in the scene's blocking: a cast mark placed, then four next positions.
       for (const character of characters) {
-        let key: string | null = null;
-        for (let k = 0; k < 5; k += 1) {
-          key = order.keyBetween(key, null);
-          const at = cell();
-          create('plan_item', blocking, {
-            kind: 'mark',
-            icon: k === 0 ? plan.CAST_MARK_ICON : plan.NEXT_POSITION_ICON,
-            x: at.x - markSize.width / 2,
-            y: at.y - markSize.depth / 2,
-            width: markSize.width,
-            height: markSize.depth,
-            rotation: 0,
-            character_id: character,
-            order: key,
-          });
-        }
+        const id = crypto.randomUUID();
+        const list = blocking.placeMarkChanges(local, view, cell(), markSize, character, id);
+        if (list.length === 0) throw new Error('no cast mark');
+        take(list);
+        let last: string = id;
+        for (let k = 1; k < 5; k += 1) last = nextPosition(last, cell());
       }
       // 12 production and sound items; the room's north, turned; the setup's sun path in the afternoon.
       const crew = ['production/video-village', 'production/generator', 'production/first-aid', 'production/parking', 'production/zone', 'production/note', 'production/distro-cable', 'production/hazard', 'sound/boom', 'sound/lav', 'sound/playback', 'sound/sound-cart'];
@@ -1002,6 +1060,7 @@ async function planWheel(page: Page, ms: number, wheel: (frame: number, total: n
         element.dispatchEvent(
           new WheelEvent('wheel', { deltaX: dx, deltaY: dy, ctrlKey: ctrl, bubbles: true, cancelable: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }),
         );
+        (window as unknown as { __lastWheel: number }).__lastWheel = performance.now();
       }
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     },
@@ -1135,11 +1194,16 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   await tile.getByRole('button', { name: 'Fit all' }).click();
   await expect.poll(async () => Math.abs((await view()).zoom - fit) < 1e-6).toBe(true);
   const turn = Math.log(4 / fit) / 0.004;
-  const zoomIn = await frameTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: -arg / total, ctrl: true }), turn), 'plan-zoom-in');
+  // Each leg's settle timed on its own (6.11 review, M1): the frame where every item in view is drawn for the new zoom.
+  const { zoom: zoomIn, settle: settleIn } = await zoomTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: -arg / total, ctrl: true }), turn), 'plan-zoom-in');
   const atFour = (await view()).zoom;
+  // How many count as in view there (a label's or a beam's reach is worked out for the plan's least zoom), and how many hidden.
+  results['items at 400% (shown, mounted hidden)'] = `${String(await canvas.getAttribute('data-shown'))}, ${String(await canvas.getAttribute('data-hidden'))}`;
   await page.waitForTimeout(300);
-  const zoomOut = await frameTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: arg / total, ctrl: true }), turn), 'plan-zoom-out');
+  const { zoom: zoomOut, settle: settleOut } = await zoomTimes(page, () => planWheel(page, 1500, (_f, total, arg) => ({ dx: 0, dy: arg / total, ctrl: true }), turn), 'plan-zoom-out');
   gestures.set('zoom, fit to 400% and back (3 s)', { gaps: [...zoomIn.gaps, ...zoomOut.gaps] });
+  gestures.set('settle at 400% (300 ms after the last wheel step)', settleIn);
+  gestures.set('settle at fit (300 ms after the last wheel step)', settleOut);
   results['zoom'] = `in to ${String(Math.round(atFour * 100))}%, out to ${String(Math.round((await view()).zoom * 100))}% (fit was ${String(Math.round(fit * 100))}%)`;
   await tile.getByRole('button', { name: 'Fit all' }).click();
   await expect.poll(async () => Math.abs((await view()).zoom - fit) < 1e-6).toBe(true);
@@ -1334,5 +1398,12 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   for (const [name, lags] of [['wall length', wallEdits], ['icon placed', placed], ['lens', lensEdits]] as const) {
     expect(Math.max(...lags), name).toBeLessThan(100);
   }
-  expect(openedIn).toBeLessThan(3000);
+  // A zoom's settle is an edit's worth of work (6.11 review, M1): its slowest frame under 100 ms, as an edit's.
+  for (const name of ['settle at 400% (300 ms after the last wheel step)', 'settle at fit (300 ms after the last wheel step)']) {
+    const gaps = gestures.get(name)?.gaps ?? [];
+    expect(gaps.length, name).toBeGreaterThan(0);
+    expect(Math.max(...gaps), name).toBeLessThan(100);
+  }
+  // Open counts the underlay's picture drawn, as the board's counts its pictures (6.11 review, L8).
+  expect(pictureIn).toBeLessThan(3000);
 });

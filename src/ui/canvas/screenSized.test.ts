@@ -1,6 +1,6 @@
 import type Konva from 'konva';
 import { describe, expect, it } from 'vitest';
-import { fitScreenSized, scaledAt, screenScale, screenSizedCount, screenSizedRef } from './screenSized';
+import { fitScreenSized, holdScreenSized, releaseScreenSized, scaledAt, screenScale, screenSizedCount, screenSizedRef } from './screenSized';
 
 // Drawings sized on screen (6.11): while a zoom is on its way, a node drawn for another zoom is scaled about its anchor,
 // so a plan's label keeps its size and its gap on screen and nothing is drawn again; at rest it is exactly where React
@@ -72,5 +72,91 @@ describe('drawings sized on screen (6.11)', () => {
     expect(fitScreenSized(stage, 0.5)).toBe(true);
     expect(label.state).toMatchObject({ sx: 1, sy: 1, px: 10, py: 30 });
     expect(screenSizedCount() - before).toBe(2);
+  });
+});
+
+describe('drawings sized on screen, after the 6.11 review', () => {
+  /** A fake node that can be shown or hidden and sits in a parent. */
+  function shown(stage: unknown, at: { x: number; y: number }, parent: Konva.Node | null = null) {
+    const made = fake(stage, at);
+    let visible = true;
+    Object.assign(made.node, {
+      visible: (to?: boolean) => {
+        if (to !== undefined) visible = to;
+        return visible;
+      },
+      getParent: () => parent,
+    });
+    return { ...made, isVisible: () => visible };
+  }
+
+  it('puts a node at rest exactly where React put it, to the last bit (L3)', () => {
+    // Numbers for which anchor + 1 × (at − anchor) is not at.
+    const anchor = { x: 5 / 7.3, y: 5 / 7.3 };
+    const at = { x: 5 / 3.1 + 0.123, y: 5 / 3.1 + 0.123 };
+    expect(anchor.x + 1 * (at.x - anchor.x)).not.toBe(at.x);
+    expect(scaledAt({ zoom: 1, at, anchor }, 1)).toEqual(at);
+    const stage = {} as Konva.Stage;
+    const label = fake(stage, at);
+    const zoom = 1 + 212 / 1013;
+    screenSizedRef(zoom, at, anchor)(label.node);
+    fitScreenSized(stage, zoom * 2);
+    fitScreenSized(stage, zoom);
+    expect(label.state).toEqual({ stage, sx: 1, sy: 1, px: at.x, py: at.y });
+  });
+
+  it('forgets a node as soon as React lets it go, without waiting for a canvas to draw (L4)', () => {
+    const stage = {} as Konva.Stage;
+    const label = fake(stage, { x: 0, y: 0 });
+    const before = screenSizedCount();
+    const ref = screenSizedRef(1, { x: 0, y: 0 }, { x: 0, y: 0 });
+    ref(label.node);
+    expect(screenSizedCount() - before).toBe(1);
+    ref(null);
+    expect(screenSizedCount() - before).toBe(0);
+    // A new ref for the same node (a render), the old one let go first, as React does: still known, once.
+    const next = screenSizedRef(1, { x: 0, y: 0 }, { x: 0, y: 0 });
+    next(label.node);
+    const again = screenSizedRef(2, { x: 0, y: 0 }, { x: 0, y: 0 });
+    next(null);
+    again(label.node);
+    expect(screenSizedCount() - before).toBe(1);
+    again(null);
+  });
+
+  it('hides a node during a zoom below its least zoom, and always shows it at rest (L1)', () => {
+    const stage = {} as Konva.Stage;
+    const word = shown(stage, { x: 4, y: 4 });
+    const ref = screenSizedRef(2, { x: 4, y: 4 }, { x: 0, y: 0 }, 1.5);
+    ref(word.node);
+    fitScreenSized(stage, 1.6);
+    expect(word.isVisible()).toBe(true);
+    expect(fitScreenSized(stage, 1.2)).toBe(true);
+    expect(word.isVisible()).toBe(false);
+    fitScreenSized(stage, 2);
+    expect(word.isVisible()).toBe(true);
+    ref(null);
+  });
+
+  it('holds what is in the items the handles hold at scale 1 until they let go (L2)', () => {
+    const stage = {} as Konva.Stage;
+    const item = shown(stage, { x: 0, y: 0 });
+    const inside = shown(stage, { x: 20, y: 40 }, item.node);
+    const other = shown(stage, { x: 20, y: 40 });
+    const refs = [screenSizedRef(0.5, { x: 20, y: 40 }, { x: 20, y: 30 }), screenSizedRef(0.5, { x: 20, y: 40 }, { x: 20, y: 30 })];
+    refs[0]?.(inside.node);
+    refs[1]?.(other.node);
+    // A zoom not yet settled: both scaled.
+    fitScreenSized(stage, 2);
+    expect(inside.state).toMatchObject({ sx: 0.25, py: 32.5 });
+    holdScreenSized([item.node]);
+    expect(inside.state).toMatchObject({ sx: 1, sy: 1, px: 20, py: 40 });
+    fitScreenSized(stage, 2);
+    expect(inside.state).toMatchObject({ sx: 1, py: 40 });
+    expect(other.state).toMatchObject({ sx: 0.25, py: 32.5 });
+    releaseScreenSized();
+    fitScreenSized(stage, 2);
+    expect(inside.state).toMatchObject({ sx: 0.25, py: 32.5 });
+    for (const ref of refs) ref(null);
   });
 });

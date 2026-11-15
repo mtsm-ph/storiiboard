@@ -7,17 +7,18 @@ import { rectsMeet, unionBounds } from './viewport';
 // have every node. An item's drawing is its rotated box, a section's name tab with it, and what it draws past its box
 // (6.4: a camera's cone, `beyond`), so a cone stays drawn while its camera's box is off screen. Picking stays on the box.
 
-// Worked out once per item object (6.11), as boundsFor is: a pan asks for every item's reach on every frame, and an item
-// never changes (a host makes a new object when it does).
-const reaches = new WeakMap<CanvasItem, Rect>();
+// Worked out once per item object and place (6.11), as boundsFor is: a pan asks for every item's reach on every frame. An
+// item that moves is a new object, and one edited in place is told by its numbers, so nothing here goes stale.
+const reaches = new WeakMap<CanvasItem, { key: string; reach: Rect }>();
 
 /** How far an item's drawing reaches, world units. */
 export function drawReach(item: CanvasItem): Rect {
+  const key = `${String(item.x)} ${String(item.y)} ${String(item.width)} ${String(item.height)} ${String(item.rotation)}`;
   const known = reaches.get(item);
-  if (known) return known;
+  if (known?.key === key) return known.reach;
   const extra = [tabRect(item), item.beyond?.bounds].filter((r): r is Rect => r !== undefined && r !== null);
   const reach = (extra.length > 0 ? unionBounds([boundsFor(item), ...extra]) : null) ?? boundsFor(item);
-  reaches.set(item, reach);
+  reaches.set(item, { key, reach });
   return reach;
 }
 
