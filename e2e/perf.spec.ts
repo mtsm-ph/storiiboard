@@ -810,6 +810,22 @@ interface PlanEntry {
   drawn?: boolean;
   sha?: string | null;
   owner?: unknown;
+  /** A cone's or beam's shape (6.18): its corner count (`corners`; before the 6.18 review, its `points`). */
+  sight?: { cut: boolean; corners?: number; points?: unknown[] } | null;
+}
+
+/**
+ * How many corners the plan's cones and beams have (6.18 review, item 1): a printed line, not a budget. Konva fills and
+ * strokes every one of them on every redraw, so it is what a pan costs a slower computer; a cut all-round light's are
+ * counted apart (before the review its glow was drawn as 8 stacked copies of its shape).
+ */
+function sightCorners(entries: readonly PlanEntry[]): string {
+  const cornersOf = (e: PlanEntry) => e.sight?.corners ?? e.sight?.points?.length ?? 0;
+  const withShape = entries.filter((e) => e.sight);
+  const cut = withShape.filter((e) => e.sight?.cut === true);
+  const ring = cut.filter((e) => e.kind === 'light' && typeof e.beam === 'number' && e.beam >= 360);
+  const sum = (list: readonly PlanEntry[]) => list.reduce((n, e) => n + cornersOf(e), 0);
+  return `${String(sum(withShape))} corners in ${String(withShape.length)} shapes (${String(cut.length)} cut: ${String(sum(cut))} corners; ${String(ring.length)} cut all-round lights: ${String(sum(ring))} corners)`;
 }
 
 const planEntries = async (page: Page): Promise<PlanEntry[]> =>
@@ -1196,6 +1212,7 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   const canvas = planCanvasOf(page);
   const tile = planTileOf(page);
   const results: Record<string, string> = {};
+  results['cones and beams as drawn (polygon corners)'] = sightCorners(entries);
   const gestures = new Map<string, Gaps>();
   const box = await canvas.boundingBox();
   if (!box) throw new Error('no canvas');

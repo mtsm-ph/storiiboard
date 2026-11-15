@@ -200,6 +200,14 @@ export interface CanvasProps {
    * out (a board), it is 8 as it always was.
    */
   minSize?: number;
+  /**
+   * Items the host draws anew while a gesture is under way (6.18 review: a plan's cones and beams cut by the walls live):
+   * given the live geometry of what a drag moves (its draft) or the handles turn or resize, the items that draw
+   * differently now, by id, each with its geometry as the host has it (the canvas puts a dragged one where the drag
+   * has it). Asked on every step of a gesture, and with null when none is under way. Nothing is written: the gesture
+   * still ends in one onGeometry. Left out (a board), nothing is drawn anew.
+   */
+  liveItems?: (live: ReadonlyMap<string, Geometry> | null) => ReadonlyMap<string, CanvasItem>;
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -269,6 +277,7 @@ export function Canvas({
   onHover,
   onKey,
   minSize = MIN_SIZE,
+  liveItems,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -327,16 +336,22 @@ export function Canvas({
   const [pathSaid, setPathSaid] = useState('');
   const describedBy = useId();
 
-  // Only an item the gesture moves is a new object: the others stay the items they were, so what is drawn for them is kept (5.7).
+  // The handles' live geometry counts only for the selection it was made on.
+  const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
+  // What the host draws anew for the gesture under way (a plan's cut cones: liveItems), none for a board.
+  const remade = useMemo(() => (liveItems ? liveItems(draft ?? liveBoxes) : null), [liveItems, draft, liveBoxes]);
+  // Only an item the gesture moves (or the host draws anew for it) is a new object: the others stay the items they were,
+  // so what is drawn for them is kept (5.7).
   const shown = useMemo(
     () =>
-      draft
+      draft || (remade && remade.size > 0)
         ? items.map((item) => {
-            const moved = draft.get(item.id);
-            return moved ? withDraft(item, moved) : item;
+            const base = remade?.get(item.id) ?? item;
+            const moved = draft?.get(item.id);
+            return moved ? withDraft(base, moved) : base;
           })
         : items,
-    [items, draft],
+    [items, draft, remade],
   );
   // Sections are drawn under the connectors and the other items; each group keeps the board's order among itself (5.3).
   const sectionsShown = useMemo(() => drawOrder(shown.filter((item) => item.section)), [shown]);
@@ -345,8 +360,6 @@ export function Canvas({
   const pickSections = useMemo(() => pickable(sectionsShown), [sectionsShown]);
   const pickPlain = useMemo(() => pickable(itemsShown), [itemsShown]);
   // The connectors, each end joined to its item as it is drawn now (a drag's draft included), so they follow live.
-  // The handles' live geometry counts only for the selection it was made on.
-  const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
   // A cache the render fills as it goes: it only saves routing and making shapes again, never changes what is drawn.
   const [routes] = useState(() => new Map<string, RouteEntry>());
   const resolved = useMemo(

@@ -13,8 +13,9 @@ import { GLOW_BANDS, type LocalSight } from './planSights';
 // while the light is selected. Under it, as a camera's, its labels in mono, upright: its name, its watts and its height.
 // All of it is drawn past the light's box (CanvasItem.beyond), so the core keeps it drawn while the box is off screen.
 // Walls stop it (6.18): where they cut it, it is drawn as the cut shape (planSights.ts), filled as the beam is, its sides
-// and arc as lines and none along a wall; an all-round light's glow as bands, each the shape out to its radius, which
-// add up to the glow's fade.
+// and arc as lines and none along a wall; an all-round light's glow as the one shape filled with the uncut glow's radial
+// gradient (6.18 review: one fill, where 8 stacked bands cost 8 large fills and showed 8 steps), and on paper as bands,
+// each the shape out to its radius, which add up to the glow's fade (a PDF path can't hold a canvas gradient).
 
 /** What a light's drawing past its box shows, worked out from the records by the plan (lightLooks.ts). */
 export interface LightLook {
@@ -58,15 +59,23 @@ interface BeamProps {
   facing: number;
   /** Its shape where walls cut it (6.18); null or absent, the whole beam. */
   cut?: LocalSight | null;
+  /** Drawn for paper (an export): a cut glow as bands of flat paint. */
+  print?: boolean;
 }
 
-/** Each band's opacity, so the GLOW_BANDS of them laid over one another at the middle make GLOW_OPACITY. */
+/** Each printed band's opacity, so the GLOW_BANDS of them laid over one another at the middle make GLOW_OPACITY. */
 const BAND_OPACITY = 1 - (1 - GLOW_OPACITY) ** (1 / GLOW_BANDS);
 
 /** The beam (or the soft circle) and the labels, in the light's own box. */
-export function LightBeyond({ width, height, zoom, rotation, colours, look, length, facing, cut }: BeamProps) {
+export function LightBeyond({ width, height, zoom, rotation, colours, look, length, facing, cut, print = false }: BeamProps) {
   const wedge = beamWedge(look.degrees, facing);
   const centre = { x: width / 2, y: height / 2 };
+  // The soft glow, from the light's middle out to nothing at its reach.
+  const glow = {
+    fillRadialGradientStartRadius: 0,
+    fillRadialGradientEndRadius: length,
+    fillRadialGradientColorStops: [0, paintOf(DEPT_LIGHTING, GLOW_OPACITY), 1, paintOf(DEPT_LIGHTING, 0)],
+  };
   const edge = { stroke: DEPT_LIGHTING, strokeWidth: look.selected ? 1.5 : 1, strokeScaleEnabled: false, listening: false } as const;
   return (
     <>
@@ -75,8 +84,11 @@ export function LightBeyond({ width, height, zoom, rotation, colours, look, leng
           <>
             {wedge ? (
               <Line points={cut.fill} closed fill={DEPT_LIGHTING} opacity={FILL_OPACITY} listening={false} />
+            ) : print ? (
+              cut.bands().map((band, i) => <Line key={`band${String(i)}`} points={band} closed fill={DEPT_LIGHTING} opacity={BAND_OPACITY} listening={false} />)
             ) : (
-              cut.bands.map((band, i) => <Line key={`band${String(i)}`} points={band} closed fill={DEPT_LIGHTING} opacity={BAND_OPACITY} listening={false} />)
+              // The gradient's middle is the light's: a Line's own origin is its box's corner, where a Circle's is its middle.
+              <Line points={cut.fill} closed fillRadialGradientStartPoint={centre} fillRadialGradientEndPoint={centre} {...glow} listening={false} />
             )}
             {cut.strokes.map((run, i) => (
               <Line key={i} points={run} {...edge} opacity={look.selected ? 1 : wedge ? EDGE_OPACITY : EDGE_OPACITY * 0.6} />
@@ -105,9 +117,7 @@ export function LightBeyond({ width, height, zoom, rotation, colours, look, leng
             radius={length}
             fillRadialGradientStartPoint={{ x: 0, y: 0 }}
             fillRadialGradientEndPoint={{ x: 0, y: 0 }}
-            fillRadialGradientStartRadius={0}
-            fillRadialGradientEndRadius={length}
-            fillRadialGradientColorStops={[0, paintOf(DEPT_LIGHTING, GLOW_OPACITY), 1, paintOf(DEPT_LIGHTING, 0)]}
+            {...glow}
             listening={false}
           />
           <Circle {...centre} radius={length} stroke={DEPT_LIGHTING} strokeWidth={look.selected ? 1.5 : 1} opacity={look.selected ? 1 : EDGE_OPACITY * 0.6} strokeScaleEnabled={false} listening={false} />
@@ -127,7 +137,7 @@ export function lightBeyond(box: { x: number; y: number; width: number; height: 
   return {
     bounds: cameraReach(box, null, 0, length, labelReach(box, look.lines.length, leastZoom)),
     draw: (context) => (
-      <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} facing={facing} cut={cut} />
+      <LightBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} facing={facing} cut={cut} print={context.print === true} />
     ),
   };
 }

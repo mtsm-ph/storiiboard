@@ -21,11 +21,15 @@ export interface LocalSight {
   fill: number[];
   /** The edges drawn as lines, each a run of corners (along the walls none is drawn). */
   strokes: number[][];
-  /** For an all-round light's glow: the shape cut at each band's radius, outermost first. */
-  bands: number[][];
+  /**
+   * For an all-round light's glow on paper: the shape cut at each band's radius, outermost first, worked out when first
+   * asked for. The screen fills the shape once with the uncut glow's radial gradient (6.18 review); a PDF path can't hold
+   * a canvas gradient (deckDisplay.ts prints a circle's as rings), so a print lays these bands over one another instead.
+   */
+  bands: () => number[][];
 }
 
-/** How many bands an all-round light's glow is drawn in when walls cut it (as many as a print's rings, deckDisplay.ts). */
+/** How many bands an all-round light's glow is printed in when walls cut it (as many as a print's rings, deckDisplay.ts). */
 export const GLOW_BANDS = 8;
 
 const middleOf = (f: { x: number; y: number; width: number; height: number }) => ({ x: f.x + f.width / 2, y: f.y + f.height / 2 });
@@ -96,6 +100,28 @@ export function sightsKeeper(): (
   };
 }
 
+/** What the end-to-end tests read of a shape (metres): whether walls cut it, whether it's empty, its corner count and box. */
+export interface SightSummary {
+  cut: boolean;
+  empty: boolean;
+  corners: number;
+  box: { minX: number; minY: number; maxX: number; maxY: number } | null;
+}
+
+/**
+ * A cone's or a beam's shape as the tests read it from the page: whether walls cut it, whether it is empty (its apex in a
+ * wall), how many corners it has and the box round them, to 0.1 mm. Never the corners themselves (6.18 review): this is
+ * written into the page on every edit, and a cut all-round light has dozens. Null for an item with no cone.
+ */
+export function sightSummary(sight: Sight | undefined): SightSummary | null {
+  if (!sight) return null;
+  const round = (n: number) => Math.round(n * 10000) / 10000;
+  const xs = sight.points.map((p) => p.x);
+  const ys = sight.points.map((p) => p.y);
+  const box = sight.points.length === 0 ? null : { minX: round(Math.min(...xs)), minY: round(Math.min(...ys)), maxX: round(Math.max(...xs)), maxY: round(Math.max(...ys)) };
+  return { cut: sight.cut, empty: sight.empty, corners: sight.points.length, box };
+}
+
 /** Runs of consecutive edges of the kinds drawn, each as the corners it joins. */
 function runs(sight: Sight, drawn: ReadonlySet<SightEdge>): number[][][] {
   const n = sight.points.length;
@@ -143,22 +169,27 @@ export function localSight(sight: Sight | undefined, box: { width: number; heigh
   const flat = (points: readonly { x: number; y: number }[]) => points.flatMap((p) => local(p.x, p.y));
   const drawn = new Set<SightEdge>(kind === 'cone' ? ['side'] : ['side', 'far']);
   const strokes = runs(sight, drawn).map((run) => run.flatMap(([x, y]) => local(x ?? 0, y ?? 0)));
-  // The glow's bands, for an all-round light: the shape with every corner brought in to the band's radius.
-  const bands: number[][] = [];
-  if (kind === 'beam' && sight.ring && !sight.empty) {
-    const outer = Math.max(...sight.reach);
-    for (let k = GLOW_BANDS; k >= 1; k -= 1) {
-      const r = (outer * k) / GLOW_BANDS;
-      bands.push(
-        flat(
-          sight.points.map((p, i) => {
-            const d = sight.reach[i] ?? 0;
-            const f = d > r && d > 0 ? r / d : 1;
-            return { x: centre.x + (p.x - centre.x) * f, y: centre.y + (p.y - centre.y) * f };
-          }),
-        ),
-      );
+  // The glow's bands, for an all-round light on paper: the shape with every corner brought in to the band's radius.
+  let bands: number[][] | null = null;
+  const bandsOf = (): number[][] => {
+    if (bands) return bands;
+    bands = [];
+    if (kind === 'beam' && sight.ring && !sight.empty) {
+      const outer = Math.max(...sight.reach);
+      for (let k = GLOW_BANDS; k >= 1; k -= 1) {
+        const r = (outer * k) / GLOW_BANDS;
+        bands.push(
+          flat(
+            sight.points.map((p, i) => {
+              const d = sight.reach[i] ?? 0;
+              const f = d > r && d > 0 ? r / d : 1;
+              return { x: centre.x + (p.x - centre.x) * f, y: centre.y + (p.y - centre.y) * f };
+            }),
+          ),
+        );
+      }
     }
-  }
-  return { fill: flat(sight.points), strokes, bands };
+    return bands;
+  };
+  return { fill: flat(sight.points), strokes, bands: bandsOf };
 }

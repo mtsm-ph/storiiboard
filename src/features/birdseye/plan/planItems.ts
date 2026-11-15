@@ -78,7 +78,7 @@ import type { Change } from '../../../core/ops/ops';
 import { keyBetween } from '../../../core/ops/order';
 import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
-import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
+import type { Beyond, CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { DIM_OPACITY } from '../../../ui/canvas/ItemNodes';
 import { PictureNode } from '../../moodboards/PictureNode';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
@@ -227,7 +227,7 @@ export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look:
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
   // Its beam leaves the side its icon's drawing shines from (BEAM_FACING), turned with the light.
-  const beyond = look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(fields.icon), cut) } : {};
+  const beyond = look ? { beyond: lightBeyondOf(g, fields.icon, look, cut) } : {};
   return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...beyond, sameInAndOut: true };
 }
 
@@ -292,6 +292,31 @@ function sightKey(sight: object | undefined): string {
   return `|${String(id)}`;
 }
 
+/**
+ * What a light, a camera and a mark draw past their boxes (6.4, 6.5, 6.7), from their box `g` (canvas units), shared
+ * by the items and by the live remake while one is dragged or turned (liveSights.ts, 6.18 review). A move's path is
+ * drawn from `pathBox`: the box as stored, so while a drag is under way it is as it always was.
+ */
+export function lightBeyondOf(g: Geometry, icon: string, look: LightLook, cut: LocalSight | null): Beyond {
+  return lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(icon), cut);
+}
+
+export function cameraBeyondOf(g: Geometry, look: CameraLook, path: PathLook | null, cut: LocalSight | null, pathBox: Geometry = g): Beyond | undefined {
+  return joinBeyond(cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut), path ? pathBeyond(pathBox, path, PLAN_ZOOM.min) : undefined);
+}
+
+export function markBeyondOf(g: Geometry, fields: MarkFields, look: MarkLook | null, path: PathLook | null, cut: LocalSight | null, pathBox: Geometry = g): Beyond | undefined {
+  const lines = look?.lines ?? (fields.name !== '' ? [fields.name] : []);
+  const cone = look?.cone ?? null;
+  const own =
+    look?.ghost === true && cone !== null
+      ? cameraBeyond(g, { degrees: cone, lines, selected: look.selected, edgesOnly: true }, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut)
+      : lines.length > 0
+        ? labelsBeyond(g, lines, PLAN_ZOOM.min)
+        : undefined;
+  return joinBeyond(own, path ? pathBeyond(pathBox, path, PLAN_ZOOM.min) : undefined);
+}
+
 /** A camera with no look worked out yet: no cone, no label. */
 const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
 
@@ -315,7 +340,7 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
   // A camera that moves (6.7) carries its move's path, from it through each later position; Fit all takes them all in.
-  const beyond = joinBeyond(cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut), path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
+  const beyond = cameraBeyondOf(g, look, path, cut);
   // A track, a slider or a jib's arm (6.7) stretches along its length: its proportions aren't kept.
   return {
     id,
@@ -338,7 +363,6 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
 export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: MarkLook | null, path: PathLook | null = null, cut: LocalSight | null = null): CanvasItem {
   const icon = planIconOf(look?.icon ?? MARK_ICON) ?? planIconOf(MARK_ICON);
   const g = toCanvasGeometry(fields);
-  const lines = look?.lines ?? (fields.name !== '' ? [fields.name] : []);
   const ghost = look?.ghost === true;
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
@@ -346,14 +370,7 @@ export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: M
     const shape = icon ? createElement(IconShape, { icon, ...common, texts: look?.texts }) : createElement(UnknownIconShape, common);
     return ghost ? createElement(Group, { opacity: DIM_OPACITY, listening: false }, shape) : shape;
   };
-  const cone = look?.cone ?? null;
-  const own =
-    ghost && cone !== null
-      ? cameraBeyond(g, { degrees: cone, lines, selected: look.selected, edgesOnly: true }, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut)
-      : lines.length > 0
-        ? labelsBeyond(g, lines, PLAN_ZOOM.min)
-        : undefined;
-  const beyond = joinBeyond(own, path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
+  const beyond = markBeyondOf(g, fields, look, path, cut);
   const what = look?.say ?? iconLabel(MARK_ICON);
   const label = t('plan.announce.icon', { what, width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) });
   return { id, ...g, label, keepRatio: true, draw, ...(beyond ? { beyond } : {}), ...(path ? { fitExtent: path.fit } : {}), sameInAndOut: true };
@@ -920,7 +937,7 @@ function keptWhereSame(was: PlanGeometry, next: PlanGeometry): PlanGeometry {
 }
 
 /** A box in metres, its length and thickness never under a centimetre. */
-const metresOf = (g: Geometry): PlanGeometry => ({
+export const metresOf = (g: Geometry): PlanGeometry => ({
   x: toMetres(g.x),
   y: toMetres(g.y),
   width: Math.max(MIN_PLAN_SIZE, toMetres(g.width)),
