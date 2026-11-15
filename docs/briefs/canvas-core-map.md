@@ -191,4 +191,53 @@ Everything below is read from the code. Paths are relative to c:\Users\kevma\Doc
 - `src/features/birdseye` today holds only `SetupsTile.tsx` and `useSetupDrag.ts`.
 - HANDOFF.md and PLAN.md record no canvas-core lows deferred to Phase 6. The only related open items are Kevin's Phase 5 gate checks (performance on his Mac and a Windows laptop; Windows Pages-panel drag B1 in docs/DESKTOP_GAPS.md).
 
+### Since the map was written (Phase 6)
+Everything below is optional: a board sets none of it and draws and behaves as it did in Phase 5. Types are in
+`src/ui/canvas/types.ts`; read Nov 14, 2026, at the 6.11 review.
+- Scale (6.2a): `CanvasProps.scale` (`CanvasScale`: format, parse, refusal, label, `GridSpec` grid, rounds) gives a
+  grid drawn in `Canvas.tsx`, rulers (`Rulers.tsx`), a scale bar as the zoom label, and grid snapping by magnet, Alt
+  fine or ⌘/Ctrl off (`scale.ts`: `gridLines`, `rulerTicks`, `scaleBarLength`, `snapToGrid`, `gridPull`, `GridSnap`).
+- Host tools (6.2a): `CanvasProps.tools` (`ToolSpec[]`, ids `host:…`, `isHostTool`) replace a board's tools and
+  letters; one with `size` places by click or drag (`onCreate` may return `false` to keep the tool).
+- Point-to-point runs (6.2a): a `ToolSpec` with `pointToPoint` draws runs (`pathRun.ts`: `runStart`, `runClick`,
+  `runKey`, `nextPoint`, typed lengths, Shift for 15°, a double press within `DOUBLE_PRESS_MS`); `pathWidth`;
+  `maxPoints` (6.9: a run that ends by itself, Set scale's two); `snap: false` (6.9: points exactly where clicked).
+  Finished runs go to `onPath`; `onPathDraft` reports the run as it is now.
+- Zoom limits: `CanvasProps.zoomLimits` (`ZoomLimits` min, max, fitMax; a board's `BOARD_ZOOM` in `viewport.ts`, a
+  plan's `PLAN_ZOOM` in `src/features/birdseye/plan/planScale.ts`).
+- `minSize` (6.5 review): `CanvasProps.minSize`, the least size the handles make an item (`placement.ts`
+  `handledSize`, `shrunkBelow`); 8 without it.
+- `locked` (6.2a): drawn, never picked by a click, marquee, Tab or Select all (`picking.ts` `pickable`).
+- `dim` (6.2a): drawn at `DIM_OPACITY` 45% (`ItemNodes.tsx`, `PageStage.tsx`).
+- `snapPoints` (6.2a): a move snaps these to the grid and to others' points, never the box (`scale.ts`
+  `snapMoveByPoints`, `snapping.ts` `runSnapEnds`, carried by a drag's draft in `placement.ts` `withDraft`); a run's
+  clicks join them.
+- `noSnap` (6.9 review): never a snap target for others' lines and points (`snapping.ts` `snapTargetItems`).
+- `pickThickness` (6.5 review): picked at least this many screen pixels thick about its middle (`hitTest.ts`
+  `pickBoxOf`, used by `picking.ts`).
+- `moveOnly` (6.2b): handles show its box with no anchors and no turn (`Canvas.tsx`, `hitTest.ts` `turnsByHandle`).
+- `constrainMove` (6.2b): `CanvasProps.constrainMove` gives what a move really puts where, and may add items moving
+  with it (a door on a moving wall) (`Canvas.tsx` `placedBy`).
+- `onHover` (6.2b): `CanvasProps.onHover`, the pointer in world units with no gesture under way, null on leaving.
+- `onKey` (6.2b): `CanvasProps.onKey`, a key the canvas has no use for, offered to the host first (F flips a door).
+- `noTurn` (6.6): no rotate handle while it is selected (`hitTest.ts` `turnsByHandle`).
+- `beyond` (6.4): `Beyond` { bounds, draw }, drawn past the box under the item in a group of its own
+  (`ItemNodes.tsx`, registered under `beyondKey`, turned with the item by the handles; its `UPRIGHT`-named nodes turned
+  back); `bounds` counts for culling (`culling.ts` `drawReach`), never for picking. `PageStage.tsx` draws it too, so
+  an export prints it.
+- `fitExtent` (6.6 review): counts with the box for Fit all, Fit selection and the minimap (`hitTest.ts`
+  `fitBoundsOf`, `fitViewOf`; `Minimap.tsx`).
+- `sameInAndOut` (6.11): the drawing never reads `inView`, so the item's element is kept across the view's edge
+  (`itemCache.ts` `elementsFor`) and it stays mounted, hidden, out of view (`culling.ts` `mountedItems`; the
+  visibility effect in `Canvas.tsx`, which also sets `data-hidden` and `data-shown` for tests). Hidden ones keep their
+  zoom at a settle and are made for the new one when they come into view or a few a frame after (`ItemNodes.tsx`
+  `CATCH_UP`, 6.11 review).
+- Screen-sized nodes (6.11): `screenSized.ts` `screenSizedRef(zoom, at, anchor, hideBelow?)`; the canvas scales such
+  a node about its anchor by drawn zoom over live zoom on every frame of a zoom (`fitScreenSized`), exactly 1 at rest;
+  `hideBelow` hides it during a zoom below that zoom (a sun path's words); `holdScreenSized`/`releaseScreenSized`
+  keep it at 1 while the handles turn its item.
+- Shared clipboard marker (6.9 review): `src/ui/canvas/clipboardMarker.ts` `createClipboardMarker(clipType,
+  isAddress)`, one per surface (`src/features/moodboards/clipboardMarker.ts`, `src/features/birdseye/plan/
+  planClipboard.ts`), so a plan's copy never passes for a board's; the canvas calls `onSystemCopy` on copy and cut.
+
 Key files: src/ui/canvas/Canvas.tsx, src/ui/canvas/types.ts, src/ui/canvas/viewport.ts, src/ui/canvas/placement.ts, src/features/moodboards/BoardView.tsx, src/features/moodboards/items.ts, src/features/moodboards/drawing.tsx, src/features/moodboards/boardActions.ts, src/features/moodboards/connectors.ts, src/features/moodboards/sections.ts, src/features/export/deckRender.tsx, src/features/export/deckPdfWriter.ts, src/ui/icons/plan/planIcons.ts, e2e/perf.spec.ts, docs/SBD_FORMAT.md, docs/PHASE6_DECISIONS.md.

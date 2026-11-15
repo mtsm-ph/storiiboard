@@ -1,5 +1,5 @@
-import { useId, useMemo } from 'react';
-import { useProject } from '../../../app/projectStore';
+import { memo, useId, useMemo } from 'react';
+import { projectStore, useProject } from '../../../app/projectStore';
 import { labels, t, tn } from '../../../core/i18n';
 import { sceneRoomId, shownItems, type PlanLayer } from '../../../core/model/plan';
 import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, rowState, UNDERLAY_ROW, type LayerRow, type LayerShow, type LayerState } from '../../../core/model/planLayers';
@@ -7,6 +7,7 @@ import { cx } from '../../../ui/cx';
 import { LayerShowGlyph, LockGlyph } from '../../../ui/glyphs';
 import { roveFocus, rovingIndex } from '../../../ui/roving';
 import { DepartmentSwatch } from '../../../ui/tags';
+import { useLocale } from '../../../ui/useLocale';
 import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { groupName } from './library';
 import { useLiveView } from './PlanTile';
@@ -93,7 +94,10 @@ export function LayersTile() {
   );
 }
 
-function LayerRow({ layer, state, count, solo }: { layer: PlanLayer; state: LayerState; count: number; solo: PlanLayer | null }) {
+// Each row is drawn again only when what it shows changes (6.11): its state, its count, the solo, the language. An edit
+// that moves no item onto or off a layer leaves every row as it was.
+const LayerRow = memo(function LayerRow({ layer, state, count, solo }: { layer: PlanLayer; state: LayerState; count: number; solo: PlanLayer | null }) {
+  useLocale();
   const name = groupName(layer);
   const empty = count === 0;
   const soloed = solo === layer;
@@ -162,7 +166,7 @@ function LayerRow({ layer, state, count, solo }: { layer: PlanLayer; state: Laye
       </span>
     </li>
   );
-}
+});
 
 /**
  * The underlay's own row (6.9, decision 12): Shown, Dimmed or Hidden and Locked, as a department's, dimmed and locked
@@ -170,13 +174,15 @@ function LayerRow({ layer, state, count, solo }: { layer: PlanLayer; state: Laye
  * here, an underlay can be selected, moved, resized, turned and deleted. During a solo its choice and lock are the
  * solo's, held as every other row's are (M-a); Set scale stays.
  */
-function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerState; count: number; solo: PlanLayer | null; roomId: string | null; viewKeyNow: string | null }) {
+const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerState; count: number; solo: PlanLayer | null; roomId: string | null; viewKeyNow: string | null }) {
+  useLocale();
   const name = rowName(UNDERLAY_ROW);
   const empty = count === 0;
   const heldBy = solo !== null ? groupName(solo) : null;
   const heldId = useId();
   const selection = usePlan((s) => (viewKeyNow === null ? undefined : s.selections[viewKeyNow]));
-  const records = useProject((s) => s.records);
+  // The records are read when Set scale is pressed, not subscribed to (6.11 review, L6): so an edit elsewhere on the plan
+  // leaves this row, memoised, as it is.
   return (
     <li
       className={cx(ROW, 'border-t border-border pt-1', empty && 'text-text-muted')}
@@ -227,7 +233,7 @@ function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerS
             title={t('layers.scaleOf')}
             className={cx(WORD, edge(false), inked(false))}
             onClick={() => {
-              const target = scaleTarget(records, roomId, selection ?? []);
+              const target = scaleTarget(projectStore.getState().records, roomId, selection ?? []);
               if (target === null) return;
               startUnderlayScale(target);
               document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();
@@ -239,7 +245,7 @@ function UnderlayRow({ state, count, solo, roomId, viewKeyNow }: { state: LayerS
       </span>
     </li>
   );
-}
+});
 
 /**
  * Shown, Dimmed or Hidden, as three icon cells (a radio group, one Tab stop, the arrows picking as native radios do):

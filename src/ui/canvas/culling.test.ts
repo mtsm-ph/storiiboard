@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawnItems, drawReach } from './culling';
+import { drawnItems, drawReach, mountedItems } from './culling';
 import type { CanvasItem } from './types';
 
 // What a canvas draws (5.7, 6.4): items whose drawing meets the view and the selected ones; what an item draws past its
@@ -37,5 +37,46 @@ describe('a section’s name tab (boards, unchanged by 6.4)', () => {
     const below = item('low', 10, 400, { section: { tab: { x: 0, y: -40, width: 120, height: 24 } } });
     expect(drawnItems([below], new Set(), view)).toEqual([]);
     expect(drawnItems([below], new Set(['low']), view).map((i) => i.id)).toEqual(['low']);
+  });
+});
+
+describe('an item’s reach, once per item (6.11)', () => {
+  it('works out an item’s reach once and gives back the same box for it on every frame after', () => {
+    const cone = { bounds: { x: -700, y: 0, width: 760, height: 100 }, draw: () => null };
+    const camera = item('cam', -500, 20, { beyond: cone });
+    const first = drawReach(camera);
+    expect(drawReach(camera)).toBe(first);
+    // A moved item is a new object, with a reach of its own.
+    const moved = { ...camera, x: -400, beyond: { ...cone, bounds: { ...cone.bounds, x: -600 } } };
+    expect(drawReach(moved)).not.toBe(first);
+    expect(drawReach(moved).x).toBe(-600);
+  });
+
+  it('works out the reach again for the same object edited in place, as boundsFor does (6.11 review, L5)', () => {
+    const plain = item('box', 10, 10);
+    const first = drawReach(plain);
+    expect(drawReach(plain)).toBe(first);
+    plain.x = 200;
+    plain.rotation = 45;
+    const again = drawReach(plain);
+    expect(again).not.toBe(first);
+    expect(again.x).toBeCloseTo(200 + 20 - 20 * Math.SQRT2, 9);
+    expect(drawReach(plain)).toBe(again);
+  });
+});
+
+describe('what a view mounts (6.11)', () => {
+  it('keeps a plan’s item mounted, hidden, while it is out of view, and mounts a board’s only while it is drawn', () => {
+    const planIn = item('in', 10, 10, { sameInAndOut: true });
+    const planOut = item('out', -900, 10, { sameInAndOut: true });
+    const boardIn = item('board', 60, 10);
+    const boardOut = item('gone', -900, 60);
+    const all = [planOut, boardIn, planIn, boardOut];
+    const mounted = mountedItems(all, drawnItems(all, new Set(), view));
+    expect(mounted.items.map((i) => i.id)).toEqual(['out', 'board', 'in']);
+    expect([...mounted.hidden]).toEqual(['out']);
+    // Everything in view: none hidden, the same items in their order.
+    const near = [item('a', 0, 0, { sameInAndOut: true }), item('b', 50, 0)];
+    expect(mountedItems(near, drawnItems(near, new Set(), view))).toEqual({ items: near, hidden: new Set() });
   });
 });

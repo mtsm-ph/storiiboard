@@ -119,6 +119,12 @@ export interface CanvasItem extends Geometry {
    */
   fitExtent?: Rect;
   /**
+   * Its drawing never reads `inView` (6.11: all of a plan but its underlay's picture): crossing the view's edge draws it no
+   * differently, so the canvas keeps what it drew as a pan or a zoom carries it in and out. Left out (a board's items), an
+   * item whose box crosses the edge is drawn again, as a picture choosing its size must be.
+   */
+  sameInAndOut?: boolean;
+  /**
    * The least thickness, in screen pixels, a click picks it by (6.5 review: a plan's standing flag, 5 cm deep, is 1 px at
    * 20%): its box is picked at least this thick on each side, about its middle, at any zoom. Left out (a board's items),
    * a click picks the box exactly.

@@ -42,7 +42,7 @@ import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import { Button } from '../../../ui/Button';
-import { Canvas } from '../../../ui/canvas/Canvas';
+import { Canvas, type CanvasProps } from '../../../ui/canvas/Canvas';
 import { toWorld } from '../../../ui/canvas/viewport';
 import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
@@ -661,6 +661,15 @@ function LayersNote({ states }: { states: PlanLayerStates }) {
   );
 }
 
+/**
+ * The plan's canvas with its view (6.11): the one part of the tile that reads the view, so a pan or a zoom (a new view
+ * every frame) draws the canvas again and leaves the tile around it (its heading, menus, tools and notes) as it was.
+ */
+function PlanViewCanvas({ planKey, ...props }: Omit<CanvasProps, 'viewport'> & { planKey: string }) {
+  const viewport = usePlan((s) => planViewportOf(s.viewports, planKey));
+  return <Canvas {...props} viewport={viewport} />;
+}
+
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
 
 function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode; room: SbdRecord }) {
@@ -671,7 +680,6 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const [madeIn] = useState(() => projectStore.getState().project);
   const key = viewKey(view.sceneId, view.setupId);
   const stored = usePlan((s) => s.selections[key]);
-  const viewports = usePlan((s) => s.viewports);
   const tool = usePlan((s) => s.tool);
   const clipboard = usePlan((s) => s.clipboard);
   // The opening the clipboard was copied in: only there does the menu offer Paste (6.9 review, L1).
@@ -796,7 +804,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const items = useMemo(() => (preview ? [...built, preview] : built), [built, preview]);
   // An undo that removed an item takes it out of the selection, and so does its layer hidden or locked (6.8).
   const selection = useMemo(() => (stored ?? []).filter((id) => built.some((item) => item.id === id && item.locked !== true)), [stored, built]);
-  const also = alsoInRoom(records, view.sceneId);
+  const also = useMemo(() => alsoInRoom(records, view.sceneId), [records, view.sceneId]);
   const holder = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (takeFocus('canvas')) holder.current?.querySelector<HTMLElement>('[data-canvas]')?.focus();
@@ -984,7 +992,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           addPictures([...event.dataTransfer.files].map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));
         }}
       >
-        <Canvas
+        <PlanViewCanvas
+          planKey={key}
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}
           items={items}
           selection={selection}
@@ -995,7 +1004,6 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           announcement={layersSaid}
           tool={tool}
           onToolChange={choosePlanTool}
-          viewport={planViewportOf(viewports, key)}
           onViewportChange={(next) => {
             planStore.getState().setViewport(key, next);
           }}

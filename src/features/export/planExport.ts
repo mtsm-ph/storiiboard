@@ -20,7 +20,7 @@ import type { PrintPage } from './deckPdfWriter';
 import { paintOps } from './displayPaint';
 import { paddedScene, safeName } from './names';
 import { writingStatus } from './pdfStoryboardFormat';
-import { dayPlanViews, planPages, projectPlanViews, sceneHasPlan, scaleWords, scenePlanViews, type PlanPage, type PlanView } from './planPages';
+import { dayPlanViews, planPages, printableViews, projectCandidates, sceneCandidates, scaleWords, type LeftOut, type PlanPage, type PlanView } from './planPages';
 import { bundledMeasure, planDrawing, planPrintPage, preparePlanFonts, preparePlanPictures } from './planRender';
 import type { ExportContext, ExportFormat, ExportResult } from './registry';
 import type { ExportScope } from './scope';
@@ -38,24 +38,40 @@ export type PlanTarget = { kind: 'setup'; sceneId: string; setupId: string | nul
 /** The PNG's resolution (decision 14 brief). */
 export const PNG_DPI = 200;
 
-/** Setup plan (PDF, PNG): the setup shown, or a scene shown with no setup; nothing for a scene with no plan (sceneHasPlan). */
-export function setupPlanViews(records: Records, target: PlanTarget | undefined): PlanView[] {
+// Each format's possible pages for its target, before viewHasPage leaves out those with nothing drawn and no frames:
+// what is printed and what the result says was left out both come from these (planFormatViews).
+
+/** Setup plan (PDF, PNG): the setup shown, or a scene shown with no setup. */
+export function setupCandidates(records: Records, target: PlanTarget | undefined): PlanView[] {
   if (!target || target.kind === 'day') return [];
   const setupId = target.kind === 'setup' ? target.setupId : null;
-  if (!sceneHasPlan(records, target.sceneId)) return [];
   if (setupId !== null && !sceneSetups(records, target.sceneId).some((s) => s.record.id === setupId)) return [];
   return [{ sceneId: target.sceneId, setupId }];
 }
 
 /** Scene plans (PDF): the scene of the setup or scene shown, else (Export Project) the scene in scope or every scene. */
-export function scenePacketViews(records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope): PlanView[] {
+export function scenePacketCandidates(records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope): PlanView[] {
   if (target?.kind === 'day') return dayPlanViews(records, projectId, target.dayId);
-  if (target) return scenePlanViews(records, target.sceneId);
-  return scope.kind === 'scene' ? scenePlanViews(records, scope.sceneId) : projectPlanViews(records, projectId);
+  if (target) return sceneCandidates(records, target.sceneId);
+  return scope.kind === 'scene' ? sceneCandidates(records, scope.sceneId) : projectCandidates(records, projectId);
 }
 
-/** Shoot day plans (PDF): the day's. */
-export const dayPacketViews = (records: Records, projectId: string, target: PlanTarget | undefined): PlanView[] => (target?.kind === 'day' ? dayPlanViews(records, projectId, target.dayId) : []);
+/** Shoot day plans (PDF): the day's, every one with frames to list. */
+export const dayPacketCandidates = (records: Records, projectId: string, target: PlanTarget | undefined): PlanView[] => (target?.kind === 'day' ? dayPlanViews(records, projectId, target.dayId) : []);
+
+type Candidates = (records: Records, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => readonly PlanView[];
+
+/** A format's `planViews` and `planLeftOut` from its possible pages, so the two always agree. */
+const planFormatViews = (candidates: Candidates): Pick<ExportFormat, 'planViews' | 'planLeftOut'> => ({
+  planViews: (records, projectId, target, scope) => printableViews(records, candidates(records, projectId, target, scope)).views,
+  planLeftOut: (records, projectId, target, scope) => printableViews(records, candidates(records, projectId, target, scope)).leftOut,
+});
+
+/** What a packet left out, in words ("2 setups left out: nothing drawn and no frames."); nothing when nothing was. */
+export function leftOutWords(leftOut: LeftOut | undefined): string[] {
+  if (!leftOut) return [];
+  return [...(leftOut.setups > 0 ? [tn('export.plan.leftOutSetups', leftOut.setups)] : []), ...(leftOut.scenes > 0 ? [tn('export.plan.leftOutScenes', leftOut.scenes)] : [])];
+}
 
 /** Each sun path's zone, looked up as the Plan tile looks it up: by Rust on the desktop; the browser build has none ("No time zone"). */
 async function zonesFor(records: Records, views: readonly PlanView[]): Promise<Map<string, string | null>> {
@@ -157,7 +173,7 @@ async function writePlanPdf(format: ExportFormat, context: ExportContext): Promi
   // A Stop pressed while the PDF was put together: nothing goes to disk.
   context.signal.throwIfAborted();
   await context.target.write(name, pdf.bytes);
-  const warnings = [...planPageWarnings(pages), ...deckPdfWarnings(pdf.fontNotes, pdf.storedCopies, pdf.unprintable + unreadable)];
+  const warnings = [...leftOutWords(format.planLeftOut?.(context.records, context.projectId, context.plan, context.scope)), ...planPageWarnings(pages), ...deckPdfWarnings(pdf.fontNotes, pdf.storedCopies, pdf.unprintable + unreadable)];
   const what = tn('count.pages', pages.length);
   return warnings.length === 0 ? { what } : { what, warning: warnings.join(' ') };
 }
@@ -214,7 +230,7 @@ export const planSetupPdf: ExportFormat = {
   options: { plan: true },
   name: (title) => named(title, t('export.plan.fileWord'), 'pdf'),
   planName: (title, records, target) => setupFileName(title, records, target, 'pdf'),
-  planViews: (records, _projectId, target) => setupPlanViews(records, target),
+  ...planFormatViews((records, _projectId, target) => setupCandidates(records, target)),
   run: (context) => writePlanPdf(planSetupPdf, context),
 };
 
@@ -231,7 +247,7 @@ export const planSetupPng: ExportFormat = {
   options: { plan: true },
   name: (title) => named(title, t('export.plan.fileWord'), 'png'),
   planName: (title, records, target) => setupFileName(title, records, target, 'png'),
-  planViews: (records, _projectId, target) => setupPlanViews(records, target),
+  ...planFormatViews((records, _projectId, target) => setupCandidates(records, target)),
   run: async (context): Promise<ExportResult> => {
     const name = planExportName(planSetupPng, context);
     const views = viewsOrRefuse(planSetupPng, context).slice(0, 1);
@@ -264,7 +280,7 @@ export const planScenePdf: ExportFormat = {
   options: { plan: true },
   name: (title, sceneNumber) => (sceneNumber === null ? named(title, t('export.plan.packetWord'), 'pdf') : named(`${title} SC${paddedScene(sceneNumber)}`, t('export.plan.packetWord'), 'pdf')),
   planName: (title, records, target) => planFileName(title, records, target.kind === 'setup' ? { kind: 'scene', sceneId: target.sceneId } : target, 'pdf'),
-  planViews: (records, projectId, target, scope) => scenePacketViews(records, projectId, target, scope),
+  ...planFormatViews(scenePacketCandidates),
   run: (context) => writePlanPdf(planScenePdf, context),
 };
 
@@ -281,6 +297,6 @@ export const planDayPdf: ExportFormat = {
   options: { plan: true },
   name: (title) => named(title, t('export.plan.packetWord'), 'pdf'),
   planName: (title, records, target) => planFileName(title, records, target, 'pdf'),
-  planViews: (records, projectId, target) => dayPacketViews(records, projectId, target),
+  ...planFormatViews((records, projectId, target) => dayPacketCandidates(records, projectId, target)),
   run: (context) => writePlanPdf(planDayPdf, context),
 };

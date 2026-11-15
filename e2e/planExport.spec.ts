@@ -288,13 +288,14 @@ function pageImages(doc: PDFDocument): string[] {
 }
 
 /**
- * Page 1's content stream walked as a reader draws it: q, Q, cm and gs followed, every filled path's points in PDF points,
- * and each XObject drawn with the fill alpha it was drawn at.
+ * Page 1's content stream walked as a reader draws it: q, Q, cm and gs followed, every filled path's points in PDF points
+ * (`filled`, and in `fills` with the fill alpha it was filled at), and each XObject drawn with the fill alpha it was drawn at.
  */
-function walk(doc: PDFDocument): { filled: Point[][]; drawn: { name: string; alpha: number }[] } {
+function walk(doc: PDFDocument): { filled: Point[][]; fills: { points: Point[]; alpha: number }[]; drawn: { name: string; alpha: number }[] } {
   const alphas = graphicsStates(doc);
   const stack: { m: Matrix; alpha: number }[] = [{ m: [1, 0, 0, 1, 0, 0], alpha: 1 }];
   const filled: Point[][] = [];
+  const fills: { points: Point[]; alpha: number }[] = [];
   const drawn: { name: string; alpha: number }[] = [];
   let operands: string[] = [];
   let path: Point[] = [];
@@ -314,13 +315,17 @@ function walk(doc: PDFDocument): { filled: Point[][]; drawn: { name: string; alp
       path.push({ x: top.m[0] * x + top.m[2] * y + top.m[4], y: top.m[1] * x + top.m[3] * y + top.m[5] });
     } else if (token === 'f' || token === 'B' || token === 'f*') {
       filled.push(path);
+      fills.push({ points: path, alpha: top.alpha });
       path = [];
     } else if (token === 'S' || token === 'n') path = [];
     else if (token === 'Do') drawn.push({ name: operands[operands.length - 1] ?? '', alpha: top.alpha });
     operands = [];
   }
-  return { filled, drawn };
+  return { filled, fills, drawn };
 }
+
+/** A triangle's area, PDF points squared. */
+const triangleArea = ([a, b, c]: readonly Point[]) => (a && b && c ? Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2 : 0);
 
 const longestSide = (points: readonly Point[]) => Math.max(...points.map((p, i) => Math.hypot(p.x - (points[(i + 1) % points.length]?.x ?? p.x), p.y - (points[(i + 1) % points.length]?.y ?? p.y))));
 
@@ -363,6 +368,11 @@ test('prints the plan’s own drawing: the wall to scale, the cone’s transpare
   }
   await page.keyboard.press('Enter');
   await expect.poll(async () => (await planData(page)).filter((item) => item.kind === 'wall').map((w) => w.width)).toEqual([4, 4]);
+  // A fresnel from the L tool, its beam a wedge at 18%.
+  await canvas(page).focus();
+  await page.keyboard.press('l');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await planData(page)).filter((item) => item.kind === 'light').length).toBe(1);
 
   await fromPlan(page, 'plan-setup-pdf');
   await dialog(page).getByRole('combobox', { name: 'Paper' }).selectOption('a4');
@@ -371,12 +381,18 @@ test('prints the plan’s own drawing: the wall to scale, the cone’s transpare
   const [text] = await pdfTexts(bytes);
   expect(text).toContain('Scale 1:50');
   expect(text).toContain('Print at actual size (100%)');
-  const { filled } = walk(doc);
+  const { filled, fills } = walk(doc);
   // The 4.00 m wall at 1:50: 80 mm of paper, 226.77 pt, a filled four-point path.
   const walls = filled.filter((p) => p.length === 4).map(longestSide);
   expect(walls.some((length) => Math.abs(length - (4000 / 50) * (72 / 25.4)) < 0.1)).toBe(true);
-  // The camera's cone, drawn past its box by PageStage itself, at its 8%.
+  // The camera's cone, drawn past its box by PageStage itself, at its 8%: the largest filled triangle on the page (its
+  // apex at the camera, its two far corners at its length), filled at that alpha, not merely some state holding 0.08.
   expect([...graphicsStates(doc).values()].some((ca) => Math.abs(ca - 0.08) < 1e-6)).toBe(true);
+  const triangles = fills.filter((f) => f.points.length === 3).sort((a, b) => triangleArea(b.points) - triangleArea(a.points));
+  expect(triangleArea(triangles[0]?.points ?? [])).toBeGreaterThan(1000);
+  expect(triangles[0]?.alpha).toBeCloseTo(0.08, 6);
+  // The light's beam, a filled wedge (its arc's curves aside, its centre and its start), at its own 18%.
+  expect(fills.some((f) => Math.abs(f.alpha - 0.18) < 1e-6)).toBe(true);
   // The frame's lens in the Frames block, and the label only the plan draws, beside the camera: one run of its own.
   expect(text).toMatch(/1A( · \w+)? · 35 mm · 53\.9°/);
   expect(await pdfItems(bytes)).toContain('A · 35 mm · 53.9°');
@@ -472,4 +488,47 @@ test('every entry’s count is the pages it writes and its name the file it save
   await dialog(page).getByRole('radio', { name: 'Scene plans (PDF)' }).click();
   await dialog(page).getByRole('combobox', { name: /^Scenes/ }).selectOption({ index: 1 });
   expect((await check('Scene plans (PDF)', 2)).name).toBe('Bey County SC001 plans.pdf');
+});
+
+// 6.10's review, round two: a page is left out only when it has nothing drawn and no frames to list; a packet's result
+// says how many it left out.
+
+test('a setup with frames and nothing drawn prints its frames, in the scene’s and the day’s plans, and the packet says what it left out', async ({ page }) => {
+  const app = await openSettings(page, 'App');
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await closeSettings(page);
+  // SC 01's Setup 1 with both frames and Setup 2 with none; no room, nothing drawn.
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await setupsTile(page).locator('[data-setup-add-frame]').first().click();
+  await setupsTile(page).locator('[data-setup-add-frame]').first().click();
+  await expect(setupsTile(page).locator('[data-setup-frame]')).toHaveCount(2);
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await expect(setupsTile(page).locator('[data-setup-select]')).toHaveCount(2);
+
+  // The Plan tile has no Export menu with no room, so the scene's plans come from Export Project.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  await dialog(page).getByRole('radio', { name: 'Scene plans (PDF)' }).click();
+  await expect(dialog(page)).toContainText('1 plan to print');
+  const packet = await bytesOf(await save(page));
+  expect((await PDFDocument.load(packet)).getPageCount()).toBe(1);
+  const [text] = await pdfTexts(packet);
+  for (const words of ['Setup 1', 'No room drawn', 'FRAMES', '1A', '1B']) expect(text).toContain(words);
+  // A warning, so it stays until it's dismissed.
+  await expect(page.getByRole('alert').filter({ hasText: 'Exported 1 page to “Bey County plans.pdf”. 1 setup left out: nothing drawn and no frames.' })).toBeVisible();
+
+  // The day's plans: the setup with frames that day, every time.
+  await toSection(page, 'Production');
+  await days(page).getByRole('button', { name: '+ New day' }).click();
+  const editor = days(page).locator('[data-day-editor]');
+  await editor.getByLabel('Date').fill('2026-11-16');
+  await editor.getByLabel('Date').blur();
+  await editor.getByRole('button', { name: 'Add all 2 from SC 01 to Day 1 · Mon, Nov 16' }).click();
+  await editor.getByRole('button', { name: 'Plans (PDF) for Day 1 · Mon, Nov 16' }).click();
+  await expect(dialog(page)).toContainText('1 plan to print');
+  const day = await bytesOf(await save(page));
+  expect((await PDFDocument.load(day)).getPageCount()).toBe(1);
+  const [dayText] = await pdfTexts(day);
+  for (const words of ['Day 1 · Mon, Nov 16', 'Setup 1', 'No room drawn', '1A', '1B']) expect(dayText).toContain(words);
 });

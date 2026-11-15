@@ -192,6 +192,7 @@ export function iconItem(id: string, fields: IconFields, unit: PlanUnit): Canvas
     ...(icon && !FREE_RESIZE.has(icon.id) ? { keepRatio: true } : {}),
     draw,
     ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
+    sameInAndOut: true,
   };
 }
 
@@ -225,7 +226,7 @@ export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look:
   };
   // Its beam leaves the side its icon's drawing shines from (BEAM_FACING), turned with the light.
   const beyond = look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(fields.icon)) } : {};
-  return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...beyond };
+  return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...beyond, sameInAndOut: true };
 }
 
 /** What a flag or diffusion frame is called aloud: by its kind and size, never the icon it was placed as ("Diffusion · 8×8, 2.44 m by 0.05 m"). */
@@ -263,6 +264,7 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
     ...(flat ? { keepRatio: true } : { pickThickness: FRAME_PICK_PIXELS }),
     draw,
     ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
+    sameInAndOut: true,
   };
 }
 
@@ -303,6 +305,7 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
     draw,
     ...(beyond ? { beyond } : {}),
     ...(path ? { fitExtent: path.fit } : {}),
+    sameInAndOut: true,
   };
 }
 
@@ -333,7 +336,7 @@ export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: M
   const beyond = joinBeyond(own, path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
   const what = look?.say ?? iconLabel(MARK_ICON);
   const label = t('plan.announce.icon', { what, width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) });
-  return { id, ...g, label, keepRatio: true, draw, ...(beyond ? { beyond } : {}), ...(path ? { fitExtent: path.fit } : {}) };
+  return { id, ...g, label, keepRatio: true, draw, ...(beyond ? { beyond } : {}), ...(path ? { fitExtent: path.fit } : {}), sameInAndOut: true };
 }
 
 /** What the room's north is called aloud: "North, 35°". */
@@ -351,7 +354,7 @@ export function northItem(id: string, fields: NorthFields, unit: PlanUnit): Canv
     const common = { width: g.width, height: g.height, zoom: context.zoom, name: lines.length > 0 ? '' : fields.name, colours: context.colours };
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
-  return { id, ...g, label: northAnnounce(fields), keepRatio: true, draw, ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}) };
+  return { id, ...g, label: northAnnounce(fields), keepRatio: true, draw, ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}), sameInAndOut: true };
 }
 
 /** What a sun path is called aloud: "Sun path, 14:30 · 212° · 38° high", or what it lacks. */
@@ -375,7 +378,7 @@ export function sunItem(id: string, fields: SunFields, look: SunLook | null): Ca
   };
   // Fit all takes in its whole circle (sunFitExtent), never the far wider reach kept for culling.
   const fit = look ? sunFitExtent(g, look) : null;
-  return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}), ...(fit ? { fitExtent: fit } : {}) };
+  return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}), ...(fit ? { fitExtent: fit } : {}), sameInAndOut: true };
 }
 
 /** What an underlay is called aloud: "Underlay, 10.00 m by 7.50 m", and whether its scale is set. */
@@ -451,6 +454,7 @@ export function measureItem(id: string, fields: MeasureFields, unit: PlanUnit): 
     // Above the line, the side away from its box's normal, so a measure drawn along a wall's face and the wall's own height
     // label (on the wall's normal side) sit apart.
     beyond: besideBeyond(g, { lines, side: -1, edge: g.height / 2 }, PLAN_ZOOM.min),
+    sameInAndOut: true,
   };
 }
 
@@ -536,6 +540,7 @@ export function openingItem(id: string, fields: OpeningFields, wall: PlanItemFie
     moveOnly: true,
     ...(preview ? { locked: true, dim: true } : {}),
     draw: (context) => drawOpening(fields, frame, context.colours),
+    sameInAndOut: true,
   };
 }
 
@@ -634,6 +639,7 @@ export function planItemsBuilder(): (
         snapPoints: [line.start, line.end],
         draw: () => createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false }),
         ...(heights.length > 0 ? { beyond: besideBeyond(g, { lines: heights, side: 1, edge: g.height / 2, clears }, PLAN_ZOOM.min) } : {}),
+        sameInAndOut: true,
       };
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours, item: made });
       return made;

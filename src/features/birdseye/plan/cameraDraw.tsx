@@ -1,6 +1,7 @@
 import { Group, Line, Text } from 'react-konva';
 import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
 import { PAPER } from '../../../ui/canvas/paperColours';
+import { screenSizedRef } from '../../../ui/canvas/screenSized';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
 
@@ -138,9 +139,14 @@ export function UprightLabels({
   // Clear of the box whichever way it is turned: half its diagonal from its middle (labelReach reads the same numbers).
   const below = Math.hypot(width, height) / 2 + LABEL_GAP_PIXELS / zoom;
   const span = Math.max(width, LABEL_SPAN_PIXELS / zoom);
+  // Sized on screen from the point half the diagonal below the middle, upright (6.11: screenSized.ts), so a zoom under way
+  // scales the gap and the lines about it.
+  const turn = (rotation * Math.PI) / 180;
+  const half = Math.hypot(width, height) / 2;
+  const sized = screenSizedRef(zoom, { x: width / 2, y: height / 2 }, { x: width / 2 + half * Math.sin(turn), y: height / 2 + half * Math.cos(turn) });
   return (
     // Named upright: while the handles turn the item, the canvas turns this back by the live turn (UPRIGHT).
-    <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
+    <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false} ref={sized}>
       {lines.map((text, i) => (
         <Text
           key={`${String(i)}:${text}`}
@@ -245,7 +251,8 @@ function besideSize(lines: readonly string[], zoom: number): { width: number; he
  * its normal, past its edge (and anything in `clears` it overlaps along the box) by a fixed gap of screen pixels, plus as
  * much of the upright label as falls across the turned box, so it never touches it at any rotation.
  */
-export function besidePlace(box: { width: number; height: number }, spec: BesideSpec, zoom: number, rotation: number): { x: number; y: number; width: number; height: number } {
+/** `reach`: how far past the box's middle line, on its side, the gap starts (the box's edge, or what it clears). */
+export function besidePlace(box: { width: number; height: number }, spec: BesideSpec, zoom: number, rotation: number): { x: number; y: number; width: number; height: number; reach: number } {
   const { width, height } = besideSize(spec.lines, zoom);
   const turn = (rotation * Math.PI) / 180;
   const sin = Math.abs(Math.sin(turn));
@@ -255,7 +262,7 @@ export function besidePlace(box: { width: number; height: number }, spec: Beside
   let reach = spec.edge;
   for (const clear of spec.clears ?? []) if (clear.to > mid - along && clear.from < mid + along) reach = Math.max(reach, clear.reach);
   const across = (sin * width) / 2 + (cos * height) / 2;
-  return { x: mid, y: box.height / 2 + spec.side * (reach + LABEL_GAP_PIXELS / zoom + across), width, height };
+  return { x: mid, y: box.height / 2 + spec.side * (reach + LABEL_GAP_PIXELS / zoom + across), width, height, reach };
 }
 
 /** A beside label's lines, upright, centred on where besidePlace puts them. */
@@ -265,8 +272,11 @@ export function BesideLabels({ width, height, zoom, rotation, colours, spec }: {
   const { size, row } = besideSize(spec.lines, zoom);
   // A character's slack either side, so a line exactly as wide as the mono advance says is never cut.
   const span = place.width + 2 * size;
+  // Sized on screen from where its gap starts, past what it clears (6.11: screenSized.ts), so a zoom under way scales the
+  // gap and the label about it.
+  const sized = screenSizedRef(zoom, { x: place.x, y: place.y }, { x: place.x, y: height / 2 + spec.side * place.reach });
   return (
-    <Group x={place.x} y={place.y} rotation={-rotation} name={UPRIGHT} listening={false}>
+    <Group x={place.x} y={place.y} rotation={-rotation} name={UPRIGHT} listening={false} ref={sized}>
       {spec.lines.map((text, i) => (
         <Text
           key={`${String(i)}:${text}`}

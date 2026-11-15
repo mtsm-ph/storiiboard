@@ -6,8 +6,9 @@ import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, fitViewOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
-import { drawnItems } from './culling';
+import { drawnItems, mountedItems } from './culling';
 import { beyondKey, ItemNodes, UPRIGHT, type RegisterNode } from './ItemNodes';
+import { fitScreenSized, holdScreenSized, releaseScreenSized } from './screenSized';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
@@ -395,6 +396,24 @@ export function Canvas({
     if (node) nodes.current.set(id, node);
     else nodes.current.delete(id);
   }, []);
+  // A plan's items are made for a settled zoom a slice a frame (ItemNodes' catch-up), in renders of their list alone: each
+  // fits the screen-sized nodes again, so one just made is at scale 1 and one still waiting stays scaled for the live zoom.
+  // How many still wait is on the frame for the end-to-end tests (`data-stale`).
+  const waiting = useRef({ sections: 0, plain: 0 });
+  const listDrawn = useCallback((list: 'sections' | 'plain', stale: number, liveZoom: number) => {
+    waiting.current[list] = stale;
+    const now = stage.current;
+    if (now && fitScreenSized(now, liveZoom)) now.batchDraw();
+    const total = String(waiting.current.sections + waiting.current.plain);
+    const element = frame.current;
+    if (element && element.dataset.stale !== total) element.dataset.stale = total;
+  }, []);
+  const sectionsDrawn = useCallback((stale: number, liveZoom: number) => {
+    listDrawn('sections', stale, liveZoom);
+  }, [listDrawn]);
+  const plainDrawn = useCallback((stale: number, liveZoom: number) => {
+    listDrawn('plain', stale, liveZoom);
+  }, [listDrawn]);
   const world = visibleWorld(view, size);
   // What is drawn: the items that meet the view, and always the selected ones, so the handles have every node.
   const pickedSet = new Set(selection);
@@ -402,9 +421,12 @@ export function Canvas({
   // so does what an item draws past its box (6.4: a camera's cone), or the cone would vanish with its camera's box.
   const drawn = drawnItems(shown, pickedSet, world);
   // A picked item out of the view is still drawn (its handles need the node), but not as in view: its picture stays small.
-  const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
-  const drawnSections = drawn.filter((item) => item.section);
-  const drawnPlain = drawn.filter((item) => !item.section);
+  // One that draws the same in view and out of it (a plan's) is never drawn as out of it: nothing to tell its drawing.
+  const awayFrom = (list: readonly CanvasItem[]) => list.filter((item) => item.sameInAndOut !== true && !rectsMeet(boundsFor(item), world)).map((item) => item.id).join('|');
+  // A plan's items stay mounted out of view, hidden (6.11: culling.ts, mountedItems); a board's are mounted while drawn.
+  const mounted = mountedItems(shown, drawn);
+  const drawnSections = mounted.items.filter((item) => item.section);
+  const drawnPlain = mounted.items.filter((item) => !item.section);
   const handleIds = tool === 'select' ? selection.filter((id) => drawn.some((item) => item.id === id)) : [];
   const handleKey = handleIds.join('|');
   // Konva turns a group resized from the side handles into a skew once the items are turned differently: with mixed
@@ -426,6 +448,38 @@ export function Canvas({
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
     latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale };
+  });
+
+  // What is drawn sized on screen (screenSized.ts: a plan's labels) keeps its size at every step of a zoom, without being
+  // drawn again until the zoom settles. A board draws none: nothing to scale. And a plan's items out of view are hidden,
+  // still mounted, and shown again as they come back into view (mountedItems); a board has none hidden.
+  useLayoutEffect(() => {
+    const now = stage.current;
+    let changed = now !== null && fitScreenSized(now, viewport.zoom);
+    // What the nodes are now, for the end-to-end tests (the canvas is pixels): items mounted hidden, and items shown.
+    let hiddenNow = 0;
+    let shownNow = 0;
+    for (const item of mounted.items) {
+      const own = nodes.current.get(item.id);
+      if (item.sameInAndOut === true) {
+        const show = !mounted.hidden.has(item.id);
+        for (const key of [item.id, beyondKey(item.id)]) {
+          const node = nodes.current.get(key);
+          if (node && node.visible() !== show) {
+            node.visible(show);
+            changed = true;
+          }
+        }
+      }
+      if (own) {
+        if (own.visible()) shownNow += 1;
+        else hiddenNow += 1;
+      }
+    }
+    if (changed) now?.batchDraw();
+    const element = frame.current;
+    if (element && element.dataset.hidden !== String(hiddenNow)) element.dataset.hidden = String(hiddenNow);
+    if (element && element.dataset.shown !== String(shownNow)) element.dataset.shown = String(shownNow);
   });
 
   // The canvas follows the tile's size.
@@ -578,6 +632,14 @@ export function Canvas({
     const height = handledSize(g.height, node.scaleY(), minSize);
     return { x: tidy(node.x() - width / 2), y: tidy(node.y() - height / 2), width, height, rotation: normalisedRotation(node.rotation()) };
   };
+  // What is sized on screen in the items the handles hold goes back to its own size while they turn or resize them (6.11
+  // review, L2): its anchor was worked out for the turn committed, not the live one, so a scale left on from a zoom not yet
+  // settled would carry a label off its item. At scale 1 it sits where React put it; it is made again when the gesture ends.
+  const heldNodes = (): Konva.Node[] =>
+    latest.current.selection.flatMap((id) => [nodes.current.get(id), nodes.current.get(beyondKey(id))].filter((node): node is Konva.Group => node !== undefined));
+  const onTransformStart = () => {
+    holdScreenSized(heldNodes());
+  };
   const onTransform = () => {
     const live = new Map<string, Geometry>();
     for (const item of latest.current.items) {
@@ -597,6 +659,7 @@ export function Canvas({
   };
 
   const onTransformEnd = () => {
+    releaseScreenSized();
     setTransforming(null);
     const changes: GeometryChange[] = [];
     for (const item of latest.current.items) {
@@ -1430,7 +1493,7 @@ export function Canvas({
               }}
             />
           )}
-          <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} register={register} />
+          <ItemNodes items={drawnSections} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnSections)} hidden={mounted.hidden} centre={{ x: view.cx, y: view.cy }} register={register} onDrawn={sectionsDrawn} />
           {resolved.map((r) => (
             <LinkShape
               key={r.link.id}
@@ -1442,7 +1505,7 @@ export function Canvas({
               zoom={pickedSet.has(r.link.id) ? view.zoom : 1}
             />
           ))}
-          <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} register={register} />
+          <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} hidden={mounted.hidden} centre={{ x: view.cx, y: view.cy }} register={register} onDrawn={plainDrawn} />
           {drawing && <LinkShape resolved={drawing} colours={colours} selected={false} hideText handles={false} zoom={view.zoom} draft />}
           {connecting?.mark && <Circle x={connecting.mark.x} y={connecting.mark.y} radius={6 / view.zoom} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} fill={colours.paper} listening={false} />}
           {path && path.points.length > 1 && (
@@ -1515,6 +1578,7 @@ export function Canvas({
             // Only a side the gesture shrinks below the least size is refused: a thin item (a plan's 5 cm flag, thinner than
             // the least on screen up close) still turns and stretches along its length (6.5 review).
             boundBoxFunc={(was, next) => (shrunkBelow(was.width, next.width, minSize * view.zoom) || shrunkBelow(was.height, next.height, minSize * view.zoom) ? was : next)}
+            onTransformStart={onTransformStart}
             onTransform={onTransform}
             onTransformEnd={onTransformEnd}
           />

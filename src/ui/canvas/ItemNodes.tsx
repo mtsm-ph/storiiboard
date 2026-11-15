@@ -1,8 +1,8 @@
 import type Konva from 'konva';
-import { memo, useState, type ReactElement } from 'react';
+import { memo, useEffect, useLayoutEffect, useState, type ReactElement } from 'react';
 import { Group, Rect } from 'react-konva';
-import { elementsFor, type MadeFor } from './itemCache';
-import type { CanvasColours, CanvasItem } from './types';
+import { elementsFor, staleFor, type MadeFor } from './itemCache';
+import type { CanvasColours, CanvasItem, Point } from './types';
 
 // The items a canvas draws (5.7). Each item is a memoised node: a pan, a zoom, a marquee or the move of twenty items out of
 // four hundred leaves the others exactly as they are, so React neither calls their `draw` nor compares what they drew.
@@ -91,20 +91,70 @@ interface ItemNodesProps {
   liveZoom: number;
   /** The ids of the items here that are not in the view (a picked one out of sight is still drawn), joined with "|". */
   away: string;
+  /** The ids of the items mounted hidden (a plan's out of view: culling.ts's mountedItems); empty for a board. */
+  hidden: ReadonlySet<string>;
+  /** The view's centre in the world, this instant: the catch-up starts from it. Left out of the comparison, as `liveZoom` is. */
+  centre: Point;
   ratio: number;
   register: RegisterNode;
+  /**
+   * Called after every render this list commits, with how many of its items are left at an older zoom: a render of the
+   * catch-up's alone changes nodes the canvas has not seen, so it fits the screen-sized ones again (screenSized.ts) for
+   * `liveZoom`: the view's zoom then, since a catch-up runs only while the view is not zooming.
+   */
+  onDrawn?: (stale: number, liveZoom: number) => void;
 }
 
 /** The same items, one by one (the list is a new array on every render; its items are not). */
 export const sameItems = (a: readonly CanvasItem[], b: readonly CanvasItem[]): boolean => a.length === b.length && a.every((item, i) => item === b[i]);
 
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a === b || (a.size === b.size && [...a].every((id) => b.has(id)));
+
+/**
+ * How many plan items left at an older zoom are made for the zoom now in each frame after a settle (6.11): in view first,
+ * nearest the view's centre, then the hidden ones. Measured in a dev build on the 300-item plan: 24 keeps each frame at 17
+ * to 33 ms and has all 300 at the new zoom about 0.4 s after the last wheel step; 8 took 0.8 s.
+ */
+export const CATCH_UP = 24;
+
+/** Whether the view is zooming (its zoom not the one the items are drawn for): the catch-up waits for the next settle. */
+const zooming = (props: ItemNodesProps): boolean => props.liveZoom !== props.zoom;
+
 export const ItemNodes = memo(
-  function ItemNodes({ items, colours, zoom, liveZoom, away, ratio, register }: ItemNodesProps) {
+  function ItemNodes({ items, colours, zoom, liveZoom, away, hidden, centre, ratio, register, onDrawn }: ItemNodesProps) {
     const [made] = useState(() => new Map<string, MadeFor<ReactElement>>());
-    return elementsFor(made, items, { colours, zoom, liveZoom, away: away === '' ? null : new Set(away.split('|')), register, ratio }, (item, inView, at) => (
-      <ItemNode key={item.id} item={item} colours={colours} zoom={at} inView={inView} ratio={ratio} register={register} />
-    ));
+    // The catch-up's frames: a render the tick asked for makes CATCH_UP plan items for the zoom now; any other render (the
+    // settle itself above all) makes none of them, so a settle costs a frame of its own and the items come a slice a frame.
+    // While the view zooms again nothing is made for a zoom about to be left: the next settle starts over from its centre.
+    const [tick, setTick] = useState(0);
+    const [pace] = useState(() => ({ tick: 0 }));
+    const still = liveZoom === zoom;
+    const catchUp = tick !== pace.tick && still ? CATCH_UP : 0;
+    pace.tick = tick;
+    useLayoutEffect(() => {
+      onDrawn?.(staleFor(made, zoom), liveZoom);
+    });
+    useEffect(() => {
+      if (!still || staleFor(made, zoom) === 0) return;
+      const frame = requestAnimationFrame(() => {
+        setTick((n) => n + 1);
+      });
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    });
+    const ctx = { colours, zoom, liveZoom, away: away === '' ? null : new Set(away.split('|')), hidden, catchUp, centre, register, ratio };
+    return elementsFor(made, items, ctx, (item, inView, at) => <ItemNode key={item.id} item={item} colours={colours} zoom={at} inView={inView} ratio={ratio} register={register} />);
   },
   (was, now) =>
-    sameItems(was.items, now.items) && was.colours === now.colours && was.zoom === now.zoom && was.away === now.away && was.ratio === now.ratio && was.register === now.register,
+    sameItems(was.items, now.items) &&
+    was.colours === now.colours &&
+    was.zoom === now.zoom &&
+    was.away === now.away &&
+    sameSet(was.hidden, now.hidden) &&
+    was.ratio === now.ratio &&
+    was.register === now.register &&
+    was.onDrawn === now.onDrawn &&
+    // A plan's list is drawn again once as a zoom starts, so its catch-up stops there; a board's has nothing waiting.
+    (zooming(was) === zooming(now) || !now.items.some((item) => item.sameInAndOut === true)),
 );

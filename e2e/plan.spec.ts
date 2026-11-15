@@ -805,3 +805,25 @@ test('the plan’s tools are all on screen, in the Setup layout and in a tile 32
   await planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: /^Light/ }).click();
   await expect(canvas(page)).toHaveAttribute('data-tool', 'host:light');
 });
+
+test('a wall panned out of view is kept mounted and hidden, and drawn again with Fit all (6.11 review)', async ({ page }) => {
+  await startRoom(page);
+  await drawWall(page);
+  // Nothing picked, so nothing is kept drawn for its handles.
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => selection(page)).toEqual([]);
+  await expect(canvas(page)).toHaveAttribute('data-hidden', '0');
+  await expect(canvas(page)).toHaveAttribute('data-shown', '1');
+  // A wheel pan of 4000 px carries the 4 m wall well out of view: still mounted, hidden.
+  const box = await canvas(page).boundingBox();
+  if (!box) throw new Error('no canvas');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  for (let i = 0; i < 8; i += 1) await page.mouse.wheel(500, 0);
+  await expect(canvas(page)).toHaveAttribute('data-hidden', '1');
+  await expect(canvas(page)).toHaveAttribute('data-shown', '0');
+  // Fit all brings it back: none hidden, the wall drawn.
+  await planTile(page).getByRole('button', { name: 'Fit all' }).click();
+  await expect(canvas(page)).toHaveAttribute('data-hidden', '0');
+  await expect(canvas(page)).toHaveAttribute('data-shown', '1');
+});

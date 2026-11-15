@@ -384,8 +384,10 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes), #162 (6.7; it also holds 6.6's second-round fixes), #163 (6.8; it also holds 6.7's second-round fixes), #164 (6.9; it also holds 6.8's second-round fixes), #165 (6.10; it also holds 6.9's second-round lows). Next:
-  6.11 from docs/briefs/6.11-performance.md (branch `phase6/6.11-performance` off 6.10's), the last milestone.
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes), #162 (6.7; it also holds 6.6's second-round fixes), #163 (6.8; it also holds 6.7's second-round fixes), #164 (6.9; it also holds 6.8's second-round fixes), #165 (6.10; it also holds 6.9's second-round lows), #166 (6.11; it also holds 6.10's second-round fixes).
+  **Phase 6 is built: every milestone has had its review rounds and nothing high or medium is open.** The gate checkpoint: `checkpoint/phase6-gate` at d8a2730, run 43665582987, every job green Nov 14 (smoke and screenshots on Linux and in WebKit on the Mac, both installers): Kevin's checklist runs from its installers. Next: Kevin's
+  gate (the checklist below, "Phase 6 gate"), his merges, then Phase 7 in plan mode. Local end-to-end runs use 8
+  workers since Nov 14 (playwright.config.ts says why).
   Local full runs use 12 workers on this 24-thread computer; tests that start in the first wave pay a slow first
   page load: four long tests have a measured 60 s limit (history, bodiesLenses, planCameras, planUnderlay), each
   with its numbers in a comment. boardMedia.spec "zooming out from 400% over 40 pictures…" failed twice with
@@ -460,6 +462,41 @@ Lows deferred (noted, not planned yet):
   for builder.md waits for Kevin.
 - Leftovers in test-results/ (build output; deleting was refused): the builders' scratch scripts and logs,
   clipBytes.ts.leftover, probe*/.
+
+### Phase 6 gate: Kevin's checklist (riskiest first; from the installers of the checkpoint named in "start here")
+
+The gate (Kevin, Nov 13): plan a real Bey County setup and show the PDF to a gaffer.
+
+1. **The real setup, end to end.** In Bey County: a scene's room (trace a floor plan or a photo as the underlay,
+   Set scale with a distance you know), walls with typed lengths (try 12' 6"), doors and windows, set pieces;
+   two setups; cameras linked to their frames; lights with their gear items and watts, flags and diffusion at
+   crew sizes; cast marks with positions; north and the sun path for the shoot day.
+2. **The PDF on paper.** Plan tile → Export… → Setup plan (PDF), then the scene's packet and, from Shoot days, the
+   day's. Print at 100% and lay a scale rule on a wall you typed: at 1:50 a 4.00 m wall is 80 mm (in feet, 1/4" =
+   1'-0"). Read it as the gaffer would: beams, watts and heights, the legend's total, each frame's lens and field of
+   view. Then show it to the gaffer.
+3. **A lens you know.** FX3 body in Gear (the entry is your own figures: check 35.6 × 20.0 against Sony's page),
+   a lens you own on a frame: does the cone match what the camera sees in that room? An anamorphic on its side, if
+   you ever shoot it: the squeeze turns with the camera (my reading; say if it's wrong).
+4. **The sun.** For a location and day you know, compare the sun's direction and height at a time with a sun app
+   or the real sky; with no zone on the location and none found, it must say "No time zone", never guess.
+5. **The Mac (WebKit runs only there).** Draw, drag from the Library, turn with the handles and with comma and
+   period, copy from the right-click menu then paste, paste a screenshot as an underlay, drop a picture from
+   Finder, pinch to zoom, and export a PDF. Text inside icons (Parking's P, marks' letters) in the bundled face.
+6. **Windows.** Drag from the Library and reorder setups by drag (pointer events, not HTML5); drop a picture from
+   Explorer onto the plan and onto the storyboard with both open; the deck's Pages panel drag (DESKTOP_GAPS B1).
+7. **Speed on your computers.** A big plan on the Mac and on a mid Windows laptop: pan, zoom, drag. Here: p95
+   16.7 ms with 300 items in Chromium.
+8. **An older project.** Open a real project from before Phase 6: a backup is taken, the file reads schema 14,
+   nothing shows "Changed since approval" or "Changed since issued", day numbers are as they were.
+9. **Layers.** Set This is me to a gaffer and open a plan with no saved layers: lighting and grip shown, the rest
+   dimmed. Solo, hide and lock; nothing of it reaches History or the file.
+10. **The Setup layout.** Your saved Setup layout, if it was a default, becomes the new one (Setups and Layers
+    left, Selection and Library right); a layout you changed is kept, with new tiles in the Layout menu.
+11. **Left from before:** attach a company with a logo (5.12); the Inspector's Shoot day row (5.11); the Phase 5
+    items above (Bodoni title, Show in Finder/Explorer, deck weights).
+12. **Words.** Spanish: "Emplazamiento" for a setup (tile title "Emplaz."), the icons' names, "Espacio" for a
+    room. English: "Setup", "This setup only", "Start from another setup".
 
 ### Phase 5 gate: Kevin's checklist (riskiest first)
 

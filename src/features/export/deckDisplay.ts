@@ -308,13 +308,15 @@ export function parsePathData(data: string): Segment[] {
 /**
  * The turn a Konva Wedge's arc makes, radians (positive is clockwise on the page, whose y runs down). Konva hands its
  * `clockwise` to the canvas's arc() as `anticlockwise` (Wedge.js: arc(0, 0, r, 0, angle, clockwise)), so a wedge with it
- * set goes the other way round, the long way: from 0 back through 360° less its angle, and at a full 360° (start and
- * end the same point, the canvas draws no arc) nothing. Without it, its angle clockwise, as the plan's beams are.
+ * set goes the other way round, the long way: from 0 back through 360° less its angle. At a full 360° the canvas draws
+ * the whole circle either way (arc() with a sweep of 2π or more, anticlockwise or not, is a full circle), so that is a
+ * full turn the other way round; at 0°, no arc. Without it, its angle clockwise, as the plan's beams are.
  */
 export function wedgeTurn(degrees: number, clockwise: boolean): number {
   const angle = (Math.min(360, Math.max(0, degrees)) * Math.PI) / 180;
   if (!clockwise) return angle;
-  return angle <= 0 || angle >= 2 * Math.PI ? 0 : -(2 * Math.PI - angle);
+  if (angle <= 0) return 0;
+  return angle >= 2 * Math.PI ? -2 * Math.PI : -(2 * Math.PI - angle);
 }
 
 function shapeOp(node: PrintNode, path: Segment[]): DisplayOp {
