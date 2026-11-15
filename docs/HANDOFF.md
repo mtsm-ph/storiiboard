@@ -369,8 +369,8 @@ changed on #167, and agent files are read when a chat starts. First builder run:
   | `audit/6.16-tauri-test` | Rust tests through tauri's `test` feature (dev-dependency only, Cargo.lock unchanged): 49 of 70 commands; commands generic over the runtime; 6.19's review fixes | done, fixes in 6.17 |
   | `mac/6.19b-second-run` | The Mac's second run: panels that closed on a press, whole-pixel aiming in the canvas specs (e2e/wholePixels.ts), the cross-scene drag's scroll; 6.15's review fixes | done, fixes in 6.18 |
   | `phase6/6.17-answers` | The FX3 entry checked; symbol icons as a true-size outline; per-department prints; the watermark on plan PDFs and PNGs; 6.19c: a selected wall moves by its body; 6.16's review fixes | done, fixes in the next branch |
-  | `phase6/6.18-walls-stop-cones` | Walls stop cones and beams (src/core/model/planSightlines.ts; `stop_at_walls` stored only as false, no schema change); 6.19b's review fixes | **being reviewed at the handoff** |
-  | `phase6/6.17-review-fixes` | docs/briefs/6.17-review-fixes.md plus two test fixes for the Mac (below) | **a builder was mid-run at the handoff: see the status line** |
+  | `phase6/6.18-walls-stop-cones` | Walls stop cones and beams (src/core/model/planSightlines.ts; `stop_at_walls` stored only as false, no schema change); 6.19b's review fixes | **reviewed: not ready**, docs/briefs/6.18-review-fixes.md |
+  | `phase6/6.17-review-fixes` | 6.17's review fixes (only footprints get the outline; thin items move by their body; file names) and two test fixes for the Mac (below); the handoff | built, not yet reviewed |
 
 - **The Mac's whole suite in WebKit (the job is "End to end (macOS, WebKit)"):** run 1 (v2 as merged): 452 passed,
   62 failed, 76 min. Run 2 (6.19): 495 passed, 25 failed, 1 flaky, 58 min. Run 3 (6.19b; run 43717235319): 530
@@ -429,9 +429,16 @@ changed on #167, and agent files are read when a chat starts. First builder run:
 - **Cloud-only notes:** local end-to-end runs there fail 14 tests for reasons of the container (all 12
   screenshot tests; callSheets "Export PDF writes the day's sheet…" and "Issue keeps the PDF as sent…"); none of
   that applies on the PC. Review diffs and builders' logs were under test-results/ (not kept).
-- **Status line (keep current):** at the handoff, `phase6/6.18-walls-stop-cones` (0827a4f) is pushed and under
-  review; a builder is working on `phase6/6.17-review-fixes`; the cloud session pushes what it finishes and
-  updates this line, or says here that it stopped.
+- **Status line (keep current):** the cloud session stopped Nov 15 with everything pushed and no agent running.
+  `phase6/6.17-review-fixes` is the top of the stack: 6.17's review fixes and the two Mac test fixes are built
+  and green in Chromium (2874 unit tests; the suite 526 passed with only the cloud's 14 container failures); not
+  yet reviewed. **6.18 was reviewed and is NOT ready to merge:** docs/briefs/6.18-review-fixes.md (high: pan and
+  marquee lost 60 fps, from the corners a cut shape is drawn with; medium: the cut must follow a drag live,
+  decision 5, and the shapes are written into the page on every edit; lows). Give that brief to a builder first,
+  then measure e2e/perf.spec.ts on the PC before and after. A whole-suite Mac run of this branch's head was
+  started as `checkpoint/e2e-mac-6`: read its result (Actions, "Checkpoint", the newest run on that branch)
+  before anything else; the two tests fixed for the Mac (plan.spec "a selected wall moves by its body…",
+  planExport.spec "a plan's PDF and PNG carry the project's watermark…") have not yet been seen passing there.
 
 ### Next session: start here (Nov 13, second chat: Phase 6 under way)
 
