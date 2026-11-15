@@ -147,6 +147,150 @@ test('a setup dragged by its handle to a new place, the numbers following', asyn
   await expect(rows(page).nth(0)).toContainText('Setup 1');
 });
 
+test('a drag that ends outside its scene, on its own place, or with Escape writes no step', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await toSection(page, 'Setup');
+  const addSetup = setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' });
+  for (let i = 0; i < 3; i += 1) await addSetup.click();
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 02' }).click();
+  const scene1 = setupsTile(page).locator('[data-setups-scene]').nth(0);
+  const scene2 = setupsTile(page).locator('[data-setups-scene]').nth(1);
+  await expect(scene1.locator('[data-setup-row]')).toHaveCount(3);
+  await expect(scene2.locator('[data-setup-row]')).toHaveCount(1);
+  const order = async () => scene1.locator('[data-setup-row]').evaluateAll((all) => all.map((row) => row.getAttribute('data-setup-row')));
+  const before = await order();
+
+  // The step count, read in the Storyboard workspace so the Setup workspace keeps its room for the drags.
+  const steps = page.getByRole('region', { name: 'History', exact: true }).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+  await toSection(page, 'Storyboard');
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(steps.first()).toContainText('SC 02');
+  const count = await steps.count();
+  await toSection(page, 'Setup');
+  // Every row in view at once.
+  await setupsTile(page).getByRole('button', { name: 'Maximize Setups' }).click();
+
+  const bar = page.locator('[data-setup-drop-bar]');
+  const press = async () => {
+    const handle = await scene1.locator('[data-setup-handle]').first().boundingBox();
+    if (!handle) throw new Error('no handle');
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    return handle;
+  };
+  const lastRow = async () => {
+    const box = await scene1.locator('[data-setup-row]').nth(2).boundingBox();
+    if (!box) throw new Error('no row');
+    return box;
+  };
+
+  // Released over another scene's setups: no bar there, and nothing moves.
+  let handle = await press();
+  await page.mouse.move(handle.x + handle.width / 2, (await lastRow()).y + 4, { steps: 6 });
+  await expect(bar).toBeVisible();
+  const other = await scene2.locator('[data-setup-row]').first().boundingBox();
+  if (!other) throw new Error('no row in SC 02');
+  await page.mouse.move(handle.x + handle.width / 2, other.y + other.height / 2, { steps: 6 });
+  await expect(bar).toHaveCount(0);
+  await page.mouse.up();
+
+  // Released outside the tile, out over the sidebar.
+  const tile = await setupsTile(page).boundingBox();
+  if (!tile) throw new Error('no tile');
+  handle = await press();
+  await page.mouse.move(handle.x + handle.width / 2, (await lastRow()).y + 4, { steps: 6 });
+  await expect(bar).toBeVisible();
+  await page.mouse.move(tile.x - 60, (await lastRow()).y + 4, { steps: 6 });
+  await expect(bar).toHaveCount(0);
+  await page.mouse.up();
+
+  // Escape mid-drag cancels it; the release after does nothing.
+  handle = await press();
+  await page.mouse.move(handle.x + handle.width / 2, (await lastRow()).y + (await lastRow()).height - 4, { steps: 6 });
+  await expect(bar).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(bar).toHaveCount(0);
+  await page.mouse.up();
+
+  // Dropped on its own place: past the threshold, still above the next row's middle.
+  handle = await press();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 8, { steps: 4 });
+  await expect(bar).toBeVisible();
+  await page.mouse.up();
+  await expect(bar).toHaveCount(0);
+
+  await page.waitForTimeout(300);
+  expect(await order()).toEqual(before);
+  await toSection(page, 'Storyboard');
+  await expect(steps).toHaveCount(count);
+  await expect(steps.first()).toContainText('SC 02');
+});
+
+test('a drag whose release never reached the window (it lost focus, or the button came up elsewhere) is cancelled', async ({ page }) => {
+  await toSection(page, 'Setup');
+  const addSetup = setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' });
+  for (let i = 0; i < 3; i += 1) await addSetup.click();
+  await expect(rows(page)).toHaveCount(3);
+  const order = async () => setupsTile(page).locator('[data-setup-row]').evaluateAll((all) => all.map((row) => row.getAttribute('data-setup-row')));
+  const before = await order();
+  const bar = page.locator('[data-setup-drop-bar]');
+  const handle = await setupsTile(page).locator('[data-setup-handle]').first().boundingBox();
+  const last = await setupsTile(page).locator('[data-setup-row]').nth(2).boundingBox();
+  if (!handle || !last) throw new Error('no rows');
+  const x = handle.x + handle.width / 2;
+  const y = last.y + last.height - 4;
+  for (const lose of ['blur', 'buttons up'] as const) {
+    await page.mouse.move(x, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 6 });
+    await expect(bar).toBeVisible();
+    // What the window sees when the release happened while it wasn't listening.
+    await page.evaluate(
+      ({ lose, x, y }) => {
+        if (lose === 'blur') window.dispatchEvent(new Event('blur'));
+        else window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, buttons: 0, bubbles: true }));
+      },
+      { lose, x, y },
+    );
+    await expect(bar).toHaveCount(0);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    expect(await order()).toEqual(before);
+  }
+});
+
+test('a frame moved from one named setup to another: its history names both, never an id', async ({ page }) => {
+  await toSection(page, 'Setup');
+  const addSetup = setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' });
+  await addSetup.click();
+  await addSetup.click();
+  await setupsTile(page).getByRole('button', { name: 'Edit name of Setup 1 in SC 01' }).click();
+  await page.keyboard.type('Door');
+  await page.keyboard.press('Enter');
+  await setupsTile(page).getByRole('button', { name: 'Edit name of Setup 2 in SC 01' }).click();
+  await page.keyboard.type('Window side');
+  await page.keyboard.press('Enter');
+  await expect(setupsTile(page).locator('[data-setup-row]').nth(1)).toContainText('Window side');
+  const ids = await setupsTile(page).locator('[data-setup-row]').evaluateAll((all) => all.map((row) => row.getAttribute('data-setup-row') ?? ''));
+
+  await toSection(page, 'Storyboard');
+  await frame(page, '1A').click();
+  await setupField(page).selectOption({ label: 'Setup 1 · Door' });
+  await expect(setupField(page).locator('option:checked')).toHaveText('Setup 1 · Door');
+  await setupField(page).selectOption({ label: 'Setup 2 · Window side' });
+  await expect(setupField(page).locator('option:checked')).toHaveText('Setup 2 · Window side');
+
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  const history = page.getByRole('region', { name: 'History', exact: true });
+  await history.getByRole('switch', { name: 'Only frame 1A' }).click();
+  const changes = history.getByRole('table', { name: 'Changes to frame 1A, newest first' });
+  const newest = changes.getByRole('row').nth(1);
+  await expect(newest).toContainText('setup “Door”');
+  await expect(newest).toContainText('setup “Window side”');
+  await expect(changes).not.toContainText('a setup');
+  for (const id of ids) await expect(changes).not.toContainText(id);
+});
+
 test('the frame menu from the keyboard: arrows move through it, Right opens Add to setup and Left comes back', async ({ page }) => {
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

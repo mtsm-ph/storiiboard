@@ -280,6 +280,21 @@ describe('the shot list CSV', () => {
     expect(csv()).toBe(without);
   });
 
+  it('reads the same with a lens picked: lens_id is never a column or a custom field, and the lens stays its mm (6.1)', async () => {
+    await store.getState().apply([{ kind: 'create', record: { id: 'sc4', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4', name: 'Diner' } } }]);
+    const added = addShot(store.getState().records, project.projectId, 'sc4');
+    await store.getState().apply(added.changes);
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'V', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70, squeeze: 2 } } },
+      { kind: 'update', id: added.shotId, set: { lens_mm: 50 } },
+    ]);
+    const csv = () => shotListCsv(store.getState().records, project.projectId, { kind: 'project' });
+    const without = csv();
+    await store.getState().apply([{ kind: 'update', id: added.shotId, set: { lens_id: 'z' } }]);
+    expect(csv()).toBe(without);
+    expect(csv()).not.toContain('lens_id');
+  });
+
   it('is one row per live frame in board order, with custom fields as columns, exactly', async () => {
     await store.getState().apply([
       { kind: 'create', record: { id: 'loc', type: 'location', parentId: project.projectId, sortKey: 'V', props: { name: 'Bey County Diner' } } },

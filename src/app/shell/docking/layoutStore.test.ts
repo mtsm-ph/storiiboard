@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { departmentWorkspaceId, WORKSPACES, workspaceById } from '../workspaces';
-import { removeTile, sameLayout, split, stack, tilesIn } from './layout';
+import { loadSettings } from '../../../core/storage/settings';
+import { removeTile, sameLayout, split, stack, tilesIn, type Layout } from './layout';
 import { canUndoLayout, createLayoutStore, isUnsaved, LAYOUTS_KEY, layoutsOf, usable } from './layoutStore';
 
 function memory(initial: string | null = null) {
@@ -137,6 +138,90 @@ describe('a tile added to a built-in default since a layout was saved (6.0: Setu
     const plain = { root: split('row', [stack(['plan']), stack(['selection'])]), maximized: null };
     const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: plain, saved: plain } })).getState().layouts, 'setup');
     expect(tilesIn(layouts.current)).toEqual(['plan', 'selection', 'setups']);
+  });
+
+  // The left column of a Setup layout, as [tile, share] pairs.
+  function leftColumn(layout: Layout): [string, number][] {
+    const root = layout.root;
+    if (root.kind !== 'split') throw new Error('Expected a split root.');
+    const column = root.children[0];
+    if (column?.kind !== 'split') throw new Error('Expected a left column.');
+    return column.children.map((child, i) => [child.kind === 'stack' ? (child.tiles[0] ?? '') : 'split', column.sizes[i] ?? 0]);
+  }
+  // The Setup section's default before 6.0 exactly, as people saved it.
+  const oldDefault = (): Layout => ({
+    root: split(
+      'row',
+      [
+        split('column', [stack(['layers']), stack(['library'])], [120, 688]),
+        split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
+        stack(['selection']),
+      ],
+      [248, 824, 336],
+    ),
+    maximized: null,
+  });
+
+  it('gets about half its column from the old default saved as it was, the new default outright', () => {
+    const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: oldDefault(), saved: oldDefault() } })).getState().layouts, 'setup');
+    expect(sameLayout(layouts.saved, workspaceById('setup').defaultLayout())).toBe(true);
+    expect(sameLayout(layouts.current, workspaceById('setup').defaultLayout())).toBe(true);
+    const column = Object.fromEntries(leftColumn(layouts.current));
+    // The new default's own column (400, 120, 288), not the old ratio between Layers and Library.
+    expect(column.setups).toBeGreaterThanOrEqual(0.3);
+    expect((column.layers ?? 0) / (column.library ?? 1)).toBeCloseTo(120 / 288, 5);
+  });
+
+  it('gets its share from the old default changed only in its other columns, Layers and Library keeping their ratio', () => {
+    const changed = oldDefault();
+    if (changed.root.kind === 'split') changed.root.sizes = [0.25, 0.5, 0.25];
+    const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: changed, saved: changed } })).getState().layouts, 'setup');
+    const column = Object.fromEntries(leftColumn(layouts.saved));
+    expect(column.setups).toBeGreaterThanOrEqual(0.3);
+    expect((column.layers ?? 0) / (column.library ?? 1)).toBeCloseTo(120 / 688, 5);
+  });
+
+  it('gets its share of the column from a customised layout, the others keeping their ratio', () => {
+    const custom = oldDefault();
+    if (custom.root.kind === 'split') custom.root.sizes = [0.3, 0.5, 0.2];
+    const column = custom.root.kind === 'split' ? custom.root.children[0] : undefined;
+    if (column?.kind === 'split') column.sizes = [0.4, 0.6];
+    const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: custom, saved: custom } })).getState().layouts, 'setup');
+    const shares = Object.fromEntries(leftColumn(layouts.saved));
+    expect(Object.keys(shares)).toEqual(['setups', 'layers', 'library']);
+    expect(shares.setups).toBeCloseTo(0.5, 5);
+    expect((shares.layers ?? 0) / (shares.library ?? 1)).toBeCloseTo(0.4 / 0.6, 5);
+    expect(leftColumn(layouts.current)).toEqual(leftColumn(layouts.saved));
+  });
+
+  it('keeps a stack the person left maximized', () => {
+    const custom = before();
+    const plan = custom.root.children[1];
+    const planStack = plan?.kind === 'split' ? plan.children[0] : undefined;
+    const maximized = planStack?.id ?? '';
+    const saved = { ...custom, maximized };
+    const layouts = layoutsOf(createLayoutStore(machine({ setup: { current: saved, saved } })).getState().layouts, 'setup');
+    expect(tilesIn(layouts.current)).toContain('setups');
+    expect(layouts.current.maximized).toBe(maximized);
+    expect(layouts.saved.maximized).toBe(maximized);
+  });
+
+  it('is offered again when the layouts could not be written', () => {
+    const values = new Map([[LAYOUTS_KEY, JSON.stringify({ setup: { current: before(), saved: before() } })]]);
+    let full = true;
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, next: string) => {
+        if (key === LAYOUTS_KEY && full) throw new Error('QuotaExceededError');
+        values.set(key, next);
+      },
+    };
+    expect(tilesIn(layoutsOf(createLayoutStore(storage).getState().layouts, 'setup').current)).toContain('setups');
+    expect(loadSettings(storage).tilesOffered).not.toContain('setup:setups');
+    // Room again: the next start adds it and marks it.
+    full = false;
+    expect(tilesIn(layoutsOf(createLayoutStore(storage).getState().layouts, 'setup').current)).toContain('setups');
+    expect(loadSettings(storage).tilesOffered).toContain('setup:setups');
   });
 });
 

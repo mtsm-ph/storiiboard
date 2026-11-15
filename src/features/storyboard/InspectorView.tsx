@@ -1,6 +1,7 @@
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import type { Crop } from '../../core/media/crop';
+import { rangeMessage } from '../../core/model/cameraGear';
 import type { DepartmentStatuses } from '../../core/model/departmentStatus';
 import { DEPARTMENTS, type Department } from '../../core/model/department';
 import type { JsonValue } from '../../core/model/record';
@@ -180,7 +181,27 @@ export interface InspectorViewProps {
    * `onChange` takes the setup picked, No setup, or a new setup with this frame in it.
    */
   setup?: { value: string; choices: readonly { id: string; label: string }[]; onChange: (to: SetupPick) => void };
+  /**
+   * The frame's lens (6.1): `value` is the picked lens's id, or '' for none; `choices` the project's lenses; `range` the
+   * picked lens's focal range, which the focal length typed must sit in. `fieldOfView` is the line under it.
+   */
+  lens?: InspectorLens;
 }
+
+/** The field of view as the Inspector reads it out (6.1), each figure to one decimal; or why there's none. */
+export type InspectorFieldOfView =
+  | { degrees: string; width: string; sensorWidth: string; sensorHeight: string }
+  | { missing: 'noBody' | 'noLens' | 'noSensor' };
+
+export interface InspectorLens {
+  value: string;
+  choices: readonly { id: string; label: string }[];
+  range: { min: number; max: number } | null;
+  onChange: (id: string | null) => void;
+  fieldOfView: InspectorFieldOfView;
+}
+
+const FOV_MISSING = { noBody: 'inspector.fovNoBody', noLens: 'inspector.fovNeedsLens', noSensor: 'inspector.fovNeedsSensor' } as const;
 
 const NOTHING_SEEN: readonly string[] = [];
 
@@ -551,6 +572,7 @@ export function InspectorView({
   boards,
   shootDay,
   setup,
+  lens,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -813,6 +835,25 @@ export function InspectorView({
                 onShotChange({ set: { size } });
               }}
             />
+            {lens && (
+              // The frame's lens (6.1), from the project's in Gear: one edit per pick, its focal length with it.
+              <Select
+                label={t('inspector.lens')}
+                mono
+                value={lens.value}
+                onChange={(event) => {
+                  const id = event.currentTarget.value;
+                  lens.onChange(id === '' ? null : id);
+                }}
+              >
+                <option value="">{t('inspector.noLens')}</option>
+                {lens.choices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+              </Select>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <CommitText
                 label={t('inspectorView.lensMm')}
@@ -821,12 +862,17 @@ export function InspectorView({
                 placeholder="35"
                 onCommit={(text) => {
                   const trimmed = text.trim();
+                  const range = lens?.range;
                   if (trimmed === '') {
+                    // A picked lens always has its focal length: emptied, the field shows it again and says the range.
+                    if (range) return rangeMessage(range);
                     onShotChange({ unset: ['lens_mm'] });
                     return null;
                   }
                   const mm = Number(trimmed.replace(/mm$/i, ''));
                   if (!Number.isFinite(mm) || mm <= 0 || mm > 2000) return t('inspector.lensProblem');
+                  // Outside the picked lens's range: refused, never saved.
+                  if (range && (mm < range.min || mm > range.max)) return rangeMessage(range);
                   onShotChange({ set: { lens_mm: mm } });
                   return null;
                 }}
@@ -842,6 +888,17 @@ export function InspectorView({
                 {choices(T_STOPS.map(String), (v) => tStopLabel(Number(v)))}
               </Select>
             </div>
+            {lens && (
+              // What the project's frame sees with the default body (6.1, decision 6): read only, worked out live.
+              <div className="flex flex-col gap-[5px]" data-field-of-view="">
+                <span className="sb-label">{t('inspector.fieldOfView')}</span>
+                {'missing' in lens.fieldOfView ? (
+                  <p className="text-[12px] text-text-muted">{t(FOV_MISSING[lens.fieldOfView.missing])}</p>
+                ) : (
+                  <p className="font-mono text-[13px]">{t('inspector.fov', lens.fieldOfView)}</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-3">
               {(
                 [

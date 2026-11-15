@@ -18,7 +18,11 @@ export interface SetupDrag {
 /** The scene's rows as drawn, in order. */
 const rowsOf = (sceneId: string) => [...document.querySelectorAll<HTMLElement>(`[data-setup-row][data-scene="${CSS.escape(sceneId)}"]`)];
 
-function placeAt(sceneId: string, id: string, y: number): SetupDrag | null {
+function placeAt(sceneId: string, id: string, x: number, y: number): SetupDrag | null {
+  // Outside its scene's own box (over another scene's rows, or out of the tile) there is no place: no bar, no drop.
+  const scene = document.querySelector<HTMLElement>(`[data-setups-scene="${CSS.escape(sceneId)}"]`);
+  const area = scene?.getBoundingClientRect();
+  if (!area || x < area.left || x > area.right || y < area.top || y > area.bottom) return null;
   const rows = rowsOf(sceneId);
   const others = rows.filter((row) => row.dataset.setupRow !== id);
   if (others.length === 0) return null;
@@ -52,9 +56,14 @@ export function useSetupDrag(onDrop: (id: string, to: number) => void) {
     const move = (event: globalThis.PointerEvent) => {
       const press = pressed.current;
       if (!press) return;
+      // The release went somewhere this window never heard of (it lost focus mid-press): the drag is over.
+      if ((event.buttons & 1) === 0) {
+        cancel();
+        return;
+      }
       if (!press.started && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= THRESHOLD_PX) return;
       press.started = true;
-      latest.current = placeAt(press.sceneId, press.id, event.clientY);
+      latest.current = placeAt(press.sceneId, press.id, event.clientX, event.clientY);
       setDrag(latest.current);
     };
     const up = () => {
@@ -73,11 +82,14 @@ export function useSetupDrag(onDrop: (id: string, to: number) => void) {
     window.addEventListener('pointerup', up);
     // A pointer the system takes away (a gesture, a window switch) cancels the drag; it never drops.
     window.addEventListener('pointercancel', cancel);
+    // So does the window losing focus: its pointerup may never arrive, and an armed drag would drop on the next click.
+    window.addEventListener('blur', cancel);
     window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('blur', cancel);
       window.removeEventListener('keydown', key, true);
     };
   }, []);

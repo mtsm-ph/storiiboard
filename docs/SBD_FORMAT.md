@@ -307,6 +307,69 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v14: Phase 6's props (6.1)
+
+Props only (docs/PHASE6_DECISIONS.md 16, approved by Kevin Nov 13): one schema version for everything Phase 6 writes,
+with no table change, no new record type (`setup`, `plan` and `plan_item` exist) and nothing rewritten. A file from
+before opens with every row as it was; it is backed up first, as for every upgrade. The number is there so an older
+Storiiboard refuses a file that may hold plans rather than open it and lose them. No approval or issued call sheet
+changes with it: neither the scene approvals' fingerprints nor the call sheet's recipes read any prop below yet. 3.6b's
+approval rule hashes every prop of a scene and its frames, so it leaves out a frame's `lens_id` and `setup_id` and a
+scene's `room_id` by name: setting one alone keeps a sign-off given under that rule current. A frame's `lens_mm`
+still counts under every rule.
+
+Units, always, whatever the screen shows: lengths in metres, angles in degrees, focal lengths and sensor sizes in mm.
+Each prop says the milestone that starts writing it; after 6.1 only those marked 6.0 and 6.1 are written. A missing or
+unreadable value reads as not set, as every prop does.
+
+- `setup` (6.0): `name`, text, '' for none (see Setups).
+- `shot`:
+  - `lens_id` (6.1): the `gear_item` lens picked for the frame. `lens_mm` stays the focal length used, and must sit in
+    the lens's range: a prime sets it, a zoom keeps it when inside the range, else takes the nearer end. An id naming a
+    lens in the Trash, an item that isn't a lens, or nothing reads as no lens picked, squeeze 1; the frame keeps the id,
+    so a restore brings it back. Nothing else reads it in 6.1: exports, the shot list, checks and approvals still read
+    only `lens_mm`.
+- `gear_item` (each still counts as gear in day lists, checks and totals):
+  - `kind` (6.1): `camera_body` or `lens`; absent (or anything else) for all other gear, so every older item is gear.
+    Changing it keeps every other prop.
+  - A body's `sensor_width_mm` and `sensor_height_mm` (6.1): the recording mode's sensor area, mm, above 0 and up to
+    100; `sensor_mode` (6.1): the mode's name as text ("4.3K LF 16:9"; the phones entry stores
+    "Focal lengths as full-frame equivalents" and shows it in the app's language); `camera_letter` (6.1): "A" to "Z",
+    unique among the project's live bodies, the first body by letter being the project's default body;
+    `focal_equivalent` (6.1): true when the body's focal lengths are full-frame equivalents (the phones entry, 36 × 24
+    mm). Picking from the table of camera modes (src/core/model/sensorModes.ts) fills the name, width and height, which
+    stay editable.
+  - A lens's `focal_min_mm` and `focal_max_mm` (6.1): mm, above 0 and up to 2000, min ≤ max, equal for a prime (only one
+    of them reads as a prime of that length); `squeeze` (6.1): 1 to 2.5, 1 when absent.
+  - A light's `watts` (6.5): a number, the light's power.
+- `scene`: `room_id` (6.2): the `plan` of kind `room` the scene is set in.
+- `plan` (6.2): `kind`: `room` (under the project), `blocking` (under its scene) or `setup` (under its setup); `name`,
+  text; `location_id`: a room's `location`.
+- `plan_item`: an item's level is the plan it sits in.
+  - Geometry reuses `board_item`'s names (see Boards), in metres instead of world units: `x` and `y` (the top left
+    corner before rotation), `width` and `height`, `rotation` (degrees clockwise round the centre, 0 up to 360); z order
+    is the sibling order of `sort_key`, as on a board; a path or connector's ends are `from` and `to`, as a
+    `connector`'s. `board_item` has no lock of its own, so a locked item (an underlay) is `locked`: true (6.2), the one
+    geometry name that is new.
+  - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `set_piece`, `icon`, `camera`, `light`, `flag`, `diffusion`,
+    `mark`, `path`, `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and
+    not shown.
+  - `icon` (6.2 and 6.3): the plan icon library's id. `points` (6.2 and 6.3): a wall's or a path's points, each
+    `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3): metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
+    `width_m` (6.2 and 6.3): a door or window in its wall, its distance along it and its width, metres.
+  - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),
+    `shot_ids` (6.4: the frames shot from it), `shown_shot_id` (6.4: the frame whose field of view it draws),
+    `lens_mm` and `lens_id` (6.4: only for a camera with no frame yet), `on_side` (6.4: true when turned for vertical
+    shooting, which turns the de-squeezed area: its width and height swap). Its field of view is worked out, never
+    stored: the mode's area de-squeezed along its width (width × squeeze, by height), then turned when `on_side`, the
+    project's frame shape fitted inside it, 2 × atan(width / (2 × focal length)). The squeeze comes before the turn
+    because a lens squeezes along the sensor's recording width, which turns with the camera.
+  - A light's `beam_deg` (6.5: degrees) and `watts` (6.5).
+  - The sun item's `time` (6.6): its time of day, "HH:mm". A room's north is its `north` item's `rotation`, not a prop
+    of the plan.
+  - A mark's `character_id` (6.7): the `character` it is for.
+  - An underlay's `media_id` (6.9): the picture under the plan, a `media` record stored as board pictures are.
+
 ## Schema v13: approvals kept through the upgrade (3.18)
 
 Changes existing data (Kevin Nov 9: "An approval that was current before an upgrade stays current after it"); no
@@ -1312,6 +1375,7 @@ merge a database, so two guards sit around every open project:
 | 11 | 3.4 | Cached network lookups: `lookups` |
 | 12 | 3.13 | Scene characters as ids: `characters` (names) becomes `character_ids`, characters made for names with none. No table change |
 | 13 | 3.18 | Approvals kept through schema 12: sign-offs it left "Changed" re-stamped by their own rule. No table change |
+| 14 | 6.1 | Phase 6's props (bodies and lenses on `gear_item`, a frame's `lens_id`, and the props plans write on `scene`, `plan` and `plan_item`; see Schema v14). No table change, nothing rewritten |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

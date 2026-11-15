@@ -218,6 +218,20 @@ describe('what a department touches in a scene', () => {
     expect(sceneApprovals(props).camera?.[0]?.basis).toBe(lens.current);
   });
 
+  it('keeps a 3.6b approval current when only a Phase 6 link is set: a frame’s lens or setup, a scene’s room', () => {
+    const records = base();
+    const old = [{ name: 'Sam Reyes', roles: ['dp' as const], at, basis: approvalBasis(records, 's', 'camera').legacy }];
+    for (const [id, change] of [
+      ['a', { lens_id: 'cooke-35' }],
+      ['a', { setup_id: 'su1' }],
+      ['s', { room_id: 'room1' }],
+    ] as const) {
+      expect(approvalState(old, approvalBasis(withProps(records, id, change), 's', 'camera')), JSON.stringify(change)).toBe('approved');
+    }
+    // The focal length still counts.
+    expect(approvalState(old, approvalBasis(withProps(records, 'a', { lens_id: 'cooke-35', lens_mm: 50 }), 's', 'camera'))).toBe('changed');
+  });
+
   it('re-stamps through an upgrade only the approvals that were current before it, each by its own rule', () => {
     const scene = base().s as SbdRecord;
     // Before the upgrade: a script's names on the scene.

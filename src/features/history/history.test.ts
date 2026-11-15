@@ -5,12 +5,16 @@ import { log, opsOfRecord, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, trashShot } from '../storyboard/board';
+import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, trashScene, trashShot } from '../storyboard/board';
+import { restoreChanges } from '../trash/trash';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../callsheets/callsheetEdits';
 import { dayPeopleAdd, dayPeopleRemove } from '../schedule/dayEdits';
 import { addSetup, joinSetup, renameSetup } from '../../core/model/setup';
-import { putBackChange } from './putBack';
+import { pickLens } from '../../core/model/cameraGear';
+import { setLocale } from '../../core/i18n';
+import { gearKindChange, lensRangeChange, lensSqueezeChange, sensorModePick, sensorSizeChange } from '../gear/gearEdits';
+import { putBackChange, putBackProblem, putBackStep } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
 
@@ -346,6 +350,145 @@ describe('Put back', () => {
     const source = await lastChange('fx3', 'source');
     expect([changeLabel(department), changeValue(department, department.after)]).toEqual(['department', 'Grip & electric']);
     expect([changeValue(source, source.before), changeValue(source, source.after)]).toEqual(['Owned', 'Rental']);
+  });
+
+  it('says what bodies and lenses became, their modes and ranges, and a frame’s lens picked, in words (6.1)', async () => {
+    const make = (id: string, name: string) =>
+      store.getState().apply([{ kind: 'create', record: { id, type: 'gear_item', parentId: project.projectId, sortKey: id, props: { name, quantity: 1, source: 'owned' } } }]);
+    await make('fx3', 'FX3');
+    await store.getState().applyWith((now) => ({ changes: gearKindChange(now, 'fx3', 'camera_body') }));
+    expect((await lines()).at(-1)).toBe('FX3 is now: Camera body');
+    await store.getState().applyWith((now) => ({ changes: sensorModePick(now, 'fx3', 'minilf-43k-169') }));
+    expect((await lines()).at(-1)).toBe('FX3: recording mode 4.3K LF 16:9, 35.64 × 20.05 mm');
+    await store.getState().applyWith((now) => ({ changes: sensorSizeChange(now, 'fx3', 'sensor_width_mm', 35.6) }));
+    expect((await lines()).at(-1)).toBe('FX3: sensor width 35.64 mm → 35.6 mm');
+    await make('z', 'Angénieux');
+    await store.getState().applyWith((now) => ({ changes: gearKindChange(now, 'z', 'lens') }));
+    expect((await lines()).at(-1)).toBe('Angénieux is now: Lens');
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 70) }));
+    expect((await lines()).at(-1)).toBe('Angénieux: focal length 24–70 mm');
+    await store.getState().applyWith((now) => ({ changes: lensSqueezeChange(now, 'z', 2) }));
+    expect((await lines()).at(-1)).toBe('Angénieux: squeeze — → 2×');
+    const a = await frame();
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    const number = shotFields(records()[a]?.props ?? {}).number;
+    // The pick set the focal length too (the frame had none): the line says it.
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux, 24 mm`);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    // Kept inside the range: the lens alone.
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux`);
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 135 } }]);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    expect((await lines()).at(-1)).toBe(`${number}: lens Angénieux, 70 mm`);
+    setLocale('es');
+    expect((await lines()).at(-1)).toBe(`${number}: lente Angénieux, 70 mm`);
+    setLocale('en');
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, null) }));
+    expect((await lines()).at(-1)).toBe(`${number}: no lens picked`);
+    // The item's own history names its fields; none shows an id.
+    const squeeze = await lastChange('z', 'squeeze');
+    expect([changeLabel(squeeze), changeValue(squeeze, squeeze.after)]).toEqual(['squeeze', '2×']);
+    expect((await lines()).join('\n')).not.toContain('camera_body');
+    setLocale('es');
+    expect((await lines()).at(-1)).toBe(`${number}: ninguna lente elegida`);
+    setLocale('en');
+  });
+
+  it('changes a lens’s range and the frames it leaves outside in one step that one undo takes back (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const [a, b, c] = [await frame(), await frame(), await frame()];
+    await store.getState().apply([
+      { kind: 'update', id: a, set: { lens_id: 'z', lens_mm: 50 } },
+      { kind: 'update', id: b, set: { lens_id: 'z', lens_mm: 30 } },
+      { kind: 'update', id: c, set: { lens_id: 'z', lens_mm: 60 } },
+    ]);
+    await store.getState().apply([{ kind: 'trash', id: c }]);
+    const steps = await stepCount();
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 40) }));
+    expect(await stepCount()).toBe(steps + 1);
+    const mm = (id: string) => shotFields(records()[id]?.props ?? {}).lensMm;
+    // The frame in the Trash too: restored, it never comes back outside its lens's range.
+    expect([mm(a), mm(b), mm(c)]).toEqual([40, 30, 40]);
+    await store.getState().undo();
+    expect([mm(a), mm(b), mm(c)]).toEqual([50, 30, 60]);
+    expect(records().z?.props.focal_max_mm).toBe(70);
+  });
+
+  it('sets the frames of a scene in the Trash too, so the scene comes back inside the lens’s range; one undo takes it back (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_id: 'z', lens_mm: 50 } }]);
+    await store.getState().applyWith((now) => ({ changes: trashScene(now, 'sc4') }));
+    expect(records()[a]?.trashedAt).not.toBeNull();
+    const mm = () => shotFields(records()[a]?.props ?? {}).lensMm;
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 40) }));
+    await store.getState().applyWith((now) => ({ changes: restoreChanges(now, project.projectId, 'sc4') }));
+    expect(records()[a]?.trashedAt).toBeNull();
+    expect(mm()).toBe(40);
+    // The restore undone, then the range change: one undo of it brings the 50 back with the lens's old range.
+    await store.getState().undo();
+    expect(records()[a]?.trashedAt).not.toBeNull();
+    expect(mm()).toBe(40);
+    await store.getState().undo();
+    expect(mm()).toBe(50);
+    expect(records().z?.props.focal_max_mm).toBe(70);
+  });
+
+  it('refuses a Put back the item can’t take when it runs, says why and writes no step; the row isn’t offered (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_id: 'z', lens_mm: 60 } }]);
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 30 } }]);
+    const sixty = await lastChange(a, 'lens_mm');
+    expect(sixty.before).toBe(60);
+    // Fine as shown; then the range is shortened (the frame inside it) before the press lands.
+    expect(putBackProblem(records(), a, sixty)).toBeNull();
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 24, 40) }));
+    const steps = await stepCount();
+    const step = await putBackStep(store.getState().applyWith, a, sixty);
+    expect(step.problem).toBe('This lens goes from 24 to 40 mm.');
+    expect(step.changed).toBe(false);
+    expect(await stepCount()).toBe(steps);
+    expect(shotFields(records()[a]?.props ?? {}).lensMm).toBe(30);
+    // One it can take goes back as one step.
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 35 } }]);
+    const thirty = await lastChange(a, 'lens_mm');
+    const back = await putBackStep(store.getState().applyWith, a, thirty);
+    expect([back.problem, back.changed, shotFields(records()[a]?.props ?? {}).lensMm]).toEqual([null, true, 30]);
+  });
+
+  it('never puts back a focal length outside the frame’s lens’s range, nor none while a lens is picked (6.1)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const a = await frame();
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 135 } }]);
+    await store.getState().applyWith((now) => ({ changes: pickLens(now, a, 'z') }));
+    await store.getState().apply([{ kind: 'update', id: a, set: { lens_mm: 50 } }]);
+    const tooLong = await lastChange(a, 'lens_mm');
+    expect(tooLong.before).toBe(70);
+    // 70 is inside: it can go back.
+    expect(putBackProblem(records(), a, tooLong)).toBeNull();
+    const ops = await opsOfRecord(project.file, a);
+    const all = ops.flatMap((op) => (op.before && op.after ? fieldChanges(op.before, op.after) : [])).filter((f) => f.prop === 'lens_mm');
+    const [none, long] = all;
+    if (!none || !long) throw new Error('no lens changes');
+    expect([none.before, long.before]).toEqual([undefined, 135]);
+    expect(putBackProblem(records(), a, long)).toBe('This lens goes from 24 to 70 mm.');
+    expect(putBackProblem(records(), a, none)).toBe('This lens goes from 24 to 70 mm.');
+    // With no lens picked (or the lens in the Trash), any goes back.
+    await store.getState().apply([{ kind: 'trash', id: 'z' }]);
+    expect(putBackProblem(records(), a, long)).toBeNull();
+    expect(await putBack(a, long)).toBe(true);
+    expect(shotFields(records()[a]?.props ?? {}).lensMm).toBe(135);
   });
 
   it('says a person’s Full view as on or off (3.6c)', async () => {

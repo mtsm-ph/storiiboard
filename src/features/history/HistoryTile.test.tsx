@@ -7,6 +7,8 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot } from '../storyboard/board';
 import { RestoreStatus } from './HistoryTile';
 import { ItemHistory } from './ItemHistory';
+import { pickLens } from '../../core/model/cameraGear';
+import { putBackProblem } from './putBack';
 import { itemOps } from './steps';
 
 // While a Restore to here runs (1.22) the tile says so, and its buttons take no clicks, until it lands or fails. On a
@@ -47,6 +49,35 @@ describe('the History tile while a restore runs', () => {
     expect(table(true)).toMatch(/<button[^>]*aria-label="Put back lens 35mm"[^>]*aria-disabled="true"/);
     expect(table(true)).not.toMatch(/<button[^>]* disabled=""/);
     expect(table(false)).not.toContain('aria-disabled="');
+  });
+});
+
+describe('Put back on a frame with a lens picked (6.1)', () => {
+  it('isn’t offered for an old focal length the lens’s range refuses, and is for one inside it', async () => {
+    await projectStore.getState().apply([
+      { kind: 'create', record: { id: 'sc4', type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4' } } },
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+    ]);
+    const added = addShot(projectStore.getState().records, project.projectId, 'sc4');
+    await projectStore.getState().apply(added.changes);
+    await projectStore.getState().apply([{ kind: 'update', id: added.shotId, set: { lens_mm: 135 } }]);
+    await projectStore.getState().apply([{ kind: 'update', id: added.shotId, set: { lens_mm: 35 } }]);
+    await projectStore.getState().applyWith((now) => ({ changes: pickLens(now, added.shotId, 'z') }));
+    await projectStore.getState().apply([{ kind: 'update', id: added.shotId, set: { lens_mm: 50 } }]);
+    const records = projectStore.getState().records;
+    const frame = records[added.shotId];
+    if (!frame) throw new Error('no frame');
+    const ops = await itemOps(project.file, frame);
+    const table = renderToString(
+      <ItemHistory item={frame} title="frame 4A" ops={ops} places={() => null} problem={(id, field) => putBackProblem(records, id, field)} onPutBack={() => Promise.resolve(true)} />,
+    );
+    // 35 sits inside 24–70; 135 and none don't.
+    expect(table).toContain('aria-label="Put back lens 35mm"');
+    expect(table).not.toContain('aria-label="Put back lens 135mm"');
+    expect(table).not.toContain('aria-label="Put back lens —"');
+    // Without the check, the rows refused would be offered.
+    const unchecked = renderToString(<ItemHistory item={frame} title="frame 4A" ops={ops} places={() => null} onPutBack={() => Promise.resolve(true)} />);
+    expect(unchecked).toContain('aria-label="Put back lens 135mm"');
   });
 });
 

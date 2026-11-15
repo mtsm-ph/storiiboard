@@ -157,7 +157,9 @@
     lens has its focal range and squeeze.
   - Camera field of view = 2 * atan(width / (2 * focal_length)), where width is what the project's frame sees, not
     the whole sensor: the mode's area after de-squeeze (sensor_width × squeeze, by sensor_height), with the project's
-    `aspect_ratio` fitted inside. "On its side" swaps the mode's width and height. One function in src/core/model.
+    `aspect_ratio` fitted inside. "On its side" turns that de-squeezed area (the squeeze turns with the camera). One
+    function: src/core/model/fieldOfView.ts (6.1). Bodies, lenses and a frame's lens (`lens_id`; one reader,
+    `frameLens`): src/core/model/cameraGear.ts; the sensor table: sensorModes.ts, each entry with its source.
     A camera reads its lens live from its frame, never a copy.
   - A light carries its watts (from its gear item, or typed); the legend totals the setup's watts. A height that's
     set shows as a small label by its item and in the legend.
