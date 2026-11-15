@@ -1,0 +1,7 @@
+{
+  "src/app/theme/ThemeImageWell.tsx": "onWindowDrop (src/app/pictures.ts) in the same file",
+  "src/app/theme/OnboardingDialog.tsx": "the ThemeImageWell inside it, whose onWindowDrop takes any drop while the dialog is open",
+  "src/features/birdseye/plan/PlanTile.tsx": "onWindowDrop in the same file",
+  "src/features/storyboard/useBoardDrops.ts": "onWindowDrag and onWindowDrop in the same hook",
+  "src/features/moodboards/BoardView.tsx": "onWindowDrop in the same file"
+}

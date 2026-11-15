@@ -20,6 +20,8 @@ const PAGE_ROWS: RowDragList = {
   rows: (boardId) => [...document.querySelectorAll<HTMLElement>(`[data-pages-list="${CSS.escape(boardId)}"] [data-page-row]`)],
   idOf: (row) => row.dataset.pageRow,
   area: (boardId) => document.querySelector<HTMLElement>(`[data-pages-list="${CSS.escape(boardId)}"]`),
+  // The list runs past the box that shows it in a long deck: a drop lands only on what shows, and its edges scroll it.
+  scroller: (boardId) => document.querySelector<HTMLElement>(`[data-pages-scroll="${CSS.escape(boardId)}"]`),
   touch: true,
   capture: true,
 };
@@ -76,7 +78,7 @@ export function PagesPanel({ boardId, onCentre }: { boardId: string; onCentre: (
           {open ? '‹' : '›'}
         </button>
       </div>
-      <div id={listId} className={cx('min-h-0 flex-1 flex-col overflow-y-auto', open ? 'flex' : 'hidden')}>
+      <div id={listId} data-pages-scroll={boardId} className={cx('min-h-0 flex-1 flex-col overflow-y-auto', open ? 'flex' : 'hidden')}>
         {pages.length === 0 && <p className="p-3 text-[12px] text-text-muted">{t('deck.noPages')}</p>}
         <ol data-pages-list={boardId}>
           {pages.map((page, i) => {
@@ -169,7 +171,7 @@ export function PagesPanel({ boardId, onCentre }: { boardId: string; onCentre: (
       </div>
       {drag && (
         // Where the dragged page will land: an ink bar between rows.
-        <div aria-hidden="true" data-page-drop-bar="" className="pointer-events-none fixed z-40 h-[3.5px] bg-text" style={{ left: drag.bar.left, top: drag.bar.top, width: drag.bar.width }} />
+        <div aria-hidden="true" data-page-drop-bar="" data-page-drop-to={drag.to} className="pointer-events-none fixed z-40 h-[3.5px] bg-text" style={{ left: drag.bar.left, top: drag.bar.top, width: drag.bar.width }} />
       )}
       <div className={cx('flex-col gap-2 border-t border-border p-2', open ? 'flex' : 'hidden')}>
         <Select

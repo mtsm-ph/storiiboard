@@ -31,11 +31,16 @@ const frames = (page: Page, scene: string) => board(page).locator(`[aria-label="
 const numbers = (page: Page, scene: string) => frames(page, scene).locator('[data-number]').allTextContents();
 const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
 
-/** Presses on `from`, moves in steps and lets go over `to`, at a fraction of its width (0.2 is its left part). */
-async function drag(page: Page, from: Locator, to: Locator, across = 0.2) {
+/**
+ * Presses on `from`, moves in steps and lets go over `to`, at a fraction of its width (0.2 is its left part).
+ * `scrolled`: the test has put both where they should be (`wellInView`), so the board isn't scrolled here.
+ */
+async function drag(page: Page, from: Locator, to: Locator, across = 0.2, scrolled = false) {
   // The board may have scrolled to the last frame added.
-  await to.scrollIntoViewIfNeeded();
-  await from.scrollIntoViewIfNeeded();
+  if (!scrolled) {
+    await to.scrollIntoViewIfNeeded();
+    await from.scrollIntoViewIfNeeded();
+  }
   const start = await from.boundingBox();
   const end = await to.boundingBox();
   if (!start || !end) throw new Error('not on screen');
@@ -43,6 +48,44 @@ async function drag(page: Page, from: Locator, to: Locator, across = 0.2) {
   await page.mouse.down();
   await page.mouse.move(end.x + end.width * across, end.y + end.height / 3, { steps: 8 });
   await page.mouse.up();
+}
+
+/**
+ * Scrolls the board so the frame pressed and the place let go over (as `drag` works them out) are both well inside the
+ * board's scroll area, at least 24 px from its edges, and asserts it (6.19b). After `drag`'s own scrolls the drop point
+ * of a drag into the next scene was 1.5 px inside the area: Chromium delivers that fraction, Mac WebKit a whole pixel
+ * outside, where nothing drops. `drag` is then told not to scroll the frames into view itself.
+ */
+async function wellInView(from: Locator, to: Locator, across: number) {
+  const target = await to.elementHandle();
+  const view = await from.evaluate(
+    (pressed, [dropped, along]) => {
+      let area = pressed.parentElement;
+      while (area && !(area.scrollHeight > area.clientHeight && /(auto|scroll)/.test(getComputedStyle(area).overflowY))) area = area.parentElement;
+      if (!area || !(dropped instanceof Element) || !area.contains(dropped)) throw new Error('no scroll area holding both frames');
+      const points = () => {
+        const a = pressed.getBoundingClientRect();
+        const b = dropped.getBoundingClientRect();
+        const box = area.getBoundingClientRect();
+        return {
+          area: { left: box.left + area.clientLeft, top: box.top + area.clientTop, right: box.left + area.clientLeft + area.clientWidth, bottom: box.top + area.clientTop + area.clientHeight },
+          press: { x: a.x + a.width / 2, y: a.y + a.height / 3 },
+          drop: { x: b.x + b.width * along, y: b.y + b.height / 3 },
+        };
+      };
+      // The two points' middle at the middle of the area (the two frames together are taller than it).
+      const before = points();
+      area.scrollTop += (before.press.y + before.drop.y) / 2 - (before.area.top + before.area.bottom) / 2;
+      return points();
+    },
+    [target, across] as const,
+  );
+  for (const point of [view.press, view.drop]) {
+    expect(point.x - view.area.left).toBeGreaterThanOrEqual(24);
+    expect(view.area.right - point.x).toBeGreaterThanOrEqual(24);
+    expect(point.y - view.area.top).toBeGreaterThanOrEqual(24);
+    expect(view.area.bottom - point.y).toBeGreaterThanOrEqual(24);
+  }
 }
 
 test('drags a frame to a new place, renumbering, and ⌘Z puts it back', async ({ page }) => {
@@ -57,7 +100,8 @@ test('drags a frame to a new place, renumbering, and ⌘Z puts it back', async (
 });
 
 test('drags a frame into another scene, numbering it there', async ({ page }) => {
-  await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);
+  await wellInView(frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);
+  await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8, true);
   await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B']);
   await expect.poll(() => numbers(page, 'SC 02')).toEqual(['2A', '2B']);
 });
@@ -217,7 +261,8 @@ test('locking a scene whose letters are already on another scene’s slates says
 
 test('a frame stays in a scene whose numbers are locked, and the board says why', async ({ page }) => {
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: 'Lock shot numbers for SC 01' }).click();
-  await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);
+  await wellInView(frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8);
+  await drag(page, frames(page, 'SC 01').nth(1), frames(page, 'SC 02').nth(0), 0.8, true);
   await expect(page.getByText('This scene’s shot numbers are locked, so its frames stay in it.', { exact: false })).toBeVisible();
   await expect.poll(() => numbers(page, 'SC 01')).toEqual(['1A', '1B', '1C']);
 });

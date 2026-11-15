@@ -188,6 +188,48 @@ test('a menu’s focused command keeps the browser’s own menu out too', async 
   expect(prevented).toBe(true);
 });
 
+test('a sticky’s colour is chosen by a swatch whose press sends focus to the workspace, not the swatch (6.19b)', async ({ page }) => {
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Moodboard/ }).click();
+  const tile = page.getByRole('region', { name: 'Moodboard', exact: true });
+  await tile.locator('[data-department-board="camera"]').click();
+  const canvas = page.getByRole('application', { name: 'Camera board' });
+  await expect(canvas).toBeVisible();
+  const colour = async () => (JSON.parse((await tile.locator('[data-board-data]').getAttribute('data-board-data')) ?? '[]') as { color: string | null }[])[0]?.color;
+  await tile.getByRole('button', { name: 'Sticky', exact: true }).click();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas');
+  await page.mouse.click(box.x + box.width / 2 - 300, box.y + box.height / 2 - 200);
+  await page.keyboard.type('Rain cover?');
+  await page.keyboard.press('Escape');
+  await expect.poll(colour).toBe('#FFE97A');
+  const properties = tile.getByRole('group', { name: 'Properties of the selection' });
+  const trigger = properties.getByRole('button', { name: /^Sticky colour:/ });
+  await trigger.click();
+  // The clicked button took focus (src/ui/clickFocus.ts): the press on a swatch moves it to the workspace panel, as
+  // WebKit's does, and the panel stays open for the swatch's click (src/features/moodboards/ColourControl.tsx).
+  await expect(trigger).toBeFocused();
+  await properties.getByRole('group', { name: 'Sticky colour' }).getByRole('button', { name: 'Peach', exact: true }).click();
+  await expect.poll(colour).toBe('#FFC9A8');
+  await expect(properties.getByRole('group', { name: 'Sticky colour' })).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test('a frame’s menu opened from the keyboard takes a click on its command though the press moves focus out (6.19b)', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(board.locator('[data-shot-id]').first()).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  const menu = page.locator('[data-add-to-board-menu]');
+  const addToBoard = menu.getByRole('button', { name: 'Add to board…' });
+  await expect(addToBoard).toBeFocused();
+  // Focus on the menu's command: the press sends it to the nearest focusable ancestor, outside the menu
+  // (src/features/storyboard/AddToBoardMenu.tsx keeps the menu open for the click).
+  await addToBoard.click();
+  await expect(menu).toHaveCount(1);
+  await expect(menu.getByRole('button', { name: 'Add to board…' })).toHaveCount(0);
+});
+
 test.describe('with Safari’s user agent', () => {
   test.use({ userAgent: devices['Desktop Safari'].userAgent });
 

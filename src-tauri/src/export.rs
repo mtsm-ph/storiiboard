@@ -256,7 +256,8 @@ struct WriteHeader {
     folder: Option<String>,
     /// For a set: "stage" (write the file under a temporary name), "commit" (give it its name), "remove_temp",
     /// "remove_file" (a file this run committed), "remove_folder" (the one it made, if it is empty) or "finish" (the run
-    /// is done and keeps its folder). The last two end the run: its token is no good afterwards.
+    /// is done and keeps its folder). The last two end the run: its token is no good afterwards. For one file: "end"
+    /// (the export is over without writing it: the file chosen can't be written any more, and nothing is written now).
     #[serde(default)]
     action: Option<String>,
     /// For a set: the token of the run, from the folder dialog.
@@ -283,6 +284,10 @@ pub async fn export_write<R: Runtime>(
         })
         .await
         .map_err(|error| error.to_string())?;
+    }
+    if header.action.as_deref() == Some("end") {
+        end_file(&app.state::<Chosen>(), &header);
+        return Ok(String::new());
     }
     let target = target_of(&app.state::<Chosen>(), &header)?;
     let bytes = bytes.to_vec();
@@ -392,6 +397,15 @@ fn end_run(chosen: &Chosen, token: &str) {
     }
     if let Ok(mut parents) = chosen.parents.lock() {
         parents.remove(token);
+    }
+}
+
+/// A single-file export that ended without its write (stopped or failed after the Save dialog; 6.15 review, as B6 for
+/// folders): the file chosen is forgotten, so it can't be written later in the session. Writes nothing, and says
+/// nothing of a path that wasn't chosen or was written already.
+fn end_file(chosen: &Chosen, header: &WriteHeader) {
+    if header.name.is_none() {
+        take(&chosen.files, Path::new(&header.path));
     }
 }
 
@@ -721,6 +735,52 @@ mod tests {
             .is_err());
         }
         assert_eq!(names_in(&dir), ["Pitch"]);
+    }
+
+    /// 6.15 review: a single-file export stopped after the Save dialog ends with "end", and the file chosen can't be
+    /// written afterwards; ending writes nothing, and ending a path never chosen, or one written already, does nothing.
+    #[test]
+    fn an_ended_file_export_leaves_its_file_unwritable() {
+        let dir = temp("file-ended");
+        let chosen = Chosen::default();
+        let path = dir.join("Bey County.csv");
+        let end = |path: &Path| WriteHeader {
+            path: path.to_string_lossy().into_owned(),
+            name: None,
+            folder: None,
+            action: Some("end".into()),
+            token: None,
+        };
+        remember(&chosen.files, &path);
+        end_file(&chosen, &end(&path));
+        assert!(!has(&chosen.files, &path));
+        assert!(target_of(&chosen, &header(&path, None)).is_err());
+        assert!(!path.exists());
+        // Never chosen, or chosen and written: nothing to end, and the other files chosen stay as they were.
+        let other = dir.join("Other.csv");
+        remember(&chosen.files, &other);
+        end_file(&chosen, &end(&dir.join("Never.csv")));
+        assert!(has(&chosen.files, &other));
+        assert_eq!(
+            target_of(&chosen, &header(&other, None)),
+            Ok(Target::Chosen(other.clone()))
+        );
+        end_file(&chosen, &end(&other));
+        assert!(chosen.files.lock().unwrap().is_empty());
+        // A name in the header is a folder's file, never a chosen file's end.
+        remember(&chosen.files, &path);
+        end_file(&chosen, &end_named(&path));
+        assert!(has(&chosen.files, &path));
+    }
+
+    fn end_named(path: &Path) -> WriteHeader {
+        WriteHeader {
+            path: path.to_string_lossy().into_owned(),
+            name: Some("a.csv".into()),
+            folder: None,
+            action: Some("end".into()),
+            token: None,
+        }
     }
 
     #[test]

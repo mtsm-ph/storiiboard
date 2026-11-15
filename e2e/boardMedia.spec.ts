@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { answerAsk } from './ask';
 import { skipOnboarding } from './onboarding';
+import { wholePixelCentre } from './wholePixels';
 
 // Pictures, video cards and links on a board (5.1b) in the memory build: a picture dropped or pasted, still there after a
 // reload, drawn as a thumbnail until it is zoomed past 640 screen pixels, a video card that opens the Player and plays, a
@@ -72,6 +73,7 @@ async function openCamera(page: Page) {
   if (await start.first().isVisible()) await start.first().click();
   await expect(canvas(page)).toBeVisible();
   await page.waitForTimeout(100);
+  await wholePixelCentre(page, canvas(page));
 }
 
 /** Where a world point is on screen, at the standard view. */

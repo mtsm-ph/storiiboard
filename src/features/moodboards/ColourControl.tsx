@@ -98,8 +98,12 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
       ref={root}
       className="relative flex flex-col gap-[5px]"
       onBlur={(event) => {
-        // Tab past the last control (focus moved to something outside) closes the panel.
-        if (open && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+        // Tab past the last control (focus moved to something outside) closes the panel. Not focus going to what holds
+        // the control (6.19b): WebKit (Safari, the Mac app) gives a pressed swatch no focus and moves it to the nearest
+        // focusable ancestor, the workspace panel, before the swatch's click; once a clicked button took focus
+        // (src/ui/clickFocus.ts) that blur closed the panel and the click chose nothing. A press outside closes it above.
+        const to = event.relatedTarget;
+        if (open && to instanceof Node && !event.currentTarget.contains(to) && !to.contains(event.currentTarget)) setOpen(false);
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && open) {
