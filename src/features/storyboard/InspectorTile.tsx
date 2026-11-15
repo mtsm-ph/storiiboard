@@ -28,7 +28,7 @@ import { addColour, startEyedropper, stopEyedropper, useEyedropperScene } from '
 import { framesWithPictures } from './palette/read';
 import { locations, setCustomField, setFrameLocation, setSceneNumber } from './board';
 import { pictureView, removePicture, setCrop } from './framePictures';
-import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo } from './InspectorView';
+import { InspectorView, type FieldChange, type InspectorCopy, type InspectorPicture, type InspectorVideo, type SetupPick } from './InspectorView';
 import { frameTimecode } from '../../core/media/timecode';
 import { displayAspect, readClip, readFromVideo, videoFields } from '../../core/media/video';
 import { videoDriver } from '../../app/video';
@@ -43,6 +43,7 @@ import { openSketch } from './sketch/sketchStore';
 import { strokesOf } from './sketch/strokes';
 import { useSelection } from './selection';
 import { frameShootDay } from '../../core/model/shootDay';
+import { frameSetupId, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, setupLabel } from '../../core/model/setup';
 import { openShootDay } from '../schedule/shownDay';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { t, tn } from '../../core/i18n';
@@ -210,6 +211,20 @@ export function InspectorTile() {
   // The frame's day (5.11), read from the records as they are; opens the Shoot days tile on it, in this workspace.
   const shootDay = shot ? frameShootDay(records, project.projectId, shot) : null;
 
+  // The frame's setup (6.0), from its scene's live setups; each pick is one edit worked out as it lands.
+  const setup =
+    shot && shot.parentId
+      ? {
+          value: frameSetupId(records, shot) ?? '',
+          choices: sceneSetups(records, shot.parentId).map((s) => ({ id: s.record.id, label: setupLabel(s) })),
+          onChange: (to: SetupPick) => {
+            void projectStore.getState().applyWith((now) => ({
+              changes: to.kind === 'none' ? leaveSetup(now, [shot.id]) : to.kind === 'new' ? newSetupFromFrames(now, [shot.id]) : joinSetup(now, [shot.id], to.id),
+            }));
+          },
+        }
+      : undefined;
+
   return (
     <ProjectPictures>
       <InspectorView
@@ -314,6 +329,7 @@ export function InspectorTile() {
         picture={picture}
         locationName={locationName}
         {...(frameLocation ? { frameLocation } : {})}
+        {...(setup ? { setup } : {})}
         {...(shot
           ? {
               shootDay: shootDay

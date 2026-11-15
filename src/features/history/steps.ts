@@ -80,6 +80,13 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     const sheet = ops.find((op) => (op.after ?? op.before)?.type === 'callsheet');
     const dayId = sheet ? (sheet.after ?? sheet.before)?.parentId : null;
     if (sheet && dayId && !ops.some((op) => op.recordId === dayId)) asks.push({ group, id: dayId, seq: sheet.seq });
+    // A setup is named with its scene (6.0), which the step doesn't write; so are frames put into a setup or out of one.
+    const setup = ops.find((op) => (op.after ?? op.before)?.type === 'setup');
+    const setupScene = setup ? (setup.after ?? setup.before)?.parentId : null;
+    if (setup && setupScene && !ops.some((op) => op.recordId === setupScene)) asks.push({ group, id: setupScene, seq: setup.seq });
+    const joined = ops.find((op) => op.after?.type === 'shot' && op.before !== null && op.before.props.setup_id !== op.after.props.setup_id);
+    const joinedScene = joined?.after?.parentId;
+    if (joined && joinedScene && !ops.some((op) => op.recordId === joinedScene)) asks.push({ group, id: joinedScene, seq: joined.seq });
     // As the step left it: a location picked by a new name is made in the same step.
     // Not Math.max(...seqs), which throws past about 125k arguments: a Restore to here can be a step that big.
     const end = ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1;
@@ -91,6 +98,9 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
         op.after?.props.cast_id,
         op.before?.props.shoot_day_id,
         op.after?.props.shoot_day_id,
+        // A frame's setup (6.0), by its name as it was then.
+        op.before?.props.setup_id,
+        op.after?.props.setup_id,
         // A live card on a board (5.4) is named by the frame or scene it shows, as it was then.
         op.before?.props.shot_id,
         op.after?.props.shot_id,

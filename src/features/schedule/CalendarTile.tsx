@@ -244,7 +244,7 @@ function ScheduleRow({ day, records, projectId, minutes }: { day: ShootDay; reco
   const places = dayLocations(records, projectId, day.record.id);
   const crew = dayCrew(records, projectId, day.record);
   const sep = t('list.separator');
-  const totals = dayTotals(dayFrames(records, projectId, day.record.id), minutes);
+  const totals = dayTotals(records, dayFrames(records, projectId, day.record.id), minutes);
   const hours = [day.fields.callTime && t('days.callShort', { time: day.fields.callTime }), day.fields.wrapTime && t('calendar.wrapShort', { time: day.fields.wrapTime })].filter(Boolean);
   return (
     <li data-schedule-day={day.record.id} className="flex flex-col gap-0.5 border-b border-border py-2 text-[13px]">

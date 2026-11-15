@@ -17,6 +17,7 @@ import { NotificationsTile } from '../../features/notifications/NotificationsTil
 import { CallSheetTile } from '../../features/callsheets/CallSheetTile';
 import { AssetsTile } from '../../features/assets/AssetsTile';
 import { MoodboardTile } from '../../features/moodboards/MoodboardTile';
+import { SetupsTile } from '../../features/birdseye/SetupsTile';
 import type { TileId } from './docking/layout';
 
 // Tiles whose tools are built. Every other tile shows its placeholder note (TILES in workspaces.ts) until its phase.
@@ -39,4 +40,5 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   assets: AssetsTile,
   sheet: CallSheetTile,
   moodboard: MoodboardTile,
+  setups: SetupsTile,
 };

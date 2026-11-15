@@ -270,8 +270,8 @@ export function trashShot(records: Records, projectId: string, shotId: string, s
 }
 
 /**
- * Sends a whole scene to the Trash (polish 5): the scene, its live frames and its notes, in one step, so one ⌘Z brings
- * them all back and the Trash lists them as one row, "SC 04 (with 3 frames)". Frames keep their letters: a locked
+ * Sends a whole scene to the Trash (polish 5): the scene, its live frames, notes and setups (6.0), in one step, so one
+ * ⌘Z brings them all back and the Trash lists them as one row, "SC 04 (with 3 frames)". Frames keep their letters: a locked
  * scene's are in its slate numbers already (1.26) and stay used, and Restore brings each back under its own unless a
  * live frame has taken it since. Its number stays taken too while it's in the Trash.
  */
@@ -279,7 +279,7 @@ export function trashScene(records: Records, sceneId: string): Change[] {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
   const inside = Object.values(records).filter(
-    (r) => r.parentId === sceneId && r.trashedAt === null && (r.type === 'shot' || r.type === 'note'),
+    (r) => r.parentId === sceneId && r.trashedAt === null && (r.type === 'shot' || r.type === 'note' || r.type === 'setup'),
   );
   return [{ kind: 'trash', id: sceneId }, ...inside.map((r) => ({ kind: 'trash' as const, id: r.id }))];
 }
@@ -389,9 +389,12 @@ export function moveItem(
     props: changesScene ? { ...item.props, number: slatedBack(records, slate, item.id, targetSceneId) } : item.props,
   };
   const back = changesScene ? shotFields(moved.props).number : '';
+  // A frame's setup is in its own scene (6.0): into another scene, it leaves it in the same step.
+  const leaves = changesScene && item.props.setup_id !== undefined;
   return [
     move,
     ...(back !== '' ? [{ kind: 'update' as const, id, set: { number: back } }] : []),
+    ...(leaves ? [{ kind: 'update' as const, id, unset: ['setup_id'] }] : []),
     ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved), { slate }),
     ...(changesScene
       ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id), { slate })

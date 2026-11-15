@@ -504,9 +504,9 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
  * trashed too but isn't in the Trash (1.13, 1.20): it goes only with its frame, so a frame still on the board keeps
  * its sketch's History.
  */
-const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'note', 'media', 'location', 'person', 'shoot_day', 'gear_item', 'board', 'board_item']);
+const TRASHED_BY_PEOPLE: ReadonlySet<string> = new Set(['scene', 'shot', 'setup', 'note', 'media', 'location', 'person', 'shoot_day', 'gear_item', 'board', 'board_item']);
 
-/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, note, picture, location, person, shoot day, gear item, board or board item (not what's under them). */
+/** What the Trash holds as Empty Trash sees it: each trashed scene, frame, setup, note, picture, location, person, shoot day, gear item, board or board item (not what's under them). */
 export function trashedRoots(records: readonly SbdRecord[]): string[] {
   return records.filter((r) => r.trashedAt !== null && TRASHED_BY_PEOPLE.has(r.type)).map((r) => r.id);
 }
@@ -524,7 +524,7 @@ function namedBy(record: SbdRecord): string[] {
 }
 
 /**
- * Every record Empty Trash deletes: each trashed scene, frame, note, picture, location, person, shoot day, gear item, board or board item and everything under it. With `only`,
+ * Every record Empty Trash deletes: each trashed scene, frame, setup, note, picture, location, person, shoot day, gear item, board or board item and everything under it. With `only`,
  * just those of them the person confirmed (anything trashed while the confirm was up stays in the Trash).
  */
 export function purgeIds(records: readonly SbdRecord[], only?: ReadonlySet<string>): string[] {

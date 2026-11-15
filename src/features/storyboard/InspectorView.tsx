@@ -175,9 +175,20 @@ export interface InspectorViewProps {
    * Left out, with no frame shown, so the row isn't drawn.
    */
   shootDay?: { label: string; onOpen: () => void } | null;
+  /**
+   * The frame's setup (6.0): `value` is its setup's id, or '' for none; `choices` its scene's setups by number and name.
+   * `onChange` takes the setup picked, No setup, or a new setup with this frame in it.
+   */
+  setup?: { value: string; choices: readonly { id: string; label: string }[]; onChange: (to: SetupPick) => void };
 }
 
 const NOTHING_SEEN: readonly string[] = [];
+
+/** What the Setup row picked (6.0). */
+export type SetupPick = { kind: 'none' } | { kind: 'new' } | { kind: 'join'; id: string };
+
+/** The Setup row's choice for a new setup: never a record's id, which is a UUID. */
+const NEW_SETUP = 'new';
 
 const SHORT_STATUS: Readonly<Record<ShotStatus, string>> = labels({ have: 'shotStatus.have', need: 'inspector.need', source: 'shotStatus.source' });
 
@@ -539,6 +550,7 @@ export function InspectorView({
   palette,
   boards,
   shootDay,
+  setup,
 }: InspectorViewProps) {
   // Escape anywhere in the inspector goes back to the board. One listener on the whole panel, because the segmented
   // controls handle their own keys.
@@ -1034,6 +1046,27 @@ export function InspectorView({
               ) : (
                 <span className="sb-label text-text-muted">{t('inspector.notScheduled')}</span>
               )}
+            </li>
+          )}
+          {setup && (
+            // The frame's setup (6.0), from its scene's: one edit per pick, so one ⌘Z.
+            <li data-inspector-setup="">
+              <Select
+                label={t('inspector.setup')}
+                value={setup.value}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setup.onChange(value === '' ? { kind: 'none' } : value === NEW_SETUP ? { kind: 'new' } : { kind: 'join', id: value });
+                }}
+              >
+                <option value="">{t('inspector.noSetup')}</option>
+                {setup.choices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+                <option value={NEW_SETUP}>{t('inspector.newSetup')}</option>
+              </Select>
             </li>
           )}
           <li className="flex justify-between">

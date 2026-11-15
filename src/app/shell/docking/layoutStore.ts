@@ -1,8 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { useStore } from 'zustand';
 import { ALL_WORKSPACES, isCustomWorkspaceId, TILES, workspaceById, type WorkspaceId } from '../workspaces';
-import { loadSettings } from '../../../core/storage/settings';
-import { isLayout, removeTile, sameLayout, tilesIn, type Layout } from './layout';
+import { loadSettings, saveSettings } from '../../../core/storage/settings';
+import { dropTile, isLayout, openTile, removeTile, sameLayout, stackOf, tilesIn, type DropZone, type Layout, type TileId } from './layout';
 
 // Each workspace's layout belongs to the person, not the project (decided Nov 2): it lives in the app's settings,
 // never in a .sbd. A workspace keeps its current layout and the one last saved; the tab shows a dot when they differ.
@@ -82,7 +82,26 @@ export function usable(value: unknown): Layout | null {
   return gone.reduce((layout, tile) => removeTile(layout, tile), value);
 }
 
-function load(storage: Storage | undefined): Partial<Record<WorkspaceId, WorkspaceLayouts>> {
+/**
+ * Tiles added to a built-in workspace's default layout after people could save that layout. A saved layout keeps what
+ * the person made of the old default, so each is put into it once (where the default has it: on `zone` of the stack
+ * holding `near`, else as opening it would), and Settings remembers it was offered, so closing it then is for good.
+ * One line per tile, never removed: a line taken out would offer the tile again to nobody, but one left costs nothing.
+ */
+export const TILES_ADDED: readonly { tile: TileId; workspace: WorkspaceId; near: TileId; zone: DropZone }[] = [
+  // 6.0: the Setup section went live with its Setups tile, above Layers in the left column.
+  { tile: 'setups', workspace: 'setup', near: 'layers', zone: 'top' },
+];
+
+const offeredKey = (added: (typeof TILES_ADDED)[number]) => `${added.workspace}:${added.tile}`;
+
+function withAdded(layout: Layout, added: (typeof TILES_ADDED)[number]): Layout {
+  if (tilesIn(layout).includes(added.tile)) return layout;
+  const near = stackOf(layout, added.near);
+  return near ? dropTile(layout, added.tile, near.id, added.zone) : openTile(layout, added.tile);
+}
+
+function load(storage: Storage | undefined, settings: Storage | undefined): Partial<Record<WorkspaceId, WorkspaceLayouts>> {
   let saved: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(storage?.getItem(LAYOUTS_KEY) ?? '{}');
@@ -90,10 +109,19 @@ function load(storage: Storage | undefined): Partial<Record<WorkspaceId, Workspa
   } catch {
     // A corrupt entry only costs the custom layouts, never the session.
   }
+  const offered = loadSettings(settings).tilesOffered;
+  const due = TILES_ADDED.filter((added) => !offered.includes(offeredKey(added)));
   const entries = ALL_WORKSPACES.map((workspace) => {
     const entry = saved[workspace.id] as Partial<Record<'current' | 'saved', unknown>> | undefined;
-    const savedLayout = usable(entry?.saved) ?? workspace.defaultLayout();
-    const current = usable(entry?.current) ?? savedLayout;
+    const fromSaved = usable(entry?.saved);
+    const fromCurrent = usable(entry?.current);
+    let savedLayout = fromSaved ?? workspace.defaultLayout();
+    let current = fromCurrent ?? savedLayout;
+    // A default has its new tiles already; only a layout the person saved can be missing one.
+    for (const added of due.filter((a) => a.workspace === workspace.id)) {
+      if (fromSaved) savedLayout = withAdded(savedLayout, added);
+      current = fromCurrent ? withAdded(current, added) : savedLayout;
+    }
     return [workspace.id, { current, saved: savedLayout }] as const;
   });
   // The person's own workspaces: their layouts as saved, else the layout each was made from.
@@ -104,10 +132,28 @@ function load(storage: Storage | undefined): Partial<Record<WorkspaceId, Workspa
     const savedLayout = usable(entry?.saved) ?? made;
     return [[custom.id, { current: usable(entry?.current) ?? savedLayout, saved: savedLayout }] as const];
   });
-  return Object.fromEntries([...entries, ...own]);
+  const layouts: Partial<Record<WorkspaceId, WorkspaceLayouts>> = Object.fromEntries([...entries, ...own]);
+  if (due.length > 0) {
+    // Written before they're marked offered: a store that fails in between offers them again, never loses them.
+    // Only a workspace with layouts of the person's own has anything to write.
+    if (due.some((added) => saved[added.workspace] !== undefined)) {
+      try {
+        storage?.setItem(LAYOUTS_KEY, JSON.stringify(layouts));
+      } catch {
+        // A full or blocked store loses the layout, not the session.
+      }
+    }
+    // Marked even where the default was used: it has the tile, and one closed from it stays closed.
+    saveSettings({ tilesOffered: [...offered, ...due.map(offeredKey)] }, settings);
+  }
+  return layouts;
 }
 
-export function createLayoutStore(storage: Storage | undefined = browserStorage()): StoreApi<LayoutState> {
+/** `settings` holds which added tiles were offered (`TILES_ADDED`); the app's own settings unless a test says. */
+export function createLayoutStore(
+  storage: Storage | undefined = browserStorage(),
+  settings: Storage | undefined = storage,
+): StoreApi<LayoutState> {
   return createStore<LayoutState>()((set, get) => {
     const persist = () => {
       try {
@@ -123,7 +169,7 @@ export function createLayoutStore(storage: Storage | undefined = browserStorage(
     };
 
     return {
-      layouts: load(storage),
+      layouts: load(storage, settings),
       past: [],
       change: (workspace, next) => {
         const before = layoutsOf(get().layouts, workspace).current;

@@ -584,9 +584,25 @@ older version keeps them as they are.
   them back; taking someone off keeps their `crew` entry and their times. A value that isn't a list of text reads as
   the prop missing and is never written over. Additive (no schema number): an older version ignores it and treats
   everyone as called.
-- A day's totals are worked out, never stored: its live "Need to shoot" frames in live scenes; their setups (frames
-  sharing a `setup_id` count once, a frame without one is a setup of its own); and setups times the minutes per setup.
-  Two days may share a date.
+- A day's totals are worked out, never stored: its live "Need to shoot" frames in live scenes; their setups (frames in
+  the same setup count once, a frame in none is a setup of its own, as Setups below reads `setup_id`); and setups times
+  the minutes per setup. Two days may share a date.
+
+## Setups (6.0)
+
+A `setup` record (under its `scene`) is one camera position and lighting state; several frames can share one.
+Additive: a prop on a record type every version has, and the existing `setup_id`, so no schema
+number.
+
+- `name` on a `setup`: typed by hand, '' for none ("Setup 2 · Window side").
+- Its number ("Setup 2") is its place among the scene's live setups in the scene's order of children, worked out,
+  never stored: reordering or trashing one renumbers the rest. Never lettered (shot numbers use the letters).
+- `setup_id` on a `shot`: the setup the frame is in, at most one. An id naming a setup in the Trash, a setup in another
+  scene, or nothing reads as no setup: the frame is a setup of its own. Every reader (Shoot days included) reads it so.
+- Moving a frame to another scene unsets its `setup_id` in the same op group.
+- Trashing a scene takes its setups with it; restoring it brings them back.
+- A trashed setup's frames keep their `setup_id`, so restoring the setup brings them back into it without touching
+  them.
 
 ## Attachments (3.11)
 

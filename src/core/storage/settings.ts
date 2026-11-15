@@ -123,6 +123,12 @@ export interface Settings {
    * layouts are.
    */
   customWorkspaces: SavedCustomWorkspace[];
+  /**
+   * Tiles added to a built-in workspace's default since layouts could be saved (src/app/shell/docking/layoutStore.ts,
+   * `TILES_ADDED`), as `workspace:tile`, once each has been put in this computer's saved layout. Offered once, so a tile
+   * the person then closes stays closed.
+   */
+  tilesOffered: string[];
 }
 
 export interface SavedCustomWorkspace {
@@ -212,6 +218,7 @@ export const DEFAULT_SETTINGS: Settings = {
   companies: [],
   departmentWorkspaces: [],
   customWorkspaces: [],
+  tilesOffered: [],
 };
 
 type Reader = Pick<Storage, 'getItem'>;
@@ -262,6 +269,9 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       companies: companyProfilesOf(saved.companies),
       departmentWorkspaces: departmentWorkspacesOf(saved.departmentWorkspaces),
       customWorkspaces: customWorkspacesOf(saved.customWorkspaces),
+      tilesOffered: Array.isArray(saved.tilesOffered)
+        ? [...new Set(saved.tilesOffered.filter((k): k is string => typeof k === 'string'))]
+        : [],
     };
   } catch {
     return { ...DEFAULT_SETTINGS, backups: { ...DEFAULT_KEEP }, syncNoted: [] };

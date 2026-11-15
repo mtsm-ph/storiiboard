@@ -9,7 +9,8 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, board, trashScene, trashShot } from '../storyboard/board';
 import { setPicture, type FramePicture } from '../storyboard/framePictures';
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
-import { emptyTrashMessage, restoreChanges, rowsGone, trashItems } from './trash';
+import { emptyTrashMessage, restoreChanges, rowsGone, TRASH_KIND_PLURAL, trashItems } from './trash';
+import { joinSetup, sceneSetups, setupFrames, trashSetup } from '../../core/model/setup';
 
 function picture(seed: number, name: string): FramePicture {
   const bytes = new Uint8Array(4000).map((_, i) => (i * seed) % 256);
@@ -287,5 +288,53 @@ describe('the Trash', () => {
     await store.getState().open(project);
     expect(trashItems(records(), project.projectId).map((i) => i.id)).toEqual([frameB]);
     expect(numbers()).toEqual(['4A', '4B']);
+  });
+});
+
+describe('setups in the Trash (6.0)', () => {
+  const setUp = async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'u1', type: 'setup', parentId: 'sc4', sortKey: 'a', props: { name: 'Window side' } } },
+      { kind: 'create', record: { id: 'u2', type: 'setup', parentId: 'sc4', sortKey: 'b', props: { name: '' } } },
+    ]);
+    await store.getState().apply(joinSetup(records(), [a(), b()], 'u1'));
+  };
+
+  it('lists a deleted setup under its scene, with its own type for the filter, and restores it with its frames in it', async () => {
+    await setUp();
+    await store.getState().apply(trashSetup(records(), 'u1'));
+    expect(setupFrames(records(), 'u1')).toEqual([]);
+    expect(trashItems(records(), project.projectId).map((i) => [i.kind, i.name, i.sceneName])).toEqual([['setup', 'Setup “Window side”', 'SC 04']]);
+    expect(TRASH_KIND_PLURAL.setup).toBe('Setups');
+    await restore('u1');
+    expect(setupFrames(records(), 'u1').map((r) => r.id)).toEqual([a(), b()]);
+    expect(sceneSetups(records(), 'sc4').map((s) => s.number)).toEqual([1, 2]);
+    // One with no name says so.
+    await store.getState().apply(trashSetup(records(), 'u2'));
+    expect(trashItems(records(), project.projectId).map((i) => i.name)).toEqual(['Setup with no name']);
+  });
+
+  it('takes a scene’s setups with it to the Trash and brings them back with it; a setup restored alone brings its scene', async () => {
+    await setUp();
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    expect(records().u1?.trashedAt).not.toBeNull();
+    // One row for the scene, not one per setup.
+    expect(trashItems(records(), project.projectId).map((i) => i.kind)).toEqual(['scene']);
+    await restore('sc4');
+    expect(sceneSetups(records(), 'sc4').map((s) => s.record.id)).toEqual(['u1', 'u2']);
+    expect(setupFrames(records(), 'u1').map((r) => r.id)).toEqual([a(), b()]);
+    // A setup deleted first, then its scene: restoring the setup brings the scene back whole.
+    await store.getState().apply(trashSetup(records(), 'u2'));
+    await store.getState().apply(trashScene(records(), 'sc4'));
+    await restore('u2');
+    expect(records().sc4?.trashedAt).toBeNull();
+    expect(sceneSetups(records(), 'sc4').map((s) => s.record.id)).toEqual(['u1', 'u2']);
+  });
+
+  it('is emptied for good with the rest', async () => {
+    await setUp();
+    await store.getState().apply(trashSetup(records(), 'u2'));
+    expect(await store.getState().emptyTrash()).toMatchObject({ removed: 1 });
+    expect(records().u2).toBeUndefined();
   });
 });

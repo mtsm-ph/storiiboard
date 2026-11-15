@@ -9,6 +9,7 @@ import { addNote, addShot, board, moveItem, setCustomField, setSceneLocation, tr
 import { addStroke, eraseStrokes } from '../storyboard/sketch/strokes';
 import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../callsheets/callsheetEdits';
 import { dayPeopleAdd, dayPeopleRemove } from '../schedule/dayEdits';
+import { addSetup, joinSetup, renameSetup } from '../../core/model/setup';
 import { putBackChange } from './putBack';
 import { frameOps, itemOps, loadSteps, PAGE, restoreNotice } from './steps';
 import { changeLabel, changeText, changeValue, fieldChanges, frameRows, lineText, valueLabel, type FieldChange } from './summary';
@@ -69,6 +70,19 @@ describe('History', () => {
       'Moved 4C',
       'Undid: Moved 4C',
       'Redid: Moved 4C',
+    ]);
+  });
+
+  it('names setup steps by their scene and name as read back from the file (6.0)', async () => {
+    const a = await frame();
+    await store.getState().applyWith((now) => ({ changes: addSetup(now, 'sc4', 'su1') }));
+    await store.getState().applyWith((now) => ({ changes: renameSetup(now, 'su1', 'Window side') }));
+    await store.getState().applyWith((now) => ({ changes: joinSetup(now, [a], 'su1') }));
+    await reopen();
+    expect((await lines()).slice(2)).toEqual([
+      'Added a setup to SC 04',
+      'Renamed a setup in SC 04 to “Window side”',
+      'Added 4A to setup “Window side” in SC 04',
     ]);
   });
 

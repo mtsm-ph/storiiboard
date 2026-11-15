@@ -28,6 +28,7 @@ const BUILT_IN_TILES = [
   'moodboard',
   'gear',
   'locations',
+  'setups',
   'layers',
   'plan',
   'selection',
@@ -117,22 +118,20 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     defaultLayout: () => layout(stack(['team'])),
   },
   {
-    // Home of the bird's-eye view (CLAUDE.md, Navigation). The one section still to come (Kevin, Nov 11): the sidebar
-    // shows its phase, muted, until Phase 6 builds it. Every other section is built and reads as live.
+    // Home of the bird's-eye view (CLAUDE.md, Navigation). Live from 6.0, with its Setups tile; the plan, layers,
+    // selection, frames and library tiles stay placeholders until the rest of Phase 6 builds them.
     id: 'setup',
     get label() {
       return t('workspace.setup');
     },
-    get phase() {
-      return t('phase.number', { phase: 6 });
-    },
-    order: ['layers', 'plan', 'selection', 'frames', 'library'],
+    phase: null,
+    order: ['setups', 'layers', 'plan', 'selection', 'frames', 'library'],
     defaultLayout: () =>
       layout(
         split(
           'row',
           [
-            split('column', [stack(['layers']), stack(['library'])], [120, 688]),
+            split('column', [stack(['setups']), stack(['layers']), stack(['library'])], [400, 120, 288]),
             split('column', [stack(['plan']), stack(['frames'])], [658, 150]),
             stack(['selection']),
           ],

@@ -7,6 +7,7 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot } from '../storyboard/board';
 import { ItemHistory } from './ItemHistory';
 import { itemOps } from './steps';
+import { namedById } from './summary';
 
 // The table an item's own history shows (1.22): its old values in full, since they're read there before Put back.
 
@@ -69,5 +70,25 @@ describe('an item’s own history', () => {
     expect(html).toContain('Changes to scene SC 04, newest first');
     expect(html).toMatch(/location<\/td><td[^>]*>—<\/td><td[^>]*>Dock<\/td>/);
     expect(html).not.toContain('>dock<');
+  });
+
+  it('names each setup a frame moved between (6.0), by its name, else as a setup', async () => {
+    const added = addShot(store.getState().records, project.projectId, 'sc4');
+    await store.getState().apply([
+      ...added.changes,
+      { kind: 'create', record: { id: 'su1', type: 'setup', parentId: 'sc4', sortKey: 'a', props: { name: 'Window side' } } },
+      { kind: 'create', record: { id: 'su2', type: 'setup', parentId: 'sc4', sortKey: 'b', props: { name: '' } } },
+    ]);
+    await store.getState().apply([{ kind: 'update', id: added.shotId, set: { setup_id: 'su1' } }]);
+    await store.getState().apply([{ kind: 'update', id: added.shotId, set: { setup_id: 'su2' } }]);
+    const records = store.getState().records;
+    const frame = records[added.shotId];
+    if (!frame) throw new Error('no frame');
+    const html = renderToString(
+      <ItemHistory item={frame} title="frame 4A" ops={await itemOps(project.file, frame)} places={(id) => namedById(records[id])} onPutBack={putBack} />,
+    );
+    expect(html).toMatch(/setup<\/td><td[^>]*>setup “Window side”<\/td><td[^>]*>a setup<\/td>/);
+    expect(html).toMatch(/setup<\/td><td[^>]*>—<\/td><td[^>]*>setup “Window side”<\/td>/);
+    expect(html).not.toContain('su1');
   });
 });

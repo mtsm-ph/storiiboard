@@ -32,7 +32,7 @@ export function workingHours(ctx: CheckContext, estimate: boolean): { start: num
     // between (the night clocks go back or forward) then counts, which adding the difference in minutes would not.
     end = wallInstant(wrap > call ? date : shiftDate(date, 1), Math.floor(wrap / 60), wrap % 60, zone)?.getTime();
   } else if (estimate) {
-    end = start + dayTotals(ctx.frames, setupMinutes(ctx.records[ctx.projectId]?.props)).minutes * 60_000;
+    end = start + dayTotals(ctx.records, ctx.frames, setupMinutes(ctx.records[ctx.projectId]?.props)).minutes * 60_000;
   }
   if (end === undefined) return null;
   return { start, end };

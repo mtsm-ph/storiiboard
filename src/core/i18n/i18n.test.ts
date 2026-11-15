@@ -125,6 +125,15 @@ describe('Spanish (polish 7)', () => {
     ]);
     expect(list(['ESC 01', 'ESC 02', 'ESC 03'])).toBe('ESC 01, ESC 02 y ESC 03');
   });
+
+  it('names the Setup section as the sidebar does, in both languages (6.0)', () => {
+    for (const locale of ['en', 'es'] as const) {
+      setLocale(locale);
+      expect(t('board.noSetups', { scene: 'SC 04' })).toContain(t('workspace.setup'));
+    }
+    setLocale('es');
+    expect(t('board.noSetups', { scene: 'ESC 04' })).toContain('la sección Planta');
+  });
 });
 
 describe('errors raised below the UI', () => {

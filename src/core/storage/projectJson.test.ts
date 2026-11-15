@@ -150,6 +150,35 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries setups and the frames in them out and back, one in the Trash too (6.0)', async () => {
+    const file = project.file;
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'u1', type: 'setup', parentId: 'sc4', sortKey: 'a', props: { name: 'Window side' } } },
+        { kind: 'create', record: { id: 'u2', type: 'setup', parentId: 'sc4', sortKey: 'b', props: { name: '' } } },
+        { kind: 'update', id: 's1', set: { setup_id: 'u1' } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'u2' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (setups).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('s1')?.props))).toMatchObject({ setup_id: 'u1' });
+      expect(row('u1')?.type).toBe('setup');
+      expect(JSON.parse(String(row('u1')?.props))).toEqual({ name: 'Window side' });
+      expect(row('u2')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('imports a project exported at an older schema, then upgrades it as on open', async () => {
     const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
     // Schema 7 had no video tables: the same project without them, said to be at 7.
