@@ -339,6 +339,11 @@ describe('a measure', () => {
     expect(shownItems(records(), sceneId, setupId).filter((i) => i.fields.kind === 'measure')).toHaveLength(2);
   });
 
+  it('is resized by its ends alone, as a wall is: its 1 cm thickness is never dragged (6.17 review)', () => {
+    const item = measureItem('m', { kind: 'measure', x: 0, y: 0, width: 3, height: 0.01, rotation: 0, name: '' }, 'metres');
+    expect(item.endsOnly).toBe(true);
+  });
+
   it('snaps its ends to a wall’s, and its typed length keeps its start', async () => {
     const { sceneId } = await scene();
     const walls = drawWallsChanges(records(), sceneId, [

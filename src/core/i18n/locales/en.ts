@@ -3595,6 +3595,8 @@ export const en = {
   'export.plan.departments.everything': 'Everything',
   'export.plan.departments.each': 'Each department',
   'export.plan.departmentsWord': 'departments',
+  // A plan file's name with a department's (or "departments"): where the language puts it (6.17 review).
+  'export.plan.fileNameDepartment': '{name} {department} {what}',
   'export.plan.nothingDepartment': 'Nothing to print here: {department} has nothing on these plans.',
   'export.plan.nothingEach': 'Nothing to print here: no department has anything on these plans.',
   'export.plan.countDepartment.one': '{count} plan to print: {department} and the room, nothing selected.',

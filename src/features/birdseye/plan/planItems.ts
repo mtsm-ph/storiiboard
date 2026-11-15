@@ -243,8 +243,9 @@ const FRAME_PICK_PIXELS = 8;
 
 /**
  * A flag or diffusion frame for the canvas (6.5): a standing one a line its width long (StandingFrameShape), resized
- * freely, since its depth stays 5 cm whatever its width, and picked at least FRAME_PICK_PIXELS thick; the overhead
- * lying flat as its icon, its proportions kept.
+ * freely, since its depth stays 5 cm whatever its width, picked at least FRAME_PICK_PIXELS thick, and (6.17 review, as a
+ * wall, 6.19c) resized by its ends alone, so a press on its 5 cm bar moves it instead of landing on a long side's anchor;
+ * the overhead lying flat as its icon, its proportions kept, with every handle.
  */
 export function gripItem(id: string, fields: GripFields, unit: PlanUnit): CanvasItem {
   const icon = planIconOf(fields.icon);
@@ -263,7 +264,7 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
     id,
     ...g,
     label: gripAnnounce(fields, unit),
-    ...(flat ? { keepRatio: true } : { pickThickness: FRAME_PICK_PIXELS }),
+    ...(flat ? { keepRatio: true } : { pickThickness: FRAME_PICK_PIXELS, endsOnly: true }),
     draw,
     ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
     sameInAndOut: true,
@@ -442,7 +443,7 @@ export const measureLines = (fields: MeasureFields, unit: PlanUnit): string[] =>
  * A measure for the canvas (6.9): a thin ink line along its box's middle with a tick across each end, its length (in the
  * unit shown) an upright mono label beside its middle, as a wall's height label is (BesideLabels), never themed. Picked
  * at least FRAME_PICK_PIXELS thick, as a standing frame is: its 1 cm box is a hairline zoomed out. Its ends are its snap
- * points, as a wall's are.
+ * points, as a wall's are, and (6.17 review) its handles are at its ends alone, as a wall's: its thickness is fixed.
  */
 export function measureItem(id: string, fields: MeasureFields, unit: PlanUnit): CanvasItem {
   const g = toCanvasGeometry(fields);
@@ -469,6 +470,7 @@ export function measureItem(id: string, fields: MeasureFields, unit: PlanUnit): 
       { x: toCanvas(end.x), y: toCanvas(end.y) },
     ],
     pickThickness: FRAME_PICK_PIXELS,
+    endsOnly: true,
     draw,
     // Above the line, the side away from its box's normal, so a measure drawn along a wall's face and the wall's own height
     // label (on the wall's normal side) sit apart.

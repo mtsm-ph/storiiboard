@@ -224,14 +224,16 @@ export async function paintPage(page: PrintPage, file: ProjectFile, watermark: W
 // The names (decision 14 brief): "Bey County SC004 Setup 2 plan.pdf", "Bey County SC004 plans.pdf", "Bey County Day 2
 // plans.pdf", the words and their order the language's (export.fileName), the scene number padded as a frame's file is.
 
-const named = (name: string, what: string, extension: string | null): string => {
-  const base = safeName(t('export.fileName', { name, what }));
+/**
+ * A plan file's name. With a Departments choice (6.17) the department's name in the app's language, or "departments" for
+ * each, goes where the language's template puts it (export.plan.fileNameDepartment, 6.17 review): "Bey County SC004
+ * Setup 1 Lighting plan", "planta de Iluminación de Bey County SC004 Emplazamiento 1"; otherwise export.fileName's.
+ */
+const named = (name: string, what: string, extension: string | null, departments?: PlanDepartments): string => {
+  const department = departments === undefined || departments === 'everything' ? null : departments === 'each' ? t('export.plan.departmentsWord') : groupName(departments);
+  const base = safeName(department === null ? t('export.fileName', { name, what }) : t('export.plan.fileNameDepartment', { name, what, department }));
   return extension === null ? base : `${base}.${extension}`;
 };
-
-/** A name with a Departments choice's word after it (6.17): the department's name in the app's language, or "departments" for each. */
-const withDepartments = (name: string, departments: PlanDepartments | undefined): string =>
-  departments === undefined || departments === 'everything' ? name : `${name} ${departments === 'each' ? t('export.plan.departmentsWord') : groupName(departments)}`;
 
 /** "SC004": the scene's slate in a file's name, the same in every language, as frames' files are named. */
 const sceneSlate = (records: Records, sceneId: string): string => `SC${paddedScene(sceneFields(records[sceneId]?.props ?? {}).number)}`;
@@ -240,17 +242,17 @@ const sceneSlate = (records: Records, sceneId: string): string => `SC${paddedSce
 export function planFileName(title: string, records: Records, target: PlanTarget, extension: 'pdf' | 'png' | null, departments?: PlanDepartments): string {
   if (target.kind === 'day') {
     const day = projectShootDays(records, records[target.dayId]?.parentId ?? '').find((d) => d.record.id === target.dayId);
-    return named(withDepartments(`${title} ${t('shootDay.label', { number: day?.number ?? 0 })}`, departments), t('export.plan.packetWord'), extension);
+    return named(`${title} ${t('shootDay.label', { number: day?.number ?? 0 })}`, t('export.plan.packetWord'), extension, departments);
   }
   const scene = `${title} ${sceneSlate(records, target.sceneId)}`;
-  if (target.kind === 'scene') return named(withDepartments(scene, departments), t('export.plan.packetWord'), extension);
+  if (target.kind === 'scene') return named(scene, t('export.plan.packetWord'), extension, departments);
   const setup = target.setupId === null ? undefined : sceneSetups(records, target.sceneId).find((s) => s.record.id === target.setupId);
-  return named(withDepartments(setup ? `${scene} ${t('setup.label', { number: setup.number })}` : scene, departments), t('export.plan.fileWord'), extension);
+  return named(setup ? `${scene} ${t('setup.label', { number: setup.number })}` : scene, t('export.plan.fileWord'), extension, departments);
 }
 
 /** A setup's file is named for the setup shown; a scene shown with no setup, for the scene ("Bey County SC004 plan.pdf"). */
 const setupFileName = (title: string, records: Records, target: PlanTarget, extension: 'pdf' | 'png' | null, departments?: PlanDepartments): string =>
-  target.kind === 'day' ? named(withDepartments(title, departments), t('export.plan.fileWord'), extension) : planFileName(title, records, { kind: 'setup', sceneId: target.sceneId, setupId: target.kind === 'setup' ? target.setupId : null }, extension, departments);
+  target.kind === 'day' ? named(title, t('export.plan.fileWord'), extension, departments) : planFileName(title, records, { kind: 'setup', sceneId: target.sceneId, setupId: target.kind === 'setup' ? target.setupId : null }, extension, departments);
 
 /** A PNG of each department is a folder of them, one file each (6.17); any other choice, one file. */
 const pngExtension = (departments: PlanDepartments | undefined): 'png' | null => (departments === 'each' ? null : 'png');
@@ -267,7 +269,7 @@ export const planSetupPdf: ExportFormat = {
   plans: 'view',
   watermark: 'pdf',
   options: { plan: true },
-  name: (title, _scene, departments) => named(withDepartments(title, departments), t('export.plan.fileWord'), 'pdf'),
+  name: (title, _scene, departments) => named(title, t('export.plan.fileWord'), 'pdf', departments),
   planName: (title, records, target, departments) => setupFileName(title, records, target, 'pdf', departments),
   ...planFormatViews((records, _projectId, target) => setupCandidates(records, target)),
   run: (context) => writePlanPdf(planSetupPdf, context),
@@ -286,7 +288,7 @@ export const planSetupPng: ExportFormat = {
   plans: 'view',
   watermark: 'png',
   options: { plan: true },
-  name: (title, _scene, departments) => named(withDepartments(title, departments), t('export.plan.fileWord'), pngExtension(departments)),
+  name: (title, _scene, departments) => named(title, t('export.plan.fileWord'), pngExtension(departments), departments),
   planName: (title, records, target, departments) => setupFileName(title, records, target, pngExtension(departments), departments),
   ...planFormatViews((records, _projectId, target) => setupCandidates(records, target)),
   run: async (context): Promise<ExportResult> => {
@@ -335,7 +337,7 @@ export const planScenePdf: ExportFormat = {
   watermark: 'pdf',
   options: { plan: true },
   name: (title, sceneNumber, departments) =>
-    sceneNumber === null ? named(withDepartments(title, departments), t('export.plan.packetWord'), 'pdf') : named(withDepartments(`${title} SC${paddedScene(sceneNumber)}`, departments), t('export.plan.packetWord'), 'pdf'),
+    sceneNumber === null ? named(title, t('export.plan.packetWord'), 'pdf', departments) : named(`${title} SC${paddedScene(sceneNumber)}`, t('export.plan.packetWord'), 'pdf', departments),
   planName: (title, records, target, departments) => planFileName(title, records, target.kind === 'setup' ? { kind: 'scene', sceneId: target.sceneId } : target, 'pdf', departments),
   ...planFormatViews(scenePacketCandidates),
   run: (context) => writePlanPdf(planScenePdf, context),
@@ -353,7 +355,7 @@ export const planDayPdf: ExportFormat = {
   plans: 'day',
   watermark: 'pdf',
   options: { plan: true },
-  name: (title, _scene, departments) => named(withDepartments(title, departments), t('export.plan.packetWord'), 'pdf'),
+  name: (title, _scene, departments) => named(title, t('export.plan.packetWord'), 'pdf', departments),
   planName: (title, records, target, departments) => planFileName(title, records, target, 'pdf', departments),
   ...planFormatViews((records, projectId, target) => dayPacketCandidates(records, projectId, target)),
   run: (context) => writePlanPdf(planDayPdf, context),

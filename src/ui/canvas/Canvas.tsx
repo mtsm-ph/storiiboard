@@ -441,9 +441,9 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
   // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
   const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
-  // A wall picked by itself (6.19c) is about as thick as an anchor: the anchors on the middle of its long sides would sit
-  // on its centre line and take the press meant to move it, so it has none there; its ends keep theirs. A group's box is
-  // the group's, not the wall's, and keeps all eight.
+  // A wall picked by itself (6.19c), a standing flag or frame or a measure (6.17 review) is about as thick as an anchor or
+  // thinner: the anchors on the middle of its long sides would sit on its centre line and take the press meant to move
+  // it, so it has none there; its ends keep theirs. A group's box is the group's, not the item's, and keeps all eight.
   const endsOnly = handleIds.length === 1 && shown.find((item) => item.id === handleIds[0])?.endsOnly === true;
   // A plan's sun path (6.6) is never turned, a door or window takes its turn from its wall, and a section is always
   // upright: no rotate handle while one is picked (turnsByHandle).

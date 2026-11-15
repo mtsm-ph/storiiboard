@@ -167,6 +167,19 @@ describe('a symbol icon item: its true footprint outlined, the symbol in its own
     expect(group.scaleY).toBeCloseTo(90 / 16, 9);
   });
 
+  it('draws a sign sized by its side (First aid, an eyeline) bare, stretched to its own box as before 6.17: no outline, no margin', () => {
+    for (const [icon, width, height] of [
+      ['production/first-aid', 0.5, 0.5],
+      ['cast/eyeline', 1.5, 0.72],
+    ] as const) {
+      const { item, group, outline } = drawnOf(icon, width, height);
+      expect(outline, icon).toBeUndefined();
+      const box = ICON_BOXES[icon];
+      if (!box) throw new Error(`no box for ${icon}`);
+      expect(group, icon).toMatchObject(iconFit(box, item.width, item.height));
+    }
+  });
+
   it('draws a camera, a light and a mark as before: their boxes are their drawings’ own proportions, never a footprint', () => {
     const camera = cameraItem('c', { ...fields('camera/gimbal', 0.5, 0.5), kind: 'camera', bodyId: null, shotIds: [], shownShotId: null, lensMm: null, lensId: null, onSide: false }, 'metres', { degrees: null, lines: [], selected: false });
     const parts = childrenOf(renderOnce(camera.draw?.(context)));

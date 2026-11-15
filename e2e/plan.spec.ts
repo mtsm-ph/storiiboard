@@ -407,19 +407,41 @@ test('a selected wall moves by its body: a press on its centre line, or half a p
   await drawWall(page);
   const zoom = async () => Number(await canvas(page).getAttribute('data-zoom'));
   expect(await zoom()).toBe(1);
-  // Picked, a press on its centre line (or half a pixel off it) and a drag a metre down: both ends a metre down, as long.
+  // Picked, presses on its body and a drag a metre down: both ends a metre down, as long. Every press is aimed at a whole
+  // CSS pixel worked out from the canvas's box as measured (6.19c review): Chromium delivers the pointer where asked,
+  // Mac WebKit only on whole pixels (it drops the fraction), and this spec's canvas centre is not a whole pixel (its box
+  // falls on sixty-fourths of a pixel), so a press asked for at "centre line ± 0.5 px" landed up to about 1 px from
+  // where it was meant. The arithmetic, for the wall's centre line at screen y = L (fractional) and a wall T px thick:
+  // the wall covers L ± T/2; asked at L - 0.5, L and L + 0.5, a truncating engine delivers floor(L - 0.5), floor(L) and
+  // floor(L + 0.5), up to 1.5 px above L, so a press misses once T/2 < 1.5 (T < 3 px): at the old zoomed-out step (26%,
+  // T = 2.6 px) the press asked at L - 0.5 lands off the wall for any L whose fraction is under 0.3, and the one at L for
+  // a fraction above 0.3 can graze its edge. Aimed at round(L) (within 0.5 px of L) and round(L) ± 1 (within 1.5 px),
+  // delivered as asked in both engines, each press is on the wall with a whole pixel to spare once T/2 - 1 is at least
+  // its distance from L: at 100% (T = 10) all three; at 51% (T = 5.12) round(L) always and ± 1 where |round(L) ± 1 - L|
+  // is within 1.56 px, which the test works out from the measured box and skips where it isn't.
+  // Measured in Chromium at 1440 × 900: the canvas box is y 152, 557 high, so its centre is at 430.5 and the wall on
+  // the plan's middle (y 0) has L = 430.5 at 100%; three drags later (y 3 m) at 51.2%, L = 430.5 + 300 × 0.512 = 584.1,
+  // T = 5.12, round(L) = 584, and 583 and 585 are 1.1 and 0.9 px from L, so all six presses are made.
   const dragsByItsBody = async () => {
-    for (const off of [0, -0.5, 0.5]) {
+    const [first] = await walls(page);
+    if (!first) throw new Error('no wall');
+    const centre = await screen(page, ((first.start.x + first.end.x) / 2) * 100, ((first.start.y + first.end.y) / 2) * 100);
+    const thick = first.height * 100 * (await zoom());
+    const line = Math.round(centre.y);
+    const presses = [0, -1, 1].filter((off) => Math.abs(line + off - centre.y) <= thick / 2 - 1);
+    expect(presses).toContain(0);
+    for (const off of presses) {
       const [was] = await walls(page);
       if (!was) throw new Error('no wall');
       const middle = { x: ((was.start.x + was.end.x) / 2) * 100, y: ((was.start.y + was.end.y) / 2) * 100 };
-      await clickAt(page, middle.x, middle.y);
+      const exact = await screen(page, middle.x, middle.y);
+      const at = { x: Math.round(exact.x), y: Math.round(exact.y) + off };
+      await page.mouse.click(at.x, at.y);
       await expect.poll(() => selection(page)).toEqual([was.id]);
-      const at = await screen(page, middle.x, middle.y);
       const metre = 100 * (await zoom());
-      await page.mouse.move(at.x, at.y + off);
+      await page.mouse.move(at.x, at.y);
       await page.mouse.down();
-      await page.mouse.move(at.x, at.y + off + metre, { steps: 8 });
+      await page.mouse.move(at.x, at.y + metre, { steps: 8 });
       await page.mouse.up();
       await expect.poll(async () => ((await walls(page))[0]?.start.y ?? 0) - was.start.y).toBeCloseTo(1, 3);
       const [now] = await walls(page);
@@ -431,16 +453,15 @@ test('a selected wall moves by its body: a press on its centre line, or half a p
     }
   };
   await dragsByItsBody();
-  // Zoomed out, a step at a time, as far as the 10 cm wall still shows at least 2.5 px thick (26%): further out, a press
-  // half a pixel off its centre line, which an engine that delivers whole pixels (WebKit) may round to a pixel or more
-  // off it, can fall past its edge and pick nothing.
+  // Zoomed out, a step at a time, as far as the 10 cm wall still shows at least 5 px thick (51%): room for a whole-pixel
+  // press on its centre line with a pixel to spare each side, in an engine that delivers whole pixels.
   const zoomOut = planTile(page).getByRole('button', { name: 'Zoom out', exact: true });
-  while (((await zoom()) / 1.25) * 10 >= 2.5) {
+  while (((await zoom()) / 1.25) * 10 >= 5) {
     const was = await zoom();
     await zoomOut.click();
     await expect.poll(zoom).toBeLessThan(was);
   }
-  expect(await zoom()).toBeLessThan(0.3);
+  expect(await zoom()).toBeLessThan(0.6);
   await dragsByItsBody();
 });
 
