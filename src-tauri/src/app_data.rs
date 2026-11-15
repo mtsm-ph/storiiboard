@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 /// The only files the UI may read or write here, so a bug can't reach anything else in the folder.
 const FILES: &[&str] = &["recent.json"];
@@ -34,17 +34,24 @@ pub fn write(dir: &Path, name: &str, contents: &str) -> Result<(), String> {
     fs::rename(&temp, &path).map_err(|error| error.to_string())
 }
 
-fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub async fn app_data_read(app: AppHandle, name: String) -> Result<Option<String>, String> {
+pub async fn app_data_read<R: Runtime>(
+    app: AppHandle<R>,
+    name: String,
+) -> Result<Option<String>, String> {
     read(&data_dir(&app)?, &name)
 }
 
 #[tauri::command]
-pub async fn app_data_write(app: AppHandle, name: String, contents: String) -> Result<(), String> {
+pub async fn app_data_write<R: Runtime>(
+    app: AppHandle<R>,
+    name: String,
+    contents: String,
+) -> Result<(), String> {
     write(&data_dir(&app)?, &name, &contents)
 }
 

@@ -25,7 +25,7 @@ use std::{
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::net;
 
@@ -202,7 +202,7 @@ fn now() -> u64 {
 }
 
 /// Where the copy is kept; none when the app's data folder can't be found, and then the switch goes on without a disk.
-fn kept_path(app: &AppHandle) -> Option<PathBuf> {
+fn kept_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path()
         .app_data_dir()
         .ok()
@@ -291,7 +291,10 @@ where
 
 /// The server a service's code is to use now, reading the switch file first if a day has passed. Err starting with
 /// `OFF_PREFIX` is "turned off, for this reason": the caller makes no request and says why.
-pub(crate) async fn service_server(app: &AppHandle, id: &str) -> Result<String, String> {
+pub(crate) async fn service_server<R: Runtime>(
+    app: &AppHandle<R>,
+    id: &str,
+) -> Result<String, String> {
     service(id).ok_or_else(|| NO_SERVICE.to_owned())?;
     let path = kept_path(app);
     let mut memory = READING.lock().await;
@@ -340,7 +343,7 @@ fn statuses(kept: &Kept) -> Vec<ServiceStatus> {
 /// For Settings → Online services: what the switch says now, from what was last kept. Never reads the file itself: the
 /// switch is read only just before a service is used.
 #[tauri::command]
-pub async fn services_status(app: AppHandle) -> Result<Vec<ServiceStatus>, String> {
+pub async fn services_status<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ServiceStatus>, String> {
     let memory = READING.lock().await;
     let disk = kept_path(&app).map(|path| load(&path)).unwrap_or_default();
     Ok(statuses(&newer(disk, memory.as_ref(), now())))

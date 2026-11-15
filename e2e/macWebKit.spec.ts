@@ -143,6 +143,51 @@ test('the menu key opens a frame’s and a scene heading’s menu, once, where t
   await expect(pencil).toBeFocused();
 });
 
+test('the keyboard’s own contextmenu after Shift+F10 neither moves the frame’s menu nor opens the browser’s over it', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  const frame = board.locator('[data-shot-id]').first();
+  await expect(frame).toBeFocused();
+  const menu = page.locator('[data-add-to-board-menu]');
+  const addToBoard = menu.getByRole('button', { name: 'Add to board…' });
+  await page.keyboard.press('Shift+F10');
+  await expect(addToBoard).toBeFocused();
+  const place = () =>
+    menu.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return { left: box.left, top: box.top };
+    });
+  const before = await place();
+  // A browser that also sends the keys' contextmenu (no right button) on the frame: the keydown opened the menu
+  // already, so this one opens nothing again and moves nothing (src/ui/menuKey.ts, fromKeyboard).
+  await frame.evaluate((el) => {
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0, clientX: 900, clientY: 700 }));
+  });
+  await expect(menu).toHaveCount(1);
+  expect(await place()).toEqual(before);
+  await expect(addToBoard).toBeFocused();
+  // Windows' Chromium sends the menu key's contextmenu on key up, to the command its keydown focused: the panel keeps
+  // the browser's own menu (Back, Refresh, Inspect in WebView2) from opening over the app's.
+  const prevented = await addToBoard.evaluate((el) => {
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
+    el.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  await expect(addToBoard).toBeFocused();
+});
+
+test('a menu’s focused command keeps the browser’s own menu out too', async ({ page }) => {
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  const prevented = await page.evaluate(() => {
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
+    document.activeElement?.dispatchEvent(event);
+    return document.activeElement?.tagName === 'BUTTON' && event.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+});
+
 test.describe('with Safari’s user agent', () => {
   test.use({ userAgent: devices['Desktop Safari'].userAgent });
 

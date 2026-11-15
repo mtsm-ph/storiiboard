@@ -4,6 +4,8 @@ use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
 mod backup;
+#[cfg(test)]
+mod command_tests;
 mod export;
 mod fonts;
 mod geocode;
@@ -26,17 +28,9 @@ mod timezone;
 mod video;
 mod weather;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let builder = tauri::Builder::default();
-    // Registered first, as the plugin asks, so a second launch exits before it sets anything else up.
-    #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-        opened::queue(
-            app,
-            opened::sbd_paths(args.into_iter().skip(1), Path::new(&cwd)),
-        );
-    }));
+/// The commands the page may call, the plugins they use and the state they share. run() builds the app on it, and the
+/// command tests (command_tests.rs) build Tauri's mock runtime on it, so a command missing here is missing from both.
+pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_dialog::init())
         // Used only from src/open.rs: the page is given none of its permissions (capabilities/default.json), and its
@@ -122,6 +116,35 @@ pub fn run() {
             tiles::map_tile_provider,
             tiles::map_tile_provider_set,
         ])
+}
+
+/// The state made from this computer's folders as the app starts (setup in run(), and the command tests).
+pub(crate) fn manage_at_start<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    // This computer's id and name, for the lock files next to open projects (lock.rs).
+    let data_dir = app.path().app_data_dir().unwrap_or_default();
+    app.manage(lock::Machine::load(&data_dir));
+    // Videos the person has handed over, so a reopened project reads its footage (video.rs).
+    app.manage(video::KnownVideos::load(&data_dir));
+    // Playback copies (playback.rs): in the app's cache folder unless the person moved them.
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| data_dir.join("cache"));
+    app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let builder = tauri::Builder::default();
+    // Registered first, as the plugin asks, so a second launch exits before it sets anything else up.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        opened::queue(
+            app,
+            opened::sbd_paths(args.into_iter().skip(1), Path::new(&cwd)),
+        );
+    }));
+    with_commands(builder)
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.
         .register_asynchronous_uri_scheme_protocol(
@@ -163,17 +186,7 @@ pub fn run() {
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {
-            // This computer's id and name, for the lock files next to open projects (lock.rs).
-            let data_dir = app.path().app_data_dir().unwrap_or_default();
-            app.manage(lock::Machine::load(&data_dir));
-            // Videos the person has handed over, so a reopened project reads its footage (video.rs).
-            app.manage(video::KnownVideos::load(&data_dir));
-            // Playback copies (playback.rs): in the app's cache folder unless the person moved them.
-            let cache_dir = app
-                .path()
-                .app_cache_dir()
-                .unwrap_or_else(|_| data_dir.join("cache"));
-            app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
+            manage_at_start(app.handle());
             // Copies cut off by a crash or a quit, on a thread of its own: a drive slow to wake (or a share that
             // doesn't answer) never holds up the window, and it waits its turn behind a copy started meanwhile.
             let handle = app.handle().clone();

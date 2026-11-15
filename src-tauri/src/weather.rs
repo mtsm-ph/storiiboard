@@ -12,7 +12,7 @@ use std::{
 
 use reqwest::{StatusCode, Url};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use crate::{net, services};
 
@@ -335,8 +335,8 @@ where
 
 /// The forecast at a place. The page calls this only when its cached answer is missing or out of date.
 #[tauri::command]
-pub async fn weather_forecast(
-    app: AppHandle,
+pub async fn weather_forecast<R: Runtime>(
+    app: AppHandle<R>,
     latitude: f64,
     longitude: f64,
     modified_since: Option<String>,

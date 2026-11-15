@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { t } from '../../core/i18n';
 import { cx } from '../cx';
+import { keepBrowserMenuOut } from '../menuKey';
 import type { Tool, ToolSpec } from './types';
 
 // The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L), Connector (C), Section (Shift+S)
@@ -79,7 +80,9 @@ function ShapesButton({ tool, onTool }: { tool: Tool; onTool: (tool: Tool) => vo
         </kbd>
       </button>
       {open && (
-        <div id={panel} role="group" aria-label={t('canvas.tool.shapes')} className="absolute top-full right-0 z-20 mt-1 flex w-36 flex-col border border-text bg-surface">
+        // The menu key on a shape opens no browser menu over the panel.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- only keeps the browser's menu out; the buttons inside are the controls
+        <div id={panel} role="group" aria-label={t('canvas.tool.shapes')} onContextMenu={keepBrowserMenuOut} className="absolute top-full right-0 z-20 mt-1 flex w-36 flex-col border border-text bg-surface">
           {SHAPES.map(({ tool: id, label }) => (
             <button
               key={id}

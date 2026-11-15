@@ -29,7 +29,7 @@ use std::{
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use crate::{net, services, weather};
@@ -253,7 +253,7 @@ impl Provider {
     }
 }
 
-fn provider_path(app: &AppHandle) -> Option<PathBuf> {
+fn provider_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path()
         .app_data_dir()
         .ok()
@@ -545,7 +545,7 @@ fn prune(root: &Path, cap: u64) {
 
 // --- The commands ------------------------------------------------------------------------------------------
 
-fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
+fn cache_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     app.path()
         .app_cache_dir()
         .map(|dir| dir.join("tiles"))
@@ -587,8 +587,8 @@ where
 
 /// One map tile as a picture, for the map in view. The page asks for nothing but the tiles it is drawing.
 #[tauri::command]
-pub async fn map_tile(
-    app: AppHandle,
+pub async fn map_tile<R: Runtime>(
+    app: AppHandle<R>,
     z: u8,
     x: u32,
     y: u32,
@@ -627,7 +627,7 @@ fn info_of(root: &Path) -> TilesInfo {
 }
 
 #[tauri::command]
-pub async fn map_tiles_info(app: AppHandle) -> Result<TilesInfo, String> {
+pub async fn map_tiles_info<R: Runtime>(app: AppHandle<R>) -> Result<TilesInfo, String> {
     let root = cache_root(&app)?;
     tauri::async_runtime::spawn_blocking(move || info_of(&root))
         .await
@@ -636,7 +636,7 @@ pub async fn map_tiles_info(app: AppHandle) -> Result<TilesInfo, String> {
 
 /// Deletes every cached tile (this app's own cache folder only) and says how many there were.
 #[tauri::command]
-pub async fn map_tiles_clear(app: AppHandle) -> Result<usize, String> {
+pub async fn map_tiles_clear<R: Runtime>(app: AppHandle<R>) -> Result<usize, String> {
     let root = cache_root(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let count = tiles_under(&root).len();
@@ -651,7 +651,7 @@ pub async fn map_tiles_clear(app: AppHandle) -> Result<usize, String> {
 
 /// The tile server of one's own, or none (OpenStreetMap).
 #[tauri::command]
-pub async fn map_tile_provider(app: AppHandle) -> Option<Provider> {
+pub async fn map_tile_provider<R: Runtime>(app: AppHandle<R>) -> Option<Provider> {
     provider_path(&app).and_then(|path| load_provider(&path))
 }
 
@@ -693,8 +693,8 @@ pub struct ProviderOutcome {
 /// Sets the tile server of one's own, or with no template goes back to OpenStreetMap. Checked here, not by the page,
 /// and a host not already saved is asked about first, in a window of the system's, naming it; Cancel saves nothing.
 #[tauri::command]
-pub async fn map_tile_provider_set(
-    app: AppHandle,
+pub async fn map_tile_provider_set<R: Runtime>(
+    app: AppHandle<R>,
     template: String,
     attribution: String,
     language: String,

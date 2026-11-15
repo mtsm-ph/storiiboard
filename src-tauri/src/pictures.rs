@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{ipc::Response, AppHandle, DragDropEvent, Emitter, Manager, PhysicalPosition, Window};
+use tauri::{
+    ipc::Response, AppHandle, DragDropEvent, Emitter, Manager, PhysicalPosition, Runtime, Window,
+};
 use tauri_plugin_dialog::DialogExt;
 
 /// The largest file read as a picture. A 48 MP ProRAW photo is about 75 MB; a file far past that isn't for a board.
@@ -145,8 +147,8 @@ pub fn dragged(window: &Window, event: &DragDropEvent) {
 /// Shows the Open dialog for pictures and returns what was picked, now readable; empty if the dialog was cancelled.
 /// The title and the filter's name come from the app, in the person's language (polish 7).
 #[tauri::command]
-pub async fn pictures_choose(
-    app: AppHandle,
+pub async fn pictures_choose<R: Runtime>(
+    app: AppHandle<R>,
     multiple: bool,
     title: String,
     kind: String,
@@ -156,8 +158,8 @@ pub async fn pictures_choose(
 
 /// The Open dialog for a script to import; the file picked becomes readable through `pictures_read`.
 #[tauri::command]
-pub async fn script_choose(
-    app: AppHandle,
+pub async fn script_choose<R: Runtime>(
+    app: AppHandle<R>,
     title: String,
     kind: String,
 ) -> Result<Vec<String>, String> {
@@ -166,8 +168,8 @@ pub async fn script_choose(
 
 /// The Open dialog for a LUT to load for a video (2.5); the file picked becomes readable through `pictures_read`.
 #[tauri::command]
-pub async fn lut_choose(
-    app: AppHandle,
+pub async fn lut_choose<R: Runtime>(
+    app: AppHandle<R>,
     title: String,
     kind: String,
 ) -> Result<Vec<String>, String> {
@@ -176,8 +178,8 @@ pub async fn lut_choose(
 
 /// The Open dialog for PDFs to attach (3.11); the files picked become readable through `pictures_read`.
 #[tauri::command]
-pub async fn pdf_choose(
-    app: AppHandle,
+pub async fn pdf_choose<R: Runtime>(
+    app: AppHandle<R>,
     title: String,
     kind: String,
 ) -> Result<Vec<String>, String> {
@@ -186,16 +188,16 @@ pub async fn pdf_choose(
 
 /// The Open dialog for project data to import (2.9); the file picked becomes readable through `pictures_read`.
 #[tauri::command]
-pub async fn project_json_choose(
-    app: AppHandle,
+pub async fn project_json_choose<R: Runtime>(
+    app: AppHandle<R>,
     title: String,
     kind: String,
 ) -> Result<Vec<String>, String> {
     choose(app, title, (kind, PROJECT_JSON_EXTENSIONS), false).await
 }
 
-pub(crate) async fn choose(
-    app: AppHandle,
+pub(crate) async fn choose<R: Runtime>(
+    app: AppHandle<R>,
     title: String,
     (kind, extensions): (String, &'static [&'static str]),
     multiple: bool,
@@ -237,7 +239,10 @@ pub(crate) async fn choose(
 
 /// The bytes of a file the person dropped or picked: a picture, or a script to import.
 #[tauri::command]
-pub async fn pictures_read(app: AppHandle, path: String) -> Result<Response, String> {
+pub async fn pictures_read<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<Response, String> {
     // Off the async runtime: a 200 MB file takes a moment to read.
     tauri::async_runtime::spawn_blocking(move || {
         read(&app.state::<Offered>(), Path::new(&path)).map(Response::new)

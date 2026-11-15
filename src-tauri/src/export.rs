@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 /// What an export may write: the file extensions of its formats.
@@ -50,7 +50,7 @@ fn take(set: &Mutex<HashSet<PathBuf>>, path: &Path) -> bool {
 
 /// Takes the file the Save dialog picked for `path`, once, for a writer other than `export_write` (a clip saved as a
 /// file, 2.8b, which ffmpeg writes): only a file the person chose, as every export.
-pub(crate) fn take_chosen_file(app: &AppHandle, path: &Path) -> bool {
+pub(crate) fn take_chosen_file<R: Runtime>(app: &AppHandle<R>, path: &Path) -> bool {
     take(&app.state::<Chosen>().files, path)
 }
 
@@ -90,9 +90,9 @@ fn inside(folder: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// Runs one dialog at a time, on a thread of its own since it waits for the person.
-pub(crate) async fn dialog<T: Send + 'static>(
-    app: &AppHandle,
-    run: impl FnOnce(&AppHandle) -> Option<T> + Send + 'static,
+pub(crate) async fn dialog<R: Runtime, T: Send + 'static>(
+    app: &AppHandle<R>,
+    run: impl FnOnce(&AppHandle<R>) -> Option<T> + Send + 'static,
 ) -> Result<Option<T>, String> {
     if app.state::<Chosen>().choosing.swap(true, Ordering::SeqCst) {
         return Ok(None);
@@ -107,7 +107,10 @@ pub(crate) async fn dialog<T: Send + 'static>(
 
 /// The Save dialog for one export file, suggesting `name`. The path picked can then be written, once.
 #[tauri::command]
-pub async fn export_choose_file(app: AppHandle, name: String) -> Result<Option<String>, String> {
+pub async fn export_choose_file<R: Runtime>(
+    app: AppHandle<R>,
+    name: String,
+) -> Result<Option<String>, String> {
     if !plain_name(&name) {
         return Err("That isn't a name an export can have.".into());
     }
@@ -175,8 +178,8 @@ fn as_export(picked: PathBuf, extension: &str) -> Result<PathBuf, String> {
 /// The folder dialog for a set of files. A new folder named `folder` (or `folder 2`…) is made inside the one picked,
 /// and only that can then be written into.
 #[tauri::command]
-pub async fn export_choose_folder(
-    app: AppHandle,
+pub async fn export_choose_folder<R: Runtime>(
+    app: AppHandle<R>,
     folder: String,
 ) -> Result<Option<PickedFolder>, String> {
     if !plain_part(&folder) {
@@ -264,8 +267,8 @@ struct WriteHeader {
 /// Writes an export's bytes: the body is a 4-byte big-endian length, that many bytes of JSON header (`WriteHeader`),
 /// then the file's bytes.
 #[tauri::command]
-pub async fn export_write(
-    app: AppHandle,
+pub async fn export_write<R: Runtime>(
+    app: AppHandle<R>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
     let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
@@ -500,6 +503,11 @@ fn replace(
             error.to_string()
         })
 }
+
+/// export_write called by name through the app's IPC (6.16, command_tests.rs's harness), from in here: the one place a
+/// test can stand in for the Save and folder dialogs' choice, which `export_write` then accepts.
+#[cfg(test)]
+mod ipc_tests;
 
 #[cfg(test)]
 mod tests {

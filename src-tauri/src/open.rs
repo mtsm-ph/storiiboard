@@ -25,7 +25,7 @@ use std::{
 
 use reqwest::Url;
 use serde_json::Value as Json;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
@@ -64,7 +64,7 @@ fn web_link(text: &str) -> Option<Url> {
 
 /// Opens a web link in the browser.
 #[tauri::command]
-pub async fn open_link(app: AppHandle, url: String) -> Result<(), String> {
+pub async fn open_link<R: Runtime>(app: AppHandle<R>, url: String) -> Result<(), String> {
     let url = web_link(&url).ok_or_else(|| NOT_A_LINK.to_owned())?;
     app.opener()
         .open_url(url.as_str(), None::<&str>)
@@ -226,7 +226,7 @@ fn write_copy(folder: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, String
 }
 
 /// Where the copies go: a folder of the app's own, in its cache folder.
-fn opened_folder(app: &AppHandle) -> Result<PathBuf, String> {
+fn opened_folder<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_cache_dir()
@@ -235,7 +235,7 @@ fn opened_folder(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Tidies the copies once as the app starts too, so one opened once doesn't stay for good.
-pub(crate) fn tidy_at_start(app: &AppHandle) {
+pub(crate) fn tidy_at_start<R: Runtime>(app: &AppHandle<R>) {
     if let Ok(folder) = opened_folder(app) {
         tidy(&folder, SystemTime::now());
     }
@@ -258,8 +258,8 @@ fn pdf_copy(bytes: Option<Vec<u8>>, folder: &Path, name: &str) -> Result<PathBuf
 
 /// Opens a PDF the open project holds, by its SHA-256, in the computer's PDF reader, as a read-only copy.
 #[tauri::command]
-pub async fn open_pdf(
-    app: AppHandle,
+pub async fn open_pdf<R: Runtime>(
+    app: AppHandle<R>,
     files: State<'_, OpenFiles>,
     handle: u32,
     sha256: String,
@@ -311,8 +311,8 @@ pub async fn original_shown(
 
 /// Shows the picture's recorded original in its folder, selected: the opener's reveal, never an open.
 #[tauri::command]
-pub async fn reveal_original(
-    app: AppHandle,
+pub async fn reveal_original<R: Runtime>(
+    app: AppHandle<R>,
     files: State<'_, OpenFiles>,
     handle: u32,
     record_id: String,
@@ -372,7 +372,11 @@ fn backups_folder_to_open(
 }
 
 /// Show backups: opens the open project's backups folder (sbd.rs keeps where it is) in Finder or Explorer.
-pub(crate) fn show_backups(app: &AppHandle, files: &OpenFiles, handle: u32) -> Result<(), String> {
+pub(crate) fn show_backups<R: Runtime>(
+    app: &AppHandle<R>,
+    files: &OpenFiles,
+    handle: u32,
+) -> Result<(), String> {
     let (project, dir) = files.with(handle, |file| {
         Ok((file.file_path().to_path_buf(), file.backups_dir()?))
     })?;

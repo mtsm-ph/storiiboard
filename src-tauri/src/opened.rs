@@ -11,7 +11,7 @@ use std::{
     sync::Mutex,
 };
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// The event the page listens for. Its payload is empty: the paths come from `opened_files_take`.
 pub const EVENT: &str = "opened-files";
@@ -50,7 +50,7 @@ where
 }
 
 /// Queues paths for the window, tells it, and brings it to the front: the person just asked for this project.
-pub fn queue(app: &AppHandle, paths: Vec<String>) {
+pub fn queue<R: Runtime>(app: &AppHandle<R>, paths: Vec<String>) {
     if paths.is_empty() {
         return;
     }

@@ -11,7 +11,7 @@ use std::{
 use reqwest::Url;
 use serde::Serialize;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 
 use crate::{net, services};
 
@@ -139,8 +139,8 @@ pub(crate) async fn wait_turn() -> Result<(), String> {
 /// Searches for `query`, the place names in `language` where the map has them. Asks the service switch first: a
 /// service turned off answers with why (services::OFF_PREFIX) and nothing is sent.
 #[tauri::command]
-pub async fn address_search(
-    app: AppHandle,
+pub async fn address_search<R: Runtime>(
+    app: AppHandle<R>,
     query: String,
     language: String,
 ) -> Result<Vec<Place>, String> {

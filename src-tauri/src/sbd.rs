@@ -941,8 +941,8 @@ pub async fn sbd_lock_holder(
 /// in the app's data folder on this computer, unless the person's setting keeps them next to the project
 /// (docs/PLAN.md, F). Only the yes or no comes from the page; the folder is worked out here.
 #[tauri::command]
-pub async fn sbd_place_backups(
-    app: tauri::AppHandle,
+pub async fn sbd_place_backups<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     files: State<'_, OpenFiles>,
     handle: u32,
     next_to_project: bool,
@@ -962,7 +962,9 @@ pub async fn sbd_place_backups(
 
 /// Where a synced project's backups go instead of next to it: a folder of the app's own on this computer, under which
 /// each project has its own (`<Project> <key>`, place_backups).
-pub(crate) fn local_backups_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn local_backups_root<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<PathBuf, String> {
     use tauri::Manager;
     Ok(app
         .path()
@@ -988,8 +990,8 @@ pub async fn sbd_backups_folder(
 /// Show backups: opens the open project's own backups folder in Finder or Explorer, making it first if no backup has
 /// been made yet. Through open.rs, as everything opened outside the app is (B5, 6.15).
 #[tauri::command]
-pub async fn sbd_show_backups(
-    app: tauri::AppHandle,
+pub async fn sbd_show_backups<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     files: State<'_, OpenFiles>,
     handle: u32,
 ) -> Result<(), String> {
@@ -1169,8 +1171,8 @@ fn back_up(
 }
 
 #[tauri::command]
-pub async fn sbd_backup(
-    app: tauri::AppHandle,
+pub async fn sbd_backup<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     handle: u32,
     kind: BackupKind,
     file_name: String,
@@ -1187,7 +1189,10 @@ pub async fn sbd_backup(
 /// Compacts an open project (SbdFile::compact), on a thread of its own: a large file takes a few seconds, and edits wait
 /// for it behind the files' lock.
 #[tauri::command]
-pub async fn sbd_compact(app: tauri::AppHandle, handle: u32) -> Result<(), String> {
+pub async fn sbd_compact<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    handle: u32,
+) -> Result<(), String> {
     use tauri::Manager;
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<OpenFiles>().with(handle, |file| file.compact())
