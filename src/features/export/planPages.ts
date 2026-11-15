@@ -407,13 +407,15 @@ export function flowRows(rows: readonly LegendRow[], columns: readonly Rect[]): 
       const before = into.length === 0 ? 0 : row.before;
       // A row kept with the next one goes only where the next fits too (a heading with its first line), and on down a
       // chain of them: "FRAMES", then a camera's subheading, then its first frame, so no heading ends a column alone.
-      // A chain taller than a whole column can't be kept together: then only the next row is.
+      // A chain taller than a whole column can't be kept together: then only the next row is. A whole column is a fresh
+      // one, where the chain has no space before it (6.10 review, round two): measured with it, a chain that fits the
+      // next column whole was split here, its heading and subheading at this column's foot.
       let need = before + row.height;
       for (let k = at; (rows[k] as LegendRow).keepWithNext && k + 1 < rows.length; k += 1) {
         const next = rows[k + 1] as LegendRow;
         need += next.before + next.height;
       }
-      if (need > column.height + 1e-6 && row.keepWithNext) {
+      if (need - before > column.height + 1e-6 && row.keepWithNext) {
         const next = rows[at + 1];
         need = before + row.height + (next ? next.before + next.height : 0);
       }
@@ -636,7 +638,9 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
         bar: scaleBar(options.unit, ppu, planBox.width),
         grid: options.grid ? gridStep(options.unit, ppu) : null,
         noRoom: sceneRoomId(records, records[view.sceneId]) === null,
-        cut: !scaleFits(drawn, drawing, scale, marginOnPaper),
+        // Cut only when the extent itself doesn't fit the drawing (6.10 review, round two): the paper margin is
+        // wanted room round it, not part of it, so a lot that fits without its margin is printed whole.
+        cut: !scaleFits(drawn, drawing, scale),
       },
       legend: { box: legendBox, rows: first.placed.flat() },
       legendCut: false,
@@ -669,38 +673,62 @@ export function planPages(records: Records, projectId: string, views: readonly P
 // The packets.
 
 /**
- * Whether a scene has a plan to print (6.10 review, one rule everywhere): a room, or an item drawn for the scene or any of
- * its setups. A scene with neither is left out of every plan export (a setup's, the scene's, a day's and the whole
- * project's), so forty scenes with three plans aren't forty blank pages; with nothing left, the export says so.
+ * Whether a view has a page to print (6.10 review, round two: one rule everywhere): something drawn (its scene's room,
+ * or an item the view shows) or a frame to list. Only a page with neither is left out, so forty scenes with three plans
+ * aren't forty blank pages, while a setup with frames and no room still prints its frames, "No room drawn" on it.
  */
-export function sceneHasPlan(records: Records, sceneId: string): boolean {
-  const scene = records[sceneId];
-  if (!scene || scene.trashedAt !== null) return false;
-  if (sceneRoomId(records, scene) !== null || shownItems(records, sceneId, null).length > 0) return true;
-  return sceneSetups(records, sceneId).some((setup) => shownItems(records, sceneId, setup.record.id).length > 0);
+export function viewHasPage(records: Records, view: PlanView): boolean {
+  const scene = records[view.sceneId];
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return false;
+  if (sceneRoomId(records, scene) !== null || shownItems(records, view.sceneId, view.setupId).length > 0) return true;
+  return view.setupId !== null && cameraSetupFrames(records, view.setupId).length > 0;
 }
 
-/** A scene's packet (decision 14): a page per live setup in setup order; a scene with no setup, one of its room and blocking; none for a scene with no plan. */
-export function scenePlanViews(records: Records, sceneId: string): PlanView[] {
-  if (!sceneHasPlan(records, sceneId)) return [];
+/** What a packet left out by viewHasPage: setups, and scenes with no setup, with nothing drawn and no frames. */
+export interface LeftOut {
+  setups: number;
+  scenes: number;
+}
+
+/** The views with a page to print, in order, and how many were left out (the export says so). */
+export function printableViews(records: Records, candidates: readonly PlanView[]): { views: PlanView[]; leftOut: LeftOut } {
+  const views: PlanView[] = [];
+  const leftOut: LeftOut = { setups: 0, scenes: 0 };
+  for (const view of candidates) {
+    if (viewHasPage(records, view)) views.push(view);
+    else if (view.setupId === null) leftOut.scenes += 1;
+    else leftOut.setups += 1;
+  }
+  return { views, leftOut };
+}
+
+/** A scene's possible pages (decision 14): one per live setup in setup order; a scene with no setup, one of its room and blocking. */
+export function sceneCandidates(records: Records, sceneId: string): PlanView[] {
+  const scene = records[sceneId];
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
   const setups = sceneSetups(records, sceneId);
   return setups.length === 0 ? [{ sceneId, setupId: null }] : setups.map((setup) => ({ sceneId, setupId: setup.record.id }));
 }
 
-/** Every scene's packet in scene order (Export Project's whole project), the scenes with no plan left out. */
-export function projectPlanViews(records: Records, projectId: string): PlanView[] {
-  return board(records, projectId).flatMap((scene) => scenePlanViews(records, scene.record.id));
-}
+/** A scene's packet: its possible pages with a page to print (viewHasPage). */
+export const scenePlanViews = (records: Records, sceneId: string): PlanView[] => printableViews(records, sceneCandidates(records, sceneId)).views;
+
+/** Every scene's possible pages in scene order (Export Project's whole project). */
+export const projectCandidates = (records: Records, projectId: string): PlanView[] => board(records, projectId).flatMap((scene) => sceneCandidates(records, scene.record.id));
+
+/** Every scene's packet in scene order, the pages with nothing drawn and no frames left out. */
+export const projectPlanViews = (records: Records, projectId: string): PlanView[] => printableViews(records, projectCandidates(records, projectId)).views;
 
 /**
  * A shoot day's packet (decision 14): every setup with a Need-to-shoot frame on the day, in the order the call sheet
  * lists the day's scenes (sheetFrames, scenesOfFrames: board order), then by setup number; each page names the day.
+ * Every one prints (Kevin: "every setup with a frame that day"): it has frames to list, drawn or not.
  */
 export function dayPlanViews(records: Records, projectId: string, dayId: string): PlanView[] {
   const frames = sheetFrames(records, projectId, dayId);
   const inDay = new Set(frames.flatMap(({ shot }) => frameSetupId(records, shot) ?? []));
   return scenesOfFrames(frames).flatMap((scene) =>
-    (sceneHasPlan(records, scene.id) ? sceneSetups(records, scene.id) : [])
+    sceneSetups(records, scene.id)
       .filter((setup) => inDay.has(setup.record.id))
       .map((setup): PlanView => ({ sceneId: scene.id, setupId: setup.record.id, dayId })),
   );

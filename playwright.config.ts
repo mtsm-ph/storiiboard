@@ -9,6 +9,14 @@ export default defineConfig({
   testDir: 'e2e',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // At most 8 workers locally (6.10 review), CI keeping its own default. Five tests in Phase 6 each failed once on a
+  // refused or never-finished page load, always in a full 12-worker run on a 24-thread Windows computer, never alone,
+  // while the server's log showed it neither restarted nor erred. A judgment from that evidence, not a proven cause:
+  // twelve pages loading the unbundled dev build at once ask Vite's one thread for thousands of modules in a burst.
+  // Vite listens with Node's default backlog (it exposes no option for it) on localhost, which here is ::1 alone, and
+  // Chromium's net log shows it asking ::1 alone, so the address family isn't it. Revisit if refusals continue. (Spread,
+  // as `workers: undefined` doesn't type with exactOptionalPropertyTypes.)
+  ...(process.env.CI ? {} : { workers: 8 }),
   // Shared CI runners are several times slower than a laptop, WebKit on Linux most of all.
   timeout: process.env.CI ? 60_000 : 30_000,
   expect: { timeout: process.env.CI ? 10_000 : 5_000 },

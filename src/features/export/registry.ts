@@ -6,7 +6,7 @@ import { deckPdf } from './deckPdf';
 import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
 import { planDayPdf, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
-import type { PlanView } from './planPages';
+import type { LeftOut, PlanView } from './planPages';
 import { pngFrames } from './pngFrames';
 import type { SwatchSource } from './swatchSet';
 import { swatchesAse } from './swatchesAse';
@@ -90,6 +90,8 @@ export interface ExportFormat {
    * the dialog counts is what is printed (6.10 review). None says there is nothing to print.
    */
   planViews?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => readonly PlanView[];
+  /** How many of its possible pages a plan format leaves out, with nothing drawn and no frames (6.10 review): its result says so. */
+  planLeftOut?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => LeftOut;
   /** Resolves to what it wrote. */
   run: (context: ExportContext) => Promise<ExportResult>;
 }

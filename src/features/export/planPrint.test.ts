@@ -5,20 +5,21 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { createProjectStore } from '../../app/projectStore';
 import { setLocale } from '../../core/i18n';
-import { sceneRoomId, startRoomChanges } from '../../core/model/plan';
+import { sceneRoomId, shownItems, startRoomChanges } from '../../core/model/plan';
 import { assignFrameChanges, cameraBodyChanges } from '../../core/model/planCamera';
 import type { Change } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { DIM_OPACITY } from '../../ui/canvas/ItemNodes';
+import { RAISED } from '../../ui/canvas/paperColours';
 import type { CanvasItem } from '../../ui/canvas/types';
 import { iconShapesOf } from '../birdseye/plan/iconDraw';
 import { setLayerShow, showAllLayers } from '../birdseye/plan/layersStore';
 import { drawWallsChanges, placeIconChanges } from '../birdseye/plan/planItems';
 import { arcCubics, displayOps, parsePathData, parsePaint, wedgeTurn, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
 import { paintOps } from './displayPaint';
-import { planDayPdf, planExportName, planPageWarnings, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
+import { leftOutWords, planDayPdf, planExportName, planPageWarnings, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
 import { writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
 import {
   chooseScale,
@@ -27,12 +28,14 @@ import {
   fontMeasure,
   LANDSCAPE,
   LEGEND_STYLE,
+  marginOnPaper,
   PAPER_MARGIN,
   planExtent,
   projectPlanViews,
   planPages,
   pointsPerUnit,
   PT_PER_MM,
+  scaleFits,
   scenePlanViews,
   wrapEntry,
   type LegendRow,
@@ -487,10 +490,12 @@ describe('packets (6.10)', () => {
       { kind: 'update', id: 'f2', set: { shoot_day_id: day } },
       // A frame of Setup 2 on the day, but in hand: not shot, so not printed.
       { kind: 'create', record: { id: 'f3', type: 'shot', parentId: sceneId, sortKey: 'c', props: { number: '1C', setup_id: otherId, shoot_day_id: day, status: 'have' } } },
-      // A scene after SC 04 with a setup and a frame on the day but no plan at all: left out, as everywhere.
+      // A scene after SC 04 with a setup and frames on the day but no room and nothing drawn: printed all the same (6.10
+      // review, round two: "every setup with a frame that day"), "No room drawn" on it and its frames listed.
       { kind: 'create', record: { id: 'empty', type: 'scene', parentId: p, sortKey: '3', props: { number: '9' } } },
       { kind: 'create', record: { id: 'emptySetup', type: 'setup', parentId: 'empty', sortKey: 'a', props: { name: '' } } },
-      { kind: 'create', record: { id: 'e1', type: 'shot', parentId: 'empty', sortKey: 'a', props: { number: '9A', setup_id: 'emptySetup', shoot_day_id: day } } },
+      { kind: 'create', record: { id: 'e1', type: 'shot', parentId: 'empty', sortKey: 'a', props: { number: '9A', setup_id: 'emptySetup', shoot_day_id: day, size: 'WS', lens_mm: 24 } } },
+      { kind: 'create', record: { id: 'e2', type: 'shot', parentId: 'empty', sortKey: 'b', props: { number: '9B', setup_id: 'emptySetup', shoot_day_id: day, size: 'CU' } } },
     ]);
     // SC 2 has its room started, so it has a plan to print.
     await apply(startRoomChanges(records(), p, first));
@@ -498,9 +503,17 @@ describe('packets (6.10)', () => {
     expect(views).toEqual<PlanView[]>([
       { sceneId: first, setupId: firstSetup, dayId: day },
       { sceneId, setupId, dayId: day },
+      { sceneId: 'empty', setupId: 'emptySetup', dayId: day },
     ]);
     const pages = planPages(records(), p, views, options());
-    expect(pages.map((pg) => pg.header.days)).toEqual(['Day 1 · Tue, Nov 17', 'Day 1 · Tue, Nov 17']);
+    expect(pages.map((pg) => pg.header.days)).toEqual(['Day 1 · Tue, Nov 17', 'Day 1 · Tue, Nov 17', 'Day 1 · Tue, Nov 17']);
+    const sc09 = pages[2];
+    expect(sc09?.header.slate.startsWith('SC 09')).toBe(true);
+    expect(sc09?.plan?.noRoom).toBe(true);
+    expect((sc09?.legend.rows ?? []).map((row) => row.pieces.map((piece) => piece.text).join(''))).toEqual(['Nothing on this plan yet.', 'FRAMES', 'No camera', '9A · WS · 24 mm', '9B · CU']);
+    // Nothing is left out of a day's packet, so its result says nothing of it.
+    expect(planDayPdf.planLeftOut?.(records(), p, { kind: 'day', dayId: day }, { kind: 'project' })).toEqual({ setups: 0, scenes: 0 });
+    expect(planDayPdf.planViews?.(records(), p, { kind: 'day', dayId: day }, { kind: 'project' })).toHaveLength(3);
     expect(dayPlanViews(records(), p, 'none')).toEqual([]);
   });
 });
@@ -855,8 +868,18 @@ describe('a wedge and the path tokenizer (6.10 review)', () => {
   it('turns a wedge the way Konva draws it: its angle clockwise, or with `clockwise` set the long way round', () => {
     expect(wedgeTurn(90, false)).toBeCloseTo(Math.PI / 2, 12);
     expect(wedgeTurn(90, true)).toBeCloseTo(-1.5 * Math.PI, 12);
-    expect(wedgeTurn(360, true)).toBe(0);
+    // A full 360° is the whole circle either way, as the canvas draws it (round two: it was no arc at all); 0° is none.
+    expect(wedgeTurn(360, true)).toBeCloseTo(-2 * Math.PI, 12);
     expect(wedgeTurn(360, false)).toBeCloseTo(2 * Math.PI, 12);
+    expect(wedgeTurn(0, true)).toBe(0);
+    const full = displayOps({ kind: 'wedge', matrix: IDENTITY, opacity: 1, visible: true, attrs: { radius: 10, angle: 360, clockwise: true, fill: '#16150F' }, children: [] }).find((o) => o.op === 'shape');
+    const fullEnds = full?.op === 'shape' ? full.path.flatMap((seg) => ('c' in seg ? [[Math.round(seg.c[4]) + 0, Math.round(seg.c[5]) + 0]] : [])) : [];
+    expect(fullEnds).toEqual([
+      [0, -10],
+      [-10, 0],
+      [0, 10],
+      [10, 0],
+    ]);
     const ends = (clockwise: boolean) => {
       const op = displayOps({ kind: 'wedge', matrix: IDENTITY, opacity: 1, visible: true, attrs: { radius: 10, angle: 90, clockwise, fill: '#16150F' }, children: [] }).find((o) => o.op === 'shape');
       return op?.op === 'shape' ? op.path.flatMap((seg) => ('c' in seg ? [[seg.c[4], seg.c[5]]] : [])) : [];
@@ -975,5 +998,143 @@ describe('the PNG’s painter (6.10 review)', () => {
     } finally {
       (globalThis as { Path2D?: unknown }).Path2D = real;
     }
+  });
+});
+
+// 6.10's review, round two: a page is left out only when it has nothing drawn and no frames to list, and the export
+// says how many; a plan cut only when its extent doesn't fit; the clip and the grid at the drawing; the keep-with-next
+// chain measured against a fresh column.
+
+describe('what a packet leaves out (6.10 review, round two)', () => {
+  /** SC 08 with no room and nothing drawn: Setup 1 holds 8A, Setup 2 nothing; and SC 05, bare, with no setup. */
+  async function sparse() {
+    const p = project.projectId;
+    await apply([
+      { kind: 'create', record: { id: 'sc8', type: 'scene', parentId: p, sortKey: '3', props: { number: '8' } } },
+      { kind: 'create', record: { id: 'withFrames', type: 'setup', parentId: 'sc8', sortKey: 'a', props: { name: '' } } },
+      { kind: 'create', record: { id: 'without', type: 'setup', parentId: 'sc8', sortKey: 'b', props: { name: '' } } },
+      { kind: 'create', record: { id: 'h1', type: 'shot', parentId: 'sc8', sortKey: 'a', props: { number: '8A', setup_id: 'withFrames', size: 'MCU', lens_mm: 50 } } },
+      { kind: 'create', record: { id: 'sc5', type: 'scene', parentId: p, sortKey: '2', props: { number: '5' } } },
+    ]);
+  }
+  type Scope = { kind: 'project' } | { kind: 'scene'; sceneId: string };
+  const views = (format: typeof planSetupPdf, target: PlanTarget | undefined, scope: Scope = { kind: 'project' }) => format.planViews?.(records(), project.projectId, target, scope) ?? [];
+  const leftOut = (format: typeof planSetupPdf, target: PlanTarget | undefined, scope: Scope = { kind: 'project' }) => format.planLeftOut?.(records(), project.projectId, target, scope);
+
+  it('prints a setup with frames and nothing drawn, its frames listed under "No room drawn", and leaves out one with neither', async () => {
+    const { sceneId, setupId, otherId } = await furnished();
+    await sparse();
+    expect(scenePlanViews(records(), 'sc8')).toEqual([{ sceneId: 'sc8', setupId: 'withFrames' }]);
+    const [page] = planPages(records(), project.projectId, scenePlanViews(records(), 'sc8'), options());
+    expect(page?.plan?.noRoom).toBe(true);
+    expect((page?.legend.rows ?? []).map((row) => row.pieces.map((piece) => piece.text).join(''))).toContain('8A · MCU · 50 mm');
+    // The scene's packet, from the Plan tile's scene or setup and from Export Project's scene: one page, one setup left out.
+    const entries: [PlanTarget | undefined, Scope][] = [
+      [{ kind: 'scene', sceneId: 'sc8' }, { kind: 'project' }],
+      [{ kind: 'setup', sceneId: 'sc8', setupId: 'without' }, { kind: 'project' }],
+      [undefined, { kind: 'scene', sceneId: 'sc8' }],
+    ];
+    for (const [target, scope] of entries) {
+      expect(views(planScenePdf, target, scope)).toEqual([{ sceneId: 'sc8', setupId: 'withFrames' }]);
+      expect(leftOut(planScenePdf, target, scope)).toEqual({ setups: 1, scenes: 0 });
+    }
+    // The whole project: SC 04's two setups (its room drawn) and SC 08's Setup 1; SC 08's Setup 2 and the bare SC 05 left out.
+    expect(views(planScenePdf, undefined)).toEqual([
+      { sceneId, setupId },
+      { sceneId, setupId: otherId },
+      { sceneId: 'sc8', setupId: 'withFrames' },
+    ]);
+    expect(leftOut(planScenePdf, undefined)).toEqual({ setups: 1, scenes: 1 });
+    expect(leftOutWords(leftOut(planScenePdf, undefined))).toEqual(['1 setup left out: nothing drawn and no frames.', '1 scene with no setup left out: nothing drawn and no frames.']);
+    expect(leftOutWords({ setups: 2, scenes: 0 })).toEqual(['2 setups left out: nothing drawn and no frames.']);
+    expect(leftOutWords({ setups: 0, scenes: 0 })).toEqual([]);
+    setLocale('es');
+    expect(leftOutWords({ setups: 2, scenes: 1 })).toEqual(['2 emplazamientos omitidos: nada dibujado y ningún cuadro.', '1 escena sin emplazamiento omitida: nada dibujado y ningún cuadro.']);
+    setLocale('en');
+    // The dialog's count is the pages written.
+    expect(planPages(records(), project.projectId, views(planScenePdf, undefined), options())).toHaveLength(views(planScenePdf, undefined).length);
+  });
+
+  it('prints a single setup with frames or something drawn, and nothing for one with neither', async () => {
+    await sparse();
+    for (const format of [planSetupPdf, planSetupPng]) {
+      expect(views(format, { kind: 'setup', sceneId: 'sc8', setupId: 'withFrames' })).toEqual([{ sceneId: 'sc8', setupId: 'withFrames' }]);
+      expect(views(format, { kind: 'setup', sceneId: 'sc8', setupId: 'without' })).toEqual([]);
+      // The scene shown with no setup: nothing drawn and no frames of its own.
+      expect(views(format, { kind: 'scene', sceneId: 'sc8' })).toEqual([]);
+      expect(views(format, { kind: 'scene', sceneId: 'sc5' })).toEqual([]);
+    }
+    // Something drawn for Setup 2 alone puts its page back, frames or not (written as records: the Plan tile places
+    // nothing in a scene with no room, but an import or an older file can hold it).
+    await apply([
+      { kind: 'create', record: { id: 'withoutPlan', type: 'plan', parentId: 'without', sortKey: 'a', props: { kind: 'setup' } } },
+      { kind: 'create', record: { id: 'flag8', type: 'plan_item', parentId: 'withoutPlan', sortKey: 'a', props: { kind: 'icon', icon: 'grip/flag', x: 0, y: 0, width: 1.2, height: 0.1, rotation: 0 } } },
+    ]);
+    expect(shownItems(records(), 'sc8', 'without').map((item) => item.record.id)).toEqual(['flag8']);
+    expect(views(planSetupPdf, { kind: 'setup', sceneId: 'sc8', setupId: 'without' })).toEqual([{ sceneId: 'sc8', setupId: 'without' }]);
+    expect(scenePlanViews(records(), 'sc8')).toEqual([
+      { sceneId: 'sc8', setupId: 'withFrames' },
+      { sceneId: 'sc8', setupId: 'without' },
+    ]);
+    expect(leftOut(planScenePdf, { kind: 'scene', sceneId: 'sc8' })).toEqual({ setups: 0, scenes: 0 });
+  });
+});
+
+describe('a plan cut, the clip and the grid (6.10 review, round two)', () => {
+  it('is not cut when its extent fits the drawing at 1:1000 but not with the paper’s margin round it', async () => {
+    const { sceneId, setupId } = await sized(199, 149);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const area = page?.plan;
+    if (!area) throw new Error('no plan');
+    expect(area.scale.label).toBe('1:1000');
+    const extent = planExtent(area.items);
+    if (!extent) throw new Error('no extent');
+    // The case itself: it fits the drawing, but not with 12 pt round it.
+    expect(scaleFits(extent, area.drawing, area.scale)).toBe(true);
+    expect(scaleFits(extent, area.drawing, area.scale, marginOnPaper)).toBe(false);
+    expect(area.cut).toBe(false);
+    expect(planPageWarnings([page])).toEqual([]);
+  });
+
+  it('clips the drawing to the drawing’s rect, above the foot band, and stops the grid there', async () => {
+    const { sceneId, setupId } = await furnished();
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    if (!page?.plan) throw new Error('no plan');
+    const d = page.plan.drawing;
+    expect(d.height).toBeLessThan(page.plan.box.height);
+    const ops = printed(page).ops;
+    const at = ops.findIndex((op) => op.op === 'clip');
+    expect(ops[at - 1]).toEqual({ op: 'concat', m: [1, 0, 0, 1, d.x, d.y] });
+    expect(ops[at]).toEqual({ op: 'clip', x: 0, y: 0, width: d.width, height: d.height });
+    // The grid's hairlines follow the clip, before the drawing.
+    const grid: { x: number; y: number }[][] = [];
+    for (const op of ops.slice(at + 1)) {
+      if (op.op !== 'shape' || op.stroke !== RAISED) break;
+      grid.push(op.path.flatMap((s: Segment) => ('m' in s ? [s.m] : 'l' in s ? [s.l] : [])).map(([x, y]) => ({ x, y })));
+    }
+    const vertical = grid.filter(([a, b]) => a?.x === b?.x);
+    const horizontal = grid.filter(([a, b]) => a?.y === b?.y);
+    expect(vertical.length).toBeGreaterThan(0);
+    expect(horizontal.length).toBeGreaterThan(0);
+    for (const [a, b] of vertical) expect([a?.y, b?.y]).toEqual([0, d.height]);
+    for (const [a, b] of horizontal) expect([a?.x, b?.x]).toEqual([0, d.width]);
+  });
+});
+
+describe('the legend’s flow, measured against a fresh column (6.10 review, round two)', () => {
+  const row = (kind: LegendRow['kind'], keepWithNext: boolean, text: string, height = LEGEND_STYLE[kind].row): LegendRow => ({ kind, size: LEGEND_STYLE[kind].size, height, before: LEGEND_STYLE[kind].before, pieces: [{ text, face: 'mono', x: 0 }], keepWithNext });
+
+  it('moves a heading, its subheading and first line to the next column whole when they fit a column but not what is left of this one', () => {
+    // A 2 pt row, then FRAMES (10 pt, 7 before), a camera (11, 3 before) and its first frame (10.5): 34.5 pt in a fresh
+    // 38 pt column, 41.5 with the space before it here. Measured with that space, the chain was taken as too tall for any
+    // column, and FRAMES was placed alone at this column's foot.
+    const rows = [row('line', false, 'tiny', 2), row('heading', true, 'FRAMES'), row('subheading', true, 'A · FX3'), row('line', false, '1A · 35 mm')];
+    const columns = [
+      { x: 0, y: 0, width: 180, height: 38 },
+      { x: 200, y: 0, width: 180, height: 38 },
+    ];
+    const { placed, rest } = flowRows(rows, columns);
+    expect(rest).toEqual([]);
+    expect(placed.map((column) => column.map((r) => r.pieces[0]?.text))).toEqual([['tiny'], ['FRAMES', 'A · FX3', '1A · 35 mm']]);
   });
 });
