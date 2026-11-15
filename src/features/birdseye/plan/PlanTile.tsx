@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../../app/fileAccess';
 import { showInfo } from '../../../app/notice';
 import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../../../app/pictures';
@@ -803,21 +803,19 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(visible, unit), [visible, unit]);
   // The cut live while a camera, a light, a wall or an opening is dragged or turned (6.18 review, decision 5): the canvas
-  // asks on every step with the live boxes. The shapes it remade are written on the holder for the end-to-end tests
-  // (data-plan-live: each one's summary, by id), straight onto the element, found by its id: the canvas asks while it
-  // draws, and the tile itself is not drawn again for a drag.
-  const liveId = useId();
-  const liveItems = useMemo(
-    () =>
-      liveSights({ blocking: shown, items: visible, built, looks, lights, marks: blocking }, (summaries) => {
-        const element = document.getElementById(liveId);
-        if (!element) return;
-        if (summaries === null) {
-          if (element.dataset.planLive !== undefined) delete element.dataset.planLive;
-        } else if (element.dataset.planLive !== summaries) element.dataset.planLive = summaries;
-      }),
-    [shown, visible, built, looks, lights, blocking, liveId],
-  );
+  // asks on every step with the live boxes, and the walls and openings are where the drop will write them.
+  const live = useMemo(() => liveSights({ records, view, blocking: shown, items: visible, built, looks, lights, marks: blocking }), [records, view, shown, visible, built, looks, lights, blocking]);
+  // What the canvas drew anew, for the end-to-end tests (data-plan-live: each shape's summary, by id), written once it is
+  // drawn; in development builds only, so a release writes nothing on a drag (6.18 second review).
+  const liveDrawn = (made: ReadonlyMap<string, CanvasItem> | null) => {
+    if (!import.meta.env.DEV) return;
+    const element = holder.current;
+    if (!element) return;
+    const summaries = live.summaries(made);
+    const text = summaries === null ? null : JSON.stringify(summaries);
+    if (text === null) element.removeAttribute('data-plan-live');
+    else if (element.getAttribute('data-plan-live') !== text) element.setAttribute('data-plan-live', text);
+  };
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
   const [hover, setHover] = useState<Point | null>(null);
   const kind = openingKindOf(tool);
@@ -1001,7 +999,6 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes pictures dropped on the plan as underlays (6.9); the canvas inside is the control */}
       <div
         ref={holder}
-        id={liveId}
         className="min-h-0 min-w-0 flex-1"
         data-plan-data={data}
         data-plan-unit={unit}
@@ -1136,7 +1133,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           // The plan's own least size, a centimetre (6.5 review): a board's 8 units would be 8 cm here, deeper than a flag.
           minSize={toCanvas(MIN_PLAN_SIZE)}
           constrainMove={constrain}
-          liveItems={liveItems}
+          liveItems={live.items}
+          onLiveDrawn={liveDrawn}
           onHover={(at) => {
             setHover((was) => (openingKindOf(planStore.getState().tool) && at ? at : was === null ? was : null));
           }}

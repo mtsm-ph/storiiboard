@@ -189,20 +189,32 @@ function hitOf(frames: readonly Frame[], p: Point, d: Point): number {
 
 /**
  * The frames as seen from `apex` (6.18 review): a solid whose end the apex stands on (within its reach) blocks from its
- * stored end, so a camera on a wall's end looks out from it as it always has; and for a light (`light`) standing deep in
- * a solid, that solid blocks only behind the face its beam points to, or not at all when it shines all round (`all`),
- * so a practical or sconce on a wall's line shines out of the wall instead of drawing nothing.
+ * stored end, so a camera on a wall's end looks out from it as it always has. A light (`light`) inside a solid shines out
+ * of it instead of drawing nothing (a practical or a sconce on a wall's line): within LEAVE_M of a face or of an end, it
+ * stands on that face or end, and the solid blocks only behind it; deeper in, the solid blocks only behind the face its
+ * beam points to, or not at all when it shines all round (`all`) or points exactly along the wall (a tie: neither face
+ * is behind it, whichever way the wall was drawn).
  */
 function seenFrom(frames: readonly Frame[], apex: Point, facing: Point, light: boolean, all: boolean): Frame[] {
   return frames.flatMap((f): Frame[] => {
     const { u, v } = local(f, apex);
     const across = Math.abs(v) <= f.hv + SIGHT_TOLERANCE_M;
     if (across && ((u >= f.lo && u <= SIGHT_TOLERANCE_M) || (u >= f.length - SIGHT_TOLERANCE_M && u <= f.hi))) return [frameOf(f.solid, true)];
-    const deep = Math.abs(v) < f.hv - LEAVE_M && u > f.lo + LEAVE_M && u < f.hi - LEAVE_M;
-    if (!light || !deep) return [f];
-    if (all) return [];
-    // The part of the wall behind the light: from the face its beam turns away from, to a little behind the light.
-    const side = -facing.x * f.uy + facing.y * f.ux >= 0 ? 1 : -1;
+    if (!light || Math.abs(v) > f.hv || u < f.lo || u > f.hi) return [f];
+    const toFace = f.hv - Math.abs(v);
+    const toEnd = Math.min(u - f.lo, f.hi - u);
+    if (toEnd < LEAVE_M && toEnd <= toFace) {
+      // On an end (a jamb's, a millimetre or two in): the solid stops a little short of the light, on its far side.
+      return u - f.lo < f.hi - u ? piece(f, u + LEAVE_M, f.hi, false) : piece(f, f.lo, u - LEAVE_M, true);
+    }
+    let side: number;
+    if (toFace < LEAVE_M) side = v >= 0 ? 1 : -1;
+    else {
+      const along = -facing.x * f.uy + facing.y * f.ux;
+      if (all || Math.abs(along) < 1e-9) return [];
+      side = along > 0 ? 1 : -1;
+    }
+    // The part of the wall behind the light: from the face it turns away from, to a little behind the light.
     const from = -side * f.solid.half;
     const to = v - side * LEAVE_M;
     if (side * (to - from) <= 0) return [];
@@ -211,6 +223,14 @@ function seenFrom(frames: readonly Frame[], apex: Point, facing: Point, light: b
     const shift = { x: -f.uy * middle, y: f.ux * middle };
     return [frameOf({ a: { x: f.solid.a.x + shift.x, y: f.solid.a.y + shift.y }, b: { x: f.solid.b.x + shift.x, y: f.solid.b.y + shift.y }, half, reach: [-f.lo, f.hi - f.length] })];
   });
+}
+
+/** A solid's frame cut to run from `from` to `to` along its middle line (from `a`); the cut end (`cutAtEnd`: the far one) blocks to a hair. */
+function piece(f: Frame, from: number, to: number, cutAtEnd: boolean): Frame[] {
+  if (to - from <= SIGHT_TOLERANCE_M) return [];
+  const at = (w: number): Point => ({ x: f.solid.a.x + f.ux * w, y: f.solid.a.y + f.uy * w });
+  // Its ends exactly where the frame blocked, so its reach past them is a hair at the cut and nothing more at the other.
+  return [frameOf({ a: at(from), b: at(to), half: f.solid.half, reach: cutAtEnd ? [0, END_HAIR_M] : [END_HAIR_M, 0] })];
 }
 
 /** Where two segments cross, or null. */

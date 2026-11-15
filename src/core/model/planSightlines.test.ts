@@ -621,3 +621,42 @@ describe('a light standing inside a wall (6.18 review, item 4)', () => {
     expect(sightline(camera({ apex: { x: 0, y: -3 }, facing: 180 }), across()).empty).toBe(true);
   });
 });
+
+describe('a light inside a wall, at the edges (6.18 second review, item 7)', () => {
+  const beam = (apex: Point, facing: number, degrees = 90): Wedge => ({ apex, facing, degrees, length: 4, far: 'arc' });
+
+  it('a beam pointing exactly along the wall shines out of both faces, whichever way the wall was drawn', () => {
+    // The light on the middle line at (0, -3), its 60° beam facing right (90°), along the wall: neither face is behind it,
+    // so the wall doesn't stop it: it lights both sides, 4 m out to (4, -3), and the same drawn left to right or right to
+    // left.
+    const w = beam({ x: 0, y: -3 }, 90, 60);
+    const ltr = sightline(w, [blocker(wall(-5, -3, 5, -3))]);
+    const rtl = sightline(w, [blocker(wall(5, -3, -5, -3))]);
+    expect(ltr.empty).toBe(false);
+    expect(ltr.points.some((p) => p.y < -3.1)).toBe(true);
+    expect(ltr.points.some((p) => p.y > -2.9)).toBe(true);
+    expect(area(ltr.points)).toBeCloseTo(area(rtl.points), 9);
+    expect(area(ltr.points)).toBeGreaterThan(0.5 * 16 * (Math.PI / 3) - 0.05);
+  });
+
+  it('a light within 2 mm of a face, inside it, stands on that face', () => {
+    // The wall across at y = -3, 0.1 m thick: its lower face at -2.95, read 1 mm in at -2.951. A light 1.5 mm and 1.9 mm
+    // in from that reading (y = -2.9525, -2.9529), its 90° beam facing down (180°): out of that face, 4 m to (0, 1.05).
+    for (const y of [-2.9525, -2.9529]) {
+      const s = sightline(beam({ x: 0, y }, 180), [blocker(wall(-5, -3, 5, -3))]);
+      expect(s.empty, String(y)).toBe(false);
+      expect(s.points.some((p) => Math.abs(p.y - (y + 4)) < 0.01)).toBe(true);
+      for (const p of s.points) expect(p.y).toBeGreaterThan(-3);
+    }
+  });
+
+  it('a light 1 to 2 mm in from a jamb’s end stands on that end', () => {
+    // A 0.9 m door in the middle of the wall: its jambs at x = -0.45 and 0.45. A light shining all round on the middle line
+    // 1.5 mm into the left jamb (x = -0.4515): it shines out through the gap, up and down, 4 m: (−0.45, -7) and (−0.45, 1)
+    // are about where its rays through the gap reach.
+    const s = sightline(beam({ x: -0.4515, y: -3 }, 0, 360), [blocker(wall(-5, -3, 5, -3), [{ along: 5, width: 0.9 }])]);
+    expect(s.empty).toBe(false);
+    expect(s.points.some((p) => p.y < -6.9)).toBe(true);
+    expect(s.points.some((p) => p.y > 0.9)).toBe(true);
+  });
+});
