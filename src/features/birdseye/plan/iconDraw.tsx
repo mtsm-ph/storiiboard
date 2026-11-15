@@ -91,7 +91,8 @@ function IconTextNode({ part }: { part: IconText }) {
   useEffect(() => {
     void ensureFont(part.family, part.weight, false);
   }, [part]);
-  return <Shape sceneFunc={sceneOf(part)} fontsVersion={fonts} opacity={part.opacity} perfectDrawEnabled={false} listening={false} />;
+  // `sbText` carries the part itself, so a PDF export can set it as real text in its face (6.10), not as the pixels fillText makes.
+  return <Shape sceneFunc={sceneOf(part)} sbText={part} fontsVersion={fonts} opacity={part.opacity} perfectDrawEnabled={false} listening={false} />;
 }
 
 /** Each icon's React elements, made the first time it is drawn and reused by every item that draws it (each gets its own Konva nodes). */

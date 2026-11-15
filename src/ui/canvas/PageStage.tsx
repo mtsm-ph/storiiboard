@@ -2,6 +2,7 @@ import type Konva from 'konva';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Group, Layer, Stage } from 'react-konva';
 import { LABEL_FONT_SIZE, LinkShape, type ResolvedLink } from './LinkShapes';
+import { DIM_OPACITY } from './ItemNodes';
 import { drawOrder } from './sections';
 import { labelBox, pathMiddle, routeBetween, type Anchor } from './routing';
 import { isAttached, type CanvasColours, type CanvasItem, type CanvasLink, type Geometry, type LinkEnd, type Size } from './types';
@@ -34,9 +35,14 @@ interface PageStageProps {
   print?: boolean;
   /** The zoom pictures are asked for at, in place of the one `print` or a presentation gives: 0 asks for the small picture only. */
   pictureZoom?: number;
+  /**
+   * The zoom items are drawn for when there is no `pictureZoom` (6.10: a plan on paper, whose labels and weights are sized
+   * per zoom, gives the points per world unit it is printed at). Left out (a deck), as before.
+   */
+  drawZoom?: number;
 }
 
-export function PageStage({ page, items, links, size, colours, print = false, pictureZoom }: PageStageProps) {
+export function PageStage({ page, items, links, size, colours, print = false, pictureZoom, drawZoom }: PageStageProps) {
   const stage = useRef<Konva.Stage>(null);
   // What the stage actually drew: the items whose nodes hold a shape, read back from Konva (the canvas is pixels), for the tests.
   const [drawnIds, setDrawnIds] = useState<string[]>([]);
@@ -58,10 +64,20 @@ export function PageStage({ page, items, links, size, colours, print = false, pi
     const middle = pathMiddle(path);
     return [{ link, path, middle, patch: link.text !== '' ? labelBox(link.text, middle, LABEL_FONT_SIZE, 0) : null }];
   });
+  const zoom = pictureZoom ?? drawZoom ?? (print ? PRINT_ZOOM : PRESENT_ZOOM);
+  const context = { colours, zoom, inView: true, present: true, ...(print ? { print: true } : {}) };
+  // A dimmed item (6.2a; 6.10: a plan's underlay on paper) at the canvas's dim, and what it draws past its box (6.4: a
+  // camera's cone, its labels) under it, as the canvas draws them (ItemNodes.tsx). A board's items have neither, so a
+  // deck's page draws exactly as before.
   const draw = (item: CanvasItem, withTab: boolean) => (
-    <Group key={item.id}>
+    <Group key={item.id} {...(item.dim ? { opacity: DIM_OPACITY } : {})}>
+      {item.beyond && (
+        <Group x={item.x + item.width / 2} y={item.y + item.height / 2} offsetX={item.width / 2} offsetY={item.height / 2} rotation={item.rotation} listening={false}>
+          {item.beyond.draw({ width: item.width, height: item.height, rotation: item.rotation, ...context })}
+        </Group>
+      )}
       <Group id={item.id} name="stage-item" x={item.x + item.width / 2} y={item.y + item.height / 2} offsetX={item.width / 2} offsetY={item.height / 2} rotation={item.rotation} listening={false}>
-        {item.draw?.({ width: item.width, height: item.height, colours, zoom: pictureZoom ?? (print ? PRINT_ZOOM : PRESENT_ZOOM), inView: true, present: true, ...(print ? { print: true } : {}) })}
+        {item.draw?.({ width: item.width, height: item.height, ...context })}
       </Group>
       {withTab && item.section?.drawTab && (
         <Group x={item.x} y={item.y} listening={false}>

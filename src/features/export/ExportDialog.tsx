@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings } from '../../core/storage/settings';
+import { isPaperChoice, loadSettings, saveSettings } from '../../core/storage/settings';
+import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -14,8 +15,9 @@ import { board } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
 import { boardTitle } from '../moodboards/boards';
 import { isDeck, pagesOf } from '../moodboards/pages';
-import { closeExportDialog, useExportDeck, useExportDialog, useExportSwatches } from './exportStore';
-import { DECK_FORMATS, FORMATS, SWATCH_FORMATS } from './registry';
+import { closeExportDialog, useExportDeck, useExportDialog, useExportFormatId, useExportPlan, useExportSwatches } from './exportStore';
+import { planExportName } from './planExport';
+import { DAY_PLAN_FORMATS, DECK_FORMATS, FORMATS, PLAN_FORMATS, SWATCH_FORMATS } from './registry';
 import { swatchSet } from './swatchSet';
 import type { ExportScope } from './scope';
 import { POSITION_LABEL, readWatermark } from './watermark';
@@ -69,8 +71,16 @@ function ExportDialog() {
   const deck = deckBoard !== undefined && isDeck(deckBoard) && deckBoard.trashedAt === null ? deckBoard : null;
   // From a palette's or the brand kit's Export swatches (5.6b) it is for those colours: the PNG strip and the .ase.
   const swatches = useExportSwatches();
-  const formats = swatches ? SWATCH_FORMATS : deckId ? DECK_FORMATS : FORMATS;
-  const [formatId, setFormatId] = useState(formats[0]?.id ?? '');
+  // From the Plan tile's Export menu or a day's Plans (PDF) (6.10) it is for that setup, scene or day: the plan formats.
+  const plan = useExportPlan();
+  const askedFormat = useExportFormatId();
+  const formats = swatches ? SWATCH_FORMATS : plan ? (plan.kind === 'day' ? DAY_PLAN_FORMATS : PLAN_FORMATS) : deckId ? DECK_FORMATS : FORMATS;
+  const [formatId, setFormatId] = useState(askedFormat !== null && formats.some((f) => f.id === askedFormat) ? askedFormat : (formats[0]?.id ?? ''));
+  // A plan's paper is the call sheet's choice (4.6), by region unless set; the underlay and the grid print unless turned off.
+  const paperChoice = usePaperChoice();
+  const paper = usePaper();
+  const [planUnderlay, setPlanUnderlay] = useState(true);
+  const [planGrid, setPlanGrid] = useState(true);
   const [pixelRatio, setPixelRatio] = useState<'1' | '2'>('1');
   const [sceneId, setSceneId] = useState('');
   // Remembered on this computer, as last chosen (polish PP).
@@ -95,11 +105,16 @@ function ExportDialog() {
   // main thread, which Stop and Escape had to wait behind. The dialog is modal, so the records hold still meanwhile.
   const projectId = project?.projectId ?? null;
   const scenes = useMemo(() => (projectId === null ? [] : board(records, projectId)), [records, projectId]);
-  if (!project) return null;
   const format = formats.find((f) => f.id === formatId) ?? formats[0];
   const whole = format?.wholeProject === true;
   const scene = whole ? null : (scenes.find((s) => s.record.id === sceneId) ?? null);
-  const scope: ExportScope = scene ? { kind: 'scene', sceneId: scene.record.id } : { kind: 'project' };
+  const scopeSceneId = scene?.record.id ?? null;
+  const scope: ExportScope = useMemo(() => (scopeSceneId === null ? { kind: 'project' } : { kind: 'scene', sceneId: scopeSceneId }), [scopeSceneId]);
+  const plans = format?.options?.plan === true;
+  // How many plans the export would print (6.10), from the format's own list, the one its run prints: once per change to
+  // what it depends on, not on every progress tick. None is said, and nothing is written.
+  const planCount = useMemo(() => (plans && format.planViews && projectId !== null ? format.planViews(records, projectId, plan ?? undefined, scope).length : 0), [plans, format, records, projectId, plan, scope]);
+  if (!project) return null;
   const props = records[project.projectId]?.props;
   const projectTitle = typeof props?.title === 'string' && props.title.trim() !== '' ? props.title : project.name;
   const colours = swatches ? swatchSet(records, project.projectId, swatches) : null;
@@ -112,6 +127,7 @@ function ExportDialog() {
   const watermark = readWatermark(props);
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
+  const noPlans = plans && planCount === 0;
 
   const stop = () => {
     stopper.current?.abort();
@@ -121,7 +137,8 @@ function ExportDialog() {
   const run = async () => {
     if (!format || busy.current) return;
     busy.current = true;
-    const name = format.name(title, scene?.fields.number ?? null);
+    // A plan's file is named as its run names it (planExportName), so the Save dialog offers the name that is written.
+    const name = plans ? planExportName(format, { title, records, scope, ...(plan ? { plan } : {}) }) : format.name(title, scene?.fields.number ?? null);
     const controller = new AbortController();
     stopper.current = controller;
     // Files actually written, not frames drawn: the PDF draws every frame before it writes its one file, so a PDF
@@ -172,6 +189,8 @@ function ExportDialog() {
         scope,
         ...(deckId ? { deckId } : {}),
         ...(swatches ? { swatches } : {}),
+        ...(plan ? { plan } : {}),
+        ...(plans ? { paper, planUnderlay, planGrid } : {}),
         pixelRatio: pixelRatio === '2' ? 2 : 1,
         file: project.file,
         target,
@@ -235,7 +254,29 @@ function ExportDialog() {
           onChange={setPixelRatio}
         />
       )}
-      {!whole && !deckId && !swatches && (
+      {plans && (
+        <>
+          <Select
+            label={t('callSheet.paper')}
+            value={paperChoice}
+            disabled={running !== null}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              if (isPaperChoice(next)) setPaperChoice(next);
+            }}
+          >
+            <option value="region">{t('callSheet.paper.region', { paper: t(paper === 'letter' ? 'callSheet.paper.letter' : 'callSheet.paper.a4') })}</option>
+            <option value="letter">{t('callSheet.paper.letter')}</option>
+            <option value="a4">{t('callSheet.paper.a4')}</option>
+          </Select>
+          <p className="-mt-2 text-[12px] text-text-muted" data-plan-paper-note="">
+            {t('export.plan.paperNote')}
+          </p>
+          <Toggle label={t('export.plan.underlay')} checked={planUnderlay} disabled={running !== null} onChange={setPlanUnderlay} />
+          <Toggle label={t('export.plan.grid')} checked={planGrid} disabled={running !== null} onChange={setPlanGrid} />
+        </>
+      )}
+      {!whole && !deckId && !swatches && !plan && (
       <Select
         label={t('exportDialog.scenes')}
         value={sceneId}
@@ -257,6 +298,14 @@ function ExportDialog() {
         </p>
       ) : swatches ? (
         <p className="text-[13px]">{tn('count.colors', colours?.hexes.length ?? 0)}</p>
+      ) : noPlans ? (
+        <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed" data-plan-nothing="">
+          {t('export.plan.nothing')}
+        </p>
+      ) : plans ? (
+        <p className="text-[13px]">
+          <Trans k={pluralKey('export.plan.count', planCount)} parts={{ count: <span className="font-mono">{String(planCount)}</span> }} />
+        </p>
       ) : noPages ? (
         <p role="alert" className="sb-label inline-block self-start bg-warning px-[7px] py-1 text-paper-fixed">
           {t('export.deck.noPages')}
@@ -286,7 +335,7 @@ function ExportDialog() {
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={stop}>{running === null || running === CHOOSING ? t('common.cancel') : t('export.stop')}</Button>
-        <Button variant="primary" disabled={running !== null || noPages || noColours || (frames === 0 && !whole && !deckId && !swatches)} onClick={() => void run()}>
+        <Button variant="primary" disabled={running !== null || noPages || noColours || noPlans || (frames === 0 && !whole && !deckId && !swatches && !plans)} onClick={() => void run()}>
           {format?.output === 'folder' ? t('export.chooseFolder') : t('export.save')}
         </Button>
       </div>

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DECK_FORMATS, FORMATS, SWATCH_FORMATS } from './registry';
+import { DAY_PLAN_FORMATS, DECK_FORMATS, FORMATS, PLAN_FORMATS, SWATCH_FORMATS } from './registry';
 
 // The desktop app saves only the extensions src-tauri/src/export.rs lists (EXTENSIONS); a format whose file isn't on the list
 // is refused there with "That isn't a name an export can have", which the browser build never shows. Read from the source text.
@@ -12,6 +12,13 @@ describe('the extensions the desktop app can save', () => {
   it('include the one of every file format in the registry', () => {
     expect(listed.size).toBeGreaterThan(0);
     for (const format of [...FORMATS, ...DECK_FORMATS, ...SWATCH_FORMATS].filter((f) => f.output === 'file')) {
+      const extension = format.name('Bey County', null).split('.').pop()?.toLowerCase() ?? '';
+      expect(listed.has(extension), `${format.id}: .${extension}`).toBe(true);
+    }
+  });
+
+  it('include the plans’ PDF and PNG (6.10)', () => {
+    for (const format of [...PLAN_FORMATS, ...DAY_PLAN_FORMATS]) {
       const extension = format.name('Bey County', null).split('.').pop()?.toLowerCase() ?? '';
       expect(listed.has(extension), `${format.id}: .${extension}`).toBe(true);
     }

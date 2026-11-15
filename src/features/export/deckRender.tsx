@@ -55,6 +55,10 @@ export const PRINT_KINDS: Readonly<Record<string, PrintNode['kind']>> = {
   Path: 'path',
   Text: 'text',
   Image: 'image',
+  // A plan's (6.10): a light's glow and the sun's mark, a beam, and an icon's text (a Shape the plan names with `sbText`; any other Shape is left out).
+  Circle: 'ellipse',
+  Wedge: 'wedge',
+  Shape: 'glyph',
 };
 
 /** A Konva node and everything under it as plain data (deckDisplay.ts's PrintNode); a node of a kind the canvas doesn't draw with is left out. */
@@ -62,6 +66,7 @@ export function snapshot(node: Konva.Node): PrintNode | null {
   const kind = PRINT_KINDS[node.getClassName()];
   if (!kind) return null;
   const attrs: Record<string, unknown> = { ...node.getAttrs() };
+  if (kind === 'glyph' && attrs.sbText === undefined) return null;
   if (kind === 'rect' || kind === 'image') {
     attrs.width = node.width();
     attrs.height = node.height();

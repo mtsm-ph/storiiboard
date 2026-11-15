@@ -63,6 +63,10 @@ async function openFrame(page: Page) {
 }
 
 test('a body from the table, a prime and an anamorphic zoom, each picked on a frame with its field of view; kept after a reload', async ({ page }) => {
+  // About 180 steps: 8.6 to 11 s alone (Nov 14, five runs), 25.7 to 33 s in the full suite on twelve workers, where it
+  // starts in the first wave and its new project alone takes about 10 s (the first page load 6.3 s in the trace). It ran
+  // out of the default 30 s three times (Nov 14 traces). The time is the setup's and the load's, not the app's.
+  test.setTimeout(60_000);
   await setAspect(page, '2.39:1');
   // With no body yet, the Inspector says where to add one.
   await openFrame(page);

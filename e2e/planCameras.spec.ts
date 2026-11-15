@@ -156,6 +156,10 @@ async function placeCamera(page: Page): Promise<string> {
 }
 
 test('links frames to a camera, draws the frame’s lens live, and checks a typed lens against a frame’s', async ({ page }) => {
+  // Gear, two lenses, the board and the plan before a step of its own: 7.7 to 9.6 s alone (Nov 14, five runs), 26.4 s in
+  // the full suite on twelve workers (Nov 14), and over 30 s when it started in the first wave (6.9's probe). The time is
+  // the setup's and the first page load's, not the app's.
+  test.setTimeout(60_000);
   await gearAndFrames(page);
   await setupWithFrames(page);
   const first = await placeCamera(page);

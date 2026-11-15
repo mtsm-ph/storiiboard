@@ -81,6 +81,8 @@ describe('export names', () => {
       ['pdf-storyboard', 'file'],
       ['shot-list-csv', 'file'],
       ['png-frames', 'folder'],
+      // 6.10: a scene's plans, or every scene's, as one PDF.
+      ['plan-scene-pdf', 'file'],
       ['project-json', 'file'],
       ['full-archive-json', 'file'],
     ]);

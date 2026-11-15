@@ -397,9 +397,14 @@ export function underlayItem(id: string, fields: UnderlayFields, unit: PlanUnit,
     keepRatio: true,
     // Nothing snaps to the picture's frame or middle lines (6.9 review, L5): what is traced over it snaps to the walls.
     noSnap: true,
-    draw: (context) => createElement(PictureNode, { id, sha256: sha, width: g.width, height: g.height, zoom: context.zoom, inView: context.inView, colours: context.colours }),
+    // On paper (6.10) its stored picture, whatever size it prints at (the PDF reads the original's file itself), under an id
+    // of its own, so the screen's report of what size it draws the underlay at is left as it is.
+    draw: (context) => createElement(PictureNode, { id: context.print ? `print:${id}` : id, sha256: sha, width: g.width, height: g.height, zoom: context.print ? PRINT_PICTURE_ZOOM : context.zoom, inView: context.inView, colours: context.colours }),
   };
 }
+
+/** The zoom an underlay's picture is asked for at on paper: far enough in that its stored picture is drawn. */
+const PRINT_PICTURE_ZOOM = 1000;
 
 /** How long a measure's end ticks reach either side of its line, screen pixels. */
 const MEASURE_TICK_PIXELS = 6;
